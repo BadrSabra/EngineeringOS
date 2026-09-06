@@ -2379,6 +2379,7 @@ type CapabilityRecoveryTelemetryAttempt = {
   latencyMs: number;
   attemptNumber: number;
   fallbackCount: number;
+  attemptId?: string;
   providerFailureKind?: string | null;
   operation: string;
 };
@@ -2407,6 +2408,9 @@ async function callCapabilityRecoveryWithFallback(opts: {
   executionLedger?: ExecutionLedger;
   operation: string;
   onProviderAttempt?: (attempt: CapabilityRecoveryTelemetryAttempt) => void | Promise<void>;
+  validateResult?: (result: CapabilityRecoveryCallResult) =>
+    | { accepted: true }
+    | { accepted: false; code: string; message?: string };
 }): Promise<{
   result: CapabilityRecoveryCallResult;
   provider: ProviderId;
@@ -2447,16 +2451,6 @@ async function callCapabilityRecoveryWithFallback(opts: {
         timeoutMs,
         opts.signal,
       );
-      await opts.onProviderAttempt?.({
-        provider: candidate.provider,
-        model: result.model || candidate.model || null,
-        outcome: "success",
-        latencyMs: Date.now() - providerStartedAt,
-        attemptNumber: candidateIndex + 1,
-        fallbackCount: candidateIndex,
-        providerFailureKind: null,
-        operation: opts.operation,
-      });
       const content = result.content?.trim() ?? "";
       if (!content) {
         throw Object.assign(new Error("capability recovery returned no content"), {
@@ -2464,10 +2458,22 @@ async function callCapabilityRecoveryWithFallback(opts: {
         });
       }
       const parsed = extractJson(content);
-      if (!parsed.ok && /^\s*(?:```(?:json|text)?\s*)?[{\[]/i.test(content)) {
+      if (!parsed.ok && !opts.validateResult && /^\s*(?:```(?:json|text)?\s*)?[{\[]/i.test(content)) {
         throw Object.assign(new Error("capability recovery returned malformed JSON"), {
           code: "MALFORMED_JSON",
         });
+      }
+      const validation = opts.validateResult?.(result);
+      if (validation && !validation.accepted) {
+        throw Object.assign(
+          new Error(
+            validation.message
+              ?? (!parsed.ok
+                ? "capability recovery returned malformed JSON"
+                : "capability recovery returned an incomplete contract"),
+          ),
+          { code: !parsed.ok ? "MALFORMED_JSON" : validation.code },
+        );
       }
       if (candidateIndex > 0) {
         console.info(JSON.stringify({
@@ -2479,6 +2485,17 @@ async function callCapabilityRecoveryWithFallback(opts: {
           model: result.model || candidate.model || null,
         }));
       }
+      await opts.onProviderAttempt?.({
+        provider: candidate.provider,
+        model: result.model || candidate.model || null,
+        outcome: "success",
+        latencyMs: Date.now() - providerStartedAt,
+        attemptNumber: candidateIndex + 1,
+        fallbackCount: candidateIndex,
+        attemptId: `${opts.operation}:${candidate.provider}:${candidateIndex + 1}`,
+        providerFailureKind: null,
+        operation: opts.operation,
+      });
       return { result, provider: candidate.provider };
     } catch (error) {
       lastError = error;
@@ -10308,6 +10325,19 @@ export async function chat(opts: {
         executionLedger,
         operation: "capability_probe_citation_recovery",
         onProviderAttempt: reportCapabilityRecoveryAttempt,
+        validateResult: (candidateResult) => {
+          const normalized = normalizeCapabilityProbeRecoveryContent(
+            candidateResult.content ?? "",
+            forensicFileContents,
+          );
+          return normalized
+            ? { accepted: true }
+            : {
+                accepted: false,
+                code: "MISSING_CLAIMS",
+                message: "capability recovery response did not contain a complete recoverable claim set",
+              };
+        },
       });
       const recovery = recoveryCall.result;
       relayAgentStep({

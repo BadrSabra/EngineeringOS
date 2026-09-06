@@ -3223,7 +3223,8 @@ router.post("/ai/chat", async (req, res) => {
             correlationId: analysisCorrelation.operationId ?? sessionIdToUse,
           }, {
             ...attempt,
-            attemptId: `${analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
+            attemptId: attempt.attemptId
+              ?? `${analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.operation ?? "provider"}:${attempt.provider}:${attempt.attemptNumber}`,
             usageStatus: attempt.usageStatus,
             promptTokens: attempt.promptTokens,
             completionTokens: attempt.completionTokens,
@@ -5468,7 +5469,8 @@ router.post("/ai/chat/stream", async (req, res) => {
                 ?? sessionIdToUse,
             }, {
               ...attempt,
-              attemptId: `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.provider}:${attempt.attemptNumber}`,
+              attemptId: attempt.attemptId
+                ?? `${aiExecution?.id ?? analysisCorrelation.operationId ?? sessionIdToUse}:${attempt.operation ?? "provider"}:${attempt.provider}:${attempt.attemptNumber}`,
               usageStatus: attempt.usageStatus,
               promptTokens: attempt.promptTokens,
               completionTokens: attempt.completionTokens,
