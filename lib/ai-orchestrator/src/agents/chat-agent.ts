@@ -515,7 +515,7 @@ const MAX_RECOVERY_TOOL_ROUNDS = 2;
 /** Bound each recovery round-trip tool result so context stays bounded. */
 const MAX_RECOVERY_TOOL_RESULT_CHARS = 16_000;
 /** Capability probes are short reports; recovery must not become a second audit. */
-const CAPABILITY_PROBE_RECOVERY_DEADLINE_MS = 30_000;
+const CAPABILITY_PROBE_RECOVERY_DEADLINE_MS = 45_000;
 const CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS = 15_000;
 /**
  * Keep a request-owned tail reserve for the final terminal/ledger write. A
@@ -1890,9 +1890,8 @@ export function buildCapabilityProbeRecoveryMessages(
                "Do not return the other C1–C7 claims, an overall score, Markdown, or a code fence.",
              ]
            : [
-               "Return ONLY a short plain-text report. Do not return JSON, an object, or a code fence.",
-               "Use exactly one labelled line for each of C1, C2, C3, C4, C5, C6, and C7, plus an overall X/7 score.",
-               "Use this literal line shape: C1: PASS/FAIL — answer; evidence: exact/project-relative/source.ts `exact source fragment`.",
+                "Return ONLY a JSON object with a claims map. Do not return Markdown or a code fence.",
+                "Include one object for each requested claim using {\"status\":\"PASS\",\"evidenceId\":\"E1\",\"answer\":\"...\"}.",
                `Prioritize repairing these claims, which failed validation: ${targets}.`,
              ]),
          "Do not use forensic headings such as Executive Verdict, Evidence Map, Findings, Repair Plan, or Final Judgment.",
@@ -2220,16 +2219,15 @@ function buildCapabilityMicroProbeMessages(
       content:
         "You are running one tiny read-only capability micro-probe. " +
         "Use only the verified source excerpts below. Never invent a symbol, path, line, or behavior. " +
-        "Return compact plain text only; do not return a report, JSON object, or code fence. " +
+        "Return one compact JSON object only; do not return Markdown or a code fence. " +
         "Select verified evidence by ID so the server can attach the exact source bytes.",
     },
     {
       role: "user",
       content: [
         group.instruction,
-        "Use exactly one line per requested label in this shape:",
-        "C1: PASS/FAIL — short answer; Evidence ID: E1.",
-        "Use an Evidence ID for every line that makes a source-backed claim. " +
+        "Return this JSON shape: {\"claims\":{\"C1\":{\"status\":\"PASS\",\"answer\":\"short answer\",\"evidenceId\":\"E1\"}}}.",
+        "Include exactly one claim object for every requested label. Use an Evidence ID for every source-backed claim. " +
           "Do not copy a long source excerpt; the verifier will attach the exact fragment.",
         ...(candidates.size > 0
           ? [
@@ -2362,6 +2360,18 @@ function extractCapabilityMicroProbeLines(
   return result;
 }
 
+type CapabilityRecoveryProvider = {
+  provider: ProviderId;
+  strategy: {
+    call: (
+      messages: RawMessage[],
+      options: StrategyCallOptions,
+    ) => Promise<{ content?: string | null; model?: string }>;
+  };
+  model?: string;
+  apiKey?: string;
+};
+
 export async function runCapabilityMicroProbes(opts: {
   strategy: { call: (messages: RawMessage[], options: StrategyCallOptions) => Promise<{ content?: string | null; model?: string }> };
   provider: ProviderId;
@@ -2370,6 +2380,7 @@ export async function runCapabilityMicroProbes(opts: {
   capability?: ModelCapability;
   maxFallbackModels?: number;
   apiKey?: string;
+  fallbackProviders?: readonly CapabilityRecoveryProvider[];
   signal?: AbortSignal;
   executionLedger?: ExecutionLedger;
   fileContents: ReadonlyMap<string, string>;
@@ -2415,59 +2426,97 @@ export async function runCapabilityMicroProbes(opts: {
     }
     try {
       const microProbePacket = buildCapabilityMicroProbeMessages(group, opts.fileContents);
-      const invoke = (retry: boolean) =>
-        awaitAbortableRecovery(
-          (recoverySignal) => opts.strategy.call(
-            microProbePacket.messages,
-            {
-              model: activeModel,
-              ...(opts.provider === "openrouter"
-                ? {
-                    // Micro-probes synthesize a strict evidence report. Do not
-                    // fall back to the default fast chat model: that pool has
-                    // repeatedly timed out during live recovery and can poison
-                    // the provider circuit with request-local failures.
-                    quality: opts.quality ?? "powerful",
-                    capability: opts.capability ?? "json",
-                  }
-                : {}),
-              maxTokens: retry ? 500 : 900,
-              timeoutMs: Math.min(
-                retry
-                  ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
-                  : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
-                effectiveDeadlineAt !== undefined
-                  ? Math.max(1, effectiveDeadlineAt - Date.now())
-                  : retry
-                    ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
-                    : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
-              ),
-              retryTransient: false,
-              maxFallbackModels: retry
-                ? 1
-                : opts.maxFallbackModels ??
-                  (opts.provider === "openrouter" ? 3 : 1),
-              ...(opts.provider === "openrouter"
-                ? { circuitFailurePolicy: "suppress" as const }
-                : {}),
-              apiKey: opts.apiKey,
-              signal: recoverySignal,
-              executionLedger: opts.executionLedger,
-            },
-          ),
-          effectiveDeadlineAt !== undefined
-            ? Math.max(1, effectiveDeadlineAt - Date.now())
-            : (retry
+      const invoke = async (retry: boolean) => {
+        const candidates: CapabilityRecoveryProvider[] = [
+          {
+            provider: opts.provider,
+            strategy: opts.strategy,
+            model: activeModel,
+            apiKey: opts.apiKey,
+          },
+          ...(opts.fallbackProviders ?? []),
+        ];
+        let lastError: unknown;
+        for (const candidate of candidates) {
+          const timeoutMs = Math.min(
+            retry
               ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
-              : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS),
-          opts.signal,
-        );
+              : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
+            effectiveDeadlineAt !== undefined
+              ? Math.max(1, effectiveDeadlineAt - Date.now())
+              : retry
+                ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
+                : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
+          );
+          try {
+            const result = await awaitAbortableRecovery(
+              (recoverySignal) => candidate.strategy.call(
+                microProbePacket.messages,
+                {
+                  model: candidate.provider === opts.provider ? activeModel : candidate.model,
+                  ...(candidate.provider === "openrouter"
+                    ? {
+                        quality: opts.quality ?? "powerful",
+                        capability: opts.capability ?? "json",
+                      }
+                    : {}),
+                  maxTokens: retry ? 500 : 900,
+                  timeoutMs,
+                  retryTransient: false,
+                  maxFallbackModels: retry
+                    ? 1
+                    : opts.maxFallbackModels ??
+                      (candidate.provider === "openrouter" ? 3 : 1),
+                  ...(candidate.provider !== "openrouter"
+                    ? { responseFormat: { type: "json_object" as const } }
+                    : {}),
+                  ...(candidate.provider === "openrouter"
+                    ? { circuitFailurePolicy: "suppress" as const }
+                    : {}),
+                  apiKey: candidate.apiKey,
+                  signal: recoverySignal,
+                  executionLedger: opts.executionLedger,
+                },
+              ),
+              timeoutMs,
+              opts.signal,
+            );
+            if (candidate.provider !== opts.provider) {
+              console.info(JSON.stringify({
+                scope: "chat-agent",
+                code: "CAPABILITY_MICRO_PROBE_PROVIDER_FALLBACK",
+                from: opts.provider,
+                to: candidate.provider,
+                group: group.name,
+              }));
+            }
+            return result;
+          } catch (error) {
+            lastError = error;
+            if (
+              effectiveDeadlineAt !== undefined &&
+              Date.now() >= effectiveDeadlineAt
+            ) {
+              break;
+            }
+            if (candidate.provider !== candidates[candidates.length - 1]?.provider) {
+              console.warn(JSON.stringify({
+                scope: "chat-agent",
+                code: "CAPABILITY_MICRO_PROBE_PROVIDER_FAILED",
+                provider: candidate.provider,
+                group: group.name,
+                reason: error instanceof Error ? error.message : String(error),
+              }));
+            }
+          }
+        }
+        throw lastError ?? new Error("capability micro-probe provider call failed");
+      };
       let result;
       let didRetry = false;
       try {
         result = await invoke(false);
       } catch (error) {
-        if (group.name === "grounding") throw error;
         if (
           effectiveDeadlineAt !== undefined &&
           Date.now() >= effectiveDeadlineAt
@@ -5390,6 +5439,13 @@ export async function chat(opts: {
   const providerDecision = resolveExecutionProvider(executionPlan, provider);
   const providerId = providerDecision.providerId;
   const strategy = getStrategy(providerId);
+  // Capability recovery may switch once to the server's Groq fallback when
+  // Gemini is the primary provider. Groq resolves its own server-side
+  // credential, so the user's Gemini credential is never forwarded.
+  const capabilityRecoveryFallbackProviders: readonly CapabilityRecoveryProvider[] =
+    providerId === "gemini"
+      ? [{ provider: "groq", strategy: getStrategy("groq") }]
+      : [];
   const modelDecision = resolveExecutionModel(providerId, executionPlan);
 
   const pendingChanges: PendingChange[] = [];
@@ -6744,12 +6800,11 @@ export async function chat(opts: {
       ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
       : undefined,
     // The tool loop may reach its synthesis window after prefetch has already
-    // supplied the source bodies. Request a JSON envelope only for the generic
-    // structured-forensic contract. Capability Probe has its own plain-text
-    // C1–C7 contract and parser; sending both instructions makes weaker
-    // providers choose an unstable envelope before evidence validation runs.
+    // supplied the source bodies. Capability Probe uses the same JSON claim
+    // envelope as its recovery path so Gemini cannot spend its output budget on
+    // an ambiguous plain-text wrapper before evidence validation runs.
     responseFormat:
-      structuredOutputMode && !capabilityProbeRequest
+      structuredOutputMode || capabilityProbeRequest
         ? { type: "json_object" }
         : undefined,
     completeReads: completeReadEvidence,
@@ -10068,11 +10123,13 @@ export async function chat(opts: {
       responseBeforeBehaviorEvidence,
       forensicFileContents,
     );
-    // Recovery is claim-scoped: repair the first failed source claim with a
-    // small contract instead of asking a weaker provider to regenerate all
-    // seven claims and their citations again.
+    // Recovery remains bounded, but it must cover every independently failed
+    // claim. Repairing only the first target leaves later claims permanently
+    // unclosed when the initial response is empty or malformed.
     const capabilityRecoveryTarget =
-      capabilityRecoveryTargets[0] as CapabilityProbeClaimId | undefined;
+      capabilityRecoveryTargets.length === 1
+        ? capabilityRecoveryTargets[0] as CapabilityProbeClaimId
+        : undefined;
     if (
       executionLedger?.isExhausted() ||
       recoveryDeadline <= Date.now()
@@ -10089,7 +10146,7 @@ export async function chat(opts: {
           buildCapabilityProbeRecoveryMessages(
             forensicFileContents,
             responseBeforeBehaviorEvidence,
-            capabilityRecoveryTarget ? [capabilityRecoveryTarget] : [],
+            capabilityRecoveryTargets,
           ),
           {
             model: recoveryModel,
@@ -10107,6 +10164,9 @@ export async function chat(opts: {
             // a transient/retired-model failure without multiplying the
             // probe's run-level recovery budget.
             maxFallbackModels: 2,
+            ...(providerId !== "openrouter"
+              ? { responseFormat: { type: "json_object" as const } }
+              : {}),
             signal: recoverySignal,
             executionLedger,
           },
@@ -10123,20 +10183,25 @@ export async function chat(opts: {
         provider: providerId,
         attempt: recoveryAttemptsUsed,
       });
-      const claimScopedLine = capabilityRecoveryTarget
-        ? renderCanonicalCapabilityProbeClaim(
-            recovery.content ?? "",
-            forensicFileContents,
-            capabilityRecoveryTarget,
-          )
-        : null;
-      const normalizedRecovery = claimScopedLine && capabilityRecoveryTarget
+      let mergedRecoveryResponse = responseBeforeBehaviorEvidence;
+      let mergedClaimCount = 0;
+      for (const target of capabilityRecoveryTargets) {
+        const claimLine = renderCanonicalCapabilityProbeClaim(
+          recovery.content ?? "",
+          forensicFileContents,
+          target as CapabilityProbeClaimId,
+        );
+        if (!claimLine) continue;
+        mergedRecoveryResponse = mergeCapabilityProbeRecoveryClaim(
+          mergedRecoveryResponse,
+          target as CapabilityProbeClaimId,
+          claimLine,
+        );
+        mergedClaimCount += 1;
+      }
+      const normalizedRecovery = mergedClaimCount === capabilityRecoveryTargets.length
         ? {
-            response: mergeCapabilityProbeRecoveryClaim(
-              responseBeforeBehaviorEvidence,
-              capabilityRecoveryTarget,
-              claimScopedLine,
-            ),
+            response: mergedRecoveryResponse,
             sources: [...forensicFileContents.keys()],
           }
         : normalizeCapabilityProbeRecoveryContent(
@@ -10177,7 +10242,7 @@ export async function chat(opts: {
               details: [
                 capabilityRecoveryTarget
                   ? `claim-scoped recovery closed ${capabilityRecoveryTarget}`
-                  : "one bounded correction produced a source-grounded C1–C7 report",
+                  : `bounded recovery attempted claims: ${capabilityRecoveryTargets.join(", ")}`,
               ],
           });
         } else {
@@ -10298,6 +10363,7 @@ export async function chat(opts: {
               maxFallbackModels: 1,
             }
           : {}),
+        fallbackProviders: capabilityRecoveryFallbackProviders,
         apiKey,
         signal,
         executionLedger,

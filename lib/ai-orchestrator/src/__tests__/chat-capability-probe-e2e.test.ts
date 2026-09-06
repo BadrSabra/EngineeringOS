@@ -373,6 +373,75 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     expect(callCount).toBe(4);
   });
 
+  it("uses JSON mode for Gemini micro-probes and retries grounding after a timeout", async () => {
+    const calls: Array<{ responseFormat?: unknown }> = [];
+    let firstCall = true;
+    const strategy = {
+      call: vi.fn(async (messages: unknown, opts: { responseFormat?: unknown }) => {
+        calls.push({ responseFormat: opts.responseFormat });
+        if (firstCall) {
+          firstCall = false;
+          throw new GroqClientError("TIMEOUT", "simulated grounding timeout");
+        }
+        const prompt = JSON.stringify(messages);
+        if (prompt.includes("C1") && prompt.includes("C3")) {
+          return {
+            content: JSON.stringify({
+              claims: {
+                C1: { status: "PASS", evidenceId: "E1", answer: "isPromptProsePath exists." },
+                C3: { status: "PASS", evidenceId: "E1", answer: "The named function is grounded." },
+              },
+            }),
+            model: "gemini-test",
+          };
+        }
+        if (prompt.includes("C4")) {
+          return {
+            content: JSON.stringify({
+              claims: {
+                C4: { status: "PASS", evidenceId: "E2", answer: "PROSE_PSEUDO_PATH_DENYLIST is MISSING." },
+              },
+            }),
+            model: "gemini-test",
+          };
+        }
+        if (prompt.includes("C7")) {
+          return {
+            content: JSON.stringify({
+              claims: {
+                C7: { status: "PASS", evidenceId: "E3", answer: "run() and write_file are MISSING." },
+              },
+            }),
+            model: "gemini-test",
+          };
+        }
+        return {
+          content: JSON.stringify({
+            claims: {
+              C6: { status: "PASS", evidenceId: "E4", answer: "NO eval( or Function( call exists." },
+            },
+          }),
+          model: "gemini-test",
+        };
+      }),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy,
+      provider: "gemini",
+      model: "gemini-test",
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result?.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+    expect(calls.length).toBeGreaterThan(4);
+    expect(calls.every((call) => call.responseFormat)).toBe(true);
+  });
+
   it("does not use an absence certificate to promote a positive hallucinated claim", async () => {
     const responses = [
       "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
