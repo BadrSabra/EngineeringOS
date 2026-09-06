@@ -307,4 +307,62 @@ describe("durable AI telemetry", () => {
       else process.env.GROQ_API_KEY = originalGroqKey;
     }
   });
+
+  it("aggregates contract quality and failure kinds by day without raw content", async () => {
+    const correlationId = `telemetry-trend-${crypto.randomUUID()}`;
+    createdCorrelations.push(correlationId);
+    const context = {
+      userId: "trend-owner",
+      projectId: "trend-project",
+      operationId: correlationId,
+      correlationId,
+    };
+    await recordAiUsageAttempt(context, {
+      attemptId: `${correlationId}:accepted`,
+      provider: "gemini",
+      model: "trend-model",
+      outcome: "success",
+      contractOutcome: "accepted",
+      recoveryOutcome: "accepted",
+      contractClaimCount: 7,
+      contractCitationMatchCount: 5,
+      contractFailureKind: null,
+      usageStatus: "unknown",
+    });
+    await recordAiUsageAttempt(context, {
+      attemptId: `${correlationId}:failed`,
+      provider: "gemini",
+      model: "trend-model",
+      outcome: "success",
+      contractOutcome: "citation_mismatch",
+      recoveryOutcome: "failed",
+      contractClaimCount: 5,
+      contractCitationMatchCount: 2,
+      contractFailureKind: "missing_citation",
+      usageStatus: "unknown",
+    });
+
+    const summary = await getAiUsageSummary({
+      userId: context.userId,
+      projectId: context.projectId,
+      days: 7,
+    });
+
+    expect(summary.timeline).toEqual([
+      expect.objectContaining({
+        attempts: 2,
+        contractEvaluated: 2,
+        contractAccepted: 1,
+        acceptanceRate: 0.5,
+        citationMatches: 7,
+        citationClaims: 12,
+        citationMatchRate: 0.5833,
+        recoveryAttempts: 2,
+        recoveryAccepted: 1,
+        recoveryAcceptanceRate: 0.5,
+        failureKinds: { missing_citation: 1 },
+      }),
+    ]);
+    expect(JSON.stringify(summary)).not.toMatch(/"prompt"|"source"|"api[_-]?key"|fixture-secret/i);
+  });
 });

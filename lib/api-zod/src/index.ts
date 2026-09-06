@@ -11,3 +11,4 @@ export * from './generated/types/operatorAlertKind';
 export * from './generated/types/operatorAlertModelRole';
 export * from './generated/types/operatorAlertProvider';
 export * from './generated/types/operatorAlertStatus';
+export * from './generated/types';

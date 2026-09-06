@@ -165,6 +165,7 @@ export * from './aiUsageProviderSummaryUsageStatus';
 export * from './aiUsageSummary';
 export * from './aiUsageSummarySchemaVersion';
 export * from './aiUsageTimelinePoint';
+export * from './aiUsageTimelinePointFailureKinds';
 export * from './aiWorkspaceReviewResult';
 export * from './aiWorkspaceReviewResultEvidenceItem';
 export * from './aiWorkspaceReviewResultKind';

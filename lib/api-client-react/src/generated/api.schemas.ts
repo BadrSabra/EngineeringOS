@@ -907,6 +907,8 @@ export interface AiUsageProviderSummary {
   lastOccurredAt: string | null;
 }
 
+export type AiUsageTimelinePointFailureKinds = {[key: string]: number};
+
 export interface AiUsageTimelinePoint {
   day: string;
   /** @minimum 0 */
@@ -926,6 +928,25 @@ export interface AiUsageTimelinePoint {
      */
   completionTokens: number | null;
   usageKnown: boolean;
+  /** @minimum 0 */
+  contractEvaluated: number;
+  /** @minimum 0 */
+  contractAccepted: number;
+  /** @nullable */
+  acceptanceRate: number | null;
+  /** @minimum 0 */
+  citationMatches: number;
+  /** @minimum 0 */
+  citationClaims: number;
+  /** @nullable */
+  citationMatchRate: number | null;
+  /** @minimum 0 */
+  recoveryAttempts: number;
+  /** @minimum 0 */
+  recoveryAccepted: number;
+  /** @nullable */
+  recoveryAcceptanceRate: number | null;
+  failureKinds: AiUsageTimelinePointFailureKinds;
 }
 
 export interface AiUsageSummary {

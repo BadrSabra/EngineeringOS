@@ -817,6 +817,68 @@ function contractRate(value: number | null | undefined): string {
     : '—';
 }
 
+function ModelQualityTrend({
+  timeline,
+}: {
+  timeline: AiUsageSummary['timeline'];
+}) {
+  return (
+    <div className="mt-3 rounded border border-border/60 bg-background/20 p-2.5" aria-label="Model quality trends">
+      <div className="flex items-baseline justify-between gap-2">
+        <h3 className="font-medium text-foreground">Daily quality trend</h3>
+        <span className="text-[10px] text-muted-foreground">Recorded days only</span>
+      </div>
+      {timeline.length === 0 ? (
+        <p className="mt-2 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
+          No model-quality history matches this project, provider, and time window.
+        </p>
+      ) : (
+        <div className="mt-2 space-y-1.5">
+          {timeline.slice(-14).map((point) => {
+            const failureKinds = Object.entries(point.failureKinds)
+              .sort(([, a], [, b]) => b - a)
+              .slice(0, 2);
+            const dayLabel = new Date(`${point.day}T00:00:00Z`).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+            });
+            return (
+              <div key={point.day} className="rounded border border-border/40 bg-secondary/30 px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="font-medium text-foreground">{dayLabel}</span>
+                  <span className="text-muted-foreground">{point.attempts} attempt{point.attempts === 1 ? '' : 's'}</span>
+                </div>
+                <div className="mt-1 grid grid-cols-3 gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                  <span>
+                    Acceptance <strong className="font-medium text-emerald-200">{contractRate(point.acceptanceRate)}</strong>
+                  </span>
+                  <span>
+                    Citation <strong className="font-medium text-sky-200">{contractRate(point.citationMatchRate)}</strong>
+                  </span>
+                  <span>
+                    Recovery <strong className="font-medium text-amber-200">
+                      {point.recoveryAttempts > 0
+                        ? `${point.recoveryAccepted}/${point.recoveryAttempts}`
+                        : 'none'}
+                    </strong>
+                  </span>
+                </div>
+                <div className="mt-1 truncate text-[10px] text-muted-foreground" title={failureKinds.map(([kind, count]) => `${kind} (${count})`).join(', ')}>
+                  {failureKinds.length > 0
+                    ? <>Failures: {failureKinds.map(([kind, count], index) => (
+                      <span key={kind}>{index > 0 ? ', ' : ''}{kind} ({count})</span>
+                    ))}</>
+                    : 'Failures: none recorded'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModelContractQualityCard({
   usage,
   projectLabel,
@@ -901,53 +963,58 @@ function ModelContractQualityCard({
             Try again
           </Button>
         </div>
-      ) : sortedModels.length === 0 ? (
-        <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
-          No model contract telemetry matches this project, provider, and time window.
-        </p>
       ) : (
-        <div className="mt-3 space-y-2">
-          {sortedModels.map((model) => {
-            const failureKinds = Object.entries(model.contract.failureKinds)
-              .sort(([, a], [, b]) => b - a)
-              .slice(0, 3);
-            return (
-              <div key={`${model.provider}:${model.model}`} className="rounded border border-border/60 bg-background/25 px-2.5 py-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate font-mono text-[10px]" title={model.model}>{model.model}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{model.attempts} attempt{model.attempts === 1 ? '' : 's'}</span>
-                </div>
-                <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-                  <span>Acceptance <strong className="font-medium text-emerald-200">{contractRate(model.contract.acceptanceRate)}</strong></span>
-                  <span>Citation match <strong className="font-medium text-sky-200">{contractRate(model.contract.citationMatchRate)}</strong></span>
-                  <span>
-                    Recovery{' '}
-                    <strong className="font-medium text-amber-200">
-                      {model.contract.recoveryAttempts > 0
-                        ? `${model.contract.recoveryAccepted}/${model.contract.recoveryAttempts} · ${contractRate(model.contract.recoveryAcceptanceRate)}`
-                        : 'none'}
-                    </strong>
-                  </span>
-                  <span>Evaluated <strong className="font-medium text-foreground">{model.contract.evaluated}</strong></span>
-                </div>
-                <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
-                  {failureKinds.length > 0 ? (
-                    <span>
-                      Failure kinds:{' '}
-                      {failureKinds.map(([kind, count], index) => (
-                        <span key={kind}>
-                          {index > 0 ? ', ' : ''}{kind} ({count})
+        <>
+          <ModelQualityTrend timeline={usage?.timeline ?? []} />
+          {sortedModels.length === 0 ? (
+            <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
+              No model contract telemetry matches this project, provider, and time window.
+            </p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {sortedModels.map((model) => {
+                const failureKinds = Object.entries(model.contract.failureKinds)
+                  .sort(([, a], [, b]) => b - a)
+                  .slice(0, 3);
+                return (
+                  <div key={`${model.provider}:${model.model}`} className="rounded border border-border/60 bg-background/25 px-2.5 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate font-mono text-[10px]" title={model.model}>{model.model}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{model.attempts} attempt{model.attempts === 1 ? '' : 's'}</span>
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                      <span>Acceptance <strong className="font-medium text-emerald-200">{contractRate(model.contract.acceptanceRate)}</strong></span>
+                      <span>Citation match <strong className="font-medium text-sky-200">{contractRate(model.contract.citationMatchRate)}</strong></span>
+                      <span>
+                        Recovery{' '}
+                        <strong className="font-medium text-amber-200">
+                          {model.contract.recoveryAttempts > 0
+                            ? `${model.contract.recoveryAccepted}/${model.contract.recoveryAttempts} · ${contractRate(model.contract.recoveryAcceptanceRate)}`
+                            : 'none'}
+                        </strong>
+                      </span>
+                      <span>Evaluated <strong className="font-medium text-foreground">{model.contract.evaluated}</strong></span>
+                    </div>
+                    <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+                      {failureKinds.length > 0 ? (
+                        <span>
+                          Failure kinds:{' '}
+                          {failureKinds.map(([kind, count], index) => (
+                            <span key={kind}>
+                              {index > 0 ? ', ' : ''}{kind} ({count})
+                            </span>
+                          ))}
                         </span>
-                      ))}
-                    </span>
-                  ) : (
-                    <span>No contract failures recorded</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                      ) : (
+                        <span>No contract failures recorded</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </section>
   );

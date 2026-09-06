@@ -4080,6 +4080,20 @@ export const getAiMissionControlResponseUsageTimelineItemPromptTokensMin = 0;
 
 export const getAiMissionControlResponseUsageTimelineItemCompletionTokensMin = 0;
 
+export const getAiMissionControlResponseUsageTimelineItemContractEvaluatedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemContractAcceptedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemCitationMatchesMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemCitationClaimsMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRecoveryAttemptsMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemRecoveryAcceptedMin = 0;
+
+export const getAiMissionControlResponseUsageTimelineItemFailureKindsMinOne = 0;
+
 export const getAiMissionControlResponseBudgetOneDailyAttemptLimitMax = 10000;
 
 export const getAiMissionControlResponseBudgetOneDailyTokenLimitMin = 1000;
@@ -4365,7 +4379,17 @@ export const GetAiMissionControlResponse = zod.object({
   "failures": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemFailuresMin),
   "promptTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemPromptTokensMin).nullable(),
   "completionTokens": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemCompletionTokensMin).nullable(),
-  "usageKnown": zod.boolean()
+  "usageKnown": zod.boolean(),
+  "contractEvaluated": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemContractEvaluatedMin),
+  "contractAccepted": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemContractAcceptedMin),
+  "acceptanceRate": zod.number().nullable(),
+  "citationMatches": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemCitationMatchesMin),
+  "citationClaims": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemCitationClaimsMin),
+  "citationMatchRate": zod.number().nullable(),
+  "recoveryAttempts": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRecoveryAttemptsMin),
+  "recoveryAccepted": zod.number().int().min(getAiMissionControlResponseUsageTimelineItemRecoveryAcceptedMin),
+  "recoveryAcceptanceRate": zod.number().nullable(),
+  "failureKinds": zod.record(zod.string(), zod.number().int().min(getAiMissionControlResponseUsageTimelineItemFailureKindsMinOne))
 }))
 }),
   "budget": zod.union([zod.object({
@@ -6345,6 +6369,20 @@ export const getAiMetricsResponseUsageTimelineItemPromptTokensMin = 0;
 
 export const getAiMetricsResponseUsageTimelineItemCompletionTokensMin = 0;
 
+export const getAiMetricsResponseUsageTimelineItemContractEvaluatedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemContractAcceptedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemCitationMatchesMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemCitationClaimsMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRecoveryAttemptsMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemRecoveryAcceptedMin = 0;
+
+export const getAiMetricsResponseUsageTimelineItemFailureKindsMinOne = 0;
+
 
 
 export const GetAiMetricsResponse = zod.object({
@@ -6473,7 +6511,17 @@ export const GetAiMetricsResponse = zod.object({
   "failures": zod.number().int().min(getAiMetricsResponseUsageTimelineItemFailuresMin),
   "promptTokens": zod.number().int().min(getAiMetricsResponseUsageTimelineItemPromptTokensMin).nullable(),
   "completionTokens": zod.number().int().min(getAiMetricsResponseUsageTimelineItemCompletionTokensMin).nullable(),
-  "usageKnown": zod.boolean()
+  "usageKnown": zod.boolean(),
+  "contractEvaluated": zod.number().int().min(getAiMetricsResponseUsageTimelineItemContractEvaluatedMin),
+  "contractAccepted": zod.number().int().min(getAiMetricsResponseUsageTimelineItemContractAcceptedMin),
+  "acceptanceRate": zod.number().nullable(),
+  "citationMatches": zod.number().int().min(getAiMetricsResponseUsageTimelineItemCitationMatchesMin),
+  "citationClaims": zod.number().int().min(getAiMetricsResponseUsageTimelineItemCitationClaimsMin),
+  "citationMatchRate": zod.number().nullable(),
+  "recoveryAttempts": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRecoveryAttemptsMin),
+  "recoveryAccepted": zod.number().int().min(getAiMetricsResponseUsageTimelineItemRecoveryAcceptedMin),
+  "recoveryAcceptanceRate": zod.number().nullable(),
+  "failureKinds": zod.record(zod.string(), zod.number().int().min(getAiMetricsResponseUsageTimelineItemFailureKindsMinOne))
 }))
 })
 })

@@ -451,7 +451,25 @@ describe('AiChat authenticated generated mutations', () => {
           usage: { promptTokens: null, completionTokens: null, status: 'unknown' },
           lastOccurredAt: null,
         }],
-        timeline: [],
+        timeline: [{
+          day: '2026-08-12',
+          attempts: 3,
+          successes: 2,
+          failures: 1,
+          promptTokens: null,
+          completionTokens: null,
+          usageKnown: false,
+          contractEvaluated: 3,
+          contractAccepted: 2,
+          acceptanceRate: 2 / 3,
+          citationMatches: 9,
+          citationClaims: 12,
+          citationMatchRate: 0.75,
+          recoveryAttempts: 1,
+          recoveryAccepted: 1,
+          recoveryAcceptanceRate: 1,
+          failureKinds: { missing_citation: 1 },
+        }],
       },
     };
 
@@ -463,6 +481,9 @@ describe('AiChat authenticated generated mutations', () => {
     expect(card).toHaveTextContent('Citation match 75.0%');
     expect(card).toHaveTextContent('Recovery 1/1 · 100.0%');
     expect(card).toHaveTextContent('missing_citation (1)');
+    expect(card).toHaveTextContent('Daily quality trend');
+    expect(card).toHaveTextContent('Aug 12');
+    expect(card).toHaveTextContent('Failures: missing_citation (1)');
     expect(card).not.toHaveTextContent(/prompt|source fragment|api key/i);
   });
 

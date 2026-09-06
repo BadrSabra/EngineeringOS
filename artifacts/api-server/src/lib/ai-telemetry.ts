@@ -420,16 +420,62 @@ export async function getAiUsageSummary(params: {
       lastOccurredAt: entries[0]?.occurredAt?.toISOString() ?? null,
     };
   });
-  const timeline = new Map<string, { attempts: number; successes: number; failures: number; promptTokens: number; completionTokens: number; usageKnown: boolean }>();
+  const timeline = new Map<string, {
+    attempts: number;
+    successes: number;
+    failures: number;
+    promptTokens: number;
+    completionTokens: number;
+    usageKnown: boolean;
+    contractEvaluated: number;
+    contractAccepted: number;
+    citationMatches: number;
+    citationClaims: number;
+    recoveryAttempts: number;
+    recoveryAccepted: number;
+    failureKinds: Map<string, number>;
+  }>();
   for (const row of rows) {
     const day = row.occurredAt.toISOString().slice(0, 10);
-    const current = timeline.get(day) ?? { attempts: 0, successes: 0, failures: 0, promptTokens: 0, completionTokens: 0, usageKnown: false };
+    const current = timeline.get(day) ?? {
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      usageKnown: false,
+      contractEvaluated: 0,
+      contractAccepted: 0,
+      citationMatches: 0,
+      citationClaims: 0,
+      recoveryAttempts: 0,
+      recoveryAccepted: 0,
+      failureKinds: new Map<string, number>(),
+    };
     current.attempts += 1;
     current.successes += row.outcome === "success" ? 1 : 0;
     current.failures += row.outcome === "failure" ? 1 : 0;
     current.promptTokens += row.promptTokens ?? 0;
     current.completionTokens += row.completionTokens ?? 0;
     current.usageKnown ||= row.usageStatus !== "unknown";
+    if (row.contractOutcome !== "not_applicable") {
+      current.contractEvaluated += 1;
+      if (row.contractOutcome === "accepted" || row.contractOutcome === "malformed_but_recovered") {
+        current.contractAccepted += 1;
+      }
+      current.citationMatches += row.contractCitationMatchCount;
+      current.citationClaims += row.contractClaimCount;
+    }
+    if (row.recoveryOutcome !== "not_attempted" && row.recoveryOutcome !== "not_needed") {
+      current.recoveryAttempts += 1;
+      if (row.recoveryOutcome === "accepted") current.recoveryAccepted += 1;
+    }
+    if (row.contractFailureKind) {
+      current.failureKinds.set(
+        row.contractFailureKind,
+        (current.failureKinds.get(row.contractFailureKind) ?? 0) + 1,
+      );
+    }
     timeline.set(day, current);
   }
   return {
@@ -441,12 +487,33 @@ export async function getAiUsageSummary(params: {
     totalFailures: rows.filter((row) => row.outcome === "failure").length,
     totalFallbackAttempts: rows.reduce((sum, row) => sum + row.fallbackCount, 0),
     providers,
-    timeline: [...timeline.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, value]) => ({
-      day,
-      ...value,
-      promptTokens: value.usageKnown ? value.promptTokens : null,
-      completionTokens: value.usageKnown ? value.completionTokens : null,
-    })),
+    timeline: [...timeline.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([day, value]) => ({
+        day,
+        attempts: value.attempts,
+        successes: value.successes,
+        failures: value.failures,
+        promptTokens: value.usageKnown ? value.promptTokens : null,
+        completionTokens: value.usageKnown ? value.completionTokens : null,
+        usageKnown: value.usageKnown,
+        contractEvaluated: value.contractEvaluated,
+        contractAccepted: value.contractAccepted,
+        acceptanceRate: value.contractEvaluated
+          ? Number((value.contractAccepted / value.contractEvaluated).toFixed(4))
+          : null,
+        citationMatches: value.citationMatches,
+        citationClaims: value.citationClaims,
+        citationMatchRate: value.citationClaims
+          ? Number((value.citationMatches / value.citationClaims).toFixed(4))
+          : null,
+        recoveryAttempts: value.recoveryAttempts,
+        recoveryAccepted: value.recoveryAccepted,
+        recoveryAcceptanceRate: value.recoveryAttempts
+          ? Number((value.recoveryAccepted / value.recoveryAttempts).toFixed(4))
+          : null,
+        failureKinds: Object.fromEntries(value.failureKinds),
+      })),
   };
 }
 

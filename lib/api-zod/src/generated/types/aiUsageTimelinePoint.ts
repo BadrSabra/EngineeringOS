@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiUsageTimelinePointFailureKinds } from './aiUsageTimelinePointFailureKinds';
 
 export interface AiUsageTimelinePoint {
   day: Date;
@@ -25,4 +26,23 @@ export interface AiUsageTimelinePoint {
      */
   completionTokens: number | null;
   usageKnown: boolean;
+  /** @minimum 0 */
+  contractEvaluated: number;
+  /** @minimum 0 */
+  contractAccepted: number;
+  /** @nullable */
+  acceptanceRate: number | null;
+  /** @minimum 0 */
+  citationMatches: number;
+  /** @minimum 0 */
+  citationClaims: number;
+  /** @nullable */
+  citationMatchRate: number | null;
+  /** @minimum 0 */
+  recoveryAttempts: number;
+  /** @minimum 0 */
+  recoveryAccepted: number;
+  /** @nullable */
+  recoveryAcceptanceRate: number | null;
+  failureKinds: AiUsageTimelinePointFailureKinds;
 }

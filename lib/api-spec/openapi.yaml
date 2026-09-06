@@ -5017,7 +5017,9 @@ components:
     AiUsageTimelinePoint:
       type: object
       additionalProperties: false
-      required: [day, attempts, successes, failures, promptTokens, completionTokens, usageKnown]
+      required: [day, attempts, successes, failures, promptTokens, completionTokens, usageKnown,
+                 contractEvaluated, contractAccepted, acceptanceRate, citationMatches, citationClaims,
+                 citationMatchRate, recoveryAttempts, recoveryAccepted, recoveryAcceptanceRate, failureKinds]
       properties:
         day: { type: string, format: date }
         attempts: { type: integer, minimum: 0 }
@@ -5026,6 +5028,20 @@ components:
         promptTokens: { type: ["integer", "null"], minimum: 0 }
         completionTokens: { type: ["integer", "null"], minimum: 0 }
         usageKnown: { type: boolean }
+        contractEvaluated: { type: integer, minimum: 0 }
+        contractAccepted: { type: integer, minimum: 0 }
+        acceptanceRate: { type: ["number", "null"] }
+        citationMatches: { type: integer, minimum: 0 }
+        citationClaims: { type: integer, minimum: 0 }
+        citationMatchRate: { type: ["number", "null"] }
+        recoveryAttempts: { type: integer, minimum: 0 }
+        recoveryAccepted: { type: integer, minimum: 0 }
+        recoveryAcceptanceRate: { type: ["number", "null"] }
+        failureKinds:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
 
     GroqModelAvailability:
       type: object
