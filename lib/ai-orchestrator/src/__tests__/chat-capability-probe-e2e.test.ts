@@ -110,6 +110,21 @@ const GROUNDED_NEGATIVE_ANSWER = JSON.stringify({
   sources: [FILE_A],
 });
 
+// This is intentionally not valid JSON: the trailing comma is the provider
+// failure mode covered by the recovery parser. Every C1–C7 value is present,
+// but the recovered report must still pass the normal semantic and exact-source
+// citation gates before chat() accepts it.
+const MALFORMED_COMPLETE_CAPABILITY_ANSWER = `{
+  "C1": "PASS — \`export function isPromptProsePath(value: string): boolean {\`; Source: \`${FILE_A}\`; Evidence: \`return value.includes('defect/repair');\`",
+  "C2": "PASS — read_file for contents; Source: \`${FILE_B}\`; Evidence: \`return \\"executed:\\" + name;\`",
+  "C3": "PASS — grounded named function; Source: \`${FILE_A}\`; Evidence: \`return value.includes('defect/repair');\`",
+  "C4": "PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING; Source: \`${FILE_A}\`; Evidence: \`return value.includes('defect/repair');\`",
+  "C5": "PASS — no write_file or replace_text was used; Source: \`${FILE_B}\`; Evidence: \`return \\"executed:\\" + name;\`",
+  "C6": "PASS — no eval() or Function() call; Source: \`${FILE_A}\`; Evidence: \`return value.includes('defect/repair');\`",
+  "C7": "PASS — run() and immediate write_file behavior are MISSING; Source: \`${FILE_B}\`; Evidence: \`return \\"executed:\\" + name;\`",
+  "score": "7/7",
+}`;
+
 /** Mock provider + model-selection registry so chat() uses the fake strategy. */
 async function mockChatProviders(fakeStrategy: unknown): Promise<void> {
   vi.resetModules();
@@ -459,6 +474,101 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
       expect(steps.some((step) => step.kind === "tool_call" && step.tool === "write_file")).toBe(false);
       expect(steps.some((step) => step.kind === "tool_call" && step.tool === "replace_text")).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("salvages a complete malformed C1–C7 wrapper through chat() without inventing claims", async () => {
+    const rootPath = await makeProbeRoot();
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        content: MALFORMED_COMPLETE_CAPABILITY_ANSWER,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result.response).toContain("Overall score: 7/7");
+      for (const capability of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
+        expect(result.response).toMatch(new RegExp(`^${capability}: PASS`, "m"));
+      }
+      expect(result.response).toContain(FILE_A);
+      expect(result.response).toContain(FILE_B);
+      expect(result.response).toContain("return value.includes('defect/repair');");
+      expect(result.response).toContain('return "executed:" + name;');
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
+      expect(executedWrites(steps)).toBe(false);
+
+      const integrity = [...steps].reverse().find(
+        (step): step is EvidenceIntegrityStep => step.kind === "evidence_integrity",
+      );
+      expect(integrity).toMatchObject({
+        uniqueFilesRead: 2,
+        evidenceFileCount: 2,
+      });
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("turns an incomplete malformed capability object into ANALYSIS_INCOMPLETE", async () => {
+    const rootPath = await makeProbeRoot();
+    const incompleteMalformedAnswer = `{
+      "C1": "PASS — \`export function isPromptProsePath(value: string): boolean {\`; Source: \`${FILE_A}\`; Evidence: \`return value.includes('defect/repair');\`",
+      "C2": "PASS — read_file; Source: \`${FILE_B}\`; Evidence: \`return \\"executed:\\" + name;\`",
+    }`;
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        content: incompleteMalformedAnswer,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+      });
+
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("C3: PASS");
+      expect(result.response).not.toContain("C7: PASS");
+      expect(result.response).not.toMatch(/Overall score:\s*7\/7/i);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

@@ -22,6 +22,7 @@ import {
   buildResumedEvidenceLedger,
   structuredRecoveryParseDiagnostic,
   normalizeCapabilityProbeRecoveryContent,
+  validateCapabilityProbeCitations,
   type ChatMessage,
 } from "../agents/chat-agent.js";
 
@@ -367,11 +368,34 @@ describe("normalizeCapabilityProbeRecoveryContent", () => {
     expect(result?.response).toContain("C7: PASS");
     expect(result?.response).toContain("Overall score: 7/7");
     expect(result?.sources).toEqual([...files.keys()]);
+
+    const citationGate = validateCapabilityProbeCitations(result!.response, files);
+    expect(citationGate.valid).toBe(true);
+    expect(citationGate.citedSources).toEqual([...files.keys()]);
   });
 
   it("does not invent missing capability fields while salvaging", () => {
     const raw = `{"C1":"PASS — isPromptProsePath", "C2":"PASS — read_file",}`;
     expect(normalizeCapabilityProbeRecoveryContent(raw, files)).toBeNull();
+  });
+
+  it("rejects a malformed complete-looking object when its citations fail the semantic gate", () => {
+    const raw = `{
+      "C1": "PASS — isPromptProsePath; evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C2": "PASS — read_file; evidence: lib/ai-orchestrator/src/tools/file-tools.ts \`read_file\`",
+      "C3": "PASS — grounded; evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C4": "PASS — PROSE_PSEUDO_PATH_DENYLIST; evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C5": "PASS — write_file abstention; evidence: lib/ai-orchestrator/src/tools/file-tools.ts \`read_file\`",
+      "C6": "PASS — NO eval(); evidence: lib/ai-orchestrator/src/prompts/profile-classifier.ts \`return false;\`",
+      "C7": "PASS — fabricated claim; evidence: lib/ai-orchestrator/src/tools/file-tools.ts \`not-present\`",
+      "score": "7/7",
+    }`;
+
+    const result = normalizeCapabilityProbeRecoveryContent(raw, files);
+    expect(result).not.toBeNull();
+    expect(validateCapabilityProbeCitations(result!.response, files)).toMatchObject({
+      valid: false,
+    });
   });
 });
 

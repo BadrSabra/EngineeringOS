@@ -57,6 +57,10 @@ import {
 } from "@workspace/ai-orchestrator";
 import { CAPABILITY_PROBE_MESSAGE } from "../../../../lib/ai-orchestrator/src/prompts/capability-probe.js";
 import {
+  normalizeCapabilityProbeRecoveryContent,
+  validateCapabilityProbeCitations,
+} from "../../../../lib/ai-orchestrator/src/agents/chat-agent.js";
+import {
   claimAiExecution,
   checkpointAiExecution,
   completeAiExecution,
@@ -4118,6 +4122,246 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       code: "EXECUTION_NOT_RESUMABLE",
       status: "failed",
     });
+  });
+
+  it("recovers a complete malformed capability wrapper through SSE, persistence, reconnect, and history", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Malformed capability probe");
+    const sources = [
+      "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+      "lib/ai-orchestrator/src/tools/file-tools.ts",
+    ];
+    const sourceContents = new Map([
+      [
+        sources[0],
+        "export function isPromptProsePath(value: string): boolean {\n"
+          + "  return value.includes('defect/repair');\n"
+          + "}\n",
+      ],
+      [
+        sources[1],
+        "export function execute(name: string): string {\n"
+          + '  return "executed:" + name;\n'
+          + "}\n",
+      ],
+    ]);
+    const malformedWrapper = `{
+      "C1": "PASS — \`export function isPromptProsePath(value: string): boolean {\`; Source: \`${sources[0]}\`; Evidence: \`return value.includes('defect/repair');\`",
+      "C2": "PASS — read_file for contents; Source: \`${sources[1]}\`; Evidence: \`return \\"executed:\\" + name;\`",
+      "C3": "PASS — grounded named function; Source: \`${sources[0]}\`; Evidence: \`return value.includes('defect/repair');\`",
+      "C4": "PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING; Source: \`${sources[0]}\`; Evidence: \`return value.includes('defect/repair');\`",
+      "C5": "PASS — no write_file or replace_text was used; Source: \`${sources[1]}\`; Evidence: \`return \\"executed:\\" + name;\`",
+      "C6": "PASS — no eval() or Function() call; Source: \`${sources[0]}\`; Evidence: \`return value.includes('defect/repair');\`",
+      "C7": "PASS — run() and immediate write_file behavior are MISSING; Source: \`${sources[1]}\`; Evidence: \`return \\"executed:\\" + name;\`",
+      "score": "7/7",
+    }`;
+    const recovered = normalizeCapabilityProbeRecoveryContent(malformedWrapper, sourceContents);
+    expect(recovered).not.toBeNull();
+    expect(validateCapabilityProbeCitations(recovered!.response, sourceContents)).toMatchObject({
+      valid: true,
+      citedSources: sources,
+    });
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[3]?.(recovered!.response);
+      for (const source of sources) {
+        args[6]?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path: source },
+          cached: false,
+          prefetched: true,
+        });
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          prefetched: true,
+          outputLength: sourceContents.get(source)!.length,
+        });
+      }
+      args[6]?.({
+        kind: "forensic_status",
+        auditScope: "PRODUCTION",
+        productionReachability: "NOT_PROVEN",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "NO_FINDING",
+        repairReadiness: "BLOCKED",
+        implementationFiles: 2,
+        contextFiles: 0,
+        generatedFiles: 0,
+        requestedFiles: sources,
+        rootCoverage: [{
+          root: ".",
+          discoveredFiles: 2,
+          readFiles: 2,
+          unreadFiles: 0,
+          status: "COMPLETE",
+          unreadPaths: [],
+          truncatedPaths: [],
+        }],
+      });
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: 2,
+        uniqueFilesRead: 2,
+        evidenceFileCount: 2,
+        acceptedEvidenceCount: 2,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: sources,
+        acceptedClaimCount: 7,
+        evidenceSourceCoverage: {
+          status: "COMPLETE",
+          requestedFiles: sources,
+          roots: [],
+        },
+      });
+      args[6]?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "CAPABILITY_PROBE",
+          allowedFiles: sources,
+          filesRead: sources,
+          evidenceSelected: 7,
+          claim: "C1-C7 capability claims",
+          validator: "capability-probe",
+          rejectionReason: [],
+          recoveryAttempt: 1,
+          finalState: "VERIFIED",
+        },
+      });
+      args[6]?.({
+        kind: "verification",
+        trace: {
+          stage: "VERIFIED_RESPONSE",
+          responseLength: recovered!.response.length,
+          sourceCount: 2,
+          evidenceCount: 7,
+          acceptedEvidenceCount: 2,
+          rejectionReasons: [],
+        },
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 2,
+        prefetchToolCalls: 2,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: true,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: recovered!.response,
+          sources: recovered!.sources,
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: CAPABILITY_PROBE_MESSAGE });
+
+    expect(stream.status).toBe(200);
+    const events = parseSseEvents(stream.text);
+    const integrity = events.find((event) => event.type === "evidence_integrity");
+    const done = events.find((event) => event.type === "done");
+    expect(integrity).toMatchObject({
+      consistent: true,
+      acceptedClaimCount: 7,
+      completedReadFiles: sources,
+      retainedBodyFiles: sources,
+      acceptedEvidenceFiles: sources,
+    });
+    expect(done).toMatchObject({
+      sessionId,
+      sources,
+      message: {
+        outcome: "SUCCEEDED",
+        content: recovered!.response,
+      },
+    });
+    expect(events.find((event) => event.type === "error")).toBeUndefined();
+
+    const assistantMessageId = (done?.message as { id?: string }).id;
+    const [storedMessage] = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        sources: aiChatMessagesTable.sources,
+        outcome: aiChatMessagesTable.outcome,
+        toolTrace: aiChatMessagesTable.toolTrace,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, assistantMessageId!))
+      .limit(1);
+    expect(storedMessage).toMatchObject({
+      content: recovered!.response,
+      outcome: "SUCCEEDED",
+    });
+    expect(JSON.parse(storedMessage!.sources!)).toEqual(sources);
+    expect(JSON.parse(storedMessage!.toolTrace!).find(
+      (entry: { kind?: string }) => entry.kind === "evidence_integrity",
+    )).toMatchObject({ acceptedClaimCount: 7 });
+    expect(JSON.parse(storedMessage!.toolTrace!).find(
+      (entry: { kind?: string }) => entry.kind === "execution_ledger",
+    )).toMatchObject({ terminalReason: "completed" });
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution).toMatchObject({
+      status: "completed",
+      finalMessageId: assistantMessageId,
+    });
+
+    const executionDetail = await request(app)
+      .get(`/api/ai/executions/${execution!.id}`)
+      .expect(200);
+    expect(executionDetail.body).toMatchObject({
+      id: execution!.id,
+      status: "completed",
+      // Capability probes are forensic evidence runs, not Flight Deck
+      // validation-backed delivery executions, so proof is recorded in the
+      // evidence-integrity trace rather than as a validation verdict.
+      evidenceVerdict: "NOT_RECORDED",
+    });
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    const replayed = history.body.find((message: { id: string }) => message.id === assistantMessageId);
+    expect(replayed).toMatchObject({
+      content: recovered!.response,
+      outcome: "SUCCEEDED",
+      executionId: execution!.id,
+      sources: JSON.stringify(sources),
+    });
+    for (const capability of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
+      expect(replayed.content.match(new RegExp(`^${capability}: PASS`, "gm"))).toHaveLength(1);
+    }
+    expect(replayed.executionLedger).toMatchObject({
+      terminalReason: "completed",
+      mode: "forensic",
+    });
+    expect(replayed.content).not.toMatch(/ANALYSIS_INCOMPLETE|NOT_PROVEN|undefined/i);
   });
 
   it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
