@@ -794,6 +794,13 @@ export async function chatWithFallback(
             code: health.failureCode ?? failureCode,
             message: health.failureReason ?? "Capability preflight failed",
           });
+           // The preflight branch continues without entering the provider
+           // execution catch below. Reconcile the parent admission explicitly;
+           // otherwise every failed preflight leaves a reserved attempt that
+           // permanently inflates the project's projected daily budget.
+           if (attemptId) {
+             await reconcileAiBudgetReservation(attemptId);
+           }
           lastErr = preflightError;
           continue;
         }
