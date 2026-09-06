@@ -1673,6 +1673,80 @@ export interface AiProviderMetric {
   lifecycle: ProviderLifecycleSnapshot;
 }
 
+export type AiQualityReportContractSummaryFailureKinds = {[key: string]: number};
+
+export interface AiQualityReportContractSummary {
+  /** @minimum 0 */
+  evaluated: number;
+  /** @minimum 0 */
+  accepted: number;
+  /** @nullable */
+  acceptanceRate: number | null;
+  /** @nullable */
+  citationMatchRate: number | null;
+  /** @minimum 0 */
+  recoveryAttempts: number;
+  /** @minimum 0 */
+  recoveryAccepted: number;
+  /** @nullable */
+  recoveryAcceptanceRate: number | null;
+  failureKinds: AiQualityReportContractSummaryFailureKinds;
+}
+
+export interface AiQualityReportModel {
+  model: string;
+  contract: AiQualityReportContractSummary;
+}
+
+export interface AiQualityReportProvider {
+  provider: string;
+  contract: AiQualityReportContractSummary;
+  models: AiQualityReportModel[];
+}
+
+export interface AiQualityReportTimelinePoint {
+  day: string;
+  contract: AiQualityReportContractSummary;
+}
+
+export type AiQualityReportExportSchemaVersion = typeof AiQualityReportExportSchemaVersion[keyof typeof AiQualityReportExportSchemaVersion];
+
+
+export const AiQualityReportExportSchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiQualityReportExportScopeProvider = typeof AiQualityReportExportScopeProvider[keyof typeof AiQualityReportExportScopeProvider];
+
+
+export const AiQualityReportExportScopeProvider = {
+  all: 'all',
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
+
+export type AiQualityReportExportScope = {
+  /** @nullable */
+  projectId: string | null;
+  provider: AiQualityReportExportScopeProvider;
+  /**
+     * @minimum 1
+     * @maximum 90
+     */
+  windowDays: number;
+};
+
+export interface AiQualityReportExport {
+  schemaVersion: AiQualityReportExportSchemaVersion;
+  generatedAt: string;
+  scope: AiQualityReportExportScope;
+  summary: AiQualityReportContractSummary;
+  providers: AiQualityReportProvider[];
+  timeline: AiQualityReportTimelinePoint[];
+}
+
 /**
  * The AI provider that will be used, or null if none is configured
  * @nullable
@@ -4764,6 +4838,34 @@ export type GetAiMetrics200 = {
   behavioralScorecards: BehavioralModelScorecard[];
   usage: AiUsageSummary;
 };
+
+export type ExportAiMetricsParams = {
+/**
+ * Limit the report to one owner-scoped project.
+ * @maxLength 160
+ */
+projectId?: string;
+/**
+ * Limit the report to one provider.
+ */
+provider?: ExportAiMetricsProvider;
+/**
+ * Durable quality window in days.
+ * @minimum 1
+ * @maximum 90
+ */
+days?: number;
+};
+
+export type ExportAiMetricsProvider = typeof ExportAiMetricsProvider[keyof typeof ExportAiMetricsProvider];
+
+
+export const ExportAiMetricsProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
 
 export type ListOperatorAlertsParams = {
 /**

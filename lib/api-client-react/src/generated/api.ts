@@ -40,6 +40,7 @@ import type {
   AiPendingProposal,
   AiPlanDecisionRequest,
   AiProjectBudgetSummary,
+  AiQualityReportExport,
   AiQualityReviewError,
   AiRebaseChangesRequest,
   AiRebaseChangesResult,
@@ -66,6 +67,7 @@ import type {
   DiscoverySourceCapability,
   EvaluateRuleRequest,
   ExportAiExecutionAudit200,
+  ExportAiMetricsParams,
   FailWorkflowPhaseInput,
   GeminiKeyStatus,
   GetAiChatFileContentParams,
@@ -9078,6 +9080,90 @@ export function useGetAiMetrics<TData = Awaited<ReturnType<typeof getAiMetrics>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAiMetricsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportAiMetricsUrl = (params?: ExportAiMetricsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/metrics/export?${stringifiedParams}` : `/api/ai/metrics/export`
+}
+
+/**
+ * @summary Export the filtered model-quality report
+ */
+export const exportAiMetrics = async (params?: ExportAiMetricsParams, options?: Parameters<typeof customFetch>[1]): Promise<AiQualityReportExport> => {
+
+  return customFetch<AiQualityReportExport>(getExportAiMetricsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportAiMetricsQueryKey = (params?: ExportAiMetricsParams,) => {
+    return [
+    `/api/ai/metrics/export`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportAiMetricsQueryOptions = <TData = Awaited<ReturnType<typeof exportAiMetrics>>, TError = ErrorType<void>>(params?: ExportAiMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportAiMetricsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportAiMetrics>>> = ({ signal }) => exportAiMetrics(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportAiMetrics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportAiMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof exportAiMetrics>>>
+export type ExportAiMetricsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Export the filtered model-quality report
+ */
+
+export function useExportAiMetrics<TData = Awaited<ReturnType<typeof exportAiMetrics>>, TError = ErrorType<void>>(
+ params?: ExportAiMetricsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportAiMetricsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

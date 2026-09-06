@@ -33,6 +33,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import { getDynamicCatalogStatus } from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
+import { ExportAiMetricsResponse } from "@workspace/api-zod";
 import type { Request, Response } from "express";
 import {
   getAiUsageSummary,
@@ -400,6 +401,123 @@ router.get("/ai/metrics", async (req, res) => {
     usage,
     behavioralScorecards: getBehavioralScorecards(),
   });
+});
+
+function qualityReportContract(contract: {
+  evaluated: number;
+  accepted: number;
+  acceptanceRate: number | null;
+  citationMatchRate: number | null;
+  recoveryAttempts: number;
+  recoveryAccepted: number;
+  recoveryAcceptanceRate: number | null;
+  failureKinds: Record<string, number>;
+}) {
+  return {
+    evaluated: contract.evaluated,
+    accepted: contract.accepted,
+    acceptanceRate: contract.acceptanceRate,
+    citationMatchRate: contract.citationMatchRate,
+    recoveryAttempts: contract.recoveryAttempts,
+    recoveryAccepted: contract.recoveryAccepted,
+    recoveryAcceptanceRate: contract.recoveryAcceptanceRate,
+    failureKinds: contract.failureKinds,
+  };
+}
+
+router.get("/ai/metrics/export", async (req, res) => {
+  const rawDays = req.query.days === undefined ? AI_USAGE_DEFAULT_WINDOW_DAYS : Number(req.query.days);
+  if (!Number.isSafeInteger(rawDays) || rawDays < 1 || rawDays > AI_USAGE_MAX_WINDOW_DAYS) {
+    return res.status(400).json({ error: `days must be an integer between 1 and ${AI_USAGE_MAX_WINDOW_DAYS}` });
+  }
+  const projectId = typeof req.query.projectId === "string" && req.query.projectId.trim()
+    ? req.query.projectId.trim().slice(0, 160)
+    : undefined;
+  const providerFilter = typeof req.query.provider === "string" && req.query.provider.trim()
+    ? req.query.provider.trim()
+    : undefined;
+  if (providerFilter && !isValidProvider(providerFilter)) {
+    return res.status(400).json({ error: "provider is not supported" });
+  }
+
+  const usage = await getAiUsageSummary({
+    userId: req.userId,
+    projectId,
+    provider: providerFilter,
+    days: rawDays,
+  });
+
+  const providers = usage.providers.map((provider) => ({
+    provider: provider.provider,
+    contract: qualityReportContract(provider.contract),
+    models: provider.models.map((model) => ({
+      model: model.model,
+      contract: qualityReportContract(model.contract),
+    })),
+  }));
+  const timeline = usage.timeline.map((point) => ({
+    day: point.day,
+    contract: qualityReportContract({
+      evaluated: point.contractEvaluated,
+      accepted: point.contractAccepted,
+      acceptanceRate: point.acceptanceRate,
+      citationMatchRate: point.citationMatchRate,
+      recoveryAttempts: point.recoveryAttempts,
+      recoveryAccepted: point.recoveryAccepted,
+      recoveryAcceptanceRate: point.recoveryAcceptanceRate,
+      failureKinds: point.failureKinds,
+    }),
+  }));
+  const totals = usage.timeline.reduce((aggregate, point) => {
+    aggregate.evaluated += point.contractEvaluated;
+    aggregate.accepted += point.contractAccepted;
+    aggregate.citationMatches += point.citationMatches;
+    aggregate.citationClaims += point.citationClaims;
+    aggregate.recoveryAttempts += point.recoveryAttempts;
+    aggregate.recoveryAccepted += point.recoveryAccepted;
+    for (const [kind, count] of Object.entries(point.failureKinds)) {
+      aggregate.failureKinds[kind] = (aggregate.failureKinds[kind] ?? 0) + count;
+    }
+    return aggregate;
+  }, {
+    evaluated: 0,
+    accepted: 0,
+    citationMatches: 0,
+    citationClaims: 0,
+    recoveryAttempts: 0,
+    recoveryAccepted: 0,
+    failureKinds: {} as Record<string, number>,
+  });
+
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    scope: {
+      projectId: projectId ?? null,
+      provider: providerFilter ?? "all",
+      windowDays: usage.windowDays,
+    },
+    summary: qualityReportContract({
+      evaluated: totals.evaluated,
+      accepted: totals.accepted,
+      acceptanceRate: totals.evaluated
+        ? Number((totals.accepted / totals.evaluated).toFixed(4))
+        : null,
+      citationMatchRate: totals.citationClaims
+        ? Number((totals.citationMatches / totals.citationClaims).toFixed(4))
+        : null,
+      recoveryAttempts: totals.recoveryAttempts,
+      recoveryAccepted: totals.recoveryAccepted,
+      recoveryAcceptanceRate: totals.recoveryAttempts
+        ? Number((totals.recoveryAccepted / totals.recoveryAttempts).toFixed(4))
+        : null,
+      failureKinds: totals.failureKinds,
+    }),
+    providers,
+    timeline,
+  };
+
+  return res.json(ExportAiMetricsResponse.parse(report));
 });
 
 // ── Backward-compat aliases ───────────────────────────────────────────────────

@@ -23,6 +23,7 @@ import {
   useGetOpenRouterKeyStatus,
   useGetActiveProvider,
   useGetAiMetrics,
+  exportAiMetrics,
   useGetAiExecution,
   useListAiExecutionHistory,
   useListAiChatSessions,
@@ -890,6 +891,8 @@ function ModelContractQualityCard({
   onProviderChange,
   onDaysChange,
   onRetry,
+  onExport,
+  isExporting,
 }: {
   usage?: AiUsageSummary;
   projectLabel: string;
@@ -901,6 +904,8 @@ function ModelContractQualityCard({
   onProviderChange: (provider: MetricsProviderFilter) => void;
   onDaysChange: (days: number) => void;
   onRetry: () => void;
+  onExport: () => void;
+  isExporting: boolean;
 }) {
   const models = usage?.providers.flatMap((provider) =>
     provider.models.map((model) => ({ provider: provider.provider, ...model })),
@@ -946,6 +951,19 @@ function ModelContractQualityCard({
             ))}
           </select>
         </label>
+      </div>
+      <div className="mt-2 flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-[10px]"
+          onClick={onExport}
+          disabled={isExporting || isLoading || isError}
+        >
+          {isExporting ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" /> : <Download className="mr-1.5 h-3 w-3" />}
+          {isExporting ? 'Exporting…' : 'Export report'}
+        </Button>
       </div>
       <p className="mt-2 text-[10px] text-muted-foreground">
         Project: <span className="text-foreground/80">{projectLabel}</span>
@@ -8118,6 +8136,7 @@ export default function AiChat() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [metricsProvider, setMetricsProvider] = useState<MetricsProviderFilter>('all');
   const [metricsWindowDays, setMetricsWindowDays] = useState<number>(30);
+  const [qualityExportPending, setQualityExportPending] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   // AI-TASK-006: task linkage — read from URL search params so the Tasks page
   // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
@@ -8874,6 +8893,46 @@ export default function AiChat() {
     ? metricsMap.get(activeProvider.provider)
     : undefined;
   const activeProviderSendBlocked = isProviderSendBlocked(activeProviderMetric);
+
+  const exportQualityReport = async () => {
+    setQualityExportPending(true);
+    try {
+      const report = await exportAiMetrics({
+        projectId: selectedProjectId || undefined,
+        provider: metricsProvider === 'all' ? undefined : metricsProvider,
+        days: metricsWindowDays,
+      });
+      const blob = new Blob([`${JSON.stringify(report, null, 2)}\n`], {
+        type: 'application/json;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const projectPart = (projects.find((project) => project.id === selectedProjectId)?.name ?? 'all-projects')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 48) || 'all-projects';
+      const providerPart = metricsProvider === 'all' ? 'all-providers' : metricsProvider;
+      anchor.href = url;
+      anchor.download = `model-quality-${projectPart}-${providerPart}-${metricsWindowDays}d.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast({
+        title: 'Model-quality report exported',
+        description: 'The filtered aggregate report is ready for handoff.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Model-quality export failed',
+        description: describeAiError(error),
+        variant: 'destructive',
+      });
+    } finally {
+      setQualityExportPending(false);
+    }
+  };
 
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
@@ -10816,6 +10875,8 @@ export default function AiChat() {
               onProviderChange={setMetricsProvider}
               onDaysChange={setMetricsWindowDays}
               onRetry={() => void refetchMetrics()}
+              onExport={() => void exportQualityReport()}
+              isExporting={qualityExportPending}
             />
             <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
             <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />

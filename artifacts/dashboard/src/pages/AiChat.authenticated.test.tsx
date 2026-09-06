@@ -125,6 +125,7 @@ const mocks = vi.hoisted(() => {
       usage: undefined as unknown,
     },
     useGetAiMetrics: vi.fn(),
+    qualityExport: vi.fn(),
     activeExecutionStatus: undefined as { status: string } | undefined,
     streamCallbacks: undefined as Record<string, unknown> | undefined,
     sentParams: undefined as {
@@ -226,6 +227,7 @@ vi.mock('@workspace/api-client-react', () => {
       isError: false,
       error: null,
     })),
+    exportAiMetrics: mocks.qualityExport,
     useGetAiExecution: vi.fn(() => ({
       data: mocks.activeExecutionStatus,
       isLoading: false,
@@ -342,6 +344,23 @@ beforeEach(() => {
     behavioralScorecards: [],
     usage: undefined,
   };
+  mocks.qualityExport.mockResolvedValue({
+    schemaVersion: 1,
+    generatedAt: '2026-08-13T00:00:00.000Z',
+    scope: { projectId: 'project-1', provider: 'all', windowDays: 30 },
+    summary: {
+      evaluated: 0,
+      accepted: 0,
+      acceptanceRate: null,
+      citationMatchRate: null,
+      recoveryAttempts: 0,
+      recoveryAccepted: 0,
+      recoveryAcceptanceRate: null,
+      failureKinds: {},
+    },
+    providers: [],
+    timeline: [],
+  });
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.sessionsFetched = true;
@@ -506,6 +525,31 @@ describe('AiChat authenticated generated mutations', () => {
       { projectId: 'project-1', provider: 'gemini', days: 7 },
       expect.objectContaining({ query: expect.any(Object) }),
     );
+  });
+
+  it('exports the currently selected model-quality filters', async () => {
+    const createObjectURL = vi.fn(() => 'blob:quality-report');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+
+    renderAiChat();
+    fireEvent.change(screen.getByLabelText('Model quality provider'), {
+      target: { value: 'gemini' },
+    });
+    fireEvent.change(screen.getByLabelText('Model quality time window'), {
+      target: { value: '7' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Export report' }));
+
+    await waitFor(() => {
+      expect(mocks.qualityExport).toHaveBeenCalledWith({
+        projectId: 'project-1',
+        provider: 'gemini',
+        days: 7,
+      });
+    });
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
   });
 
   it('uses the server-provided audit filename and falls back safely', () => {

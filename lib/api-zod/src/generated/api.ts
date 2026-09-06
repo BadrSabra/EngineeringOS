@@ -6528,6 +6528,126 @@ export const GetAiMetricsResponse = zod.object({
 
 
 /**
+ * @summary Export the filtered model-quality report
+ */
+export const exportAiMetricsQueryProjectIdMax = 160;
+
+export const exportAiMetricsQueryDaysDefault = 30;
+export const exportAiMetricsQueryDaysMax = 90;
+
+
+
+export const ExportAiMetricsQueryParams = zod.object({
+  "projectId": zod.coerce.string().max(exportAiMetricsQueryProjectIdMax).optional().describe('Limit the report to one owner-scoped project.'),
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).optional().describe('Limit the report to one provider.'),
+  "days": zod.coerce.number().int().min(1).max(exportAiMetricsQueryDaysMax).default(exportAiMetricsQueryDaysDefault).describe('Durable quality window in days.')
+})
+
+export const exportAiMetricsResponseScopeWindowDaysMax = 90;
+
+export const exportAiMetricsResponseSummaryEvaluatedMin = 0;
+
+export const exportAiMetricsResponseSummaryAcceptedMin = 0;
+
+export const exportAiMetricsResponseSummaryRecoveryAttemptsMin = 0;
+
+export const exportAiMetricsResponseSummaryRecoveryAcceptedMin = 0;
+
+export const exportAiMetricsResponseSummaryFailureKindsMinOne = 0;
+
+export const exportAiMetricsResponseProvidersItemContractEvaluatedMin = 0;
+
+export const exportAiMetricsResponseProvidersItemContractAcceptedMin = 0;
+
+export const exportAiMetricsResponseProvidersItemContractRecoveryAttemptsMin = 0;
+
+export const exportAiMetricsResponseProvidersItemContractRecoveryAcceptedMin = 0;
+
+export const exportAiMetricsResponseProvidersItemContractFailureKindsMinOne = 0;
+
+export const exportAiMetricsResponseProvidersItemModelsItemContractEvaluatedMin = 0;
+
+export const exportAiMetricsResponseProvidersItemModelsItemContractAcceptedMin = 0;
+
+export const exportAiMetricsResponseProvidersItemModelsItemContractRecoveryAttemptsMin = 0;
+
+export const exportAiMetricsResponseProvidersItemModelsItemContractRecoveryAcceptedMin = 0;
+
+export const exportAiMetricsResponseProvidersItemModelsItemContractFailureKindsMinOne = 0;
+
+export const exportAiMetricsResponseTimelineItemContractEvaluatedMin = 0;
+
+export const exportAiMetricsResponseTimelineItemContractAcceptedMin = 0;
+
+export const exportAiMetricsResponseTimelineItemContractRecoveryAttemptsMin = 0;
+
+export const exportAiMetricsResponseTimelineItemContractRecoveryAcceptedMin = 0;
+
+export const exportAiMetricsResponseTimelineItemContractFailureKindsMinOne = 0;
+
+
+
+export const ExportAiMetricsResponse = zod.object({
+  "schemaVersion": zod.literal(1),
+  "generatedAt": zod.coerce.date(),
+  "scope": zod.object({
+  "projectId": zod.string().nullable(),
+  "provider": zod.enum(['all', 'groq', 'deepseek', 'openrouter', 'gemini']),
+  "windowDays": zod.number().int().min(1).max(exportAiMetricsResponseScopeWindowDaysMax)
+}),
+  "summary": zod.object({
+  "evaluated": zod.number().int().min(exportAiMetricsResponseSummaryEvaluatedMin),
+  "accepted": zod.number().int().min(exportAiMetricsResponseSummaryAcceptedMin),
+  "acceptanceRate": zod.number().nullable(),
+  "citationMatchRate": zod.number().nullable(),
+  "recoveryAttempts": zod.number().int().min(exportAiMetricsResponseSummaryRecoveryAttemptsMin),
+  "recoveryAccepted": zod.number().int().min(exportAiMetricsResponseSummaryRecoveryAcceptedMin),
+  "recoveryAcceptanceRate": zod.number().nullable(),
+  "failureKinds": zod.record(zod.string(), zod.number().int().min(exportAiMetricsResponseSummaryFailureKindsMinOne))
+}),
+  "providers": zod.array(zod.object({
+  "provider": zod.string(),
+  "contract": zod.object({
+  "evaluated": zod.number().int().min(exportAiMetricsResponseProvidersItemContractEvaluatedMin),
+  "accepted": zod.number().int().min(exportAiMetricsResponseProvidersItemContractAcceptedMin),
+  "acceptanceRate": zod.number().nullable(),
+  "citationMatchRate": zod.number().nullable(),
+  "recoveryAttempts": zod.number().int().min(exportAiMetricsResponseProvidersItemContractRecoveryAttemptsMin),
+  "recoveryAccepted": zod.number().int().min(exportAiMetricsResponseProvidersItemContractRecoveryAcceptedMin),
+  "recoveryAcceptanceRate": zod.number().nullable(),
+  "failureKinds": zod.record(zod.string(), zod.number().int().min(exportAiMetricsResponseProvidersItemContractFailureKindsMinOne))
+}),
+  "models": zod.array(zod.object({
+  "model": zod.string(),
+  "contract": zod.object({
+  "evaluated": zod.number().int().min(exportAiMetricsResponseProvidersItemModelsItemContractEvaluatedMin),
+  "accepted": zod.number().int().min(exportAiMetricsResponseProvidersItemModelsItemContractAcceptedMin),
+  "acceptanceRate": zod.number().nullable(),
+  "citationMatchRate": zod.number().nullable(),
+  "recoveryAttempts": zod.number().int().min(exportAiMetricsResponseProvidersItemModelsItemContractRecoveryAttemptsMin),
+  "recoveryAccepted": zod.number().int().min(exportAiMetricsResponseProvidersItemModelsItemContractRecoveryAcceptedMin),
+  "recoveryAcceptanceRate": zod.number().nullable(),
+  "failureKinds": zod.record(zod.string(), zod.number().int().min(exportAiMetricsResponseProvidersItemModelsItemContractFailureKindsMinOne))
+})
+}))
+})),
+  "timeline": zod.array(zod.object({
+  "day": zod.coerce.date(),
+  "contract": zod.object({
+  "evaluated": zod.number().int().min(exportAiMetricsResponseTimelineItemContractEvaluatedMin),
+  "accepted": zod.number().int().min(exportAiMetricsResponseTimelineItemContractAcceptedMin),
+  "acceptanceRate": zod.number().nullable(),
+  "citationMatchRate": zod.number().nullable(),
+  "recoveryAttempts": zod.number().int().min(exportAiMetricsResponseTimelineItemContractRecoveryAttemptsMin),
+  "recoveryAccepted": zod.number().int().min(exportAiMetricsResponseTimelineItemContractRecoveryAcceptedMin),
+  "recoveryAcceptanceRate": zod.number().nullable(),
+  "failureKinds": zod.record(zod.string(), zod.number().int().min(exportAiMetricsResponseTimelineItemContractFailureKindsMinOne))
+})
+}))
+})
+
+
+/**
  * @summary List durable deployment-wide operator alerts
  */
 export const listOperatorAlertsQueryActiveOnlyDefault = true;

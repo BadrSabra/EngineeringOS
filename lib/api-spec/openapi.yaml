@@ -3182,6 +3182,38 @@ paths:
                   usage:
                     $ref: "#/components/schemas/AiUsageSummary"
 
+  /api/ai/metrics/export:
+    get:
+      operationId: exportAiMetrics
+      summary: Export the filtered model-quality report
+      tags: [AI]
+      parameters:
+        - name: projectId
+          in: query
+          schema: { type: string, maxLength: 160 }
+          description: Limit the report to one owner-scoped project.
+        - name: provider
+          in: query
+          schema:
+            type: string
+            enum: [groq, deepseek, openrouter, gemini]
+          description: Limit the report to one provider.
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 30 }
+          description: Durable quality window in days.
+      responses:
+        "200":
+          description: Redacted model-quality report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiQualityReportExport"
+        "400":
+          description: Invalid quality report filter
+        "401":
+          description: Not authenticated
+
   /api/ai/operator-alerts:
     get:
       operationId: listOperatorAlerts
@@ -5042,6 +5074,88 @@ components:
           additionalProperties:
             type: integer
             minimum: 0
+
+    AiQualityReportContractSummary:
+      type: object
+      additionalProperties: false
+      required: [evaluated, accepted, acceptanceRate, citationMatchRate,
+                 recoveryAttempts, recoveryAccepted, recoveryAcceptanceRate, failureKinds]
+      properties:
+        evaluated: { type: integer, minimum: 0 }
+        accepted: { type: integer, minimum: 0 }
+        acceptanceRate: { type: ["number", "null"] }
+        citationMatchRate: { type: ["number", "null"] }
+        recoveryAttempts: { type: integer, minimum: 0 }
+        recoveryAccepted: { type: integer, minimum: 0 }
+        recoveryAcceptanceRate: { type: ["number", "null"] }
+        failureKinds:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+
+    AiQualityReportModel:
+      type: object
+      additionalProperties: false
+      required: [model, contract]
+      properties:
+        model: { type: string }
+        contract:
+          $ref: "#/components/schemas/AiQualityReportContractSummary"
+
+    AiQualityReportProvider:
+      type: object
+      additionalProperties: false
+      required: [provider, contract, models]
+      properties:
+        provider: { type: string }
+        contract:
+          $ref: "#/components/schemas/AiQualityReportContractSummary"
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiQualityReportModel"
+
+    AiQualityReportTimelinePoint:
+      type: object
+      additionalProperties: false
+      required: [day, contract]
+      properties:
+        day:
+          type: string
+          format: date
+        contract:
+          $ref: "#/components/schemas/AiQualityReportContractSummary"
+
+    AiQualityReportExport:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, generatedAt, scope, summary, providers, timeline]
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        generatedAt:
+          type: string
+          format: date-time
+        scope:
+          type: object
+          additionalProperties: false
+          required: [projectId, provider, windowDays]
+          properties:
+            projectId: { type: ["string", "null"] }
+            provider:
+              type: string
+              enum: [all, groq, deepseek, openrouter, gemini]
+            windowDays: { type: integer, minimum: 1, maximum: 90 }
+        summary:
+          $ref: "#/components/schemas/AiQualityReportContractSummary"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiQualityReportProvider"
+        timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiQualityReportTimelinePoint"
 
     GroqModelAvailability:
       type: object
