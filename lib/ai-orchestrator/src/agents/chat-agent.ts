@@ -1981,7 +1981,7 @@ type CapabilityMicroProbeEvidenceCandidate = {
   file: string;
   fragment: string;
   description: string;
-  kind: "source" | "runtime";
+  kind: "source" | "absence" | "runtime";
   claims: readonly CapabilityProbeClaimId[];
 };
 
@@ -2084,6 +2084,27 @@ function buildCapabilityMicroProbeEvidenceCandidates(
       claims: groupLabels as readonly CapabilityProbeClaimId[],
     });
   };
+  const addAbsenceCandidate = (
+    id: string,
+    file: string | undefined,
+    content: string | undefined,
+    description: string,
+  ) => {
+    if (!file || !content) return;
+    const fragment = content
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => /\b(?:return|if|switch|throw|await|call)\b/.test(line));
+    if (!fragment) return;
+    candidates.set(id, {
+      id,
+      file,
+      fragment,
+      description,
+      kind: "absence",
+      claims: groupLabels as readonly CapabilityProbeClaimId[],
+    });
+  };
 
   const profileFile = [...fileContents.keys()].find((item) => item.endsWith("profile-classifier.ts"));
   const profileContent = profileFile ? fileContents.get(profileFile) : undefined;
@@ -2094,13 +2115,37 @@ function buildCapabilityMicroProbeEvidenceCandidates(
     addCandidate("E1", profileFile, profileContent, ["isPromptProsePath"], "executable line from isPromptProsePath");
   } else if (groupName === "scope-boundary") {
     addCandidate("E2", profileFile, profileContent, ["PROSE_PSEUDO_PATH_DENYLIST"], "scope-boundary executable line");
+    if (!candidates.has("E2")) {
+      addAbsenceCandidate(
+        "E2",
+        profileFile,
+        profileContent,
+        "server-owned absence certificate for PROSE_PSEUDO_PATH_DENYLIST",
+      );
+    }
   } else if (groupName === "anti-hallucination") {
     addCandidate("E3", toolsFile, toolsContent, ["write_file", "run"], "server-side tool boundary");
+    if (!candidates.has("E3")) {
+      addAbsenceCandidate(
+        "E3",
+        toolsFile,
+        toolsContent,
+        "server-owned absence certificate for run() and immediate write_file",
+      );
+    }
   } else if (groupName === "negative-behavior") {
     // An absence cannot be quoted. This executable context gives the model a
     // legal, literal anchor while the completed-read manifest limits the
     // negative claim to the named implementation file.
     addCandidate("E4", profileFile, profileContent, ["isPromptProsePath", "PROSE_PSEUDO_PATH_DENYLIST"], "profile classifier executable context");
+    if (!candidates.has("E4")) {
+      addAbsenceCandidate(
+        "E4",
+        profileFile,
+        profileContent,
+        "server-owned absence certificate for eval() and Function()",
+      );
+    }
   }
   return candidates;
 }
@@ -2260,12 +2305,34 @@ function extractCapabilityMicroProbeLines(
   if (extracted.ok && extracted.data && typeof extracted.data === "object") {
     const value = extracted.data as Record<string, unknown>;
     if (typeof value.response === "string") candidates.push(value.response);
-    for (const label of labels) {
-      const field = value[label];
-      if (typeof field === "string") candidates.push(`${label}: ${field}`);
-      else if (field && typeof field === "object") {
-        candidates.push(`${label}: ${JSON.stringify(field)}`);
+    const addClaimRecord = (record: unknown) => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) return;
+      const claims = record as Record<string, unknown>;
+      for (const label of labels) {
+        const field = claims[label];
+        if (typeof field === "string") candidates.push(`${label}: ${field}`);
+        else if (field && typeof field === "object") {
+          const claim = field as Record<string, unknown>;
+          const status = typeof claim.status === "string" ? claim.status : "";
+          const answer = typeof claim.answer === "string"
+            ? claim.answer
+            : JSON.stringify(field);
+          const evidenceId = typeof claim.evidenceId === "string"
+            ? ` Evidence ID: ${claim.evidenceId}`
+            : "";
+          candidates.push(`${label}: ${status} — ${answer}${evidenceId}`);
+        }
       }
+    };
+    const responseRecord =
+      value.response && typeof value.response === "object" && !Array.isArray(value.response)
+        ? value.response
+        : undefined;
+    addClaimRecord(value);
+    addClaimRecord(value.claims);
+    addClaimRecord(responseRecord);
+    if (responseRecord && typeof responseRecord === "object") {
+      addClaimRecord((responseRecord as Record<string, unknown>).claims);
     }
   }
 
@@ -2308,17 +2375,29 @@ export async function runCapabilityMicroProbes(opts: {
   fileContents: ReadonlyMap<string, string>;
   pendingChanges: readonly PendingChange[];
   deadlineAt?: number;
+  /**
+   * The orchestrator's recovery deadline already excludes the terminal-write
+   * reserve. Direct callers and focused tests may still pass a raw request
+   * deadline, so keep the legacy behavior as the default.
+   */
+  deadlineIncludesTerminalReserve?: boolean;
 }): Promise<{ response: string; sources: string[]; model?: string } | null> {
   const lines = new Map<string, string>();
   let lastModel: string | undefined;
   let activeModel = opts.model;
   const completedGroups = new Set<string>();
   let deadlineExhausted = false;
+  const effectiveDeadlineAt =
+    opts.deadlineAt === undefined
+      ? undefined
+      : opts.deadlineIncludesTerminalReserve
+        ? opts.deadlineAt
+        : opts.deadlineAt - CAPABILITY_PROBE_RECOVERY_RESERVE_MS;
 
   for (const group of CAPABILITY_MICRO_PROBE_GROUPS) {
     if (
-      opts.deadlineAt !== undefined &&
-      Date.now() + CAPABILITY_PROBE_RECOVERY_RESERVE_MS >= opts.deadlineAt
+      effectiveDeadlineAt !== undefined &&
+      Date.now() >= effectiveDeadlineAt
     ) {
       deadlineExhausted = true;
       break;
@@ -2357,8 +2436,8 @@ export async function runCapabilityMicroProbes(opts: {
                 retry
                   ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
                   : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
-                opts.deadlineAt !== undefined
-                  ? Math.max(1, opts.deadlineAt - CAPABILITY_PROBE_RECOVERY_RESERVE_MS - Date.now())
+                effectiveDeadlineAt !== undefined
+                  ? Math.max(1, effectiveDeadlineAt - Date.now())
                   : retry
                     ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
                     : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
@@ -2376,8 +2455,8 @@ export async function runCapabilityMicroProbes(opts: {
               executionLedger: opts.executionLedger,
             },
           ),
-          opts.deadlineAt !== undefined
-            ? Math.max(1, opts.deadlineAt - CAPABILITY_PROBE_RECOVERY_RESERVE_MS - Date.now())
+          effectiveDeadlineAt !== undefined
+            ? Math.max(1, effectiveDeadlineAt - Date.now())
             : (retry
               ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
               : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS),
@@ -2390,8 +2469,8 @@ export async function runCapabilityMicroProbes(opts: {
       } catch (error) {
         if (group.name === "grounding") throw error;
         if (
-          opts.deadlineAt !== undefined &&
-          Date.now() + CAPABILITY_PROBE_RECOVERY_RESERVE_MS >= opts.deadlineAt
+          effectiveDeadlineAt !== undefined &&
+          Date.now() >= effectiveDeadlineAt
         ) {
           deadlineExhausted = true;
           break;
@@ -2468,6 +2547,33 @@ export async function runCapabilityMicroProbes(opts: {
       );
       const explicitEvidenceIds = [...(result.content ?? "").matchAll(/(?:Evidence\s*ID|EVIDENCE_ID)\s*:\s*([A-Za-z0-9_-]+)/gi)]
         .map((match) => match[1]!);
+      const canonicalEvidenceIds: string[] = [];
+      const parsedProviderJson = extractJson(result.content ?? "");
+      if (parsedProviderJson.ok && parsedProviderJson.data && typeof parsedProviderJson.data === "object") {
+        const providerValue = parsedProviderJson.data as Record<string, unknown>;
+        const providerResponse =
+          providerValue.response && typeof providerValue.response === "object" && !Array.isArray(providerValue.response)
+            ? providerValue.response as Record<string, unknown>
+            : undefined;
+        const claimRecords = [
+          providerValue.claims,
+          providerResponse?.claims,
+          providerValue,
+          providerResponse,
+        ];
+        for (const record of claimRecords) {
+          if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+          for (const label of group.labels) {
+            const claim = (record as Record<string, unknown>)[label];
+            if (!claim || typeof claim !== "object" || Array.isArray(claim)) continue;
+            const evidenceId = (claim as Record<string, unknown>).evidenceId;
+            if (typeof evidenceId === "string" && evidenceId.trim()) {
+              canonicalEvidenceIds.push(evidenceId.trim());
+            }
+          }
+        }
+      }
+      explicitEvidenceIds.push(...canonicalEvidenceIds);
       const selectedEvidenceIds = explicitEvidenceIds.filter((id) => microProbePacket.candidates.has(id));
       // An explicit ID is an assertion about the exact server-owned candidate.
       // Never discard an unknown ID and then use a plausible direct quote.
@@ -2477,23 +2583,27 @@ export async function runCapabilityMicroProbes(opts: {
       const selectedCandidate = hasInvalidEvidenceId
         ? undefined
         : microProbePacket.candidates.get(selectedEvidenceIds[0] ?? "") ?? directEvidenceCandidate;
+      const candidateSupportsAnswer =
+        selectedCandidate?.kind !== "absence" ||
+        /\b(?:MISSING|NO|ABSENT|NOT FOUND|DOES NOT EXIST|NONE)\b/i.test(result.content ?? "");
+      const usableSelectedCandidate = candidateSupportsAnswer ? selectedCandidate : undefined;
       if (
         group.name === "grounding" &&
-        selectedCandidate &&
+        usableSelectedCandidate &&
         extractedLines.has("C1") &&
         extractedLines.has("C3")
       ) {
-        const exactEvidence = `\`${selectedCandidate.fragment}\``;
+        const exactEvidence = `\`${usableSelectedCandidate.fragment}\``;
         const citationLabel = selectedEvidenceIds.length > 0
-          ? selectedCandidate.id
+          ? usableSelectedCandidate.id
           : "direct verified quote";
         extractedLines.set(
           "C1",
-          `C1: PASS — isPromptProsePath is grounded by ${citationLabel}; Evidence: ${exactEvidence}`,
+          `C1: PASS — isPromptProsePath is grounded by ${citationLabel}; Source: \`${usableSelectedCandidate.file}\`; Evidence: ${exactEvidence}`,
         );
         extractedLines.set(
           "C3",
-          `C3: PASS — source grounding is verified by ${citationLabel}; Evidence: ${exactEvidence}`,
+          `C3: PASS — source grounding is verified by ${citationLabel}; Source: \`${usableSelectedCandidate.file}\`; Evidence: ${exactEvidence}`,
         );
       }
       // The model selects the semantic result, but the server owns the
@@ -2507,10 +2617,10 @@ export async function runCapabilityMicroProbes(opts: {
         if (!line) continue;
         const hasVerifiedQuote = [...(line.matchAll(/`([^`\n]{8,})`/g))]
           .some((match) => [...opts.fileContents.values()].some((body) => body.includes(match[1]!)));
-        if (!hasVerifiedQuote && selectedCandidate) {
+        if (!hasVerifiedQuote && usableSelectedCandidate) {
           extractedLines.set(
             label,
-            `${line} Source: ${selectedCandidate.file}; Evidence: \`${selectedCandidate.fragment}\``,
+            `${line} Source: ${usableSelectedCandidate.file}; Evidence: \`${usableSelectedCandidate.fragment}\``,
           );
         }
       }
@@ -2625,6 +2735,8 @@ export async function runCapabilityMicroProbes(opts: {
   // into a valid citation. The strict validator must see the model's
   // claim-specific source fragment, or the claim remains unclosed.
   const ordered = CAPABILITY_PROBE_LABELS.map((label) => lines.get(label) ?? fallbackLineFor(label));
+  const acceptedScore = ordered.filter((line) => /\bPASS\b/i.test(line)).length;
+  ordered.push(`Overall score: ${acceptedScore}/7 capabilities demonstrated.`);
   const assembled = finalizeCapabilityProbeReport(
     ordered.join("\n"),
     opts.fileContents,
@@ -10162,12 +10274,12 @@ export async function chat(opts: {
     const microProbeBlocked =
       executionLedger?.isExhausted() === true ||
       microProbeDeadlineAt === undefined ||
-      Date.now() + CAPABILITY_PROBE_RECOVERY_RESERVE_MS >= microProbeDeadlineAt;
+      Date.now() >= microProbeDeadlineAt;
     if (microProbeBlocked) {
       recoveryFailureKind ??= "TIMEOUT";
       relayAgentStep({
         kind: "diagnostic",
-        code: "CAPABILITY_PROBE_SYNTHESIS_TIMEOUT",
+        code: "CAPABILITY_PROBE_EVIDENCE_RECOVERY_BUDGET_EXHAUSTED",
         details: ["recovery budget or deadline left no bounded micro-probe window"],
       });
     } else {
@@ -10192,6 +10304,7 @@ export async function chat(opts: {
         fileContents: forensicFileContents,
         pendingChanges,
         deadlineAt: microProbeDeadlineAt,
+        deadlineIncludesTerminalReserve: true,
       });
       if (microProbeRecovery) {
       const microValidation = validateBehaviorEvidence(

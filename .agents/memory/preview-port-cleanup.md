@@ -14,3 +14,9 @@ Release validation should spawn the final API server process directly after its 
 **Why:** A detached package runner can leave the API listener alive after a successful browser journey, contaminating later isolated runs even when the parent command exits cleanly.
 
 **How to apply:** Keep release service ports distinct from Project, start health checks only after both services are ready, and verify the release ports are closed after success or failure.
+
+Application dev commands should not perform port ownership or PID cleanup. Workflow-owned smoke/restart checks must stop the child process they created, wait for the port to close, and then start the replacement.
+
+**Why:** A dev command cannot safely distinguish a stale sibling workflow from an unrelated listener; self-cleanup caused shared-port races and could terminate the wrong process.
+
+**How to apply:** Keep process-group teardown in the workflow/smoke harness, not in Vite's package `dev` script.

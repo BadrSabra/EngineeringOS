@@ -85,12 +85,12 @@ async function stop(child) {
 try {
   const first = start();
   await waitForPort(true);
+  // Restart the workflow-owned process explicitly. The normal dev command
+  // must not discover and kill arbitrary listeners on a shared port.
+  await stop(first);
+  await waitForPort(false);
+
   const second = start();
-  if (!(await waitForExit(first))) {
-    throw new Error(
-      `The old Dashboard listener was not stopped on port ${port}; restart left the original process running.`,
-    );
-  }
   if (second.startupError || second.exitCode !== null) {
     throw new Error(
       `The replacement Dashboard process failed to bind port ${port} ${

@@ -262,7 +262,8 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
           [FILE_B, CONTENT_B],
         ]),
         pendingChanges: [],
-        deadlineAt: requestDeadline,
+        deadlineAt: recoveryWindow.deadlineAt,
+        deadlineIncludesTerminalReserve: true,
       });
 
       await vi.advanceTimersByTimeAsync(4_000);
@@ -288,10 +289,10 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
               ? "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
                 "C3: PASS — the answer is grounded; Evidence ID: E1."
               : callCount === 3
-                ? "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is absent; Evidence ID: E2."
+                ? "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is absent; Evidence ID: UNKNOWN-E2."
                 : callCount === 4
-                  ? "C7: PASS — run() and write_file are absent; Evidence ID: E3."
-                  : "C6: PASS — no eval( or Function( call exists; Evidence ID: E4.";
+                  ? "C7: PASS — run() and write_file are absent; Evidence ID: UNKNOWN-E3."
+                  : "C6: PASS — no eval( or Function( call exists; Evidence ID: UNKNOWN-E4.";
         return { content, model: opts.model ?? "initial-model" };
       }),
     };
@@ -309,6 +310,98 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
 
     expect(callCount).toBe(5);
     expect(result).toBeNull();
+  });
+
+  it("accepts canonical nested claims from micro-probes and binds their evidence IDs server-side", async () => {
+    const responses = [
+      JSON.stringify({
+        claims: {
+          C1: { status: "PASS", evidenceId: "E1", answer: "isPromptProsePath exists." },
+          C3: { status: "PASS", evidenceId: "E1", answer: "The named function is grounded." },
+        },
+      }),
+      JSON.stringify({
+        claims: {
+          C4: {
+            status: "PASS",
+            evidenceId: "E2",
+            answer: "PROSE_PSEUDO_PATH_DENYLIST is MISSING.",
+          },
+        },
+      }),
+      JSON.stringify({
+        claims: {
+          C7: {
+            status: "PASS",
+            evidenceId: "E3",
+            answer: "run() and immediate write_file behavior are MISSING.",
+          },
+        },
+      }),
+      JSON.stringify({
+        claims: {
+          C6: {
+            status: "PASS",
+            evidenceId: "E4",
+            answer: "NO eval( or Function( call exists.",
+          },
+        },
+      }),
+    ];
+    let callCount = 0;
+    const strategy = {
+      call: vi.fn(async () => ({
+        content: responses[callCount++] ?? responses[responses.length - 1],
+        model: "initial-model",
+      })),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy,
+      provider: "openrouter",
+      model: "initial-model",
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result?.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+    expect(result?.response).toContain("C4: PASS");
+    expect(result?.response).toContain("C7: PASS");
+    expect(callCount).toBe(4);
+  });
+
+  it("does not use an absence certificate to promote a positive hallucinated claim", async () => {
+    const responses = [
+      "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
+        "C3: PASS — the answer is grounded; Evidence ID: E1.",
+      "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST exists; Evidence ID: E2.",
+      "C7: PASS — run() exists; Evidence ID: E3.",
+      "C6: PASS — eval( exists; Evidence ID: E4.",
+    ];
+    let callCount = 0;
+    const strategy = {
+      call: vi.fn(async () => ({
+        content: responses[callCount++],
+        model: "initial-model",
+      })),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy,
+      provider: "openrouter",
+      model: "initial-model",
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result).toBeNull();
+    expect(callCount).toBe(4);
   });
 
   it("chat() completes the C1–C7 probe with a source-grounded verdict, read-only tools, scoped reads, and no fabrication", async () => {
