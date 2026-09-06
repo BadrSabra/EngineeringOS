@@ -66,6 +66,31 @@ describe("durable AI telemetry", () => {
     });
   });
 
+  it("projects nested claims JSON instead of treating every claim as missing", () => {
+    const telemetry = deriveAiContractTelemetry({
+      message: "# AI Model Capability Probe\nC1–C7",
+      response: JSON.stringify({
+        claims: {
+          C1: { status: "PASS", evidenceId: "E1" },
+          C2: { status: "PASS" },
+          C3: { status: "PASS", evidenceId: "E3" },
+          C4: { status: "PASS", evidenceId: "E4" },
+          C5: { status: "PASS" },
+          C6: { status: "PASS", evidenceId: "E6" },
+          C7: { status: "PASS", evidenceId: "E7" },
+        },
+        overallScore: "7/7",
+      }),
+    });
+
+    expect(telemetry).toMatchObject({
+      contractOutcome: "accepted",
+      contractClaimCount: 7,
+      contractCitationMatchCount: 5,
+      contractFailureKind: null,
+    });
+  });
+
   it("deduplicates concurrent attempts and represents missing usage as unknown", async () => {
     const correlationId = `telemetry-test-${crypto.randomUUID()}`;
     createdCorrelations.push(correlationId);
@@ -84,6 +109,7 @@ describe("durable AI telemetry", () => {
         attemptNumber: 1,
         fallbackCount: 0,
         usageStatus: "unknown",
+        providerFailureKind: "TIMEOUT",
       }),
       recordAiUsageAttempt(context, {
         attemptId: `${correlationId}:groq:1`,
@@ -93,6 +119,7 @@ describe("durable AI telemetry", () => {
         attemptNumber: 1,
         fallbackCount: 0,
         usageStatus: "unknown",
+        providerFailureKind: "TIMEOUT",
       }),
     ]);
 
@@ -105,6 +132,7 @@ describe("durable AI telemetry", () => {
       usageStatus: "unknown",
       promptTokens: null,
       completionTokens: null,
+      providerFailureKind: "TIMEOUT",
     });
     expect(Object.keys(rows[0]).some((key) => /source|secret|api_key|provider_key|prompt_content/i.test(key))).toBe(false);
   });

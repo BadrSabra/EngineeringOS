@@ -52,6 +52,7 @@ export const aiUsageEventsTable = pgTable("ai_usage_events", {
   contractCitationMatchCount: integer("contract_citation_match_count").notNull().default(0),
   contractRecoveryLatencyMs: integer("contract_recovery_latency_ms"),
   contractFailureKind: text("contract_failure_kind"),
+  providerFailureKind: text("provider_failure_kind"),
   occurredAt: timestamp("occurred_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
 }, (t) => [

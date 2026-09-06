@@ -2372,6 +2372,116 @@ type CapabilityRecoveryProvider = {
   apiKey?: string;
 };
 
+type CapabilityRecoveryCallResult = {
+  content?: string | null;
+  model?: string;
+};
+
+/**
+ * Recovery owns the provider order instead of delegating an unbounded fallback
+ * chain to one strategy. This keeps the run-level ledger/deadline authoritative
+ * and makes the provider that actually returned the recovery payload explicit.
+ */
+async function callCapabilityRecoveryWithFallback(opts: {
+  primary: CapabilityRecoveryProvider;
+  fallbacks?: readonly CapabilityRecoveryProvider[];
+  messages: RawMessage[];
+  baseOptions: Omit<
+    StrategyCallOptions,
+    "model" | "apiKey" | "signal" | "timeoutMs" | "executionLedger"
+  >;
+  attemptTimeoutMs: number;
+  deadlineAt?: number;
+  signal?: AbortSignal;
+  executionLedger?: ExecutionLedger;
+  operation: string;
+}): Promise<{
+  result: CapabilityRecoveryCallResult;
+  provider: ProviderId;
+}> {
+  const candidates = [
+    opts.primary,
+    ...(opts.fallbacks ?? []),
+  ].filter((candidate, index, all) =>
+    all.findIndex((item) => item.provider === candidate.provider) === index,
+  );
+  let lastError: unknown;
+
+  for (const [candidateIndex, candidate] of candidates.entries()) {
+    const remainingMs =
+      opts.deadlineAt === undefined
+        ? opts.attemptTimeoutMs
+        : opts.deadlineAt - Date.now();
+    if (remainingMs <= 0) break;
+    const timeoutMs = Math.min(opts.attemptTimeoutMs, Math.max(1, remainingMs));
+    try {
+      const result = await awaitAbortableRecovery(
+        (recoverySignal) => candidate.strategy.call(opts.messages, {
+          ...opts.baseOptions,
+          model: candidate.model,
+          apiKey: candidate.apiKey,
+          timeoutMs,
+          maxFallbackModels:
+            candidate.provider === "openrouter"
+              ? opts.baseOptions.maxFallbackModels ?? 1
+              : 1,
+          ...(candidate.provider !== "openrouter"
+            ? { responseFormat: { type: "json_object" as const } }
+            : {}),
+          signal: recoverySignal,
+          executionLedger: opts.executionLedger,
+        }),
+        timeoutMs,
+        opts.signal,
+      );
+      const content = result.content?.trim() ?? "";
+      if (!content) {
+        throw Object.assign(new Error("capability recovery returned no content"), {
+          code: "EMPTY_RESPONSE",
+        });
+      }
+      const parsed = extractJson(content);
+      if (!parsed.ok && /^\s*(?:```(?:json|text)?\s*)?[{\[]/i.test(content)) {
+        throw Object.assign(new Error("capability recovery returned malformed JSON"), {
+          code: "MALFORMED_JSON",
+        });
+      }
+      if (candidateIndex > 0) {
+        console.info(JSON.stringify({
+          scope: "chat-agent",
+          code: "CAPABILITY_RECOVERY_PROVIDER_FALLBACK",
+          operation: opts.operation,
+          from: opts.primary.provider,
+          to: candidate.provider,
+          model: result.model || candidate.model || null,
+        }));
+      }
+      return { result, provider: candidate.provider };
+    } catch (error) {
+      lastError = error;
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: unknown }).code ?? "PROVIDER_FAILURE")
+          : error instanceof Error && error.name === "AbortError"
+            ? "TIMEOUT"
+            : "PROVIDER_FAILURE";
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "CAPABILITY_RECOVERY_PROVIDER_FAILED",
+        operation: opts.operation,
+        provider: candidate.provider,
+        model: candidate.model ?? null,
+        failureKind: code,
+      }));
+      if (opts.deadlineAt !== undefined && Date.now() >= opts.deadlineAt) break;
+    }
+  }
+
+  throw lastError ?? Object.assign(new Error("capability recovery deadline exhausted"), {
+    code: "TIMEOUT",
+  });
+}
+
 export async function runCapabilityMicroProbes(opts: {
   strategy: { call: (messages: RawMessage[], options: StrategyCallOptions) => Promise<{ content?: string | null; model?: string }> };
   provider: ProviderId;
@@ -2427,90 +2537,42 @@ export async function runCapabilityMicroProbes(opts: {
     try {
       const microProbePacket = buildCapabilityMicroProbeMessages(group, opts.fileContents);
       const invoke = async (retry: boolean) => {
-        const candidates: CapabilityRecoveryProvider[] = [
-          {
+        const attemptTimeoutMs = retry
+          ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
+          : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS;
+        const call = await callCapabilityRecoveryWithFallback({
+          primary: {
             provider: opts.provider,
             strategy: opts.strategy,
             model: activeModel,
             apiKey: opts.apiKey,
           },
-          ...(opts.fallbackProviders ?? []),
-        ];
-        let lastError: unknown;
-        for (const candidate of candidates) {
-          const timeoutMs = Math.min(
-            retry
-              ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
-              : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
-            effectiveDeadlineAt !== undefined
-              ? Math.max(1, effectiveDeadlineAt - Date.now())
-              : retry
-                ? CAPABILITY_PROBE_MICRO_PROBE_RETRY_TIMEOUT_MS
-                : CAPABILITY_PROBE_MICRO_PROBE_ATTEMPT_TIMEOUT_MS,
-          );
-          try {
-            const result = await awaitAbortableRecovery(
-              (recoverySignal) => candidate.strategy.call(
-                microProbePacket.messages,
-                {
-                  model: candidate.provider === opts.provider ? activeModel : candidate.model,
-                  ...(candidate.provider === "openrouter"
-                    ? {
-                        quality: opts.quality ?? "powerful",
-                        capability: opts.capability ?? "json",
-                      }
-                    : {}),
-                  maxTokens: retry ? 500 : 900,
-                  timeoutMs,
-                  retryTransient: false,
-                  maxFallbackModels: retry
-                    ? 1
-                    : opts.maxFallbackModels ??
-                      (candidate.provider === "openrouter" ? 3 : 1),
-                  ...(candidate.provider !== "openrouter"
-                    ? { responseFormat: { type: "json_object" as const } }
-                    : {}),
-                  ...(candidate.provider === "openrouter"
-                    ? { circuitFailurePolicy: "suppress" as const }
-                    : {}),
-                  apiKey: candidate.apiKey,
-                  signal: recoverySignal,
-                  executionLedger: opts.executionLedger,
-                },
-              ),
-              timeoutMs,
-              opts.signal,
-            );
-            if (candidate.provider !== opts.provider) {
-              console.info(JSON.stringify({
-                scope: "chat-agent",
-                code: "CAPABILITY_MICRO_PROBE_PROVIDER_FALLBACK",
-                from: opts.provider,
-                to: candidate.provider,
-                group: group.name,
-              }));
-            }
-            return result;
-          } catch (error) {
-            lastError = error;
-            if (
-              effectiveDeadlineAt !== undefined &&
-              Date.now() >= effectiveDeadlineAt
-            ) {
-              break;
-            }
-            if (candidate.provider !== candidates[candidates.length - 1]?.provider) {
-              console.warn(JSON.stringify({
-                scope: "chat-agent",
-                code: "CAPABILITY_MICRO_PROBE_PROVIDER_FAILED",
-                provider: candidate.provider,
-                group: group.name,
-                reason: error instanceof Error ? error.message : String(error),
-              }));
-            }
-          }
-        }
-        throw lastError ?? new Error("capability micro-probe provider call failed");
+          fallbacks: opts.fallbackProviders,
+          messages: microProbePacket.messages,
+          baseOptions: {
+            ...(opts.provider === "openrouter"
+              ? {
+                  quality: opts.quality ?? "powerful",
+                  capability: opts.capability ?? "json",
+                }
+              : {}),
+            maxTokens: retry ? 500 : 900,
+            retryTransient: false,
+            maxFallbackModels: retry
+              ? 1
+              : opts.maxFallbackModels ??
+                (opts.provider === "openrouter" ? 3 : 1),
+            ...(opts.provider === "openrouter"
+              ? { circuitFailurePolicy: "suppress" as const }
+              : {}),
+          },
+          attemptTimeoutMs,
+          deadlineAt: effectiveDeadlineAt,
+          signal: opts.signal,
+          executionLedger: opts.executionLedger,
+          operation: `capability_micro_probe:${group.name}`,
+        });
+        return call.result;
       };
       let result;
       let didRetry = false;
@@ -5443,7 +5505,7 @@ export async function chat(opts: {
   // Gemini is the primary provider. Groq resolves its own server-side
   // credential, so the user's Gemini credential is never forwarded.
   const capabilityRecoveryFallbackProviders: readonly CapabilityRecoveryProvider[] =
-    providerId === "gemini"
+    providerId !== "groq"
       ? [{ provider: "groq", strategy: getStrategy("groq") }]
       : [];
   const modelDecision = resolveExecutionModel(providerId, executionPlan);
@@ -10141,48 +10203,48 @@ export async function chat(opts: {
         details: ["request deadline left no bounded citation-repair window"],
       });
     } else try {
-      const recovery = await awaitAbortableRecovery(
-        (recoverySignal) => strategy.call(
-          buildCapabilityProbeRecoveryMessages(
-            forensicFileContents,
-            responseBeforeBehaviorEvidence,
-            capabilityRecoveryTargets,
-          ),
-          {
-            model: recoveryModel,
-            apiKey,
-            ...(providerId === "openrouter"
-              ? { quality: "powerful" as const, capability: "chat" as const }
-              : {}),
-            maxTokens: 3072,
-            timeoutMs: Math.min(
-              CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
-              Math.max(1, capabilityProbeRecoveryDeadlineAt! - Date.now()),
-            ),
-            retryTransient: false,
-            // Keep provider fallback bounded: one alternate model can recover
-            // a transient/retired-model failure without multiplying the
-            // probe's run-level recovery budget.
-            maxFallbackModels: 2,
-            ...(providerId !== "openrouter"
-              ? { responseFormat: { type: "json_object" as const } }
-              : {}),
-            signal: recoverySignal,
-            executionLedger,
-          },
+      const recoveryCall = await callCapabilityRecoveryWithFallback({
+        primary: {
+          provider: providerId,
+          strategy,
+          model: recoveryModel,
+          apiKey,
+        },
+        fallbacks: capabilityRecoveryFallbackProviders,
+        messages: buildCapabilityProbeRecoveryMessages(
+          forensicFileContents,
+          responseBeforeBehaviorEvidence,
+          capabilityRecoveryTargets,
         ),
-        Math.min(
-          CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
-          Math.max(1, capabilityProbeRecoveryDeadlineAt - Date.now()),
-        ),
+        baseOptions: {
+          ...(providerId === "openrouter"
+            ? { quality: "powerful" as const, capability: "chat" as const }
+            : {}),
+          maxTokens: 1536,
+          retryTransient: false,
+          maxFallbackModels: 1,
+          ...(providerId !== "openrouter"
+            ? { responseFormat: { type: "json_object" as const } }
+            : {}),
+        },
+        attemptTimeoutMs: CAPABILITY_PROBE_RECOVERY_ATTEMPT_TIMEOUT_MS,
+        deadlineAt: capabilityProbeRecoveryDeadlineAt,
         signal,
-      );
+        executionLedger,
+        operation: "capability_probe_citation_recovery",
+      });
+      const recovery = recoveryCall.result;
       relayAgentStep({
         kind: "recovery_model_call",
         model: recovery.model || recoveryModel || model,
-        provider: providerId,
+        provider: recoveryCall.provider,
         attempt: recoveryAttemptsUsed,
       });
+      /*
+       * Keep the provider call above outside the claim-merging logic. The
+       * acceptance gate below remains unchanged: fallback success is not
+       * contract acceptance until every claim passes the server-owned checks.
+       */
       let mergedRecoveryResponse = responseBeforeBehaviorEvidence;
       let mergedClaimCount = 0;
       for (const target of capabilityRecoveryTargets) {

@@ -46,6 +46,7 @@ export type AiTelemetryAttempt = {
   contractCitationMatchCount?: number;
   contractRecoveryLatencyMs?: number | null;
   contractFailureKind?: string | null;
+  providerFailureKind?: string | null;
 };
 
 export type AiContractTelemetry = Pick<
@@ -92,15 +93,29 @@ export function deriveAiContractTelemetry(params: {
     );
     if (line) claimLines.set(label, line);
   }
+  const structuredPayload = parseCapabilityProbeJson(params.response);
+  if (structuredPayload) {
+    for (const record of capabilityClaimRecords(structuredPayload)) {
+      for (const label of ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]) {
+        const value = record[label];
+        if (value === undefined || claimLines.has(label)) continue;
+        claimLines.set(label, typeof value === "string" ? value : JSON.stringify(value));
+      }
+    }
+  }
   const claimCount = claimLines.size;
   const citationClaims = ["C1", "C3", "C4", "C6", "C7"];
   const citationMatchCount = citationClaims.filter((label) =>
-    /Evidence\s*ID\s*:\s*[A-Za-z0-9_-]+|Evidence\s*:/i.test(claimLines.get(label) ?? ""),
+    /Evidence\s*ID\s*:\s*[A-Za-z0-9_-]+|evidence[_\s-]*id\s*["']?\s*:\s*["']?[A-Za-z0-9_-]+|Evidence\s*:/i.test(
+      claimLines.get(label) ?? "",
+    ),
   ).length;
   const missingClaims = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"]
     .filter((label) => !claimLines.has(label));
   const failedClaims = [...claimLines.values()].filter((line) => /\bFAIL\b/i.test(line));
-  const hasOverallScore = /\b(?:overall\s+score|score)\s*:\s*\d+\s*\/\s*7\b/i.test(params.response);
+  const hasOverallScore =
+    /\b(?:overall\s+score|score)\s*:\s*\d+\s*\/\s*7\b/i.test(params.response) ||
+    (structuredPayload !== null && capabilityPayloadHasScore(structuredPayload));
   let contractOutcome: AiContractOutcome;
   let contractFailureKind: string | null = null;
   if (!params.response.trim()) {
@@ -114,7 +129,7 @@ export function deriveAiContractTelemetry(params: {
   } else if (citationMatchCount < citationClaims.length) {
     contractOutcome = "citation_mismatch";
     contractFailureKind = "citation_mismatch";
-  } else if (failedClaims.length > 0 || !/\b(?:Overall score|score)\b/i.test(params.response)) {
+  } else if (failedClaims.length > 0 || !hasOverallScore) {
     contractOutcome = "semantic_failure";
     contractFailureKind = failedClaims.length > 0
       ? `failed:${failedClaims.length}`
@@ -135,6 +150,59 @@ export function deriveAiContractTelemetry(params: {
     contractRecoveryLatencyMs: boundedInteger(params.recoveryLatencyMs),
     contractFailureKind,
   };
+}
+
+function parseCapabilityProbeJson(response: string): Record<string, unknown> | null {
+  const cleaned = response
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/```(?:json|text)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  const candidates = [cleaned];
+  const firstObject = cleaned.indexOf("{");
+  const lastObject = cleaned.lastIndexOf("}");
+  if (firstObject >= 0 && lastObject > firstObject) {
+    candidates.push(cleaned.slice(firstObject, lastObject + 1));
+  }
+  for (const candidate of candidates) {
+    try {
+      const value: unknown = JSON.parse(candidate);
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+      }
+    } catch {
+      // Line-based telemetry remains the safe fallback for non-JSON reports.
+    }
+  }
+  return null;
+}
+
+function capabilityClaimRecords(
+  payload: Record<string, unknown>,
+): Array<Record<string, unknown>> {
+  const response =
+    payload.response && typeof payload.response === "object" && !Array.isArray(payload.response)
+      ? payload.response as Record<string, unknown>
+      : null;
+  const records: Array<Record<string, unknown>> = [payload];
+  if (response) records.push(response);
+  for (const candidate of [payload.claims, response?.claims]) {
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      records.push(candidate as Record<string, unknown>);
+    }
+  }
+  return records;
+}
+
+function capabilityPayloadHasScore(payload: Record<string, unknown>): boolean {
+  return capabilityClaimRecords(payload).some((record) =>
+    ["overallScore", "overall_score", "overall", "score"].some((key) => {
+      const value = record[key];
+      return typeof value === "number"
+        ? Number.isFinite(value)
+        : typeof value === "string" && /\d+\s*\/\s*7\b/.test(value);
+    }),
+  );
 }
 
 function boundedInteger(value: number | null | undefined): number | null {
@@ -189,6 +257,7 @@ export async function recordAiUsageAttempt(
       contractCitationMatchCount: Math.max(0, Math.min(7, Math.floor(attempt.contractCitationMatchCount ?? 0))),
       contractRecoveryLatencyMs: boundedInteger(attempt.contractRecoveryLatencyMs),
       contractFailureKind: safeText(attempt.contractFailureKind, 80),
+      providerFailureKind: safeText(attempt.providerFailureKind, 80),
       occurredAt: now,
       expiresAt,
     }).onConflictDoNothing({ target: aiUsageEventsTable.attemptId });
