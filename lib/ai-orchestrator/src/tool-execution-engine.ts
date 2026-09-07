@@ -2818,6 +2818,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       forceSynthesisNext ||
       (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
     if (synthesisOnly && !synthesisStarted) {
+      messages.push({
+        role: "user",
+        content:
+          "[SERVER-OWNED SYNTHESIS MODE]\n" +
+          "The server has already retained the complete source evidence for this request. " +
+          "Do not call, describe, or invent any tool call. Produce the requested final report " +
+          "using only the retained evidence and follow the required output contract.",
+      });
       synthesisStarted = true;
       synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
       try {

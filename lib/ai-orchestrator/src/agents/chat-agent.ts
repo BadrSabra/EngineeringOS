@@ -6952,9 +6952,12 @@ export async function chat(opts: {
     maxToolCalls: structuredOutputMode || capabilityProbeRequest
       ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
       : budget.maxToolCalls,
-    toolCallsDisabledAfter: structuredOutputMode || capabilityProbeRequest
-      ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
-      : undefined,
+    toolCallsDisabledAfter:
+      capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(prefetchFileContents)
+        ? 0
+        : structuredOutputMode || capabilityProbeRequest
+          ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
+          : undefined,
     // The tool loop may reach its synthesis window after prefetch has already
     // supplied the source bodies. Capability Probe uses the same JSON claim
     // envelope as its recovery path so Gemini cannot spend its output budget on
