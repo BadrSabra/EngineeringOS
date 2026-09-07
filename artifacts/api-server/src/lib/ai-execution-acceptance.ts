@@ -7,7 +7,11 @@ import {
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   db,
+  eventsTable,
+  taskLogsTable,
+  tasksTable,
 } from "@workspace/db";
+import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -58,6 +62,7 @@ export type NormalizedEvidenceSnapshot = {
 export type FinalizeExecutionAcceptanceParams = {
   executionId: string;
   workerId?: string | null;
+  allowExpiredLease?: boolean;
   finalMessageId?: string | null;
   finalMessageContent?: string | null;
   finalizationKey: string;
@@ -76,6 +81,39 @@ export type FinalizeExecutionAcceptanceParams = {
   proposalId?: string | null;
   recipeReceipt?: unknown;
   checkpoint?: string;
+  /**
+   * Standalone task executions have no assistant chat row to project. Their
+   * task row, logs, events, and audit entry are nevertheless part of the same
+   * guarded terminal transaction as the acceptance ledger.
+   */
+  taskFinalization?: TaskExecutionFinalization;
+};
+
+export type TaskExecutionFinalization = {
+  taskId: string;
+  workerId: string;
+  status: "pending" | "queued" | "verifying" | "completed" | "failed" | "cancelled";
+  agentResponse: string | null;
+  remediationPlan?: typeof tasksTable.$inferSelect["remediationPlan"];
+  verificationResult?: typeof tasksTable.$inferSelect["verificationResult"];
+  completedAt?: Date | null;
+  log?: {
+    level: "info" | "warn" | "error";
+    message: string;
+    metadata?: Record<string, unknown>;
+  };
+  event?: {
+    type: string;
+    severity: "info" | "warning" | "error" | "success";
+    message: string;
+    payload?: Record<string, unknown>;
+  };
+  audit?: Omit<RecordAuditParams, "entityType" | "entityId" | "projectId" | "correlationId"> & {
+    action: RecordAuditParams["action"];
+    stateBefore?: Record<string, unknown> | null;
+    stateAfter?: Record<string, unknown> | null;
+  };
+  correlationId?: string | null;
 };
 
 export type FinalizeExecutionAcceptanceResult = {
@@ -97,13 +135,42 @@ export type PublicExecutionAcceptance = {
   disposition?: ExecutionAcceptanceDisposition;
 };
 
+function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDisposition | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<ExecutionAcceptanceDisposition>;
+  const reasonCodes = Array.isArray(raw.reasonCodes)
+    ? raw.reasonCodes.filter((code): code is string => typeof code === "string").slice(0, 8)
+    : [];
+  const outcome = raw.outcome === "SUCCEEDED" || raw.outcome === "FAILED" || raw.outcome === "INTERRUPTED"
+    ? raw.outcome
+    : undefined;
+  const recoveryState = raw.recoveryState === "NONE"
+    || raw.recoveryState === "REQUIRED"
+    || raw.recoveryState === "INCOMPLETE"
+    ? raw.recoveryState
+    : undefined;
+  const nextActionCode = ACCEPTANCE_NEXT_ACTION_CODES.includes(
+    raw.nextActionCode as AcceptanceNextActionCode,
+  ) ? raw.nextActionCode as AcceptanceNextActionCode : undefined;
+  const operatorAction = typeof raw.operatorAction === "string"
+    ? raw.operatorAction.slice(0, 240)
+    : undefined;
+  if (!outcome || !recoveryState || !nextActionCode || !operatorAction) return undefined;
+  return {
+    reasonCodes,
+    outcome,
+    ...(typeof raw.failureKind === "string" ? { failureKind: raw.failureKind.slice(0, 80) } : {}),
+    recoveryState,
+    nextActionCode,
+    operatorAction,
+  };
+}
+
 export function projectExecutionAcceptance(
   row: typeof aiExecutionAcceptancesTable.$inferSelect | undefined,
 ): PublicExecutionAcceptance | undefined {
   if (!row) return undefined;
-  const disposition = row.disposition && typeof row.disposition === "object"
-    ? row.disposition as ExecutionAcceptanceDisposition
-    : undefined;
+  const disposition = projectAcceptanceDisposition(row.disposition);
   return {
     attempt: row.attempt,
     terminalStatus: row.terminalStatus,
@@ -226,6 +293,26 @@ export async function finalizeExecutionAcceptance(
     if (existing) return { accepted: true, duplicate: true, acceptance: existing };
 
     const now = new Date();
+    let task: typeof tasksTable.$inferSelect | undefined;
+    if (params.taskFinalization) {
+      task = (await tx
+        .select()
+        .from(tasksTable)
+        .where(and(
+          eq(tasksTable.id, params.taskFinalization.taskId),
+          eq(tasksTable.projectId, execution.projectId),
+          eq(tasksTable.workerId, params.taskFinalization.workerId),
+          eq(tasksTable.status, "running"),
+        ))
+        .for("update"))[0];
+      if (!task || execution.linkedTaskId !== task.id) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "The task worker no longer owns a live task execution.",
+        };
+      }
+    }
     const workerOwnsLease = Boolean(
       params.workerId
       && execution.workerId === params.workerId
@@ -234,6 +321,16 @@ export async function finalizeExecutionAcceptance(
     );
     const cancellationWon = execution.status === "cancelling" || Boolean(execution.cancelRequestedAt);
     if (params.outcome === "SUCCEEDED" && (!workerOwnsLease || cancellationWon || execution.status !== "running")) {
+      return { accepted: false, duplicate: false, reason: "The worker no longer owns a live execution lease." };
+    }
+    if (
+      params.outcome !== "SUCCEEDED"
+      && params.workerId
+      && execution.status === "running"
+      && !workerOwnsLease
+      && !params.allowExpiredLease
+      && !cancellationWon
+    ) {
       return { accepted: false, duplicate: false, reason: "The worker no longer owns a live execution lease." };
     }
     if (params.outcome !== "SUCCEEDED" && params.workerId && execution.workerId
@@ -320,8 +417,20 @@ export async function finalizeExecutionAcceptance(
       sourceRevision: params.sourceRevision ?? null,
       candidateIdentity: params.candidateIdentity ?? null,
       createdAt: now,
-    }).returning();
-    if (!acceptance) return { accepted: false, duplicate: false, reason: "Acceptance insert failed." };
+    }).onConflictDoNothing().returning();
+    if (!acceptance) {
+      const [concurrentAcceptance] = await tx
+        .select()
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, execution.id),
+          eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+        ))
+        .limit(1);
+      return concurrentAcceptance
+        ? { accepted: true, duplicate: true, acceptance: concurrentAcceptance }
+        : { accepted: false, duplicate: false, reason: "Acceptance insert failed." };
+    }
 
     if (params.finalMessageId) {
       await tx.update(aiChatMessagesTable)
@@ -334,6 +443,65 @@ export async function finalizeExecutionAcceptance(
           errorMessage: outcome === "SUCCEEDED" ? null : safeError(params.error),
         })
         .where(eq(aiChatMessagesTable.id, params.finalMessageId));
+    }
+    if (params.taskFinalization && task) {
+      const taskUpdate: Partial<typeof tasksTable.$inferInsert> = {
+        status: params.taskFinalization.status,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        agentResponse: params.taskFinalization.agentResponse,
+        ...(params.taskFinalization.remediationPlan !== undefined
+          ? { remediationPlan: params.taskFinalization.remediationPlan }
+          : {}),
+        ...(params.taskFinalization.verificationResult !== undefined
+          ? { verificationResult: params.taskFinalization.verificationResult }
+          : {}),
+        completedAt: params.taskFinalization.completedAt ?? null,
+        updatedAt: now,
+      };
+      const [updatedTask] = await tx.update(tasksTable)
+        .set(taskUpdate)
+        .where(and(
+          eq(tasksTable.id, task.id),
+          eq(tasksTable.workerId, params.taskFinalization.workerId),
+          eq(tasksTable.status, "running"),
+        ))
+        .returning();
+      if (!updatedTask) throw new Error("task_state_changed_during_finalize");
+
+      const correlationId = params.taskFinalization.correlationId ?? execution.correlationId;
+      if (params.taskFinalization.log) {
+        await tx.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId: task.id,
+          level: params.taskFinalization.log.level,
+          message: params.taskFinalization.log.message,
+          metadata: params.taskFinalization.log.metadata ?? null,
+          correlationId: correlationId ?? undefined,
+        });
+      }
+      if (params.taskFinalization.event) {
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: params.taskFinalization.event.type,
+          projectId: execution.projectId,
+          taskId: task.id,
+          severity: params.taskFinalization.event.severity,
+          message: params.taskFinalization.event.message,
+          correlationId: correlationId ?? undefined,
+          payload: params.taskFinalization.event.payload ?? null,
+        });
+      }
+      if (params.taskFinalization.audit) {
+        await recordAuditInTransaction(tx, {
+          entityType: "task",
+          entityId: task.id,
+          projectId: execution.projectId,
+          correlationId: correlationId ?? undefined,
+          ...params.taskFinalization.audit,
+        });
+      }
     }
     const checkpoint = params.checkpoint ?? (() => {
       try {

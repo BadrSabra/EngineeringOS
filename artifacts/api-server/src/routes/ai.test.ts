@@ -22,6 +22,7 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  aiExecutionAcceptancesTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
   taskLogsTable,
@@ -4609,6 +4610,25 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     // needsHumanReview: false → finalStatus: "completed"
     expect(res.body.status).toBe("completed");
     expect(typeof res.body.agentResponse).toBe("string");
+
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+      .limit(1);
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(execution?.status).toBe("completed");
+    expect(acceptance).toMatchObject({
+      executionId: execution!.id,
+      attempt: execution!.attempt,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "ACCEPTED",
+    });
   });
 
   it("sets task status to 'verifying' when AI says needsHumanReview", async () => {
@@ -4708,6 +4728,24 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .limit(1);
     expect(task?.status).toBe("pending");
 
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+      .limit(1);
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(execution?.status).toBe("failed");
+    expect(acceptance).toMatchObject({
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "MODEL_OUTPUT_INVALID",
+      resumable: 1,
+    });
+
     // A taskLog entry must record the parse failure.
     const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
     const errLog = logs.find((l) => l.level === "error");
@@ -4759,6 +4797,23 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const events = await db.select().from(eventsTable).where(eq(eventsTable.taskId, taskId));
     expect(events.some((event) => event.type === "TaskCompleted" || event.type === "TaskVerifying")).toBe(false);
     expect(events.some((event) => event.type === "TaskExecutionFailed")).toBe(true);
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+      .limit(1);
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(execution?.status).toBe("failed");
+    expect(acceptance).toMatchObject({
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "QUALITY_REVIEW_LOW",
+      resumable: 1,
+    });
     const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.entityId, taskId));
     expect(audits.some((audit) => audit.action === "ai_executed")).toBe(false);
   });

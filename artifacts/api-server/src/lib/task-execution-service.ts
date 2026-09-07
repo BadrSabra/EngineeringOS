@@ -2,8 +2,6 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
-  aiExecutionsTable,
-  eventsTable,
   taskLogsTable,
   tasksTable,
 } from "@workspace/db";
@@ -23,9 +21,12 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
 } from "./ai-execution-state.js";
+import {
+  finalizeExecutionAcceptance,
+  type TaskExecutionFinalization,
+} from "./ai-execution-acceptance.js";
 import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
-import { recordAudit, recordAuditInTransaction } from "./audit.js";
 import { logger } from "./logger.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 import {
@@ -170,6 +171,138 @@ function failureReceipt(params: {
   });
 }
 
+function taskVerificationResult(params: {
+  receipt: AiTaskExecutionReceipt;
+  remediationPlan: typeof tasksTable.$inferSelect["remediationPlan"];
+}) {
+  const passed = params.receipt.terminalStatus === "SUCCEEDED" && !params.remediationPlan;
+  const incomplete = Boolean(params.remediationPlan) || params.receipt.terminalStatus === "BLOCKED";
+  return {
+    passed,
+    decision: incomplete
+      ? ("incomplete" as const)
+      : passed
+        ? ("verified" as const)
+        : params.receipt.terminalStatus === "CANCELLED"
+          ? ("cancelled" as const)
+          : ("failed" as const),
+    steps: [
+      ...(params.receipt.steps ?? []).map((name) => ({
+        name,
+        ...(!params.remediationPlan ? { kind: "automatic" as const } : {}),
+        passed,
+      })),
+      ...(params.remediationPlan ? pendingPlanVerificationSteps(params.remediationPlan) : []),
+    ],
+  };
+}
+
+async function finalizeTaskExecutionAcceptance(params: {
+  executionId: string;
+  workerId: string;
+  task: typeof tasksTable.$inferSelect;
+  receipt: AiTaskExecutionReceipt;
+  outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+  terminalStatus: "completed" | "failed" | "cancelled";
+  reasonCode: string;
+  retryable: boolean;
+  trigger: TaskExecutionTrigger;
+  finalStatus: "pending" | "queued" | "verifying" | "completed" | "failed" | "cancelled";
+  error?: string | null;
+  logLevel: "info" | "warn" | "error";
+  logMessage: string;
+  logMetadata?: Record<string, unknown>;
+}): Promise<{ accepted: boolean; duplicate: boolean }> {
+  const taskFinalization: TaskExecutionFinalization = {
+    taskId: params.task.id,
+    workerId: params.workerId,
+    status: params.finalStatus,
+    agentResponse: JSON.stringify(params.receipt),
+    remediationPlan: markRemediationPlanVerified(
+      params.task.remediationPlan,
+      false,
+    ),
+    verificationResult: taskVerificationResult({
+      receipt: params.receipt,
+      remediationPlan: params.task.remediationPlan,
+    }),
+    completedAt: params.finalStatus === "completed" ? new Date() : null,
+    correlationId: params.receipt.correlationId,
+    log: {
+      level: params.logLevel,
+      message: params.logMessage,
+      metadata: params.logMetadata,
+    },
+    event: {
+      type: params.outcome === "SUCCEEDED"
+        ? params.finalStatus === "completed" ? "TaskCompleted" : "TaskVerifying"
+        : params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
+      severity: params.outcome === "SUCCEEDED"
+        ? params.finalStatus === "completed" ? "success" : "warning"
+        : "error",
+      message: params.outcome === "SUCCEEDED"
+        ? `AI executed "${params.task.title}" → ${params.finalStatus}`
+        : `AI execution of "${params.task.title}" failed`,
+      payload: {
+        executionId: params.executionId,
+        operationId: params.executionId,
+        revision: params.receipt.revision,
+        provider: params.receipt.provider,
+        model: params.receipt.model,
+        attempt: params.receipt.attempt,
+        attempts: params.receipt.attempts,
+        durationMs: params.receipt.durationMs,
+        terminalStatus: params.receipt.terminalStatus,
+        terminalReason: params.receipt.terminalReason,
+        trigger: params.trigger,
+        retryable: params.retryable,
+      },
+    },
+    audit: {
+      action: params.outcome === "SUCCEEDED"
+        ? params.trigger === "automatic" ? "ai_auto_executed" : "ai_executed"
+        : params.trigger === "automatic" ? "ai_auto_execution_failed" : "execution_failed",
+      stateBefore: { status: params.task.status },
+      stateAfter: {
+        status: params.finalStatus,
+        executionId: params.executionId,
+        operationId: params.executionId,
+        revision: params.receipt.revision,
+        terminalStatus: params.receipt.terminalStatus,
+        terminalReason: params.receipt.terminalReason,
+      },
+    },
+  };
+  const finalized = await finalizeExecutionAcceptance({
+    executionId: params.executionId,
+    workerId: params.workerId,
+    finalizationKey: `execution:${params.executionId}:attempt:${params.receipt.attempt}:${params.reasonCode}`,
+    outcome: params.outcome,
+    terminalStatus: params.terminalStatus,
+    reasonCode: params.reasonCode,
+    recoveryState: params.outcome === "SUCCEEDED" ? "NONE" : params.outcome === "INTERRUPTED" ? "INCOMPLETE" : "REQUIRED",
+    resumable: params.retryable,
+    error: params.error,
+    recipeReceipt: params.receipt,
+    sourceRevision: params.receipt.revision,
+    taskFinalization,
+  });
+  if (finalized.duplicate) {
+    const [projectedTask] = await db
+      .select({ status: tasksTable.status, workerId: tasksTable.workerId })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, params.task.id))
+      .limit(1);
+    return {
+      accepted: finalized.accepted
+        && projectedTask?.status === params.finalStatus
+        && projectedTask.workerId === null,
+      duplicate: true,
+    };
+  }
+  return { accepted: finalized.accepted, duplicate: false };
+}
+
 /**
  * The single task execution state machine used by HTTP and queue callers.
  * The queue is only a concurrency limiter; ai_executions and the task lease
@@ -187,6 +320,7 @@ export async function executeTaskLifecycle(params: {
   if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
   const allowed = params.expectedStatuses ?? ["pending", "queued", "verifying"];
   const initialStatus = before.status as TaskStatus;
+  const rollbackStatus = before.status === "running" ? "verifying" : before.status;
   const correlationId = randomUUID();
   const workerId = `task-worker:${randomUUID()}`;
   const idempotencyKey = `${before.id}:attempt:${before.retryCount}`;
@@ -264,15 +398,32 @@ export async function executeTaskLifecycle(params: {
     checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
   });
   if (!initialCheckpointed) {
-    await failAiExecution({
+    const failure = failureReceipt({
+      executionId,
+      correlationId,
+      revision: params.workspaceRevision,
+      provider: executionProvider,
+      attempt: before.retryCount,
+      durationMs: Date.now() - startedAt,
+      stages,
+      code: "checkpoint_persistence_failed",
+    });
+    await finalizeTaskExecutionAcceptance({
       executionId,
       workerId,
+      task: before,
+      receipt: failure,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "CHECKPOINT_PERSISTENCE_FAILED",
+      retryable: true,
+      trigger: params.trigger,
+      finalStatus: rollbackStatus,
       error: "Execution checkpoint could not be persisted after claim.",
+      logLevel: "error",
+      logMessage: "AI task execution could not persist its initial checkpoint",
+      logMetadata: { stage: "claim", code: "checkpoint_persistence_failed" },
     });
-    await db.update(tasksTable).set({
-      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
-      updatedAt: new Date(),
-    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
     return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
   }
   const heartbeat = setInterval(() => {
@@ -342,32 +493,22 @@ export async function executeTaskLifecycle(params: {
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
       });
       const error = `model_output_invalid:${result._parseError.code}`;
-      await failAiExecution({ executionId, workerId, error });
-      await db.update(tasksTable).set({
-        status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
-        updatedAt: new Date(), agentResponse: null,
-      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
-      await log("error", "AI task output was invalid", { stage: "parse", code: result._parseError.code });
-      await db.insert(eventsTable).values({
-        id: randomUUID(),
-        type: params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
-        projectId: before.projectId,
-        taskId: before.id,
-        severity: "error",
-        message: `AI execution of "${before.title}" failed`,
-        correlationId,
-        payload: {
-          executionId,
-          operationId: executionId,
-          revision: params.workspaceRevision ?? null,
-          attempt: before.retryCount,
-          stage: "parse",
-          code: "model_output_invalid",
-          retryable: true,
-        },
-      }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task parse failure event write failed"));
-      await db.update(tasksTable).set({ agentResponse: JSON.stringify(parseReceipt) })
-        .where(and(eq(tasksTable.id, before.id), eq(tasksTable.correlationId, correlationId)));
+      await finalizeTaskExecutionAcceptance({
+        executionId,
+        workerId,
+        task: before,
+        receipt: parseReceipt,
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "MODEL_OUTPUT_INVALID",
+        retryable: true,
+        trigger: params.trigger,
+        finalStatus: rollbackStatus,
+        error,
+        logLevel: "error",
+        logMessage: "AI task output was invalid",
+        logMetadata: { stage: "parse", code: result._parseError.code },
+      });
       return {
         ok: false,
         status: "failed",
@@ -391,46 +532,28 @@ export async function executeTaskLifecycle(params: {
         stages,
         code: quality.code,
       });
-      await failAiExecution({ executionId, workerId, error: quality.code });
-      await db.update(tasksTable).set({
-        status: before.status,
-        workerId: null,
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-        agentResponse: JSON.stringify(qualityReceipt),
-        updatedAt: new Date(),
-      }).where(and(
-        eq(tasksTable.id, before.id),
-        eq(tasksTable.workerId, workerId),
-        eq(tasksTable.status, "running"),
-      ));
-      await log("error", "AI task output failed the quality gate", {
-        stage: "quality",
-        code: quality.code,
-        score: quality.score,
-        threshold: quality.threshold,
-        reasons: quality.reasons,
-      });
-      await db.insert(eventsTable).values({
-        id: randomUUID(),
-        type: params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
-        projectId: before.projectId,
-        taskId: before.id,
-        severity: "error",
-        message: `AI execution of "${before.title}" failed quality checks`,
-        correlationId,
-        payload: {
-          executionId,
-          operationId: executionId,
-          revision: params.workspaceRevision ?? null,
-          attempt: before.retryCount,
+      await finalizeTaskExecutionAcceptance({
+        executionId,
+        workerId,
+        task: before,
+        receipt: qualityReceipt,
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "QUALITY_REVIEW_LOW",
+        retryable: true,
+        trigger: params.trigger,
+        finalStatus: rollbackStatus,
+        error: quality.code,
+        logLevel: "error",
+        logMessage: "AI task output failed the quality gate",
+        logMetadata: {
           stage: "quality",
           code: quality.code,
           score: quality.score,
           threshold: quality.threshold,
-          retryable: true,
+          reasons: quality.reasons,
         },
-      }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task quality failure event write failed"));
+      });
       return {
         ok: false,
         status: "failed",
@@ -453,108 +576,29 @@ export async function executeTaskLifecycle(params: {
       durationMs: Date.now() - startedAt, stages,
       attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
     });
-    const [updated] = await db.transaction(async (tx) => {
-      // Lock the durable execution before touching the task. Cancellation
-      // updates this row first, so a cancelling worker cannot publish a
-      // success after cancellation has won the race.
-      const [execution] = await tx
-        .select({ status: aiExecutionsTable.status })
-        .from(aiExecutionsTable)
-        .where(and(
-          eq(aiExecutionsTable.id, executionId),
-          eq(aiExecutionsTable.workerId, workerId),
-        ))
-        .for("update");
-      if (!execution || execution.status !== "running" || executionAbortController.signal.aborted) {
-        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
-      }
-      const [row] = await tx.update(tasksTable).set({
-        status: finalStatus,
-        workerId: null,
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-        agentResponse: JSON.stringify(taskReceipt),
-        verificationResult: {
-          passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
-          decision: before.remediationPlan
-            ? ("incomplete" as const)
-            : taskReceipt.terminalStatus === "SUCCEEDED"
-              ? ("verified" as const)
-              : ("failed" as const),
-          steps: [
-            ...(taskReceipt.steps ?? []).map((name) => ({
-              name,
-              ...(before.remediationPlan ? {} : { kind: "automatic" as const }),
-              passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
-            })),
-            ...pendingPlanVerificationSteps(before.remediationPlan),
-          ],
-        },
-        remediationPlan: markRemediationPlanVerified(
-          before.remediationPlan,
-          false,
-        ),
-        completedAt: finalStatus === "completed" ? new Date() : null,
-        updatedAt: new Date(),
-      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running"))).returning();
-      if (!row) throw new Error("task_state_changed_during_finalize");
-      await tx.insert(taskLogsTable).values({
-        id: randomUUID(), taskId: before.id,
-        level: finalStatus === "completed" ? "info" : "warn",
-        message: `AI task ${finalStatus}: ${taskReceipt.summary}`,
-        metadata: { receipt: taskReceipt, executionId, trigger: params.trigger }, correlationId,
-      });
-      await tx.insert(eventsTable).values({
-        id: randomUUID(), type: finalStatus === "completed" ? "TaskCompleted" : "TaskVerifying",
-        projectId: before.projectId, taskId: before.id,
-        severity: finalStatus === "completed" ? "success" : "warning",
-        message: `AI executed "${before.title}" → ${finalStatus}`,
-        correlationId,
-        payload: {
-          executionId,
-          operationId: executionId,
-          revision: taskReceipt.revision,
-          provider: taskReceipt.provider,
-          model: taskReceipt.model,
-          attempt: taskReceipt.attempt,
-          attempts: taskReceipt.attempts,
-          durationMs: taskReceipt.durationMs,
-          terminalStatus: taskReceipt.terminalStatus,
-          terminalReason: taskReceipt.terminalReason,
-          trigger: params.trigger,
-        },
-      });
-      await recordAuditInTransaction(tx, {
-        entityType: "task", entityId: before.id, action: "ai_executed",
-        projectId: before.projectId, stateBefore: { status: before.status },
-        stateAfter: {
-          status: finalStatus, executionId, operationId: executionId,
-          revision: taskReceipt.revision, terminalStatus: taskReceipt.terminalStatus,
-          terminalReason: taskReceipt.terminalReason,
-        },
-        correlationId,
-      });
-      await tx.update(aiExecutionsTable).set({
-        status: "completed",
-        finalMessageId: executionId,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-        checkpoint: JSON.stringify({
-          stage: "completed",
-          sequence: Date.now(),
-          evidenceVerdict: finalStatus === "completed" ? "PROVEN" : "NOT_RECORDED",
-          evidenceReason: finalStatus === "completed" ? "Structured task receipt verified." : "Human review remains required.",
-          updatedAt: new Date().toISOString(),
-        }),
-      }).where(and(
-        eq(aiExecutionsTable.id, executionId),
-        eq(aiExecutionsTable.workerId, workerId),
-        eq(aiExecutionsTable.status, "running"),
-      ));
-      return [row];
+    const finalized = await finalizeTaskExecutionAcceptance({
+      executionId,
+      workerId,
+      task: before,
+      receipt: taskReceipt,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: finalStatus === "completed" ? "ACCEPTED" : "HUMAN_REVIEW_REQUIRED",
+      retryable: false,
+      trigger: params.trigger,
+      finalStatus,
+      logLevel: finalStatus === "completed" ? "info" : "warn",
+      logMessage: `AI task ${finalStatus}: ${safeText(taskReceipt.summary)}`,
+      logMetadata: { receipt: taskReceipt, executionId, trigger: params.trigger },
     });
+    if (!finalized.accepted) {
+      throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });
+    }
+    const [updated] = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, before.id))
+      .limit(1);
     invalidateContextCache(before.projectId);
     return { ok: true, status: finalStatus, task: updated, executionId };
   } catch (error) {
@@ -567,47 +611,25 @@ export async function executeTaskLifecycle(params: {
       durationMs: Date.now() - startedAt, stages, code, cancelled,
     });
     const message = safeText(code, 120);
-    await failAiExecution({ executionId, workerId, error: message, cancelled });
-    await db.update(tasksTable).set({
-      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
-      agentResponse: JSON.stringify(failure), updatedAt: new Date(),
-    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
-    await log("error", stage === "context"
-      ? "AI execution failed while building project context"
-      : "AI task execution failed", { stage, code: "provider_or_context_failure" });
-    await db.insert(eventsTable).values({
-      id: randomUUID(),
-      type: params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
-      projectId: before.projectId,
-      taskId: before.id,
-      severity: "error",
-      message: `AI execution of "${before.title}" failed`,
-      correlationId,
-      payload: {
-        executionId,
-        operationId: executionId,
-        revision: params.workspaceRevision ?? null,
-        provider: failure.provider,
-        model: failure.model,
-        attempt: failure.attempt,
-        durationMs: failure.durationMs,
-        terminalStatus: failure.terminalStatus,
-        terminalReason: failure.terminalReason,
-        stage,
-        retryable: !cancelled,
-      },
-    }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task failure event write failed"));
-    await recordAudit({
-      entityType: "task", entityId: before.id, action: "execution_failed",
-      projectId: before.projectId, stateBefore: { status: "running" },
-      stateAfter: {
-        status: "failed",
-        executionId,
-        operationId: executionId,
-        revision: params.workspaceRevision ?? null,
-        terminalStatus: failure.terminalStatus,
-        terminalReason: failure.terminalReason,
-      }, correlationId,
+    await finalizeTaskExecutionAcceptance({
+      executionId,
+      workerId,
+      task: before,
+      receipt: failure,
+      outcome: cancelled ? "INTERRUPTED" : "FAILED",
+      terminalStatus: cancelled ? "cancelled" : "failed",
+      reasonCode: cancelled
+        ? "EXECUTION_CANCELLED"
+        : stage === "context" ? "CONTEXT_BUILD_FAILED" : "EXECUTION_FAILED",
+      retryable: !cancelled,
+      trigger: params.trigger,
+      finalStatus: rollbackStatus,
+      error: message,
+      logLevel: "error",
+      logMessage: stage === "context"
+        ? "AI execution failed while building project context"
+        : "AI task execution failed",
+      logMetadata: { stage, code: "provider_or_context_failure" },
     });
     invalidateContextCache(before.projectId);
     return {
