@@ -1,21 +1,20 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-09-06T12:56:54.455Z",
+  "generatedAt": "2026-09-07T01:35:17.154Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
   "summary": {
     "totalCases": 13,
-    "passedCases": 10,
-    "failedCases": 2,
+    "passedCases": 11,
+    "failedCases": 1,
     "skippedCases": 1,
-    "blockingFailures": 2,
+    "blockingFailures": 1,
     "informationalFailures": 0
   },
   "blockers": [
-    "AI_SSE_AND_REDACTION_FAILED_1",
-    "AI_OPERATIONAL_SAFETY_FAILED_1"
+    "OPENAPI_CLIENT_PARITY_FAILED_1"
   ],
   "checks": [
     {
@@ -28,7 +27,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 32073
+      "durationMs": 33042
     },
     {
       "id": "dashboard-typecheck",
@@ -40,7 +39,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 5658
+      "durationMs": 6182
     },
     {
       "id": "openapi-client-parity",
@@ -52,8 +51,15 @@
         "Zod 3 generated-schema compatibility"
       ],
       "enabled": true,
-      "status": "passed",
-      "durationMs": 6275
+      "status": "failed",
+      "failureCode": "OPENAPI_CLIENT_PARITY_FAILED_1",
+      "diagnostic": {
+        "classification": "harness_failure",
+        "code": "HARNESS_EXECUTION_FAILED",
+        "testFiles": [],
+        "testIds": []
+      },
+      "durationMs": 7728
     },
     {
       "id": "truth-flow-parity",
@@ -65,7 +71,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1121
+      "durationMs": 1475
     },
     {
       "id": "ai-contract-and-json",
@@ -80,7 +86,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 40931
+      "durationMs": 59548
     },
     {
       "id": "ai-structured-review-fallback",
@@ -96,7 +102,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1460
+      "durationMs": 1486
     },
     {
       "id": "ai-capability-probe-provider-matrix",
@@ -112,7 +118,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 3706
+      "durationMs": 3856
     },
     {
       "id": "ai-sse-and-redaction",
@@ -126,18 +132,8 @@
         "resume"
       ],
       "enabled": true,
-      "status": "failed",
-      "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "diagnostic": {
-        "classification": "harness_failure",
-        "code": "HARNESS_EXECUTION_FAILED",
-        "testFiles": [
-          "src/routes/ai-stream-integration.test.ts",
-          "src/routes/ai/chat-sse.test.ts"
-        ],
-        "testIds": []
-      },
-      "durationMs": 45162
+      "status": "passed",
+      "durationMs": 30077
     },
     {
       "id": "ai-operational-safety",
@@ -152,21 +148,8 @@
         "Terminal"
       ],
       "enabled": true,
-      "status": "failed",
-      "failureCode": "AI_OPERATIONAL_SAFETY_FAILED_1",
-      "diagnostic": {
-        "classification": "assertion_failure",
-        "code": "TEST_ASSERTION_FAILED",
-        "testFiles": [
-          "src/routes/ai-repair-loop-e2e.test.ts",
-          "src/lib/ai-repair-validation.test.ts",
-          "src/lib/job-concurrency.test.ts"
-        ],
-        "testIds": [
-          "blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal 122ms"
-        ]
-      },
-      "durationMs": 55889
+      "status": "passed",
+      "durationMs": 59848
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -181,7 +164,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 864
+      "durationMs": 736
     },
     {
       "id": "benchmark-baseline-regression",
@@ -194,7 +177,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1125
+      "durationMs": 1039
     },
     {
       "id": "benchmark-runtime-oracle-preflight",
@@ -207,7 +190,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7115
+      "durationMs": 7586
     },
     {
       "id": "dashboard-preview-contract",
