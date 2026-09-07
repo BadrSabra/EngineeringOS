@@ -6324,7 +6324,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
-              serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+              serializeToolTrace(traceSteps, true, streamAuditScopeDescription, result.taskResult),
               projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ),
             executionLedgerSnapshot,
@@ -6508,7 +6508,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             })(),
           }
         : undefined;
-      const capabilityProbeAccepted = capabilityProbeTerminal?.status === "COMPLETE";
+      const capabilityProbeAccepted =
+        capabilityProbeTerminal?.status === "COMPLETE"
+        && result.taskResult?.kind === "CAPABILITY_PROBE_RESULT"
+        && result.taskResult.score === 7
+        && result.taskResult.coverage.complete === true;
       if (capabilityProbeAccepted) {
         // A completed Capability Probe is proven by its retained-source
         // contract, not by a separate code-validation artifact. Keep the
@@ -6647,14 +6651,14 @@ router.post("/ai/chat/stream", async (req, res) => {
     const publicToolTrace = streamTurnIntent.requiresEvidence
         ? appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
-              serializeToolTrace(traceSteps, false, streamAuditScopeDescription),
+              serializeToolTrace(traceSteps, false, streamAuditScopeDescription, result.taskResult),
               projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ),
             executionLedgerSnapshot,
           )
       : assistantMsg.toolTrace;
     const forensicDiagnostic = streamTurnIntent.requiresEvidence
-      ? deriveForensicDiagnostic(traceSteps)
+      ? deriveForensicDiagnostic(traceSteps, { capabilityProbeResult: result.taskResult })
       : undefined;
     // The database row is intentionally retained with full diagnostics, but
     // every SSE projection of that row must use the public trace.
