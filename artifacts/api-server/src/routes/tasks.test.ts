@@ -87,6 +87,67 @@ describe("Task lifecycle", () => {
     expect(list.body.some((t: { id: string }) => t.id === taskId)).toBe(true);
   });
 
+  it("includes the allowlisted current acceptance in the task list", async () => {
+    const { projectId, taskId } = await createTask();
+    const executionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: executionId,
+      attempt: 1,
+      resumeTokenHash: "task-list-acceptance-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "completed",
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 1,
+      finalizationKey: randomUUID(),
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "ACCEPTED",
+      nextActionCode: "NONE",
+      disposition: {
+        reasonCodes: ["ACCEPTED"],
+        outcome: "SUCCEEDED",
+        recoveryState: "NONE",
+        nextActionCode: "NONE",
+        operatorAction: "No operator action is required.",
+        providerPayload: "must not cross the public boundary",
+      },
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+    });
+
+    const list = await request(app).get("/api/tasks").query({ projectId });
+    expect(list.status).toBe(200);
+    const listedTask = list.body.find((task: { id: string }) => task.id === taskId);
+    expect(listedTask.acceptance).toEqual({
+      attempt: 1,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "ACCEPTED",
+      nextActionCode: "NONE",
+      evidenceComplete: true,
+      evidenceRequired: true,
+      resumable: false,
+      disposition: {
+        reasonCodes: ["ACCEPTED"],
+        outcome: "SUCCEEDED",
+        recoveryState: "NONE",
+        nextActionCode: "NONE",
+        operatorAction: "No operator action is required.",
+      },
+    });
+    expect(JSON.stringify(listedTask)).not.toContain("providerPayload");
+  });
+
   it("returns the allowlisted acceptance for the task's current execution attempt", async () => {
     const { projectId, taskId } = await createTask();
     const executionId = randomUUID();

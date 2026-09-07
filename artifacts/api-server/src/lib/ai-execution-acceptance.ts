@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   aiChatMessagesTable,
   aiExecutionAcceptancesTable,
@@ -215,6 +215,77 @@ export async function getPublicTaskExecutionAcceptance(
     .limit(1);
 
   return projectExecutionAcceptance(acceptance);
+}
+
+/**
+ * Resolve the current public acceptance projection for a list of standalone
+ * tasks without exposing execution/provider rows or issuing one query per
+ * task. The newest execution attempt wins, matching the detail endpoint.
+ */
+export async function getPublicTaskExecutionAcceptances(
+  taskIds: readonly string[],
+): Promise<Map<string, PublicExecutionAcceptance>> {
+  const result = new Map<string, PublicExecutionAcceptance>();
+  if (taskIds.length === 0) return result;
+
+  const executions = await db
+    .select({
+      id: aiExecutionsTable.id,
+      linkedTaskId: aiExecutionsTable.linkedTaskId,
+      attempt: aiExecutionsTable.attempt,
+    })
+    .from(aiExecutionsTable)
+    .where(inArray(aiExecutionsTable.linkedTaskId, [...taskIds]))
+    .orderBy(
+      desc(aiExecutionsTable.attempt),
+      desc(aiExecutionsTable.updatedAt),
+      desc(aiExecutionsTable.id),
+    );
+
+  const latestExecutionByTask = new Map<
+    string,
+    { id: string; attempt: number }
+  >();
+  for (const execution of executions) {
+    if (
+      execution.linkedTaskId &&
+      !latestExecutionByTask.has(execution.linkedTaskId)
+    ) {
+      latestExecutionByTask.set(execution.linkedTaskId, {
+        id: execution.id,
+        attempt: execution.attempt,
+      });
+    }
+  }
+
+  const latestExecutions = [...latestExecutionByTask.values()];
+  if (latestExecutions.length === 0) return result;
+
+  const acceptances = await db
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(
+      inArray(
+        aiExecutionAcceptancesTable.executionId,
+        latestExecutions.map((execution) => execution.id),
+      ),
+    );
+  const acceptanceByExecution = new Map(
+    acceptances.map((acceptance) => [
+      `${acceptance.executionId}:${acceptance.attempt}`,
+      acceptance,
+    ]),
+  );
+
+  for (const [taskId, execution] of latestExecutionByTask) {
+    const acceptance = acceptanceByExecution.get(
+      `${execution.id}:${execution.attempt}`,
+    );
+    const projected = projectExecutionAcceptance(acceptance);
+    if (projected) result.set(taskId, projected);
+  }
+
+  return result;
 }
 
 const MAX_READ_BYTES = 256 * 1024;

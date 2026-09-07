@@ -34,7 +34,10 @@ import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
 } from "../lib/remediation-plan.js";
-import { getPublicTaskExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
+import {
+  getPublicTaskExecutionAcceptance,
+  getPublicTaskExecutionAcceptances,
+} from "../lib/ai-execution-acceptance.js";
 
 const router = Router();
 
@@ -86,7 +89,15 @@ router.get("/tasks", async (req, res) => {
     .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
     .limit(pagination.pageSize)
     .offset(pagination.offset);
-  return res.json(tasks);
+  const acceptanceByTaskId = await getPublicTaskExecutionAcceptances(
+    tasks.map((task) => task.id),
+  );
+  return res.json(
+    tasks.map((task) => {
+      const acceptance = acceptanceByTaskId.get(task.id);
+      return acceptance ? { ...task, acceptance } : task;
+    }),
+  );
 });
 
 // Create task

@@ -682,6 +682,16 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
 // is statically checked against the real API values — no `as any` casts needed.
 type TaskStatusFilter = 'pending' | 'queued' | 'running' | 'verifying' | 'completed' | 'failed' | 'cancelled';
 type TaskPriorityFilter = 'p0' | 'p1' | 'p2' | 'p3';
+type TaskAcceptanceFilter = 'accepted' | 'interrupted' | 'failed' | 'recovery-required';
+
+function acceptanceFilterKey(acceptance: TaskAcceptance): TaskAcceptanceFilter {
+  if (acceptance.disposition?.recoveryState && acceptance.disposition.recoveryState !== 'NONE') {
+    return 'recovery-required';
+  }
+  if (acceptance.outcome === 'SUCCEEDED') return 'accepted';
+  if (acceptance.outcome === 'INTERRUPTED') return 'interrupted';
+  return 'failed';
+}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -689,6 +699,7 @@ export default function Tasks() {
   const queryClient = useQueryClient();
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');
+  const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
@@ -712,9 +723,11 @@ export default function Tasks() {
   const rollbackTask = useRollbackTask();
 
   const visibleTasks = tasks?.filter((t) =>
-    !searchTerm ||
-    t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase()),
+    (!searchTerm ||
+      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase())) &&
+    (!filterAcceptance ||
+      (t.acceptance && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback', taskId: string) => {
@@ -794,6 +807,18 @@ export default function Tasks() {
               <option value="p2">P2 — Medium</option>
               <option value="p3">P3 — Low</option>
             </select>
+            <select
+              aria-label="Filter by acceptance"
+              value={filterAcceptance}
+              onChange={(e) => setFilterAcceptance(e.target.value as TaskAcceptanceFilter | '')}
+              className="bg-transparent text-sm px-2 py-1 outline-none text-foreground min-w-[145px]"
+            >
+              <option value="">All Acceptance</option>
+              <option value="accepted">Accepted</option>
+              <option value="interrupted">Interrupted</option>
+              <option value="failed">Failed</option>
+              <option value="recovery-required">Recovery required</option>
+            </select>
           </div>
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -817,14 +842,23 @@ export default function Tasks() {
       </div>
 
       {/* Active filter badge */}
-      {searchTerm && (
+      {(searchTerm || filterAcceptance) && (
         <div className="shrink-0 flex items-center gap-2 text-xs">
           <span className="text-muted-foreground">Showing</span>
           <span className="font-semibold">{visibleTasks.length}</span>
           <span className="text-muted-foreground">of {tasks?.length ?? 0} tasks matching</span>
-          <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded font-mono">
-            {searchTerm}
-          </span>
+          {searchTerm && (
+            <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded font-mono">
+              {searchTerm}
+            </span>
+          )}
+          {filterAcceptance && (
+            <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded">
+              {filterAcceptance === 'recovery-required'
+                ? 'Recovery required'
+                : filterAcceptance.charAt(0).toUpperCase() + filterAcceptance.slice(1)}
+            </span>
+          )}
         </div>
       )}
 
@@ -844,11 +878,13 @@ export default function Tasks() {
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <TerminalSquare className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-lg font-semibold mb-2">
-              {searchTerm ? 'No tasks match your search' : 'No tasks found'}
+              {filterAcceptance
+                ? `No tasks with ${filterAcceptance === 'recovery-required' ? 'recovery required' : filterAcceptance} acceptance`
+                : searchTerm ? 'No tasks match your search' : 'No tasks found'}
             </h3>
             <p className="text-muted-foreground text-sm">
-              {searchTerm
-                ? 'Try a different search term or clear the filter.'
+              {filterAcceptance || searchTerm
+                ? 'Try a different search term or clear the filters.'
                 : 'Tasks are created automatically when a project scan detects issues.'}
             </p>
           </div>
@@ -878,6 +914,17 @@ export default function Tasks() {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm truncate">{task.title}</span>
                     <PriorityBadge priority={task.priority} />
+                    {task.acceptance && (() => {
+                      const acceptance = acceptanceStatus(task.acceptance);
+                      return (
+                        <span
+                          aria-label={`Acceptance: ${acceptance.label}`}
+                          className={`rounded-full border border-current/25 px-2 py-0.5 text-[10px] font-semibold ${acceptance.className}`}
+                        >
+                          {acceptance.label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="text-xs text-muted-foreground font-mono flex items-center gap-3">
                     <span

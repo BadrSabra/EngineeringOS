@@ -173,6 +173,74 @@ describe('Tasks recovery rendering', () => {
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
   });
 
+  it('shows public acceptance badges and filters task rows by acceptance outcome', () => {
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [
+        {
+          id: 'task-accepted',
+          projectId: 'project-1',
+          title: 'Accepted task',
+          status: 'completed',
+          priority: 'p1',
+          createdAt: '2026-08-25T10:00:00.000Z',
+          updatedAt: '2026-08-25T10:01:00.000Z',
+          acceptance: {
+            attempt: 1,
+            terminalStatus: 'completed',
+            outcome: 'SUCCEEDED',
+            reasonCode: 'ACCEPTED',
+            nextActionCode: 'NONE',
+            evidenceComplete: true,
+            evidenceRequired: true,
+            resumable: false,
+          },
+        },
+        {
+          id: 'task-recovery',
+          projectId: 'project-1',
+          title: 'Recovery task',
+          status: 'failed',
+          priority: 'p1',
+          createdAt: '2026-08-25T10:00:00.000Z',
+          updatedAt: '2026-08-25T10:01:00.000Z',
+          acceptance: {
+            attempt: 1,
+            terminalStatus: 'failed',
+            outcome: 'FAILED',
+            reasonCode: 'EXECUTION_FAILED',
+            nextActionCode: 'RESUME_ALLOWED',
+            evidenceComplete: false,
+            evidenceRequired: false,
+            resumable: true,
+            disposition: {
+              reasonCodes: ['EXECUTION_FAILED'],
+              outcome: 'FAILED',
+              recoveryState: 'REQUIRED',
+              nextActionCode: 'RESUME_ALLOWED',
+              operatorAction: 'Resume the saved task checkpoint.',
+            },
+          },
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+
+    renderPage();
+    expect(screen.getByLabelText('Acceptance: Accepted')).toBeInTheDocument();
+    expect(screen.getByLabelText('Acceptance: Recovery required')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by acceptance' }), {
+      target: { value: 'accepted' },
+    });
+    expect(screen.getByText('Accepted task')).toBeInTheDocument();
+    expect(screen.queryByText('Recovery task')).not.toBeInTheDocument();
+  });
+
   it('does not expose raw provider diagnostics or credentials in task details', () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
