@@ -4157,6 +4157,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
   let resumeCheckpoint: AiExecutionCheckpoint | undefined;
   let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
+  let settleExecutionCheckpoint: () => Promise<void> = async () => undefined;
   const providerAttemptSummary: NonNullable<AiExecutionCheckpoint["providerAttempts"]> = [];
   const rememberProviderAttempt = (attempt: {
     provider: string;
@@ -4616,6 +4617,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
     let executionLedgerSnapshot: ExecutionLedgerPublicSnapshot | undefined;
     let checkpointChain: Promise<void> = Promise.resolve();
+    settleExecutionCheckpoint = async () => {
+      await checkpointChain;
+    };
     let executionEvidenceVerdict: FlightDeckEvidenceVerdict = "NOT_RECORDED";
     let executionEvidenceReason = proofRequired
       ? "No accepted validation evidence has been recorded."
@@ -6715,6 +6719,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     if (aiExecution && !executionTerminal) {
       // The generic catch is the last place that still knows the original
       // failure. Persist it before finally can apply its generic safeguard.
+      await settleExecutionCheckpoint();
       await failAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
@@ -6760,6 +6765,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     return;
   } finally {
     if (aiExecution && !executionTerminal) {
+      await settleExecutionCheckpoint();
       await failAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
