@@ -59,6 +59,7 @@ import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-
 import type {
   AiStreamErrorEvent,
   AiAcceptanceDisposition,
+  AiTerminalProjection,
   AiExecutionNodeSnapshot,
   AiScanAnalysis,
   AiCodeReview,
@@ -203,6 +204,7 @@ type ChatMessage = {
   retryable?: boolean;
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   acceptanceDisposition?: AcceptanceDispositionView | null;
+  terminalProjection?: AiTerminalProjection | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
   createdAt: string;
 };
@@ -379,6 +381,7 @@ type ActiveExecution = {
   resumeToken?: string;
   message: string;
   buildPlanMessageId?: string;
+  terminalProjection?: AiTerminalProjection | null;
 };
 
 function persistedCompletedReadFiles(execution: unknown): string[] {
@@ -7277,6 +7280,7 @@ type AgentExecutionProofStatus = {
   evidenceVerdict?: 'PROVEN' | 'PARTIAL' | 'UNAVAILABLE' | 'BLOCKED' | 'NOT_RECORDED';
   evidenceReason?: string | null;
   acceptanceDisposition?: AcceptanceDispositionView | null;
+  terminalProjection?: AiTerminalProjection | null;
   acceptance?: {
     attempt: number;
     terminalStatus: string;
@@ -7609,6 +7613,7 @@ type AuditPreview = ExportAiExecutionAudit200;
 
 function AgentExecutionProofPanel({
   execution,
+  terminalProjection,
   executionId,
   executionNodes,
   busy,
@@ -7637,6 +7642,7 @@ function AgentExecutionProofPanel({
   forensicVerdict,
 }: {
   execution?: AgentExecutionProofStatus | null;
+  terminalProjection?: AiTerminalProjection | null;
   executionId?: string;
   executionNodes: AiExecutionNodeSnapshot[];
   busy: boolean;
@@ -7676,6 +7682,7 @@ function AgentExecutionProofPanel({
   forensicVerdict?: FinalForensicVerdict | null;
 }) {
   const persistedStatus = execution?.status;
+  const projectedTerminal = execution?.terminalProjection ?? terminalProjection;
   const flightState = execution?.flightState;
   const status = busy
     ? persistedStatus ?? 'running'
@@ -7917,6 +7924,15 @@ function AgentExecutionProofPanel({
           {execution?.terminalReason && (
             <p className="mt-1 break-words text-[10px] leading-4 text-amber-200">
               Terminal reason: {execution.terminalReason}
+            </p>
+          )}
+          {projectedTerminal && (
+            <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">
+              Terminal identity: attempt {projectedTerminal.attempt}
+              {' · '}
+              {projectedTerminal.outcome.replace('_', ' ')}
+              {' · '}
+              {projectedTerminal.resumable ? 'resume available' : 'not resumable'}
             </p>
           )}
           {execution?.evidenceReason && (
@@ -10243,8 +10259,24 @@ export default function AiChat() {
           setLiveEvidenceIntegrity(null);
           setLiveVerdictScope(null);
            setLiveAuditScopeDescription(null);
-           activeExecutionRef.current = null;
-           setActiveExecution(null);
+           const terminalProjection = data.terminalProjection;
+           const terminalFailure = data.message.outcome === 'FAILED'
+             || data.message.outcome === 'INTERRUPTED'
+             || terminalProjection?.outcome === 'FAILED'
+             || terminalProjection?.outcome === 'INTERRUPTED';
+           const currentExecution = activeExecutionRef.current;
+           if (terminalFailure && currentExecution) {
+             const retainedExecution = {
+               ...currentExecution,
+               sessionId: data.sessionId,
+               ...(terminalProjection ? { terminalProjection } : {}),
+             };
+             activeExecutionRef.current = retainedExecution;
+             setActiveExecution(retainedExecution);
+           } else {
+             activeExecutionRef.current = null;
+             setActiveExecution(null);
+           }
           setSessionId(data.sessionId);
           qc.setQueryData<Session[]>(
             ['ai-sessions', requestProjectId],
@@ -10273,6 +10305,7 @@ export default function AiChat() {
                 taskResult: data.taskResult as AiTaskResult | undefined,
                 proposalId: data.proposalId,
               }),
+               terminalProjection: data.terminalProjection ?? base.terminalProjection ?? null,
             }];
           });
           setPendingChanges(data.pendingChanges ?? []);
@@ -10349,6 +10382,7 @@ export default function AiChat() {
                 id: `stream-failed-${Date.now()}`,
                 role: 'assistant' as const,
                 content: '',
+                 executionId: err.terminalProjection?.executionId ?? failedExecutionId ?? null,
                 outcome: err.outcome,
                 errorCode: err.code,
                 errorMessage: safeMessage,
@@ -10358,6 +10392,7 @@ export default function AiChat() {
                 recoveryState: err.recoveryState,
                 acceptanceDisposition: err.acceptanceDisposition,
                 executionLedger: err.executionLedger,
+                 terminalProjection: err.terminalProjection ?? null,
                 createdAt: new Date().toISOString(),
               },
             ]);
@@ -11101,6 +11136,7 @@ export default function AiChat() {
                {showExecutionProof && (
                  <AgentExecutionProofPanel
                    execution={activeExecutionStatus}
+                   terminalProjection={activeExecution?.terminalProjection}
                    executionId={activeExecution?.id}
                     executionNodes={executionNodes}
                    busy={isAgentBusy}

@@ -3663,6 +3663,8 @@ export const getAiExecutionResponseAcceptanceOneAttemptMin = 0;
 
 export const getAiExecutionResponseAcceptanceOneReasonCodeMax = 80;
 
+export const getAiExecutionResponseTerminalProjectionOneAttemptMin = 0;
+
 
 
 export const GetAiExecutionResponse = zod.object({
@@ -3717,6 +3719,20 @@ export const GetAiExecutionResponse = zod.object({
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean()
 }),zod.null()]).optional(),
+  "terminalProjection": zod.union([zod.object({
+  "executionId": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "attempt": zod.number().int().min(getAiExecutionResponseTerminalProjectionOneAttemptMin),
+  "messageId": zod.string().uuid().nullable(),
+  "acceptanceId": zod.string().uuid().nullable(),
+  "operationId": zod.string().nullable(),
+  "correlationId": zod.string(),
+  "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().nullable(),
+  "nextActionCode": zod.string().nullable(),
+  "resumable": zod.boolean()
+}),zod.null()]).optional().describe('Canonical terminal identity for this execution attempt.'),
   "recovery": zod.object({
   "uncertain": zod.boolean(),
   "operationId": zod.string().nullable(),
@@ -3780,6 +3796,8 @@ export const listAiExecutionHistoryResponseAcceptanceOneAttemptMin = 0;
 
 export const listAiExecutionHistoryResponseAcceptanceOneReasonCodeMax = 80;
 
+export const listAiExecutionHistoryResponseTerminalProjectionOneAttemptMin = 0;
+
 
 
 export const ListAiExecutionHistoryResponseItem = zod.object({
@@ -3809,6 +3827,20 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean()
 }),zod.null()]).optional(),
+  "terminalProjection": zod.union([zod.object({
+  "executionId": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "attempt": zod.number().int().min(listAiExecutionHistoryResponseTerminalProjectionOneAttemptMin),
+  "messageId": zod.string().uuid().nullable(),
+  "acceptanceId": zod.string().uuid().nullable(),
+  "operationId": zod.string().nullable(),
+  "correlationId": zod.string(),
+  "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().nullable(),
+  "nextActionCode": zod.string().nullable(),
+  "resumable": zod.boolean()
+}),zod.null()]).optional().describe('Canonical terminal identity for the retained execution attempt.'),
   "proofRequired": zod.boolean(),
   "disposition": zod.enum(['RETAIN_FOR_REVIEW', 'NEW_RUN_RECOMMENDED']),
   "recommendedAction": zod.enum(['REVIEW_RETAINED_PROOF', 'START_NEW_RUN', 'RESUME_CHECKPOINT']),

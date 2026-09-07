@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   aiChatMessagesTable,
   aiExecutionAcceptancesTable,
@@ -551,7 +551,9 @@ export async function finalizeExecutionAcceptance(
             ? { content: params.finalMessageContent ?? "" }
             : {}),
           outcome,
-          errorCode: outcome === "SUCCEEDED" ? null : params.finalMessageErrorCode ?? reasonCode,
+          errorCode: outcome === "SUCCEEDED"
+            ? null
+            : sql`coalesce(${aiChatMessagesTable.errorCode}, ${params.finalMessageErrorCode ?? reasonCode})`,
           errorMessage: outcome === "SUCCEEDED" ? null : safeError(params.error),
         })
         .where(eq(aiChatMessagesTable.id, params.finalMessageId));

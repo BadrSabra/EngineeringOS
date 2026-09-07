@@ -1576,6 +1576,10 @@ paths:
                   acceptance:
                     nullable: true
                     $ref: "#/components/schemas/AiExecutionAcceptance"
+                  terminalProjection:
+                    nullable: true
+                    description: Canonical terminal identity for this execution attempt.
+                    $ref: "#/components/schemas/AiTerminalProjection"
                   recovery:
                     type: object
                     required: [uncertain, operationId, revision, phase, outcome]
@@ -1638,6 +1642,10 @@ paths:
                     acceptance:
                       nullable: true
                       $ref: "#/components/schemas/AiExecutionAcceptance"
+                    terminalProjection:
+                      nullable: true
+                      description: Canonical terminal identity for the retained execution attempt.
+                      $ref: "#/components/schemas/AiTerminalProjection"
                     proofRequired: { type: boolean }
                     disposition: { type: string, enum: [RETAIN_FOR_REVIEW, NEW_RUN_RECOMMENDED] }
                     recommendedAction: { type: string, enum: [REVIEW_RETAINED_PROOF, START_NEW_RUN, RESUME_CHECKPOINT] }

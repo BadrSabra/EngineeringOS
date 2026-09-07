@@ -383,6 +383,7 @@ beforeEach(() => {
     errorCode: undefined,
     errorMessage: undefined,
     executionLedger: undefined,
+    terminalProjection: undefined,
     forensicDiagnostic: undefined,
   };
   mocks.operationEvents = [];
@@ -921,6 +922,75 @@ describe('AiChat authenticated generated mutations', () => {
         kind: 'data',
         projectId: 'project-1',
         sessionId: 'session-1',
+      }),
+    );
+  });
+
+  it('keeps the failed attempt identity visible after a terminal SSE failure', async () => {
+    renderAiChat();
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'Inspect the failed execution' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    act(() => {
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onExecutionStarted?: (event: Record<string, unknown>) => void;
+        onDone?: (event: Record<string, unknown>) => void;
+      }).onExecutionStarted?.({
+        type: 'execution_started',
+        executionId: 'execution-failed',
+        status: 'running',
+        resumeToken: 'resume-failed-attempt',
+        resumable: true,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onDone?: (event: Record<string, unknown>) => void;
+      }).onDone?.({
+        type: 'done',
+        sessionId: 'session-1',
+        operationId: 'operation-failed',
+        operationMode: 'FORENSIC_AUDIT',
+        execution: {
+          executionId: 'execution-failed',
+          status: 'failed',
+          evidenceVerdict: 'UNAVAILABLE',
+        },
+        terminalProjection: {
+          executionId: 'execution-failed',
+          sessionId: 'session-1',
+          attempt: 2,
+          messageId: 'assistant-failed-attempt-2',
+          acceptanceId: 'acceptance-failed-attempt-2',
+          operationId: 'operation-failed',
+          correlationId: 'correlation-failed-attempt-2',
+          status: 'failed',
+          outcome: 'FAILED',
+          reasonCode: 'EXECUTION_PROVIDER_FAILURE',
+          nextActionCode: 'RESUME_ALLOWED',
+          resumable: true,
+        },
+        message: {
+          id: 'assistant-failed-attempt-2',
+          role: 'assistant',
+          content: '',
+          createdAt: '2026-08-23T00:00:00.000Z',
+          executionId: 'execution-failed',
+          outcome: 'FAILED',
+        },
+        sources: [],
+        pendingChanges: [],
+      });
+    });
+
+    expect(await screen.findByText('Terminal identity: attempt 2 · FAILED · resume available')).toBeInTheDocument();
+    expect(screen.getByText(/Execution execution-/)).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}')).toEqual(
+      expect.objectContaining({
+        id: 'execution-failed',
+        terminalProjection: expect.objectContaining({
+          messageId: 'assistant-failed-attempt-2',
+          attempt: 2,
+        }),
       }),
     );
   });

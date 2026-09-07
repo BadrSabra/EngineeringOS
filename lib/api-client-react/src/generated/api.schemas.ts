@@ -4744,6 +4744,8 @@ export type GetAiExecution200 = {
   error?: string | null;
   resumable: boolean;
   acceptance?: AiExecutionAcceptance | null;
+  /** Canonical terminal identity for this execution attempt. */
+  terminalProjection?: AiTerminalProjection | null;
   recovery?: GetAiExecution200Recovery;
   operationEvidence: OperationEvidenceProjection;
   createdAt?: string;
@@ -4809,6 +4811,8 @@ export type ListAiExecutionHistory200Item = {
   terminalReason?: string | null;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
   acceptance?: AiExecutionAcceptance | null;
+  /** Canonical terminal identity for the retained execution attempt. */
+  terminalProjection?: AiTerminalProjection | null;
   proofRequired: boolean;
   disposition: ListAiExecutionHistory200ItemDisposition;
   recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;
