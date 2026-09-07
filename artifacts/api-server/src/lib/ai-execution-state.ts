@@ -1939,6 +1939,7 @@ export async function failAiExecution(params: {
   evidenceReason?: string;
   providerAttempts?: AiProviderAttemptCheckpoint[];
   finalMessageId?: string;
+  finalMessageErrorCode?: string;
   evidenceReads?: readonly EvidenceReadInput[];
 }): Promise<boolean> {
   const [current] = await db
@@ -1974,23 +1975,25 @@ export async function failAiExecution(params: {
     if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
   }
   if (!current || !terminalCheckpoint) return false;
+  const providerFailure = params.providerAttempts !== undefined;
   const reasonCode = params.cancelled
     ? "EXECUTION_CANCELLED"
     : params.acceptanceDisposition
       ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
-      : params.providerAttempts && params.providerAttempts.length > 0
+      : providerFailure
         ? "EXECUTION_PROVIDER_FAILURE"
         : "EXECUTION_FAILED";
   const finalized = await finalizeExecutionAcceptance({
     executionId: params.executionId,
     workerId: params.workerId,
     finalMessageId: params.finalMessageId,
+    finalMessageErrorCode: params.finalMessageErrorCode,
     finalizationKey: `execution:${params.executionId}:attempt:${current.attempt}:${reasonCode}`,
     outcome: params.cancelled ? "INTERRUPTED" : "FAILED",
     terminalStatus: params.cancelled ? "cancelled" : "failed",
     reasonCode,
     failureKind: params.acceptanceDisposition?.failureKind
-      ?? (params.cancelled ? "CANCELLATION" : params.providerAttempts ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
+      ?? (params.cancelled ? "CANCELLATION" : providerFailure ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
     recoveryState: params.cancelled
       ? "INCOMPLETE"
       : params.acceptanceDisposition?.recoveryState ?? "REQUIRED",

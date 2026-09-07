@@ -2318,6 +2318,41 @@ export interface AiExecutionAcceptance {
   resumable: boolean;
 }
 
+export type AiTerminalProjectionStatus = typeof AiTerminalProjectionStatus[keyof typeof AiTerminalProjectionStatus];
+
+
+export const AiTerminalProjectionStatus = {
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  paused: 'paused',
+} as const;
+
+export type AiTerminalProjectionOutcome = typeof AiTerminalProjectionOutcome[keyof typeof AiTerminalProjectionOutcome];
+
+
+export const AiTerminalProjectionOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export interface AiTerminalProjection {
+  executionId: string;
+  sessionId: string;
+  /** @minimum 0 */
+  attempt: number;
+  messageId: string | null;
+  acceptanceId: string | null;
+  operationId: string | null;
+  correlationId: string;
+  status: AiTerminalProjectionStatus;
+  outcome: AiTerminalProjectionOutcome;
+  reasonCode: string | null;
+  nextActionCode: string | null;
+  resumable: boolean;
+}
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -2477,6 +2512,8 @@ export interface AiChatMessage {
   recoveryState?: AiChatMessageRecoveryState;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
   acceptance?: AiExecutionAcceptance | null;
+  /** Canonical terminal identity shared by stream, execution detail, and chat history. */
+  terminalProjection?: AiTerminalProjection | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**

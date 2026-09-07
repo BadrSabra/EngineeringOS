@@ -155,6 +155,7 @@ import {
   classifyAiTerminalOutcome,
   publicAcceptanceDisposition,
   type AiAcceptanceDisposition,
+  type AiTerminalProjection,
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
 import {
@@ -541,6 +542,89 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
     ),
     ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
     ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
+  };
+}
+
+async function loadTerminalProjection(params: {
+  executionId: string;
+  sessionId: string;
+  fallbackMessageId?: string | null;
+}): Promise<AiTerminalProjection | undefined> {
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      sessionId: aiExecutionsTable.sessionId,
+      attempt: aiExecutionsTable.attempt,
+      status: aiExecutionsTable.status,
+      finalMessageId: aiExecutionsTable.finalMessageId,
+      operationId: aiExecutionsTable.operationId,
+      correlationId: aiExecutionsTable.correlationId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.sessionId, params.sessionId),
+    ))
+    .limit(1);
+  if (!execution) return undefined;
+
+  const [acceptance] = await db
+    .select({
+      id: aiExecutionAcceptancesTable.id,
+      messageId: aiExecutionAcceptancesTable.messageId,
+      terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+      outcome: aiExecutionAcceptancesTable.outcome,
+      reasonCode: aiExecutionAcceptancesTable.reasonCode,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      resumable: aiExecutionAcceptancesTable.resumable,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+
+  const status = execution.status === "completed"
+    || execution.status === "failed"
+    || execution.status === "cancelled"
+    || execution.status === "paused"
+    ? execution.status
+    : acceptance?.terminalStatus === "completed"
+      || acceptance?.terminalStatus === "failed"
+      || acceptance?.terminalStatus === "cancelled"
+      || acceptance?.terminalStatus === "paused"
+      ? acceptance.terminalStatus
+      : "failed";
+  const outcome = acceptance?.outcome === "SUCCEEDED"
+    || acceptance?.outcome === "FAILED"
+    || acceptance?.outcome === "INTERRUPTED"
+    ? acceptance.outcome
+    : status === "completed"
+      ? "SUCCEEDED"
+      : status === "cancelled"
+        ? "INTERRUPTED"
+        : "FAILED";
+
+  return {
+    executionId: execution.id,
+    sessionId: execution.sessionId ?? params.sessionId,
+    attempt: execution.attempt,
+    messageId: acceptance?.messageId ?? execution.finalMessageId ?? params.fallbackMessageId ?? null,
+    acceptanceId: acceptance?.id ?? null,
+    operationId: execution.operationId ?? null,
+    correlationId: execution.correlationId ?? execution.operationId ?? execution.id,
+    status,
+    outcome,
+    reasonCode: acceptance?.reasonCode ?? (
+      status === "cancelled"
+        ? "EXECUTION_CANCELLED"
+        : status === "completed"
+          ? "ACCEPTED"
+          : "EXECUTION_FAILED"
+    ),
+    nextActionCode: acceptance?.nextActionCode ?? null,
+    resumable: Boolean(acceptance?.resumable) || status === "paused",
   };
 }
 
@@ -5701,6 +5785,36 @@ router.post("/ai/chat/stream", async (req, res) => {
           createdAt: msgNow,
            contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         };
+        let terminalProjection: AiTerminalProjection | undefined;
+        if (aiExecution) {
+          // The acceptance row is the durable terminal fence. Commit it before
+          // exposing the terminal frame so reconnect/history cannot observe a
+          // stream result that the execution detail does not yet own.
+          await checkpointChain;
+          await failAiExecution({
+            executionId: aiExecution.id,
+            workerId: executionWorkerId!,
+            finalMessageId: persistedFailedMessage?.id,
+            error: safeMessage,
+            cancelled: terminalOutcome.outcome === "INTERRUPTED",
+            nodeStates: executionNodeStates,
+            streamedPreview: streamedContent,
+            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+            ...(hasCapabilityProbeClaimUnclosed(traceSteps, forensicDiagnostic)
+              ? {
+                  evidenceVerdict: "CLAIM_UNCLOSED" as const,
+                  evidenceReason: forensicDiagnostic?.explanation
+                    ?? "Source evidence was retained, but the required capability claims were not closed.",
+                }
+              : {}),
+          });
+          terminalProjection = await loadTerminalProjection({
+            executionId: aiExecution.id,
+            sessionId: sessionIdToUse,
+            fallbackMessageId: persistedFailedMessage?.id,
+          });
+          executionTerminal = true;
+        }
         if (terminalOutcome.failureKind === "TOOL_FAILURE") {
           sse({
             type: "recipe_terminal",
@@ -5721,6 +5835,9 @@ router.post("/ai/chat/stream", async (req, res) => {
               : {}),
             executionId: aiExecution.id,
             sessionId: sessionIdToUse,
+            attempt: terminalProjection?.attempt,
+            correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
+            terminalProjection,
             executionLedger: executionLedgerSnapshot,
              contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
@@ -5752,6 +5869,9 @@ router.post("/ai/chat/stream", async (req, res) => {
               failureKind: terminalOutcome.failureKind,
               retryable: terminalOutcome.retryable,
               recoveryState: terminalOutcome.recoveryState,
+              attempt: terminalProjection?.attempt,
+              correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
+              terminalProjection,
               ...(terminalOutcome.providerFailureCategory
                 ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
                 : {}),
@@ -5766,33 +5886,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             operationMode: streamTurnIntent.operationMode,
             execution: projectPublicExecutionSummary(executionSummary, false),
             executionLedger: executionLedgerSnapshot,
+            terminalProjection,
             telemetry: {
               latencyMs: Date.now() - chatStartMs,
             },
           });
-        }
-        if (aiExecution) {
-          // Let already-enqueued progress checkpoints settle before the
-          // terminal update. This avoids racing a final failed checkpoint
-          // against a stale running checkpoint from the same stream.
-          await checkpointChain;
-          await failAiExecution({
-            executionId: aiExecution.id,
-            workerId: executionWorkerId!,
-            error: safeMessage,
-            cancelled: terminalOutcome.outcome === "INTERRUPTED",
-            nodeStates: executionNodeStates,
-            streamedPreview: streamedContent,
-            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-            ...(hasCapabilityProbeClaimUnclosed(traceSteps, forensicDiagnostic)
-              ? {
-                  evidenceVerdict: "CLAIM_UNCLOSED" as const,
-                  evidenceReason: forensicDiagnostic?.explanation
-                    ?? "Source evidence was retained, but the required capability claims were not closed.",
-                }
-              : {}),
-          });
-          executionTerminal = true;
         }
         res.end();
         return;
@@ -5890,46 +5988,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           "chat stream: all providers failed",
         );
 
-        // Provider messages, model identifiers, paths, and upstream diagnostics
-        // stay in the structured server log above. The stream exposes only the
-        // bounded public error contract.
-        const retryable = providerRetryable;
-        sse({
-          type: "error",
-          code: err.code,
-          message: cancelled
-            ? "The AI request was cancelled before completion."
-            : retryable
-            ? "The AI request could not complete. Please retry."
-            : "The AI request was not completed because the provider configuration could not satisfy it.",
-          outcome: "FAILED",
-          failureKind: terminalOutcome.failureKind,
-          retryable,
-          recoveryState: terminalOutcome.recoveryState,
-          correlationId: randomUUID(),
-          executionLedger: executionLedgerSnapshot,
-          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-          ...(terminalOutcome.providerFailureCategory
-            ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
-            : {}),
-        });
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
-        sse({
-          type: "error",
-          code: "unknown",
-          message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
-          correlationId: randomUUID(),
-          outcome: cancelled ? "INTERRUPTED" : "FAILED",
-          failureKind: terminalOutcome.failureKind,
-          retryable: terminalOutcome.retryable,
-          recoveryState: terminalOutcome.recoveryState,
-          executionLedger: executionLedgerSnapshot,
-          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-          ...(terminalOutcome.providerFailureCategory
-            ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
-            : {}),
-        });
       }
       const persistedProviderFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
@@ -5978,6 +6038,8 @@ router.post("/ai/chat/stream", async (req, res) => {
               ? "The execution was cancelled before source evidence could be collected."
               : `The provider failed before source evidence could be collected (${providerErrorCode}).`,
             providerAttempts: providerAttemptSummary,
+            finalMessageId: persistedProviderFailure?.id,
+            finalMessageErrorCode: providerErrorCode,
           }).catch((terminalError) => {
             logger.warn(
               { terminalError, executionId: aiExecution!.id, providerErrorCode },
@@ -5985,6 +6047,41 @@ router.post("/ai/chat/stream", async (req, res) => {
             );
           });
         }
+        const terminalProjection = aiExecution
+          ? await loadTerminalProjection({
+              executionId: aiExecution.id,
+              sessionId: sessionIdToUse,
+              fallbackMessageId: persistedProviderFailure?.id,
+            })
+          : undefined;
+        // Provider messages, model identifiers, paths, and upstream diagnostics
+        // stay in the structured server log above. The stream exposes only the
+        // bounded public error contract, after durable terminal persistence.
+        const publicErrorCode = err instanceof GroqClientError ? err.code : "unknown";
+        const retryable = err instanceof GroqClientError ? providerRetryable : terminalOutcome.retryable;
+        sse({
+          type: "error",
+          code: publicErrorCode,
+          message: cancelled
+            ? "The AI request was cancelled before completion."
+            : err instanceof GroqClientError && !retryable
+              ? "The AI request was not completed because the provider configuration could not satisfy it."
+              : "The AI request could not complete. Please retry.",
+          outcome: cancelled ? "INTERRUPTED" : "FAILED",
+          failureKind: terminalOutcome.failureKind,
+          retryable,
+          recoveryState: terminalOutcome.recoveryState,
+          executionId: terminalProjection?.executionId ?? aiExecution?.id,
+          sessionId: terminalProjection?.sessionId ?? sessionIdToUse,
+          attempt: terminalProjection?.attempt,
+          correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
+          terminalProjection,
+          executionLedger: executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          ...(terminalOutcome.providerFailureCategory
+            ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+            : {}),
+        });
         // Whether this request persisted the failure or replayed an existing
         // terminal message, no later finally block may reinterpret it.
         executionTerminal = true;
@@ -5999,20 +6096,6 @@ router.post("/ai/chat/stream", async (req, res) => {
       const forensicDiagnostic = streamTurnIntent.requiresEvidence
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
-      sse({
-        type: "error",
-        code: quality.code,
-        message: safeMessage,
-        outcome: "FAILED",
-        failureKind: "QUALITY_REVIEW",
-        retryable: true,
-        recoveryState: "REQUIRED",
-        quality,
-        correlationId: randomUUID(),
-        executionLedger: executionLedgerSnapshot,
-        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
-      });
       const persistedQualityFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
@@ -6037,6 +6120,26 @@ router.post("/ai/chat/stream", async (req, res) => {
         logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: quality failure persistence failed");
         return undefined;
       });
+      let qualityTerminalProjection: AiTerminalProjection | undefined;
+      if (aiExecution && persistedQualityFailure) {
+        await checkpointChain;
+        await failAiExecution({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId!,
+          finalMessageId: persistedQualityFailure.id,
+          error: safeMessage,
+          nodeStates: executionNodeStates,
+          recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+          evidenceVerdict: "UNAVAILABLE",
+          evidenceReason: "The response did not meet the required quality checks.",
+        });
+        qualityTerminalProjection = await loadTerminalProjection({
+          executionId: aiExecution.id,
+          sessionId: sessionIdToUse,
+          fallbackMessageId: persistedQualityFailure.id,
+        });
+        executionTerminal = true;
+      }
       if (aiExecution && (
         !persistedQualityFailure
         || persistedQualityFailure.outcome === "SUCCEEDED"
@@ -6045,6 +6148,24 @@ router.post("/ai/chat/stream", async (req, res) => {
         res.end();
         return;
       }
+      sse({
+        type: "error",
+        code: quality.code,
+        message: safeMessage,
+        outcome: "FAILED",
+        failureKind: "QUALITY_REVIEW",
+        retryable: true,
+        recoveryState: "REQUIRED",
+        quality,
+        executionId: qualityTerminalProjection?.executionId ?? aiExecution?.id,
+        sessionId: qualityTerminalProjection?.sessionId ?? sessionIdToUse,
+        attempt: qualityTerminalProjection?.attempt,
+        correlationId: qualityTerminalProjection?.correlationId ?? sessionIdToUse,
+        terminalProjection: qualityTerminalProjection,
+        executionLedger: executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+      });
       res.end();
       return;
     }
@@ -6054,19 +6175,6 @@ router.post("/ai/chat/stream", async (req, res) => {
         const forensicDiagnostic = streamTurnIntent.requiresEvidence
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
-        sse({
-          type: "error",
-          code: "model_output_invalid",
-          message: "The AI request returned an unsupported response and was not completed.",
-          outcome: "FAILED",
-          failureKind: "PROVIDER_FAILURE",
-          retryable: false,
-          recoveryState: "REQUIRED",
-          correlationId: randomUUID(),
-          executionLedger: executionLedgerSnapshot,
-          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
-        });
         const persistedParseFailure = await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,
@@ -6086,6 +6194,26 @@ router.post("/ai/chat/stream", async (req, res) => {
           logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
           return undefined;
         });
+        let parseTerminalProjection: AiTerminalProjection | undefined;
+        if (aiExecution && persistedParseFailure) {
+          await checkpointChain;
+          await failAiExecution({
+            executionId: aiExecution.id,
+            workerId: executionWorkerId!,
+            finalMessageId: persistedParseFailure.id,
+            error: "The AI model returned an unexpected response.",
+            nodeStates: executionNodeStates,
+            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+            evidenceVerdict: "UNAVAILABLE",
+            evidenceReason: "The model response could not be parsed into the required result shape.",
+          });
+          parseTerminalProjection = await loadTerminalProjection({
+            executionId: aiExecution.id,
+            sessionId: sessionIdToUse,
+            fallbackMessageId: persistedParseFailure.id,
+          });
+          executionTerminal = true;
+        }
         if (aiExecution && (
           !persistedParseFailure
           || persistedParseFailure.outcome === "SUCCEEDED"
@@ -6094,6 +6222,23 @@ router.post("/ai/chat/stream", async (req, res) => {
           res.end();
           return;
         }
+        sse({
+          type: "error",
+          code: "model_output_invalid",
+          message: "The AI request returned an unsupported response and was not completed.",
+          outcome: "FAILED",
+          failureKind: "PROVIDER_FAILURE",
+          retryable: false,
+          recoveryState: "REQUIRED",
+          executionId: parseTerminalProjection?.executionId ?? aiExecution?.id,
+          sessionId: parseTerminalProjection?.sessionId ?? sessionIdToUse,
+          attempt: parseTerminalProjection?.attempt,
+          correlationId: parseTerminalProjection?.correlationId ?? sessionIdToUse,
+          terminalProjection: parseTerminalProjection,
+          executionLedger: executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+        });
         res.end();
         return;
       }
@@ -6615,6 +6760,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             truncated: false,
           })),
         });
+        const acceptanceTerminalProjection = await loadTerminalProjection({
+          executionId: aiExecution.id,
+          sessionId: sessionIdToUse,
+          fallbackMessageId: assistantMsg.id,
+        });
         executionTerminal = true;
         sse({
           type: "error",
@@ -6627,6 +6777,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           acceptanceDisposition,
           executionId: aiExecution.id,
           sessionId: sessionIdToUse,
+          attempt: acceptanceTerminalProjection?.attempt,
+          correlationId: acceptanceTerminalProjection?.correlationId ?? sessionIdToUse,
+          terminalProjection: acceptanceTerminalProjection,
           executionLedger: executionLedgerSnapshot,
         });
         // Do not fall through to the successful done envelope. The retained
@@ -6873,6 +7026,16 @@ router.get("/ai/executions/history", async (req, res) => {
   const currentAcceptanceByExecution = new Map(
     acceptanceRows.map((row) => [`${row.executionId}:${row.attempt}`, row]),
   );
+  const terminalProjectionByExecution = new Map(
+    (await Promise.all(executions.map(async (execution) => execution.sessionId
+      ? [execution.id, await loadTerminalProjection({
+          executionId: execution.id,
+          sessionId: execution.sessionId,
+          fallbackMessageId: execution.finalMessageId,
+        })] as const
+      : [execution.id, undefined] as const)))
+      .filter((entry): entry is readonly [string, AiTerminalProjection] => Boolean(entry[1])),
+  );
 
   const safeText = (value: unknown, fallback: string, max = 240): string => {
     if (typeof value !== "string" || !value.trim()) return fallback;
@@ -6932,6 +7095,9 @@ router.get("/ai/executions/history", async (req, res) => {
         : null,
       ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
       ...(currentAcceptance ? { acceptance: currentAcceptance } : {}),
+      ...(terminalProjectionByExecution.get(execution.id)
+        ? { terminalProjection: terminalProjectionByExecution.get(execution.id) }
+        : {}),
       terminalReason: execution.status === "cancelled"
         ? "Audit was cancelled before completion."
         : execution.status === "failed"
@@ -7021,6 +7187,13 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     ))
     .limit(1);
   const currentAcceptance = projectExecutionAcceptance(acceptanceRow);
+  const terminalProjection = execution.sessionId
+    ? await loadTerminalProjection({
+        executionId: execution.id,
+        sessionId: execution.sessionId,
+        fallbackMessageId: execution.finalMessageId,
+      })
+    : undefined;
 
   return res.json({
     id: execution.id,
@@ -7054,6 +7227,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       : undefined,
     ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
     ...(currentAcceptance ? { acceptance: currentAcceptance } : {}),
+    ...(terminalProjection ? { terminalProjection } : {}),
      terminalReason: publicExecutionTerminalReason({
        status: execution.status,
        acceptanceDisposition,
@@ -7570,15 +7744,25 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
   const acceptanceRows = acceptanceQuery
     ? await acceptanceQuery.limit(500)
     : [];
+  const terminalProjectionByExecution = new Map(
+    (await Promise.all(executionIds.map(async (executionId) => [executionId, await loadTerminalProjection({
+      executionId,
+      sessionId,
+    })] as const)))
+      .filter((entry): entry is readonly [string, AiTerminalProjection] => Boolean(entry[1])),
+  );
   return res.json(messages.map((message) => {
     const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
     const terminalMetadata = terminalMetadataFromTrace(message.toolTrace);
     const executionAcceptance = message.executionId
       ? acceptanceRows
-        .filter((row) => row.executionId === message.executionId)
+        .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
         .sort((left, right) => right.attempt - left.attempt)[0]
       : undefined;
     const projectedAcceptance = projectExecutionAcceptance(executionAcceptance);
+    const terminalProjection = message.executionId
+      ? terminalProjectionByExecution.get(message.executionId)
+      : undefined;
     return {
       ...message,
       content: redactUserFacingText(message.content),
@@ -7595,6 +7779,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       ...(projectedAcceptance?.disposition
         ? { acceptanceDisposition: projectedAcceptance.disposition }
         : {}),
+      ...(terminalProjection?.messageId === message.id ? { terminalProjection } : {}),
       repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
       behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
       ...(historicalReport.unavailable

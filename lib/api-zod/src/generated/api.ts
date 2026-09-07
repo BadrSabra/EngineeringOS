@@ -3297,6 +3297,8 @@ export const aiChatResponseMessageAcceptanceOneAttemptMin = 0;
 
 export const aiChatResponseMessageAcceptanceOneReasonCodeMax = 80;
 
+export const aiChatResponseMessageTerminalProjectionOneAttemptMin = 0;
+
 export const aiChatResponseMessageForensicDiagnosticOneExplanationMax = 500;
 
 export const aiChatResponseMessageForensicDiagnosticOneNextActionMax = 300;
@@ -3434,6 +3436,20 @@ export const AiChatResponse = zod.object({
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean()
 }),zod.null()]).optional(),
+  "terminalProjection": zod.union([zod.object({
+  "executionId": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "attempt": zod.number().int().min(aiChatResponseMessageTerminalProjectionOneAttemptMin),
+  "messageId": zod.string().uuid().nullable(),
+  "acceptanceId": zod.string().uuid().nullable(),
+  "operationId": zod.string().nullable(),
+  "correlationId": zod.string(),
+  "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().nullable(),
+  "nextActionCode": zod.string().nullable(),
+  "resumable": zod.boolean()
+}),zod.null()]).optional().describe('Canonical terminal identity shared by stream, execution detail, and chat history.'),
   "forensicDiagnostic": zod.union([zod.object({
   "version": zod.literal(1),
   "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),
@@ -5680,6 +5696,8 @@ export const listAiChatMessagesResponseAcceptanceOneAttemptMin = 0;
 
 export const listAiChatMessagesResponseAcceptanceOneReasonCodeMax = 80;
 
+export const listAiChatMessagesResponseTerminalProjectionOneAttemptMin = 0;
+
 export const listAiChatMessagesResponseForensicDiagnosticOneExplanationMax = 500;
 
 export const listAiChatMessagesResponseForensicDiagnosticOneNextActionMax = 300;
@@ -5771,6 +5789,20 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean()
 }),zod.null()]).optional(),
+  "terminalProjection": zod.union([zod.object({
+  "executionId": zod.string().uuid(),
+  "sessionId": zod.string().uuid(),
+  "attempt": zod.number().int().min(listAiChatMessagesResponseTerminalProjectionOneAttemptMin),
+  "messageId": zod.string().uuid().nullable(),
+  "acceptanceId": zod.string().uuid().nullable(),
+  "operationId": zod.string().nullable(),
+  "correlationId": zod.string(),
+  "status": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().nullable(),
+  "nextActionCode": zod.string().nullable(),
+  "resumable": zod.boolean()
+}),zod.null()]).optional().describe('Canonical terminal identity shared by stream, execution detail, and chat history.'),
   "forensicDiagnostic": zod.union([zod.object({
   "version": zod.literal(1),
   "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),

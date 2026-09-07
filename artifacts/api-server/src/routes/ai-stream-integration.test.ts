@@ -33,6 +33,7 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  aiExecutionAcceptancesTable,
   aiProviderCredentialsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
@@ -6289,6 +6290,22 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       outcome: "FAILED",
       recoveryState: "INCOMPLETE",
     });
+    expect(errorEvent!).toEqual(expect.objectContaining({
+      terminalProjection: expect.objectContaining({
+      executionId: expect.any(String),
+      sessionId: expect.any(String),
+      attempt: expect.any(Number),
+      messageId: expect.any(String),
+      acceptanceId: expect.any(String),
+      operationId: expect.any(String),
+      correlationId: expect.any(String),
+      status: "failed",
+      outcome: "FAILED",
+      reasonCode: expect.any(String),
+      nextActionCode: expect.any(String),
+      resumable: true,
+      }),
+    }));
     // MODEL_NOT_FOUND errors must not be retryable (no free models remain)
     expect(errorEvent!["retryable"]).toBe(false);
 
@@ -6332,12 +6349,34 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(JSON.stringify(storedAssistant)).not.toContain(sensitivePath);
     expect(JSON.stringify(storedAssistant)).not.toContain(internalId);
 
+    const terminalProjection = errorEvent!["terminalProjection"] as Record<string, unknown>;
+    const detail = await request(app)
+      .get(`/api/ai/executions/${String(terminalProjection.executionId)}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.terminalProjection).toEqual(terminalProjection);
+
+    const [acceptance] = await db
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        messageId: aiExecutionAcceptancesTable.messageId,
+        attempt: aiExecutionAcceptancesTable.attempt,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.id, String(terminalProjection.acceptanceId)))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      id: terminalProjection.acceptanceId,
+      messageId: terminalProjection.messageId,
+      attempt: terminalProjection.attempt,
+    });
+
     const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
     expect(history.status).toBe(200);
     const historicalAssistant = history.body.find((message: { role: string }) => message.role === "assistant");
     expect(historicalAssistant).toMatchObject({
       outcome: "FAILED",
       providerFailureCategory: "MODEL_UNAVAILABLE",
+      terminalProjection,
     });
     expect(JSON.stringify(history.body)).not.toContain(sensitivePath);
     expect(JSON.stringify(history.body)).not.toContain(internalId);

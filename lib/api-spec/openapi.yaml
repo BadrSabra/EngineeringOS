@@ -5673,6 +5673,10 @@ components:
         acceptance:
           nullable: true
           $ref: "#/components/schemas/AiExecutionAcceptance"
+        terminalProjection:
+          nullable: true
+          description: Canonical terminal identity shared by stream, execution detail, and chat history.
+          $ref: "#/components/schemas/AiTerminalProjection"
         forensicDiagnostic:
           nullable: true
           description: Server-owned, bounded forensic verdict shared by live and historical responses.
@@ -5714,6 +5718,28 @@ components:
       type: string
       enum: [TIMEOUT, MODEL_REJECTED, MODEL_UNAVAILABLE, RATE_LIMITED, FALLBACK_EXHAUSTED, TRANSPORT_FAILURE, MALFORMED_RESPONSE, UNKNOWN]
       description: Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
+
+    AiTerminalProjection:
+      type: object
+      additionalProperties: false
+      required: [executionId, sessionId, attempt, messageId, acceptanceId, operationId, correlationId, status, outcome, reasonCode, nextActionCode, resumable]
+      properties:
+        executionId: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        attempt: { type: integer, minimum: 0 }
+        messageId: { type: string, format: uuid, nullable: true }
+        acceptanceId: { type: string, format: uuid, nullable: true }
+        operationId: { type: string, nullable: true }
+        correlationId: { type: string }
+        status:
+          type: string
+          enum: [completed, failed, cancelled, paused]
+        outcome:
+          type: string
+          enum: [SUCCEEDED, FAILED, INTERRUPTED]
+        reasonCode: { type: string, nullable: true }
+        nextActionCode: { type: string, nullable: true }
+        resumable: { type: boolean }
 
     AiAcceptanceDisposition:
       type: object

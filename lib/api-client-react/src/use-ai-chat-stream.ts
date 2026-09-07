@@ -110,6 +110,9 @@ export type AiStreamDoneEvent = {
     createdAt: string;
     turnIntent?: string;
     executionId?: string | null;
+    sessionId?: string | null;
+    attempt?: number;
+    terminalProjection?: AiTerminalProjection;
     outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
     errorCode?: string | null;
     errorMessage?: string | null;
@@ -145,6 +148,8 @@ export type AiStreamDoneEvent = {
   execution?: AiStreamExecutionSummary;
   /** Same allowlisted request-budget snapshot as message.executionLedger. */
   executionLedger?: ExecutionLedgerPublicSnapshot;
+  /** Canonical terminal identity shared with durable REST/history projections. */
+  terminalProjection?: AiTerminalProjection;
   productionReachability?: AiProductionReachabilityTrace;
   crossFileTraces?: AiCrossFileSemanticTrace[];
   /**
@@ -252,6 +257,7 @@ export type AiStreamErrorEvent = {
     reasons: string[];
   };
   executionId?: string;
+  attempt?: number;
   sessionId?: string;
   turnIntent?: string;
   outcome?: 'FAILED' | 'INTERRUPTED';
@@ -264,6 +270,23 @@ export type AiStreamErrorEvent = {
   /** Allowlisted request-budget snapshot retained for failed terminal turns. */
   executionLedger?: ExecutionLedgerPublicSnapshot;
   correlationId?: string;
+  /** Canonical terminal identity shared with durable REST/history projections. */
+  terminalProjection?: AiTerminalProjection;
+};
+
+export type AiTerminalProjection = {
+  executionId: string;
+  sessionId: string;
+  attempt: number;
+  messageId: string | null;
+  acceptanceId: string | null;
+  operationId: string | null;
+  correlationId: string;
+  status: 'completed' | 'failed' | 'cancelled' | 'paused';
+  outcome: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
+  reasonCode: string | null;
+  nextActionCode: string | null;
+  resumable: boolean;
 };
 
 export type ProviderFailureCategory =

@@ -25,6 +25,26 @@ export type AiTerminalOutcome = {
 };
 
 /**
+ * One public identity for a terminal operation across persistence, SSE, and
+ * reconnect/history projections. Nullable fields are intentional for legacy
+ * terminal rows created before the acceptance/message link was available.
+ */
+export type AiTerminalProjection = {
+  executionId: string;
+  sessionId: string;
+  attempt: number;
+  messageId: string | null;
+  acceptanceId: string | null;
+  operationId: string | null;
+  correlationId: string;
+  status: "completed" | "failed" | "cancelled" | "paused";
+  outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+  reasonCode: string | null;
+  nextActionCode: string | null;
+  resumable: boolean;
+};
+
+/**
  * Stable, public acceptance projection.  This deliberately contains no
  * validator prose, evidence identities, provider details, or workspace paths.
  * Keep this contract small because it is copied to the stream, message, and

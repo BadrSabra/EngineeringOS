@@ -65,6 +65,8 @@ export type FinalizeExecutionAcceptanceParams = {
   allowExpiredLease?: boolean;
   finalMessageId?: string | null;
   finalMessageContent?: string | null;
+  /** Preserve a bounded provider/validation code already persisted on the message. */
+  finalMessageErrorCode?: string | null;
   finalizationKey: string;
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   terminalStatus: "completed" | "failed" | "cancelled" | "paused";
@@ -549,7 +551,7 @@ export async function finalizeExecutionAcceptance(
             ? { content: params.finalMessageContent ?? "" }
             : {}),
           outcome,
-          errorCode: outcome === "SUCCEEDED" ? null : reasonCode,
+          errorCode: outcome === "SUCCEEDED" ? null : params.finalMessageErrorCode ?? reasonCode,
           errorMessage: outcome === "SUCCEEDED" ? null : safeError(params.error),
         })
         .where(eq(aiChatMessagesTable.id, params.finalMessageId));
