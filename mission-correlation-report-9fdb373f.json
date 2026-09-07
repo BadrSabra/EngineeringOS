@@ -1,0 +1,30 @@
+{
+  "kind": "mission-correlation-report",
+  "version": 1,
+  "redacted": true,
+  "operationId": "9fdb373f-7120-4be9-b9c6-3caffeb18d11",
+  "projectId": "4e42ae32-644c-4875-affc-5f094f263496",
+  "sessionId": "6287c096-38a5-428a-bcf3-1d57446f0b2a",
+  "workspaceRevision": "456a49b80d7c01e505cde99fd497622d89f624f342a31e1608392e05cc3f3a31",
+  "terminalState": "FAILED",
+  "outcomeClass": "non-success",
+  "counts": {
+    "messages": 2,
+    "sseEvents": 1,
+    "executionCheckpoints": 1,
+    "evidence": 0,
+    "proposals": 0,
+    "validation": 0,
+    "correlatedEvents": 0
+  },
+  "agreement": {
+    "execution": true,
+    "messages": true,
+    "sse": true,
+    "checkpoints": true,
+    "dashboard": true,
+    "evidence": true,
+    "proposals": true,
+    "validation": true
+  }
+}
