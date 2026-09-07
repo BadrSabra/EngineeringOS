@@ -40,6 +40,7 @@
 - [OpenAPI codegen discipline](openapi-codegen-discipline.md) — regenerate clients immediately after every spec edit; invalid specs can clean generated outputs before failing.
 - [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.
 - [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
+- [Terminal projection identity](terminal-projection-identity.md) — terminal outcomes must bind execution, attempt, message, and session consistently across DB, SSE, history, and status.
 - [Live mission correlation](live-correlation-release.md) — live-provider acceptance is opt-in, disposable, redacted, and validates all mission surfaces by operation and revision.
 - [Release wrapper teardown](release-wrapper-teardown.md) — release wrappers can pass assertions yet end with SIGTERM/SIGHUP during child-server cleanup; separate test assertions from lifecycle status.
 - [Analysis correlation](analysis-correlation.md) — scanner, graph, and discovery evidence must match the active operation and revision, with cancellation checked before writes.
