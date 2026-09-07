@@ -2708,8 +2708,10 @@ export async function runCapabilityMicroProbes(opts: {
       const directEvidenceCandidate = [...microProbePacket.candidates.values()].find((candidate) =>
         quotedFragments.includes(candidate.fragment),
       );
-      const explicitEvidenceIds = [...(result.content ?? "").matchAll(/(?:Evidence\s*ID|EVIDENCE_ID)\s*:\s*([A-Za-z0-9_-]+)/gi)]
-        .map((match) => match[1]!);
+      const explicitEvidenceIds = [...new Set(
+        [...(result.content ?? "").matchAll(/(?:Evidence\s*ID|EVIDENCE_ID)\s*:\s*([A-Za-z0-9_-]+)/gi)]
+          .map((match) => match[1]!),
+      )];
       const canonicalEvidenceIds: string[] = [];
       const parsedProviderJson = extractJson(result.content ?? "");
       if (parsedProviderJson.ok && parsedProviderJson.data && typeof parsedProviderJson.data === "object") {
@@ -2736,8 +2738,12 @@ export async function runCapabilityMicroProbes(opts: {
           }
         }
       }
-      explicitEvidenceIds.push(...canonicalEvidenceIds);
-      const selectedEvidenceIds = explicitEvidenceIds.filter((id) => microProbePacket.candidates.has(id));
+      for (const evidenceId of canonicalEvidenceIds) {
+        if (!explicitEvidenceIds.includes(evidenceId)) explicitEvidenceIds.push(evidenceId);
+      }
+      const selectedEvidenceIds = [...new Set(
+        explicitEvidenceIds.filter((id) => microProbePacket.candidates.has(id)),
+      )];
       // An explicit ID is an assertion about the exact server-owned candidate.
       // Never discard an unknown ID and then use a plausible direct quote.
       const hasInvalidEvidenceId = explicitEvidenceIds.some(
@@ -3552,6 +3558,7 @@ function buildRuntimeProductionTrace(
   baseLinks: readonly ProductionTraceLink[] | undefined,
   taskTelemetry: readonly AgentStep[],
   response: string,
+  responseValidated: boolean,
 ): ProductionReachabilityTrace | null {
   if (!baseLinks || baseLinks.length === 0) return null;
 
@@ -3587,8 +3594,12 @@ function buildRuntimeProductionTrace(
       to: outputNode,
       relation: "produces",
       source: "lib/ai-orchestrator/src/agents/chat-agent.ts",
-      evidence: response.trim() ? "validated non-empty chat response" : undefined,
-      runtimeObserved: Boolean(response.trim()),
+      evidence: responseValidated && response.trim()
+        ? "validated non-empty chat response"
+        : response.trim()
+          ? "non-empty terminal response; contract validation not accepted"
+          : undefined,
+      runtimeObserved: responseValidated && Boolean(response.trim()),
     });
   }
 
@@ -5566,8 +5577,15 @@ export async function chat(opts: {
   // Never invent a Groq fallback here: a provider key can be valid for the
   // primary request while another provider is absent, unhealthy, or outside
   // the request's authorized selection set.
-  const capabilityRecoveryFallbackProviders =
-    capabilityRecoveryProviders ?? [];
+  const capabilityRecoveryFallbackProviders = (capabilityRecoveryProviders ?? [])
+    .map((candidate) => ({
+      ...candidate,
+      // Recovery may cross providers, but model slugs are provider-owned.
+      // Resolve a missing fallback model against that provider instead of
+      // allowing the active provider's model to leak into its request.
+      model: candidate.model ?? resolveExecutionModel(candidate.provider, executionPlan).model,
+    }))
+    .filter((candidate) => candidate.provider !== providerId);
   let capabilityRecoveryTelemetrySequence = 0;
   const reportCapabilityRecoveryAttempt = async (
     attempt: CapabilityRecoveryTelemetryAttempt,
@@ -11003,6 +11021,9 @@ export async function chat(opts: {
     productionTraceLinks,
     taskTelemetry,
     finalResponse,
+    capabilityProbeRequest
+      ? capabilityProbeFinalReport !== null
+      : !parseError && !telemetryBlocksVerdict && !behaviorAnswerRejected,
   );
   if (productionReachability) {
     relayAgentStep({ kind: "production_trace", trace: productionReachability });

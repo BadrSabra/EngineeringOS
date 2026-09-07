@@ -678,6 +678,7 @@ export async function chatWithFallback(
   let lastErr: GroqClientError | undefined;
   let fallbackRefreshUsed = false;
   let capabilityRecoveryAttemptSerial = 0;
+  const capabilityProbePreflightPassed = new Set<ProviderId>();
   // GAP-C1: collect every provider failure so the final error message shows
   // the full cascade, not just the last attempt.
   const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
@@ -788,6 +789,7 @@ export async function chatWithFallback(
           ...preflightTelemetry,
           outcome: "success",
         });
+        capabilityProbePreflightPassed.add(providerEntry.provider);
       }
 
       // The API package can briefly consume an older workspace declaration
@@ -822,7 +824,10 @@ export async function chatWithFallback(
         retainedEvidence,
         capabilityRecoveryProviders: capabilityProbeTurn
           ? orderedProviders
-              .filter((candidate) => candidate.provider !== providerEntry.provider)
+               .filter((candidate) =>
+                 candidate.provider !== providerEntry.provider &&
+                 capabilityProbePreflightPassed.has(candidate.provider),
+               )
               .map((candidate) => ({
                 provider: candidate.provider,
                 apiKey: candidate.apiKey,

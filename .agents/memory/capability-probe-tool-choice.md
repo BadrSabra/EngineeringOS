@@ -14,3 +14,9 @@ Capability Probe prefetch completion must enter an explicit no-tool synthesis ph
 **Why:** A live trace showed complete server-prefetched bodies, an empty provider tool list, and JSON synthesis mode in the same call, followed by Groq rejecting a model-emitted `read_file` call.
 
 **How to apply:** When complete evidence is already retained, add a server-owned synthesis instruction and force synthesis-only mode. Keep failed pre-first-read executions non-resumable so their identity cannot be replayed as a successful report.
+
+Recovery fallback models must be resolved per provider, and preflight-failed providers must not re-enter the same probe's citation recovery.
+
+**Why:** A recovery trace passed an OpenRouter model slug to Gemini, producing a provider-side 404 and consuming the bounded recovery window before all claim groups completed.
+
+**How to apply:** Build recovery candidates only from providers that passed the current preflight and resolve each candidate's model from its own provider registry.
