@@ -14,3 +14,15 @@ The durable execution row and provider telemetry must use the same correlation i
 **Why:** A live execution persisted one correlation ID on `ai_executions`, while its `ai_usage_events` rows used the execution operation ID as their correlation ID.
 
 **How to apply:** Choose the operation/correlation identity before execution creation, persist it once, and pass that same value to execution state, telemetry, events, checkpoints, and exported reports.
+
+The workspace revision must also be resolved from the context manifest before
+creating the durable execution; otherwise the request can persist a project
+timestamp while the session and evidence pipeline use a source/tree revision.
+
+**Why:** The stream route previously created the execution before loading the
+project context, allowing two valid-looking but incompatible revision formats
+to reach the acceptance gate.
+
+**How to apply:** Build the canonical project context first, update the
+correlation envelope once, then use that revision for the execution request,
+resume contract, session state, operation manifest, and evidence binding.

@@ -4256,6 +4256,32 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
     }
 
+    // Build the project context before creating the durable execution. The
+    // context manifest is the canonical workspace revision for evidence. If
+    // execution creation happens first, the request can capture
+    // project.updatedAt while the session/checkpoint later capture the
+    // filesystem revision from the context manifest.
+    sse({ type: "stage", stage: "building-context" });
+    const baseProjectContext = await buildProjectContext(projectId, {
+      plan: streamExecutionPlan,
+      operationId: analysisCorrelation.operationId,
+      ...(validRootPath ? { sourceRoot: validRootPath } : {}),
+      intent: {
+        kind: streamTurnIntent.kind,
+        classification: String(streamTurnIntent.classification),
+        operationMode: streamTurnIntent.operationMode,
+        phases: streamTurnIntent.phases.map((phase) => String(phase)),
+        requiresEvidence: streamTurnIntent.requiresEvidence,
+        compoundExecution: streamTurnIntent.compoundExecution,
+        compoundWrite: streamTurnIntent.compoundWrite,
+      },
+    });
+    const projectContext = streamClassification.implementationPlanMode
+      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+      : baseProjectContext;
+    analysisCorrelation.projectRevision =
+      projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
+
     let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
       // Session task state is context, not proof that this request is a
@@ -4796,26 +4822,6 @@ router.post("/ai/chat/stream", async (req, res) => {
           .limit(historyLimit)
       : [];
 
-    sse({ type: "stage", stage: "building-context" });
-    const baseProjectContext = await buildProjectContext(projectId, {
-      plan: streamExecutionPlan,
-      operationId: analysisCorrelation.operationId,
-      ...(validRootPath ? { sourceRoot: validRootPath } : {}),
-      intent: {
-        kind: streamTurnIntent.kind,
-        classification: String(streamTurnIntent.classification),
-        operationMode: streamTurnIntent.operationMode,
-        phases: streamTurnIntent.phases.map((phase) => String(phase)),
-        requiresEvidence: streamTurnIntent.requiresEvidence,
-        compoundExecution: streamTurnIntent.compoundExecution,
-        compoundWrite: streamTurnIntent.compoundWrite,
-      },
-    });
-    const projectContext = streamClassification.implementationPlanMode
-      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
-      : baseProjectContext;
-    analysisCorrelation.projectRevision =
-      projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
     // Enrich with cross-session memories (outside cache; always fresh).
     await enrichContextWithMemories(projectContext, projectId, streamExecutionPlan, {
       taskScope: streamExecutionPlan.taskProfile.scope,
@@ -5919,6 +5925,10 @@ router.post("/ai/chat/stream", async (req, res) => {
           // still needs its own terminal transition. Do this before finally
           // runs so a provider code such as RATE_LIMITED is not replaced by
           // the unrelated generic lifecycle error.
+            // A progress checkpoint may still be queued from a provider/tool
+            // callback. Settle it before the terminal write so a late running
+            // checkpoint cannot erase the final provider failure or its trace.
+            await checkpointChain;
           const executionFailure = cancelled
             ? "Execution cancelled by the user."
             : `AI provider failure: ${providerErrorCode}`;
@@ -6694,6 +6704,34 @@ router.post("/ai/chat/stream", async (req, res) => {
       { err, executionId: aiExecution?.id ?? null },
       "chat stream: unexpected error after SSE setup",
     );
+    const unexpectedErrorCode =
+      err instanceof GroqClientError && /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code)
+        ? err.code
+        : "STREAM_INTERNAL_ERROR";
+    const unexpectedExecutionError =
+      err instanceof GroqClientError
+        ? `AI provider failure: ${unexpectedErrorCode}`
+        : "Unexpected error while processing the AI execution.";
+    if (aiExecution && !executionTerminal) {
+      // The generic catch is the last place that still knows the original
+      // failure. Persist it before finally can apply its generic safeguard.
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: unexpectedExecutionError,
+        cancelled: executionAbortController?.signal.aborted,
+        evidenceVerdict: "UNAVAILABLE",
+        evidenceReason: executionAbortController?.signal.aborted
+          ? "The execution was cancelled before a complete terminal result."
+          : "The execution failed before a complete terminal result.",
+      }).catch((terminalError) => {
+        logger.warn(
+          { terminalError, executionId: aiExecution!.id },
+          "chat stream: unexpected-error terminal update failed",
+        );
+      });
+      executionTerminal = true;
+    }
     // SSE headers are already committed for this try block. Do not let
     // Express attempt a second JSON response (ERR_HTTP_HEADERS_SENT); emit a
     // bounded terminal frame and close the stream once instead.
@@ -6702,7 +6740,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         try {
           res.write(`data: ${JSON.stringify({
             type: "error",
-            code: "STREAM_INTERNAL_ERROR",
+            code: unexpectedErrorCode,
             message: "The AI request could not complete. Please retry.",
             outcome: "FAILED",
             retryable: true,
