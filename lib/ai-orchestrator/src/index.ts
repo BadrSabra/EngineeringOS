@@ -620,6 +620,14 @@ export type {
   WorkflowAction,
   WorkflowDecision,
 } from "./schemas/index.js";
+export {
+  resolveProjectQueryTarget,
+  buildProjectQueryObjective,
+} from "./project-query-target.js";
+export type {
+  ProjectQueryTarget,
+  ProjectQueryTargetId,
+} from "./project-query-target.js";
 
 export {
   chat,

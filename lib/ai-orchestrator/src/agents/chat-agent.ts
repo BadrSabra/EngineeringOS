@@ -5803,7 +5803,7 @@ export async function chat(opts: {
     firstEvidence.allowedFirstAction === "DIRECT_READ" &&
     firstEvidence.primaryEvidenceTarget?.kind === "FILE"
       ? canonicalRelativePath(firstEvidence.primaryEvidenceTarget.path)
-      : null;
+      : turnIntent.projectTarget?.firstEvidencePath ?? null;
   // Union the single-file forensic manifest with the FEG primary target so the
   // runtime's first read covers both an isolated audit and a general explicit
   // file mention, exactly once each (deduped).
@@ -6072,7 +6072,11 @@ export async function chat(opts: {
   // Result is a one-line hint injected into the system prompt so the model
   // starts with the most relevant entities instead of exploring randomly.
   const focusHint = buildQueryFocusHint(projectContext.graphSummary, message);
-  const combinedFocusHint = [focusHint, graphGuidance?.promptHint]
+  const combinedFocusHint = [
+    focusHint,
+    graphGuidance?.promptHint,
+    turnIntent.projectTarget?.promptHint,
+  ]
     .filter((hint): hint is string => Boolean(hint))
     .join("\n");
 
@@ -7159,7 +7163,11 @@ export async function chat(opts: {
           ? ["read_file"]
           : undefined,
     allowedReadPaths:
-      singleFileForensicMode && singleFilePaths.length > 0 ? singleFilePaths : undefined,
+      singleFileForensicMode && singleFilePaths.length > 0
+        ? singleFilePaths
+        : turnIntent.projectTarget
+          ? [...turnIntent.projectTarget.primaryPaths]
+          : undefined,
     objectiveScopePolicy: objective?.scopePolicy,
     firstEvidenceTargetPath: firstEvidenceTargetPath ?? undefined,
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,

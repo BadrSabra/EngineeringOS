@@ -22,6 +22,10 @@ import {
   type ForensicTaskType,
   type OutputContract,
 } from "../task-contracts.js";
+import {
+  resolveProjectQueryTarget,
+  type ProjectQueryTarget,
+} from "../project-query-target.js";
 
 export type RequestCategory =
   | "simple"         // greeting / quick lookup / one-line yes-no
@@ -99,6 +103,8 @@ export type ClassifiedRequest = {
    * the runtime to read the target directly before any graph/prefetch work.
    */
   firstEvidence: FirstEvidenceGate;
+  /** Named subsystem target for a read-only project query. */
+  projectTarget?: ProjectQueryTarget;
 };
 
 // ─── Structured-output mode detection ────────────────────────────────────────
@@ -522,6 +528,7 @@ const PATTERNS: PatternEntry[] = [
  */
 export function classifyRequest(message: string): ClassifiedRequest {
   const trimmed = message.trim();
+  const projectTarget = resolveProjectQueryTarget(trimmed);
 
   const implementationPlanMode = detectImplementationPlanMode(trimmed);
   const implementationTaskMode =
@@ -612,6 +619,7 @@ export function classifyRequest(message: string): ClassifiedRequest {
       analysisMode: "STANDARD",
       outputContract: "GENERIC_RESPONSE",
       firstEvidence,
+      ...(projectTarget ? { projectTarget } : {}),
     };
   }
 
@@ -685,5 +693,6 @@ export function classifyRequest(message: string): ClassifiedRequest {
     analysisMode: implementationTaskMode || implementationPlanMode ? "STANDARD" : taskRoute.analysisMode,
     outputContract: implementationTaskMode || implementationPlanMode ? "GENERIC_RESPONSE" : taskRoute.outputContract,
     firstEvidence,
+    ...(projectTarget ? { projectTarget } : {}),
   };
 }

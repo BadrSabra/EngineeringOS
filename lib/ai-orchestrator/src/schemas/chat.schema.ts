@@ -34,6 +34,8 @@ export const ObjectiveRequiredClaimSchema = z.object({
   claimId: z.string().min(1),
   /** Human-readable assertion the objective must close. */
   text: z.string().min(1),
+  /** Evidence paths that must be read before this claim can close. */
+  requiredEvidencePaths: z.array(z.string().min(1).max(500)).max(12).optional(),
 }).strict();
 export type ObjectiveRequiredClaim = z.infer<typeof ObjectiveRequiredClaimSchema>;
 
@@ -58,6 +60,10 @@ export const ObjectiveContractSchema = z
   .object({
     /** e.g. "PRODUCTION_REACHABILITY". */
     objectiveType: z.string().min(1).max(80),
+    /** Human-readable goal retained for objective-aware tool planning. */
+    goal: z.string().min(1).max(2_000).optional(),
+    /** Evidence paths that must be retained before the objective can close. */
+    requiredEvidencePaths: z.array(z.string().min(1).max(500)).max(12).optional(),
     requiredClaims: z.array(ObjectiveRequiredClaimSchema).min(0).max(12),
     requiredEvidenceEdges: z.array(ObjectiveEvidenceEdgeSchema).max(12).default([]),
     /** AI-OBJ-008: bounded primary/caller/route/consumer evidence scope. */

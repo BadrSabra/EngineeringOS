@@ -65,6 +65,8 @@ export type TurnIntent = {
   auditScopeDescription?: string;
   operationMode: TurnOperationMode;
   classification: ClassifiedRequest;
+  /** Server-owned subsystem target for a targeted read-only project query. */
+  projectTarget?: ClassifiedRequest["projectTarget"];
 };
 
 /**
@@ -184,6 +186,7 @@ export function resolveTurnIntent(
         compoundExecution
       )
     );
+  const targetedProjectQuery = Boolean(classification.projectTarget);
   const hasProjectToolSignal =
     SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
   // Generic/social questions classified as simple must remain fast, tool-free
@@ -254,6 +257,7 @@ export function resolveTurnIntent(
       isProductionReachabilityRequest(message) ||
       FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
      ) ||
+     targetedProjectQuery ||
      resumedForensicContinuation,
   );
 
@@ -267,14 +271,14 @@ export function resolveTurnIntent(
 
   const kind: TurnIntentKind = implementationDelivery || planDelivery
     ? "DELIVERY"
-    : explicitEvidenceIntent && !scopeClarificationRequired
+    : explicitEvidenceIntent && !scopeClarificationRequired && !targetedProjectQuery
       ? "FORENSIC_AUDIT"
       : requiresTools
         ? "PROJECT_QUERY"
         : "CHAT";
   const executionTaskType: TaskType = implementationDelivery
     ? "task_execution"
-    : explicitEvidenceIntent && !scopeClarificationRequired
+     : explicitEvidenceIntent && !scopeClarificationRequired && !targetedProjectQuery
       ? "analysis"
       : requiresTools
         ? "tool_chat"
@@ -292,7 +296,7 @@ export function resolveTurnIntent(
         : ["evidence", "validation"]
       : implementationDelivery
         ? ["execution"]
-        : explicitEvidenceIntent && !scopeClarificationRequired
+         : explicitEvidenceIntent && !scopeClarificationRequired
           ? ["evidence"]
           : [];
 
@@ -320,6 +324,7 @@ export function resolveTurnIntent(
     compoundExecution,
     compoundWrite,
     phases,
+    ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, message) }
       : {}),

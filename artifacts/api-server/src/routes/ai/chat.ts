@@ -45,6 +45,7 @@ import {
   classifyRequest,
   resolveExecutionDecision,
   resolveTurnIntent,
+  buildProjectQueryObjective,
   isWriteCapableTurn,
   isImmediateExecutionRequest,
   isCapabilityProbeRequest,
@@ -3043,6 +3044,11 @@ router.post("/ai/chat", async (req, res) => {
     resumed: classificationResolution.resumed,
     implementationPlanResume,
   });
+  const effectiveObjective =
+    objective ??
+    (turnIntent.projectTarget
+      ? buildProjectQueryObjective(turnIntent.projectTarget, message)
+      : undefined);
   const resumableTaskStateAtStart = nextSessionTaskState({
     persisted: resumableStateForTurn,
     classification: chatClassification,
@@ -3293,7 +3299,7 @@ router.post("/ai/chat", async (req, res) => {
             correlationId: analysisCorrelation.operationId,
           },
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
-          objective,
+          objective: effectiveObjective,
           turnIntent,
           allowValidationTools: Boolean(validationRunner),
            approvalState: validationRunner
@@ -4086,6 +4092,11 @@ router.post("/ai/chat/stream", async (req, res) => {
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
+  const streamObjective =
+    objective ??
+    (streamTurnIntent.projectTarget
+      ? buildProjectQueryObjective(streamTurnIntent.projectTarget, message)
+      : undefined);
   const capabilityProbeContract = isCapabilityProbeRequest(message)
     ? {
         sourceFiles: [...CAPABILITY_PROBE_SOURCE_FILES],
@@ -4304,7 +4315,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       workspaceRevision: analysisCorrelation.projectRevision,
       ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
-      ...(objective ? { objective } : {}),
+      ...(streamObjective ? { objective: streamObjective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
       ...(capabilityProbeContract ? { capabilityProbe: capabilityProbeContract } : {}),
       // Session task linkage is context, not an autonomous execution request.
@@ -4312,7 +4323,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       // objective, scoped implementation plan, or direct execution command
       // enters the proof-required contract.
       proofRequired: Boolean(
-        objective
+        streamObjective
         || effectiveBuildPlanMessageId
         || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
         || (implementationPlanScope && implementationPlanScope.size > 0)
@@ -4387,7 +4398,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionRequest.validationTargetPaths,
           implementationPlanScope !== undefined && implementationPlanScope.size > 0,
         ) &&
-        optionalBindingMatches(storedRequest.objective, executionRequest.objective, objective !== undefined);
+        optionalBindingMatches(
+          storedRequest.objective,
+          executionRequest.objective,
+          streamObjective !== undefined,
+        );
       if (!bindingMatches) {
         sse({
           type: "error",
@@ -4560,7 +4575,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       ? approvedImplementationExecutionPlan
         ?? buildActiveTaskExecutionPlan({
             implementationPlan: approvedImplementationPlan,
-            objective,
+           objective: streamObjective,
             projectId,
             rootPath: validRootPath,
           })
