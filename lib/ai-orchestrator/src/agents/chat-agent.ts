@@ -2837,7 +2837,13 @@ export async function runCapabilityMicroProbes(opts: {
         ("code" in error && String((error as { code?: unknown }).code) === "TIMEOUT" ||
           /timed out|deadline/i.test(error.message))
       ) {
-        deadlineExhausted = true;
+        // A single provider attempt timing out does not consume the entire
+        // bounded recovery window. Continue with the next claim group while
+        // the server-owned deadline still has time remaining; only stop the
+        // aggregate when the actual recovery deadline is exhausted.
+        deadlineExhausted =
+          effectiveDeadlineAt !== undefined &&
+          Date.now() >= effectiveDeadlineAt;
       }
       console.warn(JSON.stringify({
         scope: "chat-agent",
