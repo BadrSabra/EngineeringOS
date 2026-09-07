@@ -520,6 +520,64 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     expect(calls.every((call) => call.responseFormat)).toBe(true);
   });
 
+  it("continues later micro-probe groups when one group exhausts its attempt timeouts", async () => {
+    let callCount = 0;
+    const prompts: string[] = [];
+    const strategy = {
+      call: vi.fn(async (messages: unknown) => {
+        callCount += 1;
+        const prompt = JSON.stringify(messages);
+        prompts.push(prompt);
+        if (callCount <= 2) {
+          throw new GroqClientError("TIMEOUT", "simulated exhausted grounding timeout");
+        }
+        if (prompt.includes("C4")) {
+          return {
+            content: JSON.stringify({
+              claims: {
+                C4: { status: "PASS", evidenceId: "E2", answer: "PROSE_PSEUDO_PATH_DENYLIST is MISSING." },
+              },
+            }),
+            model: "openrouter-test",
+          };
+        }
+        if (prompt.includes("C7")) {
+          return {
+            content: JSON.stringify({
+              claims: {
+                C7: { status: "PASS", evidenceId: "E3", answer: "run() and write_file are MISSING." },
+              },
+            }),
+            model: "openrouter-test",
+          };
+        }
+        return {
+          content: JSON.stringify({
+            claims: {
+              C6: { status: "PASS", evidenceId: "E4", answer: "NO eval( or Function( call exists." },
+            },
+          }),
+          model: "openrouter-test",
+        };
+      }),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy,
+      provider: "openrouter",
+      model: "openrouter-test",
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result).toBeNull();
+    expect(callCount).toBeGreaterThan(2);
+    expect(prompts.slice(2).some((prompt) => prompt.includes("C4"))).toBe(true);
+  });
+
   it("does not use an absence certificate to promote a positive hallucinated claim", async () => {
     const responses = [
       "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
