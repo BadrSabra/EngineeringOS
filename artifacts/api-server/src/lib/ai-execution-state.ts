@@ -1239,6 +1239,7 @@ export async function createAiExecution(params: {
         ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
         updatedAt: now.toISOString(),
       } satisfies AiExecutionCheckpoint),
+      baseRevision: params.request.workspaceRevision ?? null,
       status: "queued",
       createdAt: now,
       updatedAt: now,

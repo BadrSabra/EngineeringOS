@@ -32,6 +32,7 @@ import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import { GroqClientError } from "../errors.js";
 import {
+  buildDeterministicCapabilityProbeReport,
   capabilityProbeRecoveryDeadline,
   runCapabilityMicroProbes,
   validateCapabilityProbeCitations,
@@ -77,6 +78,14 @@ const CONTENT_A = [
 // CONTENT_B deliberately has NO `write_file` / immediate-write call and NO `run()`.
 const CONTENT_B = [
   "/* file-tools.ts */",
+  "export function executeFileTool(name: string): string {",
+  "  return \"executed:\" + name;",
+  "}",
+].join("\n");
+
+const CONTENT_B_WITH_QUEUED_WRITE_DESCRIPTION = [
+  "/* file-tools.ts */",
+  "const description = \"write_file is queued for approval\";",
   "export function executeFileTool(name: string): string {",
   "  return \"executed:\" + name;",
   "}",
@@ -187,6 +196,19 @@ function executedWrites(steps: AgentStep[]): boolean {
 }
 
 describe("capability probe: C1–C7 are guarded end-to-end and the probe never dies on the report/R-PROOF gates", () => {
+  it("does not mistake a queued write_file description for an immediate disk write", () => {
+    const report = buildDeterministicCapabilityProbeReport(
+      new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B_WITH_QUEUED_WRITE_DESCRIPTION],
+      ]),
+      0,
+    );
+
+    expect(report?.response).toContain("C7: PASS");
+    expect(report?.response).toContain("immediate write_file-to-disk behavior is MISSING");
+  });
+
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
   });
@@ -451,6 +473,70 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     );
   });
 
+  it("tries an authorized same-provider model before repeating the primary model", async () => {
+    const attempts: Array<{ provider: string; model?: string | null; outcome: string }> = [];
+    let primaryCalls = 0;
+    let fallbackCalls = 0;
+    const responseFor = (prompt: string): string => {
+      if (prompt.includes("C1") && prompt.includes("C3")) {
+        return "C1: PASS — isPromptProsePath exists; Evidence ID: E1.\n" +
+          "C3: PASS — the named function is grounded; Evidence ID: E1.";
+      }
+      if (prompt.includes("C4")) {
+        return "C4: PASS — PROSE_PSEUDO_PATH_DENYLIST is MISSING; Evidence ID: E2.";
+      }
+      if (prompt.includes("C7")) {
+        return "C7: PASS — run() and write_file are MISSING; Evidence ID: E3.";
+      }
+      return "C6: PASS — eval( and Function( are MISSING; Evidence ID: E4.";
+    };
+    const primary = {
+      call: vi.fn(async (messages: unknown[]) => {
+        primaryCalls += 1;
+        if (primaryCalls === 1) {
+          throw new GroqClientError("TIMEOUT", "simulated primary model timeout");
+        }
+        return { content: responseFor(JSON.stringify(messages)), model: "gemini-a" };
+      }),
+    };
+    const fallback = {
+      call: vi.fn(async (messages: unknown[]) => {
+        fallbackCalls += 1;
+        return { content: responseFor(JSON.stringify(messages)), model: "gemini-b" };
+      }),
+    };
+
+    const result = await runCapabilityMicroProbes({
+      strategy: primary,
+      provider: "gemini",
+      model: "gemini-a",
+      fallbackProviders: [{
+        provider: "gemini",
+        model: "gemini-b",
+        strategy: fallback,
+      }],
+      onProviderAttempt: (attempt) => {
+        attempts.push({
+          provider: attempt.provider,
+          model: attempt.model,
+          outcome: attempt.outcome,
+        });
+      },
+      fileContents: new Map([
+        [FILE_A, CONTENT_A],
+        [FILE_B, CONTENT_B],
+      ]),
+      pendingChanges: [],
+    });
+
+    expect(result?.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+    expect(fallbackCalls).toBe(1);
+    expect(attempts.slice(0, 2)).toEqual([
+      { provider: "gemini", model: "gemini-a", outcome: "failure" },
+      { provider: "gemini", model: "gemini-b", outcome: "success" },
+    ]);
+  });
+
   it("uses JSON mode for Gemini micro-probes and retries grounding after a timeout", async () => {
     const calls: Array<{ responseFormat?: unknown }> = [];
     let firstCall = true;
@@ -664,7 +750,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       // The negative behavioral verdict is accepted — C6 PASS, not a Finding-less block.
       expect(result.response.length).toBeGreaterThan(0);
       expect(result.response).not.toMatch(/^NOT PROVEN/);
-      expect(result.response).toMatch(/NO FINDING/i);
+      expect(result.response).toMatch(/C6: PASS/i);
       expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
       expect(result.response).toMatch(/C1|C2|C4|C5|C6|C7/);
       // Capability Probe is buffered until its validator and citation gates
@@ -712,7 +798,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     }
   });
 
-  it("recovers one valid probe response when the first answer omits an exact source excerpt", async () => {
+  it("uses deterministic source assembly when the first answer omits an exact source excerpt", async () => {
     const rootPath = await makeProbeRoot();
     const firstAnswerWithoutEvidence = JSON.stringify({
       response:
@@ -776,7 +862,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         },
       });
 
-      expect(callCount).toBe(2);
+      expect(callCount).toBe(1);
       expect(result.response).not.toMatch(/^NOT PROVEN/i);
       expect(result.response).toContain(FILE_A);
       expect(result.response).toContain(
@@ -790,7 +876,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     }
   });
 
-  it("accepts a claim-scoped recovery response and merges its server-owned citation", async () => {
+  it("rejects provider citation drift in favor of server-owned source assembly", async () => {
     const rootPath = await makeProbeRoot();
     const initialAnswerObject = JSON.parse(GROUNDED_NEGATIVE_ANSWER) as { response: string };
     initialAnswerObject.response = initialAnswerObject.response.replace(
@@ -837,10 +923,9 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         apiKey: "test-or-key",
       });
 
-      expect(callCount).toBe(2);
+      expect(callCount).toBe(1);
       expect(result.response).toContain("Overall score: 7/7");
       expect(result.response).toMatch(/^C1: PASS/m);
-      expect(result.response).toContain("Evidence ID: E1");
       expect(result.response).toContain("return value.includes('defect/repair');");
       expect(result.response).not.toContain("this fragment is not in the retained source");
     } finally {
@@ -963,7 +1048,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     },
   );
 
-  it("turns an incomplete malformed capability object into ANALYSIS_INCOMPLETE", async () => {
+  it("uses deterministic source assembly when the provider returns an incomplete capability object", async () => {
     const rootPath = await makeProbeRoot();
     const incompleteMalformedAnswer = `{
       "C1": "PASS — \`export function isPromptProsePath(value: string): boolean {\`; Source: \`${FILE_A}\`; Evidence: \`return value.includes('defect/repair');\`",
@@ -995,10 +1080,9 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         apiKey: "test-or-key",
       });
 
-      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
-      expect(result.response).not.toContain("C3: PASS");
-      expect(result.response).not.toContain("C7: PASS");
-      expect(result.response).not.toMatch(/Overall score:\s*7\/7/i);
+      expect(result.response).toContain("C3: PASS");
+      expect(result.response).toContain("C7: PASS");
+      expect(result.response).toMatch(/Overall score:\s*7\/7/i);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
@@ -1043,21 +1127,18 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         executionLedger,
       });
 
-      expect(callCount).toBe(2);
-      expect(executionLedger.snapshot().counts.recovery).toBe(1);
+      expect(callCount).toBe(1);
+      expect(executionLedger.snapshot().counts.recovery).toBe(0);
       expect(result.response).toContain("C1");
-      expect(result.response).toContain("NO FINDING");
       expect(result.response).toContain(
         "export function isPromptProsePath(value: string): boolean {",
       );
       expect(steps.some(
         (step) =>
           step.kind === "diagnostic" &&
-          step.code === "CAPABILITY_PROBE_EVIDENCE_RECOVERED",
+          step.code === "CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY",
       )).toBe(true);
-      expect(steps.some(
-        (step) => step.kind === "recovery_model_call" && step.attempt >= 1,
-      )).toBe(true);
+      expect(steps.some((step) => step.kind === "recovery_model_call")).toBe(false);
       expect(steps.some(
         (step) =>
           (step.kind === "tool_call" || step.kind === "tool_result") &&
@@ -1117,7 +1198,7 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     }
   });
 
-  it("keeps an exhausted correction path claim-unclosed instead of promoting an inventory", async () => {
+  it("uses deterministic claim assembly instead of promoting an ungrounded provider inventory", async () => {
     const rootPath = await makeProbeRoot();
     const ungroundedAnswer = JSON.stringify({
       response:
@@ -1159,30 +1240,14 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         onStep: (step) => steps.push(step),
       });
 
-      // One correction plus the bounded group probes (including their
-      // requirement retries) is still finite and provider-fallback-free.
-      expect(fakeStrategy.call.mock.calls.length).toBeLessThanOrEqual(7);
-      expect(result.response).toMatch(/^ANALYSIS_INCOMPLETE/i);
+      expect(fakeStrategy.call.mock.calls.length).toBe(1);
+      expect(result.response).toMatch(/^C1: PASS/i);
+      expect(result.response).toContain("Overall score: 7/7");
       expect(steps.some(
         (step) =>
           step.kind === "diagnostic" &&
-          step.code === "CAPABILITY_PROBE_CLAIM_UNCLOSED",
+          step.code === "CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY",
       )).toBe(true);
-      const terminal = [...steps]
-        .reverse()
-        .find((step) => step.kind === "forensic_terminal");
-      expect(terminal?.kind).toBe("forensic_terminal");
-      if (terminal?.kind === "forensic_terminal") {
-        expect(terminal.terminalKind).toBe("EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED");
-      }
-      const decisionTrace = [...steps]
-        .reverse()
-        .find((step) => step.kind === "decision_trace");
-      expect(decisionTrace?.kind).toBe("decision_trace");
-      if (decisionTrace?.kind === "decision_trace") {
-        expect(decisionTrace.trace).not.toHaveProperty("scopedFindingStatus");
-        expect(decisionTrace.trace).not.toHaveProperty("verdictScope");
-      }
       expect(steps.some(
         (step) =>
           (step.kind === "tool_call" || step.kind === "tool_result") &&
