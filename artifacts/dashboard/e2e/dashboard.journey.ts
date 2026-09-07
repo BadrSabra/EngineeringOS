@@ -5360,7 +5360,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await assertReopenedAcceptance();
     await reviewButton.click();
-    await assertReopenedAcceptance(false);
+    await assertReopenedAcceptance();
   });
 
   test("converges the accepted attempt across SSE, JSON, history, and Mission Control after reconnect", async ({

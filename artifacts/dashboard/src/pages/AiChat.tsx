@@ -10838,7 +10838,18 @@ export default function AiChat() {
                             ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
                           });
                           setHistoricalExecutionId(audit.id);
-                          setLocalMessages([]);
+                           const sameOpenAudit = (
+                             historicalExecutionId === audit.id
+                             && sessionId === audit.sessionId
+                           );
+                           const cachedLinkedMessages = audit.sessionId
+                             ? qc.getQueryData<ChatMessage[]>(['ai-messages', audit.sessionId])
+                             : undefined;
+                           setLocalMessages(
+                             sameOpenAudit && cachedLinkedMessages && cachedLinkedMessages.length > 0
+                               ? cachedLinkedMessages
+                               : [],
+                           );
                           setPendingChanges([]);
                           setProposalId(undefined);
                           setProposalRequiresApproval(false);
@@ -10852,6 +10863,20 @@ export default function AiChat() {
                             ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
                             message: audit.objective,
                           });
+                           // Selecting an audit can target the session that is
+                           // already open. Clear the transient view above, but
+                           // explicitly rehydrate the linked messages so a
+                           // cached query result cannot leave the proof panel
+                           // without its retained conversation evidence.
+                           if (audit.sessionId) {
+                             void qc.invalidateQueries({
+                               queryKey: ['ai-messages', audit.sessionId],
+                             });
+                             void qc.refetchQueries({
+                               queryKey: ['ai-messages', audit.sessionId],
+                               type: 'active',
+                             });
+                           }
                           setAgentStage('Historical audit selected — retained proof is available to review.');
                         }}
                         className={`w-full rounded px-2 py-2 text-left transition-colors ${
