@@ -43,7 +43,11 @@ import {
   serializeMissionCorrelationReport,
 } from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
-import { createAiExecution } from "../lib/ai-execution-state.js";
+import {
+  createAiExecution,
+  reconcileAiExecutions,
+} from "../lib/ai-execution-state.js";
+import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 import {
   createDeliveryWorkspace,
   deliveryWorkspaceExists,
@@ -620,6 +624,53 @@ async function insertTask(projectId: string, status = "pending"): Promise<string
     updatedAt: now,
   });
   return id;
+}
+
+async function insertRunningTaskExecution(projectId: string): Promise<{
+  taskId: string;
+  executionId: string;
+  workerId: string;
+  attempt: number;
+}> {
+  const taskId = await insertTask(projectId);
+  const workerId = randomUUID();
+  const leaseUntil = new Date(Date.now() + 60_000);
+  const created = await createAiExecution({
+    userId: "test-user",
+    projectId,
+    linkedTaskId: taskId,
+    idempotencyKey: randomUUID(),
+    request: {
+      projectId,
+      linkedTaskId: taskId,
+      message: "Execute the durable task race fixture.",
+      modelMessage: "Execute the durable task race fixture.",
+      validationTargetPaths: [],
+    },
+  });
+
+  await db.update(tasksTable).set({
+    status: "running",
+    workerId,
+    leaseUntil,
+    lastHeartbeatAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(tasksTable.id, taskId));
+  await db.update(aiExecutionsTable).set({
+    status: "running",
+    workerId,
+    leaseUntil,
+    lastHeartbeatAt: new Date(),
+    startedAt: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(aiExecutionsTable.id, created.execution.id));
+
+  return {
+    taskId,
+    executionId: created.execution.id,
+    workerId,
+    attempt: created.execution.attempt,
+  };
 }
 
 async function insertWorkflow(projectId: string): Promise<string> {
@@ -5207,6 +5258,211 @@ describe.sequential("task and workflow provider failure contract", () => {
 
       const response = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
       assertSafeFailureResponse(response, failure);
+    });
+  });
+});
+
+describe("autonomous task acceptance finalization races", () => {
+  it("records cancellation as one interrupted acceptance without replaying task side effects", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const fixture = await insertRunningTaskExecution(projectId);
+
+    await db.update(aiExecutionsTable).set({
+      status: "cancelling",
+      cancelRequestedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    const first = await finalizeExecutionAcceptance({
+      executionId: fixture.executionId,
+      workerId: fixture.workerId,
+      finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:late-failure`,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      recoveryState: "REQUIRED",
+      resumable: true,
+      error: "The provider returned after cancellation won.",
+      taskFinalization: {
+        taskId: fixture.taskId,
+        workerId: fixture.workerId,
+        status: "cancelled",
+        agentResponse: "cancelled task receipt",
+        log: {
+          level: "warn",
+          message: "AI task execution cancelled",
+        },
+        event: {
+          type: "TaskExecutionCancelled",
+          severity: "warning",
+          message: "AI task execution cancelled",
+        },
+      },
+    });
+
+    expect(first).toMatchObject({
+      accepted: true,
+      duplicate: false,
+      acceptance: {
+        attempt: fixture.attempt,
+        terminalStatus: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+      },
+    });
+
+    const duplicate = await finalizeExecutionAcceptance({
+      executionId: fixture.executionId,
+      workerId: fixture.workerId,
+      finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:late-failure-retry`,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      recoveryState: "REQUIRED",
+      resumable: true,
+      error: "A duplicate terminal callback must not replay side effects.",
+      taskFinalization: {
+        taskId: fixture.taskId,
+        workerId: fixture.workerId,
+        status: "failed",
+        agentResponse: "duplicate failure receipt",
+        log: {
+          level: "error",
+          message: "duplicate task finalization",
+        },
+        event: {
+          type: "DuplicateTaskExecutionFailed",
+          severity: "error",
+          message: "duplicate task finalization",
+        },
+      },
+    });
+
+    expect(duplicate).toMatchObject({
+      accepted: true,
+      duplicate: true,
+      acceptance: { id: first.acceptance?.id },
+    });
+
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, fixture.taskId));
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.taskId, fixture.taskId));
+    const acceptances = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+    expect(task).toMatchObject({
+      status: "cancelled",
+      agentResponse: "cancelled task receipt",
+      workerId: null,
+      leaseUntil: null,
+    });
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ message: "AI task execution cancelled" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "TaskExecutionCancelled" });
+    expect(acceptances).toHaveLength(1);
+  });
+
+  it("creates one recovery acceptance for an expired execution lease and preserves its attempt", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const fixture = await insertRunningTaskExecution(projectId);
+    const expiredAt = new Date(Date.now() - 60_000);
+
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: expiredAt,
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    await db.update(tasksTable).set({
+      leaseUntil: expiredAt,
+      updatedAt: new Date(),
+    }).where(eq(tasksTable.id, fixture.taskId));
+
+    expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+    expect(await reconcileAiExecutions()).toBe(0);
+
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const acceptances = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+    expect(execution).toMatchObject({
+      status: "paused",
+      workerId: null,
+      leaseUntil: null,
+    });
+    expect(acceptances).toHaveLength(1);
+    expect(acceptances[0]).toMatchObject({
+      attempt: fixture.attempt,
+      workerId: fixture.workerId,
+      terminalStatus: "paused",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      nextActionCode: "RESUME_ALLOWED",
+      resumable: 1,
+      disposition: expect.objectContaining({ recoveryState: "REQUIRED" }),
+    });
+  });
+
+  it("does not let a stale worker overwrite the recovery winner", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const fixture = await insertRunningTaskExecution(projectId);
+
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: new Date(Date.now() - 60_000),
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    await db.update(tasksTable).set({
+      leaseUntil: new Date(Date.now() - 60_000),
+      updatedAt: new Date(),
+    }).where(eq(tasksTable.id, fixture.taskId));
+    expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+
+    const staleWorker = await finalizeExecutionAcceptance({
+      executionId: fixture.executionId,
+      workerId: fixture.workerId,
+      finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:stale-worker`,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "ACCEPTED",
+      recoveryState: "NONE",
+      resumable: false,
+      finalMessageContent: "stale worker success",
+    });
+
+    expect(staleWorker).toMatchObject({
+      accepted: true,
+      duplicate: true,
+      acceptance: {
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_LEASE_EXPIRED",
+      },
+    });
+
+    const [execution] = await db
+      .select({ status: aiExecutionsTable.status, error: aiExecutionsTable.error })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    const [acceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+    expect(execution).toMatchObject({ status: "paused" });
+    expect(acceptance).toMatchObject({
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
     });
   });
 });
