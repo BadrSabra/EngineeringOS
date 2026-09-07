@@ -50,3 +50,9 @@ Claim-scoped recovery is a different acceptance shape from full-report recovery:
 **Why:** Requiring the full C1–C7 contract during a targeted correction rejected otherwise valid server-owned claim evidence before the merge path could run.
 
 **How to apply:** Keep the final `PROVEN` gate complete and strict, but let targeted recovery close only its named claim; persist micro-probe progress separately so later timeouts do not erase diagnostic state.
+
+Capability preflight must treat invalid tool arguments as a capability/model failure, not transport failure, and must test a bounded sequence of model candidates before declaring the provider unavailable.
+
+**Why:** A live probe reached the provider but the first catalog model emitted invalid JSON tool arguments; a one-model preflight and unsafe-code projection turned that into `NETWORK_ERROR` before any source read.
+
+**How to apply:** Preserve `INVALID_TOOL_CALL` through safe health telemetry, allow a bounded preflight model chain to advance on it, and keep this behavior scoped to preflight rather than changing post-evidence recovery semantics.

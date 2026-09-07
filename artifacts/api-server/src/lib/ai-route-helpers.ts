@@ -391,6 +391,11 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
   "QUOTA",               // PR-03: credits/billing exhausted on this provider
 ]);
 
+// Capability preflight owns provider selection, while OpenRouter owns the
+// bounded model chain. A single candidate is insufficient when the first
+// catalog model can reach the provider but cannot emit valid tool arguments.
+const CAPABILITY_PREFLIGHT_MAX_MODELS = 3;
+
 /**
  * Normalize SDK/parser failures that escaped without the typed provider
  * error. The original error remains available as a non-serialized cause,
@@ -723,7 +728,7 @@ export async function chatWithFallback(
           provider: providerEntry.provider,
           apiKey: providerEntry.apiKey,
           timeoutMs: 15_000,
-          maxFallbackModels: 1,
+          maxFallbackModels: CAPABILITY_PREFLIGHT_MAX_MODELS,
           signal: baseParams.signal,
            // Capability Probe's effective single-file manifest exposes only
            // read_file. Keep the preflight read contract aligned with the
@@ -751,9 +756,15 @@ export async function chatWithFallback(
         };
 
         if (health.status !== "usable") {
-          const failureCode = FALLBACK_TRIGGER_CODES.has(health.failureCode ?? "")
-            ? health.failureCode as GroqErrorCode
-            : "NON_200" as const;
+          const failureCode: GroqErrorCode =
+            health.failureCode && FALLBACK_TRIGGER_CODES.has(health.failureCode)
+              ? health.failureCode as GroqErrorCode
+              : health.failureCode === "INVALID_TOOL_CALL" ||
+                  health.failureCode === "TOOL_CALL_UNSUPPORTED" ||
+                  health.failureCode === "MALFORMED_TOOL_ARGUMENTS" ||
+                  health.failureCode === "UNEXPECTED_TOOL_CALL"
+                ? "INVALID_TOOL_CALL"
+                : "NON_200";
           const preflightError = new GroqClientError(
             failureCode,
             health.failureReason ?? `Capability preflight failed for ${providerEntry.provider}`,

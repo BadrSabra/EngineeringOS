@@ -130,6 +130,7 @@ const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
   "SERVER_ERROR",
   "NON_200",
   "INVALID_CONFIG",
+  "INVALID_TOOL_CALL",
   "TOOL_CALL_UNSUPPORTED",
   "MALFORMED_TOOL_ARGUMENTS",
   "UNEXPECTED_TOOL_CALL",
@@ -257,6 +258,7 @@ function failureCategoryFor(code?: ProviderHealthFailureCode): ProviderHealthFai
     case "INVALID_CONFIG":
       return "request";
     case "TOOL_CALL_UNSUPPORTED":
+    case "INVALID_TOOL_CALL":
     case "MALFORMED_TOOL_ARGUMENTS":
     case "UNEXPECTED_TOOL_CALL":
       return "capability";
@@ -276,6 +278,7 @@ function recoveryActionFor(code?: ProviderHealthFailureCode): OpenRouterFailureA
   if (code === "MODEL_NOT_FOUND" || code === "MODEL_UNAVAILABLE" || code === "PLAN_RESTRICTED" || code === "EMPTY_RESPONSE") {
     return "choose-alternative";
   }
+  if (code === "INVALID_TOOL_CALL") return "choose-alternative";
   if (code === "NON_200") return "narrow-request";
   return "stop-safely";
 }

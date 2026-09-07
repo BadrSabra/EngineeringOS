@@ -1267,7 +1267,10 @@ export async function openrouterCompleteWithFallback(
       // chain on top of this one.
       const fallbackOnTransient =
         opts.retryTransient === false && isTransientError(err);
-      if ((isModelUnavailableError(err) || fallbackOnTransient) && i < chain.length - 1) {
+      if (
+        (isModelUnavailableError(err) || fallbackOnTransient) &&
+        i < chain.length - 1
+      ) {
         const nextModel = chain[i + 1] as string;
         console.warn(
           JSON.stringify({

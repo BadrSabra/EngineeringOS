@@ -125,6 +125,35 @@ describe("providerHealthProbe", () => {
     });
   });
 
+  it("preserves invalid tool-call failures as capability failures", async () => {
+    const strategy: ProviderStrategy = {
+      ...strategyReturning(response(null)),
+      async call() {
+        throw new GroqClientError(
+          "INVALID_TOOL_CALL",
+          "Provider returned invalid tool-call output",
+          { context: { providerModel: "bad-model:free" } },
+        );
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "openrouter",
+      model: "bad-model:free",
+      strategy,
+    });
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      failureCode: "INVALID_TOOL_CALL",
+      failureReason: "Provider probe failed with INVALID_TOOL_CALL.",
+    });
+    expect(result.report).toMatchObject({
+      failureCategory: "capability",
+      recoveryAction: "choose-alternative",
+    });
+  });
+
   it("allows the caller to disable nested OpenRouter fallback for one candidate", async () => {
     const calls: Array<{ model?: string; maxFallbackModels?: number }> = [];
     const strategy: ProviderStrategy = {
