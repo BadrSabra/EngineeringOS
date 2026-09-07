@@ -6940,7 +6940,9 @@ export async function chat(opts: {
     retainedFileContents: retainedEvidence,
     cache: toolCallCache,
     toolChoice:
-      immediateIntent && priorRepairPlan && executionFilePaths.length > 0
+      capabilityProbeRequest
+        ? "required"
+        : immediateIntent && priorRepairPlan && executionFilePaths.length > 0
         ? "required"
         : undefined,
     maxIterations: budget.maxIterations,

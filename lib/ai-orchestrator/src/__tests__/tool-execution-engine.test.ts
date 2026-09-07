@@ -416,6 +416,48 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
   });
 
+  it("uses an explicit required tool choice for the first read and auto thereafter", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]),
+      makeResponse("grounded answer"),
+    ]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      toolChoice: "required",
+    });
+
+    expect(result.kind).toBe("response");
+    expect(strategy.call).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        toolChoice: "required",
+        tools: expect.arrayContaining([
+          expect.objectContaining({ function: expect.objectContaining({ name: "read_file" }) }),
+        ]),
+      }),
+    );
+    expect(strategy.call).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({
+        toolChoice: "auto",
+        tools: expect.arrayContaining([
+          expect.objectContaining({ function: expect.objectContaining({ name: "read_file" }) }),
+        ]),
+      }),
+    );
+  });
+
   it("returns an authoritative incomplete result when a declared claim is open", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const result = await executeToolLoop({
@@ -1739,7 +1781,7 @@ describe("executeToolLoop", () => {
 
     const calls = vi.mocked(strategy.call).mock.calls;
     expect(calls[0]?.[1]).toMatchObject({ toolChoice: "required" });
-    expect(calls[1]?.[1]).not.toHaveProperty("toolChoice");
+    expect(calls[1]?.[1]).toMatchObject({ toolChoice: "auto" });
   });
 
   it("serves cached result for a duplicate tool call without re-executing", async () => {

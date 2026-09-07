@@ -35,6 +35,7 @@
 - [Release test isolation](release-test-isolation.md) — release API tests must pin the owning artifact and serialize shared-database fixtures.
 - [Live recovery provider isolation](live-recovery-provider-isolation.md) — real child-process release checks must not inherit mock-only provider credentials from the surrounding fixture suite.
 - [Capability probe evidence boundary](capability-probe-evidence.md) — C1–C7 completion requires both named source bodies retained without truncation.
+- [Capability probe tool-choice parity](capability-probe-tool-choice.md) — first read call must be required, later tool calls auto, and synthesis must omit tools/tool choice.
 - [Codegen working directory](codegen-working-directory.md) — delegated Zod post-processing paths are resolved from the scripts package, while drift checks use an explicit output root.
 - [OpenAPI codegen discipline](openapi-codegen-discipline.md) — regenerate clients immediately after every spec edit; invalid specs can clean generated outputs before failing.
 - [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.

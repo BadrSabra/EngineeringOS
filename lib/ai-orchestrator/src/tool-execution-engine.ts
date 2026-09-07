@@ -2814,9 +2814,6 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     let fallbackReason: string | undefined;
     const t0 = Date.now();
 
-    // A repair-plan handoff must start with a real tool call, but subsequent
-    // turns must be allowed to synthesize a final answer after the tool result.
-    const callToolChoice = iter === 0 ? opts.toolChoice : undefined;
     const synthesisOnly =
       forceSynthesisNext ||
       (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
@@ -2875,6 +2872,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               : {}),
           }
         : { tools: [] };
+    // A repair-plan or capability-probe handoff must start with a real tool
+    // call, but subsequent turns must be allowed to synthesize a final answer
+    // after the tool result. Keep the policy explicit whenever tools are
+    // exposed: relying on a provider/model default can be interpreted as
+    // tool_choice=none even though the model emits a tool call.
+    const callToolChoice =
+      iter === 0
+        ? opts.toolChoice
+        : iterationTools && iterationTools.length > 0
+          ? "auto"
+          : undefined;
 
     // Keep the complete messages in memory for provenance/evidence validation,
     // but never resend unbounded tool bodies to a provider. This applies to
