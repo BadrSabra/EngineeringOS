@@ -6507,12 +6507,27 @@ router.post("/ai/chat/stream", async (req, res) => {
             })(),
           }
         : undefined;
+      const capabilityProbeAccepted = capabilityProbeTerminal?.status === "COMPLETE";
+      if (capabilityProbeAccepted) {
+        // A completed Capability Probe is proven by its retained-source
+        // contract, not by a separate code-validation artifact. Keep the
+        // durable evidence projection aligned with the accepted task result.
+        executionEvidenceVerdict = "PROVEN";
+        executionEvidenceReason = "Capability Probe C1–C7 report was assembled from complete retained source evidence.";
+      }
+      const operationForCompletion = capabilityProbeAccepted && autonomousOperation
+        ? {
+            ...autonomousOperation,
+            state: "succeeded" as const,
+            updatedAt: new Date().toISOString(),
+          }
+        : autonomousOperation;
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
         finalMessageId: assistantMsg.id,
         proposalId,
-        operation: autonomousOperation,
+        operation: operationForCompletion,
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,

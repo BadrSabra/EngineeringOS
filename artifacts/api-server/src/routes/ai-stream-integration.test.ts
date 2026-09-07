@@ -4249,6 +4249,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         },
       });
       args[6]?.({
+        kind: "diagnostic",
+        code: "CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY",
+        details: ["server-owned C1–C7 assembly closed 7/7 claims from complete retained reads"],
+      });
+      args[6]?.({
         kind: "done",
         iterations: 1,
         maxIterations: 8,
@@ -4264,6 +4269,17 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           response: recovered!.response,
           sources: recovered!.sources,
           pendingChanges: [],
+          taskResult: {
+            kind: "CAPABILITY_PROBE_RESULT",
+            report: recovered!.response,
+            score: 7,
+            sources,
+            coverage: {
+              requiredClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+              completedClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+              complete: true,
+            },
+          },
         },
         effectiveProvider: "groq" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
@@ -4291,8 +4307,14 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       message: {
         outcome: "SUCCEEDED",
         content: recovered!.response,
+        taskResult: {
+          kind: "CAPABILITY_PROBE_RESULT",
+          score: 7,
+          coverage: { complete: true },
+        },
       },
     });
+    expect(done).not.toHaveProperty("forensicDiagnostic");
     expect(events.find((event) => event.type === "error")).toBeUndefined();
 
     const assistantMessageId = (done?.message as { id?: string }).id;
@@ -4338,10 +4360,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(executionDetail.body).toMatchObject({
       id: execution!.id,
       status: "completed",
-      // Capability probes are forensic evidence runs, not Flight Deck
-      // validation-backed delivery executions, so proof is recorded in the
-      // evidence-integrity trace rather than as a validation verdict.
-      evidenceVerdict: "NOT_RECORDED",
+      evidenceVerdict: "PROVEN",
+      checkpoint: {
+        stage: "completed",
+        evidenceVerdict: "PROVEN",
+        capabilityProbe: { status: "COMPLETE" },
+        operation: { state: "succeeded" },
+      },
     });
 
     const history = await request(app)
@@ -4360,6 +4385,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(replayed.executionLedger).toMatchObject({
       terminalReason: "completed",
       mode: "forensic",
+    });
+    const replayedTrace = JSON.parse(replayed.toolTrace) as Array<Record<string, unknown>>;
+    expect(replayedTrace.some((entry) => entry.kind === "forensic_diagnostic")).toBe(false);
+    expect(replayed.taskResult).toMatchObject({
+      kind: "CAPABILITY_PROBE_RESULT",
+      score: 7,
+      coverage: { complete: true },
     });
     expect(replayed.content).not.toMatch(/ANALYSIS_INCOMPLETE|NOT_PROVEN|undefined/i);
   });

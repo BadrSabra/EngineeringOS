@@ -50,6 +50,33 @@ describe("forensic diagnostic projection", () => {
     });
   });
 
+  it("treats an accepted CAPABILITY_PROBE_RESULT as its own terminal contract", () => {
+    expect(deriveForensicDiagnostic([
+      {
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "NO_FINDING",
+        rootCoverage: [],
+      },
+      {
+        kind: "evidence_integrity",
+        consistent: true,
+        evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+      },
+      { kind: "decision_trace", finalState: "VERIFIED" },
+    ], {
+      capabilityProbeResult: {
+        kind: "CAPABILITY_PROBE_RESULT",
+        score: 7,
+        coverage: {
+          complete: true,
+          completedClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+        },
+      },
+    })).toBeNull();
+  });
+
   it("fails closed and retains bounded unread/truncated scope", () => {
     const result = deriveForensicDiagnostic(completeTrace({
       sourceCoverage: "PARTIAL",

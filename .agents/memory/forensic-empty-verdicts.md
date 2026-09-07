@@ -7,4 +7,4 @@ An empty forensic report must distinguish `NO_VERIFIED_FINDING` from `ANALYSIS_I
 
 **Why:** Treating both outcomes as a generic NOT PROVEN result obscures whether the audit actually completed and makes user-facing recovery output ambiguous.
 
-**How to apply:** Use the evidence-read state when constructing deterministic reports and fallbacks; capability-probe claim closure must feed the same terminal classifier as generic required-claim closure, or complete reads can be mislabeled as `NO_EVIDENCE_FOUND`. Keep recovery details and telemetry out of the user-facing six-section report.
+**How to apply:** Use the evidence-read state when constructing deterministic reports and fallbacks; capability-probe claim closure must feed the same terminal classifier as generic required-claim closure, or complete reads can be mislabeled as `NO_EVIDENCE_FOUND`. An accepted `CAPABILITY_PROBE_RESULT` is its own terminal projection and must not receive a generic forensic diagnostic. Keep recovery details and telemetry out of the user-facing six-section report.

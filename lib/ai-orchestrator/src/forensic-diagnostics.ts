@@ -46,6 +46,10 @@ export type ForensicDiagnostic = {
   truncatedFileCount: number;
 };
 
+export type ForensicDiagnosticProjectionOptions = {
+  capabilityProbeResult?: unknown;
+};
+
 type DiagnosticRootCoverage = {
   root?: unknown;
   discoveredFiles?: unknown;
@@ -93,6 +97,22 @@ function record(value: DiagnosticTraceEntry | undefined): DiagnosticTraceEntry {
 
 function hasCode(trace: readonly DiagnosticTraceEntry[], pattern: RegExp): boolean {
   return trace.some((entry) => pattern.test(String(entry.code ?? entry.diagnosticCode ?? "")));
+}
+
+function isAcceptedCapabilityProbeResult(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const coverage = candidate.coverage;
+  if (!coverage || typeof coverage !== "object" || Array.isArray(coverage)) return false;
+  const coverageRecord = coverage as Record<string, unknown>;
+  const completedClaims = coverageRecord.completedClaims;
+  return candidate.kind === "CAPABILITY_PROBE_RESULT"
+    && candidate.score === 7
+    && coverageRecord.complete === true
+    && Array.isArray(completedClaims)
+    && ["C1", "C2", "C3", "C4", "C5", "C6", "C7"].every((claim) =>
+      completedClaims.includes(claim),
+    );
 }
 
 function fromCoverage(status: DiagnosticTraceEntry, integrity: DiagnosticTraceEntry): {
@@ -206,7 +226,10 @@ function diagnostic(
  * Derive the only public forensic diagnostic from server-owned trace fields.
  * Never inspect report prose or expose provider/tool diagnostics here.
  */
-export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDiagnostic | null {
+export function deriveForensicDiagnostic(
+  trace: readonly unknown[],
+  options: ForensicDiagnosticProjectionOptions = {},
+): ForensicDiagnostic | null {
   const entries = trace.filter(
     (entry): entry is DiagnosticTraceEntry => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
   );
@@ -253,6 +276,11 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
       hasCode(entries, /CAPABILITY_PROBE_CLAIM_UNCLOSED/) ||
       hasCode(entries, /CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED/)
     );
+  const capabilityProbeComplete =
+    isAcceptedCapabilityProbeResult(options.capabilityProbeResult)
+    || hasCode(entries, /CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY/)
+    && !capabilityProbeClaimsUnclosed
+    && finalState === "VERIFIED";
   const cancelled = outcome.failureKind === "CANCELLATION"
     || done.stopReason === "cancelled"
     || toolFailure?.resultKind === "cancelled";
@@ -269,6 +297,11 @@ export function deriveForensicDiagnostic(trace: readonly unknown[]): ForensicDia
   if (capabilityProbeClaimsUnclosed && !cancelled) {
     return diagnostic("ANALYSIS_INCOMPLETE", "CLAIM_UNCLOSED", scope.unread, scope.truncated, scope.unreadCount, scope.truncatedCount);
   }
+  // Capability Probe has its own authoritative result contract. The
+  // deterministic C1–C7 assembly diagnostic is emitted only after retained
+  // source bodies have closed the probe claims. Do not reinterpret that
+  // accepted result through the generic forensic no-finding projection.
+  if (capabilityProbeComplete && !cancelled) return null;
   if (acceptedNoFinding && !cancelled) {
     return diagnostic("NO_VERIFIED_FINDING", "COMPLETE_NO_FINDING", scope.unread, scope.truncated, scope.unreadCount, scope.truncatedCount);
   }
