@@ -298,11 +298,71 @@ function capabilityProbeMissingClaims(
     .find((step): step is Extract<AgentStep, { kind: "evidence_integrity" }> =>
       step.kind === "evidence_integrity",
     );
-  if (!latestEvidenceIntegrity?.missingClaims) return [];
+  if (!latestEvidenceIntegrity?.missingClaims) {
+    return capabilityProbeProgress(traceSteps, requiredClaims)?.pendingClaims ?? [];
+  }
   const allowed = new Set(requiredClaims);
   return latestEvidenceIntegrity.missingClaims
     .filter((claim) => allowed.has(claim))
     .slice(0, 8);
+}
+
+function capabilityProbeProgress(
+  traceSteps: AgentStep[],
+  requiredClaims: string[],
+): {
+  closedClaims: string[];
+  pendingClaims: string[];
+  completedGroups: string[];
+  failedGroups: string[];
+} | undefined {
+  const allowedClaims = new Set(requiredClaims);
+  const closedClaims = new Set<string>();
+  const pendingClaims = new Set<string>();
+  const completedGroups = new Set<string>();
+  const failedGroups = new Set<string>();
+
+  for (const step of traceSteps) {
+    if (
+      step.kind !== "diagnostic" ||
+      step.code !== "CAPABILITY_PROBE_PARTIAL_PROGRESS"
+    ) continue;
+    const details = step.details ?? [];
+    const closed = details.find((detail) => detail.startsWith("closed claims:"));
+    const groups = details.find((detail) => detail.startsWith("completed groups:"));
+    const groupStatus = details.find((detail) => detail.startsWith("micro-probe "));
+    for (const claim of (closed?.replace(/^closed claims:\s*/, "") ?? "").split(",")) {
+      const normalized = claim.trim();
+      if (allowedClaims.has(normalized)) closedClaims.add(normalized);
+    }
+    for (const group of (groups?.replace(/^completed groups:\s*/, "") ?? "").split(",")) {
+      const normalized = group.trim();
+      if (normalized && normalized !== "none") completedGroups.add(normalized);
+    }
+    const statusMatch = groupStatus?.match(/^micro-probe\s+([^:]+):\s+(completed|failed)$/);
+    if (statusMatch?.[1]) {
+      const group = statusMatch[1].trim();
+      if (statusMatch[2] === "completed") completedGroups.add(group);
+      else failedGroups.add(group);
+    }
+  }
+
+  if (
+    closedClaims.size === 0 &&
+    pendingClaims.size === 0 &&
+    completedGroups.size === 0 &&
+    failedGroups.size === 0
+  ) return undefined;
+
+  for (const claim of requiredClaims) {
+    if (!closedClaims.has(claim)) pendingClaims.add(claim);
+  }
+  return {
+    closedClaims: [...closedClaims],
+    pendingClaims: [...pendingClaims],
+    completedGroups: [...completedGroups],
+    failedGroups: [...failedGroups],
+  };
 }
 
 // ── AI-02: Last-resort response sanitizer ────────────────────────────────────
@@ -4576,6 +4636,17 @@ router.post("/ai/chat/stream", async (req, res) => {
             ).length > 0
               ? {
                   missingClaims: capabilityProbeMissingClaims(
+                    traceSteps,
+                    executionRequest.capabilityProbe.requiredClaims,
+                  ),
+                }
+              : {}),
+            ...(capabilityProbeProgress(
+              traceSteps,
+              executionRequest.capabilityProbe.requiredClaims,
+            )
+              ? {
+                  progress: capabilityProbeProgress(
                     traceSteps,
                     executionRequest.capabilityProbe.requiredClaims,
                   ),

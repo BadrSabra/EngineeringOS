@@ -61,4 +61,29 @@ describe('parseCapabilityProbeReport', () => {
   it('does not classify ordinary chat as a probe report', () => {
     expect(parseCapabilityProbeReport('C1 is a concept in this explanation.')).toBeNull();
   });
+
+  it('surfaces partial recovery progress without inventing pass/fail claims', () => {
+    const report = parseCapabilityProbeReport(
+      'ANALYSIS_INCOMPLETE\nSource evidence was retained, but claims remain unclosed.',
+      [{
+        code: 'CAPABILITY_PROBE_PARTIAL_PROGRESS',
+        details: [
+          'micro-probe grounding: completed',
+          'closed claims: C1,C3',
+          'completed groups: grounding',
+          'selected evidence: E1',
+        ],
+      }],
+    );
+
+    expect(report?.complete).toBe(false);
+    expect(report?.score).toBeNull();
+    expect(report?.capabilities.find((capability) => capability.id === 'C1')?.status).toBe('unknown');
+    expect(report?.progress).toEqual({
+      closedClaims: ['C1', 'C3'],
+      pendingClaims: [],
+      completedGroups: ['grounding'],
+      failedGroups: [],
+    });
+  });
 });

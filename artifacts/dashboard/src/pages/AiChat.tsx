@@ -10911,7 +10911,7 @@ export default function AiChat() {
                 ? 'OpenRouter'
                 : activeProvider?.provider === 'gemini'
                   ? 'Gemini 2.5 Flash'
-                  : 'Llama 3.3 · Groq'}
+                  : 'Groq'}
           </Badge>
         </div>
 

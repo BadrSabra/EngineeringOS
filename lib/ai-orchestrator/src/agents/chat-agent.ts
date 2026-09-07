@@ -2544,6 +2544,13 @@ export async function runCapabilityMicroProbes(opts: {
   signal?: AbortSignal;
   executionLedger?: ExecutionLedger;
   onProviderAttempt?: (attempt: CapabilityRecoveryTelemetryAttempt) => void | Promise<void>;
+  onProgress?: (progress: {
+    group: string;
+    status: "completed" | "failed";
+    closedClaims: string[];
+    completedGroups: string[];
+    selectedEvidenceIds: string[];
+  }) => void;
   fileContents: ReadonlyMap<string, string>;
   pendingChanges: readonly PendingChange[];
   deadlineAt?: number;
@@ -2656,6 +2663,7 @@ export async function runCapabilityMicroProbes(opts: {
               ? /(?:run\s*\(\)|write_file)/i
               : null;
       if (
+        !didRetry &&
         retryRequirement &&
         !retryRequirement.test(result.content ?? "")
       ) {
@@ -2831,6 +2839,15 @@ export async function runCapabilityMicroProbes(opts: {
       if (group.labels.every((label) => extractedLines.has(label))) {
         completedGroups.add(group.name);
       }
+      opts.onProgress?.({
+        group: group.name,
+        status: group.labels.every((label) => extractedLines.has(label))
+          ? "completed"
+          : "failed",
+        closedClaims: [...lines.keys()].filter((label) => label !== "C2" && label !== "C5"),
+        completedGroups: [...completedGroups],
+        selectedEvidenceIds,
+      });
     } catch (error) {
       if (
         error instanceof Error &&
@@ -2851,6 +2868,13 @@ export async function runCapabilityMicroProbes(opts: {
         group: group.name,
         reason: error instanceof Error ? error.message : String(error),
       }));
+      opts.onProgress?.({
+        group: group.name,
+        status: "failed",
+        closedClaims: [...lines.keys()].filter((label) => label !== "C2" && label !== "C5"),
+        completedGroups: [...completedGroups],
+        selectedEvidenceIds: [],
+      });
     }
   }
 
@@ -10355,6 +10379,20 @@ export async function chat(opts: {
         operation: "capability_probe_citation_recovery",
         onProviderAttempt: reportCapabilityRecoveryAttempt,
         validateResult: (candidateResult) => {
+          if (capabilityRecoveryTarget) {
+            const claimLine = renderCanonicalCapabilityProbeClaim(
+              candidateResult.content ?? "",
+              forensicFileContents,
+              capabilityRecoveryTarget as CapabilityProbeClaimId,
+            );
+            return claimLine
+              ? { accepted: true }
+              : {
+                  accepted: false,
+                  code: `${capabilityRecoveryTarget}_MISSING`,
+                  message: `capability recovery response did not close ${capabilityRecoveryTarget} with a server-owned Evidence ID`,
+                };
+          }
           const normalized = normalizeCapabilityProbeRecoveryContent(
             candidateResult.content ?? "",
             forensicFileContents,
@@ -10569,6 +10607,20 @@ export async function chat(opts: {
         deadlineAt: microProbeDeadlineAt,
         deadlineIncludesTerminalReserve: true,
         onProviderAttempt: reportCapabilityRecoveryAttempt,
+        onProgress: (progress) => {
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "CAPABILITY_PROBE_PARTIAL_PROGRESS",
+            details: [
+              `micro-probe ${progress.group}: ${progress.status}`,
+              `closed claims: ${progress.closedClaims.join(",") || "none"}`,
+              `completed groups: ${progress.completedGroups.join(",") || "none"}`,
+              ...(progress.selectedEvidenceIds.length > 0
+                ? [`selected evidence: ${progress.selectedEvidenceIds.join(",")}`]
+                : []),
+            ],
+          });
+        },
       });
       if (microProbeRecovery) {
       const microValidation = validateBehaviorEvidence(

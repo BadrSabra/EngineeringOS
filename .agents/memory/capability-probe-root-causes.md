@@ -44,3 +44,9 @@ Capability-probe recovery must consume only the request's server-authorized, cur
 **Why:** A primary provider may be valid while another provider is absent, unhealthy, circuit-open, or outside the request's credential scope. An implicit Groq fallback created misleading recovery failures and hid the real provider cascade.
 
 **How to apply:** Build recovery candidates after credential, lifecycle, capability, and circuit checks; pass their keys explicitly, record each nested attempt with a safe unique attempt ID, and keep a single configured provider valid for isolated deterministic runs.
+
+Claim-scoped recovery is a different acceptance shape from full-report recovery: when the server has isolated one missing claim, validate and render only that claim before merging it into the retained report.
+
+**Why:** Requiring the full C1–C7 contract during a targeted correction rejected otherwise valid server-owned claim evidence before the merge path could run.
+
+**How to apply:** Keep the final `PROVEN` gate complete and strict, but let targeted recovery close only its named claim; persist micro-probe progress separately so later timeouts do not erase diagnostic state.

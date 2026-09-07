@@ -30,6 +30,12 @@ export type CapabilityProbeReport = {
   isProbe: boolean;
   complete: boolean;
   score: number | null;
+  progress?: {
+    closedClaims: CapabilityLabel[];
+    pendingClaims: CapabilityLabel[];
+    completedGroups: string[];
+    failedGroups: string[];
+  };
   capabilities: Array<{
     id: CapabilityLabel;
     status: CapabilityStatus;
@@ -37,6 +43,46 @@ export type CapabilityProbeReport = {
   }>;
   incompleteReasons: CapabilityIncompleteReason[];
 };
+
+function capabilityProgress(
+  trace: readonly CapabilityProbeTraceEntry[],
+): CapabilityProbeReport['progress'] {
+  const entry = [...trace].reverse().find((candidate) =>
+    candidate.code === 'CAPABILITY_PROBE_PARTIAL_PROGRESS',
+  );
+  if (!entry) return undefined;
+  const detail = (prefix: string): string[] =>
+    (entry.details ?? [])
+      .find((value) => value.startsWith(prefix))
+      ?.slice(prefix.length)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean) ?? [];
+  const validClaims = (values: string[]): CapabilityLabel[] =>
+    values.filter((value): value is CapabilityLabel =>
+      CAPABILITY_LABELS.includes(value as CapabilityLabel),
+    );
+  const status = (entry.details ?? []).find((value) => value.startsWith('micro-probe '));
+  const statusMatch = status?.match(/^micro-probe\s+([^:]+):\s+(completed|failed)$/);
+  const completedGroups = detail('completed groups:');
+  const failedGroups = statusMatch?.[2] === 'failed' && statusMatch[1]
+    ? [...new Set([...detail('failed groups:'), statusMatch[1].trim()])]
+    : detail('failed groups:');
+  const closedClaims = validClaims(detail('closed claims:'));
+  const pendingClaims = validClaims(detail('pending claims:'));
+  if (
+    closedClaims.length === 0 &&
+    pendingClaims.length === 0 &&
+    completedGroups.length === 0 &&
+    failedGroups.length === 0
+  ) return undefined;
+  return {
+    closedClaims,
+    pendingClaims,
+    completedGroups,
+    failedGroups,
+  };
+}
 
 function textValues(trace: readonly CapabilityProbeTraceEntry[]): string[] {
   return trace.flatMap((entry) => [
@@ -165,11 +211,13 @@ export function parseCapabilityProbeReport(
   const incomplete = /\bANALYSIS_INCOMPLETE\b/i.test(response)
     || capabilities.some((capability) => capability.status !== 'pass')
     || !capabilityLines.every(Boolean);
+  const progress = capabilityProgress(trace);
 
   return {
     isProbe: true,
     complete: !incomplete,
     score: incomplete ? null : score,
+    ...(progress ? { progress } : {}),
     capabilities,
     incompleteReasons: incomplete
       ? classifyIncompleteReasons(response, trace, capabilityLines)

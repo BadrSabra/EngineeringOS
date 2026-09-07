@@ -102,7 +102,11 @@ export function CapabilityProbeReport({
             <span className="min-w-0 whitespace-pre-wrap break-words">
               {capability.text
                 ? capability.text.replace(/^\s*(?:#{1,6}\s*)?(?:[-*]\s*)?C[1-7]\s*[:—-]?\s*/i, '')
-                : 'Not recorded'}
+                : report.progress?.closedClaims.includes(capability.id)
+                  ? 'Recovery recorded a candidate for this claim; final contract is still pending.'
+                  : report.progress?.pendingClaims.includes(capability.id)
+                    ? 'Pending — this claim was not closed before recovery ended.'
+                    : 'Not recorded'}
             </span>
           </div>
         ))}
@@ -122,6 +126,23 @@ export function CapabilityProbeReport({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {report.progress && !report.complete && (
+        <div className="mt-3 border-t border-border/40 pt-2.5 text-[10px] text-muted-foreground">
+          <div>
+            Recovery progress: {report.progress.closedClaims.length} claim
+            {report.progress.closedClaims.length === 1 ? '' : 's'} recorded
+            {' · '}
+            {report.progress.completedGroups.length} group
+            {report.progress.completedGroups.length === 1 ? '' : 's'} completed
+          </div>
+          {report.progress.failedGroups.length > 0 && (
+            <div className="mt-1 text-amber-200/80">
+              Recovery stopped in: {report.progress.failedGroups.join(', ')}
+            </div>
+          )}
         </div>
       )}
     </section>

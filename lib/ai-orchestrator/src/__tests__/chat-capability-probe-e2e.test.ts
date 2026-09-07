@@ -523,6 +523,11 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
   it("continues later micro-probe groups when one group exhausts its attempt timeouts", async () => {
     let callCount = 0;
     const prompts: string[] = [];
+    const progress: Array<{
+      group: string;
+      status: string;
+      closedClaims: string[];
+    }> = [];
     const strategy = {
       call: vi.fn(async (messages: unknown) => {
         callCount += 1;
@@ -571,11 +576,16 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
         [FILE_B, CONTENT_B],
       ]),
       pendingChanges: [],
+      onProgress: (entry) => progress.push(entry),
     });
 
     expect(result).toBeNull();
     expect(callCount).toBeGreaterThan(2);
     expect(prompts.slice(2).some((prompt) => prompt.includes("C4"))).toBe(true);
+    expect(progress.some((entry) =>
+      entry.group === "scope-boundary" &&
+      entry.status === "completed",
+    )).toBe(true);
   });
 
   it("does not use an absence certificate to promote a positive hallucinated claim", async () => {
@@ -775,6 +785,64 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       expect(result.response).not.toMatch(/Executive Verdict|Evidence Map|Repair Plan|Final Judgment/i);
       expect(steps.some((step) => step.kind === "tool_call" && step.tool === "write_file")).toBe(false);
       expect(steps.some((step) => step.kind === "tool_call" && step.tool === "replace_text")).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a claim-scoped recovery response and merges its server-owned citation", async () => {
+    const rootPath = await makeProbeRoot();
+    const initialAnswerObject = JSON.parse(GROUNDED_NEGATIVE_ANSWER) as { response: string };
+    initialAnswerObject.response = initialAnswerObject.response.replace(
+      /^C1: PASS — [^\n]+/m,
+      "C1: PASS — isPromptProsePath exists in profile-classifier.ts. " +
+        "Source: `lib/ai-orchestrator/src/prompts/profile-classifier.ts`; " +
+        "Evidence: `this fragment is not in the retained source`",
+    );
+    const initialAnswerWithOnlyC1Broken = JSON.stringify(initialAnswerObject);
+    const claimScopedRecovery = JSON.stringify({
+      claim: {
+        status: "PASS",
+        evidenceId: "E1",
+        answer: "isPromptProsePath exists and is grounded in the completed source read.",
+      },
+    });
+    let callCount = 0;
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
+        callCount += 1;
+        return {
+          content: callCount === 1 ? initialAnswerWithOnlyC1Broken : claimScopedRecovery,
+          toolCalls: [],
+          model: opts.model ?? "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+      });
+
+      expect(callCount).toBe(2);
+      expect(result.response).toContain("Overall score: 7/7");
+      expect(result.response).toMatch(/^C1: PASS/m);
+      expect(result.response).toContain("Evidence ID: E1");
+      expect(result.response).toContain("return value.includes('defect/repair');");
+      expect(result.response).not.toContain("this fragment is not in the retained source");
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
