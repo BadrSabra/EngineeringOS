@@ -1276,13 +1276,25 @@ export function useAiTaskStream() {
       && controllerRef.current === controller
       && !controller.signal.aborted
     );
+    // The first task terminal event is authoritative for this request. Ignore
+    // duplicated or stale terminal frames so a later error cannot overwrite a
+    // task result already delivered to the UI.
+    let terminalDelivered = false;
     const guardedCallbacks: AiTaskStreamCallbacks = {
       onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
       onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },
       onTaskStarted: (event) => { if (isCurrent()) callbacks.onTaskStarted?.(event); },
       onTaskProgress: (event) => { if (isCurrent()) callbacks.onTaskProgress?.(event); },
-      onTaskDone: (event) => { if (isCurrent()) callbacks.onTaskDone?.(event); },
-      onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+      onTaskDone: (event) => {
+        if (!isCurrent() || terminalDelivered) return;
+        terminalDelivered = true;
+        callbacks.onTaskDone?.(event);
+      },
+      onError: (event) => {
+        if (!isCurrent() || terminalDelivered) return;
+        terminalDelivered = true;
+        callbacks.onError?.(event);
+      },
       onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
     };
 

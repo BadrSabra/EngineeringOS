@@ -29,7 +29,7 @@
 import { act, createElement, useEffect, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { processAiStream, useAiChatStream } from './use-ai-chat-stream.js';
+import { processAiStream, useAiChatStream, useAiTaskStream } from './use-ai-chat-stream.js';
 import type {
   AiChatStreamCallbacks,
   AiStreamCrossFileTraceEvent,
@@ -81,6 +81,18 @@ function StreamHookHarness({
   onReady: (stream: ReturnType<typeof useAiChatStream>) => void;
 }): ReactNode {
   const stream = useAiChatStream();
+  useEffect(() => {
+    onReady(stream);
+  }, [onReady, stream]);
+  return null;
+}
+
+function TaskStreamHookHarness({
+  onReady,
+}: {
+  onReady: (stream: ReturnType<typeof useAiTaskStream>) => void;
+}): ReactNode {
+  const stream = useAiTaskStream();
   useEffect(() => {
     onReady(stream);
   }, [onReady, stream]);
@@ -189,6 +201,66 @@ describe('useAiChatStream — terminal callback delivery', () => {
     expect(onDone).toHaveBeenCalledTimes(2);
     expect(onDone.mock.calls[0]?.[0]).toMatchObject({ sessionId: 'session-complete' });
     expect(onDone.mock.calls[1]?.[0]).toMatchObject({ sessionId: 'second-attempt' });
+    expect(onError).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    root.unmount();
+  });
+});
+
+describe('useAiTaskStream — terminal callback delivery', () => {
+  it('delivers only the first task terminal frame per attempt while allowing later attempts', async () => {
+    const onTaskDone = vi.fn();
+    const onError = vi.fn();
+    const streamAttempts = [
+      makeSseStream(
+        sseFrame({ type: 'task_done', task: 'analyze', result: { summary: 'first' } }),
+        sseFrame({ type: 'task_done', task: 'analyze', result: { summary: 'duplicate' } }),
+        sseFrame({ type: 'error', code: 'STALE_ERROR', message: 'stale terminal frame' }),
+      ),
+      makeSseStream(
+        sseFrame({ type: 'task_done', task: 'review', result: { summary: 'second' } }),
+        sseFrame({ type: 'error', code: 'STALE_ERROR', message: 'stale terminal frame' }),
+      ),
+    ];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      body: streamAttempts.shift(),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    let stream: ReturnType<typeof useAiTaskStream> | undefined;
+    const onReady = (nextStream: ReturnType<typeof useAiTaskStream>) => {
+      stream = nextStream;
+    };
+    const root: Root = createRoot(document.createElement('div'));
+    await act(async () => {
+      root.render(createElement(TaskStreamHookHarness, { onReady }));
+    });
+
+    expect(stream).toBeDefined();
+    await act(async () => {
+      await stream?.send(
+        { projectId: 'project-1', task: 'analyze' },
+        { onTaskDone, onError },
+      );
+    });
+    await act(async () => {
+      await stream?.send(
+        { projectId: 'project-1', task: 'review' },
+        { onTaskDone, onError },
+      );
+    });
+
+    expect(onTaskDone).toHaveBeenCalledTimes(2);
+    expect(onTaskDone.mock.calls[0]?.[0]).toMatchObject({
+      task: 'analyze',
+      result: { summary: 'first' },
+    });
+    expect(onTaskDone.mock.calls[1]?.[0]).toMatchObject({
+      task: 'review',
+      result: { summary: 'second' },
+    });
     expect(onError).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
