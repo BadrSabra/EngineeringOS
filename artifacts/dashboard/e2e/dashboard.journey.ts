@@ -7,6 +7,7 @@ import {
   parseClerkUserLookupResponse,
   parseCreatedClerkUserResponse,
 } from "../src/lib/clerk-handoff";
+import type { AiExecutionAcceptance } from "@workspace/api-client-react";
 import { CAPABILITY_PROBE_MESSAGE } from "@workspace/ai-orchestrator/capability-probe";
 
 const DASHBOARD_PATH = "/dashboard/";
@@ -424,6 +425,53 @@ type ArabicAiFixture = {
   message: Record<string, unknown>;
 };
 
+type AcceptanceSnapshotOverrides = Partial<AiExecutionAcceptance>;
+
+function createAcceptanceSnapshot(
+  overrides: AcceptanceSnapshotOverrides,
+): AiExecutionAcceptance {
+  return {
+    attempt: 1,
+    terminalStatus: "failed",
+    outcome: "FAILED",
+    reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+    nextActionCode: "START_NEW_PROBE",
+    evidenceComplete: false,
+    evidenceRequired: true,
+    resumable: false,
+    ...overrides,
+  };
+}
+
+const acceptanceSnapshots = {
+  paused: createAcceptanceSnapshot({
+    terminalStatus: "paused",
+    outcome: "INTERRUPTED",
+    reasonCode: "LEASE_EXPIRED",
+    nextActionCode: "RESUME_ALLOWED",
+    resumable: true,
+  }),
+  accepted: createAcceptanceSnapshot({
+    attempt: 2,
+    terminalStatus: "completed",
+    outcome: "SUCCEEDED",
+    reasonCode: "CAPABILITY_PROBE_FINAL",
+    nextActionCode: "NONE",
+    evidenceComplete: true,
+  }),
+  incomplete: createAcceptanceSnapshot({
+    reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+  }),
+  cancelled: createAcceptanceSnapshot({
+    terminalStatus: "cancelled",
+    outcome: "INTERRUPTED",
+    reasonCode: "CANCELLED",
+  }),
+} satisfies Record<
+  "paused" | "accepted" | "incomplete" | "cancelled",
+  AiExecutionAcceptance
+>;
+
 async function installApiFixtures(
   page: Page,
   overrides?: {
@@ -604,16 +652,7 @@ async function installApiFixtures(
           evidenceReason: "The server-owned source evidence is complete.",
           proofRequired: false,
           resumable: false,
-          acceptance: {
-            attempt: 2,
-            terminalStatus: "completed",
-            outcome: "SUCCEEDED",
-            reasonCode: "CAPABILITY_PROBE_FINAL",
-            nextActionCode: "NONE",
-            evidenceComplete: true,
-            evidenceRequired: true,
-            resumable: false,
-          },
+          acceptance: acceptanceSnapshots.accepted,
           checkpoint: {
             stage: "complete",
             detail: "The Capability Probe completed after reconnect.",
@@ -1607,26 +1646,8 @@ function installInterruptedCapabilityProbeFixture() {
   const projectRevision = "e2e-capability-probe-workspace-revision";
   const initialToken = "e2e-capability-probe-initial-token";
   const recoveredToken = "e2e-capability-probe-recovered-token";
-  const pausedAcceptance = {
-    attempt: 1,
-    terminalStatus: "paused",
-    outcome: "INTERRUPTED",
-    reasonCode: "LEASE_EXPIRED",
-    nextActionCode: "RESUME_ALLOWED",
-    evidenceComplete: false,
-    evidenceRequired: true,
-    resumable: true,
-  };
-  const completedAcceptance = {
-    attempt: 2,
-    terminalStatus: "completed",
-    outcome: "SUCCEEDED",
-    reasonCode: "CAPABILITY_PROBE_FINAL",
-    nextActionCode: "NONE",
-    evidenceComplete: true,
-    evidenceRequired: true,
-    resumable: false,
-  };
+  const pausedAcceptance = acceptanceSnapshots.paused;
+  const acceptedAcceptance = acceptanceSnapshots.accepted;
   const message = {
     ...base.message,
     id: "e2e-capability-probe-reconnect-message",
@@ -1634,7 +1655,7 @@ function installInterruptedCapabilityProbeFixture() {
     outcome: "COMPLETED",
     operationId,
     projectRevision,
-    acceptance: completedAcceptance,
+    acceptance: acceptedAcceptance,
   };
   const sse = (event: Record<string, unknown>) =>
     `data: ${JSON.stringify(event)}\n\n`;
@@ -1658,7 +1679,7 @@ function installInterruptedCapabilityProbeFixture() {
     initialToken,
     recoveredToken,
     pausedAcceptance,
-    completedAcceptance,
+    acceptedAcceptance,
     resumedStreamBody: [
       sse({ type: "session_started", sessionId: base.sessionId }),
       sse({
@@ -1677,7 +1698,7 @@ function installInterruptedCapabilityProbeFixture() {
         operationId,
         projectRevision,
         message,
-        acceptance: completedAcceptance,
+        acceptance: acceptedAcceptance,
         sources: (base.message.sources as string[] | undefined) ?? [],
         toolTrace: base.message.toolTrace,
         behaviorEvidence: base.message.behaviorEvidence,
@@ -1954,6 +1975,7 @@ function installIncompleteForensicFixture(): ArabicAiFixture {
 
 function installAcceptanceIncompleteFixture(): ArabicAiFixture {
   const base = installIncompleteForensicFixture();
+  const acceptance = acceptanceSnapshots.incomplete;
   const acceptanceDisposition = {
     reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
     outcome: "FAILED",
@@ -1975,6 +1997,7 @@ function installAcceptanceIncompleteFixture(): ArabicAiFixture {
       failureKind: "INCOMPLETE",
       retryable: true,
       recoveryState: "INCOMPLETE",
+      acceptance,
       acceptanceDisposition,
     },
     streamBody: [
@@ -1995,6 +2018,7 @@ function installAcceptanceIncompleteFixture(): ArabicAiFixture {
         failureKind: "INCOMPLETE",
         retryable: true,
         recoveryState: "INCOMPLETE",
+        acceptance,
         acceptanceDisposition,
       }),
     ].join(""),
@@ -2004,6 +2028,7 @@ function installAcceptanceIncompleteFixture(): ArabicAiFixture {
 function installCancelledForensicFixture(): ArabicAiFixture {
   const sessionId = "e2e-cancelled-forensic-session";
   const executionId = "e2e-cancelled-forensic-execution";
+  const acceptance = acceptanceSnapshots.cancelled;
   const source = "src/cancelled-audit.ts";
   const question = "Audit the source and preserve the report if recovery is cancelled.";
   const answer = [
@@ -2110,6 +2135,7 @@ function installCancelledForensicFixture(): ArabicAiFixture {
     failureKind: "CANCELLATION",
     retryable: true,
     recoveryState: "INCOMPLETE",
+    acceptance,
     forensicDiagnostic,
     executionId,
     createdAt: "2026-01-01T00:02:00.000Z",
@@ -5211,7 +5237,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     page,
   }) => {
     const recovery = installInterruptedCapabilityProbeFixture();
-    const completedAcceptance = recovery.completedAcceptance as Record<string, unknown>;
+    const acceptedAcceptance = recovery.acceptedAcceptance as Record<string, unknown>;
     const staleAcceptance = recovery.pausedAcceptance as Record<string, unknown>;
     const staleMessage = {
       ...recovery.fixture.message,
@@ -5237,8 +5263,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           id: recovery.fixture.executionId,
           state: "COMPLETED",
           objective: recovery.fixture.question,
-          attempt: completedAcceptance.attempt,
-          acceptance: completedAcceptance,
+          attempt: acceptedAcceptance.attempt,
+          acceptance: acceptedAcceptance,
           evidenceProjection: { completeness: "COMPLETE" },
           evidence: { verdict: "PROVEN" },
           checkpointVersion: 2,
@@ -5300,7 +5326,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     expect(terminalEvents).toHaveLength(2);
     expect(terminalEvents[0]?.message).toEqual(
-      expect.objectContaining({ acceptance: completedAcceptance }),
+      expect.objectContaining({ acceptance: acceptedAcceptance }),
     );
     expect(terminalEvents[1]?.message).toEqual(
       expect.objectContaining({ acceptance: staleAcceptance }),
@@ -5318,7 +5344,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       expect.objectContaining({
         status: "completed",
         attempt: 2,
-        acceptance: completedAcceptance,
+        acceptance: acceptedAcceptance,
       }),
     );
     const historyJson = await browserJson(
@@ -5327,7 +5353,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(historyJson.body.at(-1)).toEqual(
       expect.objectContaining({
         executionId: recovery.fixture.executionId,
-        acceptance: completedAcceptance,
+        acceptance: acceptedAcceptance,
       }),
     );
 
@@ -5448,6 +5474,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       evidenceVerdict: "PARTIAL",
       evidenceReason: "The audit was cancelled during bounded recovery.",
       terminalReason: "CANCELLED",
+       acceptance: acceptanceSnapshots.cancelled,
       proofRequired: true,
       disposition: "RETAIN_FOR_REVIEW",
       recommendedAction: "REVIEW_RETAINED_PROOF",
@@ -5463,6 +5490,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       sessionId: fixture.sessionId,
       status: "cancelled",
       message: fixture.question,
+       acceptance: acceptanceSnapshots.cancelled,
       checkpointVersion: 1,
     };
     await installApiFixtures(page, {
