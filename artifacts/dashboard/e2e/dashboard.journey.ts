@@ -5513,7 +5513,26 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     page,
   }) => {
     const fixture = installCancelledForensicFixture();
-    await installApiFixtures(page, { arabicAi: fixture });
+    await installApiFixtures(page, {
+      arabicAi: fixture,
+      missionControl: {
+        updatedAt: "2026-01-01T00:03:00.000Z",
+        executions: [{
+          id: fixture.executionId,
+          state: "CANCELLED",
+          objective: fixture.question,
+          attempts: 1,
+          acceptance: acceptanceSnapshots.cancelled,
+          evidenceProjection: { completeness: "INCOMPLETE" },
+          evidence: {
+            verdict: "INCOMPLETE",
+            reason: "The audit was cancelled before recovery completed.",
+          },
+          eventCount: 4,
+          recentEvents: [{ kind: "acceptance", status: "cancelled" }],
+        }],
+      },
+    });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
@@ -5589,6 +5608,30 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(afterReload).not.toContain(fixture.sessionId);
     expect(afterReload).not.toContain(fixture.executionId);
     expect(afterReload).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+
+    await page.goto(`${DASHBOARD_PATH}mission-control?projectId=e2e-project`);
+    const assertCancelledMissionControl = async () => {
+      await expect(page.getByText(fixture.executionId, { exact: true })).toBeVisible();
+      const ledgerEntry = page
+        .getByRole("button")
+        .filter({ hasText: fixture.executionId });
+      await expect(ledgerEntry).toContainText("CANCELLED");
+      await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
+
+      const acceptance = page.getByRole("region", {
+        name: "Current execution acceptance",
+      });
+      await expect(acceptance).toBeVisible();
+      await expect(acceptance).toContainText("INTERRUPTED");
+      await expect(acceptance).toContainText("START_NEW_PROBE");
+      await expect(acceptance).toContainText(
+        "Acceptance is incomplete because the server-owned evidence snapshot is not complete.",
+      );
+    };
+
+    await assertCancelledMissionControl();
+    await page.reload();
+    await assertCancelledMissionControl();
   });
 
   test("restores a selected historical audit with its linked session after reload", async ({
