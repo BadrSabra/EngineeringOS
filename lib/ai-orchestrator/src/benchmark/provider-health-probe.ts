@@ -8,6 +8,7 @@ import type {
   StrategyCallOptions,
   ToolDefinition,
 } from "../provider-strategy.js";
+import { resolveFallbackChain } from "../openrouter/model-resolver.js";
 import { FILE_TOOL_DEFINITIONS } from "../tools/file-tools.js";
 
 const PROBE_TOOL_NAME = "benchmark_health_probe";
@@ -136,6 +137,17 @@ const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
   "UNEXPECTED_TOOL_CALL",
 ]);
 
+const MODEL_CANDIDATE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
+  "EMPTY_RESPONSE",
+  "MODEL_NOT_FOUND",
+  "MODEL_UNAVAILABLE",
+  "PLAN_RESTRICTED",
+  "INVALID_TOOL_CALL",
+  "TOOL_CALL_UNSUPPORTED",
+  "MALFORMED_TOOL_ARGUMENTS",
+  "UNEXPECTED_TOOL_CALL",
+]);
+
 function safeProviderModel(value: string | null | undefined): string | null {
   if (!value) return null;
   const candidate = redactProviderErrorText(value)
@@ -233,6 +245,51 @@ function unavailableResult(
       attemptedModels,
     },
   };
+}
+
+function probeCandidateModels(options: ProviderHealthProbeOptions): Array<string | undefined> {
+  if (options.model || options.provider !== "openrouter") {
+    return [options.model];
+  }
+
+  const maxCandidates =
+    Number.isInteger(options.maxFallbackModels) && options.maxFallbackModels! > 0
+      ? options.maxFallbackModels
+      : 4;
+  const candidates = resolveFallbackChain({
+    capability: "tool_calling",
+    quality: "fast",
+    requireTools: true,
+  }).slice(0, maxCandidates).map((candidate) => candidate.id);
+
+  return candidates.length > 0 ? candidates : [undefined];
+}
+
+function summarizeProbeResult(
+  result: ProviderHealthProbeResult,
+  attemptedModels: readonly string[],
+  startedAt: number,
+): ProviderHealthProbeResult {
+  const safeAttemptedModels = [...new Set(attemptedModels
+    .map((model) => safeProviderModel(model))
+    .filter((model): model is string => model !== null))]
+    .slice(0, 8);
+  const lastModel = safeProviderModel(result.model) ?? safeAttemptedModels.at(-1) ?? null;
+  return projectSafeProviderHealth({
+    ...result,
+    model: lastModel,
+    latencyMs: Math.max(0, Date.now() - startedAt),
+    ...(result.report
+      ? {
+          report: {
+            ...result.report,
+            model: lastModel,
+            attemptCount: safeAttemptedModels.length,
+            attemptedModels: safeAttemptedModels,
+          },
+        }
+      : {}),
+  });
 }
 
 function failureCategoryFor(code?: ProviderHealthFailureCode): ProviderHealthFailureCategory {
@@ -361,6 +418,7 @@ export async function probeProviderHealth(
 ): Promise<ProviderHealthProbeResult> {
   const startedAt = Date.now();
   const strategy = options.strategy ?? getStrategy(options.provider);
+  const candidateModels = probeCandidateModels(options);
   const messages: RawMessage[] = [
     {
       role: "system",
@@ -371,7 +429,7 @@ export async function probeProviderHealth(
       content: "Call benchmark_health_probe with the exact JSON argument {\"probe\":\"ok\"}.",
     },
   ];
-  const callOptions: StrategyCallOptions = {
+  const baseCallOptions: StrategyCallOptions = {
     model: options.model,
     apiKey: options.apiKey,
     maxTokens: 64,
@@ -387,40 +445,73 @@ export async function probeProviderHealth(
       ? {
           quality: "fast" as const,
           capability: "tool_calling" as const,
-          maxFallbackModels:
-            Number.isInteger(options.maxFallbackModels) && options.maxFallbackModels! > 0
-              ? options.maxFallbackModels
-              : 4,
+          maxFallbackModels: 1,
         }
       : {}),
   };
 
-  try {
-    return parseProbeArguments(await strategy.call(messages, callOptions), options, startedAt);
-  } catch (error) {
-    const isProviderError = error instanceof GroqClientError;
-    const attemptedModels = isProviderError
-      ? error.providerAttemptedModels
-      : undefined;
-    const result = unavailableResult(options, startedAt, {
-      model: isProviderError ? error.providerModel ?? options.model ?? null : options.model ?? null,
-      failureCode: isProviderError ? error.code : "NETWORK_ERROR",
-      failureReason: isProviderError
-        ? `Provider probe failed with ${error.code}.`
-        : "Provider probe failed before a capability response.",
-    });
-    if (attemptedModels?.length) {
-      const safeModels = attemptedModels
-        .slice(0, 8)
-        .map((model) => safeProviderModel(model))
-        .filter((model): model is string => model !== null);
-      if (result.report) {
-        result.report.attemptedModels = safeModels;
-        result.report.attemptCount = safeModels.length;
+  let lastResult: ProviderHealthProbeResult | undefined;
+  const attemptedModels: string[] = [];
+
+  for (const candidateModel of candidateModels) {
+    const candidateOptions: ProviderHealthProbeOptions = {
+      ...options,
+      ...(candidateModel ? { model: candidateModel } : {}),
+    };
+    const callOptions: StrategyCallOptions = {
+      ...baseCallOptions,
+      ...(candidateModel ? { model: candidateModel } : { model: undefined }),
+    };
+
+    try {
+      const response = await strategy.call(messages, callOptions);
+      const result = parseProbeArguments(response, candidateOptions, Date.now());
+      if (result.model) attemptedModels.push(result.model);
+      lastResult = result;
+
+      if (
+        result.status === "usable" ||
+        !MODEL_CANDIDATE_FAILURE_CODES.has(result.failureCode ?? "") ||
+        candidateModel === candidateModels.at(-1)
+      ) {
+        return summarizeProbeResult(result, attemptedModels, startedAt);
+      }
+    } catch (error) {
+      const isProviderError = error instanceof GroqClientError;
+      const result = unavailableResult(candidateOptions, Date.now(), {
+        model: isProviderError ? error.providerModel ?? candidateModel ?? null : candidateModel ?? null,
+        failureCode: isProviderError ? error.code : "NETWORK_ERROR",
+        failureReason: isProviderError
+          ? `Provider probe failed with ${error.code}.`
+          : "Provider probe failed before a capability response.",
+      });
+      const providerModels = isProviderError ? error.providerAttemptedModels : undefined;
+      if (providerModels?.length) {
+        attemptedModels.push(...providerModels);
+      } else if (result.model) {
+        attemptedModels.push(result.model);
+      }
+      lastResult = result;
+
+      if (
+        !isProviderError ||
+        !MODEL_CANDIDATE_FAILURE_CODES.has(error.code) ||
+        candidateModel === candidateModels.at(-1)
+      ) {
+        return summarizeProbeResult(result, attemptedModels, startedAt);
       }
     }
-    return projectSafeProviderHealth(result);
   }
+
+  return summarizeProbeResult(
+    lastResult ?? unavailableResult(options, startedAt, {
+      model: options.model ?? null,
+      failureCode: "EMPTY_RESPONSE",
+      failureReason: "Provider probe returned no candidate response.",
+    }),
+    attemptedModels,
+    startedAt,
+  );
 }
 
 export { PROBE_TOOL_NAME };
