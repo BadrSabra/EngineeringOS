@@ -5233,6 +5233,136 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
   });
 
+  test("keeps evidence-incomplete acceptance visible after reopening a historical audit", async ({
+    page,
+  }) => {
+    const fixture = installAcceptanceIncompleteFixture();
+    const acceptance = acceptanceSnapshots.incomplete;
+    const acceptanceDisposition = fixture.message.acceptanceDisposition as Record<
+      string,
+      unknown
+    >;
+    const historyItem = {
+      id: fixture.executionId,
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      status: "failed",
+      objective: fixture.question,
+      evidenceVerdict: "UNAVAILABLE",
+      evidenceReason: "The required acceptance evidence was not proven.",
+      terminalReason: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      acceptance,
+      acceptanceDisposition,
+      proofRequired: true,
+      disposition: "NEW_RUN_RECOMMENDED",
+      recommendedAction: "START_NEW_RUN",
+      resumable: false,
+      checkpointVersion: 1,
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+      completedAt: "2026-01-01T00:02:00.000Z",
+    };
+    const execution = {
+      id: fixture.executionId,
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      status: "failed",
+      flightState: "BLOCKED",
+      evidenceVerdict: "UNAVAILABLE",
+      evidenceReason: "The required acceptance evidence was not proven.",
+      terminalReason: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      acceptance,
+      acceptanceDisposition,
+      proofRequired: true,
+      resumable: false,
+      checkpoint: {
+        stage: "acceptance_incomplete",
+        detail: "The acceptance evidence was not proven for this run.",
+      },
+      checkpointVersion: 1,
+    };
+    await installApiFixtures(page, {
+      arabicAi: fixture,
+      historicalAudits: {
+        audits: [historyItem],
+        executions: { [fixture.executionId!]: execution },
+      },
+    });
+    await page.addInitScript(
+      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project", value),
+      {
+        value: JSON.stringify({
+          version: 1,
+          projectId: "e2e-project",
+          kind: "historical-audit",
+          executionId: fixture.executionId,
+          sessionId: fixture.sessionId,
+        }),
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const reviewButton = page.getByRole("button", {
+      name: `Review audit ${fixture.question}`,
+    });
+    await expect(reviewButton).toBeVisible();
+
+    const readJson = async (path: string) =>
+      page.evaluate(async (requestPath) => {
+        const response = await fetch(requestPath, { credentials: "include" });
+        return { status: response.status, body: await response.json() as unknown };
+      }, path);
+    const assertReopenedAcceptance = async (assertUi = true) => {
+      const historyResponse = await readJson(
+        `/api/ai/executions/history?projectId=e2e-project`,
+      );
+      expect(historyResponse.status).toBe(200);
+      const historical = (
+        historyResponse.body as Array<Record<string, unknown>>
+      ).find((item) => item.id === fixture.executionId);
+      expect(historical).toEqual(
+        expect.objectContaining({
+          acceptance,
+          acceptanceDisposition,
+        }),
+      );
+
+      const detailResponse = await readJson(
+        `/api/ai/executions/${fixture.executionId}`,
+      );
+      expect(detailResponse.status).toBe(200);
+      expect(detailResponse.body).toEqual(
+        expect.objectContaining({
+          acceptance,
+          acceptanceDisposition,
+        }),
+      );
+
+      if (assertUi) {
+        const disposition = page
+          .getByRole("region", { name: "Acceptance disposition" })
+          .last();
+        await expect(disposition).toContainText(
+          "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        );
+        await expect(disposition).toContainText(
+          "Start a new scoped run before relying on the result.",
+        );
+      }
+    };
+
+    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await assertReopenedAcceptance();
+
+    await page.reload();
+    await expect(reviewButton).toBeVisible();
+    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await assertReopenedAcceptance();
+    await reviewButton.click();
+    await assertReopenedAcceptance(false);
+  });
+
   test("converges the accepted attempt across SSE, JSON, history, and Mission Control after reconnect", async ({
     page,
   }) => {
