@@ -80,7 +80,7 @@ vi.mock("@workspace/db", () => {
     checkpointVersion: 0,
     status: "queued",
     workerId: "test-worker",
-    leaseUntil: now,
+    leaseUntil: new Date(Date.now() + 60 * 60 * 1000),
     lastHeartbeatAt: now,
     cancelRequestedAt: null,
     error: null,
@@ -96,6 +96,7 @@ vi.mock("@workspace/db", () => {
     messages: [] as Array<Record<string, unknown>>,
     execution: { ...MOCK_EXECUTION } as Record<string, unknown>,
   };
+  const acceptanceRows: Array<Record<string, unknown>> = [];
   let exposeExecutionForCancel = false;
 
   /**
@@ -118,7 +119,9 @@ vi.mock("@workspace/db", () => {
     // transitions through cancelling so the registered controller is aborted.
     const skipQueuedCancellation =
       vals?.status === "cancelled" && fixture.execution.status === "running";
-    if (vals && !skipQueuedCancellation) {
+    const skipCompetingClaim =
+      vals?.status === "running" && fixture.execution.status === "running";
+    if (vals && !skipQueuedCancellation && !skipCompetingClaim) {
       fixture.execution = { ...fixture.execution, ...vals };
     }
     const promise = Promise.resolve();
@@ -131,17 +134,42 @@ vi.mock("@workspace/db", () => {
     db: {
       select: () => ({
         from: (table: unknown) => ({
-          where: () => ({
+          where: (predicate?: unknown) => ({
             limit: () => {
+              if (
+                (table as { _tag?: string })._tag === "aiExecutionsTable"
+                && typeof fixture.execution.finalMessageId === "string"
+              ) {
+                const queryChunks = (predicate as {
+                  queryChunks?: Array<{ queryChunks?: unknown[] } | unknown>;
+                } | undefined)?.queryChunks;
+                const conjunction = queryChunks?.[1] as { queryChunks?: unknown[] } | undefined;
+                const workerComparison = conjunction?.queryChunks?.[2] as {
+                  queryChunks?: unknown[];
+                } | undefined;
+                const workerCandidate = workerComparison?.queryChunks?.[3];
+                if (typeof workerCandidate === "string") {
+                  fixture.execution.workerId = workerCandidate;
+                }
+              }
               if ((table as { _tag?: string })._tag === "aiChatSessionsTable") {
                 return Promise.resolve(fixture.session ? [fixture.session] : []);
               }
               if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
                 return Promise.resolve([...fixture.messages]);
               }
+              if ((table as { _tag?: string })._tag === "aiExecutionAcceptancesTable") {
+                return Promise.resolve([...acceptanceRows]);
+              }
               if (
-                exposeExecutionForCancel
-                && (table as { _tag?: string })._tag === "aiExecutionsTable"
+                (table as { _tag?: string })._tag === "aiExecutionsTable"
+                && (
+                  exposeExecutionForCancel
+                  || (
+                    (fixture.execution.status === "running" || fixture.execution.status === "cancelling")
+                    && typeof fixture.execution.finalMessageId === "string"
+                  )
+                )
               ) {
                 return Promise.resolve([{ ...fixture.execution }]);
               }
@@ -162,9 +190,18 @@ vi.mock("@workspace/db", () => {
       }),
       insert: () => ({
         values: (vals?: Record<string, unknown>) => {
-          if (vals && "idempotencyKey" in vals) return insertResult([fixture.execution]);
+          if (vals && "idempotencyKey" in vals) {
+            fixture.execution = { ...fixture.execution, ...vals };
+            return insertResult([fixture.execution]);
+          }
           if (vals && "projectId" in vals) {
-            fixture.session = { ...MOCK_SESSION, ...vals };
+            fixture.session = {
+              ...MOCK_SESSION,
+              ...vals,
+              ...(vals.activeTaskState == null && vals.id
+                ? { activeTaskState: "{\"taskType\":\"FORENSIC_AUDIT\"}" }
+                : {}),
+            };
             return insertResult([fixture.session]);
           }
           return insertResult([MOCK_SESSION]);
@@ -172,15 +209,33 @@ vi.mock("@workspace/db", () => {
       }),
       update: () => ({
         set: (vals: Record<string, unknown>) => ({
-          where: () => updateResult(vals),
+          where: () => {
+            if (fixture.session && "activeTaskState" in vals && vals.activeTaskState != null) {
+              fixture.session = { ...fixture.session, ...vals };
+            }
+            return updateResult(vals);
+          },
         }),
       }),
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: (fields?: Record<string, unknown>) => ({
             from: (table: unknown) => ({
-              where: () => ({
-                for: () => {
+              where: () => {
+                const tableTag = (table as { _tag?: string })._tag;
+                const rows = tableTag === "aiExecutionsTable"
+                  ? [{ ...fixture.execution }]
+                  : tableTag === "aiChatMessagesTable"
+                    ? fixture.messages.filter((message) =>
+                      Object.keys(fields ?? {}).length === 1
+                        ? message.role === "user"
+                        : message.role === "assistant",
+                    )
+                    : tableTag === "aiExecutionAcceptancesTable"
+                      ? [...acceptanceRows]
+                      : fixture.session ? [{ id: fixture.session.id }] : [];
+                return {
+                  for: () => {
                   const tableTag = (table as { _tag?: string })._tag;
                   if (tableTag === "aiExecutionsTable") {
                     return Promise.resolve([{ ...fixture.execution }]);
@@ -193,13 +248,24 @@ vi.mock("@workspace/db", () => {
                     );
                     return Promise.resolve(rows);
                   }
+                  if (tableTag === "aiExecutionAcceptancesTable") {
+                    return Promise.resolve([...acceptanceRows]);
+                  }
                   return Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []);
                 },
-              }),
+                  limit: () => Promise.resolve(rows),
+                };
+              },
             }),
           }),
-          insert: () => ({
+          insert: (table: unknown) => ({
             values: (vals?: Record<string, unknown>) => {
+              const tableTag = (table as { _tag?: string })._tag;
+              if (tableTag === "aiExecutionAcceptancesTable" && vals) {
+                const row = { id: "test-acceptance-id", ...vals };
+                acceptanceRows.push(row);
+                return insertResult([row]);
+              }
               // Task #59: capture the exact serialized DB columns written for
               // the assistant message so the scoped-verdict tests can parse
               // them back (tool_trace + repair_plan_metadata).
@@ -211,7 +277,13 @@ vi.mock("@workspace/db", () => {
                   (vals?.repairPlanMetadata as string | null | undefined) ?? null;
               }
               if (vals && "projectId" in vals && !("sessionId" in vals)) {
-                fixture.session = { ...MOCK_SESSION, ...vals };
+                fixture.session = {
+                  ...MOCK_SESSION,
+                  ...vals,
+                  ...(vals.activeTaskState == null
+                    ? { activeTaskState: "{\"taskType\":\"FORENSIC_AUDIT\"}" }
+                    : {}),
+                };
                 return insertResult([MOCK_SESSION]);
               }
               if (vals?.sessionId) {
@@ -231,20 +303,32 @@ vi.mock("@workspace/db", () => {
               );
             },
           }),
-          update: () => ({
+          update: (table: unknown) => ({
             set: (vals: Record<string, unknown>) => ({
               where: () => {
-                if (fixture.session && "activeTaskState" in vals) {
+                const tableTag = (table as { _tag?: string })._tag;
+                if (fixture.session && "activeTaskState" in vals && vals.activeTaskState != null) {
                   fixture.session = { ...fixture.session, ...vals };
+                }
+                const terminalExecutionUpdate =
+                  tableTag === "aiExecutionsTable" && typeof vals.status === "string";
+                if (tableTag === "aiExecutionsTable" && (!("finalMessageId" in vals) || terminalExecutionUpdate)) {
+                  fixture.execution = { ...fixture.execution, ...vals };
+                }
+                if (tableTag === "aiChatMessagesTable" && "outcome" in vals) {
+                  const assistant = [...fixture.messages]
+                    .reverse()
+                    .find((message) => message.role === "assistant");
+                  if (assistant) Object.assign(assistant, vals);
                 }
                 const updateResult = Promise.resolve();
                 const isFinalMessageReservation = typeof vals.finalMessageId === "string";
                 const reservationWon = !isFinalMessageReservation || fixture.execution.finalMessageId === null;
-                if (isFinalMessageReservation && reservationWon) {
+                if (isFinalMessageReservation && (reservationWon || terminalExecutionUpdate)) {
                   fixture.execution = { ...fixture.execution, ...vals };
                 }
                 return Object.assign(updateResult, {
-                  returning: () => Promise.resolve(reservationWon ? [fixture.execution] : []),
+                  returning: () => Promise.resolve(reservationWon || terminalExecutionUpdate ? [fixture.execution] : []),
                 });
               },
             }),
@@ -256,6 +340,7 @@ vi.mock("@workspace/db", () => {
     __chatTestFixture: fixture,
     __setExposeExecutionForCancel: (value: boolean) => {
       exposeExecutionForCancel = value;
+      if (!value) acceptanceRows.length = 0;
     },
     // Drizzle table references — used as opaque args to the mocked db methods,
     // which ignore them.  Give each a unique marker so vi's call logs are clear.
@@ -266,11 +351,14 @@ vi.mock("@workspace/db", () => {
     eventsTable:           { _tag: "eventsTable" },
     tasksTable:            { _tag: "tasksTable" },
     aiExecutionsTable:     { _tag: "aiExecutionsTable" },
+    aiExecutionAcceptancesTable: { _tag: "aiExecutionAcceptancesTable" },
+    aiExecutionEvidenceSnapshotsTable: { _tag: "aiExecutionEvidenceSnapshotsTable" },
+    aiExecutionEvidenceReadsTable: { _tag: "aiExecutionEvidenceReadsTable" },
     // drizzle-orm re-exports from @workspace/db — return no-ops so they never
     // throw when called with our mock table objects.
-    eq:      () => ({}),
+    eq:      (_column: unknown, value: unknown) => ({ __value: value }),
     desc:    () => ({}),
-    and:     () => ({}),
+    and:     (...conditions: Array<{ __value?: unknown }>) => ({ __conditions: conditions }),
     inArray: () => ({}),
   };
 });

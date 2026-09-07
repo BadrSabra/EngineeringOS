@@ -49,6 +49,17 @@ function completeSnapshot() {
     if (columnName === "max_retries") return "3";
     if (columnName === "relevance") return "1.0";
     if (
+      tableName === "ai_execution_evidence_snapshots" &&
+      ["complete", "read_count", "total_bytes"].includes(columnName)
+    ) return "0";
+    if (tableName === "ai_execution_evidence_reads" && columnName === "read_type") return "'source'::text";
+    if (tableName === "ai_execution_evidence_reads" && columnName === "complete") return "1";
+    if (tableName === "ai_execution_evidence_reads" && columnName === "truncated") return "0";
+    if (
+      tableName === "ai_execution_acceptances" &&
+      ["evidence_required", "evidence_complete", "resumable"].includes(columnName)
+    ) return "0";
+    if (
       columnName === "created_at" ||
       columnName === "updated_at" ||
       columnName === "timestamp"

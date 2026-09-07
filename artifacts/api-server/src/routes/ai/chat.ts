@@ -18,6 +18,7 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  aiExecutionAcceptancesTable,
   aiApplyJournalTable,
   auditLogsTable,
   eventsTable,
@@ -160,6 +161,7 @@ import {
   isProviderFailureCategory,
   type ProviderFailureCategory,
 } from "../../lib/provider-failure-diagnostics.js";
+import { projectExecutionAcceptance } from "../../lib/ai-execution-acceptance.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -2795,6 +2797,7 @@ function nextSessionTaskState(args: {
   operationId?: string;
   executionId?: string;
   capabilityProbe?: boolean;
+  forcePersist?: boolean;
   now: Date;
   readFiles: string[];
   executionPlan: ActiveTaskExecutionPlan | null;
@@ -2837,7 +2840,7 @@ function nextSessionTaskState(args: {
     );
   }
   const shouldPersistExecutionPlan = Boolean(args.executionPlan);
-  if (isResumableTaskType(args.classification.taskType) || args.capabilityProbe || shouldPersistExecutionPlan) {
+  if (isResumableTaskType(args.classification.taskType) || args.capabilityProbe || shouldPersistExecutionPlan || args.forcePersist) {
     const stateClassification = args.capabilityProbe
       ? {
           ...args.classification,
@@ -3049,6 +3052,7 @@ router.post("/ai/chat", async (req, res) => {
     linkedTaskId: effectiveLinkedTaskId,
     revision: project.updatedAt.toISOString(),
     capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
+    forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
     now: msgNow,
     readFiles: [],
     executionPlan: null,
@@ -3642,6 +3646,7 @@ router.post("/ai/chat", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
+      forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
@@ -4155,6 +4160,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
   let executionAbortController: AbortController | undefined;
   let executionTerminal = false;
+  let terminalAssistantMessageId: string | undefined;
   let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
   let resumeCheckpoint: AiExecutionCheckpoint | undefined;
   let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
@@ -4529,6 +4535,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
+      forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
       now: msgNow,
@@ -4640,6 +4647,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
       executionId: aiExecution?.id,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
+      forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan: executionPlanForRun,
@@ -5462,6 +5470,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     let result: Awaited<ReturnType<typeof chat>>;
     let endedBeforeEvidence = false;
+    const retainedEvidence = new Map<string, string>();
     try {
       const chatOut = await chatWithFallback(
         req.userId,
@@ -5539,6 +5548,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
           turnIntent: streamTurnIntent,
+          retainedEvidence,
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
@@ -6136,6 +6146,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
+      forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
       now: msgNow,
@@ -6390,6 +6401,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       res.end();
       return;
     }
+    terminalAssistantMessageId = assistantMsg.id;
 
     persistExecutionCheckpoint({
       stage: "finalizing",
@@ -6455,6 +6467,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       await failAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
+        finalMessageId: terminalAssistantMessageId,
         error: "Execution stopped before the first source read.",
         cancelled: false,
         nodeStates: executionNodeStates,
@@ -6470,6 +6483,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       await failAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
+        finalMessageId: terminalAssistantMessageId,
         error: "Execution cancelled by the user.",
         cancelled: true,
         nodeStates: executionNodeStates,
@@ -6531,6 +6545,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
         finalMessageId: assistantMsg.id,
+        finalMessageContent: sanitizeResponseText(result.response),
         proposalId,
         operation: operationForCompletion,
         nodeStates: executionNodeStates,
@@ -6546,6 +6561,13 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidence: finalValidation?.kind === "validation"
           ? [finalValidation.result.evidence]
           : [],
+        evidenceReads: [...retainedEvidence.entries()].slice(0, 128).map(([filePath, body]) => ({
+              path: filePath,
+              readType: "source",
+              body,
+              complete: true,
+              truncated: false,
+            }))
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
@@ -6555,36 +6577,24 @@ router.post("/ai/chat/stream", async (req, res) => {
           failureKind: "INCOMPLETE",
           recoveryState: "INCOMPLETE",
         })!;
-        await db
-          .update(aiChatMessagesTable)
-          .set({
-            outcome: "FAILED",
-            errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
-            errorMessage: acceptanceError,
-            toolTrace: JSON.stringify([
-              ...(Array.isArray(parseStoredJson(assistantMsg.toolTrace))
-                ? parseStoredJson(assistantMsg.toolTrace) as unknown[]
-                : []),
-              {
-                kind: "terminal_outcome",
-                code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
-                outcome: "FAILED",
-                failureKind: "INCOMPLETE",
-                retryable: true,
-                recoveryState: "INCOMPLETE",
-                acceptanceDisposition,
-              },
-            ]),
-          })
-          .where(eq(aiChatMessagesTable.id, assistantMsg.id));
         await failAiExecution({
           executionId: aiExecution.id,
           workerId: executionWorkerId!,
+          finalMessageId: assistantMsg.id,
           error: acceptanceError,
           cancelled: false,
           nodeStates: executionNodeStates,
           operation: undefined,
           acceptanceDisposition,
+          evidenceVerdict: executionEvidenceVerdict,
+          evidenceReason: executionEvidenceReason,
+          evidenceReads: [...retainedEvidence.entries()].slice(0, 128).map(([filePath, body]) => ({
+            path: filePath,
+            readType: "source",
+            body,
+            complete: true,
+            truncated: false,
+          })),
         });
         executionTerminal = true;
         sse({
@@ -6743,6 +6753,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       await failAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
+        finalMessageId: terminalAssistantMessageId,
         error: unexpectedExecutionError,
         cancelled: executionAbortController?.signal.aborted,
         evidenceVerdict: "UNAVAILABLE",
@@ -6789,6 +6800,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       await failAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
+        finalMessageId: terminalAssistantMessageId,
         error: executionAbortController?.signal.aborted
           ? "Execution cancelled by the user."
           : "Execution ended before reaching a terminal result.",
@@ -6830,6 +6842,18 @@ router.get("/ai/executions/history", async (req, res) => {
     ))
     .orderBy(desc(aiExecutionsTable.updatedAt))
     .limit(limit);
+  const acceptanceRows = executions.length > 0
+    ? await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(inArray(
+        aiExecutionAcceptancesTable.executionId,
+        executions.map((execution) => execution.id),
+      ))
+    : [];
+  const currentAcceptanceByExecution = new Map(
+    acceptanceRows.map((row) => [`${row.executionId}:${row.attempt}`, row]),
+  );
 
   const safeText = (value: unknown, fallback: string, max = 240): string => {
     if (typeof value !== "string" || !value.trim()) return fallback;
@@ -6858,6 +6882,9 @@ router.get("/ai/executions/history", async (req, res) => {
       proofRequired,
       evidenceVerdict,
     });
+    const currentAcceptance = projectExecutionAcceptance(
+      currentAcceptanceByExecution.get(`${execution.id}:${execution.attempt}`),
+    );
     const capabilityProbeTerminalFailure =
       request?.message && isCapabilityProbeRequest(request.message) &&
       checkpointRecord.stage === "failed";
@@ -6885,6 +6912,7 @@ router.get("/ai/executions/history", async (req, res) => {
         ? safeText(checkpointRecord.evidenceReason, "", 500)
         : null,
       ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
+      ...(currentAcceptance ? { acceptance: currentAcceptance } : {}),
       terminalReason: execution.status === "cancelled"
         ? "Audit was cancelled before completion."
         : execution.status === "failed"
@@ -6965,6 +6993,15 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     ? checkpointRecord.recovery as Record<string, unknown>
     : undefined;
   const operationEvidence = await loadOperationEvidence(execution);
+  const [acceptanceRow] = await db
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+  const currentAcceptance = projectExecutionAcceptance(acceptanceRow);
 
   return res.json({
     id: execution.id,
@@ -6997,6 +7034,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       ? checkpointRecord.evidenceReason
       : undefined,
     ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
+    ...(currentAcceptance ? { acceptance: currentAcceptance } : {}),
      terminalReason: publicExecutionTerminalReason({
        status: execution.status,
        acceptanceDisposition,
@@ -7499,10 +7537,29 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     .from(aiChatMessagesTable)
     .where(eq(aiChatMessagesTable.sessionId, sessionId))
     .orderBy(aiChatMessagesTable.createdAt);
-
+  const executionIds = [...new Set(
+    messages
+      .map((message) => message.executionId)
+      .filter((executionId): executionId is string => Boolean(executionId)),
+  )];
+  const acceptanceQuery = executionIds.length > 0
+    ? db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(inArray(aiExecutionAcceptancesTable.executionId, executionIds))
+    : undefined;
+  const acceptanceRows = acceptanceQuery
+    ? await acceptanceQuery.limit(500)
+    : [];
   return res.json(messages.map((message) => {
     const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
     const terminalMetadata = terminalMetadataFromTrace(message.toolTrace);
+    const executionAcceptance = message.executionId
+      ? acceptanceRows
+        .filter((row) => row.executionId === message.executionId)
+        .sort((left, right) => right.attempt - left.attempt)[0]
+      : undefined;
+    const projectedAcceptance = projectExecutionAcceptance(executionAcceptance);
     return {
       ...message,
       content: redactUserFacingText(message.content),
@@ -7516,6 +7573,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       errorCode: boundedPublicErrorCode(message.errorCode),
       errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
       ...terminalMetadata,
+      ...(projectedAcceptance?.disposition
+        ? { acceptanceDisposition: projectedAcceptance.disposition }
+        : {}),
       repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
       behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
       ...(historicalReport.unavailable

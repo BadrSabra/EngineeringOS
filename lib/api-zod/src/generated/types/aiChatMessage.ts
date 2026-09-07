@@ -12,6 +12,7 @@ import type { AiChatMessageOutcome } from './aiChatMessageOutcome';
 import type { AiChatMessageRecoveryState } from './aiChatMessageRecoveryState';
 import type { AiChatMessageRole } from './aiChatMessageRole';
 import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
+import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
 import type { AiFindingResult } from './aiFindingResult';
 import type { AiForensicReportResult } from './aiForensicReportResult';
 import type { AiRepairResult } from './aiRepairResult';
@@ -47,6 +48,7 @@ export interface AiChatMessage {
   /** Bounded recovery/incomplete state for terminal outcomes */
   recoveryState?: AiChatMessageRecoveryState;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
+  acceptance?: AiExecutionAcceptance | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**

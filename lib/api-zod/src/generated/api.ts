@@ -3149,6 +3149,10 @@ export const AiChatBody = zod.object({
 
 export const aiChatResponseMessageAcceptanceDispositionOneReasonCodesMax = 4;
 
+export const aiChatResponseMessageAcceptanceOneAttemptMin = 0;
+
+export const aiChatResponseMessageAcceptanceOneReasonCodeMax = 80;
+
 export const aiChatResponseMessageForensicDiagnosticOneExplanationMax = 500;
 
 export const aiChatResponseMessageForensicDiagnosticOneNextActionMax = 300;
@@ -3273,7 +3277,18 @@ export const AiChatResponse = zod.object({
   "outcome": zod.enum(['FAILED', 'INTERRUPTED']),
   "failureKind": zod.enum(['INCOMPLETE']),
   "recoveryState": zod.enum(['INCOMPLETE']),
-  "operatorAction": zod.enum(['START_NEW_RUN'])
+  "operatorAction": zod.enum(['START_NEW_RUN']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT'])
+}),zod.null()]).optional(),
+  "acceptance": zod.union([zod.object({
+  "attempt": zod.number().int().min(aiChatResponseMessageAcceptanceOneAttemptMin),
+  "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().min(1).max(aiChatResponseMessageAcceptanceOneReasonCodeMax),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean()
 }),zod.null()]).optional(),
   "forensicDiagnostic": zod.union([zod.object({
   "version": zod.literal(1),
@@ -3484,6 +3499,10 @@ export const getAiExecutionResponseRecipeReceiptOneNodesItemAttemptsMin = 0;
 
 export const getAiExecutionResponseRecipeReceiptOneNodesItemElapsedMsMin = 0;
 
+export const getAiExecutionResponseAcceptanceOneAttemptMin = 0;
+
+export const getAiExecutionResponseAcceptanceOneReasonCodeMax = 80;
+
 
 
 export const GetAiExecutionResponse = zod.object({
@@ -3528,6 +3547,16 @@ export const GetAiExecutionResponse = zod.object({
   "operationId": zod.string().nullish().describe('Stable operation trace identity used by Apply'),
   "error": zod.string().nullish(),
   "resumable": zod.boolean(),
+  "acceptance": zod.union([zod.object({
+  "attempt": zod.number().int().min(getAiExecutionResponseAcceptanceOneAttemptMin),
+  "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().min(1).max(getAiExecutionResponseAcceptanceOneReasonCodeMax),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean()
+}),zod.null()]).optional(),
   "recovery": zod.object({
   "uncertain": zod.boolean(),
   "operationId": zod.string().nullable(),
@@ -3587,6 +3616,10 @@ export const ListAiExecutionHistoryQueryParams = zod.object({
 
 export const listAiExecutionHistoryResponseAcceptanceDispositionOneReasonCodesMax = 4;
 
+export const listAiExecutionHistoryResponseAcceptanceOneAttemptMin = 0;
+
+export const listAiExecutionHistoryResponseAcceptanceOneReasonCodeMax = 80;
+
 
 
 export const ListAiExecutionHistoryResponseItem = zod.object({
@@ -3603,7 +3636,18 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "outcome": zod.enum(['FAILED', 'INTERRUPTED']),
   "failureKind": zod.enum(['INCOMPLETE']),
   "recoveryState": zod.enum(['INCOMPLETE']),
-  "operatorAction": zod.enum(['START_NEW_RUN'])
+  "operatorAction": zod.enum(['START_NEW_RUN']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT'])
+}),zod.null()]).optional(),
+  "acceptance": zod.union([zod.object({
+  "attempt": zod.number().int().min(listAiExecutionHistoryResponseAcceptanceOneAttemptMin),
+  "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().min(1).max(listAiExecutionHistoryResponseAcceptanceOneReasonCodeMax),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean()
 }),zod.null()]).optional(),
   "proofRequired": zod.boolean(),
   "disposition": zod.enum(['RETAIN_FOR_REVIEW', 'NEW_RUN_RECOMMENDED']),
@@ -5488,6 +5532,10 @@ export const ListAiChatMessagesParams = zod.object({
 
 export const listAiChatMessagesResponseAcceptanceDispositionOneReasonCodesMax = 4;
 
+export const listAiChatMessagesResponseAcceptanceOneAttemptMin = 0;
+
+export const listAiChatMessagesResponseAcceptanceOneReasonCodeMax = 80;
+
 export const listAiChatMessagesResponseForensicDiagnosticOneExplanationMax = 500;
 
 export const listAiChatMessagesResponseForensicDiagnosticOneNextActionMax = 300;
@@ -5566,7 +5614,18 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "outcome": zod.enum(['FAILED', 'INTERRUPTED']),
   "failureKind": zod.enum(['INCOMPLETE']),
   "recoveryState": zod.enum(['INCOMPLETE']),
-  "operatorAction": zod.enum(['START_NEW_RUN'])
+  "operatorAction": zod.enum(['START_NEW_RUN']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT'])
+}),zod.null()]).optional(),
+  "acceptance": zod.union([zod.object({
+  "attempt": zod.number().int().min(listAiChatMessagesResponseAcceptanceOneAttemptMin),
+  "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "reasonCode": zod.string().min(1).max(listAiChatMessagesResponseAcceptanceOneReasonCodeMax),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean()
 }),zod.null()]).optional(),
   "forensicDiagnostic": zod.union([zod.object({
   "version": zod.literal(1),

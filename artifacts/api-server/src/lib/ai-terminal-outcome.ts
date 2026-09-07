@@ -1,6 +1,7 @@
 import type { AgentStep } from "@workspace/ai-orchestrator";
 import {
   classifyProviderFailure,
+  decideProviderFailurePolicy,
   type ProviderFailureCategory,
 } from "./provider-failure-diagnostics.js";
 
@@ -43,6 +44,7 @@ export type AiAcceptanceDisposition = {
   failureKind: "INCOMPLETE";
   recoveryState: "INCOMPLETE";
   operatorAction: AiAcceptanceOperatorAction;
+  nextActionCode?: "NONE" | "RESUME_ALLOWED" | "START_NEW_PROBE" | "REVIEW_INCOMPLETE_EVIDENCE" | "ABANDON_EXECUTION" | "RETRY_AFTER_TIMEOUT";
 };
 
 const GENERIC_ACCEPTANCE_DISPOSITION: AiAcceptanceDisposition = {
@@ -276,13 +278,18 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
       })
     : undefined;
   if (providerFailureCategory) {
+    const providerPolicy = decideProviderFailurePolicy({
+      category: providerFailureCategory,
+      fallbackAttempted: input.providerError?.fallbackExhausted === true,
+      synthesisAvailable: false,
+      deterministicRecoveryAvailable: recoveryAttempted,
+      attempt: input.providerError?.fallbackExhausted === true ? 2 : 1,
+    });
     return {
       outcome: "FAILED",
       failureKind: recoveryAttempted ? "RECOVERY_FAILURE" : "INCOMPLETE",
       providerFailureCategory,
-      retryable: providerFailureCategory !== "MODEL_REJECTED"
-        && providerFailureCategory !== "MALFORMED_RESPONSE"
-        && providerFailureCategory !== "UNKNOWN",
+      retryable: providerPolicy.retryable,
       code: recoveryAttempted ? "FORENSIC_RECOVERY_FAILED" : "AI_PROVIDER_FAILURE",
       message: "The AI provider could not complete the request.",
       recoveryState: recoveryAttempted ? "REQUIRED" : "INCOMPLETE",

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiAcceptanceDispositionFailureKind } from './aiAcceptanceDispositionFailureKind';
+import type { AiAcceptanceDispositionNextActionCode } from './aiAcceptanceDispositionNextActionCode';
 import type { AiAcceptanceDispositionOperatorAction } from './aiAcceptanceDispositionOperatorAction';
 import type { AiAcceptanceDispositionOutcome } from './aiAcceptanceDispositionOutcome';
 import type { AiAcceptanceDispositionReasonCodesItem } from './aiAcceptanceDispositionReasonCodesItem';
@@ -21,4 +22,5 @@ export interface AiAcceptanceDisposition {
   failureKind: AiAcceptanceDispositionFailureKind;
   recoveryState: AiAcceptanceDispositionRecoveryState;
   operatorAction: AiAcceptanceDispositionOperatorAction;
+  nextActionCode: AiAcceptanceDispositionNextActionCode;
 }

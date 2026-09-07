@@ -10,7 +10,7 @@
  */
 
 import { readFileSync, writeFileSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
 
 const LOOSE_OBJECT = "zod.looseObject(";
 const OBJECT = "zod.object(";
@@ -101,7 +101,33 @@ export function patchGeneratedZod(filePath: string): number {
   }
 
   writeFileSync(path, `${normalized.trimEnd()}\n`);
+  patchGeneratedTypesIndex(path);
   return matches;
+}
+
+/**
+ * Orval emits operation parameter/body types in both generated/api.ts and the
+ * split generated/types barrel for a small set of operations. Re-exporting
+ * both creates a TypeScript ambiguity in Zod 3 consumers. Keep the runtime
+ * schemas in api.ts and omit only those duplicate barrel exports.
+ */
+function patchGeneratedTypesIndex(apiPath: string): void {
+  const indexPath = resolve(dirname(apiPath), "types", "index.ts");
+  let index: string;
+  try {
+    index = readFileSync(indexPath, "utf8");
+  } catch {
+    return;
+  }
+  const duplicateExports = [
+    "export * from './listAiProjectBudgetAlertsParams';",
+    "export * from './updateAiProjectBudgetAlertBody';",
+  ];
+  const patched = index
+    .split("\n")
+    .filter((line) => !duplicateExports.includes(line.trim()))
+    .join("\n");
+  if (patched !== index) writeFileSync(indexPath, patched);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {

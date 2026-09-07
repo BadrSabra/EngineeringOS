@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyProviderFailure,
+  decideProviderFailurePolicy,
   isProviderFailureCategory,
   PROVIDER_FAILURE_CATEGORIES,
 } from "./provider-failure-diagnostics.js";
@@ -60,5 +61,34 @@ describe("provider failure category allowlist", () => {
     }
     expect(isProviderFailureCategory("provider raw response")).toBe(false);
     expect(isProviderFailureCategory({ category: "TIMEOUT" })).toBe(false);
+  });
+});
+
+describe("provider failure policy", () => {
+  it("allows one bounded fallback for transient failures", () => {
+    expect(decideProviderFailurePolicy({
+      category: "TIMEOUT",
+      fallbackAttempted: false,
+      synthesisAvailable: false,
+      deterministicRecoveryAvailable: false,
+      attempt: 1,
+    })).toMatchObject({ action: "FALLBACK_ONCE", retryable: true, maxFallbacks: 1 });
+  });
+
+  it("does not reopen exhausted fallback and prefers deterministic recovery", () => {
+    expect(decideProviderFailurePolicy({
+      category: "MALFORMED_RESPONSE",
+      fallbackAttempted: true,
+      synthesisAvailable: true,
+      deterministicRecoveryAvailable: true,
+      attempt: 2,
+    })).toMatchObject({ action: "DETERMINISTIC_RECOVERY", retryable: true });
+    expect(decideProviderFailurePolicy({
+      category: "MODEL_REJECTED",
+      fallbackAttempted: true,
+      synthesisAvailable: false,
+      deterministicRecoveryAvailable: false,
+      attempt: 2,
+    })).toMatchObject({ action: "TERMINAL_FAILURE", retryable: false, nextActionCode: "ABANDON_EXECUTION" });
   });
 });

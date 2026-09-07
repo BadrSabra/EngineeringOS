@@ -2246,6 +2246,18 @@ export const AiAcceptanceDispositionOperatorAction = {
   START_NEW_RUN: 'START_NEW_RUN',
 } as const;
 
+export type AiAcceptanceDispositionNextActionCode = typeof AiAcceptanceDispositionNextActionCode[keyof typeof AiAcceptanceDispositionNextActionCode];
+
+
+export const AiAcceptanceDispositionNextActionCode = {
+  NONE: 'NONE',
+  RESUME_ALLOWED: 'RESUME_ALLOWED',
+  START_NEW_PROBE: 'START_NEW_PROBE',
+  REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
+  ABANDON_EXECUTION: 'ABANDON_EXECUTION',
+  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+} as const;
+
 export interface AiAcceptanceDisposition {
   /**
      * @minItems 1
@@ -2256,6 +2268,54 @@ export interface AiAcceptanceDisposition {
   failureKind: AiAcceptanceDispositionFailureKind;
   recoveryState: AiAcceptanceDispositionRecoveryState;
   operatorAction: AiAcceptanceDispositionOperatorAction;
+  nextActionCode: AiAcceptanceDispositionNextActionCode;
+}
+
+export type AiExecutionAcceptanceTerminalStatus = typeof AiExecutionAcceptanceTerminalStatus[keyof typeof AiExecutionAcceptanceTerminalStatus];
+
+
+export const AiExecutionAcceptanceTerminalStatus = {
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  paused: 'paused',
+} as const;
+
+export type AiExecutionAcceptanceOutcome = typeof AiExecutionAcceptanceOutcome[keyof typeof AiExecutionAcceptanceOutcome];
+
+
+export const AiExecutionAcceptanceOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type AiExecutionAcceptanceNextActionCode = typeof AiExecutionAcceptanceNextActionCode[keyof typeof AiExecutionAcceptanceNextActionCode];
+
+
+export const AiExecutionAcceptanceNextActionCode = {
+  NONE: 'NONE',
+  RESUME_ALLOWED: 'RESUME_ALLOWED',
+  START_NEW_PROBE: 'START_NEW_PROBE',
+  REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
+  ABANDON_EXECUTION: 'ABANDON_EXECUTION',
+  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+} as const;
+
+export interface AiExecutionAcceptance {
+  /** @minimum 0 */
+  attempt: number;
+  terminalStatus: AiExecutionAcceptanceTerminalStatus;
+  outcome: AiExecutionAcceptanceOutcome;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  reasonCode: string;
+  nextActionCode: AiExecutionAcceptanceNextActionCode;
+  evidenceComplete: boolean;
+  evidenceRequired: boolean;
+  resumable: boolean;
 }
 
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
@@ -2416,6 +2476,7 @@ export interface AiChatMessage {
   /** Bounded recovery/incomplete state for terminal outcomes */
   recoveryState?: AiChatMessageRecoveryState;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
+  acceptance?: AiExecutionAcceptance | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**
@@ -4581,6 +4642,7 @@ export type GetAiExecution200 = {
   operationId?: string | null;
   error?: string | null;
   resumable: boolean;
+  acceptance?: AiExecutionAcceptance | null;
   recovery?: GetAiExecution200Recovery;
   operationEvidence: OperationEvidenceProjection;
   createdAt?: string;
@@ -4645,6 +4707,7 @@ export type ListAiExecutionHistory200Item = {
   evidenceReason?: string | null;
   terminalReason?: string | null;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
+  acceptance?: AiExecutionAcceptance | null;
   proofRequired: boolean;
   disposition: ListAiExecutionHistory200ItemDisposition;
   recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;

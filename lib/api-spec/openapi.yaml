@@ -1573,6 +1573,9 @@ paths:
                   operationId: { type: string, nullable: true, description: Stable operation trace identity used by Apply, Commit, and Push }
                   error: { type: string, nullable: true }
                   resumable: { type: boolean }
+                  acceptance:
+                    nullable: true
+                    $ref: "#/components/schemas/AiExecutionAcceptance"
                   recovery:
                     type: object
                     required: [uncertain, operationId, revision, phase, outcome]
@@ -1632,6 +1635,9 @@ paths:
                     acceptanceDisposition:
                       nullable: true
                       $ref: "#/components/schemas/AiAcceptanceDisposition"
+                    acceptance:
+                      nullable: true
+                      $ref: "#/components/schemas/AiExecutionAcceptance"
                     proofRequired: { type: boolean }
                     disposition: { type: string, enum: [RETAIN_FOR_REVIEW, NEW_RUN_RECOMMENDED] }
                     recommendedAction: { type: string, enum: [REVIEW_RETAINED_PROOF, START_NEW_RUN, RESUME_CHECKPOINT] }
@@ -5632,6 +5638,9 @@ components:
         acceptanceDisposition:
           nullable: true
           $ref: "#/components/schemas/AiAcceptanceDisposition"
+        acceptance:
+          nullable: true
+          $ref: "#/components/schemas/AiExecutionAcceptance"
         forensicDiagnostic:
           nullable: true
           description: Server-owned, bounded forensic verdict shared by live and historical responses.
@@ -5677,7 +5686,7 @@ components:
     AiAcceptanceDisposition:
       type: object
       additionalProperties: false
-      required: [reasonCodes, outcome, failureKind, recoveryState, operatorAction]
+      required: [reasonCodes, outcome, failureKind, recoveryState, operatorAction, nextActionCode]
       properties:
         reasonCodes:
           type: array
@@ -5698,6 +5707,29 @@ components:
         operatorAction:
           type: string
           enum: [START_NEW_RUN]
+        nextActionCode:
+          type: string
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+
+    AiExecutionAcceptance:
+      type: object
+      additionalProperties: false
+      required: [attempt, terminalStatus, outcome, reasonCode, nextActionCode, evidenceComplete, evidenceRequired, resumable]
+      properties:
+        attempt: { type: integer, minimum: 0 }
+        terminalStatus:
+          type: string
+          enum: [completed, failed, cancelled, paused]
+        outcome:
+          type: string
+          enum: [SUCCEEDED, FAILED, INTERRUPTED]
+        reasonCode: { type: string, minLength: 1, maxLength: 80 }
+        nextActionCode:
+          type: string
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+        evidenceComplete: { type: boolean }
+        evidenceRequired: { type: boolean }
+        resumable: { type: boolean }
 
     ExecutionLedgerSnapshot:
       type: object

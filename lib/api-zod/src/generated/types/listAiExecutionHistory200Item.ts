@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiAcceptanceDisposition } from './aiAcceptanceDisposition';
+import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
 import type { ListAiExecutionHistory200ItemDisposition } from './listAiExecutionHistory200ItemDisposition';
 import type { ListAiExecutionHistory200ItemEvidenceVerdict } from './listAiExecutionHistory200ItemEvidenceVerdict';
 import type { ListAiExecutionHistory200ItemRecommendedAction } from './listAiExecutionHistory200ItemRecommendedAction';
@@ -21,6 +22,7 @@ export type ListAiExecutionHistory200Item = {
   evidenceReason?: string | null;
   terminalReason?: string | null;
   acceptanceDisposition?: AiAcceptanceDisposition | null;
+  acceptance?: AiExecutionAcceptance | null;
   proofRequired: boolean;
   disposition: ListAiExecutionHistory200ItemDisposition;
   recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;

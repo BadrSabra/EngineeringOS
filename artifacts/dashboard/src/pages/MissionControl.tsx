@@ -53,6 +53,7 @@ type MissionExecution = {
   revision?: unknown;
   evidenceProjection?: unknown;
   phase?: unknown;
+  acceptance?: unknown;
 };
 
 type MetricEntry = {
@@ -1497,6 +1498,34 @@ export default function MissionControl() {
               )}
             </div>
           </section>
+
+          {asRecord(selectedExecution?.acceptance) && (
+            <section className="rounded-xl border border-primary/25 bg-primary/5 p-4" aria-label="Current execution acceptance">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold">Current attempt acceptance</h2>
+              </div>
+              <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attempt</div>
+                  <div className="font-mono">{formatValue(asRecord(selectedExecution.acceptance)?.attempt)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Outcome</div>
+                  <div>{formatValue(asRecord(selectedExecution.acceptance)?.outcome)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Next action</div>
+                  <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
+                </div>
+              </div>
+              {asRecord(selectedExecution.acceptance)?.evidenceComplete === false && (
+                <p className="mt-2 text-[11px] text-amber-200">
+                  Acceptance is incomplete because the server-owned evidence snapshot is not complete.
+                </p>
+              )}
+            </section>
+          )}
 
            {asRecord(selectedExecution?.recovery)?.uncertain === true && selectedExecution && (
              <section className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-4" aria-label="Uncertain execution recovery">

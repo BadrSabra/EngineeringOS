@@ -555,6 +555,13 @@ async function createReconnectedProofFixture(params: {
   };
 }
 
+const PROOF_FIXTURE_BODY = "export const proofFixture = true;\n";
+
+function retainProofFixtureEvidence(args: unknown[], fixture: Awaited<ReturnType<typeof createReconnectedProofFixture>>): void {
+  const input = args[1] as { retainedEvidence?: Map<string, string> } | undefined;
+  input?.retainedEvidence?.set(fixture.evidence.artifactRef, PROOF_FIXTURE_BODY);
+}
+
 const projectIds: string[] = [];
 const rootPaths: string[] = [];
 const discoverySessionIds: string[] = [];
@@ -895,6 +902,15 @@ describe("Durable AI completion identity", () => {
         ? testCase.candidateIdentity
         : fixture.operation.candidateIdentity;
       const finalMessageId = randomUUID();
+      await db.insert(aiChatMessagesTable).values({
+        id: finalMessageId,
+        sessionId,
+        executionId: fixture.created.execution.id,
+        role: "assistant",
+        content: "",
+        outcome: null,
+        createdAt: new Date(),
+      });
       const completed = await completeAiExecution({
         executionId: fixture.created.execution.id,
         workerId: fixture.workerId!,
@@ -907,6 +923,13 @@ describe("Durable AI completion identity", () => {
           ...fixture.evidence,
           ...evidenceDrift,
         }],
+         evidenceReads: [{
+           path: fixture.evidence.artifactRef,
+           readType: "source",
+           body: PROOF_FIXTURE_BODY,
+           complete: true,
+           truncated: false,
+         }],
         proofRequired: true,
         operationId: operationIdArgument,
         candidateIdentity: candidateIdentityArgument,
@@ -963,6 +986,7 @@ describe("Durable AI completion identity", () => {
         reclaimAfterReconciliation: false,
       });
       vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+        retainProofFixtureEvidence(args, fixture);
         args[6]?.({
           kind: "validation",
           status: "passed",
@@ -1098,6 +1122,7 @@ describe("Durable AI completion identity", () => {
       reclaimAfterReconciliation: false,
     });
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      retainProofFixtureEvidence(args, fixture);
       args[6]?.({
         kind: "validation",
         status: "passed",
@@ -1206,6 +1231,7 @@ describe("Durable AI completion identity", () => {
       validationProfile: "workspace-typecheck" as const,
     };
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      retainProofFixtureEvidence(args, fixture);
       args[6]?.({
         kind: "validation",
         status: "passed",
@@ -2136,7 +2162,9 @@ describe("Durable AI execution crash/reconnect", () => {
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       const correlation = (args[1] as {
         analysisCorrelation?: { operationId?: string; projectRevision?: string };
+        retainedEvidence?: Map<string, string>;
       }).analysisCorrelation;
+      (args[1] as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(relativePath, original);
       args[6]?.({
         kind: "validation",
         status: "passed",
@@ -2238,6 +2266,9 @@ describe("Implementation Plan Build handoff", () => {
     projectIds.push(projectId);
     const sessionId = randomUUID();
     const now = new Date();
+    const sourcePath = path.join(rootPath, "src/non-build.ts");
+    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.writeFile(sourcePath, "export const nonBuild = false;\n", "utf8");
     await db.insert(aiChatSessionsTable).values({
       id: sessionId,
       projectId,
@@ -2250,7 +2281,8 @@ describe("Implementation Plan Build handoff", () => {
       path: "src/non-build.ts",
       absolutePath: path.join(rootPath, "src/non-build.ts"),
       newContent: "export const nonBuild = true;\n",
-      originalContent: null,
+      originalContent: "export const nonBuild = false;\n",
+      baseHash: hashPatchBase("export const nonBuild = false;\n"),
       reason: "Verify non-Build operation identity",
       validationProfile: "workspace-typecheck" as const,
     };
@@ -2268,6 +2300,10 @@ describe("Implementation Plan Build handoff", () => {
       _onStreamReset,
       onStep,
     ) => {
+      (input as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
+        "src/non-build.ts",
+        "export const nonBuild = false;\n",
+      );
       onStep?.({
         kind: "validation",
         result: {

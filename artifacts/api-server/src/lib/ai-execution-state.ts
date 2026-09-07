@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
-import { db, aiExecutionsTable } from "@workspace/db";
+import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import type {
   ExecutionNode,
@@ -10,6 +10,11 @@ import type {
 } from "@workspace/ai-orchestrator";
 import { formatUntrustedContent } from "@workspace/ai-orchestrator";
 import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
+import {
+  finalizeExecutionAcceptance,
+  type EvidenceReadInput,
+  type EvidenceSnapshotInput,
+} from "./ai-execution-acceptance.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
 export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
@@ -1357,9 +1362,19 @@ export async function recoverAiExecutionResumeToken(params: {
     .limit(1);
   if (!candidate) return undefined;
   const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
+  const [priorAcceptance] = await db
+    .select({ resumable: aiExecutionAcceptancesTable.resumable, nextActionCode: aiExecutionAcceptancesTable.nextActionCode })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, candidate.id),
+      eq(aiExecutionAcceptancesTable.attempt, candidate.attempt),
+    ))
+    .limit(1);
   if (
     candidate.status === "failed" &&
-    checkpoint?.evidenceVerdict === "CLAIM_UNCLOSED"
+    (checkpoint?.evidenceVerdict === "CLAIM_UNCLOSED"
+      || priorAcceptance?.resumable !== 1
+      || priorAcceptance?.nextActionCode === "START_NEW_PROBE")
   ) {
     return undefined;
   }
@@ -1531,6 +1546,24 @@ export async function requestAiExecutionRecovery(params: {
   if (params.action === "resume" && current.status === "running") {
     return { execution: current, outcome: "already_running" };
   }
+  const [priorAcceptance] = await db
+    .select({
+      resumable: aiExecutionAcceptancesTable.resumable,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, current.id),
+      eq(aiExecutionAcceptancesTable.attempt, current.attempt),
+    ))
+    .limit(1);
+  if (
+    params.action === "resume"
+    && priorAcceptance
+    && (priorAcceptance.resumable !== 1 || priorAcceptance.nextActionCode === "START_NEW_PROBE")
+  ) {
+    return { execution: current, outcome: "not_eligible" };
+  }
   if (current.status !== "paused" || operation?.state !== "uncertain") {
     return { execution: current, outcome: "not_eligible" };
   }
@@ -1543,6 +1576,7 @@ export async function requestAiExecutionRecovery(params: {
     };
     const [updated] = await db.update(aiExecutionsTable).set({
       resumeTokenHash: hashResumeToken(resumeToken),
+      attempt: sql`${aiExecutionsTable.attempt} + 1`,
       checkpoint: JSON.stringify(nextCheckpoint),
       updatedAt: new Date(),
     }).where(and(
@@ -1563,19 +1597,20 @@ export async function requestAiExecutionRecovery(params: {
     recovery: { action: "abandon", outcome: "abandoned", updatedAt: now.toISOString() },
     updatedAt: now.toISOString(),
   };
-  const [updated] = await db.update(aiExecutionsTable).set({
-    status: "cancelled",
+  const finalized = await finalizeExecutionAcceptance({
+    executionId: params.executionId,
+    finalizationKey: `execution:${params.executionId}:attempt:${current.attempt}:abandoned`,
+    outcome: "INTERRUPTED",
+    terminalStatus: "cancelled",
+    reasonCode: "EXECUTION_ABANDONED",
+    recoveryState: "INCOMPLETE",
+    resumable: false,
+    error: "Execution abandoned by the operator.",
     checkpoint: JSON.stringify(nextCheckpoint),
-    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
-    completedAt: now,
-    updatedAt: now,
-    leaseUntil: null,
-    lastHeartbeatAt: null,
-  }).where(and(
-    eq(aiExecutionsTable.id, params.executionId),
-    eq(aiExecutionsTable.userId, params.userId),
-    eq(aiExecutionsTable.status, "paused"),
-  )).returning();
+  });
+  const updated = finalized.accepted
+    ? await getAiExecutionForUser(params.executionId, params.userId)
+    : undefined;
   return updated
     ? { execution: updated, outcome: "abandoned" }
     : { execution: current, outcome: "not_eligible" };
@@ -1633,6 +1668,7 @@ export async function claimAiExecution(params: {
         } satisfies AiExecutionCheckpoint),
         checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
       } : {}),
+      ...(tokenHash ? { attempt: sql`${aiExecutionsTable.attempt} + 1` } : {}),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
@@ -1728,6 +1764,7 @@ export async function completeAiExecution(params: {
   executionId: string;
   workerId: string;
   finalMessageId: string;
+  finalMessageContent?: string;
   proposalId?: string;
   operation?: AutonomousOperationContract;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
@@ -1748,11 +1785,13 @@ export async function completeAiExecution(params: {
   candidateIdentity?: string | null;
   recipeBinding?: RecipeOperationBinding;
   recipeReceipt?: RecipeReceipt;
+  evidenceReads?: readonly EvidenceReadInput[];
 }): Promise<boolean> {
   const [current] = await db
     .select({
       projectId: aiExecutionsTable.projectId,
       operationId: aiExecutionsTable.operationId,
+      attempt: aiExecutionsTable.attempt,
       request: aiExecutionsTable.request,
       checkpoint: aiExecutionsTable.checkpoint,
       checkpointVersion: aiExecutionsTable.checkpointVersion,
@@ -1814,49 +1853,55 @@ export async function completeAiExecution(params: {
     });
     if (!completion.allowed) return false;
   }
-  const [updated] = await db
-    .update(aiExecutionsTable)
-    .set({
-      status: "completed",
-      finalMessageId: params.finalMessageId,
-      proposalId: params.proposalId ?? null,
-      ...(params.recipeReceipt ? { recipeReceipt: params.recipeReceipt } : {}),
-      completedAt: new Date(),
-      updatedAt: new Date(),
-      leaseUntil: null,
-      lastHeartbeatAt: null,
-      checkpointVersion: nextSequence,
-      checkpoint: JSON.stringify({
-        stage: "completed",
-        sequence: nextSequence,
-        ...(params.operation ? { operation: params.operation } : {}),
-        ...(params.nodeStates && params.nodeStates.length > 0
-          ? {
-              nodeStates: params.nodeStates,
-              completedNodes: params.nodeStates
-                .filter((node) => node.status === "passed")
-                .map((node) => node.id)
-                .slice(0, AI_EXECUTION_NODE_LIMIT),
-            }
-          : {}),
-        ...(params.evidenceVerdict ? { evidenceVerdict: params.evidenceVerdict } : {}),
-        ...(params.evidenceRefs && params.evidenceRefs.length > 0
-          ? { evidenceRefs: [...new Set(params.evidenceRefs)].slice(0, 48) }
-          : {}),
-        ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
-        ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
-        ...(params.capabilityProbe ? { capabilityProbe: params.capabilityProbe } : {}),
-        updatedAt: new Date().toISOString(),
-      } satisfies AiExecutionCheckpoint),
-    })
-    .where(and(
-      eq(aiExecutionsTable.id, params.executionId),
-      eq(aiExecutionsTable.workerId, params.workerId),
-      eq(aiExecutionsTable.status, "running"),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
-    ))
-    .returning({ id: aiExecutionsTable.id });
-  return Boolean(updated);
+  const now = new Date();
+  const checkpointEnvelope = {
+    stage: "completed" as const,
+    sequence: nextSequence,
+    ...(params.operation ? { operation: params.operation } : {}),
+    ...(params.nodeStates && params.nodeStates.length > 0
+      ? {
+          nodeStates: params.nodeStates,
+          completedNodes: params.nodeStates
+            .filter((node) => node.status === "passed")
+            .map((node) => node.id)
+            .slice(0, AI_EXECUTION_NODE_LIMIT),
+        }
+      : {}),
+    ...(params.evidenceVerdict ? { evidenceVerdict: params.evidenceVerdict } : {}),
+    ...(params.evidenceRefs && params.evidenceRefs.length > 0
+      ? { evidenceRefs: [...new Set(params.evidenceRefs)].slice(0, 48) }
+      : {}),
+    ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
+    ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
+    ...(params.capabilityProbe ? { capabilityProbe: params.capabilityProbe } : {}),
+    updatedAt: now.toISOString(),
+  } satisfies AiExecutionCheckpoint;
+  const result = await finalizeExecutionAcceptance({
+    executionId: params.executionId,
+    workerId: params.workerId,
+    finalMessageId: params.finalMessageId,
+    finalMessageContent: params.finalMessageContent,
+    finalizationKey: `execution:${params.executionId}:attempt:${current?.attempt ?? 0}:completed`,
+    outcome: "SUCCEEDED",
+    terminalStatus: "completed",
+    reasonCode: "ACCEPTED",
+    recoveryState: "NONE",
+    evidence: {
+      operationId: params.operationId,
+      sourceRevision: request?.workspaceRevision,
+      candidateIdentity: params.candidateIdentity,
+      verdict: params.evidenceVerdict,
+      required: requiresProof,
+      reads: params.evidenceReads,
+    } satisfies EvidenceSnapshotInput,
+    resumable: false,
+    sourceRevision: request?.workspaceRevision,
+    candidateIdentity: params.candidateIdentity,
+    proposalId: params.proposalId ?? null,
+    recipeReceipt: params.recipeReceipt,
+    checkpoint: JSON.stringify(checkpointEnvelope),
+  });
+  return result.accepted;
 }
 
 export async function failAiExecution(params: {
@@ -1873,8 +1918,9 @@ export async function failAiExecution(params: {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   providerAttempts?: AiProviderAttemptCheckpoint[];
+  finalMessageId?: string;
+  evidenceReads?: readonly EvidenceReadInput[];
 }): Promise<boolean> {
-  const status = params.cancelled ? "cancelled" : "failed";
   const [current] = await db
     .select()
     .from(aiExecutionsTable)
@@ -1907,60 +1953,41 @@ export async function failAiExecution(params: {
     }
     if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
   }
-  const [updated] = await db
-    .update(aiExecutionsTable)
-    .set({
-      status,
-      error: params.error.slice(0, 1000),
-      completedAt: new Date(),
-      updatedAt: new Date(),
-      leaseUntil: null,
-      lastHeartbeatAt: null,
-      ...(terminalCheckpoint
-        ? { checkpointVersion: terminalCheckpoint.sequence }
-        : { checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1` }),
-      ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
-    })
-    .where(and(
-      eq(aiExecutionsTable.id, params.executionId),
-      eq(aiExecutionsTable.workerId, params.workerId),
-      gt(aiExecutionsTable.leaseUntil, new Date()),
-      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
-    ))
-    .returning({ id: aiExecutionsTable.id });
-  if (updated) return true;
-
-  // Cancellation is an authoritative terminal fence. If the worker learned
-  // about cancellation through the database (rather than its local signal),
-  // its ordinary failure path must still settle `cancelling` as cancelled and
-  // must never publish a failed outcome after the cancellation won.
-  if (!params.cancelled) {
-    const cancellationCheckpoint = current
-      ? mergeTerminalCheckpoint(current, { ...params, cancelled: true })
-      : undefined;
-    const [cancelled] = await db
-      .update(aiExecutionsTable)
-      .set({
-        status: "cancelled",
-        error: params.error.slice(0, 1000),
-        completedAt: new Date(),
-        updatedAt: new Date(),
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-        ...(cancellationCheckpoint
-          ? { checkpointVersion: cancellationCheckpoint.sequence }
-          : { checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1` }),
-        ...(cancellationCheckpoint ? { checkpoint: JSON.stringify(cancellationCheckpoint) } : {}),
-      })
-      .where(and(
-        eq(aiExecutionsTable.id, params.executionId),
-        eq(aiExecutionsTable.workerId, params.workerId),
-        eq(aiExecutionsTable.status, "cancelling"),
-      ))
-      .returning({ id: aiExecutionsTable.id });
-    return Boolean(cancelled);
-  }
-  return false;
+  if (!current || !terminalCheckpoint) return false;
+  const reasonCode = params.cancelled
+    ? "EXECUTION_CANCELLED"
+    : params.acceptanceDisposition
+      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+      : params.providerAttempts && params.providerAttempts.length > 0
+        ? "EXECUTION_PROVIDER_FAILURE"
+        : "EXECUTION_FAILED";
+  const finalized = await finalizeExecutionAcceptance({
+    executionId: params.executionId,
+    workerId: params.workerId,
+    finalMessageId: params.finalMessageId,
+    finalizationKey: `execution:${params.executionId}:attempt:${current.attempt}:${reasonCode}`,
+    outcome: params.cancelled ? "INTERRUPTED" : "FAILED",
+    terminalStatus: params.cancelled ? "cancelled" : "failed",
+    reasonCode,
+    failureKind: params.acceptanceDisposition?.failureKind
+      ?? (params.cancelled ? "CANCELLATION" : params.providerAttempts ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
+    recoveryState: params.cancelled
+      ? "INCOMPLETE"
+      : params.acceptanceDisposition?.recoveryState ?? "REQUIRED",
+    resumable: !params.cancelled && !params.acceptanceDisposition,
+    disposition: params.acceptanceDisposition,
+    error: params.error,
+    evidence: params.evidenceVerdict || params.evidenceReads
+      ? {
+          operationId: current.operationId,
+          sourceRevision: parseExecutionRequest(current.request)?.workspaceRevision,
+          verdict: params.evidenceVerdict,
+          reads: params.evidenceReads,
+        }
+      : undefined,
+    checkpoint: JSON.stringify(terminalCheckpoint),
+  });
+  return finalized.accepted;
 }
 
 export async function requestAiExecutionCancel(params: {
@@ -1975,28 +2002,22 @@ export async function requestAiExecutionCancel(params: {
     error: "Execution cancelled before a worker started.",
   }));
 
-  // Queued and paused executions have no active worker to observe the
-  // cancellation signal. Transition them directly to a terminal state so
-  // they cannot remain permanently stuck in `cancelling`.
-  const [cancelledBeforeStart] = await db
-    .update(aiExecutionsTable)
-    .set({
-      status: "cancelled",
-      cancelRequestedAt: now,
-      completedAt: now,
+  if (current.status === "queued" || current.status === "paused") {
+    const finalized = await finalizeExecutionAcceptance({
+      executionId: current.id,
+      finalizationKey: `execution:${current.id}:attempt:${current.attempt}:cancelled`,
+      outcome: "INTERRUPTED",
+      terminalStatus: "cancelled",
+      reasonCode: "EXECUTION_CANCELLED",
+      recoveryState: "INCOMPLETE",
+      resumable: false,
+      error: "Execution cancelled before a worker started.",
       checkpoint: cancelledCheckpoint,
-      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
-      updatedAt: now,
-      leaseUntil: null,
-      lastHeartbeatAt: null,
-    })
-    .where(and(
-      eq(aiExecutionsTable.id, params.executionId),
-      eq(aiExecutionsTable.userId, params.userId),
-      inArray(aiExecutionsTable.status, ["queued", "paused"]),
-    ))
-    .returning();
-  if (cancelledBeforeStart) return cancelledBeforeStart;
+    });
+    return finalized.accepted
+      ? await getAiExecutionForUser(current.id, params.userId)
+      : undefined;
+  }
 
   const [updated] = await db
     .update(aiExecutionsTable)
@@ -2036,21 +2057,18 @@ export async function reconcileAiExecutions(): Promise<number> {
         cancelled: true,
         error: "Execution cancellation was finalized after the server restarted.",
       });
-      const [updated] = await db.update(aiExecutionsTable).set({
-        status: "cancelled",
+      const finalized = await finalizeExecutionAcceptance({
+        executionId: execution.id,
+        finalizationKey: `execution:${execution.id}:attempt:${execution.attempt}:reconciled-cancel`,
+        outcome: "INTERRUPTED",
+        terminalStatus: "cancelled",
+        reasonCode: "EXECUTION_CANCELLED",
+        recoveryState: "INCOMPLETE",
+        resumable: false,
         error: "Execution cancelled by the user.",
-        completedAt: now,
-        workerId: null,
-        leaseUntil: null,
-        lastHeartbeatAt: null,
-        updatedAt: now,
         checkpoint: JSON.stringify(terminalCheckpoint),
-        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
-      }).where(and(
-        eq(aiExecutionsTable.id, execution.id),
-        eq(aiExecutionsTable.status, "cancelling"),
-      )).returning({ id: aiExecutionsTable.id });
-      if (updated) count += 1;
+      });
+      if (finalized.accepted && !finalized.duplicate) count += 1;
       continue;
     }
     const operation = checkpoint?.operation;
@@ -2070,16 +2088,18 @@ export async function reconcileAiExecutions(): Promise<number> {
           updatedAt: now.toISOString(),
         }
       : undefined;
-    const [updated] = await db.update(aiExecutionsTable).set({
-      status: "paused",
+    const finalized = await finalizeExecutionAcceptance({
+      executionId: execution.id,
+      finalizationKey: `execution:${execution.id}:attempt:${execution.attempt}:lease-expired`,
+      outcome: "FAILED",
+      terminalStatus: "paused",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      recoveryState: "REQUIRED",
+      resumable: true,
       error: "Execution interrupted; operator recovery is required.",
-      workerId: null,
-      leaseUntil: null,
-      lastHeartbeatAt: null,
-      updatedAt: now,
-      ...(nextCheckpoint ? { checkpoint: JSON.stringify(nextCheckpoint) } : {}),
-    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
-    if (updated) count += 1;
+      checkpoint: nextCheckpoint ? JSON.stringify(nextCheckpoint) : undefined,
+    });
+    if (finalized.accepted && !finalized.duplicate) count += 1;
   }
   return count;
 }

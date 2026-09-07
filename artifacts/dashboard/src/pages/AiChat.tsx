@@ -74,6 +74,16 @@ import type {
   AiProviderMetric,
   AiUsageSummary,
 } from '@workspace/api-client-react';
+type AcceptanceNextActionCode =
+  | 'NONE'
+  | 'RESUME_ALLOWED'
+  | 'START_NEW_PROBE'
+  | 'REVIEW_INCOMPLETE_EVIDENCE'
+  | 'ABANDON_EXECUTION'
+  | 'RETRY_AFTER_TIMEOUT';
+type AcceptanceDispositionView = AiAcceptanceDisposition & {
+  nextActionCode?: AcceptanceNextActionCode;
+};
 import type {
   BrowserValidationBlockReason,
   ExecutionLedgerPublicSnapshot,
@@ -192,7 +202,7 @@ type ChatMessage = {
   failureKind?: AiStreamErrorEvent['failureKind'];
   retryable?: boolean;
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
-  acceptanceDisposition?: AiAcceptanceDisposition | null;
+  acceptanceDisposition?: AcceptanceDispositionView | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
   createdAt: string;
 };
@@ -7266,7 +7276,17 @@ type AgentExecutionProofStatus = {
     | 'COMPLETED';
   evidenceVerdict?: 'PROVEN' | 'PARTIAL' | 'UNAVAILABLE' | 'BLOCKED' | 'NOT_RECORDED';
   evidenceReason?: string | null;
-  acceptanceDisposition?: AiAcceptanceDisposition | null;
+  acceptanceDisposition?: AcceptanceDispositionView | null;
+  acceptance?: {
+    attempt: number;
+    terminalStatus: string;
+    outcome: string;
+    reasonCode: string;
+    nextActionCode: AcceptanceNextActionCode;
+    evidenceComplete: boolean;
+    evidenceRequired: boolean;
+    resumable: boolean;
+  } | null;
   objective?: Record<string, unknown> | null;
   proofRequired?: boolean;
   recovery?: {
@@ -7534,7 +7554,7 @@ function proofStatusClasses(status: string | undefined): string {
 function AcceptanceDispositionNotice({
   disposition,
 }: {
-  disposition?: AiAcceptanceDisposition | null;
+  disposition?: AcceptanceDispositionView | null;
 }) {
   if (!disposition) return null;
   return (
@@ -7548,8 +7568,19 @@ function AcceptanceDispositionNotice({
         {disposition.reasonCodes.join(', ')}
       </div>
       <div className="mt-1 text-[11px]">
-        Start a new scoped run before relying on the result.
+        {disposition.nextActionCode === 'RESUME_ALLOWED'
+          ? 'Resume the saved execution checkpoint.'
+          : disposition.nextActionCode === 'START_NEW_PROBE'
+            ? 'Start a new capability probe; this result is not resumable.'
+            : disposition.nextActionCode === 'REVIEW_INCOMPLETE_EVIDENCE'
+              ? 'Review the incomplete evidence before relying on the result.'
+              : 'Start a new scoped run before relying on the result.'}
       </div>
+      {disposition.nextActionCode && (
+        <div className="mt-1 font-mono text-[10px] text-amber-300/80">
+          Next action: {disposition.nextActionCode}
+        </div>
+      )}
     </div>
   );
 }
