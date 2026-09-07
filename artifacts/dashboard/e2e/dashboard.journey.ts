@@ -615,7 +615,11 @@ async function installApiFixtures(
       overrides?.historicalAudits &&
       path === "/api/ai/executions/history"
     ) {
-      return route.fulfill(jsonResponse(overrides.historicalAudits.audits));
+      const projectId = url.searchParams.get("projectId");
+      const audits = overrides.historicalAudits.audits.filter(
+        (audit) => !projectId || audit.projectId === projectId,
+      );
+      return route.fulfill(jsonResponse(audits));
     }
     if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
       let requestBody: Record<string, unknown> = {};
@@ -5233,10 +5237,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
   });
 
-  test("keeps evidence-incomplete acceptance visible after reopening a historical audit", async ({
+  test("keeps evidence-incomplete acceptance visible after reopening and switching projects", async ({
     page,
   }) => {
     const fixture = installAcceptanceIncompleteFixture();
+    fixture.projectId = "e2e-project-one";
     const acceptance = acceptanceSnapshots.incomplete;
     const acceptanceDisposition = fixture.message.acceptanceDisposition as Record<
       string,
@@ -5244,7 +5249,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     >;
     const historyItem = {
       id: fixture.executionId,
-      projectId: "e2e-project",
+      projectId: "e2e-project-one",
       sessionId: fixture.sessionId,
       status: "failed",
       objective: fixture.question,
@@ -5264,7 +5269,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     };
     const execution = {
       id: fixture.executionId,
-      projectId: "e2e-project",
+      projectId: "e2e-project-one",
       sessionId: fixture.sessionId,
       status: "failed",
       flightState: "BLOCKED",
@@ -5287,13 +5292,33 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         audits: [historyItem],
         executions: { [fixture.executionId!]: execution },
       },
+      projects: [
+        {
+          id: "e2e-project-one",
+          name: "Acceptance Project One",
+          language: "TypeScript",
+          framework: "React",
+          status: "active",
+          rootPath: "/controlled/project-one",
+          qualityScore: 92,
+        },
+        {
+          id: "e2e-project-two",
+          name: "Acceptance Project Two",
+          language: "TypeScript",
+          framework: "React",
+          status: "active",
+          rootPath: "/controlled/project-two",
+          qualityScore: 88,
+        },
+      ],
     });
     await page.addInitScript(
-      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project", value),
+      ({ value }) => localStorage.setItem("eos_ai_selection_e2e-project-one", value),
       {
         value: JSON.stringify({
           version: 1,
-          projectId: "e2e-project",
+          projectId: "e2e-project-one",
           kind: "historical-audit",
           executionId: fixture.executionId,
           sessionId: fixture.sessionId,
@@ -5315,7 +5340,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       }, path);
     const assertReopenedAcceptance = async (assertUi = true) => {
       const historyResponse = await readJson(
-        `/api/ai/executions/history?projectId=e2e-project`,
+        `/api/ai/executions/history?projectId=e2e-project-one`,
       );
       expect(historyResponse.status).toBe(200);
       const historical = (
@@ -5360,6 +5385,30 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await assertReopenedAcceptance();
     await reviewButton.click();
+    await assertReopenedAcceptance();
+
+    const projectSelector = page.getByLabel("Project for chat and model quality");
+    await projectSelector.selectOption("e2e-project-two");
+    await expect(projectSelector).toHaveValue("e2e-project-two");
+    await expect(
+      page.getByText("No cancelled or incomplete audits for this project.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(reviewButton).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Acceptance disposition" }),
+    ).toHaveCount(0);
+    const otherProjectHistory = await readJson(
+      "/api/ai/executions/history?projectId=e2e-project-two",
+    );
+    expect(otherProjectHistory.status).toBe(200);
+    expect(otherProjectHistory.body).toEqual([]);
+
+    await projectSelector.selectOption("e2e-project-one");
+    await expect(projectSelector).toHaveValue("e2e-project-one");
+    await expect(reviewButton).toBeVisible();
+    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await assertReopenedAcceptance();
   });
 
