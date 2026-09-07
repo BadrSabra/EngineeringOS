@@ -2329,6 +2329,7 @@ function serializeToolTrace(
   steps: AgentStep[],
   includeDiagnosticDetails = true,
   scopeDescription?: string,
+  capabilityProbeResult?: unknown,
 ): string | null {
   if (steps.length === 0 && !scopeDescription) return null;
   const diagnosticCodes = steps
@@ -2595,7 +2596,7 @@ function serializeToolTrace(
         }
     }
   });
-  const forensicDiagnostic = deriveForensicDiagnostic(steps);
+  const forensicDiagnostic = deriveForensicDiagnostic(steps, { capabilityProbeResult });
   if (forensicDiagnostic) {
     entries.push({ kind: "forensic_diagnostic", forensicDiagnostic });
   }

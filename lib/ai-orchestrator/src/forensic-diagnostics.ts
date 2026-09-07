@@ -277,10 +277,15 @@ export function deriveForensicDiagnostic(
       hasCode(entries, /CAPABILITY_PROBE_EVIDENCE_RECOVERY_REJECTED/)
     );
   const capabilityProbeComplete =
-    isAcceptedCapabilityProbeResult(options.capabilityProbeResult)
-    || hasCode(entries, /CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY/)
-    && !capabilityProbeClaimsUnclosed
-    && finalState === "VERIFIED";
+    (
+      isAcceptedCapabilityProbeResult(options.capabilityProbeResult)
+      && !capabilityProbeClaimsUnclosed
+    )
+    || (
+      hasCode(entries, /CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY/)
+      && !capabilityProbeClaimsUnclosed
+      && finalState === "VERIFIED"
+    );
   const cancelled = outcome.failureKind === "CANCELLATION"
     || done.stopReason === "cancelled"
     || toolFailure?.resultKind === "cancelled";
