@@ -4321,9 +4321,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       // Session task linkage is context, not an autonomous execution request.
       // Only an explicit delivery/task execution, Build handoff, declared
       // objective, scoped implementation plan, or direct execution command
-      // enters the proof-required contract.
+      // enters the proof-required contract. Evidence-aware turn intent is also
+      // server-owned proof authorization; otherwise a forensic request can be
+      // downgraded to ordinary chat merely because it has no explicit objective.
       proofRequired: Boolean(
-        streamObjective
+        streamTurnIntent.requiresEvidence
+        || streamTurnIntent.projectTarget
+        || streamObjective
         || effectiveBuildPlanMessageId
         || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
         || (implementationPlanScope && implementationPlanScope.size > 0)

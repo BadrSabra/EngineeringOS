@@ -316,16 +316,24 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     };
   });
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
-  const complete = Boolean(input?.required !== true || (
+  const required = input?.required === true;
+  const readsComplete = (
     reads.length > 0
     && totalBytes <= MAX_SNAPSHOT_BYTES
     && reads.every((read) => read.complete && !read.truncated)
+  );
+  const suppliedVerdict = typeof input?.verdict === "string" && input.verdict.trim()
+    ? input.verdict.slice(0, 40)
+    : undefined;
+  const verdict = suppliedVerdict ?? (readsComplete ? "PROVEN" : "NOT_RECORDED");
+  const complete = Boolean(!required || (
+    readsComplete
+    && verdict !== "NOT_RECORDED"
+    && verdict !== "UNAVAILABLE"
   ));
   return {
     complete,
-    verdict: typeof input?.verdict === "string" && input.verdict.trim()
-      ? input.verdict.slice(0, 40)
-      : complete ? "PROVEN" : "NOT_RECORDED",
+    verdict,
     reads,
     totalBytes,
     ...(complete ? {} : { reason: totalBytes > MAX_SNAPSHOT_BYTES

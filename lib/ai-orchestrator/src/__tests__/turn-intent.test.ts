@@ -139,6 +139,20 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it("routes Arabic session root-cause tracing through the evidence gate", () => {
+    const intent = resolveTurnIntent(
+      "تتبع مسار الجلسه الاخيره وقم بتحديد الاسباب الجذرية التي تؤدى إلى سلوك غير صحيح",
+    );
+
+    expect(intent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      executionTaskType: "analysis",
+      requiresTools: true,
+      requiresEvidence: true,
+      operationMode: "FORENSIC_AUDIT",
+    });
+  });
+
   it("keeps ordinary Arabic behavior questions on the behavior-query path", () => {
     const intent = resolveTurnIntent(
       "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",

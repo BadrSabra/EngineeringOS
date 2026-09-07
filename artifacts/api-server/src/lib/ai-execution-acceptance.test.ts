@@ -19,6 +19,17 @@ describe("server-owned execution acceptance", () => {
     expect(truncated.reads[0]?.truncated).toBe(true);
   });
 
+  it("does not treat a required NOT_RECORDED verdict as complete", () => {
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      verdict: "NOT_RECORDED",
+      reads: [{ path: "src/index.ts", body: "export const ok = true;" }],
+    });
+
+    expect(snapshot.complete).toBe(false);
+    expect(snapshot.verdict).toBe("NOT_RECORDED");
+  });
+
   it("rejects a body over the per-read limit instead of silently accepting a slice", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: true,
