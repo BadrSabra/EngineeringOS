@@ -482,6 +482,18 @@ export async function completeRaw(
         ? { response_format: responseFormat }
         : {}),
   };
+  console.info(
+    JSON.stringify({
+      scope: "groq-client",
+      action: "request_contract",
+      model,
+      hasTools: Boolean(hasTools),
+      toolCount: hasTools ? tools.length : 0,
+      toolNames: hasTools ? tools.map((tool) => tool.function.name).slice(0, 16) : [],
+      toolChoice: hasTools ? toolChoice ?? "auto" : null,
+      responseFormat: hasTools ? null : responseFormat?.type ?? null,
+    }),
+  );
 
   const startedAt = Date.now();
   let lastError: GroqClientError | undefined;

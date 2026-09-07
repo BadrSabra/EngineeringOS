@@ -43,6 +43,58 @@ describe("groq-client", () => {
     });
   });
 
+  it("sends required tool choice in the final Groq request body", async () => {
+    const create = vi.fn().mockResolvedValue({
+      choices: [{
+        message: {
+          content: null,
+          tool_calls: [{
+            id: "call-1",
+            type: "function",
+            function: { name: "read_file", arguments: '{"path":"src/proof.ts"}' },
+          }],
+        },
+      }],
+      model: "openai/gpt-oss-120b",
+      usage: {},
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { completeRaw } = await import("../groq-client.js");
+
+    await completeRaw(
+      [{ role: "user", content: "Read the source file." }],
+      {
+        model: "openai/gpt-oss-120b",
+        maxRetries: 0,
+        tools: [{
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a source file.",
+            parameters: { type: "object" },
+          },
+        }],
+        toolChoice: "required",
+      },
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool_choice: "required",
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: "read_file" }),
+          }),
+        ]),
+      }),
+      expect.anything(),
+    );
+  });
+
   it("confirms both configured defaults against Groq's live model catalog", async () => {
     const list = vi.fn().mockResolvedValue({
       object: "list",

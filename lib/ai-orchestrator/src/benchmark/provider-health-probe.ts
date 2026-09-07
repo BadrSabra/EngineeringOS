@@ -102,9 +102,12 @@ const CAPABILITY_READ_TOOL_NAMES = new Set([
   "search_code",
 ]);
 
-export function getCapabilityProbePreflightTools(): ToolDefinition[] {
+export function getCapabilityProbePreflightTools(
+  requestedNames: readonly string[] = [...CAPABILITY_READ_TOOL_NAMES],
+): ToolDefinition[] {
+  const names = new Set(requestedNames);
   return FILE_TOOL_DEFINITIONS
-    .filter((tool) => CAPABILITY_READ_TOOL_NAMES.has(tool.function.name))
+    .filter((tool) => names.has(tool.function.name) && CAPABILITY_READ_TOOL_NAMES.has(tool.function.name))
     .map((tool) => ({
       ...tool,
       function: {

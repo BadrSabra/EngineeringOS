@@ -724,7 +724,10 @@ export async function chatWithFallback(
           timeoutMs: 15_000,
           maxFallbackModels: 1,
           signal: baseParams.signal,
-          additionalTools: getCapabilityProbePreflightTools(),
+           // Capability Probe's effective single-file manifest exposes only
+           // read_file. Keep the preflight read contract aligned with the
+           // actual tool loop instead of probing a broader generic manifest.
+           additionalTools: getCapabilityProbePreflightTools(["read_file"]),
           requireJsonMode: true,
         });
         const preflightAttemptId =

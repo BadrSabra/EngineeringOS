@@ -1352,7 +1352,11 @@ async function persistFailedChatTurn(params: {
           ]);
         })()
       : persistedTrace;
-    const assistantContent = params.content ? sanitizeResponseText(params.content).slice(0, 12_000) : "";
+     const assistantContent = params.content
+       ? sanitizeResponseText(params.content).slice(0, 12_000)
+       : /[\u0600-\u06FF]/.test(params.message)
+         ? "لم يكتمل التحليل لأن مزودي الذكاء الاصطناعي فشلوا قبل قراءة الملفات المطلوبة. لم يتم إنشاء تقرير مقبول أو جمع أدلة مصدر."
+         : "The analysis could not complete because the AI providers failed before reading the required files. No accepted report or source evidence was produced.";
     const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -2640,6 +2644,7 @@ async function recoverSessionTaskStateFromExecution(params: {
       id: aiExecutionsTable.id,
       operationId: aiExecutionsTable.operationId,
       request: aiExecutionsTable.request,
+      checkpoint: aiExecutionsTable.checkpoint,
       status: aiExecutionsTable.status,
       updatedAt: aiExecutionsTable.updatedAt,
     })
@@ -2660,6 +2665,32 @@ async function recoverSessionTaskStateFromExecution(params: {
       || !request.workspaceRevision
     ) {
       continue;
+    }
+    if (request.capabilityProbe && execution.status === "failed") {
+      const checkpoint = parseJsonRecord(execution.checkpoint);
+      const operation =
+        checkpoint.operation && typeof checkpoint.operation === "object"
+          ? checkpoint.operation as Record<string, unknown>
+          : {};
+      const evidenceRefs = Array.isArray(operation.evidenceRefs)
+        ? operation.evidenceRefs.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const recentSteps = Array.isArray(checkpoint.recentSteps) ? checkpoint.recentSteps : [];
+      const hasReadEvidence = recentSteps.some((step) =>
+        Boolean(
+          step &&
+          typeof step === "object" &&
+          "kind" in step &&
+          (step as { kind?: unknown }).kind === "tool_result" &&
+          "tool" in step &&
+          ((step as { tool?: unknown }).tool === "read_file" ||
+            (step as { tool?: unknown }).tool === "read_file_range"),
+        ),
+      );
+      // A provider failure before the first read is not resumable. Starting a
+      // continuation from its execution identity replays the failed row
+      // instead of creating a new auditable operation.
+      if (evidenceRefs.length === 0 && !hasReadEvidence) continue;
     }
     const classification = classifyRequest(request.message);
     if (!isResumableTaskType(classification.taskType) && !request.capabilityProbe) continue;
