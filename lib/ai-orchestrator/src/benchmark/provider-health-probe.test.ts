@@ -120,7 +120,7 @@ describe("providerHealthProbe", () => {
     expect(result.report).toMatchObject({
       evidenceStatus: "incomplete",
       failureCategory: "capability",
-      recoveryAction: "stop-safely",
+      recoveryAction: "choose-alternative",
       attemptCount: 1,
     });
   });
@@ -151,6 +151,97 @@ describe("providerHealthProbe", () => {
     expect(result.report).toMatchObject({
       failureCategory: "capability",
       recoveryAction: "choose-alternative",
+    });
+  });
+
+  it("advances to the next OpenRouter candidate after a semantic probe failure", async () => {
+    const calls: string[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      async call(_messages, options) {
+        const model = options.model ?? "";
+        calls.push(model);
+        return {
+          ...response([{
+            id: "probe-1",
+            type: "function",
+            function: {
+              name: PROBE_TOOL_NAME,
+              arguments: calls.length === 1 ? '{"probe":"wrong"}' : '{"probe":"ok"}',
+            },
+          }]),
+          model,
+        };
+      },
+      async *stream() {
+        yield "";
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "openrouter",
+      maxFallbackModels: 2,
+      strategy,
+    });
+
+    expect(result.status).toBe("usable");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).not.toBe(calls[1]);
+    expect(result.report).toMatchObject({
+      attemptCount: 2,
+      attemptedModels: calls,
+    });
+  });
+
+  it("requires a valid ChatResponse envelope before accepting a probe candidate", async () => {
+    const calls: Array<{ model: string; structured: boolean }> = [];
+    const strategy: ProviderStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      async call(_messages, options) {
+        const model = options.model ?? "";
+        const structured = !options.tools?.length;
+        calls.push({ model, structured });
+        if (!structured) {
+          return {
+            ...response([{
+              id: "probe-1",
+              type: "function",
+              function: {
+                name: PROBE_TOOL_NAME,
+                arguments: '{"probe":"ok"}',
+              },
+            }]),
+            model,
+          };
+        }
+        return {
+          content: calls.length === 2 ? "not-json" : '{"response":"probe","sources":[]}',
+          toolCalls: null,
+          model,
+          usage: { promptTokens: 10, completionTokens: 5 },
+        };
+      },
+      async *stream() {
+        yield "";
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "openrouter",
+      maxFallbackModels: 2,
+      requireStructuredOutput: true,
+      strategy,
+    });
+
+    expect(result.status).toBe("usable");
+    expect(calls).toHaveLength(4);
+    expect(calls.filter((call) => call.structured)).toHaveLength(2);
+    expect(calls[0]?.model).not.toBe(calls[2]?.model);
+    expect(result.report).toMatchObject({
+      attemptCount: 2,
+      attemptedModels: [calls[0]?.model, calls[2]?.model],
     });
   });
 

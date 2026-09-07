@@ -735,6 +735,7 @@ export async function chatWithFallback(
            // actual tool loop instead of probing a broader generic manifest.
            additionalTools: getCapabilityProbePreflightTools(["read_file"]),
           requireJsonMode: true,
+          requireStructuredOutput: true,
         });
         const preflightAttemptId =
           `${attemptId ?? baseParams.telemetryContext?.correlationId ?? "chat"}:preflight:${providerIndex + 1}`;

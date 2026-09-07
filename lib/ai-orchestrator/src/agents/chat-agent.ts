@@ -10367,7 +10367,11 @@ export async function chat(opts: {
             : {}),
           maxTokens: 1536,
           retryTransient: false,
-          maxFallbackModels: 1,
+          // Source evidence is already retained and this is the final
+          // capability-repair window. Let OpenRouter try a bounded candidate
+          // chain instead of making one rate-limited model terminal; the
+          // execution ledger and recovery deadline remain authoritative.
+          maxFallbackModels: providerId === "openrouter" ? 3 : 1,
           ...(providerId !== "openrouter"
             ? { responseFormat: { type: "json_object" as const } }
             : {}),

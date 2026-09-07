@@ -56,3 +56,9 @@ Capability preflight must treat invalid tool arguments as a capability/model fai
 **Why:** A live probe reached the provider but the first catalog model emitted invalid JSON tool arguments; a one-model preflight and unsafe-code projection turned that into `NETWORK_ERROR` before any source read.
 
 **How to apply:** Preserve `INVALID_TOOL_CALL` through safe health telemetry, allow a bounded preflight model chain to advance on it, and keep this behavior scoped to preflight rather than changing post-evidence recovery semantics.
+
+Capability preflight must validate both the required tool call and the final `ChatResponse` JSON envelope; recovery after complete reads may use a small same-provider model chain, but remains bounded by the execution ledger and recovery deadline.
+
+**Why:** A candidate could return a successful HTTP response and a valid tool call, then emit malformed synthesis JSON; a single recovery candidate could then be rate-limited even though source evidence was already complete.
+
+**How to apply:** Treat semantic tool or structured-output failures as candidate-local, record every attempted model, and only mark the provider usable after both contracts pass. Never turn retained evidence into a proven report without the server-owned claim gate.

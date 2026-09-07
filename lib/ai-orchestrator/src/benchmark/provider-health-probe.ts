@@ -9,6 +9,7 @@ import type {
   ToolDefinition,
 } from "../provider-strategy.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import { ChatResponseSchema } from "../schemas/chat.schema.js";
 import { FILE_TOOL_DEFINITIONS } from "../tools/file-tools.js";
 
 const PROBE_TOOL_NAME = "benchmark_health_probe";
@@ -35,7 +36,8 @@ export type ProviderHealthFailureCode =
   | GroqErrorCode
   | "TOOL_CALL_UNSUPPORTED"
   | "MALFORMED_TOOL_ARGUMENTS"
-  | "UNEXPECTED_TOOL_CALL";
+  | "UNEXPECTED_TOOL_CALL"
+  | "MALFORMED_STRUCTURED_OUTPUT";
 
 export type ProviderHealthFailureCategory =
   | "authentication"
@@ -92,6 +94,8 @@ export type ProviderHealthProbeOptions = {
   additionalTools?: ToolDefinition[];
   /** Require the provider to accept the target structured-output mode. */
   requireJsonMode?: boolean;
+  /** Require a valid ChatResponse JSON envelope after the tool probe. */
+  requireStructuredOutput?: boolean;
   /** Test seam; production uses the registered provider strategy. */
   strategy?: ProviderStrategy;
 };
@@ -135,6 +139,7 @@ const SAFE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
   "TOOL_CALL_UNSUPPORTED",
   "MALFORMED_TOOL_ARGUMENTS",
   "UNEXPECTED_TOOL_CALL",
+  "MALFORMED_STRUCTURED_OUTPUT",
 ]);
 
 const MODEL_CANDIDATE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
@@ -146,6 +151,7 @@ const MODEL_CANDIDATE_FAILURE_CODES = new Set<ProviderHealthFailureCode>([
   "TOOL_CALL_UNSUPPORTED",
   "MALFORMED_TOOL_ARGUMENTS",
   "UNEXPECTED_TOOL_CALL",
+  "MALFORMED_STRUCTURED_OUTPUT",
 ]);
 
 function safeProviderModel(value: string | null | undefined): string | null {
@@ -162,7 +168,8 @@ function safeProviderModel(value: string | null | undefined): string | null {
 }
 
 function safeFailureCode(code: ProviderHealthFailureCode | undefined): ProviderHealthFailureCode | undefined {
-  return code && SAFE_FAILURE_CODES.has(code) ? code : "NETWORK_ERROR";
+  if (!code) return undefined;
+  return SAFE_FAILURE_CODES.has(code) ? code : "NETWORK_ERROR";
 }
 
 function safeFailureReason(
@@ -175,6 +182,8 @@ function safeFailureReason(
     "The provider returned an unexpected tool call for the probe.",
     "The provider returned tool arguments without the required probe marker.",
     "The provider returned malformed JSON tool arguments.",
+    "The provider returned malformed structured output.",
+    "The provider returned no structured output.",
     "Provider probe failed before a capability response.",
   ]);
   if (reason && knownReason.has(reason)) return reason;
@@ -275,6 +284,7 @@ function summarizeProbeResult(
     .filter((model): model is string => model !== null))]
     .slice(0, 8);
   const lastModel = safeProviderModel(result.model) ?? safeAttemptedModels.at(-1) ?? null;
+  const attemptCount = safeAttemptedModels.length || result.report?.attemptCount || 0;
   return projectSafeProviderHealth({
     ...result,
     model: lastModel,
@@ -284,7 +294,7 @@ function summarizeProbeResult(
           report: {
             ...result.report,
             model: lastModel,
-            attemptCount: safeAttemptedModels.length,
+            attemptCount,
             attemptedModels: safeAttemptedModels,
           },
         }
@@ -318,6 +328,7 @@ function failureCategoryFor(code?: ProviderHealthFailureCode): ProviderHealthFai
     case "INVALID_TOOL_CALL":
     case "MALFORMED_TOOL_ARGUMENTS":
     case "UNEXPECTED_TOOL_CALL":
+    case "MALFORMED_STRUCTURED_OUTPUT":
       return "capability";
     default:
       return "unknown";
@@ -335,7 +346,13 @@ function recoveryActionFor(code?: ProviderHealthFailureCode): OpenRouterFailureA
   if (code === "MODEL_NOT_FOUND" || code === "MODEL_UNAVAILABLE" || code === "PLAN_RESTRICTED" || code === "EMPTY_RESPONSE") {
     return "choose-alternative";
   }
-  if (code === "INVALID_TOOL_CALL") return "choose-alternative";
+  if (
+    code === "INVALID_TOOL_CALL" ||
+    code === "TOOL_CALL_UNSUPPORTED" ||
+    code === "MALFORMED_TOOL_ARGUMENTS" ||
+    code === "UNEXPECTED_TOOL_CALL" ||
+    code === "MALFORMED_STRUCTURED_OUTPUT"
+  ) return "choose-alternative";
   if (code === "NON_200") return "narrow-request";
   return "stop-safely";
 }
@@ -408,6 +425,46 @@ function parseProbeArguments(
   };
 }
 
+function parseStructuredOutput(
+  response: RawGroqResponse,
+  options: ProviderHealthProbeOptions,
+  startedAt: number,
+  toolResult: ProviderHealthProbeResult,
+): ProviderHealthProbeResult {
+  const content = response.content?.trim() ?? "";
+  if (!content) {
+    return unavailableResult(options, startedAt, {
+      model: response.model,
+      failureCode: "MALFORMED_STRUCTURED_OUTPUT",
+      failureReason: "The provider returned no structured output.",
+    });
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return unavailableResult(options, startedAt, {
+      model: response.model,
+      failureCode: "MALFORMED_STRUCTURED_OUTPUT",
+      failureReason: "The provider returned malformed structured output.",
+    });
+  }
+
+  if (!ChatResponseSchema.safeParse(parsed).success) {
+    return unavailableResult(options, startedAt, {
+      model: response.model,
+      failureCode: "MALFORMED_STRUCTURED_OUTPUT",
+      failureReason: "The provider returned malformed structured output.",
+    });
+  }
+
+  return {
+    ...toolResult,
+    model: safeProviderModel(response.model ?? toolResult.model ?? options.model),
+  };
+}
+
 /**
  * Checks the exact capability needed by the engineering benchmark without
  * consuming a benchmark case. No tool is executed; the probe only validates
@@ -449,6 +506,16 @@ export async function probeProviderHealth(
         }
       : {}),
   };
+  const structuredMessages: RawMessage[] = [
+    {
+      role: "system",
+      content: "You are a benchmark structured-output probe. Return only valid JSON matching the requested response object.",
+    },
+    {
+      role: "user",
+      content: "Return exactly {\"response\":\"probe\",\"sources\":[]}. Do not include markdown or any other text.",
+    },
+  ];
 
   let lastResult: ProviderHealthProbeResult | undefined;
   const attemptedModels: string[] = [];
@@ -465,26 +532,48 @@ export async function probeProviderHealth(
 
     try {
       const response = await strategy.call(messages, callOptions);
-      const result = parseProbeArguments(response, candidateOptions, Date.now());
+      let result = parseProbeArguments(response, candidateOptions, Date.now());
+      if (result.status === "usable" && options.requireStructuredOutput) {
+        const structuredResponse = await strategy.call(structuredMessages, {
+          ...callOptions,
+          tools: undefined,
+          toolChoice: undefined,
+          responseFormat: { type: "json_object" as const },
+          maxTokens: 128,
+        });
+        result = parseStructuredOutput(
+          structuredResponse,
+          candidateOptions,
+          Date.now(),
+          result,
+        );
+      }
       if (result.model) attemptedModels.push(result.model);
       lastResult = result;
 
       if (
         result.status === "usable" ||
-        !MODEL_CANDIDATE_FAILURE_CODES.has(result.failureCode ?? "") ||
+        result.failureCode === undefined ||
+        !MODEL_CANDIDATE_FAILURE_CODES.has(result.failureCode) ||
         candidateModel === candidateModels.at(-1)
       ) {
         return summarizeProbeResult(result, attemptedModels, startedAt);
       }
     } catch (error) {
       const isProviderError = error instanceof GroqClientError;
-      const result = unavailableResult(candidateOptions, Date.now(), {
-        model: isProviderError ? error.providerModel ?? candidateModel ?? null : candidateModel ?? null,
+      const result = unavailableResult(
+        isProviderError ? candidateOptions : { ...candidateOptions, model: options.model },
+        Date.now(),
+        {
+        model: isProviderError
+          ? error.providerModel ?? candidateModel ?? null
+          : options.model ?? null,
         failureCode: isProviderError ? error.code : "NETWORK_ERROR",
         failureReason: isProviderError
           ? `Provider probe failed with ${error.code}.`
           : "Provider probe failed before a capability response.",
-      });
+        },
+      );
       const providerModels = isProviderError ? error.providerAttemptedModels : undefined;
       if (providerModels?.length) {
         attemptedModels.push(...providerModels);
