@@ -7,7 +7,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import app from "../app.js";
@@ -5094,6 +5094,135 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .where(eq(tasksTable.id, taskId))
       .limit(1);
     expect(task?.status).toBe("verifying");
+  });
+});
+
+describe("POST /api/ai/tasks/:taskId/resume", () => {
+  beforeAll(() => {
+    process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+  });
+
+  it("rejects a task when its current acceptance does not allow resume", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      idempotencyKey: `${taskId}:attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Recover this task.",
+        modelMessage: "Recover this task.",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      finalizationKey: randomUUID(),
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "REVIEW_INCOMPLETE_EVIDENCE",
+      nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+      disposition: {
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+        operatorAction: "Review the incomplete evidence.",
+        reasonCodes: ["REVIEW_INCOMPLETE_EVIDENCE"],
+      },
+      resumable: 0,
+    });
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      error: "task_not_resumable",
+      hint: expect.stringContaining("does not authorize resuming"),
+    });
+  });
+
+  it("resumes the current accepted execution and advances its attempt", async () => {
+    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockExecuteTask).mockResolvedValue({
+      summary: "Task completed by AI",
+      confidence: "high",
+      steps: ["Resumed from the saved checkpoint"],
+      result: "Task resumed and completed successfully",
+      needsHumanReview: false,
+    });
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      linkedTaskId: taskId,
+      idempotencyKey: `${taskId}:attempt:0`,
+      request: {
+        projectId,
+        linkedTaskId: taskId,
+        message: "Recover this task.",
+        modelMessage: "Recover this task.",
+        validationTargetPaths: [],
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      finalizationKey: randomUUID(),
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "PROVIDER_FAILURE",
+      nextActionCode: "RESUME_ALLOWED",
+      disposition: {
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+        operatorAction: "Resume the saved task checkpoint.",
+        reasonCodes: ["PROVIDER_FAILURE"],
+      },
+      resumable: 1,
+    });
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/resume`);
+    expect(res.status).toBe(202);
+    expect(["completed", "verifying"]).toContain(res.body.status);
+
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .limit(1);
+    expect(execution?.attempt).toBe(created.execution.attempt + 1);
+    expect(execution?.status).toBe("completed");
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, created.execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, execution!.attempt),
+      ))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      attempt: execution!.attempt,
+      outcome: "SUCCEEDED",
+    });
   });
 });
 

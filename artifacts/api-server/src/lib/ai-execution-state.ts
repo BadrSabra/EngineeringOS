@@ -1349,6 +1349,8 @@ export async function authorizeRecipeNodeExecution(params: {
 export async function recoverAiExecutionResumeToken(params: {
   executionId: string;
   userId: string;
+  linkedTaskId?: string;
+  expectedAttempt?: number;
 }): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
   const resumeToken = createResumeToken();
   const [candidate] = await db
@@ -1358,6 +1360,10 @@ export async function recoverAiExecutionResumeToken(params: {
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.userId, params.userId),
       inArray(aiExecutionsTable.status, ["paused", "failed"]),
+      ...(params.linkedTaskId ? [eq(aiExecutionsTable.linkedTaskId, params.linkedTaskId)] : []),
+      ...(params.expectedAttempt !== undefined
+        ? [eq(aiExecutionsTable.attempt, params.expectedAttempt)]
+        : []),
     ))
     .limit(1);
   if (!candidate) return undefined;
@@ -1388,6 +1394,10 @@ export async function recoverAiExecutionResumeToken(params: {
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.userId, params.userId),
       inArray(aiExecutionsTable.status, ["paused", "failed"]),
+      ...(params.linkedTaskId ? [eq(aiExecutionsTable.linkedTaskId, params.linkedTaskId)] : []),
+      ...(params.expectedAttempt !== undefined
+        ? [eq(aiExecutionsTable.attempt, params.expectedAttempt)]
+        : []),
     ))
     .returning();
   return execution ? { execution, resumeToken } : undefined;

@@ -11,6 +11,7 @@ vi.mock('@workspace/api-client-react', () => ({
   useGetTaskLogs: vi.fn(),
   useGetTask: vi.fn(),
   useRecordTaskVerification: vi.fn(),
+  useAiResumeTask: vi.fn(),
   getListTasksQueryKey: vi.fn(() => ['tasks']),
   getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
   getGetTaskQueryKey: vi.fn((taskId: string) => ['task', taskId]),
@@ -28,6 +29,7 @@ import {
   useRetryTask,
   useRollbackTask,
   useRecordTaskVerification,
+  useAiResumeTask,
 } from '@workspace/api-client-react';
 
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
@@ -120,6 +122,7 @@ beforeEach(() => {
   vi.mocked(useRetryTask).mockReturnValue(mutation() as ReturnType<typeof useRetryTask>);
   vi.mocked(useRollbackTask).mockReturnValue(mutation() as ReturnType<typeof useRollbackTask>);
   vi.mocked(useRecordTaskVerification).mockReturnValue(mutation() as ReturnType<typeof useRecordTaskVerification>);
+  vi.mocked(useAiResumeTask).mockReturnValue(mutation() as ReturnType<typeof useAiResumeTask>);
 });
 
 describe('Tasks recovery rendering', () => {
@@ -170,6 +173,7 @@ describe('Tasks recovery rendering', () => {
     expect(within(acceptance).getByText('Recovery required')).toBeInTheDocument();
     expect(within(acceptance).getByText('Outcome: FAILED')).toBeInTheDocument();
     expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
+    expect(within(acceptance).getByRole('button', { name: 'Resume task execution' })).toBeInTheDocument();
     expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
   });
 

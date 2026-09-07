@@ -7852,6 +7852,81 @@ export const useAiExecuteTask = <TError = ErrorType<unknown>,
       return useMutation(getAiExecuteTaskMutationOptions(options));
     }
 
+export const getAiResumeTaskUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/ai/tasks/${taskId}/resume`
+}
+
+/**
+ * Resumes only the current server-owned task execution attempt when its acceptance explicitly allows recovery. The operator does not provide an execution ID, attempt, revision, or resume token.
+ * @summary Resume a task execution authorized by its current acceptance
+ */
+export const aiResumeTask = async (taskId: string, options?: Parameters<typeof customFetch>[1]): Promise<Task> => {
+
+  return customFetch<Task>(getAiResumeTaskUrl(taskId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getAiResumeTaskMutationKey = () => ['aiResumeTask'] as const;
+
+export const getAiResumeTaskMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiResumeTask>>, TError,AiResumeTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof aiResumeTask>>, TError,AiResumeTaskMutationVariables, TContext> => {
+
+const mutationKey = getAiResumeTaskMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof aiResumeTask>>, AiResumeTaskMutationVariables> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  aiResumeTask(taskId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AiResumeTaskMutationResult = NonNullable<Awaited<ReturnType<typeof aiResumeTask>>>
+
+    export type AiResumeTaskMutationError = ErrorType<ApiError>
+    export type AiResumeTaskMutationVariables = {taskId: string}
+
+    /**
+ * @summary Resume a task execution authorized by its current acceptance
+ */
+export const useAiResumeTask = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiResumeTask>>, TError,AiResumeTaskMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof aiResumeTask>>,
+        TError,
+        AiResumeTaskMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAiResumeTaskMutationOptions(options));
+    }
+
 export const getGetGroqKeyStatusUrl = () => {
 
 

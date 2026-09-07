@@ -7,6 +7,7 @@ import {
   useGetTaskLogs,
   useGetTask,
   useRecordTaskVerification,
+  useAiResumeTask,
   getListTasksQueryKey,
   getGetTaskLogsQueryKey,
   getGetTaskQueryKey,
@@ -193,7 +194,15 @@ function acceptanceNextAction(acceptance: TaskAcceptance): string {
   }
 }
 
-function TaskAcceptancePanel({ taskId }: { taskId: string }) {
+function TaskAcceptancePanel({
+  taskId,
+  onResume,
+  isResuming,
+}: {
+  taskId: string;
+  onResume: () => void;
+  isResuming: boolean;
+}) {
   const { data, isLoading, isError } = useGetTask(taskId, {
     query: {
       queryKey: getGetTaskQueryKey(taskId),
@@ -241,6 +250,20 @@ function TaskAcceptancePanel({ taskId }: { taskId: string }) {
       <div className="mt-1 text-muted-foreground">
         Provider diagnostics and credentials are not shown.
       </div>
+      {acceptance.resumable
+        && acceptance.nextActionCode === 'RESUME_ALLOWED'
+        && acceptance.disposition?.recoveryState === 'REQUIRED' && (
+        <button
+          type="button"
+          onClick={onResume}
+          disabled={isResuming}
+          className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Resume task execution"
+        >
+          <Play className={`h-3.5 w-3.5 ${isResuming ? 'animate-pulse' : ''}`} />
+          {isResuming ? 'Resuming…' : 'Resume'}
+        </button>
+      )}
     </section>
   );
 }
@@ -721,6 +744,7 @@ export default function Tasks() {
   const executeTask = useExecuteTask();
   const retryTask   = useRetryTask();
   const rollbackTask = useRollbackTask();
+  const resumeTask = useAiResumeTask();
 
   const visibleTasks = tasks?.filter((t) =>
     (!searchTerm ||
@@ -730,10 +754,14 @@ export default function Tasks() {
       (t.acceptance && acceptanceFilterKey(t.acceptance) === filterAcceptance)),
   ) ?? [];
 
-  const handleAction = (action: 'execute' | 'retry' | 'rollback', taskId: string) => {
+  const handleAction = (action: 'execute' | 'retry' | 'rollback' | 'resume', taskId: string) => {
     const label = action.charAt(0).toUpperCase() + action.slice(1);
     const options = {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+      onSuccess: () => {
+        void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
+        void queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) });
+        void queryClient.invalidateQueries({ queryKey: getGetTaskLogsQueryKey(taskId) });
+      },
       onError: (err: unknown) => {
         const description = err instanceof Error ? err.message : 'Request failed — check the API server logs.';
         toast({ title: `${label} failed`, description, variant: 'destructive' });
@@ -742,6 +770,7 @@ export default function Tasks() {
     if (action === 'execute') executeTask.mutate({ taskId }, options);
     if (action === 'retry')   retryTask.mutate({ taskId }, options);
     if (action === 'rollback') rollbackTask.mutate({ taskId }, options);
+    if (action === 'resume') resumeTask.mutate({ taskId }, options);
   };
 
   const getDetailTab = (taskId: string) => logsTab[taskId] ?? 'details';
@@ -1141,7 +1170,11 @@ export default function Tasks() {
                             <div className="text-xs text-muted-foreground mb-1">Execution boundary</div>
                             <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
                           </div>
-                          <TaskAcceptancePanel taskId={task.id} />
+                          <TaskAcceptancePanel
+                            taskId={task.id}
+                            onResume={() => handleAction('resume', task.id)}
+                            isResuming={resumeTask.isPending}
+                          />
                           {(() => {
                             const receipt = parseExecutionReceipt(task.agentResponse);
                             if (!receipt) return null;

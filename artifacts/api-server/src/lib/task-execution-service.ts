@@ -18,6 +18,8 @@ import {
   failAiExecution,
   heartbeatAiExecution,
   AI_EXECUTION_LEASE_MS,
+  buildAiExecutionResumeContext,
+  parseAiExecutionCheckpoint,
   registerAiExecutionController,
   unregisterAiExecutionController,
 } from "./ai-execution-state.js";
@@ -315,6 +317,8 @@ export async function executeTaskLifecycle(params: {
   trigger: TaskExecutionTrigger;
   expectedStatuses?: Array<"pending" | "queued" | "verifying">;
   workspaceRevision?: string;
+  resumeExecutionId?: string;
+  resumeToken?: string;
 }): Promise<TaskExecutionOutcome> {
   const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
   if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
@@ -349,14 +353,36 @@ export async function executeTaskLifecycle(params: {
     linkedTaskId: before.id,
   });
   const executionId = durable.execution.id;
+  if (params.resumeExecutionId && executionId !== params.resumeExecutionId) {
+    return {
+      ok: false,
+      status: "conflict",
+      executionId,
+      errorCode: "execution_identity_changed",
+    };
+  }
   const claimedExecution = durable.created
-    ? await claimAiExecution({ executionId, userId: params.userId, workerId })
+    ? await claimAiExecution({
+        executionId,
+        userId: params.userId,
+        workerId,
+        ...(params.resumeToken ? { resumeToken: params.resumeToken } : {}),
+      })
     : durable.execution.status === "running"
       ? undefined
-      : await claimAiExecution({ executionId, userId: params.userId, workerId });
+      : await claimAiExecution({
+          executionId,
+          userId: params.userId,
+          workerId,
+          ...(params.resumeToken ? { resumeToken: params.resumeToken } : {}),
+        });
   if (!claimedExecution) {
     return { ok: false, status: "conflict", executionId, errorCode: "execution_already_claimed" };
   }
+  const executionAttempt = claimedExecution.attempt;
+  const resumeContext = params.resumeToken
+    ? buildAiExecutionResumeContext(parseAiExecutionCheckpoint(claimedExecution.checkpoint))
+    : "";
 
   const [claimedTask] = await db.update(tasksTable)
     .set({
@@ -403,7 +429,7 @@ export async function executeTaskLifecycle(params: {
       correlationId,
       revision: params.workspaceRevision,
       provider: executionProvider,
-      attempt: before.retryCount,
+      attempt: executionAttempt,
       durationMs: Date.now() - startedAt,
       stages,
       code: "checkpoint_persistence_failed",
@@ -460,7 +486,7 @@ export async function executeTaskLifecycle(params: {
       (opts) => executeTask({
         taskTitle: before.title,
         taskDescription: before.description,
-        taskPrompt: before.prompt,
+        taskPrompt: [before.prompt ?? before.title, resumeContext].filter(Boolean).join("\n\n"),
         taskPriority: before.priority,
         relatedFiles: before.relatedFiles ?? [],
         remediationPlan: before.remediationPlan ?? null,
@@ -489,7 +515,7 @@ export async function executeTaskLifecycle(params: {
       stages.push("parse");
       const parseReceipt = failureReceipt({
         executionId, correlationId, revision: params.workspaceRevision,
-        provider: effectiveProvider, attempt: before.retryCount,
+        provider: effectiveProvider, attempt: executionAttempt,
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
       });
       const error = `model_output_invalid:${result._parseError.code}`;
@@ -527,7 +553,7 @@ export async function executeTaskLifecycle(params: {
         correlationId,
         revision: params.workspaceRevision,
         provider: effectiveProvider,
-        attempt: before.retryCount,
+        attempt: executionAttempt,
         durationMs: Date.now() - startedAt,
         stages,
         code: quality.code,
@@ -572,7 +598,7 @@ export async function executeTaskLifecycle(params: {
     stages.push("finalize");
     const taskReceipt = buildAiTaskExecutionReceipt({
       executionId, correlationId, revision: params.workspaceRevision,
-      provider: executionProvider, attempt: before.retryCount,
+       provider: executionProvider, attempt: executionAttempt,
       durationMs: Date.now() - startedAt, stages,
       attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
     });
@@ -607,7 +633,7 @@ export async function executeTaskLifecycle(params: {
     const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
     const failure = failureReceipt({
       executionId, correlationId, revision: params.workspaceRevision,
-      provider: executionProvider, attempt: before.retryCount,
+      provider: executionProvider, attempt: executionAttempt,
       durationMs: Date.now() - startedAt, stages, code, cancelled,
     });
     const message = safeText(code, 120);

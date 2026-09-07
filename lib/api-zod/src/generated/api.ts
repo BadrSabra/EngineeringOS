@@ -6223,6 +6223,122 @@ export const AiExecuteTaskResponse = zod.object({
 
 
 /**
+ * Resumes only the current server-owned task execution attempt when its acceptance explicitly allows recovery. The operator does not provide an execution ID, attempt, revision, or resume token.
+ * @summary Resume a task execution authorized by its current acceptance
+ */
+export const AiResumeTaskParams = zod.object({
+  "taskId": zod.coerce.string()
+})
+
+export const aiResumeTaskResponseRemediationPlanOneOccurrenceCountMin = 0;
+
+
+export const aiResumeTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin = 0;
+
+export const aiResumeTaskResponseRemediationPlanOneEvidenceMax = 100;
+
+export const aiResumeTaskResponseRemediationPlanOneRelatedFilesMax = 20;
+
+export const aiResumeTaskResponseRemediationPlanOneVerificationStepsMax = 20;
+
+export const aiResumeTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+
+
+export const AiResumeTaskResponse = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "ruleId": zod.string().optional(),
+  "workflowId": zod.string().optional(),
+  "title": zod.string(),
+  "description": zod.string().optional(),
+  "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']),
+  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']),
+  "relatedFiles": zod.array(zod.string()).optional(),
+  "dependsOn": zod.array(zod.string()).optional(),
+  "retryCount": zod.number().int().optional(),
+  "maxRetries": zod.number().int().optional(),
+  "phase": zod.string().optional(),
+  "prompt": zod.string().optional(),
+  "agentResponse": zod.string().optional(),
+  "verificationResult": zod.object({
+  "passed": zod.boolean(),
+  "decision": zod.enum(['verified', 'incomplete', 'failed', 'cancelled']).optional(),
+  "steps": zod.array(zod.object({
+  "id": zod.string().optional(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "output": zod.string().optional()
+})),
+  "history": zod.array(zod.object({
+  "id": zod.string(),
+  "checkId": zod.string(),
+  "name": zod.string(),
+  "kind": zod.enum(['automatic', 'operator_attestation']).optional(),
+  "guidance": zod.string().optional(),
+  "passed": zod.boolean(),
+  "evidence": zod.string().optional(),
+  "actor": zod.string(),
+  "recordedAt": zod.coerce.date()
+})).optional().describe('Append-only operator decisions for each server-owned check, oldest first.')
+}).optional(),
+  "remediationPlan": zod.union([zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().int().min(aiResumeTaskResponseRemediationPlanOneOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().int().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().int().min(aiResumeTaskResponseRemediationPlanOneEvidenceItemOccurrencesMin)
+})).max(aiResumeTaskResponseRemediationPlanOneEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(aiResumeTaskResponseRemediationPlanOneRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(aiResumeTaskResponseRemediationPlanOneVerificationStepsMax),
+  "verificationChecks": zod.array(zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['operator_attestation']),
+  "guidance": zod.string()
+})).max(aiResumeTaskResponseRemediationPlanOneVerificationChecksMax).optional(),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().optional()
+})
+
+
+/**
  * @summary Get Groq API key configuration status (never returns the key itself)
  */
 export const GetGroqKeyStatusResponse = zod.object({

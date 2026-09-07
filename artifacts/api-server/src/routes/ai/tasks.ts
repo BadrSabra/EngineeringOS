@@ -11,8 +11,10 @@ import {
   tasksTable,
   taskLogsTable,
   eventsTable,
+  aiExecutionsTable,
+  aiExecutionAcceptancesTable,
 } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -30,6 +32,7 @@ import {
   runAgentWithFallback,
 } from "../../lib/ai-route-helpers.js";
 import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+import { recoverAiExecutionResumeToken } from "../../lib/ai-execution-state.js";
 import { buildRuleVerificationChecks } from "../../lib/remediation-plan.js";
 
 const router = Router();
@@ -52,6 +55,142 @@ function pendingPlanVerificationSteps(
     output: "Not recorded — operator evidence is required",
   }));
 }
+
+// Resume is intentionally task-scoped. The operator never supplies an
+// execution ID, attempt, revision, or token; all of those values come from
+// the current server-owned task/execution/acceptance relationship.
+router.post("/ai/tasks/:taskId/resume", async (req, res) => {
+  const { taskId } = req.params;
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!ownerProject) return;
+  if (!["pending", "queued", "verifying"].includes(task.status)) {
+    return res.status(409).json({
+      error: "task_not_resumable",
+      hint: "Refresh the task and use the current server-provided next action.",
+    });
+  }
+
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.linkedTaskId, task.id),
+      eq(aiExecutionsTable.projectId, task.projectId),
+      eq(aiExecutionsTable.userId, req.userId),
+      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+    ))
+    .orderBy(desc(aiExecutionsTable.attempt), desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
+    .limit(1);
+  if (!execution) {
+    return res.status(409).json({
+      error: "task_not_resumable",
+      hint: "The task has no current recoverable execution.",
+    });
+  }
+
+  const [acceptance] = await db
+    .select({
+      resumable: aiExecutionAcceptancesTable.resumable,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      disposition: aiExecutionAcceptancesTable.disposition,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+  const recoveryState = acceptance?.disposition
+    && typeof acceptance.disposition === "object"
+    && acceptance.disposition !== null
+    && (acceptance.disposition as { recoveryState?: unknown }).recoveryState;
+  if (
+    !acceptance
+    || acceptance.resumable !== 1
+    || acceptance.nextActionCode !== "RESUME_ALLOWED"
+    || recoveryState !== "REQUIRED"
+  ) {
+    return res.status(409).json({
+      error: "task_not_resumable",
+      hint: "The current acceptance does not authorize resuming this task.",
+    });
+  }
+
+  const providerResolved = await requireProvider(req.userId, res, {
+    qualityProfile: "task_execution",
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+  const rateLimit = await checkProjectRateLimitDb(task.projectId);
+  if (!rateLimit.allowed) {
+    return res.status(429).json({
+      error: "task_execution_rate_limited",
+      hint: `Try again in ${rateLimit.retryAfterSec}s.`,
+    });
+  }
+
+  const recovered = await recoverAiExecutionResumeToken({
+    executionId: execution.id,
+    userId: req.userId,
+    linkedTaskId: task.id,
+    expectedAttempt: execution.attempt,
+  });
+  if (!recovered) {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      hint: "The task changed while resume was being authorized; refresh before trying again.",
+    });
+  }
+
+  let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+  try {
+    lifecycle = await executeTaskLifecycle({
+      taskId,
+      userId: req.userId,
+      provider: { provider, apiKey },
+      trigger: "manual",
+      expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+      resumeExecutionId: execution.id,
+      resumeToken: recovered.resumeToken,
+    });
+  } catch (error) {
+    logger.error({ err: error, taskId }, "task resume lifecycle failed");
+    return res.status(500).json({
+      error: "task_resume_failed",
+      reason: "The task could not be resumed. Refresh the task activity for the current state.",
+    });
+  }
+  if (lifecycle.status === "conflict") {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      hint: "The task changed while resume was starting; refresh the task before trying again.",
+    });
+  }
+  if (!lifecycle.ok) {
+    if (lifecycle.errorCode === "model_output_invalid" || lifecycle.errorCode === "quality_review_low") {
+      return res.status(422).json({
+        error: "task_resume_incomplete",
+        hint: "The resumed task did not produce an accepted result. Review the updated task activity.",
+      });
+    }
+    return res.status(500).json({
+      error: "task_resume_failed",
+      reason: "The task could not be resumed. Refresh the task activity for the current state.",
+    });
+  }
+  return res.status(202).json(lifecycle.task);
+});
 
 // ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
 
