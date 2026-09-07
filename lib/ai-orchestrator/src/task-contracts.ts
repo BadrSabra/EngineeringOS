@@ -530,6 +530,9 @@ const CODE_EXTRACTION_PATTERNS = [
 const FULL_AUDIT_PATTERNS = [
   /\b(?:full|complete|end[-\s]?to[-\s]end)\s+forensic\s+audit\b/i,
   /\bforensic\s+audit\b/i,
+  /\b(?:perform|run|conduct)\s+(?:a\s+)?(?:full|complete|comprehensive|whole|entire)?\s*(?:project|workspace|repository|repo|codebase)?\s*(?:audit|review|assessment|analysis)\b/i,
+  /\b(?:full|complete|comprehensive|whole|entire)\s+(?:project|workspace|repository|repo|codebase)\s+(?:audit|review|assessment|analysis)\b/i,
+  /\b(?:project|workspace|repository|repo|codebase)[-\s]wide\s+(?:audit|review|assessment)\b/i,
   /\b(?:six|6)\s+(?:markdown\s+)?sections?\b/i,
   /##\s*1\)\s*Executive Verdict[\s\S]*##\s*6\)\s*Final Judgment/i,
   /\b(?:audit|تدقيق)\b[\s\S]{0,80}\b(?:evidence\s+map|findings?\s+matrix|repair\s+plan|تقرير|نتائج)\b/i,
@@ -555,10 +558,12 @@ const WORKSPACE_REVIEW_PATTERNS = [
   /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+(?:(?:the|my|this)\s+)?(?:whole\s+)?(?:workspace|repository|repo|codebase|project)\b/i,
   /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+(?:the\s+)?(?:entire|whole|full|all)\s+(?:workspace|repository|repo|codebase|project|code)\b/i,
   /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+all\s+code\b/i,
-  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+(?:مساحة\s+العمل|المشروع|المستودع|قاعدة\s+الكود|الكود\s+بالكامل)/u,
-  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+مشروعي(?:\s|$)/u,
-  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+(?:ملفات|الملفات)\s+(?:الإنتاجية|الأساسية)/u,
-  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+(?:كل|كامل|كاملًا)\s+(?:الكود|المشروع|المستودع|مساحة\s+العمل)/u,
+  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف|دقق|دقّق)\s+(?:مساحة\s+العمل|المشروع|المستودع|قاعدة\s+الكود|الكود\s+بالكامل)/u,
+  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف|دقق|دقّق)\s+مشروعي(?:\s|$)/u,
+  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف|دقق|دقّق)\s+(?:ملفات|الملفات)\s+(?:الإنتاجية|الأساسية)/u,
+  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف|دقق|دقّق)\s+(?:كل|كامل|كاملًا|بالكامل)\s+(?:الكود|المشروع|المستودع|مساحة\s+العمل)/u,
+  /(?:تدقيق|مراجعة|فحص)\s+(?:شامل|كامل|واسع)?\s*(?:مشروعي|المشروع|المستودع|قاعدة\s+الكود|للمشروع|لمشروعي|للمستودع|لقاعدة\s+الكود)/u,
+  /(?:أجرِ|أجري|نفّذ|نفذ|قم\s+ب)?\s*(?:تدقيق|مراجعة|فحص)\s+(?:مشروعي|المشروع|المستودع|قاعدة\s+الكود|للمشروع|لمشروعي|للمستودع|لقاعدة\s+الكود)/u,
 ];
 
 const REPAIR_ANALYSIS_PATTERNS = [

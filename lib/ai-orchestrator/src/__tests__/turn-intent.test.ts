@@ -154,6 +154,8 @@ describe("resolveTurnIntent", () => {
   it.each([
     "افحص مشروعي وأخبرني إن كانت هناك مشاكل مهمة.",
     "Review my project and tell me about important problems.",
+    "Audit my project for important problems.",
+    "دقق مشروعي بحثًا عن مشاكل مهمة.",
   ])("asks for scope before a broad audit: %s", (message) => {
     const intent = resolveTurnIntent(message);
 
@@ -168,9 +170,32 @@ describe("resolveTurnIntent", () => {
   });
 
   it.each([
+    "Analyze my project architecture.",
+    "حلل معمارية مشروعي.",
+  ])("keeps an ambiguous architecture question out of broad forensic scanning: %s", (message) => {
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(intent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
+      requiresEvidence: false,
+      scopeClarificationRequired: false,
+      operationMode: "CHAT",
+    });
+    expect(classification.orderedForensicRoots).toEqual([]);
+  });
+
+  it.each([
     "Audit src/api and identify important problems.",
     "Audit the core production files and identify important problems.",
     "Audit the entire repository and identify the root causes.",
+    "دقق مجلد src/api وابحث عن المشاكل المهمة.",
+    "دقق المشروع بالكامل وحدد الأسباب الجذرية.",
+    "Full project audit with the required evidence map.",
+    "تدقيق شامل للمشروع بحثًا عن المشاكل.",
+    "تدقيق شامل للمشروع مع خريطة الأدلة المطلوبة.",
   ])("starts only after the user declares an audit scope: %s", (message) => {
     const intent = resolveTurnIntent(message);
 

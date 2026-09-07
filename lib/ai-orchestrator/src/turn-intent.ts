@@ -132,7 +132,7 @@ const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
 
 const EXPLICIT_AUDIT_SCOPE_RE =
-  /(?:\b(?:src|lib|app|server|client|test|tests|components?|pages?|routes?|api|packages?|artifacts?|files?)\b|[./][\w@.-]+(?:\/[\w@.-]+)*|[\w@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|json|yaml|yml|toml|css|scss|html)\b|specific\s+(?:file|folder|directory|module)|(?:whole|entire|full|all)\s+(?:the\s+)?(?:project|workspace|repository|repo|codebase|code)|مجلد\s+(?:محدد|معين)|ملف(?:ات)?\s+(?:محدد(?:ة)?|معين(?:ة)?)|هذا\s+الملف|الملفات\s+الإنتاجية|الكود\s+الإنتاجي|المشروع\s+بالكامل|كل\s+(?:المشروع|المستودع|الكود)|المشروع\s+كله)/iu;
+  /(?:\b(?:src|lib|app|server|client|test|tests|components?|pages?|routes?|api|packages?|artifacts?|files?)\b|[./][\w@.-]+(?:\/[\w@.-]+)*|[\w@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|json|yaml|yml|toml|css|scss|html)\b|specific\s+(?:file|folder|directory|module)|(?:whole|entire|full|all)\s+(?:the\s+)?(?:project|workspace|repository|repo|codebase|code)|مجلد\s+(?:محدد|معين)|ملف(?:ات)?\s+(?:محدد(?:ة)?|معين(?:ة)?)|هذا\s+الملف|الملفات\s+الإنتاجية|الكود\s+الإنتاجي|(?:شامل|كامل|واسع)\s+(?:للمشروع|لمشروعي|للمستودع|لقاعدة\s+الكود|المشروع|مشروعي|المستودع|قاعدة\s+الكود)|المشروع\s+بالكامل|كل\s+(?:المشروع|المستودع|الكود)|المشروع\s+كله)/iu;
 function isExecutionActionRequest(message: string): boolean {
   return (
     ENGLISH_EXECUTION_ACTION_RE.test(message) ||
@@ -220,7 +220,6 @@ export function resolveTurnIntent(
     broadForensicTask &&
     BROAD_AUDIT_REQUEST_RE.test(message) &&
     !EXPLICIT_STRUCTURED_AUDIT_RE.test(message) &&
-    !FORENSIC_EVIDENCE_SIGNAL_RE.test(message) &&
     !hasExplicitAuditScope(message, classification);
   // A short approval/continuation inherits the already-approved forensic
   // contract. Its raw text ("ابدأ", "continue") does not repeat the audit
@@ -365,4 +364,4 @@ function describeAuditScope(classification: ClassifiedRequest, message: string):
 }
 
 const BROAD_AUDIT_REQUEST_RE =
-  /(?:\b(?:audit|review|inspect|assess|evaluate)\b[\s\S]{0,100}\b(?:project|workspace|repository|repo|codebase|problems?|issues?|bugs?)\b|\banaly[sz]e\b[\s\S]{0,100}\b(?:problems?|issues?|bugs?|vulnerabilit(?:y|ies))\b|(?:افحص|راجع|قيّم|قيم|حلل|حلّل|استكشف)\s+(?:مشروعي|المشروع|مساحة\s+العمل|المستودع|قاعدة\s+الكود|المشاكل|المشكلات))/iu;
+  /(?:\b(?:audit|review|inspect|assess|evaluate|scan)\b[\s\S]{0,100}\b(?:project|workspace|repository|repo|codebase|problems?|issues?|bugs?|architecture|gaps?)\b|\banaly[sz]e\b[\s\S]{0,100}\b(?:problems?|issues?|bugs?|vulnerabilit(?:y|ies)|gaps?)\b|\b(?:full|complete|comprehensive|whole|entire)\s+(?:project|workspace|repository|repo|codebase)\s+(?:audit|review|assessment|analysis)\b|(?:افحص|راجع|قيّم|قيم|حلل|حلّل|استكشف|دقق|دقّق|تدقيق|مراجعة|فحص)\s+(?:مشروعي|المشروع|مساحة\s+العمل|المستودع|قاعدة\s+الكود|المشاكل|المشكلات|الفجوات|المشكلات|شامل|كامل|واسع))[\s\S]*/iu;
