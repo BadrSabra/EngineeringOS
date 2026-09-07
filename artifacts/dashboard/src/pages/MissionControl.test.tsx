@@ -219,6 +219,78 @@ describe('Mission Control', () => {
     );
   });
 
+  it('shows operator next steps while retaining acceptance diagnostic codes', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [
+        {
+          ...missionControlFixture.executions[0],
+          id: 'cancelled-execution',
+          state: 'CANCELLED',
+          acceptance: {
+            attempt: 1,
+            terminalStatus: 'cancelled',
+            outcome: 'INTERRUPTED',
+            reasonCode: 'EXECUTION_CANCELLED',
+            nextActionCode: 'ABANDON_EXECUTION',
+            evidenceComplete: false,
+            evidenceRequired: true,
+            resumable: false,
+          },
+        },
+        {
+          ...missionControlFixture.executions[0],
+          id: 'incomplete-execution',
+          objective: 'Review incomplete evidence',
+          acceptance: {
+            attempt: 2,
+            terminalStatus: 'paused',
+            outcome: 'INTERRUPTED',
+            reasonCode: 'EVIDENCE_INCOMPLETE',
+            nextActionCode: 'REVIEW_INCOMPLETE_EVIDENCE',
+            evidenceComplete: false,
+            evidenceRequired: true,
+            resumable: false,
+          },
+        },
+        {
+          ...missionControlFixture.executions[0],
+          id: 'probe-execution',
+          objective: 'Run capability probe',
+          acceptance: {
+            attempt: 3,
+            terminalStatus: 'failed',
+            outcome: 'FAILED',
+            reasonCode: 'CAPABILITY_PROBE_FINAL',
+            nextActionCode: 'START_NEW_PROBE',
+            evidenceComplete: true,
+            evidenceRequired: true,
+            resumable: false,
+          },
+        },
+      ],
+    };
+    renderPage();
+
+    const acceptance = await screen.findByRole('region', { name: 'Current execution acceptance' });
+    expect(within(acceptance).getByText('Start a new scoped run before relying on this result.')).toBeInTheDocument();
+    expect(within(acceptance).getByText('ABANDON_EXECUTION')).toBeInTheDocument();
+    expect(within(acceptance).queryByText('REVIEW_INCOMPLETE_EVIDENCE')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /incomplete evidence/i }));
+    expect(within(screen.getByRole('region', { name: 'Current execution acceptance' })).getByText(
+      'Review the incomplete evidence before relying on this result.',
+    )).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Current execution acceptance' })).getByText(
+      'REVIEW_INCOMPLETE_EVIDENCE',
+    )).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /run capability probe/i }));
+    const probeAcceptance = screen.getByRole('region', { name: 'Current execution acceptance' });
+    expect(within(probeAcceptance).getByText('Start a new scoped probe.')).toBeInTheDocument();
+    expect(within(probeAcceptance).getByText('START_NEW_PROBE')).toBeInTheDocument();
+  });
+
   it('shows bounded runtime-oracle failure identifiers without provider output', async () => {
     currentMissionControl = {
       ...missionControlFixture,

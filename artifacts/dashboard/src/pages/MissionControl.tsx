@@ -152,6 +152,25 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+function acceptanceNextActionLabel(value: unknown): string {
+  switch (textValue(value)?.toUpperCase()) {
+    case 'RESUME_ALLOWED':
+      return 'Resume the saved execution checkpoint.';
+    case 'START_NEW_PROBE':
+      return 'Start a new scoped probe.';
+    case 'REVIEW_INCOMPLETE_EVIDENCE':
+      return 'Review the incomplete evidence before relying on this result.';
+    case 'RETRY_AFTER_TIMEOUT':
+      return 'Retry after the timeout window has cleared.';
+    case 'ABANDON_EXECUTION':
+      return 'Start a new scoped run before relying on this result.';
+    case 'NONE':
+      return 'No operator action is required.';
+    default:
+      return 'No operator action is recorded.';
+  }
+}
+
 function formatDate(value: unknown): string | undefined {
   const raw = textValue(value);
   if (!raw) return undefined;
@@ -1505,7 +1524,7 @@ export default function MissionControl() {
                 <ShieldCheck className="h-4 w-4 text-primary" />
                 <h2 className="font-semibold">Current attempt acceptance</h2>
               </div>
-              <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+              <div className="mt-2 grid gap-2 text-xs sm:grid-cols-4">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attempt</div>
                   <div className="font-mono">{formatValue(asRecord(selectedExecution.acceptance)?.attempt)}</div>
@@ -1515,7 +1534,11 @@ export default function MissionControl() {
                   <div>{formatValue(asRecord(selectedExecution.acceptance)?.outcome)}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Next action</div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Next step</div>
+                  <div className="text-primary">{acceptanceNextActionLabel(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Diagnostic code</div>
                   <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
                 </div>
               </div>
