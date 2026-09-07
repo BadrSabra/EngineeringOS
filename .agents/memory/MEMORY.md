@@ -112,3 +112,4 @@
 - [Durable provisional messages](durable-acceptance-provisional.md) — execution-backed assistant rows stay non-terminal until the acceptance finalizer commits outcome and final content.
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate the immutable acceptance attempt when the resume token is claimed, not when the token is merely issued.
 - [Terminal frame idempotency](terminal-frame-idempotency.md) — client streams must deliver only the first terminal frame so stale or duplicate SSE cannot overwrite durable acceptance.
+- [Deterministic command routing](deterministic-command-routing.md) — named local report/build commands need an explicit server dispatcher, not generic AI action classification.
