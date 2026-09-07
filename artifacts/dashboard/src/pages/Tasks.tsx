@@ -5,9 +5,11 @@ import {
   useRetryTask,
   useRollbackTask,
   useGetTaskLogs,
+  useGetTask,
   useRecordTaskVerification,
   getListTasksQueryKey,
   getGetTaskLogsQueryKey,
+  getGetTaskQueryKey,
   type TaskLog,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -134,6 +136,25 @@ type TaskExecutionReceipt = {
   operatorAction?: string | null;
 };
 
+type TaskAcceptance = {
+  attempt: number;
+  terminalStatus: string;
+  outcome: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | string;
+  reasonCode: string;
+  nextActionCode: 'NONE' | 'RESUME_ALLOWED' | 'START_NEW_PROBE' | 'REVIEW_INCOMPLETE_EVIDENCE' | 'ABANDON_EXECUTION' | 'RETRY_AFTER_TIMEOUT' | string;
+  evidenceComplete: boolean;
+  evidenceRequired: boolean;
+  resumable: boolean;
+  disposition?: {
+    reasonCodes: string[];
+    outcome: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
+    failureKind?: string;
+    recoveryState: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
+    nextActionCode: TaskAcceptance['nextActionCode'];
+    operatorAction: string;
+  };
+};
+
 function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | null {
   if (!raw) return null;
   try {
@@ -142,6 +163,86 @@ function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | 
   } catch {
     return null;
   }
+}
+
+function acceptanceStatus(acceptance: TaskAcceptance): {
+  label: string;
+  className: string;
+} {
+  if (acceptance.disposition?.recoveryState && acceptance.disposition.recoveryState !== 'NONE') {
+    return { label: 'Recovery required', className: 'text-amber-500' };
+  }
+  if (acceptance.outcome === 'SUCCEEDED') {
+    return { label: 'Accepted', className: 'text-emerald-500' };
+  }
+  if (acceptance.outcome === 'INTERRUPTED') {
+    return { label: 'Interrupted', className: 'text-amber-500' };
+  }
+  return { label: 'Failed', className: 'text-destructive' };
+}
+
+function acceptanceNextAction(acceptance: TaskAcceptance): string {
+  if (acceptance.disposition?.operatorAction) return acceptance.disposition.operatorAction;
+  switch (acceptance.nextActionCode) {
+    case 'RESUME_ALLOWED': return 'Resume the saved execution checkpoint.';
+    case 'START_NEW_PROBE': return 'Start a new scoped probe.';
+    case 'REVIEW_INCOMPLETE_EVIDENCE': return 'Review the incomplete evidence before relying on this result.';
+    case 'RETRY_AFTER_TIMEOUT': return 'Retry after the timeout window has cleared.';
+    case 'ABANDON_EXECUTION': return 'Start a new scoped run before relying on this result.';
+    default: return 'No operator action is required.';
+  }
+}
+
+function TaskAcceptancePanel({ taskId }: { taskId: string }) {
+  const { data, isLoading, isError } = useGetTask(taskId, {
+    query: {
+      queryKey: getGetTaskQueryKey(taskId),
+      staleTime: 0,
+    },
+  });
+  const acceptance = (data as { acceptance?: TaskAcceptance } | undefined)?.acceptance;
+
+  if (isLoading) {
+    return (
+      <div className="mb-4 rounded-lg border border-border bg-background p-3 text-xs text-muted-foreground">
+        Loading server acceptance…
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+        Server acceptance is temporarily unavailable. Refresh the task details to see the authoritative outcome.
+      </div>
+    );
+  }
+  if (!acceptance) return null;
+
+  const status = acceptanceStatus(acceptance);
+  return (
+    <section
+      className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3 text-xs"
+      aria-label="Server acceptance outcome"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wider">Server acceptance</span>
+        <span className={`font-semibold ${status.className}`}>{status.label}</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-muted-foreground font-mono">
+        <span>Outcome: {acceptance.outcome}</span>
+        <span>Attempt: {acceptance.attempt}</span>
+        <span>Reason: {acceptance.reasonCode}</span>
+        <span>Evidence: {acceptance.evidenceComplete ? 'complete' : 'incomplete'}</span>
+      </div>
+      <div className="mt-3 border-t border-primary/15 pt-2 text-muted-foreground">
+        <span className="font-semibold text-foreground">Next action: </span>
+        {acceptanceNextAction(acceptance)}
+      </div>
+      <div className="mt-1 text-muted-foreground">
+        Provider diagnostics and credentials are not shown.
+      </div>
+    </section>
+  );
 }
 
 function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {
@@ -993,6 +1094,7 @@ export default function Tasks() {
                             <div className="text-xs text-muted-foreground mb-1">Execution boundary</div>
                             <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
                           </div>
+                          <TaskAcceptancePanel taskId={task.id} />
                           {(() => {
                             const receipt = parseExecutionReceipt(task.agentResponse);
                             if (!receipt) return null;

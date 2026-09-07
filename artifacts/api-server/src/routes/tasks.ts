@@ -34,6 +34,7 @@ import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
 } from "../lib/remediation-plan.js";
+import { getPublicTaskExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 
 const router = Router();
 
@@ -129,7 +130,11 @@ router.get("/tasks/:taskId", async (req, res) => {
   if (!task[0]) return res.status(404).json({ error: "Task not found" });
   const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
   if (!project) return;
-  return res.json(task[0]);
+  const acceptance = await getPublicTaskExecutionAcceptance(taskId);
+  return res.json({
+    ...task[0],
+    ...(acceptance ? { acceptance } : {}),
+  });
 });
 
 // Update task

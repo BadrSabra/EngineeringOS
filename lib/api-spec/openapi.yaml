@@ -7008,6 +7008,8 @@ components:
         remediationPlan:
           $ref: "#/components/schemas/RemediationPlan"
           nullable: true
+        acceptance:
+          $ref: "#/components/schemas/ExecutionAcceptance"
         createdAt:
           type: string
           format: date-time
@@ -7017,6 +7019,60 @@ components:
         completedAt:
           type: string
           format: date-time
+
+    ExecutionAcceptance:
+      type: object
+      required:
+        - attempt
+        - terminalStatus
+        - outcome
+        - reasonCode
+        - nextActionCode
+        - evidenceComplete
+        - evidenceRequired
+        - resumable
+      properties:
+        attempt:
+          type: integer
+        terminalStatus:
+          type: string
+        outcome:
+          type: string
+        reasonCode:
+          type: string
+        nextActionCode:
+          type: string
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+        evidenceComplete:
+          type: boolean
+        evidenceRequired:
+          type: boolean
+        resumable:
+          type: boolean
+        disposition:
+          $ref: "#/components/schemas/ExecutionAcceptanceDisposition"
+
+    ExecutionAcceptanceDisposition:
+      type: object
+      required: [reasonCodes, outcome, recoveryState, nextActionCode, operatorAction]
+      properties:
+        reasonCodes:
+          type: array
+          items:
+            type: string
+        outcome:
+          type: string
+          enum: [SUCCEEDED, FAILED, INTERRUPTED]
+        failureKind:
+          type: string
+        recoveryState:
+          type: string
+          enum: [NONE, REQUIRED, INCOMPLETE]
+        nextActionCode:
+          type: string
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+        operatorAction:
+          type: string
 
     CreateTaskInput:
       type: object

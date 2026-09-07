@@ -3653,6 +3653,69 @@ export interface VerificationResult {
   history?: VerificationHistoryEntry[];
 }
 
+export type ExecutionAcceptanceNextActionCode = typeof ExecutionAcceptanceNextActionCode[keyof typeof ExecutionAcceptanceNextActionCode];
+
+
+export const ExecutionAcceptanceNextActionCode = {
+  NONE: 'NONE',
+  RESUME_ALLOWED: 'RESUME_ALLOWED',
+  START_NEW_PROBE: 'START_NEW_PROBE',
+  REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
+  ABANDON_EXECUTION: 'ABANDON_EXECUTION',
+  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+} as const;
+
+export type ExecutionAcceptanceDispositionOutcome = typeof ExecutionAcceptanceDispositionOutcome[keyof typeof ExecutionAcceptanceDispositionOutcome];
+
+
+export const ExecutionAcceptanceDispositionOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type ExecutionAcceptanceDispositionRecoveryState = typeof ExecutionAcceptanceDispositionRecoveryState[keyof typeof ExecutionAcceptanceDispositionRecoveryState];
+
+
+export const ExecutionAcceptanceDispositionRecoveryState = {
+  NONE: 'NONE',
+  REQUIRED: 'REQUIRED',
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
+export type ExecutionAcceptanceDispositionNextActionCode = typeof ExecutionAcceptanceDispositionNextActionCode[keyof typeof ExecutionAcceptanceDispositionNextActionCode];
+
+
+export const ExecutionAcceptanceDispositionNextActionCode = {
+  NONE: 'NONE',
+  RESUME_ALLOWED: 'RESUME_ALLOWED',
+  START_NEW_PROBE: 'START_NEW_PROBE',
+  REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
+  ABANDON_EXECUTION: 'ABANDON_EXECUTION',
+  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+} as const;
+
+export interface ExecutionAcceptanceDisposition {
+  reasonCodes: string[];
+  outcome: ExecutionAcceptanceDispositionOutcome;
+  failureKind?: string;
+  recoveryState: ExecutionAcceptanceDispositionRecoveryState;
+  nextActionCode: ExecutionAcceptanceDispositionNextActionCode;
+  operatorAction: string;
+}
+
+export interface ExecutionAcceptance {
+  attempt: number;
+  terminalStatus: string;
+  outcome: string;
+  reasonCode: string;
+  nextActionCode: ExecutionAcceptanceNextActionCode;
+  evidenceComplete: boolean;
+  evidenceRequired: boolean;
+  resumable: boolean;
+  disposition?: ExecutionAcceptanceDisposition;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -3671,6 +3734,7 @@ export interface Task {
   agentResponse?: string;
   verificationResult?: VerificationResult;
   remediationPlan?: RemediationPlan | null;
+  acceptance?: ExecutionAcceptance;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;

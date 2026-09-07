@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   aiChatMessagesTable,
   aiExecutionAcceptancesTable,
@@ -184,6 +184,37 @@ export function projectExecutionAcceptance(
     resumable: row.resumable === 1,
     ...(disposition ? { disposition } : {}),
   };
+}
+
+/**
+ * Resolve the acceptance for the latest server-owned attempt associated with
+ * a standalone task. The latest execution is selected first so an older
+ * accepted retry cannot be shown after a newer attempt has started.
+ */
+export async function getPublicTaskExecutionAcceptance(
+  taskId: string,
+): Promise<PublicExecutionAcceptance | undefined> {
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      attempt: aiExecutionsTable.attempt,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.linkedTaskId, taskId))
+    .orderBy(desc(aiExecutionsTable.attempt), desc(aiExecutionsTable.updatedAt), desc(aiExecutionsTable.id))
+    .limit(1);
+  if (!execution) return undefined;
+
+  const [acceptance] = await db
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+
+  return projectExecutionAcceptance(acceptance);
 }
 
 const MAX_READ_BYTES = 256 * 1024;

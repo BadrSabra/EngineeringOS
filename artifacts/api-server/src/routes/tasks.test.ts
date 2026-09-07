@@ -9,6 +9,8 @@ import {
   taskLogsTable,
   eventsTable,
   auditLogsTable,
+  aiExecutionsTable,
+  aiExecutionAcceptancesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 
@@ -83,6 +85,69 @@ describe("Task lifecycle", () => {
     const list = await request(app).get("/api/tasks").query({ projectId });
     expect(list.status).toBe(200);
     expect(list.body.some((t: { id: string }) => t.id === taskId)).toBe(true);
+  });
+
+  it("returns the allowlisted acceptance for the task's current execution attempt", async () => {
+    const { projectId, taskId } = await createTask();
+    const executionId = randomUUID();
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      linkedTaskId: taskId,
+      userId: "test-user",
+      idempotencyKey: executionId,
+      attempt: 2,
+      resumeTokenHash: "task-detail-acceptance-hash",
+      request: "{}",
+      checkpoint: "{}",
+      status: "failed",
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 2,
+      finalizationKey: randomUUID(),
+      operationId: "task-detail-operation",
+      workerId: "worker",
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "PROVIDER_FAILURE",
+      nextActionCode: "RESUME_ALLOWED",
+      disposition: {
+        reasonCodes: ["PROVIDER_FAILURE"],
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+        operatorAction: "Resume the saved task checkpoint.",
+        providerPayload: "must not cross the public boundary",
+      },
+      evidenceRequired: 0,
+      evidenceComplete: 0,
+      resumable: 1,
+    });
+
+    const res = await request(app).get(`/api/tasks/${taskId}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.acceptance).toEqual({
+      attempt: 2,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "PROVIDER_FAILURE",
+      nextActionCode: "RESUME_ALLOWED",
+      evidenceComplete: false,
+      evidenceRequired: false,
+      resumable: true,
+      disposition: {
+        reasonCodes: ["PROVIDER_FAILURE"],
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RESUME_ALLOWED",
+        operatorAction: "Resume the saved task checkpoint.",
+      },
+    });
+    expect(JSON.stringify(res.body)).not.toContain("providerPayload");
   });
 
   it("executes a task with no rule/relatedFiles into the verifying state", async () => {

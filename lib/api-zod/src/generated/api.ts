@@ -404,6 +404,24 @@ export const ListTasksResponseItem = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -510,6 +528,24 @@ export const CreateTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -607,6 +643,24 @@ export const GetTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -711,6 +765,24 @@ export const UpdateTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -818,6 +890,24 @@ export const ExecuteTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -925,6 +1015,24 @@ export const RecordTaskVerificationResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -1022,6 +1130,24 @@ export const RetryTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -1119,6 +1245,24 @@ export const RollbackTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -6054,6 +6198,24 @@ export const AiExecuteTaskResponse = zod.object({
 }),
   "status": zod.enum(['needs_review', 'ready', 'verified'])
 }),zod.null()]).optional(),
+  "acceptance": zod.object({
+  "attempt": zod.number().int(),
+  "terminalStatus": zod.string(),
+  "outcome": zod.string(),
+  "reasonCode": zod.string(),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "evidenceComplete": zod.boolean(),
+  "evidenceRequired": zod.boolean(),
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "operatorAction": zod.string()
+}).optional()
+}).optional(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()

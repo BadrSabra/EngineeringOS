@@ -9,9 +9,11 @@ vi.mock('@workspace/api-client-react', () => ({
   useRetryTask: vi.fn(),
   useRollbackTask: vi.fn(),
   useGetTaskLogs: vi.fn(),
+  useGetTask: vi.fn(),
   useRecordTaskVerification: vi.fn(),
   getListTasksQueryKey: vi.fn(() => ['tasks']),
   getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
+  getGetTaskQueryKey: vi.fn((taskId: string) => ['task', taskId]),
 }));
 
 vi.mock('@/hooks/use-toast', () => ({
@@ -21,6 +23,7 @@ vi.mock('@/hooks/use-toast', () => ({
 import {
   useExecuteTask,
   useGetTaskLogs,
+  useGetTask,
   useListTasks,
   useRetryTask,
   useRollbackTask,
@@ -107,6 +110,12 @@ beforeEach(() => {
     error: null,
     refetch: vi.fn(),
   } as ReturnType<typeof useGetTaskLogs>);
+  vi.mocked(useGetTask).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useGetTask>);
   vi.mocked(useExecuteTask).mockReturnValue(mutation() as ReturnType<typeof useExecuteTask>);
   vi.mocked(useRetryTask).mockReturnValue(mutation() as ReturnType<typeof useRetryTask>);
   vi.mocked(useRollbackTask).mockReturnValue(mutation() as ReturnType<typeof useRollbackTask>);
@@ -126,6 +135,42 @@ describe('Tasks recovery rendering', () => {
       expect(within(card).getByText(`Support reference: ${item.correlationId}`)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: `Collapse task ${item.title}` }));
     }
+  });
+
+  it('renders the server acceptance outcome and safe recovery action', () => {
+    vi.mocked(useGetTask).mockReturnValue({
+      data: {
+        acceptance: {
+          attempt: 2,
+          terminalStatus: 'failed',
+          outcome: 'FAILED',
+          reasonCode: 'PROVIDER_FAILURE',
+          nextActionCode: 'RESUME_ALLOWED',
+          evidenceComplete: false,
+          evidenceRequired: false,
+          resumable: true,
+          disposition: {
+            reasonCodes: ['PROVIDER_FAILURE'],
+            outcome: 'FAILED',
+            recoveryState: 'REQUIRED',
+            nextActionCode: 'RESUME_ALLOWED',
+            operatorAction: 'Resume the saved task checkpoint.',
+          },
+        },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useGetTask>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+
+    const acceptance = screen.getByRole('region', { name: 'Server acceptance outcome' });
+    expect(within(acceptance).getByText('Recovery required')).toBeInTheDocument();
+    expect(within(acceptance).getByText('Outcome: FAILED')).toBeInTheDocument();
+    expect(within(acceptance).getByText('Resume the saved task checkpoint.')).toBeInTheDocument();
+    expect(within(acceptance).queryByText(/providerPayload/i)).not.toBeInTheDocument();
   });
 
   it('does not expose raw provider diagnostics or credentials in task details', () => {
