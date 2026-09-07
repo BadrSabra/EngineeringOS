@@ -7250,6 +7250,7 @@ type AgentExecutionProofStatus = {
   id?: string;
   status?: string;
   attempt?: number;
+  operationId?: string | null;
   projectRevision?: string | null;
   terminalReason?: string | null;
   flightState?:
@@ -7862,6 +7863,7 @@ function AgentExecutionProofPanel({
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <span>Phase: <strong className="font-medium text-foreground/80">{checkpointStage ?? phase}</strong></span>
             <span>Attempt: <strong className="font-medium text-foreground/80">{execution?.attempt ?? 0}</strong></span>
+            <span>Operation: <code className="text-foreground/80">{execution?.operationId ?? 'not recorded'}</code></span>
             <span>Revision: <code className="text-foreground/80">{execution?.projectRevision ?? 'not recorded'}</code></span>
           </div>
           {(execution?.id ?? executionId) && (

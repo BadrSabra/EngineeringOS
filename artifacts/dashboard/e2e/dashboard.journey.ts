@@ -595,6 +595,18 @@ async function installApiFixtures(
       }
       const { fixture, resumedStreamBody } = overrides.interruptedResume;
       if (requestBody.executionId === fixture.executionId) {
+        Object.assign(overrides.interruptedResume.execution, {
+          status: "completed",
+          flightState: "COMPLETED",
+          evidenceVerdict: "PROVEN",
+          proofRequired: false,
+          resumable: false,
+          checkpoint: {
+            stage: "complete",
+            detail: "The Capability Probe completed after reconnect.",
+          },
+          updatedAt: "2026-01-01T00:03:00.000Z",
+        });
         return route.fulfill({
           status: 200,
           contentType: "text/event-stream",
@@ -649,7 +661,10 @@ async function installApiFixtures(
             content: messageFixture.question,
             createdAt: "2026-01-01T00:01:00.000Z",
           },
-          ...(messageFixture === recoveryAi ? [] : [messageFixture.message]),
+          ...(messageFixture === recoveryAi &&
+          overrides?.interruptedResume?.execution.status !== "completed"
+            ? []
+            : [messageFixture.message]),
         ]),
       );
     if (
@@ -1564,6 +1579,92 @@ function installCapabilityProbeFixture(): ArabicAiFixture {
     sessionId,
     streamBody,
     message,
+  };
+}
+
+function installInterruptedCapabilityProbeFixture() {
+  const base = installCapabilityProbeFixture();
+  const executionId = "e2e-capability-probe-reconnect-execution";
+  const operationId = "e2e-capability-probe-reconnect-operation";
+  const projectRevision = "e2e-capability-probe-workspace-revision";
+  const initialToken = "e2e-capability-probe-initial-token";
+  const recoveredToken = "e2e-capability-probe-recovered-token";
+  const message = {
+    ...base.message,
+    id: "e2e-capability-probe-reconnect-message",
+    executionId,
+    outcome: "COMPLETED",
+    operationId,
+    projectRevision,
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+
+  return {
+    fixture: {
+      ...base,
+      executionId,
+      message,
+      streamBody: [
+        sse({ type: "session_started", sessionId: base.sessionId }),
+        sse({
+          type: "execution_started",
+          executionId,
+          status: "running",
+          resumable: true,
+          resumeToken: initialToken,
+        }),
+      ].join(""),
+    },
+    initialToken,
+    recoveredToken,
+    resumedStreamBody: [
+      sse({ type: "session_started", sessionId: base.sessionId }),
+      sse({
+        type: "execution_started",
+        executionId,
+        status: "running",
+        resumable: true,
+        resumeToken: recoveredToken,
+      }),
+      sse({ type: "stage", stage: "resuming-checkpoint" }),
+      sse({ type: "delta", delta: base.answer }),
+      sse({
+        type: "done",
+        sessionId: base.sessionId,
+        executionId,
+        operationId,
+        projectRevision,
+        message,
+        sources: (base.message.sources as string[] | undefined) ?? [],
+        toolTrace: base.message.toolTrace,
+        behaviorEvidence: base.message.behaviorEvidence,
+        taskResult: base.message.taskResult,
+        pendingChanges: [],
+      }),
+    ].join(""),
+    execution: {
+      id: executionId,
+      projectId: "e2e-project",
+      operationId,
+      sessionId: base.sessionId,
+      status: "paused",
+      flightState: "BUILDING",
+      evidenceVerdict: "UNAVAILABLE",
+      proofRequired: true,
+      resumable: true,
+      checkpointVersion: 1,
+      projectRevision,
+      checkpoint: {
+        stage: "calling-model",
+        detail:
+          "The browser transport disconnected after the Capability Probe execution started.",
+      },
+      objective: { objective: base.question },
+      startedAt: "2026-01-01T00:01:00.000Z",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+    },
   };
 }
 
@@ -3526,6 +3627,177 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         .getByText("Why this report is incomplete", { exact: true })
         .count(),
     ).toBe(0);
+  });
+
+  test("reconnects one Capability Probe execution and restores its proof after reload", async ({
+    page,
+  }) => {
+    const recovery = installInterruptedCapabilityProbeFixture();
+    await installApiFixtures(page, { interruptedResume: recovery });
+    await page.addInitScript(() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : String(input);
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (
+          !url.includes("/api/ai/chat/stream") ||
+          body.includes('"executionId"')
+        ) {
+          return nativeFetch(input, init);
+        }
+
+        const response = await nativeFetch(input, init);
+        if (!response.body) return response;
+        const reader = response.body.getReader();
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            let buffered = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                if (buffered) controller.enqueue(encoder.encode(buffered));
+                controller.close();
+                return;
+              }
+              buffered += new TextDecoder().decode(value, { stream: true });
+              const marker = buffered.indexOf('"type":"execution_started"');
+              const frameEnd =
+                marker < 0 ? -1 : buffered.indexOf("\n\n", marker);
+              if (frameEnd >= 0) {
+                controller.enqueue(
+                  encoder.encode(buffered.slice(0, frameEnd + 2)),
+                );
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                controller.error(new TypeError("network connection reset"));
+                return;
+              }
+            }
+          },
+        });
+        return new Response(stream, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      };
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const streamRequests: Array<Record<string, unknown>> = [];
+    page.on("request", (request) => {
+      if (
+        request.url().includes("/api/ai/chat/stream") &&
+        request.method() === "POST"
+      ) {
+        try {
+          streamRequests.push(
+            request.postDataJSON() as Record<string, unknown>,
+          );
+        } catch {
+          // Assertions below only use requests with a valid JSON envelope.
+        }
+      }
+    });
+
+    await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
+
+    await expect(
+      page.getByText(
+        "Execution paused — ready to resume from its durable checkpoint",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const proof = page.getByLabel("Agent execution proof");
+    await expect(proof).toBeVisible();
+    await expect(proof).toContainText(`Execution ${recovery.fixture.executionId}`);
+    await expect(proof).toContainText(recovery.execution.operationId as string);
+    await expect(proof).toContainText(recovery.execution.projectRevision as string);
+    await expect(
+      proof.getByRole("button", { name: "Resume", exact: true }),
+    ).toBeVisible();
+
+    await proof.getByRole("button", { name: "Resume", exact: true }).click();
+
+    const report = page.getByRole("region", {
+      name: "Capability probe report",
+    });
+    await expect(report).toBeVisible();
+    await expect(
+      report.locator('[aria-label="Capability probe score 7 out of 7"]'),
+    ).toBeVisible();
+    await expect(report.getByText(/^C[1-7]$/, { exact: true })).toHaveCount(7);
+    await expect(
+      page.getByText("Behavior evidence · 2 excerpts", { exact: true }).last(),
+    ).toBeVisible();
+    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+
+    expect(streamRequests).toHaveLength(2);
+    expect(streamRequests[0]).toEqual(
+      expect.objectContaining({
+        projectId: "e2e-project",
+        message: CAPABILITY_PROBE_MESSAGE,
+      }),
+    );
+    expect(streamRequests[0]?.executionId).toBeUndefined();
+    expect(streamRequests[1]).toEqual(
+      expect.objectContaining({
+        projectId: "e2e-project",
+        sessionId: recovery.fixture.sessionId,
+        executionId: recovery.fixture.executionId,
+        resumeToken: recovery.initialToken,
+        message: CAPABILITY_PROBE_MESSAGE,
+      }),
+    );
+    expect(
+      streamRequests.map((request) => request.executionId).filter(Boolean),
+    ).toEqual([recovery.fixture.executionId]);
+
+    const evidence = 'return value.includes("defect/repair");';
+    const beforeReload = await report.innerText();
+    expect(await report.getByText(evidence, { exact: false }).count()).toBe(3);
+    expect(
+      await report.getByText("Why this report is incomplete", { exact: true }).count(),
+    ).toBe(0);
+
+    const historyResponsePromise = page.waitForResponse((response) =>
+      response.url().includes(
+        `/api/ai/chat/${recovery.fixture.sessionId}/messages`,
+      ),
+    );
+    await page.reload();
+    expect((await historyResponsePromise).status()).toBe(200);
+
+    const rehydratedReport = page.getByRole("region", {
+      name: "Capability probe report",
+    });
+    await expect(rehydratedReport).toBeVisible();
+    expect(await rehydratedReport.innerText()).toBe(beforeReload);
+    await expect(
+      rehydratedReport.locator('[aria-label="Capability probe score 7 out of 7"]'),
+    ).toBeVisible();
+    await expect(
+      rehydratedReport.getByText(/^C[1-7]$/, { exact: true }),
+    ).toHaveCount(7);
+    expect(await rehydratedReport.getByText(evidence, { exact: false }).count()).toBe(3);
+    await expect(
+      rehydratedReport.getByText("Why this report is incomplete", { exact: true }),
+    ).toHaveCount(0);
+
+    const rehydratedProof = page.getByLabel("Agent execution proof");
+    await expect(rehydratedProof).toBeVisible();
+    await expect(rehydratedProof).toContainText(`Execution ${recovery.fixture.executionId}`);
+    await expect(rehydratedProof).toContainText(recovery.execution.operationId as string);
+    await expect(rehydratedProof).toContainText(recovery.execution.projectRevision as string);
+    await expect(rehydratedProof).toContainText("Completed");
+    await expect(rehydratedProof).toContainText("Evidence: PROVEN");
+    await expect(page.getByText("Persisted proof", { exact: true })).toBeVisible();
   });
 
   test("opens failed task and workflow details with redacted recovery guidance", async ({
