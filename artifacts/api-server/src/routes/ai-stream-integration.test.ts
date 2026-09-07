@@ -856,6 +856,225 @@ describe("AI execution resume-capability recovery", () => {
     expect(terminal.body).toMatchObject({ code: "EXECUTION_NOT_RESUMABLE", status: "completed" });
     expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
   });
+
+  it("preserves both terminal attempts across provider failure, resume, REST history, and chat history", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Provider resume history");
+    const message = "Continue.";
+    const { GroqClientError } = await import("@workspace/ai-orchestrator");
+
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(async () => {
+        throw new GroqClientError(
+          "MODEL_NOT_FOUND",
+          "fixture provider failure",
+          { context: { providerModel: "fixture-model", providerStatus: 422 } },
+        );
+      })
+      .mockImplementationOnce(async (...args) => {
+        args[3]?.("Resumed successfully.");
+        args[6]?.({
+          kind: "done",
+          iterations: 1,
+          maxIterations: 1,
+          toolCalls: 0,
+          prefetchToolCalls: 0,
+          loopToolCalls: 0,
+          stopReason: "response",
+          synthesisStarted: false,
+          diagnosticCodes: [],
+        });
+        return {
+          result: {
+            response: "Resumed successfully.",
+            sources: ["context"],
+            pendingChanges: [],
+          },
+          effectiveProvider: "groq" as const,
+        } as Awaited<ReturnType<typeof chatWithFallback>>;
+      });
+
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message });
+    expect(first.status).toBe(200);
+    const firstError = parseSseEvents(first.text).find((event) => event.type === "error");
+    expect(firstError).toMatchObject({
+      code: "MODEL_NOT_FOUND",
+      outcome: "FAILED",
+      terminalProjection: {
+        executionId: expect.any(String),
+        sessionId,
+        attempt: 0,
+        messageId: expect.any(String),
+        acceptanceId: expect.any(String),
+        operationId: expect.any(String),
+        correlationId: expect.any(String),
+        status: "failed",
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        resumable: true,
+      },
+    });
+
+    const firstProjection = firstError?.terminalProjection as Record<string, unknown>;
+    const executionId = String(firstProjection.executionId);
+    const firstMessageId = String(firstProjection.messageId);
+    const beforeClaim = await db
+      .select({
+        attempt: aiExecutionsTable.attempt,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        completedAt: aiExecutionsTable.completedAt,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId))
+      .limit(1);
+    expect(beforeClaim[0]).toMatchObject({
+      attempt: 0,
+      finalMessageId: firstMessageId,
+      status: "failed",
+    });
+    expect(beforeClaim[0]?.completedAt).toBeInstanceOf(Date);
+
+    const failedHistory = await request(app)
+      .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`)
+      .expect(200);
+    expect(failedHistory.body).toHaveLength(1);
+    expect(failedHistory.body[0]).toMatchObject({
+      id: executionId,
+      status: "failed",
+      acceptance: {
+        attempt: 0,
+        outcome: "FAILED",
+      },
+      terminalProjection: firstProjection,
+    });
+
+    const resume = await request(app)
+      .post(`/api/ai/executions/${executionId}/resume-capability`);
+    expect(resume.status).toBe(200);
+    expect(resume.body).toMatchObject({
+      executionId,
+      resumeToken: expect.any(String),
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message,
+        executionId,
+        resumeToken: resume.body.resumeToken,
+      });
+    expect(resumed.status).toBe(200);
+    const resumedEvents = parseSseEvents(resumed.text);
+    const resumedDone = resumedEvents.find((event) => event.type === "done");
+    expect(resumedDone).toMatchObject({
+      sessionId,
+      message: {
+        executionId,
+        outcome: "SUCCEEDED",
+        content: "Resumed successfully.",
+        terminalProjection: {
+          executionId,
+          sessionId,
+          attempt: 1,
+          messageId: expect.any(String),
+          acceptanceId: expect.any(String),
+          operationId: firstProjection.operationId,
+          correlationId: firstProjection.correlationId,
+          status: "completed",
+          outcome: "SUCCEEDED",
+          reasonCode: "ACCEPTED",
+          resumable: false,
+        },
+      },
+    });
+
+    const resumedProjection = (resumedDone?.message as Record<string, unknown>)
+      .terminalProjection as Record<string, unknown>;
+    const resumedMessageId = String(resumedProjection.messageId);
+    expect(resumedMessageId).not.toBe(firstMessageId);
+
+    const [execution] = await db
+      .select({
+        attempt: aiExecutionsTable.attempt,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        completedAt: aiExecutionsTable.completedAt,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId))
+      .limit(1);
+    expect(execution).toMatchObject({
+      attempt: 1,
+      finalMessageId: resumedMessageId,
+      status: "completed",
+    });
+    expect(execution.completedAt).toBeInstanceOf(Date);
+
+    const acceptances = await db
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        attempt: aiExecutionAcceptancesTable.attempt,
+        messageId: aiExecutionAcceptancesTable.messageId,
+        outcome: aiExecutionAcceptancesTable.outcome,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+    expect(acceptances).toHaveLength(2);
+    expect(acceptances).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        attempt: 0,
+        messageId: firstMessageId,
+        outcome: "FAILED",
+        id: firstProjection.acceptanceId,
+      }),
+      expect.objectContaining({
+        attempt: 1,
+        messageId: resumedMessageId,
+        outcome: "SUCCEEDED",
+        id: resumedProjection.acceptanceId,
+      }),
+    ]));
+
+    const detail = await request(app)
+      .get(`/api/ai/executions/${executionId}`)
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      id: executionId,
+      status: "completed",
+      attempt: 1,
+      terminalProjection: resumedProjection,
+    });
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    expect(history.body.filter((row: { role: string }) => row.role === "user")).toHaveLength(1);
+    const assistantMessages = history.body.filter((row: { role: string }) => row.role === "assistant");
+    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: firstMessageId,
+        executionId,
+        outcome: "FAILED",
+        errorCode: "MODEL_NOT_FOUND",
+        terminalProjection: firstProjection,
+      }),
+      expect.objectContaining({
+        id: resumedMessageId,
+        executionId,
+        outcome: "SUCCEEDED",
+        terminalProjection: resumedProjection,
+      }),
+    ]));
+  });
 });
 
 describe("Durable AI completion identity", () => {

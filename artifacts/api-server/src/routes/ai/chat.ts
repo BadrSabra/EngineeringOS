@@ -549,6 +549,8 @@ async function loadTerminalProjection(params: {
   executionId: string;
   sessionId: string;
   fallbackMessageId?: string | null;
+  attempt?: number;
+  messageId?: string;
 }): Promise<AiTerminalProjection | undefined> {
   const [execution] = await db
     .select({
@@ -581,21 +583,27 @@ async function loadTerminalProjection(params: {
     .from(aiExecutionAcceptancesTable)
     .where(and(
       eq(aiExecutionAcceptancesTable.executionId, execution.id),
-      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+      eq(
+        aiExecutionAcceptancesTable.attempt,
+        params.attempt ?? execution.attempt,
+      ),
+      ...(params.messageId
+        ? [eq(aiExecutionAcceptancesTable.messageId, params.messageId)]
+        : []),
     ))
     .limit(1);
 
-  const status = execution.status === "completed"
-    || execution.status === "failed"
-    || execution.status === "cancelled"
-    || execution.status === "paused"
-    ? execution.status
-    : acceptance?.terminalStatus === "completed"
+  const status = acceptance?.terminalStatus === "completed"
       || acceptance?.terminalStatus === "failed"
       || acceptance?.terminalStatus === "cancelled"
       || acceptance?.terminalStatus === "paused"
       ? acceptance.terminalStatus
-      : "failed";
+      : execution.status === "completed"
+        || execution.status === "failed"
+        || execution.status === "cancelled"
+        || execution.status === "paused"
+        ? execution.status
+        : "failed";
   const outcome = acceptance?.outcome === "SUCCEEDED"
     || acceptance?.outcome === "FAILED"
     || acceptance?.outcome === "INTERRUPTED"
@@ -609,7 +617,7 @@ async function loadTerminalProjection(params: {
   return {
     executionId: execution.id,
     sessionId: execution.sessionId ?? params.sessionId,
-    attempt: execution.attempt,
+    attempt: params.attempt ?? execution.attempt,
     messageId: acceptance?.messageId ?? execution.finalMessageId ?? params.fallbackMessageId ?? null,
     acceptanceId: acceptance?.id ?? null,
     operationId: execution.operationId ?? null,
@@ -4256,6 +4264,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let executionAbortController: AbortController | undefined;
   let executionTerminal = false;
   let terminalAssistantMessageId: string | undefined;
+  let completedTerminalProjection: AiTerminalProjection | undefined;
   let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
   let resumeCheckpoint: AiExecutionCheckpoint | undefined;
   let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
@@ -6787,6 +6796,11 @@ router.post("/ai/chat/stream", async (req, res) => {
         res.end();
         return;
       }
+      completedTerminalProjection = await loadTerminalProjection({
+        executionId: aiExecution.id,
+        sessionId: sessionIdToUse,
+        fallbackMessageId: assistantMsg.id,
+      });
       sse({
         type: "recipe_terminal",
         executionId: aiExecution.id,
@@ -6861,6 +6875,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       outcome: "SUCCEEDED",
       executionLedger: executionLedgerSnapshot,
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+      ...(completedTerminalProjection
+        ? { terminalProjection: completedTerminalProjection }
+        : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
     };
     sse({
@@ -6897,6 +6914,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         latencyMs: chatLatencyMs,
       },
       execution: publicExecutionSummary,
+      ...(completedTerminalProjection
+        ? { terminalProjection: completedTerminalProjection }
+        : {}),
       executionLedger: executionLedgerSnapshot,
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       _meta: rootFallbackUsed
@@ -7744,11 +7764,28 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
   const acceptanceRows = acceptanceQuery
     ? await acceptanceQuery.limit(500)
     : [];
-  const terminalProjectionByExecution = new Map(
-    (await Promise.all(executionIds.map(async (executionId) => [executionId, await loadTerminalProjection({
-      executionId,
-      sessionId,
-    })] as const)))
+  const projectionEntries = messages.flatMap((message) => {
+      if (!message.executionId) return [];
+      const acceptance = acceptanceRows
+        .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
+        .sort((left, right) => right.attempt - left.attempt)[0];
+      if (!acceptance) return [];
+      return [{
+        messageId: message.id,
+        executionId: message.executionId,
+        attempt: acceptance.attempt,
+      }];
+    });
+  const terminalProjectionByMessage = new Map(
+    (await Promise.all(projectionEntries.map(async (entry) => [
+      entry.messageId,
+      await loadTerminalProjection({
+        executionId: entry.executionId,
+        sessionId,
+        attempt: entry.attempt,
+        messageId: entry.messageId,
+      }),
+    ] as const)))
       .filter((entry): entry is readonly [string, AiTerminalProjection] => Boolean(entry[1])),
   );
   return res.json(messages.map((message) => {
@@ -7760,9 +7797,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         .sort((left, right) => right.attempt - left.attempt)[0]
       : undefined;
     const projectedAcceptance = projectExecutionAcceptance(executionAcceptance);
-    const terminalProjection = message.executionId
-      ? terminalProjectionByExecution.get(message.executionId)
-      : undefined;
+    const terminalProjection = terminalProjectionByMessage.get(message.id);
     return {
       ...message,
       content: redactUserFacingText(message.content),
@@ -7779,7 +7814,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       ...(projectedAcceptance?.disposition
         ? { acceptanceDisposition: projectedAcceptance.disposition }
         : {}),
-      ...(terminalProjection?.messageId === message.id ? { terminalProjection } : {}),
+      ...(terminalProjection ? { terminalProjection } : {}),
       repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
       behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
       ...(historicalReport.unavailable
