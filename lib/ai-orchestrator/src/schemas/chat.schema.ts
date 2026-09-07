@@ -216,6 +216,19 @@ export const BehaviorAnswerResultSchema = z.object({
 }).strict();
 export type BehaviorAnswerResult = z.infer<typeof BehaviorAnswerResultSchema>;
 
+export const CapabilityProbeResultSchema = z.object({
+  kind: z.literal("CAPABILITY_PROBE_RESULT"),
+  report: z.string().min(1),
+  score: z.number().int().min(0).max(7),
+  sources: z.array(z.string().min(1)),
+  coverage: z.object({
+    requiredClaims: z.array(z.enum(["C1", "C2", "C3", "C4", "C5", "C6", "C7"])),
+    completedClaims: z.array(z.enum(["C1", "C2", "C3", "C4", "C5", "C6", "C7"])),
+    complete: z.boolean(),
+  }).strict(),
+}).strict();
+export type CapabilityProbeResult = z.infer<typeof CapabilityProbeResultSchema>;
+
 export const FindingResultSchema = z.object({
   kind: z.literal("FINDING_RESULT"),
   finding: FindingAnalysisSchema,
@@ -247,6 +260,7 @@ export type RepairResult = z.infer<typeof RepairResultSchema>;
 export const ChatTaskResultSchema = z.discriminatedUnion("kind", [
   CodeExtractionResultSchema,
   BehaviorAnswerResultSchema,
+  CapabilityProbeResultSchema,
   FindingResultSchema,
   ForensicReportResultSchema,
   WorkspaceReviewResultSchema,

@@ -933,6 +933,65 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     }
   });
 
+  it("keeps a server-assembled probe successful when the provider wrapper is malformed", async () => {
+    const rootPath = await makeProbeRoot();
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        // This reproduces the production trace: the provider supplies a
+        // complete-looking capability payload, but its JSON wrapper is
+        // malformed. The server can still assemble and validate C1–C7 from
+        // the two retained source bodies.
+        content: MALFORMED_COMPLETE_CAPABILITY_ANSWER,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    const steps: AgentStep[] = [];
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result._parseError).toBeUndefined();
+      expect(result.response).toMatch(/^C1: PASS/m);
+      expect(result.response).toContain("Overall score: 7/7 capabilities demonstrated.");
+      expect(result.taskResult?.kind).toBe("CAPABILITY_PROBE_RESULT");
+      if (result.taskResult?.kind === "CAPABILITY_PROBE_RESULT") {
+        expect(result.taskResult.score).toBe(7);
+        expect(result.taskResult.coverage).toEqual({
+          requiredClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+          completedClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+          complete: true,
+        });
+      }
+
+      const decision = [...steps].reverse().find((step) => step.kind === "decision_trace");
+      expect(decision?.kind).toBe("decision_trace");
+      if (decision?.kind === "decision_trace") {
+        expect(decision.trace.finalState).toBe("VERIFIED");
+        expect(decision.trace.rejectionReason).toEqual([]);
+      }
+      expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("salvages a complete malformed C1–C7 wrapper through chat() without inventing claims", async () => {
     const rootPath = await makeProbeRoot();
     const fakeStrategy = {

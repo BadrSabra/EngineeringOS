@@ -3514,6 +3514,7 @@ function relayForensicTerminal(opts: {
   fileContents: Map<string, string>;
   claimsUnclosedButEvidenceAvailable: boolean;
   capabilityProbeClaimUnclosed?: boolean;
+  capabilityProbeComplete?: boolean;
   report: string;
   /**
    * AI-OBJ-005: when the Objective Completion Gate refuses finalization, the
@@ -3529,10 +3530,16 @@ function relayForensicTerminal(opts: {
     fileContents,
     claimsUnclosedButEvidenceAvailable,
     capabilityProbeClaimUnclosed = false,
+    capabilityProbeComplete = false,
     report,
     objectiveBlocked = false,
   } = opts;
   if (!onStep) return;
+  // Capability Probe reports intentionally use the C1–C7 contract rather
+  // than the six-section forensic report contract. A fully validated probe is
+  // already a terminal success and must not be reclassified as a missing
+  // Finding merely because it has no Findings section.
+  if (capabilityProbeComplete) return;
   // Cancellation is its own terminal state. Preserve the evidence collected
   // so far, but do not manufacture a normal forensic terminal such as
   // NO_EVIDENCE_FOUND; the route-level diagnostic derives CANCELLED from the
@@ -4536,6 +4543,7 @@ export function buildTaskResult(opts: {
   semanticBehaviorAnswer: SemanticBehaviorAnswer | undefined;
   structuredRepairPlan: RepairPlanMetadata[] | undefined;
   acceptedBehaviorEvidence: EvidenceReference[];
+  capabilityProbeReport?: CapabilityProbeFinalReport;
   implementationPlan?: ImplementationPlan;
 }): ChatTaskResult | undefined {
   const {
@@ -4545,10 +4553,25 @@ export function buildTaskResult(opts: {
     semanticBehaviorAnswer,
     structuredRepairPlan,
     acceptedBehaviorEvidence,
+    capabilityProbeReport,
     implementationPlan,
   } = opts;
 
   if (implementationPlan) return implementationPlan;
+  if (capabilityProbeReport) {
+    const requiredClaims = ["C1", "C2", "C3", "C4", "C5", "C6", "C7"] as const;
+    return {
+      kind: "CAPABILITY_PROBE_RESULT",
+      report: capabilityProbeReport.response,
+      score: capabilityProbeReport.score,
+      sources: capabilityProbeReport.sources,
+      coverage: {
+        requiredClaims: [...requiredClaims],
+        completedClaims: requiredClaims.slice(0, capabilityProbeReport.score),
+        complete: capabilityProbeReport.score === requiredClaims.length,
+      },
+    };
+  }
 
   switch (forensicTaskType) {
     case "CODE_EXTRACTION": {
@@ -10304,6 +10327,11 @@ export async function chat(opts: {
         capabilityProbeFinalReport = deterministicCapabilityReport;
         responseBeforeBehaviorEvidence = deterministicCapabilityReport.response;
         providerReturnedEmptyEvidenceResponse = false;
+        // A malformed provider wrapper is no longer authoritative once the
+        // server has assembled and validated the complete probe from retained
+        // source bodies. Keep the provider attempt in telemetry, but do not
+        // let its stale parse marker downgrade the accepted result.
+        parseError = undefined;
         content = deterministicCapabilityReport.response;
         parsed = {
           ok: true,
@@ -11458,8 +11486,15 @@ export async function chat(opts: {
     || terminalLoopKind === "incomplete"
     || terminalLoopKind === "exhausted"
     || (terminalLoopKind === "partial" && terminalLoopReason !== "response");
+  const capabilityProbeTerminalAccepted =
+    capabilityProbeFinalReport !== null &&
+    !capabilityProbeClaimUnclosed &&
+    !telemetryBlocksVerdict &&
+    !objectiveBlocksVerdict;
   const terminalResponse =
-    forensicOutputMode &&
+    capabilityProbeTerminalAccepted
+      ? gateFinalResponse
+      : forensicOutputMode &&
     (
       knownIncompleteForensicBoundary
       || !extractRawForensicReport(gateFinalResponse)
@@ -11524,6 +11559,7 @@ export async function chat(opts: {
       fileContents: forensicFileContents,
       claimsUnclosedButEvidenceAvailable,
       capabilityProbeClaimUnclosed,
+      capabilityProbeComplete: capabilityProbeTerminalAccepted,
       report: terminalResponse,
       objectiveBlocked: Boolean(objectiveBlocksVerdict),
     });
@@ -11664,6 +11700,7 @@ export async function chat(opts: {
     semanticBehaviorAnswer,
     structuredRepairPlan,
     acceptedBehaviorEvidence,
+    capabilityProbeReport: capabilityProbeFinalReport ?? undefined,
   });
   // Provider adapters normally supply both usage counters, but some
   // compatible providers and deterministic fixtures omit usage metadata or

@@ -51,6 +51,12 @@ Claim-scoped recovery is a different acceptance shape from full-report recovery:
 
 **How to apply:** Keep the final `PROVEN` gate complete and strict, but let targeted recovery close only its named claim; persist micro-probe progress separately so later timeouts do not erase diagnostic state.
 
+An accepted Capability Probe is its own terminal contract: once the server validates complete retained bodies and closes C1–C7, generic six-section forensic parsing, stale provider parse errors, and generic behavior coverage must not downgrade it.
+
+**Why:** A production trace assembled a valid server-owned 7/7 report after a malformed provider wrapper, then persisted `NOT_PROVEN` because the old parse marker and generic forensic terminal path remained authoritative.
+
+**How to apply:** Preserve provider-attempt telemetry separately, clear only the stale parse marker at the accepted server-owned seam, bypass generic forensic terminal classification, and persist probe-specific claim coverage.
+
 Capability preflight must treat invalid tool arguments as a capability/model failure, not transport failure, and must test a bounded sequence of model candidates before declaring the provider unavailable.
 
 **Why:** A live probe reached the provider but the first catalog model emitted invalid JSON tool arguments; a one-model preflight and unsafe-code projection turned that into `NETWORK_ERROR` before any source read.
