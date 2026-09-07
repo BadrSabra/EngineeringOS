@@ -163,6 +163,12 @@ describe("autonomous operation contract", () => {
         ...capabilityProbe,
         status: "INCOMPLETE",
         missingClaims: ["C1", "C3"],
+        progress: {
+          closedClaims: ["C4"],
+          pendingClaims: ["C1", "C2", "C3", "C5", "C6", "C7"],
+          completedGroups: ["scope-boundary"],
+          failedGroups: ["grounding", "anti-hallucination"],
+        },
         recoveryAttempted: true,
       },
       updatedAt: new Date().toISOString(),
@@ -173,6 +179,12 @@ describe("autonomous operation contract", () => {
       outputContract: "BEHAVIOR_ANSWER",
       status: "INCOMPLETE",
       missingClaims: ["C1", "C3"],
+      progress: {
+        closedClaims: ["C4"],
+        pendingClaims: ["C1", "C2", "C3", "C5", "C6", "C7"],
+        completedGroups: ["scope-boundary"],
+        failedGroups: ["grounding", "anti-hallucination"],
+      },
       recoveryAttempted: true,
     });
     expect(parseExecutionRequest(JSON.stringify({

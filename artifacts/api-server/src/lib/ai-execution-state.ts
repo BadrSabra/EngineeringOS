@@ -569,9 +569,17 @@ export type AiCapabilityProbeContract = {
   outputContract: string;
 };
 
+export type AiCapabilityProbeProgress = {
+  closedClaims: string[];
+  pendingClaims: string[];
+  completedGroups: string[];
+  failedGroups: string[];
+};
+
 export type AiCapabilityProbeCheckpoint = AiCapabilityProbeContract & {
   status?: "PENDING" | "COMPLETE" | "INCOMPLETE";
   missingClaims?: string[];
+  progress?: AiCapabilityProbeProgress;
   recoveryAttempted?: boolean;
   recoveryAttempt?: number;
   recoveryFailureKind?: string;
@@ -750,12 +758,33 @@ function parseCapabilityProbeCheckpoint(value: unknown): AiCapabilityProbeCheckp
   const contract = parseCapabilityProbeContract(value);
   if (!contract || !value || typeof value !== "object") return undefined;
   const candidate = value as Partial<AiCapabilityProbeCheckpoint>;
+  const parseProgress = (progress: unknown): AiCapabilityProbeProgress | undefined => {
+    if (!progress || typeof progress !== "object") return undefined;
+    const source = progress as Partial<AiCapabilityProbeProgress>;
+    const parseList = (items: unknown, maxLength: number): string[] | undefined => {
+      if (!Array.isArray(items) || items.length > maxLength) return undefined;
+      const values = items
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim().slice(0, 120));
+      return values.length === items.length ? [...new Set(values)] : undefined;
+    };
+    const closedClaims = parseList(source.closedClaims, 8);
+    const pendingClaims = parseList(source.pendingClaims, 8);
+    const completedGroups = parseList(source.completedGroups, 16);
+    const failedGroups = parseList(source.failedGroups, 16);
+    if (!closedClaims || !pendingClaims || !completedGroups || !failedGroups) return undefined;
+    return { closedClaims, pendingClaims, completedGroups, failedGroups };
+  };
+  const progress = candidate.progress === undefined
+    ? undefined
+    : parseProgress(candidate.progress);
   if (
     (candidate.status !== undefined && !["PENDING", "COMPLETE", "INCOMPLETE"].includes(candidate.status))
     || (candidate.missingClaims !== undefined && (
       !Array.isArray(candidate.missingClaims)
       || candidate.missingClaims.some((claim) => typeof claim !== "string")
     ))
+    || (candidate.progress !== undefined && !progress)
     || (candidate.recoveryAttempted !== undefined && typeof candidate.recoveryAttempted !== "boolean")
     || (candidate.recoveryAttempt !== undefined && (
       !Number.isInteger(candidate.recoveryAttempt) || candidate.recoveryAttempt < 0 || candidate.recoveryAttempt > 32
@@ -773,6 +802,7 @@ function parseCapabilityProbeCheckpoint(value: unknown): AiCapabilityProbeCheckp
         .slice(0, 8)
         .map((claim) => claim.slice(0, 20)),
     } : {}),
+    ...(progress ? { progress } : {}),
     ...(candidate.recoveryAttempted !== undefined ? { recoveryAttempted: candidate.recoveryAttempted } : {}),
     ...(candidate.recoveryAttempt !== undefined ? { recoveryAttempt: candidate.recoveryAttempt } : {}),
     ...(candidate.recoveryFailureKind ? { recoveryFailureKind: candidate.recoveryFailureKind.slice(0, 80) } : {}),

@@ -81,9 +81,39 @@ describe('parseCapabilityProbeReport', () => {
     expect(report?.capabilities.find((capability) => capability.id === 'C1')?.status).toBe('unknown');
     expect(report?.progress).toEqual({
       closedClaims: ['C1', 'C3'],
-      pendingClaims: [],
+      pendingClaims: ['C2', 'C4', 'C5', 'C6', 'C7'],
       completedGroups: ['grounding'],
       failedGroups: [],
     });
+  });
+
+  it('merges partial progress across recovery groups and derives pending claims', () => {
+    const report = parseCapabilityProbeReport(
+      'ANALYSIS_INCOMPLETE\nSource evidence was retained, but claims remain unclosed.',
+      [{
+        code: 'CAPABILITY_PROBE_PARTIAL_PROGRESS',
+        details: [
+          'micro-probe scope-boundary: completed',
+          'closed claims: C4',
+          'completed groups: scope-boundary',
+          'selected evidence: E2',
+        ],
+      }, {
+        code: 'CAPABILITY_PROBE_PARTIAL_PROGRESS',
+        details: [
+          'micro-probe anti-hallucination: failed',
+          'closed claims: C4',
+          'completed groups: scope-boundary',
+        ],
+      }],
+    );
+
+    expect(report?.progress).toEqual({
+      closedClaims: ['C4'],
+      pendingClaims: ['C1', 'C2', 'C3', 'C5', 'C6', 'C7'],
+      completedGroups: ['scope-boundary'],
+      failedGroups: ['anti-hallucination'],
+    });
+    expect(report?.capabilities.find((capability) => capability.id === 'C4')?.status).toBe('unknown');
   });
 });

@@ -47,29 +47,40 @@ export type CapabilityProbeReport = {
 function capabilityProgress(
   trace: readonly CapabilityProbeTraceEntry[],
 ): CapabilityProbeReport['progress'] {
-  const entry = [...trace].reverse().find((candidate) =>
+  const entries = trace.filter((candidate) =>
     candidate.code === 'CAPABILITY_PROBE_PARTIAL_PROGRESS',
   );
-  if (!entry) return undefined;
+  if (entries.length === 0) return undefined;
   const detail = (prefix: string): string[] =>
-    (entry.details ?? [])
-      .find((value) => value.startsWith(prefix))
-      ?.slice(prefix.length)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean) ?? [];
+    [...new Set(entries.flatMap((entry) =>
+      (entry.details ?? [])
+        .filter((value) => value.startsWith(prefix))
+        .flatMap((value) => value.slice(prefix.length).split(','))
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ))];
   const validClaims = (values: string[]): CapabilityLabel[] =>
     values.filter((value): value is CapabilityLabel =>
       CAPABILITY_LABELS.includes(value as CapabilityLabel),
     );
-  const status = (entry.details ?? []).find((value) => value.startsWith('micro-probe '));
-  const statusMatch = status?.match(/^micro-probe\s+([^:]+):\s+(completed|failed)$/);
+  const statusMatches = entries.flatMap((entry) =>
+    (entry.details ?? [])
+      .filter((value) => value.startsWith('micro-probe '))
+      .map((value) => value.match(/^micro-probe\s+([^:]+):\s+(completed|failed)$/))
+      .filter((match): match is RegExpMatchArray => Boolean(match)),
+  );
   const completedGroups = detail('completed groups:');
-  const failedGroups = statusMatch?.[2] === 'failed' && statusMatch[1]
-    ? [...new Set([...detail('failed groups:'), statusMatch[1].trim()])]
-    : detail('failed groups:');
+  const failedGroups = [
+    ...detail('failed groups:'),
+    ...statusMatches
+      .filter((match) => match[2] === 'failed')
+      .map((match) => match[1]!.trim()),
+  ];
   const closedClaims = validClaims(detail('closed claims:'));
-  const pendingClaims = validClaims(detail('pending claims:'));
+  const explicitPendingClaims = validClaims(detail('pending claims:'));
+  const pendingClaims = explicitPendingClaims.length > 0
+    ? explicitPendingClaims
+    : CAPABILITY_LABELS.filter((label) => !closedClaims.includes(label));
   if (
     closedClaims.length === 0 &&
     pendingClaims.length === 0 &&
