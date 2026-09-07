@@ -442,6 +442,7 @@ async function installApiFixtures(
       recoveredToken: string;
       resumedStreamBody: string;
     };
+    missionControl?: Record<string, unknown>;
     deliveryRecovery?: {
       operations: Array<Record<string, unknown>>;
       requests: string[];
@@ -598,9 +599,21 @@ async function installApiFixtures(
         Object.assign(overrides.interruptedResume.execution, {
           status: "completed",
           flightState: "COMPLETED",
+          attempt: 2,
           evidenceVerdict: "PROVEN",
+          evidenceReason: "The server-owned source evidence is complete.",
           proofRequired: false,
           resumable: false,
+          acceptance: {
+            attempt: 2,
+            terminalStatus: "completed",
+            outcome: "SUCCEEDED",
+            reasonCode: "CAPABILITY_PROBE_FINAL",
+            nextActionCode: "NONE",
+            evidenceComplete: true,
+            evidenceRequired: true,
+            resumable: false,
+          },
           checkpoint: {
             stage: "complete",
             detail: "The Capability Probe completed after reconnect.",
@@ -1161,7 +1174,12 @@ async function installApiFixtures(
       );
     if (path === "/api/ai/mission-control")
       return route.fulfill(
-        jsonResponse({ updatedAt: "2026-01-01T00:01:00.000Z", executions: [] }),
+        jsonResponse(
+          overrides?.missionControl ?? {
+            updatedAt: "2026-01-01T00:01:00.000Z",
+            executions: [],
+          },
+        ),
       );
 
     // AI is deliberately not executed in this smoke journey. This response
@@ -1589,6 +1607,26 @@ function installInterruptedCapabilityProbeFixture() {
   const projectRevision = "e2e-capability-probe-workspace-revision";
   const initialToken = "e2e-capability-probe-initial-token";
   const recoveredToken = "e2e-capability-probe-recovered-token";
+  const pausedAcceptance = {
+    attempt: 1,
+    terminalStatus: "paused",
+    outcome: "INTERRUPTED",
+    reasonCode: "LEASE_EXPIRED",
+    nextActionCode: "RESUME_ALLOWED",
+    evidenceComplete: false,
+    evidenceRequired: true,
+    resumable: true,
+  };
+  const completedAcceptance = {
+    attempt: 2,
+    terminalStatus: "completed",
+    outcome: "SUCCEEDED",
+    reasonCode: "CAPABILITY_PROBE_FINAL",
+    nextActionCode: "NONE",
+    evidenceComplete: true,
+    evidenceRequired: true,
+    resumable: false,
+  };
   const message = {
     ...base.message,
     id: "e2e-capability-probe-reconnect-message",
@@ -1596,6 +1634,7 @@ function installInterruptedCapabilityProbeFixture() {
     outcome: "COMPLETED",
     operationId,
     projectRevision,
+    acceptance: completedAcceptance,
   };
   const sse = (event: Record<string, unknown>) =>
     `data: ${JSON.stringify(event)}\n\n`;
@@ -1618,6 +1657,8 @@ function installInterruptedCapabilityProbeFixture() {
     },
     initialToken,
     recoveredToken,
+    pausedAcceptance,
+    completedAcceptance,
     resumedStreamBody: [
       sse({ type: "session_started", sessionId: base.sessionId }),
       sse({
@@ -1636,6 +1677,7 @@ function installInterruptedCapabilityProbeFixture() {
         operationId,
         projectRevision,
         message,
+        acceptance: completedAcceptance,
         sources: (base.message.sources as string[] | undefined) ?? [],
         toolTrace: base.message.toolTrace,
         behaviorEvidence: base.message.behaviorEvidence,
@@ -1649,10 +1691,13 @@ function installInterruptedCapabilityProbeFixture() {
       operationId,
       sessionId: base.sessionId,
       status: "paused",
-      flightState: "BUILDING",
+      flightState: "PAUSED",
+      attempt: 1,
       evidenceVerdict: "UNAVAILABLE",
+      evidenceReason: "The lease expired before the acceptance evidence was complete.",
       proofRequired: true,
       resumable: true,
+      acceptance: pausedAcceptance,
       checkpointVersion: 1,
       projectRevision,
       checkpoint: {
@@ -5160,6 +5205,152 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
     expect(await reloadedNotice.textContent()).toBe(beforeReload);
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
+  });
+
+  test("converges the accepted attempt across SSE, JSON, history, and Mission Control after reconnect", async ({
+    page,
+  }) => {
+    const recovery = installInterruptedCapabilityProbeFixture();
+    const completedAcceptance = recovery.completedAcceptance as Record<string, unknown>;
+    const staleAcceptance = recovery.pausedAcceptance as Record<string, unknown>;
+    const staleMessage = {
+      ...recovery.fixture.message,
+      id: "e2e-capability-probe-stale-terminal-message",
+      content: "Stale terminal frame must not replace the accepted result.",
+      outcome: "FAILED",
+      acceptance: staleAcceptance,
+    };
+    recovery.resumedStreamBody += [
+      `data: ${JSON.stringify({
+        type: "done",
+        sessionId: recovery.fixture.sessionId,
+        executionId: recovery.fixture.executionId,
+        message: staleMessage,
+        acceptance: staleAcceptance,
+      })}\n\n`,
+    ].join("");
+    await installApiFixtures(page, {
+      interruptedResume: recovery,
+      missionControl: {
+        updatedAt: "2026-01-01T00:03:00.000Z",
+        executions: [{
+          id: recovery.fixture.executionId,
+          state: "COMPLETED",
+          objective: recovery.fixture.question,
+          attempt: completedAcceptance.attempt,
+          acceptance: completedAcceptance,
+          evidenceProjection: { completeness: "COMPLETE" },
+          evidence: { verdict: "PROVEN" },
+          checkpointVersion: 2,
+          eventCount: 4,
+          recentEvents: [{ kind: "acceptance", status: "accepted" }],
+        }],
+      },
+    });
+    await page.addInitScript(
+      ({ execution, projectId, sessionId, resumeToken, message }) => {
+        localStorage.setItem(`eos_ai_execution_current_${projectId}`, sessionId);
+        localStorage.setItem(
+          `eos_ai_execution_${projectId}_${sessionId}`,
+          JSON.stringify({
+            ...execution,
+            id: execution.id,
+            projectId,
+            sessionId,
+            resumeToken,
+            message,
+          }),
+        );
+      },
+      {
+        execution: recovery.execution,
+        projectId: "e2e-project",
+        sessionId: recovery.fixture.sessionId,
+        resumeToken: recovery.initialToken,
+        message: recovery.fixture.question,
+      },
+    );
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const proof = page.getByLabel("Agent execution proof");
+    await expect(proof).toBeVisible();
+    await expect(proof).toContainText("Attempt: 1");
+    await expect(proof).toContainText("The lease expired before the acceptance evidence was complete.");
+    const browserJson = async (path: string) =>
+      page.evaluate(async (requestPath) => {
+        const response = await fetch(requestPath, { credentials: "include" });
+        return { status: response.status, body: await response.json() };
+      }, path);
+    const pausedJson = await browserJson(
+      `/api/ai/executions/${recovery.fixture.executionId}`,
+    );
+    expect(pausedJson.body).toEqual(
+      expect.objectContaining({ acceptance: staleAcceptance }),
+    );
+
+    const resumeResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith("/api/ai/chat/stream") &&
+      response.request().method() === "POST",
+    );
+    await proof.getByRole("button", { name: "Resume", exact: true }).click();
+    const resumeResponse = await resumeResponsePromise;
+    const terminalEvents = parseSse(await resumeResponse.text()).filter(
+      (event) => event.type === "done",
+    );
+    expect(terminalEvents).toHaveLength(2);
+    expect(terminalEvents[0]?.message).toEqual(
+      expect.objectContaining({ acceptance: completedAcceptance }),
+    );
+    expect(terminalEvents[1]?.message).toEqual(
+      expect.objectContaining({ acceptance: staleAcceptance }),
+    );
+
+    const report = page.getByRole("region", { name: "Capability probe report" });
+    await expect(report).toBeVisible();
+    await expect(report.locator('[aria-label="Capability probe score 7 out of 7"]')).toBeVisible();
+    await expect(page.getByText("Stale terminal frame must not replace the accepted result.", { exact: true })).toHaveCount(0);
+
+    const executionJson = await browserJson(
+      `/api/ai/executions/${recovery.fixture.executionId}`,
+    );
+    expect(executionJson.body).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        attempt: 2,
+        acceptance: completedAcceptance,
+      }),
+    );
+    const historyJson = await browserJson(
+      `/api/ai/chat/${recovery.fixture.sessionId}/messages`,
+    );
+    expect(historyJson.body.at(-1)).toEqual(
+      expect.objectContaining({
+        executionId: recovery.fixture.executionId,
+        acceptance: completedAcceptance,
+      }),
+    );
+
+    await page.goto(
+      `${DASHBOARD_PATH}mission-control?projectId=e2e-project`,
+    );
+    const acceptance = page.getByRole("region", {
+      name: "Current execution acceptance",
+    });
+    await expect(acceptance).toBeVisible();
+    await expect(acceptance).toContainText("2");
+    await expect(acceptance).toContainText("SUCCEEDED");
+    await expect(acceptance).toContainText("NONE");
+    await expect(acceptance).not.toContainText("RESUME_ALLOWED");
+
+    await page.reload();
+    const reloadedAcceptance = page.getByRole("region", {
+      name: "Current execution acceptance",
+    });
+    await expect(reloadedAcceptance).toBeVisible();
+    expect(await reloadedAcceptance.innerText()).toBe(
+      await acceptance.innerText(),
+    );
   });
 
   test("reopens a cancelled forensic report from session history after reload", async ({

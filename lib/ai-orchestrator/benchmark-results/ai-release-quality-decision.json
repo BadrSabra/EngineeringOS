@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-09-07T05:18:34.668Z",
+  "generatedAt": "2026-09-07T13:14:43.288Z",
   "status": "passed",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -25,7 +25,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 36599
+      "durationMs": 33677
     },
     {
       "id": "dashboard-typecheck",
@@ -37,7 +37,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 5507
+      "durationMs": 5493
     },
     {
       "id": "openapi-client-parity",
@@ -50,7 +50,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6667
+      "durationMs": 6181
     },
     {
       "id": "truth-flow-parity",
@@ -62,7 +62,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1413
+      "durationMs": 1308
     },
     {
       "id": "ai-contract-and-json",
@@ -77,7 +77,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 75180
+      "durationMs": 62563
     },
     {
       "id": "ai-structured-review-fallback",
@@ -93,7 +93,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1572
+      "durationMs": 1553
     },
     {
       "id": "ai-capability-probe-provider-matrix",
@@ -109,7 +109,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 3922
+      "durationMs": 4074
     },
     {
       "id": "ai-sse-and-redaction",
@@ -124,7 +124,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 31893
+      "durationMs": 28180
     },
     {
       "id": "ai-operational-safety",
@@ -140,7 +140,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 74029
+      "durationMs": 69984
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -155,7 +155,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 858
+      "durationMs": 913
     },
     {
       "id": "benchmark-baseline-regression",
@@ -168,7 +168,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1203
+      "durationMs": 1172
     },
     {
       "id": "benchmark-runtime-oracle-preflight",
@@ -181,7 +181,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7300
+      "durationMs": 7926
     },
     {
       "id": "dashboard-preview-contract",

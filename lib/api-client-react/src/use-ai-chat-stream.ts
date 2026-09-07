@@ -1111,6 +1111,10 @@ export function useAiChatStream() {
       && controllerRef.current === controller
       && !controller.signal.aborted
     );
+    // A healthy SSE connection must produce one terminal frame. Treat the
+    // first terminal event as authoritative for this request so a duplicated
+    // or stale frame cannot overwrite a durable accepted result in the UI.
+    let terminalDelivered = false;
     const guardedCallbacks: AiChatStreamCallbacks = {
       onExecutionStarted: (event) => {
         if (!isCurrent()) return;
@@ -1131,11 +1135,16 @@ export function useAiChatStream() {
       onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
       onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
       onDone: (event) => {
-        if (!isCurrent()) return;
+        if (!isCurrent() || terminalDelivered) return;
+        terminalDelivered = true;
         executionRef.current = null;
         callbacks.onDone?.(event);
       },
-      onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+      onError: (event) => {
+        if (!isCurrent() || terminalDelivered) return;
+        terminalDelivered = true;
+        callbacks.onError?.(event);
+      },
       onToolCall: (event) => { if (isCurrent()) callbacks.onToolCall?.(event); },
       onToolResult: (event) => { if (isCurrent()) callbacks.onToolResult?.(event); },
       onPlanActivity: (event) => { if (isCurrent()) callbacks.onPlanActivity?.(event); },
