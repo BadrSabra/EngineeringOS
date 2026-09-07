@@ -62,3 +62,9 @@ Capability preflight must validate both the required tool call and the final `Ch
 **Why:** A candidate could return a successful HTTP response and a valid tool call, then emit malformed synthesis JSON; a single recovery candidate could then be rate-limited even though source evidence was already complete.
 
 **How to apply:** Treat semantic tool or structured-output failures as candidate-local, record every attempted model, and only mark the provider usable after both contracts pass. Never turn retained evidence into a proven report without the server-owned claim gate.
+
+The capability recovery path must remove every parent abort listener it installs, and fallback candidates must be model-aware rather than deduplicated only by provider.
+
+**Why:** A live probe accumulated anonymous abort listeners across repeated micro-probes, producing `MaxListenersExceededWarning`; the same-provider recovery path also retried one Groq model repeatedly because non-OpenRouter recovery forces one model and provider fallback de-duplicates by provider.
+
+**How to apply:** Use one named abort handler with symmetric cleanup in `awaitAbortableRecovery`, and represent recovery candidates as provider/model attempts (or use deterministic server-owned claim assembly) so a malformed or slow model cannot consume the whole evidence-recovery window.
