@@ -568,7 +568,13 @@ async function awaitAbortableRecovery<T>(
   }
 
   const controller = new AbortController();
-  const abortFromParent = () => controller.abort();
+  let rejectCancellation: ((reason?: unknown) => void) | undefined;
+  const abortFromParent = () => {
+    controller.abort();
+    const error = new Error("capability probe recovery cancelled");
+    Object.assign(error, { code: "CANCELLED" });
+    rejectCancellation?.(error);
+  };
   parentSignal?.addEventListener("abort", abortFromParent, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const providerOperation = operation(controller.signal);
@@ -586,18 +592,13 @@ async function awaitAbortableRecovery<T>(
   });
   const cancelled = parentSignal
     ? new Promise<T>((_, reject) => {
+        rejectCancellation = reject;
         if (parentSignal.aborted) {
           const error = new Error("capability probe recovery cancelled");
           Object.assign(error, { code: "CANCELLED" });
           reject(error);
           return;
         }
-        parentSignal.addEventListener("abort", () => {
-          controller.abort();
-          const error = new Error("capability probe recovery cancelled");
-          Object.assign(error, { code: "CANCELLED" });
-          reject(error);
-        }, { once: true });
       })
     : null;
   try {
@@ -607,6 +608,7 @@ async function awaitAbortableRecovery<T>(
   } finally {
     if (timer) clearTimeout(timer);
     parentSignal?.removeEventListener("abort", abortFromParent);
+    rejectCancellation = undefined;
     controller.abort();
   }
 }
