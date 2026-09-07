@@ -1678,7 +1678,17 @@ export async function claimAiExecution(params: {
         } satisfies AiExecutionCheckpoint),
         checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
       } : {}),
-      ...(tokenHash ? { attempt: sql`${aiExecutionsTable.attempt} + 1` } : {}),
+      ...(tokenHash
+        ? {
+            // A resume is a new auditable attempt. The previous attempt's
+            // assistant row remains linked from its acceptance record, but it
+            // must not block the new attempt from reserving its own terminal
+            // message.
+            attempt: sql`${aiExecutionsTable.attempt} + 1`,
+            finalMessageId: null,
+            completedAt: null,
+          }
+        : {}),
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),

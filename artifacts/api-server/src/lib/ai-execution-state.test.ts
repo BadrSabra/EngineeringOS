@@ -23,6 +23,7 @@ vi.mock("@workspace/db", () => {
     userId: "user-1",
     idempotencyKey: "retry-key",
     resumeTokenHash: "hash",
+      attempt: 0,
     request: JSON.stringify(request),
     checkpoint: JSON.stringify({ stage: "queued", sequence: 0, updatedAt: now.toISOString() }),
     checkpointVersion: 0,
@@ -73,15 +74,31 @@ vi.mock("@workspace/db", () => {
         }),
       }),
     }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: () => ({
+          returning: async () => {
+            const nextValues = { ...values };
+            if ("attempt" in nextValues) {
+              nextValues.attempt = execution.attempt + 1;
+            }
+            Object.assign(execution, nextValues);
+            return [execution];
+          },
+        }),
+      }),
+    }),
   };
 
   return {
     db,
     aiExecutionsTable: executionTable,
+    __executionFixture: execution,
   };
 });
 
 import {
+  claimAiExecution,
   createAiExecution,
   createAutonomousOperationContract,
   createRecipeOperationBinding,
@@ -118,6 +135,45 @@ describe("createAiExecution", () => {
       "execution-1",
     ]);
     expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
+  });
+});
+
+describe("claimAiExecution", () => {
+  it("rotates the terminal message reservation and completion timestamp for a resume", async () => {
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __executionFixture: {
+        id: string;
+        userId: string;
+        status: string;
+        attempt: number;
+        finalMessageId: string | null;
+        completedAt: Date | null;
+      };
+    });
+    const completedAt = new Date("2026-01-01T00:02:00.000Z");
+    Object.assign(dbModule.__executionFixture, {
+      status: "failed",
+      attempt: 1,
+      finalMessageId: "assistant-attempt-1",
+      completedAt,
+    });
+
+    const claimed = await claimAiExecution({
+      executionId: "execution-1",
+      userId: "user-1",
+      workerId: "worker-2",
+      resumeToken: "resume-token-that-is-long-enough-for-the-test",
+    });
+
+    expect(claimed).toMatchObject({
+      status: "running",
+      attempt: 2,
+      workerId: "worker-2",
+      finalMessageId: null,
+      completedAt: null,
+    });
+    expect(dbModule.__executionFixture.finalMessageId).toBeNull();
+    expect(dbModule.__executionFixture.completedAt).toBeNull();
   });
 });
 
