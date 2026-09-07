@@ -5676,6 +5676,26 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       await expect(acceptance).toContainText(
         "Acceptance is incomplete because the server-owned evidence snapshot is not complete.",
       );
+
+      const acceptanceSnapshot = await acceptance.innerText();
+      const stateFilter = page.getByRole("combobox", {
+        name: "Filter execution history by state",
+      });
+      await stateFilter.selectOption("CANCELLED");
+      await expect(page.getByText("1 of 1 runs", { exact: true })).toBeVisible();
+      await expect(ledgerEntry).toContainText("CANCELLED");
+      await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
+      expect(await acceptance.innerText()).toBe(acceptanceSnapshot);
+      await expect(acceptance).toContainText("START_NEW_PROBE");
+      await expect(acceptance).toContainText(
+        "Acceptance is incomplete because the server-owned evidence snapshot is not complete.",
+      );
+
+      await stateFilter.selectOption("ALL");
+      await expect(page.getByText("1 of 1 runs", { exact: true })).toBeVisible();
+      await expect(ledgerEntry).toContainText("CANCELLED");
+      await expect(page.getByText("Evidence: INCOMPLETE", { exact: true })).toBeVisible();
+      expect(await acceptance.innerText()).toBe(acceptanceSnapshot);
     };
 
     await assertCancelledMissionControl();
