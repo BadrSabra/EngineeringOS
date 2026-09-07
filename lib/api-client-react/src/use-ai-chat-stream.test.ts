@@ -1,4 +1,8 @@
 /**
+ * @vitest-environment jsdom
+ */
+
+/**
  * Task 53 — client-side proof
  *
  * Tests `processAiStream`, the exported SSE-parsing function extracted from
@@ -22,8 +26,10 @@
  *   7. Malformed frames are skipped without disrupting subsequent valid frames.
  */
 
+import { act, createElement, useEffect, type ReactNode } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { processAiStream } from './use-ai-chat-stream.js';
+import { processAiStream, useAiChatStream } from './use-ai-chat-stream.js';
 import type {
   AiChatStreamCallbacks,
   AiStreamCrossFileTraceEvent,
@@ -53,6 +59,32 @@ function makeSseStream(...frames: string[]): ReadableStream<Uint8Array> {
 /** Serialise an object the same way the server's `sse()` helper does. */
 function sseFrame(data: Record<string, unknown>): string {
   return `data: ${JSON.stringify(data)}\n\n`;
+}
+
+const DONE_EVENT = {
+  type: 'done',
+  sessionId: 'session-complete',
+  message: {
+    id: 'message-complete',
+    role: 'assistant',
+    content: 'Complete',
+    sources: '[]',
+    createdAt: '2026-08-23T00:00:00.000Z',
+  },
+  sources: [],
+  pendingChanges: [],
+} as const;
+
+function StreamHookHarness({
+  onReady,
+}: {
+  onReady: (stream: ReturnType<typeof useAiChatStream>) => void;
+}): ReactNode {
+  const stream = useAiChatStream();
+  useEffect(() => {
+    onReady(stream);
+  }, [onReady, stream]);
+  return null;
 }
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
@@ -115,6 +147,53 @@ const CROSS_FILE_TRACE_EVENT: AiStreamCrossFileTraceEvent = {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe('useAiChatStream — terminal callback delivery', () => {
+  it('delivers only the first terminal frame per attempt while allowing later attempts', async () => {
+    const onDone = vi.fn();
+    const onError = vi.fn();
+    const streamAttempts = [
+      makeSseStream(
+        sseFrame(DONE_EVENT),
+        sseFrame({ ...DONE_EVENT, sessionId: 'stale-duplicate' }),
+      ),
+      makeSseStream(
+        sseFrame({ ...DONE_EVENT, sessionId: 'second-attempt' }),
+        sseFrame({ type: 'error', code: 'STALE_ERROR', message: 'stale terminal frame' }),
+      ),
+    ];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      body: streamAttempts.shift(),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    let stream: ReturnType<typeof useAiChatStream> | undefined;
+    const onReady = (nextStream: ReturnType<typeof useAiChatStream>) => {
+      stream = nextStream;
+    };
+    const root: Root = createRoot(document.createElement('div'));
+    await act(async () => {
+      root.render(createElement(StreamHookHarness, { onReady }));
+    });
+
+    expect(stream).toBeDefined();
+    await act(async () => {
+      await stream?.send({ projectId: 'project-1', message: 'first attempt', idempotencyKey: 'first-attempt' }, { onDone, onError });
+    });
+    await act(async () => {
+      await stream?.send({ projectId: 'project-1', message: 'second attempt', idempotencyKey: 'second-attempt' }, { onDone, onError });
+    });
+
+    expect(onDone).toHaveBeenCalledTimes(2);
+    expect(onDone.mock.calls[0]?.[0]).toMatchObject({ sessionId: 'session-complete' });
+    expect(onDone.mock.calls[1]?.[0]).toMatchObject({ sessionId: 'second-attempt' });
+    expect(onError).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    root.unmount();
+  });
 });
 
 describe('processAiStream — semantic trace dispatch', () => {
