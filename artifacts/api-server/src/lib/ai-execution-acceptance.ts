@@ -367,6 +367,17 @@ function safeError(value: string | null | undefined): string | null {
   return value ? value.replace(/\s+/g, " ").trim().slice(0, 500) : null;
 }
 
+function parseStoredExecutionRequest(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * One server-owned terminal seam. The execution row is locked first, then
  * the message and acceptance rows are written in that same transaction.
@@ -376,12 +387,6 @@ function safeError(value: string | null | undefined): string | null {
 export async function finalizeExecutionAcceptance(
   params: FinalizeExecutionAcceptanceParams,
 ): Promise<FinalizeExecutionAcceptanceResult> {
-  const evidence = normalizeEvidenceSnapshot(params.evidence);
-  const evidenceRequired = params.evidence?.required === true;
-  if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete) {
-    return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
-  }
-
   return db.transaction(async (tx) => {
     const [execution] = await tx
       .select()
@@ -389,6 +394,27 @@ export async function finalizeExecutionAcceptance(
       .where(eq(aiExecutionsTable.id, params.executionId))
       .for("update");
     if (!execution) return { accepted: false, duplicate: false, reason: "Execution was not found." };
+
+    const storedRequest = parseStoredExecutionRequest(execution.request);
+    const storedProofRequired = storedRequest?.proofRequired === true;
+    const evidenceRequired = storedProofRequired || params.evidence?.required === true;
+    const effectiveEvidence = evidenceRequired
+      ? {
+          ...(params.evidence ?? {}),
+          required: true,
+          operationId: params.evidence?.operationId ?? execution.operationId,
+          sourceRevision: params.evidence?.sourceRevision
+            ?? (typeof storedRequest?.workspaceRevision === "string"
+              ? storedRequest.workspaceRevision
+              : null),
+          verdict: params.evidence?.verdict ?? "NOT_RECORDED",
+          reads: params.evidence?.reads ?? [],
+        } satisfies EvidenceSnapshotInput
+      : params.evidence;
+    const evidence = normalizeEvidenceSnapshot(effectiveEvidence);
+    if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete) {
+      return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
+    }
 
     const [existingByKey] = await tx
       .select()
@@ -468,16 +494,16 @@ export async function finalizeExecutionAcceptance(
     });
     const acceptanceId = randomUUID();
     let evidenceSnapshotId: string | null = null;
-    if (params.evidence) {
+    if (effectiveEvidence) {
       evidenceSnapshotId = randomUUID();
       await tx.insert(aiExecutionEvidenceSnapshotsTable).values({
         id: evidenceSnapshotId,
         executionId: execution.id,
         projectId: execution.projectId,
         attempt: execution.attempt,
-        operationId: params.evidence.operationId ?? execution.operationId,
-        sourceRevision: params.evidence.sourceRevision ?? null,
-        candidateIdentity: params.evidence.candidateIdentity ?? null,
+        operationId: effectiveEvidence.operationId ?? execution.operationId,
+        sourceRevision: effectiveEvidence.sourceRevision ?? null,
+        candidateIdentity: effectiveEvidence.candidateIdentity ?? null,
         verdict: evidence.verdict,
         complete: evidence.complete ? 1 : 0,
         readCount: evidence.reads.length,
@@ -529,8 +555,11 @@ export async function finalizeExecutionAcceptance(
       evidenceComplete: evidence.complete ? 1 : 0,
       resumable: params.resumable === true ? 1 : 0,
       messageId: params.finalMessageId ?? null,
-      sourceRevision: params.sourceRevision ?? null,
-      candidateIdentity: params.candidateIdentity ?? null,
+      sourceRevision: params.sourceRevision
+        ?? (typeof storedRequest?.workspaceRevision === "string"
+          ? storedRequest.workspaceRevision
+          : null),
+      candidateIdentity: params.candidateIdentity ?? effectiveEvidence?.candidateIdentity ?? null,
       createdAt: now,
     }).onConflictDoNothing().returning();
     if (!acceptance) {
