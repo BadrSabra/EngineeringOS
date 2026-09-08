@@ -2256,6 +2256,7 @@ export const AiAcceptanceDispositionNextActionCode = {
   REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
   ABANDON_EXECUTION: 'ABANDON_EXECUTION',
   RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+  RETRY_AFTER_RATE_LIMIT: 'RETRY_AFTER_RATE_LIMIT',
 } as const;
 
 export interface AiAcceptanceDisposition {
@@ -2300,7 +2301,51 @@ export const AiExecutionAcceptanceNextActionCode = {
   REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
   ABANDON_EXECUTION: 'ABANDON_EXECUTION',
   RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+  RETRY_AFTER_RATE_LIMIT: 'RETRY_AFTER_RATE_LIMIT',
 } as const;
+
+export type ExecutionAcceptanceDispositionOutcome = typeof ExecutionAcceptanceDispositionOutcome[keyof typeof ExecutionAcceptanceDispositionOutcome];
+
+
+export const ExecutionAcceptanceDispositionOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type ExecutionAcceptanceDispositionRecoveryState = typeof ExecutionAcceptanceDispositionRecoveryState[keyof typeof ExecutionAcceptanceDispositionRecoveryState];
+
+
+export const ExecutionAcceptanceDispositionRecoveryState = {
+  NONE: 'NONE',
+  REQUIRED: 'REQUIRED',
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
+export type ExecutionAcceptanceDispositionNextActionCode = typeof ExecutionAcceptanceDispositionNextActionCode[keyof typeof ExecutionAcceptanceDispositionNextActionCode];
+
+
+export const ExecutionAcceptanceDispositionNextActionCode = {
+  NONE: 'NONE',
+  RESUME_ALLOWED: 'RESUME_ALLOWED',
+  START_NEW_PROBE: 'START_NEW_PROBE',
+  REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
+  ABANDON_EXECUTION: 'ABANDON_EXECUTION',
+  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+  RETRY_AFTER_RATE_LIMIT: 'RETRY_AFTER_RATE_LIMIT',
+} as const;
+
+export interface ExecutionAcceptanceDisposition {
+  reasonCodes: string[];
+  outcome: ExecutionAcceptanceDispositionOutcome;
+  failureKind?: string;
+  recoveryState: ExecutionAcceptanceDispositionRecoveryState;
+  nextActionCode: ExecutionAcceptanceDispositionNextActionCode;
+  operatorAction: string;
+  /** @minimum 0 */
+  retryAfterMs?: number;
+  retryAt?: string;
+}
 
 export interface AiExecutionAcceptance {
   /** @minimum 0 */
@@ -2316,6 +2361,7 @@ export interface AiExecutionAcceptance {
   evidenceComplete: boolean;
   evidenceRequired: boolean;
   resumable: boolean;
+  disposition?: ExecutionAcceptanceDisposition;
 }
 
 export type AiTerminalProjectionStatus = typeof AiTerminalProjectionStatus[keyof typeof AiTerminalProjectionStatus];
@@ -3700,46 +3746,8 @@ export const ExecutionAcceptanceNextActionCode = {
   REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
   ABANDON_EXECUTION: 'ABANDON_EXECUTION',
   RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
+  RETRY_AFTER_RATE_LIMIT: 'RETRY_AFTER_RATE_LIMIT',
 } as const;
-
-export type ExecutionAcceptanceDispositionOutcome = typeof ExecutionAcceptanceDispositionOutcome[keyof typeof ExecutionAcceptanceDispositionOutcome];
-
-
-export const ExecutionAcceptanceDispositionOutcome = {
-  SUCCEEDED: 'SUCCEEDED',
-  FAILED: 'FAILED',
-  INTERRUPTED: 'INTERRUPTED',
-} as const;
-
-export type ExecutionAcceptanceDispositionRecoveryState = typeof ExecutionAcceptanceDispositionRecoveryState[keyof typeof ExecutionAcceptanceDispositionRecoveryState];
-
-
-export const ExecutionAcceptanceDispositionRecoveryState = {
-  NONE: 'NONE',
-  REQUIRED: 'REQUIRED',
-  INCOMPLETE: 'INCOMPLETE',
-} as const;
-
-export type ExecutionAcceptanceDispositionNextActionCode = typeof ExecutionAcceptanceDispositionNextActionCode[keyof typeof ExecutionAcceptanceDispositionNextActionCode];
-
-
-export const ExecutionAcceptanceDispositionNextActionCode = {
-  NONE: 'NONE',
-  RESUME_ALLOWED: 'RESUME_ALLOWED',
-  START_NEW_PROBE: 'START_NEW_PROBE',
-  REVIEW_INCOMPLETE_EVIDENCE: 'REVIEW_INCOMPLETE_EVIDENCE',
-  ABANDON_EXECUTION: 'ABANDON_EXECUTION',
-  RETRY_AFTER_TIMEOUT: 'RETRY_AFTER_TIMEOUT',
-} as const;
-
-export interface ExecutionAcceptanceDisposition {
-  reasonCodes: string[];
-  outcome: ExecutionAcceptanceDispositionOutcome;
-  failureKind?: string;
-  recoveryState: ExecutionAcceptanceDispositionRecoveryState;
-  nextActionCode: ExecutionAcceptanceDispositionNextActionCode;
-  operatorAction: string;
-}
 
 export interface ExecutionAcceptance {
   attempt: number;

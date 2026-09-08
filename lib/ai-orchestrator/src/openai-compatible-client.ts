@@ -1260,6 +1260,23 @@ export async function openrouterCompleteWithFallback(
     try {
       return await openrouterCompleteRaw(messages, { ...opts, model });
     } catch (err) {
+      // A rate limit is normally scoped to the provider credential/window, not
+      // to the model slug. Do not turn one OpenRouter 429 into a burst of
+      // same-provider requests against the next free models; the caller must
+      // honor the provider cooldown or move to another provider.
+      const providerScopedRateLimit =
+        err instanceof GroqClientError &&
+        (err.code === "RATE_LIMITED" || err.code === "QUOTA");
+      if (providerScopedRateLimit) {
+        throw new GroqClientError(err.code, err.message, {
+          cause: err,
+          context: {
+            ...err.toProviderContext(),
+            providerModel: err.providerModel ?? model,
+            providerAttemptedModels: [...attemptedModels],
+          },
+        });
+      }
       // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
       // Bounded Recovery also owns transient fallback: it disables the
       // per-model retry above and advances immediately to the next live

@@ -16,4 +16,7 @@ export interface ExecutionAcceptanceDisposition {
   recoveryState: ExecutionAcceptanceDispositionRecoveryState;
   nextActionCode: ExecutionAcceptanceDispositionNextActionCode;
   operatorAction: string;
+  /** @minimum 0 */
+  retryAfterMs?: number;
+  retryAt?: Date;
 }

@@ -254,6 +254,8 @@ export type AiStreamErrorEvent = {
   code: string;
   message: string;
   retryable?: boolean;
+  retryAfterMs?: number;
+  retryAt?: string;
   quality?: {
     code: 'QUALITY_REVIEW_LOW';
     score: number;

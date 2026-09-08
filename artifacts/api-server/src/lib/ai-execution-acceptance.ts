@@ -20,6 +20,7 @@ export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "REVIEW_INCOMPLETE_EVIDENCE",
   "ABANDON_EXECUTION",
   "RETRY_AFTER_TIMEOUT",
+  "RETRY_AFTER_RATE_LIMIT",
 ] as const;
 export type AcceptanceNextActionCode = (typeof ACCEPTANCE_NEXT_ACTION_CODES)[number];
 
@@ -30,6 +31,8 @@ export type ExecutionAcceptanceDisposition = {
   recoveryState: "NONE" | "REQUIRED" | "INCOMPLETE";
   nextActionCode: AcceptanceNextActionCode;
   operatorAction: string;
+  retryAfterMs?: number;
+  retryAt?: string;
 };
 
 export type EvidenceReadInput = {
@@ -80,6 +83,8 @@ export type FinalizeExecutionAcceptanceParams = {
   sourceRevision?: string | null;
   candidateIdentity?: string | null;
   error?: string | null;
+  retryAfterMs?: number;
+  retryAt?: string;
   proposalId?: string | null;
   recipeReceipt?: unknown;
   checkpoint?: string;
@@ -165,6 +170,10 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
     recoveryState,
     nextActionCode,
     operatorAction,
+    ...(typeof raw.retryAfterMs === "number" && Number.isFinite(raw.retryAfterMs)
+      ? { retryAfterMs: Math.max(0, Math.round(raw.retryAfterMs)) }
+      : {}),
+    ...(typeof raw.retryAt === "string" ? { retryAt: raw.retryAt.slice(0, 40) } : {}),
   };
 }
 
@@ -349,11 +358,13 @@ export function deriveAcceptanceNextAction(params: {
   recoveryState: FinalizeExecutionAcceptanceParams["recoveryState"];
   resumable?: boolean;
   reasonCode?: string;
+  retryAfterMs?: number;
 }): AcceptanceNextActionCode {
   if (params.outcome === "SUCCEEDED") return "NONE";
   if (params.reasonCode === "CAPABILITY_PROBE_FINAL") return "START_NEW_PROBE";
   if (params.recoveryState === "REQUIRED" && params.resumable !== false) return "RESUME_ALLOWED";
   if (params.reasonCode === "EXECUTION_PROVIDER_FAILURE" && params.resumable === false) {
+    if (params.retryAfterMs !== undefined) return "RETRY_AFTER_RATE_LIMIT";
     return "RETRY_AFTER_TIMEOUT";
   }
   if (params.reasonCode === "EVIDENCE_INCOMPLETE" || params.reasonCode === "EXECUTION_ACCEPTANCE_INCOMPLETE") {
@@ -491,6 +502,7 @@ export async function finalizeExecutionAcceptance(
       recoveryState: params.recoveryState,
       resumable: params.resumable,
       reasonCode,
+      retryAfterMs: params.retryAfterMs,
     });
     const acceptanceId = randomUUID();
     let evidenceSnapshotId: string | null = null;
@@ -536,6 +548,8 @@ export async function finalizeExecutionAcceptance(
       nextActionCode,
       operatorAction: nextActionCode,
       ...(params.disposition ?? {}),
+      ...(params.retryAfterMs !== undefined ? { retryAfterMs: params.retryAfterMs } : {}),
+      ...(params.retryAt ? { retryAt: params.retryAt } : {}),
     };
     const [acceptance] = await tx.insert(aiExecutionAcceptancesTable).values({
       id: acceptanceId,

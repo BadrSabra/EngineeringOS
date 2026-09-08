@@ -699,6 +699,8 @@ export type AiExecutionCheckpoint = {
   proofRequired?: boolean;
   capabilityProbe?: AiCapabilityProbeCheckpoint;
   providerAttempts?: AiProviderAttemptCheckpoint[];
+  retryAfterMs?: number;
+  retryAt?: string;
   acceptanceDisposition?: AiAcceptanceDisposition;
   detail?: string;
   operation?: AutonomousOperationContract;
@@ -1503,6 +1505,8 @@ function mergeTerminalCheckpoint(
     evidenceReason?: string;
     capabilityProbe?: AiCapabilityProbeCheckpoint;
     providerAttempts?: AiProviderAttemptCheckpoint[];
+    retryAfterMs?: number;
+    retryAt?: string;
   },
 ): AiExecutionCheckpoint {
   const previous = parseAiExecutionCheckpoint(execution.checkpoint);
@@ -1586,6 +1590,10 @@ function mergeTerminalCheckpoint(
             })),
         }
       : {}),
+    ...(params.retryAfterMs !== undefined
+      ? { retryAfterMs: Math.max(0, Math.round(params.retryAfterMs)) }
+      : {}),
+    ...(params.retryAt ? { retryAt: params.retryAt } : {}),
     detail: params.error.slice(0, 500),
     updatedAt: now,
   } satisfies AiExecutionCheckpoint;
@@ -2041,6 +2049,7 @@ export async function failAiExecution(params: {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   providerAttempts?: AiProviderAttemptCheckpoint[];
+  retryAfterMs?: number;
   finalMessageId?: string;
   finalMessageErrorCode?: string;
   evidenceReads?: readonly EvidenceReadInput[];
@@ -2058,8 +2067,11 @@ export async function failAiExecution(params: {
       ),
     ))
     .limit(1);
+  const retryAt = params.retryAfterMs !== undefined
+    ? new Date(Date.now() + Math.max(0, params.retryAfterMs)).toISOString()
+    : undefined;
   const terminalCheckpoint = current
-    ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false })
+    ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false, retryAt })
     : undefined;
   if (params.recipeBinding && current) {
     const request = parseExecutionRequest(current.request);
@@ -2106,6 +2118,8 @@ export async function failAiExecution(params: {
         : params.acceptanceDisposition?.recoveryState
           ?? (providerFailure ? "REQUIRED" : undefined)
           ?? "REQUIRED",
+    retryAfterMs: params.retryAfterMs,
+    retryAt,
     // Ordinary CHAT turns never create a resumable execution contract. A
     // retryable provider error may still be retried by the caller, but it must
     // not expose the forensic/task resume path or revive session state.

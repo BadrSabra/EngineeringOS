@@ -20,6 +20,7 @@ import {
   unregisterAiExecutionController,
   type AiExecutionCheckpoint,
   type AiExecutionRequestEnvelope,
+  type AiProviderAttemptCheckpoint,
 } from "./ai-execution-state.js";
 
 export type StructuredTask = "analyze" | "review";
@@ -50,6 +51,8 @@ export type StructuredExecution = {
     error: string;
     errorCode: string;
     cancelled?: boolean;
+    providerAttempts?: AiProviderAttemptCheckpoint[];
+    retryAfterMs?: number;
   }) => Promise<boolean>;
   onClientClose: () => void;
   cleanup: () => void;
@@ -277,6 +280,8 @@ export async function startStructuredExecution(params: {
     error: string;
     errorCode: string;
     cancelled?: boolean;
+    providerAttempts?: AiProviderAttemptCheckpoint[];
+    retryAfterMs?: number;
   }) => {
     terminal = true;
     cleanup();
@@ -287,6 +292,8 @@ export async function startStructuredExecution(params: {
       finalMessageErrorCode: failure.errorCode,
       error: failure.error,
       cancelled: failure.cancelled,
+      providerAttempts: failure.providerAttempts,
+      retryAfterMs: failure.retryAfterMs,
       // Structured Retry creates a new execution. A terminal provider/model
       // failure is therefore not a resumable continuation; only a paused
       // execution recovered with its resume token is a real Resume.

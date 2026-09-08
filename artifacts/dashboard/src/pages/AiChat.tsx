@@ -81,9 +81,12 @@ type AcceptanceNextActionCode =
   | 'START_NEW_PROBE'
   | 'REVIEW_INCOMPLETE_EVIDENCE'
   | 'ABANDON_EXECUTION'
-  | 'RETRY_AFTER_TIMEOUT';
+  | 'RETRY_AFTER_TIMEOUT'
+  | 'RETRY_AFTER_RATE_LIMIT';
 type AcceptanceDispositionView = AiAcceptanceDisposition & {
   nextActionCode?: AcceptanceNextActionCode;
+  retryAfterMs?: number;
+  retryAt?: string;
 };
 import type {
   BrowserValidationBlockReason,
@@ -9011,6 +9014,19 @@ export default function AiChat() {
   function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
     const activeRun = structuredTaskRunRef.current;
     if (structuredRetryMessageId || isTaskSending) return;
+    const retryAt = activeExecutionStatus?.acceptance?.disposition?.retryAt;
+    if (
+      activeExecutionStatus?.acceptance?.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
+      && retryAt
+      && Date.parse(retryAt) > Date.now()
+    ) {
+      const seconds = Math.max(1, Math.ceil((Date.parse(retryAt) - Date.now()) / 1_000));
+      toast({
+        title: 'Retry is waiting for the provider',
+        description: `Try again in about ${seconds} second${seconds === 1 ? '' : 's'}.`,
+      });
+      return;
+    }
     const run = activeRun?.task === task
       ? activeRun
       : {

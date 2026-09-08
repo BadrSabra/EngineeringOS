@@ -8,6 +8,7 @@
 import type { AiExecutionAcceptanceNextActionCode } from './aiExecutionAcceptanceNextActionCode';
 import type { AiExecutionAcceptanceOutcome } from './aiExecutionAcceptanceOutcome';
 import type { AiExecutionAcceptanceTerminalStatus } from './aiExecutionAcceptanceTerminalStatus';
+import type { ExecutionAcceptanceDisposition } from './executionAcceptanceDisposition';
 
 export interface AiExecutionAcceptance {
   /** @minimum 0 */
@@ -23,4 +24,5 @@ export interface AiExecutionAcceptance {
   evidenceComplete: boolean;
   evidenceRequired: boolean;
   resumable: boolean;
+  disposition?: ExecutionAcceptanceDisposition;
 }

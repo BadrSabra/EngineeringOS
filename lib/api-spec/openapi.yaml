@@ -5775,7 +5775,7 @@ components:
           enum: [START_NEW_RUN]
         nextActionCode:
           type: string
-          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT, RETRY_AFTER_RATE_LIMIT]
 
     AiExecutionAcceptance:
       type: object
@@ -5792,10 +5792,12 @@ components:
         reasonCode: { type: string, minLength: 1, maxLength: 80 }
         nextActionCode:
           type: string
-          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT, RETRY_AFTER_RATE_LIMIT]
         evidenceComplete: { type: boolean }
         evidenceRequired: { type: boolean }
         resumable: { type: boolean }
+        disposition:
+          $ref: "#/components/schemas/ExecutionAcceptanceDisposition"
 
     ExecutionLedgerSnapshot:
       type: object
@@ -7108,7 +7110,7 @@ components:
           type: string
         nextActionCode:
           type: string
-          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT, RETRY_AFTER_RATE_LIMIT]
         evidenceComplete:
           type: boolean
         evidenceRequired:
@@ -7136,9 +7138,15 @@ components:
           enum: [NONE, REQUIRED, INCOMPLETE]
         nextActionCode:
           type: string
-          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT]
+          enum: [NONE, RESUME_ALLOWED, START_NEW_PROBE, REVIEW_INCOMPLETE_EVIDENCE, ABANDON_EXECUTION, RETRY_AFTER_TIMEOUT, RETRY_AFTER_RATE_LIMIT]
         operatorAction:
           type: string
+        retryAfterMs:
+          type: integer
+          minimum: 0
+        retryAt:
+          type: string
+          format: date-time
 
     CreateTaskInput:
       type: object

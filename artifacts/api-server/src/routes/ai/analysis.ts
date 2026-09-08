@@ -65,7 +65,7 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
      | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string }
-     | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string })
+     | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
@@ -100,6 +100,8 @@ function structuredFailureDetails(err: unknown): {
   failureKind: StructuredFailureKind;
   message: string;
   retryable: boolean;
+  retryAfterMs?: number;
+  providerAttempts?: Array<{ provider: string; code: string }>;
 } {
   const candidate = err as { code?: unknown };
   const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
@@ -116,7 +118,31 @@ function structuredFailureDetails(err: unknown): {
     failureKind === "QUALITY_REVIEW" ? "The AI result did not meet the quality checks required for completion." :
     failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
     "The AI provider could not complete this run.";
-  return { code, failureKind, message, retryable: failureKind !== "CONFIGURATION" };
+  const retryAfterCandidate = (err as { retryAfterMs?: unknown }).retryAfterMs;
+  const retryAfterMs = failureKind === "RATE_LIMIT"
+    ? Math.max(
+        1_000,
+        typeof retryAfterCandidate === "number" && Number.isFinite(retryAfterCandidate)
+          ? retryAfterCandidate
+          : 30_000,
+      )
+    : undefined;
+  const providerName = (err as { providerName?: unknown }).providerName;
+  const providerAttempts =
+    failureKind === "RATE_LIMIT" || failureKind === "PROVIDER_FAILURE"
+      ? [{
+          provider: typeof providerName === "string" && providerName.trim() ? providerName : "unknown",
+          code,
+        }]
+      : undefined;
+  return {
+    code,
+    failureKind,
+    message,
+    retryable: failureKind !== "CONFIGURATION",
+    retryAfterMs,
+    providerAttempts,
+  };
 }
 
 function structuredDeadlineError(task: StructuredTask): Error {
@@ -349,6 +375,8 @@ async function persistStructuredExecutionFailure(params: {
     messageId,
     error: content,
     errorCode: details.code,
+      providerAttempts: details.providerAttempts,
+      retryAfterMs: details.retryAfterMs,
   });
   emit({
     type: "error",
@@ -360,6 +388,10 @@ async function persistStructuredExecutionFailure(params: {
         ? "Update the AI setup before starting a new task."
         : "You can retry this task without sending another prompt.",
     retryable: details.retryable,
+    retryAfterMs: details.retryAfterMs,
+    retryAt: details.retryAfterMs
+      ? new Date(Date.now() + details.retryAfterMs).toISOString()
+      : undefined,
     failureKind: details.failureKind,
     outcome: "FAILED",
     sessionId: execution.started.sessionId,
@@ -719,6 +751,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         failureKind: "RATE_LIMIT",
         message: "The AI provider is temporarily rate-limited.",
         retryable: true,
+        retryAfterMs: (rlAnalyze.retryAfterSec ?? 30) * 1_000,
       },
       emit,
       close,

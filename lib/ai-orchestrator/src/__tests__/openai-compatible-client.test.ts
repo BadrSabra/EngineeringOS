@@ -516,44 +516,36 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
   });
 
-  it("429 advances to the next bounded model when transient retry is disabled", async () => {
+  it("429 stops same-provider fallback when transient retry is disabled", async () => {
     let callCount = 0;
     const seenModels: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       callCount++;
       seenModels.push(String(body.model));
-      if (callCount === 1) {
-        return {
-          ok: false,
-          status: 429,
-          json: async () => ({}),
-          text: async () => '{"error":{"message":"temporarily rate-limited upstream"}}',
-        } as Response;
-      }
       return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content: "ok-after-rate-limit" } }],
-          model: String(body.model),
-          usage: {},
-        }),
-        text: async () => "",
+        ok: false,
+        status: 429,
+        json: async () => ({}),
+        text: async () => '{"error":{"message":"temporarily rate-limited upstream"}}',
       } as Response;
     }));
 
-    const result = await openrouterCompleteWithFallback(baseMessages as any, {
-      apiKey: "test-key",
-      model: primaryModel,
-      maxTokens: 10,
-      maxFallbackModels: 2,
-      retryTransient: false,
-    });
-
-    expect(result.content).toBe("ok-after-rate-limit");
-    expect(callCount).toBe(2);
-    expect(seenModels[1]).not.toBe(seenModels[0]);
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        maxFallbackModels: 2,
+        retryTransient: false,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        JSON.stringify(err.providerAttemptedModels) === JSON.stringify([seenModels[0]]),
+    );
+    expect(callCount).toBe(1);
   });
 
   it("preserves a bounded Retry-After hint and avoids retrying the same model", async () => {
@@ -635,14 +627,11 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     );
   });
 
-  it("skips transient retry when the caller owns bounded fallback", async () => {
+  it("does not cascade rate limits across same-provider models", async () => {
     let callCount = 0;
     const seenModels: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async () => {
       callCount++;
-      // The bounded caller should advance through candidates without retrying
-      // the same model. The static catalog is used because this test resets
-      // the dynamic catalog before each case.
       seenModels.push(String(callCount));
       return {
         ok: false,
@@ -660,8 +649,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         retryTransient: false,
       }),
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
-    expect(callCount).toBeGreaterThan(1);
-    expect(new Set(seenModels).size).toBe(callCount);
+    expect(callCount).toBe(1);
+    expect(new Set(seenModels).size).toBe(1);
   });
 
   it("bounds provider-owned fallback candidates for short recovery calls", async () => {
@@ -700,8 +689,8 @@ describe("openrouterCompleteWithFallback — error classification", () => {
         err.providerModel === seenModels.at(-1) &&
         JSON.stringify(err.providerAttemptedModels) === JSON.stringify(seenModels),
     );
-    expect(callCount).toBe(2);
-    expect(new Set(seenModels).size).toBe(2);
+    expect(callCount).toBe(1);
+    expect(new Set(seenModels).size).toBe(1);
   });
 
   it("keeps the requested model on reasoning-only EMPTY_RESPONSE", async () => {

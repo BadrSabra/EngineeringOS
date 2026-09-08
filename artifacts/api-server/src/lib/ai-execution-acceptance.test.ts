@@ -59,6 +59,13 @@ describe("server-owned execution acceptance", () => {
       resumable: false,
       reasonCode: "EVIDENCE_INCOMPLETE",
     })).toBe("REVIEW_INCOMPLETE_EVIDENCE");
+    expect(deriveAcceptanceNextAction({
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      resumable: false,
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      retryAfterMs: 15_000,
+    })).toBe("RETRY_AFTER_RATE_LIMIT");
   });
 
   it("projects only the allowlisted current-attempt acceptance fields", () => {
@@ -93,6 +100,51 @@ describe("server-owned execution acceptance", () => {
       evidenceComplete: false,
       evidenceRequired: true,
       resumable: false,
+    });
+  });
+
+  it("projects a provider cooldown without leaking provider payloads", () => {
+    const projected = projectExecutionAcceptance({
+      id: "acceptance",
+      executionId: "execution",
+      projectId: "project",
+      attempt: 3,
+      finalizationKey: "key",
+      operationId: "operation",
+      workerId: "worker",
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        reasonCodes: ["EXECUTION_PROVIDER_FAILURE"],
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+        operatorAction: "RETRY_AFTER_RATE_LIMIT",
+        providerPayload: "must not cross boundary",
+        retryAfterMs: 15_000,
+        retryAt: "2026-09-08T18:00:15.000Z",
+      },
+      evidenceSnapshotId: null,
+      evidenceRequired: 0,
+      evidenceComplete: 0,
+      resumable: 0,
+      messageId: "message",
+      sourceRevision: "revision",
+      candidateIdentity: "candidate",
+      createdAt: new Date(),
+    });
+
+    expect(projected?.nextActionCode).toBe("RETRY_AFTER_RATE_LIMIT");
+    expect(projected?.disposition).toEqual({
+      reasonCodes: ["EXECUTION_PROVIDER_FAILURE"],
+      outcome: "FAILED",
+      recoveryState: "REQUIRED",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      operatorAction: "RETRY_AFTER_RATE_LIMIT",
+      retryAfterMs: 15_000,
+      retryAt: "2026-09-08T18:00:15.000Z",
     });
   });
 });

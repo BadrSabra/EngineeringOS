@@ -333,6 +333,8 @@ export const listTasksResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const listTasksResponseRemediationPlanOneVerificationChecksMax = 20;
 
+export const listTasksResponseAcceptanceDispositionRetryAfterMsMin = 0;
+
 
 
 export const ListTasksResponseItem = zod.object({
@@ -409,7 +411,7 @@ export const ListTasksResponseItem = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -418,8 +420,10 @@ export const ListTasksResponseItem = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(listTasksResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -456,6 +460,8 @@ export const createTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const createTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const createTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const createTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -533,7 +539,7 @@ export const CreateTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -542,8 +548,10 @@ export const CreateTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(createTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -571,6 +579,8 @@ export const getTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const getTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const getTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const getTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -648,7 +658,7 @@ export const GetTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -657,8 +667,10 @@ export const GetTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(getTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -693,6 +705,8 @@ export const updateTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const updateTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const updateTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const updateTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -770,7 +784,7 @@ export const UpdateTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -779,8 +793,10 @@ export const UpdateTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(updateTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -818,6 +834,8 @@ export const executeTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const executeTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const executeTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const executeTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -895,7 +913,7 @@ export const ExecuteTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -904,8 +922,10 @@ export const ExecuteTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(executeTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -943,6 +963,8 @@ export const recordTaskVerificationResponseRemediationPlanOneRelatedFilesMax = 2
 export const recordTaskVerificationResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const recordTaskVerificationResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const recordTaskVerificationResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -1020,7 +1042,7 @@ export const RecordTaskVerificationResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -1029,8 +1051,10 @@ export const RecordTaskVerificationResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(recordTaskVerificationResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -1058,6 +1082,8 @@ export const retryTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const retryTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const retryTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const retryTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -1135,7 +1161,7 @@ export const RetryTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -1144,8 +1170,10 @@ export const RetryTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(retryTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -1173,6 +1201,8 @@ export const rollbackTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const rollbackTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const rollbackTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const rollbackTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -1250,7 +1280,7 @@ export const RollbackTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -1259,8 +1289,10 @@ export const RollbackTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(rollbackTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -3297,6 +3329,8 @@ export const aiChatResponseMessageAcceptanceOneAttemptMin = 0;
 
 export const aiChatResponseMessageAcceptanceOneReasonCodeMax = 80;
 
+export const aiChatResponseMessageAcceptanceOneDispositionRetryAfterMsMin = 0;
+
 export const aiChatResponseMessageTerminalProjectionOneAttemptMin = 0;
 
 export const aiChatResponseMessageForensicDiagnosticOneExplanationMax = 500;
@@ -3424,17 +3458,27 @@ export const AiChatResponse = zod.object({
   "failureKind": zod.enum(['INCOMPLETE']),
   "recoveryState": zod.enum(['INCOMPLETE']),
   "operatorAction": zod.enum(['START_NEW_RUN']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT'])
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT'])
 }),zod.null()]).optional(),
   "acceptance": zod.union([zod.object({
   "attempt": zod.number().int().min(aiChatResponseMessageAcceptanceOneAttemptMin),
   "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "reasonCode": zod.string().min(1).max(aiChatResponseMessageAcceptanceOneReasonCodeMax),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
-  "resumable": zod.boolean()
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(aiChatResponseMessageAcceptanceOneDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
+}).optional()
 }),zod.null()]).optional(),
   "terminalProjection": zod.union([zod.object({
   "executionId": zod.string().uuid(),
@@ -3663,6 +3707,8 @@ export const getAiExecutionResponseAcceptanceOneAttemptMin = 0;
 
 export const getAiExecutionResponseAcceptanceOneReasonCodeMax = 80;
 
+export const getAiExecutionResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
+
 export const getAiExecutionResponseTerminalProjectionOneAttemptMin = 0;
 
 
@@ -3714,10 +3760,20 @@ export const GetAiExecutionResponse = zod.object({
   "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "reasonCode": zod.string().min(1).max(getAiExecutionResponseAcceptanceOneReasonCodeMax),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
-  "resumable": zod.boolean()
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(getAiExecutionResponseAcceptanceOneDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
+}).optional()
 }),zod.null()]).optional(),
   "terminalProjection": zod.union([zod.object({
   "executionId": zod.string().uuid(),
@@ -3796,6 +3852,8 @@ export const listAiExecutionHistoryResponseAcceptanceOneAttemptMin = 0;
 
 export const listAiExecutionHistoryResponseAcceptanceOneReasonCodeMax = 80;
 
+export const listAiExecutionHistoryResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
+
 export const listAiExecutionHistoryResponseTerminalProjectionOneAttemptMin = 0;
 
 
@@ -3815,17 +3873,27 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "failureKind": zod.enum(['INCOMPLETE']),
   "recoveryState": zod.enum(['INCOMPLETE']),
   "operatorAction": zod.enum(['START_NEW_RUN']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT'])
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT'])
 }),zod.null()]).optional(),
   "acceptance": zod.union([zod.object({
   "attempt": zod.number().int().min(listAiExecutionHistoryResponseAcceptanceOneAttemptMin),
   "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "reasonCode": zod.string().min(1).max(listAiExecutionHistoryResponseAcceptanceOneReasonCodeMax),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
-  "resumable": zod.boolean()
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(listAiExecutionHistoryResponseAcceptanceOneDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
+}).optional()
 }),zod.null()]).optional(),
   "terminalProjection": zod.union([zod.object({
   "executionId": zod.string().uuid(),
@@ -5728,6 +5796,8 @@ export const listAiChatMessagesResponseAcceptanceOneAttemptMin = 0;
 
 export const listAiChatMessagesResponseAcceptanceOneReasonCodeMax = 80;
 
+export const listAiChatMessagesResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
+
 export const listAiChatMessagesResponseTerminalProjectionOneAttemptMin = 0;
 
 export const listAiChatMessagesResponseForensicDiagnosticOneExplanationMax = 500;
@@ -5809,17 +5879,27 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "failureKind": zod.enum(['INCOMPLETE']),
   "recoveryState": zod.enum(['INCOMPLETE']),
   "operatorAction": zod.enum(['START_NEW_RUN']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT'])
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT'])
 }),zod.null()]).optional(),
   "acceptance": zod.union([zod.object({
   "attempt": zod.number().int().min(listAiChatMessagesResponseAcceptanceOneAttemptMin),
   "terminalStatus": zod.enum(['completed', 'failed', 'cancelled', 'paused']),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "reasonCode": zod.string().min(1).max(listAiChatMessagesResponseAcceptanceOneReasonCodeMax),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
-  "resumable": zod.boolean()
+  "resumable": zod.boolean(),
+  "disposition": zod.object({
+  "reasonCodes": zod.array(zod.string()),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
+  "failureKind": zod.string().optional(),
+  "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(listAiChatMessagesResponseAcceptanceOneDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
+}).optional()
 }),zod.null()]).optional(),
   "terminalProjection": zod.union([zod.object({
   "executionId": zod.string().uuid(),
@@ -6191,6 +6271,8 @@ export const aiExecuteTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const aiExecuteTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 
+export const aiExecuteTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
+
 
 
 export const AiExecuteTaskResponse = zod.object({
@@ -6267,7 +6349,7 @@ export const AiExecuteTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -6276,8 +6358,10 @@ export const AiExecuteTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(aiExecuteTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
@@ -6306,6 +6390,8 @@ export const aiResumeTaskResponseRemediationPlanOneRelatedFilesMax = 20;
 export const aiResumeTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 
 export const aiResumeTaskResponseRemediationPlanOneVerificationChecksMax = 20;
+
+export const aiResumeTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
 
@@ -6383,7 +6469,7 @@ export const AiResumeTaskResponse = zod.object({
   "terminalStatus": zod.string(),
   "outcome": zod.string(),
   "reasonCode": zod.string(),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
   "evidenceComplete": zod.boolean(),
   "evidenceRequired": zod.boolean(),
   "resumable": zod.boolean(),
@@ -6392,8 +6478,10 @@ export const AiResumeTaskResponse = zod.object({
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']),
   "failureKind": zod.string().optional(),
   "recoveryState": zod.enum(['NONE', 'REQUIRED', 'INCOMPLETE']),
-  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT']),
-  "operatorAction": zod.string()
+  "nextActionCode": zod.enum(['NONE', 'RESUME_ALLOWED', 'START_NEW_PROBE', 'REVIEW_INCOMPLETE_EVIDENCE', 'ABANDON_EXECUTION', 'RETRY_AFTER_TIMEOUT', 'RETRY_AFTER_RATE_LIMIT']),
+  "operatorAction": zod.string(),
+  "retryAfterMs": zod.number().int().min(aiResumeTaskResponseAcceptanceDispositionRetryAfterMsMin).optional(),
+  "retryAt": zod.coerce.date().optional()
 }).optional()
 }).optional(),
   "createdAt": zod.coerce.date(),
