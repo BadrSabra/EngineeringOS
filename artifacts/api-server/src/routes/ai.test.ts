@@ -2727,8 +2727,12 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       .split("\n")
       .find((line) => line.startsWith("data: ") && line.includes('"type":"execution_started"'));
     expect(executionStartedLine).toBeDefined();
-    const executionStarted = JSON.parse(executionStartedLine!.slice("data: ".length)) as { executionId?: string };
+    const executionStarted = JSON.parse(executionStartedLine!.slice("data: ".length)) as {
+      executionId?: string;
+      resumable?: boolean;
+    };
     expect(executionStarted.executionId).toEqual(expect.any(String));
+    expect(executionStarted.resumable).toBe(false);
     const usageRows = await db
       .select({ executionId: aiUsageEventsTable.executionId })
       .from(aiUsageEventsTable)

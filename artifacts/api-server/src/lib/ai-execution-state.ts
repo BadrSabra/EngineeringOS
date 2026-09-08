@@ -2030,6 +2030,8 @@ export async function failAiExecution(params: {
   workerId: string;
   error: string;
   cancelled?: boolean;
+  /** Whether this terminal failure still has a valid same-execution resume path. */
+  resumable?: boolean;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
   recentSteps?: Array<Record<string, unknown>>;
   streamedPreview?: string;
@@ -2107,7 +2109,8 @@ export async function failAiExecution(params: {
     // Ordinary CHAT turns never create a resumable execution contract. A
     // retryable provider error may still be retried by the caller, but it must
     // not expose the forensic/task resume path or revive session state.
-    resumable: !params.cancelled && !params.acceptanceDisposition && !ordinaryChat,
+    resumable: params.resumable
+      ?? (!params.cancelled && !params.acceptanceDisposition && !ordinaryChat),
     disposition: params.acceptanceDisposition,
     error: params.error,
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)

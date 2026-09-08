@@ -20,6 +20,7 @@ import {
   PROVIDER_REGISTRY,
   sortProviderIdsByQuality,
   isCircuitOpen,
+  getCircuitState,
   createExecutionLedger,
   getProviderLifecycleSnapshot,
   recordProviderLifecycleOutcome,
@@ -92,6 +93,70 @@ type ProviderSelectionOptions = {
   /** Force a fresh provider lifecycle/catalog check for bounded fallback recovery. */
   refreshLifecycle?: boolean;
 };
+
+/**
+ * Explain why provider selection returned no candidate.
+ *
+ * Provider selection intentionally returns only usable candidates, so a
+ * circuit-open provider can otherwise look identical to a missing key. That
+ * distinction matters to structured routes: an upstream cooldown is
+ * retryable, while a missing/invalid credential is configuration failure.
+ */
+export async function getProviderSelectionFailure(
+  userId: string,
+  options?: ProviderSelectionOptions,
+): Promise<GroqClientError> {
+  let sawCredential = false;
+  let sawTransientLifecycle = false;
+  let retryAfterMs: number | undefined;
+  let transientProvider: ProviderId | undefined;
+
+  for (const provider of PROVIDER_PRIORITY) {
+    const credential = await resolveProviderCredential(userId, provider);
+    if (!credential || !providerCanHandleRequest(provider, options)) continue;
+    sawCredential = true;
+
+    const lifecycle = await getProviderLifecycleSnapshot({
+      provider,
+      apiKey: credential.apiKey,
+      source: credential.source,
+      check: false,
+      requirements: { requireTools: options?.requireTools },
+    });
+    const circuit = getCircuitState(provider);
+    const transient =
+      circuit.open ||
+      lifecycle.reasonCodes.includes("runtime_transient_failure") ||
+      lifecycle.reasonCodes.includes("catalog_temporarily_unavailable") ||
+      lifecycle.overallStatus === "degraded";
+
+    if (transient) {
+      sawTransientLifecycle = true;
+      transientProvider ??= provider;
+      retryAfterMs = Math.max(retryAfterMs ?? 0, circuit.cooldownRemainingMs ?? 0) || undefined;
+    }
+  }
+
+  if (sawTransientLifecycle) {
+    return new GroqClientError(
+      "RATE_LIMITED",
+      "All configured AI providers are temporarily unavailable.",
+      {
+        context: {
+          providerName: transientProvider,
+          retryAfterMs,
+        },
+      },
+    );
+  }
+
+  return new GroqClientError(
+    "INVALID_CONFIG",
+    sawCredential
+      ? "No configured AI provider can satisfy this request."
+      : "No AI provider is configured.",
+  );
+}
 
 function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
   const config = PROVIDER_REGISTRY[provider];
@@ -425,6 +490,13 @@ export function normalizeProviderFailure(error: unknown): GroqClientError {
   });
 }
 
+/** Return every model attempt carried by a provider failure for telemetry. */
+export function providerAttemptModels(error: GroqClientError): Array<string | null> {
+  return error.providerAttemptedModels?.length
+    ? error.providerAttemptedModels
+    : [error.providerModel ?? null];
+}
+
 /**
  * Run any single-shot agent function with automatic provider fallback.
  *
@@ -504,22 +576,27 @@ export async function runAgentWithFallback<T>(
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
-      const telemetryAttempt = {
-        provider: providerEntry.provider,
-         model: providerError.providerModel ?? null,
-        outcome: options?.signal?.aborted ? "cancelled" : "failure",
-        latencyMs: Date.now() - providerStartedAt,
-        attemptNumber: providerIndex + 1,
-        fallbackCount: providerIndex,
-        providerFailureKind: providerError.code,
-      } as const;
-      await options?.onProviderAttempt?.(telemetryAttempt);
-      if (options?.telemetryContext) {
-        await recordAiUsageAttempt(options.telemetryContext, {
-          ...telemetryAttempt,
-          attemptId,
-          usageStatus: "unknown",
-        });
+      const attemptedModels = providerAttemptModels(providerError);
+      for (const [modelIndex, model] of attemptedModels.entries()) {
+        const telemetryAttempt = {
+          provider: providerEntry.provider,
+          model,
+          outcome: options?.signal?.aborted ? "cancelled" : "failure",
+          latencyMs: Date.now() - providerStartedAt,
+          attemptNumber: providerIndex + 1,
+          fallbackCount: providerIndex + modelIndex,
+          providerFailureKind: providerError.code,
+        } as const;
+        await options?.onProviderAttempt?.(telemetryAttempt);
+        if (options?.telemetryContext) {
+          await recordAiUsageAttempt(options.telemetryContext, {
+            ...telemetryAttempt,
+            attemptId: attemptedModels.length === 1
+              ? attemptId
+              : `${attemptId}:model:${modelIndex + 1}`,
+            usageStatus: "unknown",
+          });
+        }
       }
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
@@ -979,14 +1056,26 @@ export async function requireProvider(
 ): Promise<{ provider: ProviderId; apiKey: string; source?: "user" | "server" } | null> {
   const resolved = await resolveProvider(userId, options);
   if (!resolved) {
+    const selectionFailure = await getProviderSelectionFailure(userId, options);
+    const temporarilyUnavailable = selectionFailure.code === "RATE_LIMITED";
     const hint = options?.requireTools
       ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
       : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
-    res.status(428).json({
-      error: "AI provider not configured",
-      hint,
-      availabilityState: "missing_credentials",
-      operatorAction: "Save an API key for at least one supported provider, then retry.",
+    res.status(temporarilyUnavailable ? 429 : 428).json({
+      error: temporarilyUnavailable
+        ? "The configured AI providers are temporarily unavailable."
+        : "AI provider not configured",
+      code: selectionFailure.code,
+      retryable: temporarilyUnavailable,
+      failureKind: temporarilyUnavailable ? "RATE_LIMIT" : "CONFIGURATION",
+      hint: temporarilyUnavailable
+        ? "Wait for the provider cooldown to finish, then retry."
+        : hint,
+      availabilityState: temporarilyUnavailable ? "temporarily_unavailable" : "missing_credentials",
+      operatorAction: temporarilyUnavailable
+        ? "Wait for the provider cooldown to finish, then retry or configure another provider."
+        : "Save an API key for at least one supported provider, then retry.",
+      retryAfterMs: selectionFailure.retryAfterMs,
       correlationId: randomUUID(),
     });
     return null;

@@ -189,6 +189,7 @@ export async function startStructuredExecution(params: {
   }
 
   const controller = new AbortController();
+  const isResume = Boolean(params.executionId && params.resumeToken);
   let terminal = false;
   let sequence = Math.max(execution.checkpointVersion, 0);
   let checkpointChain = Promise.resolve();
@@ -286,6 +287,10 @@ export async function startStructuredExecution(params: {
       finalMessageErrorCode: failure.errorCode,
       error: failure.error,
       cancelled: failure.cancelled,
+      // Structured Retry creates a new execution. A terminal provider/model
+      // failure is therefore not a resumable continuation; only a paused
+      // execution recovered with its resume token is a real Resume.
+      resumable: false,
     });
   };
 
@@ -294,7 +299,7 @@ export async function startStructuredExecution(params: {
       executionId: execution.id,
       sessionId: execution.sessionId!,
       ...(resumeToken ? { resumeToken } : {}),
-      resumable: true,
+      resumable: isResume,
     },
     execution,
     workerId,

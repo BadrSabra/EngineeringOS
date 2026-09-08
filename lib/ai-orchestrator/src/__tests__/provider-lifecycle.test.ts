@@ -195,6 +195,35 @@ describe("provider lifecycle", () => {
     expect(capabilityMismatch.reasonCodes).toContain("runtime_capability_mismatch");
   });
 
+  it("keeps transient request failures selectable and degraded", async () => {
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-transient-key",
+      source: "user",
+      check: true,
+    });
+
+    recordProviderLifecycleOutcome({
+      provider: "groq",
+      apiKey: "groq-transient-key",
+      source: "user",
+      code: "RATE_LIMITED",
+    });
+
+    const degraded = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-transient-key",
+      source: "user",
+      check: false,
+    });
+
+    expect(healthy.selectable).toBe(true);
+    expect(degraded.selectable).toBe(true);
+    expect(degraded.overallStatus).toBe("degraded");
+    expect(degraded.reasonCodes).toContain("runtime_transient_failure");
+    expect(degraded.credentialStatus).not.toBe("credentials_invalid");
+  });
+
   it("shares one in-flight check between concurrent callers", async () => {
     let release!: () => void;
     vi.mocked(validateGroqDefaultModels).mockImplementationOnce(

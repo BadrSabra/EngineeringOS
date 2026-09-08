@@ -469,8 +469,11 @@ export function recordProviderLifecycleOutcome(input: {
       roles,
       modelStatus: modelMissing ? "model_missing" : snapshot.modelStatus,
       credentialStatus: input.code === "AUTH_ERROR" ? "credentials_invalid" : snapshot.credentialStatus,
-      overallStatus: "unavailable",
-      selectable: false,
+      // A transient upstream failure does not invalidate the credential or
+      // catalog. Keep the last-known configuration selectable so a later
+      // request can retry or fall back instead of becoming INVALID_CONFIG.
+      overallStatus: reason === "runtime_transient_failure" ? "degraded" : "unavailable",
+      selectable: reason === "runtime_transient_failure",
       reasonCodes: [...new Set([...snapshot.reasonCodes, reason])],
     }),
     lastKnownGood: modelMissing ? entry.lastKnownGood : entry.lastKnownGood,

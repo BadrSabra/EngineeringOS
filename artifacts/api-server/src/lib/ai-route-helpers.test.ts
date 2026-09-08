@@ -13,6 +13,7 @@ import {
   providerAvailabilityProjection,
   requestLooksToolBound,
   normalizeProviderFailure,
+  providerAttemptModels,
 } from "./ai-route-helpers.js";
 
 describe("requestLooksToolBound", () => {
@@ -44,6 +45,18 @@ describe("provider fallback error normalization", () => {
     [500, "SERVER_ERROR"],
   ] as const)("maps an untyped HTTP %s provider error to %s", (status, code) => {
     expect(normalizeProviderFailure({ status }).code).toBe(code);
+  });
+
+  it("expands a bounded model fallback error into one telemetry item per model", () => {
+    const error = new GroqClientError("RATE_LIMITED", "temporary", {
+      context: {
+        providerModel: "model-c",
+        providerAttemptedModels: ["model-a", "model-b", "model-c"],
+      },
+    });
+
+    expect(providerAttemptModels(error)).toEqual(["model-a", "model-b", "model-c"]);
+    expect(providerAttemptModels(new GroqClientError("TIMEOUT", "temporary"))).toEqual([null]);
   });
 });
 

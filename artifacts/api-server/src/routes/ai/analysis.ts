@@ -30,6 +30,7 @@ import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import {
   resolveProvider,
+  getProviderSelectionFailure,
   requireProvider,
   handleOrchestratorError,
   runAgentWithFallback,
@@ -43,6 +44,7 @@ import {
 
 const router = Router();
 const STRUCTURED_MAX_MODEL_FALLBACKS = 3;
+const STRUCTURED_DEADLINE_MS = 45_000;
 
 type StructuredTask = "analyze" | "review";
 type StructuredAuditTraceEntry = {
@@ -115,6 +117,34 @@ function structuredFailureDetails(err: unknown): {
     failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
     "The AI provider could not complete this run.";
   return { code, failureKind, message, retryable: failureKind !== "CONFIGURATION" };
+}
+
+function structuredDeadlineError(task: StructuredTask): Error {
+  return Object.assign(
+    new Error(`Structured ${task} exceeded its execution deadline.`),
+    { code: "TIMEOUT" },
+  );
+}
+
+async function withStructuredDeadline<T>(
+  task: StructuredTask,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STRUCTURED_DEADLINE_MS);
+  try {
+    return await Promise.race([
+      work(controller.signal),
+      new Promise<T>((_, reject) => {
+        const onAbort = () => reject(structuredDeadlineError(task));
+        if (controller.signal.aborted) onAbort();
+        else controller.signal.addEventListener("abort", onAbort, { once: true });
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
 }
 
 async function persistStructuredFailure(params: {
@@ -373,14 +403,22 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   let result: Awaited<ReturnType<typeof analyzeScan>>;
   let effectiveProvider = provider;
   try {
-    ({ result, effectiveProvider } = await runAgentWithFallback(
-      req.userId,
-      { provider, apiKey },
-      (opts) => analyzeScan(projectContext, opts),
-      {
-        qualityProfile: "analysis",
-        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
-      },
+    ({ result, effectiveProvider } = await withStructuredDeadline("analyze", (signal) =>
+      runAgentWithFallback(
+        req.userId,
+        { provider, apiKey },
+        (opts) => analyzeScan(projectContext, { ...opts, signal }),
+        {
+          signal,
+          qualityProfile: "analysis",
+          telemetryContext: {
+            projectId,
+            userId: req.userId,
+            operationId: metadata.operationId,
+            correlationId: metadata.operationId,
+          },
+        },
+      ),
     ));
   } catch (err) {
     metadata.incomplete = true;
@@ -878,10 +916,13 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
 
   const providerResolved = await resolveProvider(req.userId, { qualityProfile: "code_review" });
   if (!providerResolved) {
+    const details = structuredFailureDetails(
+      await getProviderSelectionFailure(req.userId, { qualityProfile: "code_review" }),
+    );
     await persistStructuredExecutionFailure({
       execution: structuredExecution,
       task: "review",
-      details: structuredFailureDetails({ code: "INVALID_CONFIG" }),
+      details,
       emit,
       close,
     });
@@ -918,29 +959,33 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     recordTrace(metadata, "calling-model", "started");
     const { provider, apiKey } = providerResolved;
     let effectiveProvider = provider;
-    const { result } = await runAgentWithFallback(
-      req.userId,
-      { provider, apiKey },
-      (opts) => reviewCode(projectContext, fileContents, {
-        ...opts,
-        maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
-        retryTransient: false,
-        onProgress: (message) => emit({
-          type: "task_progress",
-          task: "review",
-          message,
+    const { result } = await withStructuredDeadline("review", (signal) =>
+      runAgentWithFallback(
+        req.userId,
+        { provider, apiKey },
+        (opts) => reviewCode(projectContext, fileContents, {
+          ...opts,
+          signal,
+          maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
+          retryTransient: false,
+          onProgress: (message) => emit({
+            type: "task_progress",
+            task: "review",
+            message,
+          }),
         }),
-      }),
-      {
-        qualityProfile: "code_review",
-        telemetryContext: {
-          projectId,
-          userId: req.userId,
-          executionId: structuredExecution.started.executionId,
-          operationId: metadata.operationId,
-          correlationId: metadata.operationId,
+        {
+          signal,
+          qualityProfile: "code_review",
+          telemetryContext: {
+            projectId,
+            userId: req.userId,
+            executionId: structuredExecution.started.executionId,
+            operationId: metadata.operationId,
+            correlationId: metadata.operationId,
+          },
         },
-      },
+      ),
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
       return output;
