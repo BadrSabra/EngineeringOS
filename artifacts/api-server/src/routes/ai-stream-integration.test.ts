@@ -1392,7 +1392,7 @@ describe("Durable AI completion identity", () => {
         })
         .from(aiChatMessagesTable)
         .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
-      expect(messages.filter((message) => message.role === "user")).toHaveLength(0);
+      expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
       expect(messages.filter((message) => message.role === "assistant")).toMatchObject([{
         outcome: "FAILED",
         errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
@@ -1498,7 +1498,7 @@ describe("Durable AI completion identity", () => {
       .select({ role: aiChatMessagesTable.role, executionId: aiChatMessagesTable.executionId })
       .from(aiChatMessagesTable)
       .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
-    expect(messages.filter((message) => message.role === "user")).toHaveLength(0);
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
     expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
   });
 
@@ -1619,7 +1619,7 @@ describe("Durable AI completion identity", () => {
       .select({ role: aiChatMessagesTable.role })
       .from(aiChatMessagesTable)
       .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
-    expect(messages.filter((message) => message.role === "user")).toHaveLength(0);
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
     expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
   });
 });
@@ -2802,7 +2802,7 @@ describe("Implementation Plan Build handoff", () => {
       .select()
       .from(aiChatMessagesTable)
       .where(eq(aiChatMessagesTable.sessionId, plan.sessionId));
-    expect(messages).toHaveLength(1);
+    expect(messages).toHaveLength(2);
   });
 
   it("binds in-scope implementation changes to the safe workspace typecheck", async () => {
@@ -6447,7 +6447,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(userMessages[0]).toMatchObject({
       content: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية",
       executionId: started?.executionId,
-      outcome: "SUCCEEDED",
+      outcome: null,
     });
     expect(assistantMessages).toHaveLength(1);
     expect(assistantMessages.every((message) => message.executionId === started?.executionId)).toBe(true);

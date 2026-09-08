@@ -131,6 +131,7 @@ import {
 import { PreviewSessionManager, type PreviewBrowser, type PreviewStep } from "../../lib/browser-preview-verification.js";
 import {
   AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT,
+  AI_EXECUTION_HEARTBEAT_INTERVAL_MS,
   AI_EXECUTION_TRACE_LIMIT,
   buildAiExecutionResumeContext,
   checkpointAiExecution,
@@ -140,6 +141,7 @@ import {
   createAiExecution,
   failAiExecution,
   getAiExecutionForUser,
+  heartbeatAiExecution,
   recoverAiExecutionResumeToken,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
@@ -1484,6 +1486,48 @@ function shouldRefineProviderFailure(params: {
         .includes(params.existing.errorCode));
 }
 
+async function persistPendingUserTurn(params: {
+  sessionId: string;
+  executionId: string;
+  message: string;
+  turnIntent: string;
+  createdAt: Date;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [execution] = await tx
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, params.executionId))
+      .for("update");
+    if (!execution) throw new Error("Cannot persist a chat turn for a missing execution.");
+
+    const [existing] = await tx
+      .select({ id: aiChatMessagesTable.id })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.sessionId, params.sessionId),
+        eq(aiChatMessagesTable.executionId, params.executionId),
+        eq(aiChatMessagesTable.role, "user"),
+      ))
+      .limit(1);
+    if (existing) return;
+
+    await tx.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: params.sessionId,
+      role: "user",
+      content: params.message,
+      turnIntent: params.turnIntent,
+      executionId: params.executionId,
+      outcome: null,
+      createdAt: params.createdAt,
+    });
+    await tx.update(aiChatSessionsTable)
+      .set({ updatedAt: params.createdAt })
+      .where(eq(aiChatSessionsTable.id, params.sessionId));
+  });
+}
+
 async function persistFailedChatTurn(params: {
   sessionId: string;
   projectId: string;
@@ -1743,7 +1787,9 @@ async function persistFailedChatTurn(params: {
         content: params.message,
         turnIntent: params.turnIntent,
         executionId: params.executionId ?? null,
-        outcome: "SUCCEEDED",
+        // A user turn is an input record, not a successful AI outcome.
+        // Keep it non-terminal even when the assistant failure is persisted.
+        outcome: null,
         createdAt: params.createdAt,
       });
     }
@@ -4308,6 +4354,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let executionWorkerId: string | undefined;
   let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
   let executionAbortController: AbortController | undefined;
+  let executionHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let executionTerminal = false;
   let terminalAssistantMessageId: string | undefined;
   let completedTerminalProjection: AiTerminalProjection | undefined;
@@ -4685,6 +4732,14 @@ router.post("/ai/chat/stream", async (req, res) => {
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
 
+    await persistPendingUserTurn({
+      sessionId: sessionIdToUse,
+      executionId: aiExecution.id,
+      message,
+      turnIntent: streamTurnIntent.kind,
+      createdAt: now,
+    });
+
     const resumableTaskStateAtStart = nextSessionTaskState({
       persisted: streamResumableStateForTurn,
       classification: streamClassification,
@@ -4773,6 +4828,26 @@ router.post("/ai/chat/stream", async (req, res) => {
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
     registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+    executionHeartbeatTimer = setInterval(() => {
+      if (executionTerminal || activeExecutionAbortController.signal.aborted) return;
+      void heartbeatAiExecution({
+        executionId: aiExecution!.id,
+        workerId: executionWorkerId!,
+      }).then((renewed) => {
+        if (!renewed && !executionTerminal && !activeExecutionAbortController.signal.aborted) {
+          logger.warn(
+            { executionId: aiExecution!.id },
+            "AI execution heartbeat lost the durable lease",
+          );
+          activeExecutionAbortController.abort();
+        }
+      }).catch((err) => {
+        logger.warn(
+          { err, executionId: aiExecution!.id },
+          "AI execution heartbeat failed",
+        );
+      });
+    }, AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
     const executionLedger = createExecutionLedger({
       id: aiExecution.id,
       mode: executionLedgerMode(streamTurnIntent),
@@ -6533,21 +6608,6 @@ router.post("/ai/chat/stream", async (req, res) => {
           throw new Error("Failed to create chat session");
         }
       }
-      // A resumed execution already owns its original user turn. Only a new
-      // execution appends a user message; otherwise reconnecting duplicates
-      // the prompt in conversation history.
-      if (!effectiveExecutionId) {
-        await tx.insert(aiChatMessagesTable).values({
-          id: randomUUID(),
-          sessionId: sessionIdToUse,
-          role: "user",
-          content: message,
-          turnIntent: streamTurnIntent.kind,
-          executionId: aiExecutionId,
-          outcome: "SUCCEEDED",
-          createdAt: now,
-        });
-      }
       const [msg] = await tx
         .insert(aiChatMessagesTable)
         .values({
@@ -7059,6 +7119,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     return;
   } finally {
+    if (executionHeartbeatTimer) {
+      clearInterval(executionHeartbeatTimer);
+      executionHeartbeatTimer = undefined;
+    }
     if (aiExecution && !executionTerminal) {
       await settleExecutionCheckpoint();
       await failAiExecution({

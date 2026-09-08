@@ -23,6 +23,7 @@ import {
   aiChangeProposalsTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
   taskLogsTable,
@@ -626,7 +627,10 @@ async function insertTask(projectId: string, status = "pending"): Promise<string
   return id;
 }
 
-async function insertRunningTaskExecution(projectId: string): Promise<{
+async function insertRunningTaskExecution(
+  projectId: string,
+  options: { proofRequired?: boolean } = {},
+): Promise<{
   taskId: string;
   executionId: string;
   workerId: string;
@@ -646,6 +650,7 @@ async function insertRunningTaskExecution(projectId: string): Promise<{
       message: "Execute the durable task race fixture.",
       modelMessage: "Execute the durable task race fixture.",
       validationTargetPaths: [],
+      proofRequired: options.proofRequired ?? false,
     },
   });
 
@@ -5537,6 +5542,45 @@ describe("autonomous task acceptance finalization races", () => {
       nextActionCode: "RESUME_ALLOWED",
       resumable: 1,
       disposition: expect.objectContaining({ recoveryState: "REQUIRED" }),
+    });
+  });
+
+  it("preserves the proof contract when a proof-bearing execution lease expires", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const fixture = await insertRunningTaskExecution(projectId, { proofRequired: true });
+    const expiredAt = new Date(Date.now() - 60_000);
+
+    await db.update(aiExecutionsTable).set({
+      leaseUntil: expiredAt,
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, fixture.executionId));
+    await db.update(tasksTable).set({
+      leaseUntil: expiredAt,
+      updatedAt: new Date(),
+    }).where(eq(tasksTable.id, fixture.taskId));
+
+    expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+    const [snapshot] = await db
+      .select()
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, fixture.executionId));
+
+    expect(acceptance).toMatchObject({
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      evidenceSnapshotId: snapshot?.id,
+    });
+    expect(snapshot).toMatchObject({
+      verdict: "NOT_RECORDED",
+      complete: 0,
+      readCount: 0,
     });
   });
 

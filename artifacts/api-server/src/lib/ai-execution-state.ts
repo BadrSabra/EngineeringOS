@@ -17,6 +17,10 @@ import {
 } from "./ai-execution-acceptance.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
+export const AI_EXECUTION_HEARTBEAT_INTERVAL_MS = Math.max(
+  1_000,
+  Math.floor(AI_EXECUTION_LEASE_MS / 3),
+);
 export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
 export const AI_EXECUTION_TRACE_LIMIT = 80;
 export const AI_EXECUTION_NODE_LIMIT = 24;
