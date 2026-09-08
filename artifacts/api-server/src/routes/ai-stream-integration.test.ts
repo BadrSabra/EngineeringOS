@@ -1078,6 +1078,77 @@ describe("AI execution resume-capability recovery", () => {
 });
 
 describe("Durable AI completion identity", () => {
+  it("completes a proof-bearing project analysis from accepted source evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Project analysis acceptance");
+    const operationId = `analysis-operation-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+    });
+    const finalMessageId = randomUUID();
+    await db.insert(aiChatMessagesTable).values({
+      id: finalMessageId,
+      sessionId,
+      executionId: fixture.created.execution.id,
+      role: "assistant",
+      content: "Verified project analysis.",
+      outcome: null,
+      createdAt: new Date(),
+    });
+
+    const completed = await completeAiExecution({
+      executionId: fixture.created.execution.id,
+      workerId: fixture.workerId!,
+      finalMessageId,
+      operation: fixture.operation,
+      proofRequired: true,
+      operationId,
+      evidenceVerdict: "PROVEN",
+      evidenceReads: [{
+        path: "src/proof-fixture.ts",
+        readType: "source",
+        body: PROOF_FIXTURE_BODY,
+        complete: true,
+        truncated: false,
+      }],
+      analysisEvidence: {
+        operationId,
+        sourceRevision: fixture.request.workspaceRevision,
+        requiredPaths: ["src/proof-fixture.ts"],
+        completedReadFiles: ["src/proof-fixture.ts"],
+        acceptedEvidenceFiles: ["src/proof-fixture.ts"],
+        acceptedClaimCount: 1,
+        evidenceConsistent: true,
+        completionGateResult: "PROVEN",
+        objectiveVerdict: "ANSWER_COMPLETE",
+        finalState: "VERIFIED",
+      },
+    });
+
+    expect(completed).toBe(true);
+    const [stored] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(stored).toMatchObject({
+      status: "completed",
+      finalMessageId,
+    });
+    expect(parseAiExecutionCheckpoint(stored!.checkpoint)).toMatchObject({
+      stage: "completed",
+      evidenceVerdict: "PROVEN",
+      operation: { operationId },
+    });
+  });
+
   it("reloads a proof contract after reconciliation and rejects every identity drift", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
