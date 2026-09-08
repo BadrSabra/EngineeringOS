@@ -8919,6 +8919,33 @@ export default function AiChat() {
         if (err.retryAt && Date.parse(err.retryAt) > Date.now()) {
           setStructuredCooldowns((previous) => ({ ...previous, [task]: err.retryAt }));
         }
+        const admissionRejected = err.failureKind === 'RATE_LIMIT' && !err.executionId;
+        if (admissionRejected) {
+          if (err.sessionId) {
+            persistAiChatSelection({
+              version: 1,
+              projectId: selectedProjectId,
+              kind: 'session',
+              sessionId: err.sessionId,
+            });
+            setSessionId(err.sessionId);
+            void qc.invalidateQueries({ queryKey: ['ai-messages', err.sessionId] });
+            void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+          }
+          resetStructuredTaskState();
+          setStructuredRetryMessageId(null);
+          setLocalMessages((prev) => prev.filter((message) => message.id !== placeholderId));
+          const seconds = err.retryAt && Date.parse(err.retryAt) > Date.now()
+            ? Math.max(1, Math.ceil((Date.parse(err.retryAt) - Date.now()) / 1_000))
+            : undefined;
+          toast({
+            title: 'Retry is waiting for the provider',
+            description: seconds
+              ? `The server is already waiting for the provider. Try again in about ${seconds} seconds.`
+              : 'The server is already waiting for the provider. Try again after it recovers.',
+          });
+          return;
+        }
         if (err.sessionId) {
           persistAiChatSelection({
             version: 1,

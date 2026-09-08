@@ -40,7 +40,9 @@ import {
 import {
   startStructuredExecution,
   StructuredExecutionCooldownError,
+  resolveStructuredRetryAfter,
   type StructuredExecution,
+  type StructuredRetryAfterSource,
 } from "../../lib/structured-task-execution.js";
 
 const router = Router();
@@ -66,7 +68,7 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
      | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string }
-     | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string })
+      | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
@@ -102,6 +104,7 @@ function structuredFailureDetails(err: unknown): {
   message: string;
   retryable: boolean;
   retryAfterMs?: number;
+  retryAfterSource?: StructuredRetryAfterSource;
   providerAttempts?: Array<{ provider: string; code: string }>;
 } {
   const candidate = err as { code?: unknown };
@@ -120,12 +123,13 @@ function structuredFailureDetails(err: unknown): {
     failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
     "The AI provider could not complete this run.";
   const retryAfterCandidate = (err as { retryAfterMs?: unknown }).retryAfterMs;
+  const hasProviderRetryAfter =
+    typeof retryAfterCandidate === "number"
+    && Number.isFinite(retryAfterCandidate);
   const retryAfterMs = failureKind === "RATE_LIMIT"
     ? Math.max(
         1_000,
-        typeof retryAfterCandidate === "number" && Number.isFinite(retryAfterCandidate)
-          ? retryAfterCandidate
-          : 30_000,
+        hasProviderRetryAfter ? retryAfterCandidate as number : 30_000,
       )
     : undefined;
   const providerName = (err as { providerName?: unknown }).providerName;
@@ -142,6 +146,9 @@ function structuredFailureDetails(err: unknown): {
     message,
     retryable: failureKind !== "CONFIGURATION",
     retryAfterMs,
+    retryAfterSource: failureKind === "RATE_LIMIT"
+      ? hasProviderRetryAfter ? "provider" : "server_default"
+      : undefined,
     providerAttempts,
   };
 }
@@ -360,6 +367,22 @@ async function persistStructuredExecutionFailure(params: {
 }): Promise<void> {
   const { execution, task, details, emit, close } = params;
   const content = details.message;
+  const providerName = details.providerAttempts?.[0]?.provider;
+  const retry = details.failureKind === "RATE_LIMIT"
+    ? await resolveStructuredRetryAfter({
+        userId: execution.execution.userId,
+        projectId: execution.execution.projectId,
+        task,
+        providerName,
+        providerRetryAfterMs: details.retryAfterMs,
+        providerRetryAfterSource: details.retryAfterSource,
+      })
+    : undefined;
+  const retryAfterMs = retry?.retryAfterMs ?? details.retryAfterMs;
+  const retryAfterSource = retry?.source ?? details.retryAfterSource;
+  const retryAt = retryAfterMs !== undefined
+    ? new Date(Date.now() + retryAfterMs).toISOString()
+    : undefined;
   const messageId = await execution.persistAssistant({
     content: "",
     outcome: "FAILED",
@@ -376,8 +399,12 @@ async function persistStructuredExecutionFailure(params: {
     messageId,
     error: content,
     errorCode: details.code,
-      providerAttempts: details.providerAttempts,
-      retryAfterMs: details.retryAfterMs,
+    providerAttempts: details.providerAttempts,
+    retryAfterMs,
+    retryAt,
+    disposition: retryAfterSource
+      ? { retryAfterSource }
+      : undefined,
   });
   emit({
     type: "error",
@@ -389,10 +416,9 @@ async function persistStructuredExecutionFailure(params: {
         ? "Update the AI setup before starting a new task."
         : "You can retry this task without sending another prompt.",
     retryable: details.retryable,
-    retryAfterMs: details.retryAfterMs,
-    retryAt: details.retryAfterMs
-      ? new Date(Date.now() + details.retryAfterMs).toISOString()
-      : undefined,
+    retryAfterMs,
+    retryAt,
+    retryAfterSource,
     failureKind: details.failureKind,
     outcome: "FAILED",
     sessionId: execution.started.sessionId,
@@ -728,6 +754,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         retryable: true,
         retryAfterMs: error.retryAfterMs,
         retryAt: error.retryAt,
+        retryAfterSource: error.retryAfterSource,
         failureKind: "RATE_LIMIT",
         sessionId: error.sessionId,
       });
@@ -767,6 +794,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         message: "The AI provider is temporarily rate-limited.",
         retryable: true,
         retryAfterMs: (rlAnalyze.retryAfterSec ?? 30) * 1_000,
+        retryAfterSource: "project_rate_limit",
       },
       emit,
       close,
@@ -960,6 +988,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         retryable: true,
         retryAfterMs: error.retryAfterMs,
         retryAt: error.retryAt,
+        retryAfterSource: error.retryAfterSource,
         failureKind: "RATE_LIMIT",
         sessionId: error.sessionId,
       });
@@ -1001,6 +1030,8 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         failureKind: "RATE_LIMIT",
         message: "The AI provider is temporarily rate-limited.",
         retryable: true,
+        retryAfterMs: (rlReview.retryAfterSec ?? 30) * 1_000,
+        retryAfterSource: "project_rate_limit",
       },
       emit,
       close,

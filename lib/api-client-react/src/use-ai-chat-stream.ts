@@ -256,6 +256,7 @@ export type AiStreamErrorEvent = {
   retryable?: boolean;
   retryAfterMs?: number;
   retryAt?: string;
+  retryAfterSource?: 'provider' | 'server_default' | 'adaptive_default' | 'project_rate_limit';
   quality?: {
     code: 'QUALITY_REVIEW_LOW';
     score: number;
@@ -1366,6 +1367,7 @@ export function useAiTaskStream() {
           retryable?: boolean;
           retryAfterMs?: number;
           retryAt?: string;
+          retryAfterSource?: AiStreamErrorEvent['retryAfterSource'];
           failureKind?: AiStreamErrorEvent['failureKind'];
           providerFailureCategory?: AiStreamErrorEvent['providerFailureCategory'];
           sessionId?: string;
@@ -1385,6 +1387,7 @@ export function useAiTaskStream() {
           retryable: parsed.retryable ?? failureKind !== 'CONFIGURATION',
           retryAfterMs: parsed.retryAfterMs,
           retryAt: parsed.retryAt,
+          retryAfterSource: parsed.retryAfterSource,
           failureKind,
           providerFailureCategory: parsed.providerFailureCategory,
           outcome: 'FAILED',

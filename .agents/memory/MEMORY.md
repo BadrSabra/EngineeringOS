@@ -126,3 +126,4 @@
 - [Structured execution adapter](structured-execution-adapter.md) — Analyze/Review must reserve durable execution state before provider work and persist the assistant terminal row before acceptance.
 - [Structured provider fallback](structured-provider-fallback.md) — structured routes must explicitly opt into bounded transient model fallback; resolver chains alone do not consume on 429.
 - [Server cooldown gates](server-cooldown-gates.md) — a persisted retryAt is only protective when new execution creation rejects early; client guards and acceptance projection are not authoritative.
+- [Structured cooldown backoff](structured-cooldown-backoff.md) — missing provider Retry-After uses bounded adaptive windows, while explicit provider/project durations remain authoritative.

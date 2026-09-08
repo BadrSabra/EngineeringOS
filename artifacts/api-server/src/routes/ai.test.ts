@@ -50,6 +50,7 @@ import {
   reconcileAiExecutions,
 } from "../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
+import { resolveStructuredRetryAfter } from "../lib/structured-task-execution.js";
 import {
   createDeliveryWorkspace,
   deliveryWorkspaceExists,
@@ -2911,6 +2912,84 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       .from(aiUsageEventsTable)
       .where(eq(aiUsageEventsTable.executionId, executionId));
     expect(usage).toHaveLength(0);
+  });
+
+  it("uses adaptive cooldown metadata when repeated provider limits have no Retry-After", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const now = new Date();
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        message: "Analyze the latest scan results and suggest the top 3 improvements.",
+        modelMessage: "Analyze the latest scan results and suggest the top 3 improvements.",
+        turnIntent: "STRUCTURED_ANALYZE",
+        validationTargetPaths: [],
+        proofRequired: false,
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      checkpoint: JSON.stringify({
+        stage: "failed",
+        sequence: 1,
+        providerAttempts: [{ provider: "OpenRouter", code: "RATE_LIMITED" }],
+        retryAfterMs: 30_000,
+        retryAt: new Date(now.getTime() - 1_000).toISOString(),
+        updatedAt: now.toISOString(),
+      }),
+      status: "failed",
+      updatedAt: now,
+      completedAt: now,
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId: created.execution.id,
+      projectId,
+      attempt: 0,
+      finalizationKey: `execution:${created.execution.id}:attempt:0:adaptive`,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        outcome: "FAILED",
+        retryAfterMs: 30_000,
+        retryAt: new Date(now.getTime() - 1_000).toISOString(),
+        retryAfterSource: "server_default",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+        operatorAction: "RETRY_AFTER_RATE_LIMIT",
+      },
+      resumable: 0,
+      createdAt: now,
+    });
+
+    await expect(resolveStructuredRetryAfter({
+      userId: "test-user",
+      projectId,
+      task: "analyze",
+      providerName: "OpenRouter",
+      providerRetryAfterMs: 30_000,
+      providerRetryAfterSource: "server_default",
+    })).resolves.toEqual({
+      retryAfterMs: 60_000,
+      source: "adaptive_default",
+    });
+
+    await expect(resolveStructuredRetryAfter({
+      userId: "test-user",
+      projectId,
+      task: "analyze",
+      providerName: "OpenRouter",
+      providerRetryAfterMs: 7_000,
+      providerRetryAfterSource: "provider",
+    })).resolves.toEqual({
+      retryAfterMs: 7_000,
+      source: "provider",
+    });
   });
 });
 

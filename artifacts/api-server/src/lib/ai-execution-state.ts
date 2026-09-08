@@ -2050,6 +2050,8 @@ export async function failAiExecution(params: {
   evidenceReason?: string;
   providerAttempts?: AiProviderAttemptCheckpoint[];
   retryAfterMs?: number;
+  retryAt?: string;
+  disposition?: Record<string, unknown>;
   finalMessageId?: string;
   finalMessageErrorCode?: string;
   evidenceReads?: readonly EvidenceReadInput[];
@@ -2067,9 +2069,10 @@ export async function failAiExecution(params: {
       ),
     ))
     .limit(1);
-  const retryAt = params.retryAfterMs !== undefined
-    ? new Date(Date.now() + Math.max(0, params.retryAfterMs)).toISOString()
-    : undefined;
+  const retryAt = params.retryAt
+    ?? (params.retryAfterMs !== undefined
+      ? new Date(Date.now() + Math.max(0, params.retryAfterMs)).toISOString()
+      : undefined);
   const terminalCheckpoint = current
     ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false, retryAt })
     : undefined;
@@ -2125,7 +2128,7 @@ export async function failAiExecution(params: {
     // not expose the forensic/task resume path or revive session state.
     resumable: params.resumable
       ?? (!params.cancelled && !params.acceptanceDisposition && !ordinaryChat),
-    disposition: params.acceptanceDisposition,
+    disposition: params.disposition ?? params.acceptanceDisposition,
     error: params.error,
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)
       ? {

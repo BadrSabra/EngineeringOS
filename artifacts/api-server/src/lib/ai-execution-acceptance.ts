@@ -33,6 +33,7 @@ export type ExecutionAcceptanceDisposition = {
   operatorAction: string;
   retryAfterMs?: number;
   retryAt?: string;
+  retryAfterSource?: "provider" | "server_default" | "adaptive_default" | "project_rate_limit";
 };
 
 export type EvidenceReadInput = {
@@ -174,6 +175,12 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
       ? { retryAfterMs: Math.max(0, Math.round(raw.retryAfterMs)) }
       : {}),
     ...(typeof raw.retryAt === "string" ? { retryAt: raw.retryAt.slice(0, 40) } : {}),
+    ...(raw.retryAfterSource === "provider"
+      || raw.retryAfterSource === "server_default"
+      || raw.retryAfterSource === "adaptive_default"
+      || raw.retryAfterSource === "project_rate_limit"
+      ? { retryAfterSource: raw.retryAfterSource }
+      : {}),
   };
 }
 
