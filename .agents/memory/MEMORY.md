@@ -55,6 +55,7 @@
 - [Browser paging assertions](browser-paging-assertions.md) — page transitions can be served from query cache; assert visible state, not a repeated request.
 - [Browser stream abort fixtures](browser-stream-abort-fixtures.md) — route EOF is clean completion; reject a browser ReadableStream after the durable identity frame to test network recovery.
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
+- [Nested release lock ownership](nested-release-lock.md) — focused release checks inside the quality gate must reuse the parent campaign lock; standalone runners still acquire one.
 - [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — uuid formats can generate unsupported zod.uuid() in the workspace's Zod 3 runtime; verify generated typechecks.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.

@@ -206,12 +206,14 @@ async function main() {
     return 1;
   }
 
-  let cleanup;
-  try {
-    cleanup = await acquireReleaseLock(lockPath);
-  } catch (error) {
-    console.error(error.message);
-    return 1;
+  let cleanup = async () => {};
+  if (process.env.RELEASE_AI_STREAM_LOCK_HELD !== "1") {
+    try {
+      cleanup = await acquireReleaseLock(lockPath);
+    } catch (error) {
+      console.error(error.message);
+      return 1;
+    }
   }
   process.once("SIGINT", async () => {
     await cleanup();
@@ -224,9 +226,21 @@ async function main() {
 
   const runValidation = () =>
     new Promise((resolve, reject) => {
+      const testName = process.env.RELEASE_AI_STREAM_TEST_NAME;
+      const vitestArgs = [
+        "exec",
+        "vitest",
+        "run",
+        "--config",
+        path.join(expectedRoot, "vitest.config.ts"),
+        path.relative(expectedRoot, expectedTest),
+        "--pool",
+        "forks",
+      ];
+      if (testName) vitestArgs.push("-t", testName);
       const child = spawn(
         "pnpm",
-        ["exec", "vitest", "run", "--config", path.join(expectedRoot, "vitest.config.ts"), path.relative(expectedRoot, expectedTest), "--pool", "forks"],
+        vitestArgs,
         { cwd: expectedRoot, env: { ...process.env, NODE_ENV: "test" }, stdio: ["ignore", "pipe", "pipe"], detached: true },
       );
       const timeoutMs = Number(process.env.RELEASE_API_STREAM_TIMEOUT_MS ?? 180_000);

@@ -3500,7 +3500,7 @@ describe("AI execution heartbeat ownership", () => {
     throw new Error("The AI execution heartbeat did not complete.");
   }
 
-  it("renews ownership through a long provider/tool phase and cleans up after success", async () => {
+  it("renews ownership through a bounded long provider/tool phase beyond one heartbeat interval and cleans up after success", async () => {
     vi.useFakeTimers();
     const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution");
     const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
@@ -3540,6 +3540,13 @@ describe("AI execution heartbeat ownership", () => {
         beforeHeartbeat.leaseUntil?.getTime() ?? 0,
       );
 
+      await runHeartbeatInterval(executionId, renewed.lastHeartbeatAt, heartbeatSpy);
+      const sustained = await loadExecutionLease(executionId);
+      expect(sustained.status).toBe("running");
+      expect(sustained.lastHeartbeatAt?.getTime()).toBeGreaterThan(
+        renewed.lastHeartbeatAt?.getTime() ?? 0,
+      );
+
       releasePhase();
       const response = await responsePromise;
       expect(response.status).toBe(200);
@@ -3549,7 +3556,7 @@ describe("AI execution heartbeat ownership", () => {
       expect(completed.status).toBe("completed");
       await expectHeartbeatStopped(
         executionId,
-        renewed.lastHeartbeatAt,
+        sustained.lastHeartbeatAt,
         heartbeatSpy.mock.calls.length,
         clearIntervalCallCount,
         clearIntervalSpy,

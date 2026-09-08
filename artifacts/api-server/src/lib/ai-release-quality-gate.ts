@@ -11,7 +11,7 @@ import {
 // @ts-expect-error The JavaScript helper has no generated declaration file.
 import { acquireReleaseLock, lockPath } from "../../scripts/run-release-ai-stream.mjs";
 
-export const AI_RELEASE_QUALITY_GATE_VERSION = 1;
+export const AI_RELEASE_QUALITY_GATE_VERSION = 2;
 
 export type AiReleaseCheckKind =
   | "typecheck"
@@ -28,6 +28,7 @@ export type AiReleaseCheckDefinition = {
   blocking: boolean;
   enabled: boolean;
   coverage: readonly string[];
+  milestones?: readonly string[];
 };
 
 export type AiReleaseCheckResult = AiReleaseCheckDefinition & {
@@ -132,6 +133,23 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
     command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts && pnpm --filter @workspace/api-server exec vitest run src/routes/ai/chat-sse.test.ts",
     blocking: true,
     coverage: ["SSE contract", "redaction", "stale revision", "resume"],
+  },
+  {
+    id: "ai-long-run-ownership",
+    kind: "operation",
+    command: "RELEASE_AI_STREAM_TEST_NAME=\"renews ownership through a bounded long provider/tool phase beyond one heartbeat interval and cleans up after success\" pnpm --filter @workspace/api-server exec node scripts/run-release-ai-stream.mjs",
+    blocking: true,
+    coverage: [
+      "bounded provider/tool phase beyond one heartbeat interval",
+      "renewed durable execution ownership",
+      "terminal completion",
+      "heartbeat cleanup",
+    ],
+    milestones: [
+      "ownership-renewed",
+      "terminal-completion",
+      "heartbeat-cleanup",
+    ],
   },
   {
     id: "ai-operational-safety",
@@ -393,6 +411,14 @@ async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise
       childEnv.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
     } else {
       delete childEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
+    }
+    // The quality gate owns the shared release lock for the whole campaign.
+    // Let the focused stream runner reuse that ownership instead of treating
+    // its nested invocation as a database-isolation collision.
+    if (check.id === "ai-long-run-ownership") {
+      childEnv.RELEASE_AI_STREAM_LOCK_HELD = "1";
+    } else {
+      delete childEnv.RELEASE_AI_STREAM_LOCK_HELD;
     }
     let output = "";
     const capture = (chunk: Buffer | string): void => {

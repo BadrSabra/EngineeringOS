@@ -59,6 +59,46 @@ describe("AI release quality gate", () => {
     ]));
   });
 
+  it("registers long-run ownership as a blocking provider-free acceptance milestone", () => {
+    const check = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "ai-long-run-ownership",
+    );
+    expect(check).toMatchObject({
+      kind: "operation",
+      blocking: true,
+      enabled: true,
+      command: expect.stringContaining("beyond one heartbeat interval"),
+      milestones: [
+        "ownership-renewed",
+        "terminal-completion",
+        "heartbeat-cleanup",
+      ],
+    });
+    expect(check?.coverage).toEqual(expect.arrayContaining([
+      "bounded provider/tool phase beyond one heartbeat interval",
+      "renewed durable execution ownership",
+      "terminal completion",
+      "heartbeat cleanup",
+    ]));
+  });
+
+  it("retains ownership milestones in the release receipt after a passing check", () => {
+    const check = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "ai-long-run-ownership",
+    )!;
+    const decision = evaluateAiReleaseQuality([{
+      ...check,
+      status: "passed",
+      durationMs: 1,
+    }]);
+    expect(decision.status).toBe("passed");
+    expect(decision.checks[0]?.milestones).toEqual([
+      "ownership-renewed",
+      "terminal-completion",
+      "heartbeat-cleanup",
+    ]);
+  });
+
   it("blocks a failed typecheck or false-success benchmark without raw output", () => {
     const decision = evaluateAiReleaseQuality([
       result({ id: "api-typecheck", kind: "typecheck", failureCode: "API_TYPECHECK_FAILED_2", status: "failed" }),
