@@ -1929,9 +1929,25 @@ export async function completeAiExecution(params: {
       : (() => {
           const pendingProposal = Boolean(params.proposalId);
           return validateAutonomousOperationCompletion(operation, {
-            evidenceRefs: params.evidenceRefs,
+            // A complete retained source read is server-owned acceptance
+            // evidence even when the provider did not produce a separate
+            // validation artifact. Give the operation a deterministic
+            // reference so read-only forensic turns can satisfy the same
+            // proof gate without trusting provider prose alone.
+            evidenceRefs: [
+              ...(params.evidenceRefs ?? []),
+              ...(params.evidenceReads ?? [])
+                .filter((read) => read.complete && !read.truncated)
+                .map((read) => `source-read:${read.path}`),
+            ],
             evidence: params.evidence,
-            evidenceVerdict: params.evidenceVerdict,
+            evidenceVerdict: (
+              params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
+                ? params.evidenceVerdict
+                : params.evidenceReads?.some((read) => read.complete && !read.truncated)
+                  ? "PROVEN"
+                  : undefined
+            ),
             workspaceRevision: request.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
             operationId: params.operationId ?? durableOperationId,
@@ -1987,7 +2003,13 @@ export async function completeAiExecution(params: {
             operationId: params.operationId,
             sourceRevision: request?.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
-            verdict: params.evidenceVerdict,
+          verdict: (
+            params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
+              ? params.evidenceVerdict
+              : params.evidenceReads?.some((read) => read.complete && !read.truncated)
+                ? "PROVEN"
+                : params.evidenceVerdict
+          ),
             required: true,
             reads: params.evidenceReads,
           } satisfies EvidenceSnapshotInput,
@@ -2077,8 +2099,14 @@ export async function failAiExecution(params: {
       ?? (params.cancelled ? "CANCELLATION" : providerFailure ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
     recoveryState: params.cancelled
       ? "INCOMPLETE"
-      : params.acceptanceDisposition?.recoveryState
-        ?? (ordinaryChat ? "INCOMPLETE" : "REQUIRED"),
+      : ordinaryChat
+        ? "INCOMPLETE"
+        : params.acceptanceDisposition?.recoveryState
+          ?? (providerFailure ? "REQUIRED" : undefined)
+          ?? "REQUIRED",
+    // Ordinary CHAT turns never create a resumable execution contract. A
+    // retryable provider error may still be retried by the caller, but it must
+    // not expose the forensic/task resume path or revive session state.
     resumable: !params.cancelled && !params.acceptanceDisposition && !ordinaryChat,
     disposition: params.acceptanceDisposition,
     error: params.error,

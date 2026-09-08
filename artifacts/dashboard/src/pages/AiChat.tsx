@@ -10414,7 +10414,10 @@ export default function AiChat() {
             currentExecution
             && operationMode !== 'CHAT'
             && currentExecution.proofRequired !== false
-            && err.terminalProjection?.resumable === true,
+            && (
+              err.terminalProjection?.resumable === true
+              || currentExecution.resumable === true
+            ),
           );
           const resumableDisconnect = (
             err.code === 'network_error' || err.code === 'no_body'
@@ -10728,7 +10731,11 @@ export default function AiChat() {
     : null;
   const activeExecutionIsProofBearing = Boolean(
     activeExecution
-    && operationMode !== 'CHAT'
+    && (
+      activeExecution.proofRequired === true
+      || activeExecutionStatus?.proofRequired === true
+      || operationMode !== 'CHAT'
+    )
     && activeExecution.proofRequired !== false
     && activeExecutionStatus?.proofRequired !== false,
   );

@@ -747,8 +747,11 @@ function projectPublicExecutionSummary<T extends { diagnosticDetails?: string[] 
   return projected;
 }
 
-function executionLedgerMode(intent: { kind: string }): "simple_chat" | "tool_chat" | "forensic" | "repair_plan" | "hierarchical" {
-  if (intent.kind === "FORENSIC_AUDIT") return "forensic";
+function executionLedgerMode(
+  intent: { kind: string },
+  capabilityProbe = false,
+): "simple_chat" | "tool_chat" | "forensic" | "repair_plan" | "hierarchical" {
+  if (capabilityProbe || intent.kind === "FORENSIC_AUDIT" || intent.kind === "CAPABILITY_PROBE") return "forensic";
   if (intent.kind === "DELIVERY") return "repair_plan";
   if (intent.kind === "CHAT") return "simple_chat";
   return "tool_chat";
@@ -1523,7 +1526,13 @@ async function persistPendingUserTurn(params: {
       createdAt: params.createdAt,
     });
     await tx.update(aiChatSessionsTable)
-      .set({ updatedAt: params.createdAt })
+    // A late-arriving user-turn persistence must not move the session
+    // watermark backwards. Concurrent turns are intentionally persisted before
+    // provider work completes, so this update can acquire the row lock after a
+    // newer turn has already advanced the session.
+    .set({
+      updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${params.createdAt})`,
+    })
       .where(eq(aiChatSessionsTable.id, params.sessionId));
   });
 }
@@ -3319,7 +3328,7 @@ router.post("/ai/chat", async (req, res) => {
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
   const executionLedger = createExecutionLedger({
-    mode: executionLedgerMode(turnIntent),
+    mode: executionLedgerMode(turnIntent, isCapabilityProbeRequest(message)),
   });
   const validationOnlyCompoundTurn =
     turnIntent.compoundExecution && !turnIntent.compoundWrite;
@@ -3462,7 +3471,12 @@ router.post("/ai/chat", async (req, res) => {
           message,
           history: historyRows
             .reverse()
-            .filter((m) => m.role === "user" || m.role === "assistant")
+          .filter((m) =>
+            (m.role === "user" || m.role === "assistant")
+            && !(immediateExecutionRequest
+              && m.role === "user"
+              && m.content === message),
+          )
             .map((m) => ({
               role: m.role as "user" | "assistant",
               content: m.content,
@@ -4852,6 +4866,18 @@ router.post("/ai/chat/stream", async (req, res) => {
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
     registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+    // Cancellation can win the race between execution creation and controller
+    // registration. Re-check the durable row after registration so a provider
+    // turn cannot wait forever on an already-cancelled execution.
+    const executionStateAfterRegistration = await getAiExecutionForUser(aiExecution.id, req.userId);
+    if (
+      aiExecution.status === "cancelling"
+      || aiExecution.cancelRequestedAt
+      || executionStateAfterRegistration?.status === "cancelling"
+      || executionStateAfterRegistration?.cancelRequestedAt
+    ) {
+      activeExecutionAbortController.abort(new Error("AI execution cancellation requested"));
+    }
     executionHeartbeatTimer = setInterval(() => {
       if (executionTerminal || activeExecutionAbortController.signal.aborted) return;
       void heartbeatAiExecution({
@@ -4874,7 +4900,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     }, AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
     const executionLedger = createExecutionLedger({
       id: aiExecution.id,
-      mode: executionLedgerMode(streamTurnIntent),
+      mode: executionLedgerMode(streamTurnIntent, Boolean(executionRequest.capabilityProbe)),
       signal: activeExecutionAbortController.signal,
       // Capability probes include a source-grounding repair pass after the
       // read loop. Keep that pass inside the same request-owned ledger while
@@ -5742,7 +5768,12 @@ router.post("/ai/chat/stream", async (req, res) => {
           message: modelMessage,
           history: historyRows
             .reverse()
-            .filter((m) => m.role === "user" || m.role === "assistant")
+            .filter((m) =>
+              (m.role === "user" || m.role === "assistant")
+              && !(immediateExecutionRequest
+                && m.role === "user"
+                && m.executionId === aiExecution?.id),
+            )
             .map((m) => ({
               role: m.role as "user" | "assistant",
               content: m.content,
@@ -8624,7 +8655,6 @@ router.post("/ai/chat/rebase-changes", async (req, res) => {
   if (!project) return;
   const rootCheck = await resolveRootPath(project.rootPath, projectId);
   if (!rootCheck.validRootPath) {
-    console.error("DEBUG_APPLY_ROOT", projectId, proposalId, project.rootPath);
     return res.status(409).json({
       error: "project_root_unavailable",
       code: "PROJECT_ROOT_UNAVAILABLE",

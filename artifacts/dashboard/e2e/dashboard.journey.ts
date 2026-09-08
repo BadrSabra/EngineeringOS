@@ -204,7 +204,7 @@ const executionFixture = {
   status: "completed",
   flightState: "COMPLETED",
   evidenceVerdict: "PROVEN",
-  proofRequired: false,
+  proofRequired: true,
   resumable: false,
   checkpointVersion: 1,
   projectRevision: "e2e-revision-42",
@@ -654,7 +654,7 @@ async function installApiFixtures(
           attempt: 2,
           evidenceVerdict: "PROVEN",
           evidenceReason: "The server-owned source evidence is complete.",
-          proofRequired: false,
+          proofRequired: true,
           resumable: false,
           acceptance: acceptanceSnapshots.accepted,
           checkpoint: {
@@ -3472,7 +3472,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       ),
     );
     await expect(
-      page.getByRole("heading", { name: "Audit / Chat run" }),
+      page.getByRole("heading", { name: "Mission → Push" }),
     ).toBeVisible();
     await expect(
       page.getByText("Controlled browser fixture completed.", { exact: true }),
@@ -4601,7 +4601,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         status: "completed",
         terminalState: "completed",
         revision: "e2e-revision-42",
-        proof: { required: false, verdict: "PROVEN" },
+        proof: { required: true, verdict: "PROVEN" },
       },
       timeline: [],
       validations: [{ status: "passed", profile: "release-safe" }],
@@ -4714,7 +4714,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         status: "cancelled",
         terminalState: "cancelled",
         revision: "e2e-revision-42",
-        proof: { required: false, verdict: "NOT_RECORDED" },
+        proof: { required: true, verdict: "NOT_RECORDED" },
       },
       timeline: [
         { type: "cancelled", detail: "Cancellation accepted by the server." },
