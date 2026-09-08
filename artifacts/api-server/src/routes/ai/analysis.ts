@@ -36,6 +36,10 @@ import {
   redactUserFacingText,
   redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
+import {
+  startStructuredExecution,
+  type StructuredExecution,
+} from "../../lib/structured-task-execution.js";
 
 const router = Router();
 
@@ -53,11 +57,12 @@ type StructuredAuditMetadata = {
   operationalTrace: StructuredAuditTraceEntry[];
 };
 type StructuredTaskEvent =
-  | ({ type: "task_started"; task: StructuredTask; projectId: string }
+  | ({ type: "execution_started"; executionId: string; sessionId: string; resumeToken?: string; resumable: boolean }
+     | { type: "task_started"; task: StructuredTask; projectId: string }
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
-    | { type: "task_done"; task: StructuredTask; result: Record<string, unknown> }
-     | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
+     | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string }
+     | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
@@ -181,39 +186,6 @@ async function persistStructuredFailure(params: {
   return sessionId!;
 }
 
-async function requireStructuredProvider(
-  userId: string,
-  res: import("express").Response,
-  options: Parameters<typeof resolveProvider>[1],
-  params: {
-    projectId: string;
-    task: StructuredTask;
-    sessionId?: string;
-  },
-): Promise<Awaited<ReturnType<typeof resolveProvider>> | null> {
-  const resolved = await resolveProvider(userId, options);
-  if (resolved) return resolved;
-
-  const sessionId = await persistStructuredFailure({
-    ...params,
-    userId,
-    failureKind: "CONFIGURATION",
-    retryable: false,
-    errorCode: "AI_PROVIDER_NOT_CONFIGURED",
-    errorMessage: "The AI provider configuration needs attention before this can run.",
-  });
-  res.status(428).json({
-    error: "AI provider not configured",
-    hint: "Save an API key for at least one supported provider, then start a new task.",
-    availabilityState: "missing_credentials",
-    operatorAction: "Save an API key for at least one supported provider, then retry.",
-    retryable: false,
-    failureKind: "CONFIGURATION",
-    sessionId,
-  });
-  return null;
-}
-
 function auditEnvelope(metadata: StructuredAuditMetadata): Record<string, unknown> {
   return {
     // Correlation identifiers are server diagnostics. Do not expose opaque
@@ -256,6 +228,9 @@ function beginTaskStream(
   task: StructuredTask,
   projectId: string,
   metadata: StructuredAuditMetadata,
+  options?: {
+    execution?: StructuredExecution;
+  },
 ) {
   res.status(200).set({
     "Content-Type": "text/event-stream",
@@ -286,58 +261,80 @@ function beginTaskStream(
   res.once("close", () => {
     closed = true;
     clearInterval(heartbeat);
+    options?.execution?.onClientClose();
   });
 
   metadata.operationalTrace.push({ stage: "task", status: "started" });
+  if (options?.execution) {
+    emit({
+      type: "execution_started",
+      ...options.execution.started,
+    });
+  }
   emit({ type: "task_started", task, projectId });
   return { emit, close };
 }
 
-function emitTaskFailure(
-  emit: (event: StructuredTaskEvent) => void,
-  close: () => void,
-  err: unknown,
-  metadata: StructuredAuditMetadata,
-  params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
-) {
-  const { code, failureKind, message, retryable } = structuredFailureDetails(err);
-  metadata.incomplete = true;
-  metadata.operationalTrace.push({ stage: "failed", status: "failed" });
-  void persistStructuredFailure({
-    ...params,
-    failureKind,
-    retryable,
-    errorCode: code,
-    errorMessage: message,
-  }).then((sessionId) => {
-    emit({
-      type: "error",
-      code,
-      message,
-      hint: failureKind === "RATE_LIMIT"
-        ? "Wait a moment and retry the task."
-        : failureKind === "CONFIGURATION"
-          ? "Update the AI setup before starting a new task."
-          : "You can retry this task without sending another prompt.",
-      retryable,
-      failureKind,
-      outcome: "FAILED",
-      sessionId,
-    });
-    close();
-  }).catch((persistError) => {
-    logger.error({ persistError, projectId: params.projectId, task: params.task }, "structured task failure persistence failed");
-    emit({
-      type: "error",
-      code,
-      message,
-      hint: "You can retry this task without sending another prompt.",
-      retryable,
-      failureKind,
-      outcome: "FAILED",
-    });
-    close();
+function structuredResultContent(task: StructuredTask, result: Record<string, unknown>): string {
+  if (task === "analyze") {
+    return [
+      "## Scan analysis",
+      typeof result.summary === "string" ? result.summary : "Scan analysis completed.",
+      typeof result.overallAssessment === "string" ? `\nOverall assessment: ${result.overallAssessment}` : "",
+      typeof result.topPriority === "string" ? `\nTop priority: ${result.topPriority}` : "",
+      typeof result.estimatedImpact === "string" ? `\nEstimated impact: ${result.estimatedImpact}` : "",
+    ].filter(Boolean).join("\n");
+  }
+  return [
+    "## Code review",
+    typeof result.verdict === "string" ? `Verdict: ${result.verdict}` : "Code review completed.",
+    typeof result.overallScore === "number" ? `Score: ${result.overallScore}/100` : "",
+    "The complete structured review is available in the saved execution result.",
+  ].filter(Boolean).join("\n");
+}
+
+async function persistStructuredExecutionFailure(params: {
+  execution: StructuredExecution;
+  task: StructuredTask;
+  details: ReturnType<typeof structuredFailureDetails>;
+  emit: (event: StructuredTaskEvent) => void;
+  close: () => void;
+}): Promise<void> {
+  const { execution, task, details, emit, close } = params;
+  const content = details.message;
+  const messageId = await execution.persistAssistant({
+    content: "",
+    outcome: "FAILED",
+    errorCode: details.code,
+    errorMessage: content,
+    toolTrace: JSON.stringify([{
+      kind: "structured_task_failure",
+      task,
+      failureKind: details.failureKind,
+      retryable: details.retryable,
+    }]),
   });
+  await execution.fail({
+    messageId,
+    error: content,
+    errorCode: details.code,
+  });
+  emit({
+    type: "error",
+    code: details.code,
+    message: content,
+    hint: details.failureKind === "RATE_LIMIT"
+      ? "Wait a moment and retry the task."
+      : details.failureKind === "CONFIGURATION"
+        ? "Update the AI setup before starting a new task."
+        : "You can retry this task without sending another prompt.",
+    retryable: details.retryable,
+    failureKind: details.failureKind,
+    outcome: "FAILED",
+    sessionId: execution.started.sessionId,
+    executionId: execution.started.executionId,
+  });
+  close();
 }
 
 // ── POST /api/ai/projects/:projectId/analyze ─────────────────────────────────
@@ -630,47 +627,76 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
   const project = req.project;
   if (!project) return res.status(500).json({ error: "Project context unavailable" });
   const requestedSessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined;
+  const requestedExecutionId = typeof req.body?.executionId === "string" ? req.body.executionId : undefined;
+  const requestedResumeToken = typeof req.body?.resumeToken === "string" ? req.body.resumeToken : undefined;
+  const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : undefined;
   const metadata = await createAuditMetadata(projectId, project);
   recordTrace(metadata, "analyze", "started");
-  const providerResolved = await requireStructuredProvider(
-    req.userId,
-    res,
-    { qualityProfile: "analysis" },
-    { projectId, task: "analyze", sessionId: requestedSessionId },
-  );
-  if (!providerResolved) return;
+  let structuredExecution: StructuredExecution;
+  try {
+    structuredExecution = await startStructuredExecution({
+      userId: req.userId,
+      projectId,
+      projectRevision: metadata.projectRevision,
+      task: "analyze",
+      prompt: "Analyze the latest scan results and suggest the top 3 improvements.",
+      sessionId: requestedSessionId,
+      executionId: requestedExecutionId,
+      resumeToken: requestedResumeToken,
+      idempotencyKey,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "EXECUTION_START_FAILED";
+    return res.status(code === "EXECUTION_NOT_FOUND" ? 404 : 409).json({
+      error: code,
+      code,
+    });
+  }
+  metadata.operationId = structuredExecution.execution.operationId ?? metadata.operationId;
+  const { emit, close } = beginTaskStream(res, "analyze", projectId, metadata, {
+    execution: structuredExecution,
+  });
+  await structuredExecution.checkpoint("running", "Structured analysis started");
+
+  const providerResolved = await resolveProvider(req.userId, { qualityProfile: "analysis" });
+  if (!providerResolved) {
+    await persistStructuredExecutionFailure({
+      execution: structuredExecution,
+      task: "analyze",
+      details: structuredFailureDetails({ code: "INVALID_CONFIG" }),
+      emit,
+      close,
+    });
+    return;
+  }
 
   const rlAnalyze = await checkProjectRateLimitDb(projectId);
   if (!rlAnalyze.allowed) {
-    const sessionId = await persistStructuredFailure({
-      projectId,
-      userId: req.userId,
+    await persistStructuredExecutionFailure({
+      execution: structuredExecution,
       task: "analyze",
-      sessionId: requestedSessionId,
-      failureKind: "RATE_LIMIT",
-      retryable: true,
-      errorCode: "RATE_LIMITED",
-      errorMessage: "The AI provider is temporarily rate-limited.",
+      details: {
+        code: "RATE_LIMITED",
+        failureKind: "RATE_LIMIT",
+        message: "The AI provider is temporarily rate-limited.",
+        retryable: true,
+      },
+      emit,
+      close,
     });
-    return res.status(429).json({
-      error: "The AI provider is temporarily rate-limited.",
-      code: "RATE_LIMITED",
-      hint: `Wait ${rlAnalyze.retryAfterSec}s, then retry the analysis.`,
-      retryable: true,
-      failureKind: "RATE_LIMIT",
-      sessionId,
-    });
+    return;
   }
 
-  const { emit, close } = beginTaskStream(res, "analyze", projectId, metadata);
   try {
     recordTrace(metadata, "building-context", "started");
+    await structuredExecution.checkpoint("running", "Building project context");
     emit({ type: "stage", stage: "building-context" });
     const projectContext = await buildProjectContext(projectId, {
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
     });
 
     emit({ type: "stage", stage: "calling-model" });
+    await structuredExecution.checkpoint("model_call", "Calling AI model");
     recordTrace(metadata, "calling-model", "started");
     const { provider, apiKey } = providerResolved;
     let effectiveProvider = provider;
@@ -697,60 +723,36 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     if (result._parseError) {
       metadata.incomplete = true;
       recordTrace(metadata, "calling-model", "incomplete");
-      const sessionId = await persistStructuredFailure({
-        projectId,
-        userId: req.userId,
+      await persistStructuredExecutionFailure({
+        execution: structuredExecution,
         task: "analyze",
-        sessionId: requestedSessionId,
-        failureKind: "PROVIDER_FORMAT",
-        retryable: true,
-        errorCode: "model_output_invalid",
-        errorMessage: "The AI returned an unexpected response format.",
+        details: structuredFailureDetails({ code: "model_output_invalid" }),
+        emit,
+        close,
       });
-      emit({
-        type: "error",
-        code: "model_output_invalid",
-        message: "The AI model returned an unexpected response.",
-        hint: "The response could not be verified as a structured result. You can retry this task.",
-        retryable: true,
-        failureKind: "PROVIDER_FORMAT",
-        outcome: "FAILED",
-        sessionId,
-      });
-      close();
       return;
     }
     if (result._qualityError) {
-      const quality = publicQualityFailure(result._qualityError);
       metadata.incomplete = true;
       recordTrace(metadata, "calling-model", "incomplete");
-      const sessionId = await persistStructuredFailure({
-        projectId,
-        userId: req.userId,
+      await persistStructuredExecutionFailure({
+        execution: structuredExecution,
         task: "analyze",
-        sessionId: requestedSessionId,
-        failureKind: "QUALITY_REVIEW",
-        retryable: true,
-        errorCode: "QUALITY_REVIEW_LOW",
-        errorMessage: "The AI result did not meet the quality checks required for completion.",
+        details: {
+          code: "QUALITY_REVIEW_LOW",
+          failureKind: "QUALITY_REVIEW",
+          message: "The AI result did not meet the quality checks required for completion.",
+          retryable: true,
+        },
+        emit,
+        close,
       });
-      emit({
-        type: "error",
-        code: "QUALITY_REVIEW_LOW",
-        message: "The AI result did not meet the quality checks required for completion.",
-        hint: "Retry the task to request a newly assessed structured result.",
-        retryable: true,
-        quality,
-        failureKind: "QUALITY_REVIEW",
-        outcome: "FAILED",
-        sessionId,
-      });
-      close();
       return;
     }
 
     emit({ type: "stage", stage: "persisting-result" });
     recordTrace(metadata, "persisting-result", "completed");
+    await structuredExecution.checkpoint("finalizing", "Persisting structured analysis");
     invalidateContextCache(projectId);
     await db.transaction(async (tx) => {
       await tx.insert(auditLogsTable).values({
@@ -772,11 +774,23 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       });
     });
 
+    const content = structuredResultContent("analyze", result as unknown as Record<string, unknown>);
+    const messageId = await structuredExecution.persistAssistant({
+      content,
+      outcome: "SUCCEEDED",
+      toolTrace: JSON.stringify([{ kind: "structured_task_result", task: "analyze" }]),
+    });
+    const accepted = await structuredExecution.complete({ messageId, content });
+    if (!accepted) {
+      close();
+      return;
+    }
     emit({ type: "stage", stage: "completed" });
     recordTrace(metadata, "analyze", "completed");
     emit({
       type: "task_done",
       task: "analyze",
+      executionId: structuredExecution.started.executionId,
       result: {
         ...redactUserFacingValue(result) as Record<string, unknown>,
         ...auditEnvelope(metadata),
@@ -786,11 +800,12 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
   } catch (err) {
     logger.error({ err, projectId }, "AI scan analysis stream failed");
-    emitTaskFailure(emit, close, err, metadata, {
-      projectId,
-      userId: req.userId,
+    await persistStructuredExecutionFailure({
+      execution: structuredExecution,
       task: "analyze",
-      sessionId: requestedSessionId,
+      details: structuredFailureDetails(err),
+      emit,
+      close,
     });
   }
   return;
@@ -806,6 +821,9 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     fileContents?: Record<string, string>;
     sessionId?: string;
   };
+  const requestedExecutionId = typeof req.body?.executionId === "string" ? req.body.executionId : undefined;
+  const requestedResumeToken = typeof req.body?.resumeToken === "string" ? req.body.resumeToken : undefined;
+  const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : undefined;
   if (fileContents) {
     const invalidKey = invalidReviewFileKey(fileContents);
     if (invalidKey) {
@@ -823,45 +841,71 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
 
   const metadata = await createAuditMetadata(projectId, project);
   recordTrace(metadata, "review", "started");
-  const providerResolved = await requireStructuredProvider(
-    req.userId,
-    res,
-    { qualityProfile: "code_review" },
-    { projectId, task: "review", sessionId: requestedSessionId },
-  );
-  if (!providerResolved) return;
+  let structuredExecution: StructuredExecution;
+  try {
+    structuredExecution = await startStructuredExecution({
+      userId: req.userId,
+      projectId,
+      projectRevision: metadata.projectRevision,
+      task: "review",
+      prompt: "Review the codebase and identify the most critical quality issues.",
+      sessionId: requestedSessionId,
+      executionId: requestedExecutionId,
+      resumeToken: requestedResumeToken,
+      idempotencyKey,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "EXECUTION_START_FAILED";
+    return res.status(code === "EXECUTION_NOT_FOUND" ? 404 : 409).json({
+      error: code,
+      code,
+    });
+  }
+  metadata.operationId = structuredExecution.execution.operationId ?? metadata.operationId;
+  const { emit, close } = beginTaskStream(res, "review", projectId, metadata, {
+    execution: structuredExecution,
+  });
+  await structuredExecution.checkpoint("running", "Structured review started");
+
+  const providerResolved = await resolveProvider(req.userId, { qualityProfile: "code_review" });
+  if (!providerResolved) {
+    await persistStructuredExecutionFailure({
+      execution: structuredExecution,
+      task: "review",
+      details: structuredFailureDetails({ code: "INVALID_CONFIG" }),
+      emit,
+      close,
+    });
+    return;
+  }
 
   const rlReview = await checkProjectRateLimitDb(projectId);
   if (!rlReview.allowed) {
-    const sessionId = await persistStructuredFailure({
-      projectId,
-      userId: req.userId,
+    await persistStructuredExecutionFailure({
+      execution: structuredExecution,
       task: "review",
-      sessionId: requestedSessionId,
-      failureKind: "RATE_LIMIT",
-      retryable: true,
-      errorCode: "RATE_LIMITED",
-      errorMessage: "The AI provider is temporarily rate-limited.",
+      details: {
+        code: "RATE_LIMITED",
+        failureKind: "RATE_LIMIT",
+        message: "The AI provider is temporarily rate-limited.",
+        retryable: true,
+      },
+      emit,
+      close,
     });
-    return res.status(429).json({
-      error: "The AI provider is temporarily rate-limited.",
-      code: "RATE_LIMITED",
-      hint: `Wait ${rlReview.retryAfterSec}s, then retry the code review.`,
-      retryable: true,
-      failureKind: "RATE_LIMIT",
-      sessionId,
-    });
+    return;
   }
 
-  const { emit, close } = beginTaskStream(res, "review", projectId, metadata);
   try {
     recordTrace(metadata, "building-context", "started");
+    await structuredExecution.checkpoint("running", "Building project context");
     emit({ type: "stage", stage: "building-context" });
     const projectContext = await buildProjectContext(projectId, {
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
     });
 
     emit({ type: "stage", stage: "calling-model" });
+    await structuredExecution.checkpoint("model_call", "Calling AI model");
     recordTrace(metadata, "calling-model", "started");
     const { provider, apiKey } = providerResolved;
     let effectiveProvider = provider;
@@ -888,60 +932,36 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     if (result._parseError) {
       metadata.incomplete = true;
       recordTrace(metadata, "calling-model", "incomplete");
-      const sessionId = await persistStructuredFailure({
-        projectId,
-        userId: req.userId,
+      await persistStructuredExecutionFailure({
+        execution: structuredExecution,
         task: "review",
-        sessionId: requestedSessionId,
-        failureKind: "PROVIDER_FORMAT",
-        retryable: true,
-        errorCode: "model_output_invalid",
-        errorMessage: "The AI returned an unexpected response format.",
+        details: structuredFailureDetails({ code: "model_output_invalid" }),
+        emit,
+        close,
       });
-      emit({
-        type: "error",
-        code: "model_output_invalid",
-        message: "The AI model returned an unexpected response.",
-        hint: "The response could not be verified as a structured result. You can retry this task.",
-        retryable: true,
-        failureKind: "PROVIDER_FORMAT",
-        outcome: "FAILED",
-        sessionId,
-      });
-      close();
       return;
     }
     if (result._qualityError) {
-      const quality = publicQualityFailure(result._qualityError);
       metadata.incomplete = true;
       recordTrace(metadata, "calling-model", "incomplete");
-      const sessionId = await persistStructuredFailure({
-        projectId,
-        userId: req.userId,
+      await persistStructuredExecutionFailure({
+        execution: structuredExecution,
         task: "review",
-        sessionId: requestedSessionId,
-        failureKind: "QUALITY_REVIEW",
-        retryable: true,
-        errorCode: "QUALITY_REVIEW_LOW",
-        errorMessage: "The AI review did not meet the quality checks required for completion.",
+        details: {
+          code: "QUALITY_REVIEW_LOW",
+          failureKind: "QUALITY_REVIEW",
+          message: "The AI review did not meet the quality checks required for completion.",
+          retryable: true,
+        },
+        emit,
+        close,
       });
-      emit({
-        type: "error",
-        code: "QUALITY_REVIEW_LOW",
-        message: "The AI review did not meet the quality checks required for completion.",
-        hint: "Retry the review to request a newly assessed structured result.",
-        retryable: true,
-        quality,
-        failureKind: "QUALITY_REVIEW",
-        outcome: "FAILED",
-        sessionId,
-      });
-      close();
       return;
     }
 
     emit({ type: "stage", stage: "persisting-result" });
     recordTrace(metadata, "persisting-result", "completed");
+    await structuredExecution.checkpoint("finalizing", "Persisting structured review");
     invalidateContextCache(projectId);
     await db.transaction(async (tx) => {
       await tx.insert(auditLogsTable).values({
@@ -967,11 +987,23 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
       });
     });
 
+    const content = structuredResultContent("review", result as unknown as Record<string, unknown>);
+    const messageId = await structuredExecution.persistAssistant({
+      content,
+      outcome: "SUCCEEDED",
+      toolTrace: JSON.stringify([{ kind: "structured_task_result", task: "review" }]),
+    });
+    const accepted = await structuredExecution.complete({ messageId, content });
+    if (!accepted) {
+      close();
+      return;
+    }
     emit({ type: "stage", stage: "completed" });
     recordTrace(metadata, "review", "completed");
     emit({
       type: "task_done",
       task: "review",
+      executionId: structuredExecution.started.executionId,
       result: {
         ...redactUserFacingValue(result) as Record<string, unknown>,
         ...auditEnvelope(metadata),
@@ -981,11 +1013,12 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
   } catch (err) {
     logger.error({ err, projectId }, "AI code review stream failed");
-    emitTaskFailure(emit, close, err, metadata, {
-      projectId,
-      userId: req.userId,
+    await persistStructuredExecutionFailure({
+      execution: structuredExecution,
       task: "review",
-      sessionId: requestedSessionId,
+      details: structuredFailureDetails(err),
+      emit,
+      close,
     });
   }
   return;

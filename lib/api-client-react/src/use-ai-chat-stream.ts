@@ -189,7 +189,8 @@ export type AiStreamSessionStartedEvent = {
 export type AiStreamExecutionStartedEvent = {
   type: 'execution_started';
   executionId: string;
-  status: 'running' | 'queued';
+  status?: 'running' | 'queued';
+  sessionId?: string;
   resumeToken?: string;
   resumable: boolean;
   turnIntent?: string;
@@ -685,6 +686,7 @@ export type AiStreamTaskDoneEvent = {
   type: 'task_done';
   task: 'analyze' | 'review';
   result: Record<string, unknown>;
+  executionId?: string;
   operationId: string;
   projectId: string;
   projectRevision: string;
@@ -1281,11 +1283,14 @@ export type AiTaskStreamParams = {
   task: 'analyze' | 'review';
   fileContents?: Record<string, string>;
   sessionId?: string;
+  executionId?: string;
+  resumeToken?: string;
+  idempotencyKey?: string;
 };
 
 export type AiTaskStreamCallbacks = Pick<
   AiChatStreamCallbacks,
-  'onStage' | 'onModelCall' | 'onTaskStarted' | 'onTaskProgress' | 'onTaskDone' | 'onError' | 'onStreamReset'
+  'onExecutionStarted' | 'onStage' | 'onModelCall' | 'onTaskStarted' | 'onTaskProgress' | 'onTaskDone' | 'onError' | 'onStreamReset'
 >;
 
 /**
@@ -1316,6 +1321,7 @@ export function useAiTaskStream() {
     // task result already delivered to the UI.
     let terminalDelivered = false;
     const guardedCallbacks: AiTaskStreamCallbacks = {
+      onExecutionStarted: (event) => { if (isCurrent()) callbacks.onExecutionStarted?.(event); },
       onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
       onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },
       onTaskStarted: (event) => { if (isCurrent()) callbacks.onTaskStarted?.(event); },
@@ -1343,6 +1349,9 @@ export function useAiTaskStream() {
         body: JSON.stringify({
           ...(params.task === 'review' ? { fileContents: params.fileContents } : {}),
           ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+          ...(params.executionId ? { executionId: params.executionId } : {}),
+          ...(params.resumeToken ? { resumeToken: params.resumeToken } : {}),
+          ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
         }),
         signal: controller.signal,
       });

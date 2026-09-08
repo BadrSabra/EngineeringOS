@@ -123,3 +123,4 @@
 - [Cancellation registration race](cancellation-registration-race.md) — cancel can win before the worker registers its controller; re-read durable state after registration and abort immediately.
 - [Dashboard proof fixture contracts](dashboard-proof-fixtures.md) — proof-bearing resumable fixtures must preserve proofRequired through terminal/reload state or the proof panel correctly disappears.
 - [Structured task terminal events](structured-task-terminal-events.md) — structured SSE ends with task_done; parsers must treat it as terminal or clean EOF becomes a false interruption.
+- [Structured execution adapter](structured-execution-adapter.md) — Analyze/Review must reserve durable execution state before provider work and persist the assistant terminal row before acceptance.

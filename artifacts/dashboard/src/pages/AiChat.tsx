@@ -8821,6 +8821,35 @@ export default function AiChat() {
       task,
       ...(sessionId ? { sessionId } : {}),
     }, {
+      onExecutionStarted: (event) => {
+        if (event.sessionId) {
+          persistAiChatSelection({
+            version: 1,
+            projectId: selectedProjectId,
+            kind: 'session',
+            sessionId: event.sessionId,
+          });
+          setSessionId(event.sessionId);
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+        }
+        const nextExecution: ActiveExecution = {
+          id: event.executionId,
+          projectId: selectedProjectId,
+          ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+          ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+          resumable: event.resumable,
+          proofRequired: false,
+          message: prompt,
+        };
+        activeExecutionRef.current = nextExecution;
+        setActiveExecution(nextExecution);
+        appendLiveActivityEvent({
+          kind: 'stage',
+          label: 'Durable execution reserved',
+          detail: event.executionId.slice(0, 8),
+          status: 'info',
+        });
+      },
       onTaskStarted: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
@@ -8875,6 +8904,10 @@ export default function AiChat() {
             createdAt: new Date().toISOString(),
           },
         ]);
+        if (event.executionId) {
+          void qc.invalidateQueries({ queryKey: ['ai-messages', activeExecutionRef.current?.sessionId ?? sessionId] });
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+        }
       },
       onError: (err) => {
         const failureEvents = agentActivityEventsRef.current;
@@ -8922,6 +8955,32 @@ export default function AiChat() {
         ]);
       },
       onStreamReset: () => {
+        const execution = activeExecutionRef.current;
+        if (execution) {
+          setAgentStage('Connection interrupted — checking the saved execution…');
+          void refetchActiveExecutionStatus()
+            .then(({ data: status }) => {
+              if (!status || status.id !== execution.id) return;
+              if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
+                if (status.sessionId) {
+                  void qc.invalidateQueries({ queryKey: ['ai-messages', status.sessionId] });
+                  void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+                  setSessionId(status.sessionId);
+                }
+                setAgentStage(
+                  status.status === 'completed'
+                    ? 'Execution completed — restoring the saved result…'
+                    : 'Execution ended — restoring the saved result…',
+                );
+                return;
+              }
+              setAgentStage('Execution is still running on the server…');
+            })
+            .catch(() => {
+              setAgentStage('Connection interrupted — the server is still being checked…');
+            });
+          return;
+        }
         const failureEvents = agentActivityEventsRef.current;
         const failure = safeStructuredFailure(
           { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
