@@ -441,6 +441,7 @@ export async function runAgentWithFallback<T>(
     signal?: AbortSignal;
     onProviderAttempt?: (attempt: {
       provider: ProviderId;
+       model?: string | null;
       outcome: "success" | "failure" | "cancelled";
       latencyMs: number;
       attemptNumber: number;
@@ -505,6 +506,7 @@ export async function runAgentWithFallback<T>(
       const providerError = normalizeProviderFailure(err);
       const telemetryAttempt = {
         provider: providerEntry.provider,
+         model: providerError.providerModel ?? null,
         outcome: options?.signal?.aborted ? "cancelled" : "failure",
         latencyMs: Date.now() - providerStartedAt,
         attemptNumber: providerIndex + 1,

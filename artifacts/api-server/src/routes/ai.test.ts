@@ -24,6 +24,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
+  aiUsageEventsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
   taskLogsTable,
@@ -2721,6 +2722,18 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     expect(res.text).toContain('"stage":"calling-model"');
     expect(res.text).toContain('"type":"task_done"');
     expect(res.text).toContain('"summary":"Analysis complete"');
+
+    const executionStartedLine = res.text
+      .split("\n")
+      .find((line) => line.startsWith("data: ") && line.includes('"type":"execution_started"'));
+    expect(executionStartedLine).toBeDefined();
+    const executionStarted = JSON.parse(executionStartedLine!.slice("data: ".length)) as { executionId?: string };
+    expect(executionStarted.executionId).toEqual(expect.any(String));
+    const usageRows = await db
+      .select({ executionId: aiUsageEventsTable.executionId })
+      .from(aiUsageEventsTable)
+      .where(eq(aiUsageEventsTable.executionId, executionStarted.executionId!));
+    expect(usageRows.length).toBeGreaterThan(0);
   });
 
   it("persists structured failures and preserves them when the session is retried", async () => {

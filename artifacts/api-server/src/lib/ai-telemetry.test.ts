@@ -103,6 +103,7 @@ describe("durable AI telemetry", () => {
     const context = {
       userId: "telemetry-owner",
       projectId: "telemetry-project",
+      executionId: "telemetry-execution",
       operationId: correlationId,
       correlationId,
     };
@@ -135,6 +136,7 @@ describe("durable AI telemetry", () => {
     expect(rows[0]).toMatchObject({
       userId: "telemetry-owner",
       projectId: "telemetry-project",
+      executionId: "telemetry-execution",
       usageStatus: "unknown",
       promptTokens: null,
       completionTokens: null,

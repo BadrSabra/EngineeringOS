@@ -42,6 +42,7 @@ import {
 } from "../../lib/structured-task-execution.js";
 
 const router = Router();
+const STRUCTURED_MAX_MODEL_FALLBACKS = 3;
 
 type StructuredTask = "analyze" | "review";
 type StructuredAuditTraceEntry = {
@@ -705,6 +706,8 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       { provider, apiKey },
       (opts) => analyzeScan(projectContext, {
         ...opts,
+        maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
+        retryTransient: false,
         onProgress: (message) => emit({
           type: "task_progress",
           task: "analyze",
@@ -713,7 +716,13 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       }),
       {
         qualityProfile: "analysis",
-        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
+        telemetryContext: {
+          projectId,
+          userId: req.userId,
+          executionId: structuredExecution.started.executionId,
+          operationId: metadata.operationId,
+          correlationId: metadata.operationId,
+        },
       },
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
@@ -914,6 +923,8 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
       { provider, apiKey },
       (opts) => reviewCode(projectContext, fileContents, {
         ...opts,
+        maxFallbackModels: STRUCTURED_MAX_MODEL_FALLBACKS,
+        retryTransient: false,
         onProgress: (message) => emit({
           type: "task_progress",
           task: "review",
@@ -922,7 +933,13 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
       }),
       {
         qualityProfile: "code_review",
-        telemetryContext: { projectId, userId: req.userId, operationId: metadata.operationId, correlationId: metadata.operationId },
+        telemetryContext: {
+          projectId,
+          userId: req.userId,
+          executionId: structuredExecution.started.executionId,
+          operationId: metadata.operationId,
+          correlationId: metadata.operationId,
+        },
       },
     ).then((output) => {
       effectiveProvider = output.effectiveProvider;
