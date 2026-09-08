@@ -8,3 +8,5 @@ A project query that names a subsystem or architectural concern must bind the re
 **Why:** Requests about the embedded AI layer were routed as generic project queries. One run browsed scanner files and another read a few orchestrator files, but both accepted generic/off-target answers; the latter explicitly recorded `ANALYSIS_INCOMPLETE/NO_EVIDENCE_REACHED` and `acceptedEvidenceCount=0`.
 
 **How to apply:** Preserve the named target in the server-owned query contract, constrain initial reads to matching subsystem paths, and run a target/answer alignment gate before terminal acceptance. Keep ordinary architecture questions read-only, but still evidence-bound and semantically checked.
+
+Analysis-backed project queries need their own acceptance adapter: retained source reads are inputs to claim validation, not substitute proof, while validation artifacts from delivery/build flows are not the only valid proof type. A failed proof-required finalization must also persist `evidenceRequired=true`; otherwise a `NOT_RECORDED` snapshot can appear complete and obscure the real missing-claim state.
