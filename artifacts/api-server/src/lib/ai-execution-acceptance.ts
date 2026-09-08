@@ -353,6 +353,9 @@ export function deriveAcceptanceNextAction(params: {
   if (params.outcome === "SUCCEEDED") return "NONE";
   if (params.reasonCode === "CAPABILITY_PROBE_FINAL") return "START_NEW_PROBE";
   if (params.recoveryState === "REQUIRED" && params.resumable !== false) return "RESUME_ALLOWED";
+  if (params.reasonCode === "EXECUTION_PROVIDER_FAILURE" && params.resumable === false) {
+    return "RETRY_AFTER_TIMEOUT";
+  }
   if (params.reasonCode === "EVIDENCE_INCOMPLETE" || params.reasonCode === "EXECUTION_ACCEPTANCE_INCOMPLETE") {
     return "REVIEW_INCOMPLETE_EVIDENCE";
   }
@@ -553,7 +556,8 @@ export async function finalizeExecutionAcceptance(
           outcome,
           errorCode: outcome === "SUCCEEDED"
             ? null
-            : sql`coalesce(${aiChatMessagesTable.errorCode}, ${params.finalMessageErrorCode ?? reasonCode})`,
+            : params.finalMessageErrorCode
+              ?? sql`coalesce(${aiChatMessagesTable.errorCode}, ${reasonCode})`,
           errorMessage: outcome === "SUCCEEDED" ? null : safeError(params.error),
         })
         .where(eq(aiChatMessagesTable.id, params.finalMessageId));

@@ -1509,9 +1509,13 @@ async function persistFailedChatTurn(params: {
       : persistedTrace;
      const assistantContent = params.content
        ? sanitizeResponseText(params.content).slice(0, 12_000)
-       : /[\u0600-\u06FF]/.test(params.message)
-         ? "لم يكتمل التحليل لأن مزودي الذكاء الاصطناعي فشلوا قبل قراءة الملفات المطلوبة. لم يتم إنشاء تقرير مقبول أو جمع أدلة مصدر."
-         : "The analysis could not complete because the AI providers failed before reading the required files. No accepted report or source evidence was produced.";
+        : params.turnIntent === "CHAT"
+          ? /[\u0600-\u06FF]/.test(params.message)
+            ? "تعذر إكمال طلب الذكاء الاصطناعي بسبب فشل مزود الخدمة. يرجى المحاولة مرة أخرى."
+            : "The AI request could not be completed because the provider failed. Please try again."
+          : /[\u0600-\u06FF]/.test(params.message)
+            ? "لم يكتمل التحليل لأن مزودي الذكاء الاصطناعي فشلوا قبل قراءة الملفات المطلوبة. لم يتم إنشاء تقرير مقبول أو جمع أدلة مصدر."
+            : "The analysis could not complete because the AI providers failed before reading the required files. No accepted report or source evidence was produced.";
     const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -4396,6 +4400,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
+       turnIntent: streamTurnIntent.kind,
       // Session task state is context, not proof that this request is a
       // resume. Fresh executions must receive a new operation identity from
       // createAiExecution; only an explicit execution can carry the old one.
@@ -4701,26 +4706,28 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     executionNodeStates = reconciledExecutionNodes ?? persistedExecutionNodes;
     const checkpointOperation = resumeCheckpoint?.operation;
-    autonomousOperation = checkpointOperation ?? createAutonomousOperationContract({
-      operationId: aiExecution.operationId ?? aiExecution.id,
-      objective: executionRequest.objective
-        ? JSON.stringify(executionRequest.objective)
-        : executionRequest.message,
-      revisionManifest: executionRequest.workspaceRevision,
-      targetPaths: executionRequest.validationTargetPaths,
-      expectedBehavior: executionRequest.message,
-      nodes: executionNodeStates.map((node) => ({
-        id: node.id,
-        kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" : "inspect",
-        dependencies: [...node.dependencies],
-        status: node.status,
-        attempts: node.attempts,
-        validationAttempts: node.validationAttempts,
-        allowedFiles: [...node.allowedFiles],
-        validationProfile: node.validationProfile,
-        evidenceRefs: [],
-      })),
-    });
+     autonomousOperation = streamTurnIntent.kind === "CHAT"
+       ? undefined
+       : checkpointOperation ?? createAutonomousOperationContract({
+           operationId: aiExecution.operationId ?? aiExecution.id,
+           objective: executionRequest.objective
+             ? JSON.stringify(executionRequest.objective)
+             : executionRequest.message,
+           revisionManifest: executionRequest.workspaceRevision,
+           targetPaths: executionRequest.validationTargetPaths,
+           expectedBehavior: executionRequest.message,
+           nodes: executionNodeStates.map((node) => ({
+             id: node.id,
+             kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" : "inspect",
+             dependencies: [...node.dependencies],
+             status: node.status,
+             attempts: node.attempts,
+             validationAttempts: node.validationAttempts,
+             allowedFiles: [...node.allowedFiles],
+             validationProfile: node.validationProfile,
+             evidenceRefs: [],
+           })),
+         });
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
     registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
@@ -4899,12 +4906,16 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
     };
 
-    sse({
+     const streamExecutionResumable = streamTurnIntent.kind !== "CHAT";
+     sse({
       type: "execution_started",
       executionId: aiExecution.id,
       status: aiExecution.status,
-      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
-      resumable: true,
+       ...(streamExecutionResumable && executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+       resumable: streamExecutionResumable,
+       turnIntent: streamTurnIntent.kind,
+       operationMode: streamTurnIntent.operationMode,
+       proofRequired,
       recoveryOutcome: (() => {
         const recovery = (streamCheckpoint as (typeof streamCheckpoint & {
           recovery?: unknown;

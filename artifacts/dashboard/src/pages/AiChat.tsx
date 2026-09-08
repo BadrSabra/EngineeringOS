@@ -379,6 +379,9 @@ type ActiveExecution = {
   projectId: string;
   sessionId?: string;
   resumeToken?: string;
+  resumable?: boolean;
+  proofRequired?: boolean;
+  operationMode?: OperationMode;
   message: string;
   buildPlanMessageId?: string;
   terminalProjection?: AiTerminalProjection | null;
@@ -9920,8 +9923,8 @@ export default function AiChat() {
         sessionId,
         linkedTaskId,
         buildPlanMessageId: options?.buildPlanMessageId,
-         executionId: options?.executionId,
-         resumeToken: options?.resumeToken,
+        executionId: options?.executionId,
+        resumeToken: options?.resumeToken,
       },
       {
         onExecutionStarted: (event) => {
@@ -9930,9 +9933,12 @@ export default function AiChat() {
           owner.executionId = event.executionId;
           const next = {
             id: event.executionId,
-             projectId: requestProjectId,
-             ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
+            projectId: requestProjectId,
+            ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
             ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+            resumable: event.resumable,
+            proofRequired: event.proofRequired,
+            operationMode: event.operationMode,
             message: msg.trim(),
             ...(options?.buildPlanMessageId ? { buildPlanMessageId: options.buildPlanMessageId } : {}),
           };
@@ -10180,6 +10186,13 @@ export default function AiChat() {
          onIntent: (event) => {
            if (generation !== streamGenerationRef.current) return;
            setOperationMode(event.operationMode);
+            setActiveExecution((current) => current
+              ? {
+                  ...current,
+                  operationMode: event.operationMode,
+                  proofRequired: current.proofRequired ?? event.requiresEvidence,
+                }
+              : current);
            setAgentStage(
              event.requiresEvidence
                ? `Evidence mode: ${event.intent.replace(/_/g, ' ')}`
@@ -10245,7 +10258,7 @@ export default function AiChat() {
             kind: 'session',
             sessionId: data.sessionId,
           });
-           const activityEvents = agentActivityEventsRef.current;
+          const activityEvents = agentActivityEventsRef.current;
           setAgentStage(null);
           setStreamingContent('');
           setAgentSteps([]);
@@ -10258,14 +10271,22 @@ export default function AiChat() {
           setLiveFixtureLocal(false);
           setLiveEvidenceIntegrity(null);
           setLiveVerdictScope(null);
-           setLiveAuditScopeDescription(null);
-           const terminalProjection = data.terminalProjection;
-           const terminalFailure = data.message.outcome === 'FAILED'
-             || data.message.outcome === 'INTERRUPTED'
-             || terminalProjection?.outcome === 'FAILED'
-             || terminalProjection?.outcome === 'INTERRUPTED';
-           const currentExecution = activeExecutionRef.current;
-           if (terminalFailure && currentExecution) {
+          setLiveAuditScopeDescription(null);
+          const terminalProjection = data.terminalProjection;
+          const terminalFailure = data.message.outcome === 'FAILED'
+            || data.message.outcome === 'INTERRUPTED'
+            || terminalProjection?.outcome === 'FAILED'
+            || terminalProjection?.outcome === 'INTERRUPTED';
+          const currentExecution = activeExecutionRef.current;
+          const retainTerminalExecution = Boolean(
+            terminalFailure
+            && currentExecution
+            && data.operationMode !== 'CHAT'
+            && operationMode !== 'CHAT'
+            && currentExecution.proofRequired !== false
+            && terminalProjection?.resumable === true,
+          );
+          if (retainTerminalExecution && currentExecution) {
              const retainedExecution = {
                ...currentExecution,
                sessionId: data.sessionId,
@@ -10314,35 +10335,49 @@ export default function AiChat() {
           if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
             liveProposalRef.current = data.proposalId;
           }
-           const nextOperationMode = inferOperationMode({
-             operationMode: data.operationMode,
-             taskResult: data.taskResult as AiTaskResult | undefined,
-             proposalId: data.proposalId,
-           });
-           setOperationMode(nextOperationMode);
-           setOperationId(
-             nextOperationMode === 'DELIVERY'
-               ? data.operationId ?? (data.proposalId ? data.message.id : undefined)
-               : undefined,
-           );
+          const nextOperationMode = inferOperationMode({
+            operationMode: data.operationMode,
+            taskResult: data.taskResult as AiTaskResult | undefined,
+            proposalId: data.proposalId,
+          });
+          setOperationMode(nextOperationMode);
+          setOperationId(
+            nextOperationMode === 'DELIVERY'
+              ? data.operationId ?? (data.proposalId ? data.message.id : undefined)
+              : undefined,
+          );
           streamOwnerRef.current = null;
-           if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
+          if (data.proposalId && (data.pendingChanges?.length ?? 0) > 0) {
              // Refresh the durable proposal after the live result so a
              // just-created session converges to the server-owned approval
              // record instead of retaining a stale empty query result.
              void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', data.sessionId] });
            }
-           publishAiChatData(requestProjectId, data.sessionId);
+          publishAiChatData(requestProjectId, data.sessionId);
           void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
         },
         onError: (err) => {
           if (!ownsStream(err.executionId ? { executionId: err.executionId } : undefined)) return;
-           const resumableDisconnect = err.code === 'network_error' || err.code === 'no_body';
-           if (resumableDisconnect && activeExecutionRef.current) {
+          const currentExecution = activeExecutionRef.current;
+          const preserveTerminalExecution = Boolean(
+            currentExecution
+            && operationMode !== 'CHAT'
+            && currentExecution.proofRequired !== false
+            && err.terminalProjection?.resumable === true,
+          );
+          const resumableDisconnect = (
+            err.code === 'network_error' || err.code === 'no_body'
+          ) && Boolean(
+            currentExecution
+            && operationMode !== 'CHAT'
+            && currentExecution.proofRequired !== false
+            && currentExecution.resumable !== false,
+          );
+          if (resumableDisconnect && currentExecution) {
              setAgentStage('Disconnected — execution saved');
              setAgentStartedAt(null);
              setAgentElapsedSeconds(0);
-              publishAiChatData(requestProjectId, activeExecutionRef.current.sessionId);
+              publishAiChatData(requestProjectId, currentExecution.sessionId);
              toast({
                title: 'AI execution saved',
                description: 'The stream disconnected, but the server kept the execution. Resume it below.',
@@ -10362,11 +10397,15 @@ export default function AiChat() {
           setLiveEvidenceIntegrity(null);
           setLiveVerdictScope(null);
           setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
-          const failedExecutionId = err.executionId ?? activeExecutionRef.current?.id;
+          const failedExecutionId = err.executionId ?? currentExecution?.id;
+          const failedSessionId = currentExecution?.sessionId ?? sessionId;
+          if (!preserveTerminalExecution) {
+            activeExecutionRef.current = null;
+            setActiveExecution(null);
+          }
           if (failedExecutionId) {
             void qc.invalidateQueries({ queryKey: ['ai-execution', failedExecutionId] });
           }
-          const failedSessionId = activeExecutionRef.current?.sessionId ?? sessionId;
           if (failedSessionId) {
             void qc.invalidateQueries({ queryKey: ['ai-messages', failedSessionId] });
           }
@@ -10636,8 +10675,14 @@ export default function AiChat() {
   const latestForensicVerdict = latestForensicMessage
     ? getFinalForensicVerdict(latestForensicMessage.content, latestForensicStatus)
     : null;
+  const activeExecutionIsProofBearing = Boolean(
+    activeExecution
+    && operationMode !== 'CHAT'
+    && activeExecution.proofRequired !== false
+    && activeExecutionStatus?.proofRequired !== false,
+  );
   const showExecutionProof = Boolean(
-    activeExecution ||
+    activeExecutionIsProofBearing ||
     pendingChanges.length > 0 ||
     commitReadyPaths.length > 0 ||
     pushReady ||
@@ -11345,7 +11390,7 @@ export default function AiChat() {
 
         {/* Input */}
          <div className="chat-input-bar min-w-0 shrink-0 border-t border-border p-3 sm:p-4">
-          {activeExecution && !isAgentBusy && (
+          {activeExecution && activeExecutionIsProofBearing && !isAgentBusy && (
             <div className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
               <div className="min-w-0">
                 <div className="font-medium text-foreground">

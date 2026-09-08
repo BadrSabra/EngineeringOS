@@ -192,6 +192,9 @@ export type AiStreamExecutionStartedEvent = {
   status: 'running' | 'queued';
   resumeToken?: string;
   resumable: boolean;
+  turnIntent?: string;
+  operationMode?: 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
+  proofRequired?: boolean;
   /** Safe operator-recovery outcome; never contains provider or runtime details. */
   recoveryOutcome?: 'recovery_required' | 'resume_accepted' | 'abandoned' | 'already_abandoned' | null;
 };

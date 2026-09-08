@@ -338,6 +338,7 @@ vi.mock("@workspace/db", () => {
       },
     },
     __chatTestFixture: fixture,
+    __chatTestAcceptances: acceptanceRows,
     __setExposeExecutionForCancel: (value: boolean) => {
       exposeExecutionForCancel = value;
       if (!value) acceptanceRows.length = 0;
@@ -862,6 +863,46 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     const assistant = dbFixture.messages.find((message) => message.role === "assistant");
     expect(assistant?.outcome).toBe("FAILED");
     expect(assistant?.errorCode).toBe("UNKNOWN");
+  });
+
+  it("keeps ordinary chat provider failures non-resumable and without forensic evidence", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new Error("upstream rate limit"));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "مرحبا" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    expect(frames.find((frame) => frame.type === "execution_started")).toMatchObject({
+      turnIntent: "CHAT",
+      operationMode: "CHAT",
+      proofRequired: false,
+      resumable: false,
+    });
+    expect(frames.find((frame) => frame.type === "execution_started")).not.toHaveProperty("resumeToken");
+
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    });
+    const dbFixture = dbModule.__chatTestFixture;
+    const assistant = dbFixture.messages.find((message) => message.role === "assistant");
+    expect(assistant?.content).toBe("تعذر إكمال طلب الذكاء الاصطناعي بسبب فشل مزود الخدمة. يرجى المحاولة مرة أخرى.");
+    expect(assistant?.content).not.toContain("التحليل");
+    expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
+      evidenceRequired: 0,
+      resumable: 0,
+      nextActionCode: "RETRY_AFTER_TIMEOUT",
+    });
+    expect(JSON.stringify(dbFixture.execution.checkpoint)).not.toContain("validation-passed");
+    expect(JSON.stringify(dbFixture.execution.checkpoint)).not.toContain("evidence-bound");
   });
 
   it("creates the initial checkpoint before provider execution and avoids terminal double-send errors", async () => {

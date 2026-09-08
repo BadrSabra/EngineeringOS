@@ -538,6 +538,8 @@ export function assertAutonomousOperationIdentity(
 
 export type AiExecutionRequestEnvelope = {
   projectId: string;
+  /** Immutable route intent used by terminal policy and reconnect projections. */
+  turnIntent?: string;
   /** Stable server-owned identity shared by all phases of one operation. */
   operationId?: string;
   capabilityProbe?: AiCapabilityProbeContract;
@@ -1975,6 +1977,8 @@ export async function failAiExecution(params: {
     if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
   }
   if (!current || !terminalCheckpoint) return false;
+  const request = parseExecutionRequest(current.request);
+  const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
   const providerFailure = params.providerAttempts !== undefined;
   const reasonCode = params.cancelled
     ? "EXECUTION_CANCELLED"
@@ -1996,14 +2000,15 @@ export async function failAiExecution(params: {
       ?? (params.cancelled ? "CANCELLATION" : providerFailure ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
     recoveryState: params.cancelled
       ? "INCOMPLETE"
-      : params.acceptanceDisposition?.recoveryState ?? "REQUIRED",
-    resumable: !params.cancelled && !params.acceptanceDisposition,
+      : params.acceptanceDisposition?.recoveryState
+        ?? (ordinaryChat ? "INCOMPLETE" : "REQUIRED"),
+    resumable: !params.cancelled && !params.acceptanceDisposition && !ordinaryChat,
     disposition: params.acceptanceDisposition,
     error: params.error,
-    evidence: params.evidenceVerdict || params.evidenceReads
+    evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)
       ? {
           operationId: current.operationId,
-          sourceRevision: parseExecutionRequest(current.request)?.workspaceRevision,
+          sourceRevision: request?.workspaceRevision,
           verdict: params.evidenceVerdict,
           reads: params.evidenceReads,
         }
