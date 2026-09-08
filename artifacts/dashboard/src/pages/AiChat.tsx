@@ -7309,6 +7309,23 @@ type AgentExecutionProofStatus = {
   error?: string | null;
 };
 
+function executionCanResume(
+  execution: Pick<AgentExecutionProofStatus, 'status' | 'resumable' | 'acceptance'> | null | undefined,
+): boolean {
+  if (!execution || (execution.status !== 'paused' && execution.status !== 'failed')) {
+    return false;
+  }
+  // The durable status response is authoritative. Keep the undefined checks
+  // for older/test projections that predate the acceptance fields, but never
+  // offer resume when the server explicitly rejected it.
+  return execution.resumable !== false
+    && execution.acceptance?.resumable !== false
+    && (
+      execution.acceptance?.nextActionCode === undefined
+      || execution.acceptance.nextActionCode === 'RESUME_ALLOWED'
+    );
+}
+
 function flightDeckStateLabel(state: AgentExecutionProofStatus['flightState']): string {
   switch (state) {
     case 'READY_FOR_REVIEW':
@@ -7766,7 +7783,7 @@ function AgentExecutionProofPanel({
           ? 'Evidence integrity risk'
           : 'No unresolved patch risk recorded';
   const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
-  const canResume = Boolean(onResume && (status === 'paused' || status === 'failed'));
+  const canResume = Boolean(onResume && executionCanResume(execution));
   const canExport = Boolean(
     executionId
       && onExport
@@ -8410,6 +8427,8 @@ export default function AiChat() {
         queryKey: ['ai-execution', activeExecution?.id],
         enabled: Boolean(activeExecution?.id && isLoaded),
         refetchInterval: isSending || isTaskSending ? 5_000 : 15_000,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: true,
       },
     },
   );
@@ -8560,10 +8579,32 @@ export default function AiChat() {
           ? 'Execution completed — audit export is available'
           : 'Execution cancelled — audit export is available',
       );
+      if (activeExecution.resumeToken || activeExecution.resumable) {
+        const terminalExecution = {
+          ...activeExecution,
+          resumable: false,
+          resumeToken: undefined,
+        };
+        activeExecutionRef.current = terminalExecution;
+        setActiveExecution(terminalExecution);
+      }
       return;
     }
     if (activeExecutionStatus.status === 'paused' || activeExecutionStatus.status === 'failed') {
-      setAgentStage('Execution paused — ready to resume from its durable checkpoint');
+      if (executionCanResume(activeExecutionStatus)) {
+        setAgentStage('Execution paused — ready to resume from its durable checkpoint');
+      } else {
+        setAgentStage('Execution ended — start a new run');
+        if (activeExecution.resumeToken || activeExecution.resumable) {
+          const nonResumableExecution = {
+            ...activeExecution,
+            resumable: false,
+            resumeToken: undefined,
+          };
+          activeExecutionRef.current = nonResumableExecution;
+          setActiveExecution(nonResumableExecution);
+        }
+      }
     } else if (activeExecutionStatus.status === 'running' && !isSending && !isTaskSending) {
       setAgentStage('Execution is still running on the server…');
     }
@@ -8587,7 +8628,7 @@ export default function AiChat() {
       !execution?.id ||
       execution.resumeToken ||
       !status ||
-      !['paused', 'failed'].includes(status) ||
+      !executionCanResume(activeExecutionStatus) ||
       resumeRecoveryPendingRef.current === execution.id
     ) return;
 
@@ -10040,7 +10081,7 @@ export default function AiChat() {
                   || status.status === 'failed'
                 ) {
                   setAgentStage(
-                    status.acceptance?.nextActionCode === 'RESUME_ALLOWED'
+                    executionCanResume(status)
                       ? 'Execution saved — ready to resume'
                       : 'Execution ended — start a new run',
                   );
@@ -10431,7 +10472,9 @@ export default function AiChat() {
              setAgentStage('Disconnected — execution saved');
              setAgentStartedAt(null);
              setAgentElapsedSeconds(0);
-              publishAiChatData(requestProjectId, currentExecution.sessionId);
+             void refetchActiveExecutionStatus?.();
+             void qc.invalidateQueries({ queryKey: ['ai-execution', currentExecution.id] });
+             publishAiChatData(requestProjectId, currentExecution.sessionId);
              toast({
                title: 'AI execution saved',
                description: 'The stream disconnected, but the server kept the execution. Resume it below.',
@@ -10530,12 +10573,27 @@ export default function AiChat() {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: '{}',
       });
-      const body = await response.json().catch(() => ({})) as { error?: string };
+      const body = await response.json().catch(() => ({})) as {
+        error?: string;
+        status?: AgentExecutionProofStatus['status'];
+      };
       if (!response.ok) throw new Error(body.error || 'This execution could not be cancelled.');
       cancelStream();
       cancelTaskStream();
       setAgentStage('Cancellation requested — waiting for the server terminal state…');
+      if (body.status) {
+        qc.setQueryData(
+          ['ai-execution', execution.id],
+          (current: AgentExecutionProofStatus | undefined) => current
+            ? { ...current, status: body.status }
+            : current,
+        );
+      }
       void qc.invalidateQueries({ queryKey: ['ai-execution', execution.id] });
+      void refetchActiveExecutionStatus?.();
+      if (execution.sessionId) {
+        void qc.invalidateQueries({ queryKey: ['ai-messages', execution.sessionId] });
+      }
       toast({ title: 'Cancellation requested', description: 'The server is closing this execution. No changes will be applied automatically.' });
     } catch (error) {
       toast({
@@ -11462,7 +11520,10 @@ export default function AiChat() {
                         ? 'The AI execution is complete'
                       : activeExecutionStatus?.status === 'cancelled'
                         ? 'The AI execution was cancelled'
-                      : 'A saved AI execution is ready to resume'}
+                      : activeExecutionStatus
+                        && !executionCanResume(activeExecutionStatus)
+                          ? 'Execution ended — start a new run'
+                          : 'A saved AI execution is ready to resume'}
                 </div>
                 <div className="truncate text-muted-foreground">
                   Execution {activeExecution.id.slice(0, 8)}… · no file changes were applied automatically
@@ -11471,9 +11532,9 @@ export default function AiChat() {
                     : ''}
                 </div>
               </div>
-              {!historicalExecutionId && (activeExecutionStatus?.status === 'paused' ||
-                activeExecutionStatus?.status === 'failed' ||
-                !activeExecutionStatus) && (
+              {!historicalExecutionId
+                && (!activeExecutionStatus || executionCanResume(activeExecutionStatus))
+                && (
                 <div className="flex shrink-0 items-center gap-2">
                   {resumeRecoveryError && (
                     <span className="max-w-40 text-right text-[10px] text-destructive">

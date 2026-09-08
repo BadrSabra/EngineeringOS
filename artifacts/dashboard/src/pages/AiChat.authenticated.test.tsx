@@ -1052,6 +1052,31 @@ describe('AiChat authenticated generated mutations', () => {
     fetchSpy.mockRestore();
   });
 
+  it('does not offer resume when durable status rejects a failed execution', async () => {
+    mocks.activeExecutionStatus = {
+      status: 'failed',
+      resumable: false,
+      acceptance: {
+        nextActionCode: 'START_NEW_PROBE',
+        resumable: false,
+      },
+    };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-not-resumable',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'stale-resume-token',
+      message: 'Review the failed audit',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByText('Execution ended — start a new run')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Recovering…' })).not.toBeInTheDocument();
+  });
+
   it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
     mocks.activeExecutionStatus = { status: 'failed' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
