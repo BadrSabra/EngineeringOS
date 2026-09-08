@@ -43,6 +43,40 @@ class TestTaskAgent extends BaseAgent<undefined, Output> {
   }
 }
 
+class ParseRetryAgent extends BaseAgent<undefined, Output> {
+  protected readonly scope = "task-agent";
+  protected readonly schema = OutputSchema;
+  readonly seenExcludedModels: string[][] = [];
+  private readonly responses = [
+    { content: "not valid JSON", model: "model-a" },
+    { content: JSON.stringify(accepted), model: "model-b" },
+  ];
+
+  protected buildMessages() {
+    return [{ role: "user" as const, content: "Complete the task." }];
+  }
+
+  protected fallbackOutput() {
+    return {
+      summary: "",
+      result: "",
+      confidence: "low" as const,
+      steps: [],
+      needsHumanReview: true,
+    };
+  }
+
+  protected async complete(
+    _messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
+    opts: AgentCompleteOpts,
+  ) {
+    this.seenExcludedModels.push(opts.excludeModels ?? []);
+    const response = this.responses.shift();
+    if (!response) throw new Error("test response queue exhausted");
+    return response;
+  }
+}
+
 const lowQuality: Output = {
   summary: "Task analyzed by AI agent",
   result: "The model did not return a structured result.",
@@ -88,5 +122,14 @@ describe("BaseAgent quality boundary", () => {
     expect(result._qualityError?.threshold).toBeLessThanOrEqual(1);
     expect(result._qualityError?.reasons.length).toBeLessThanOrEqual(8);
     expect(JSON.stringify(result._qualityError)).not.toContain("structured result");
+  });
+
+  it("excludes a model after malformed structured output before retrying", async () => {
+    const agent = new ParseRetryAgent();
+    const result = await agent.run(undefined, { qualityProfile: "task_execution" });
+
+    expect(result._parseError).toBeUndefined();
+    expect(result.result).toBe(accepted.result);
+    expect(agent.seenExcludedModels).toEqual([[], ["model-a"]]);
   });
 });

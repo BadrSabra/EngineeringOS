@@ -76,7 +76,7 @@ export type { ForensicEvidencePacket } from "./forensic-evidence-packets.js";
 export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";
 export type { ForensicRecoveryEnvelope } from "./forensic-recovery.js";
 export { agentComplete, validateProviderKey } from "./agent-complete.js";
-export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
+export type { AgentCompleteOpts, AgentModelAttempt, ProviderId } from "./agent-complete.js";
 export {
   CODE_REVIEW_CAMPAIGN_SCENARIOS,
   buildCodeReviewCampaignReceipt,

@@ -80,7 +80,10 @@ export abstract class BaseAgent<TInput, TOutput> {
     return {};
   }
 
-  protected async complete(messages: Message[], opts: AgentCompleteOpts): Promise<{ content: string }> {
+  protected async complete(
+    messages: Message[],
+    opts: AgentCompleteOpts,
+  ): Promise<{ content: string; model?: string }> {
     try {
       return await agentComplete(messages, opts);
     } catch (err) {
@@ -101,7 +104,7 @@ export abstract class BaseAgent<TInput, TOutput> {
     const parseResponse = (raw: string) => parseAgentResponse(raw, this.schema, (fallbackRaw) => this.fallbackOutput(fallbackRaw));
 
     opts?.onProgress?.("Calling AI model…");
-    const response = await this.complete(messages, {
+    let response = await this.complete(messages, {
       ...this.buildCompleteOpts(input),
       ...(opts ?? {}),
       qualityProfile,
@@ -110,9 +113,26 @@ export abstract class BaseAgent<TInput, TOutput> {
 
     let parsed = parseResponse(response.content);
     let parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
+    const excludedModels = new Set<string>();
+    let hadContractFailure = false;
+    const reportModelAttempt = async () => {
+      const contractFailure = !parsed.ok;
+      await opts?.onModelAttempt?.({
+        model: response.model,
+        outcome: contractFailure ? "failure" : "success",
+        contractOutcome: contractFailure
+          ? "semantic_failure"
+          : hadContractFailure
+            ? "malformed_but_recovered"
+            : "accepted",
+        contractFailureKind: contractFailure ? parseError?.code : undefined,
+      });
+      hadContractFailure ||= contractFailure;
+    };
     const initialAssessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
     let attempt = 1;
     let assessment = initialAssessment;
+    await reportModelAttempt();
     while (attempt < executionPlan.retryLimit) {
       const retryDecision = decideRetry({
         attempt,
@@ -131,6 +151,9 @@ export abstract class BaseAgent<TInput, TOutput> {
       );
 
       opts?.onProgress?.("Retrying — improving output quality…");
+      if (parseError && response.model) {
+        excludedModels.add(response.model);
+      }
       const retryResponse = await this.complete([
         ...messages,
         ...(assessment ? [qualityCorrectionMessage(assessment)] : []),
@@ -139,11 +162,14 @@ export abstract class BaseAgent<TInput, TOutput> {
         ...(opts ?? {}),
         qualityProfile,
         qualityHints: executionPlan.relaxedHints,
+        excludeModels: [...excludedModels],
       });
 
+      response = retryResponse;
       parsed = parseResponse(retryResponse.content);
       parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
       assessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+      await reportModelAttempt();
       attempt += 1;
     }
 

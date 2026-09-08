@@ -45,6 +45,7 @@ import type {
   GroqErrorCode,
   ExecutionLedgerPublicSnapshot,
   ExecutionLedgerSnapshot,
+  AgentModelAttempt,
 } from "@workspace/ai-orchestrator";
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
@@ -508,7 +509,12 @@ export function providerAttemptModels(error: GroqClientError): Array<string | nu
 export async function runAgentWithFallback<T>(
   userId: string,
   initialProvider: { provider: ProviderId; apiKey: string; source?: "user" | "server" },
-  run: (opts: { provider: ProviderId; apiKey: string; signal?: AbortSignal }) => Promise<T>,
+  run: (opts: {
+    provider: ProviderId;
+    apiKey: string;
+    signal?: AbortSignal;
+    onModelAttempt?: (attempt: AgentModelAttempt) => void | Promise<void>;
+  }) => Promise<T>,
   options?: ProviderSelectionOptions & {
     signal?: AbortSignal;
     onProviderAttempt?: (attempt: {
@@ -524,6 +530,7 @@ export async function runAgentWithFallback<T>(
       providerFailureKind?: string | null;
        } & AiContractTelemetry) => void | Promise<void>;
     telemetryContext?: AiTelemetryContext;
+    onModelAttempt?: (attempt: AgentModelAttempt & { provider: ProviderId }) => void | Promise<void>;
   },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
   let orderedProviders = await collectAvailableProviders(userId, options);
@@ -555,9 +562,30 @@ export async function runAgentWithFallback<T>(
     const attemptId = options?.telemetryContext
       ? `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
       : undefined;
+    let modelAttemptCount = 0;
     const providerStartedAt = Date.now();
     try {
-      const result = await run({ ...providerEntry, signal: options?.signal });
+      const result = await run({
+        ...providerEntry,
+        signal: options?.signal,
+        onModelAttempt: async (attempt) => {
+          modelAttemptCount += 1;
+          const modelAttempt = {
+            ...attempt,
+            provider: providerEntry.provider,
+          };
+          await options?.onModelAttempt?.(modelAttempt);
+          if (options?.telemetryContext) {
+            await recordAiUsageAttempt(options.telemetryContext, {
+              ...modelAttempt,
+              attemptId: `${attemptId ?? options.telemetryContext.correlationId}:model:${modelAttemptCount}`,
+              attemptNumber: providerIndex + 1,
+              fallbackCount: providerIndex + modelAttemptCount - 1,
+              usageStatus: "unknown",
+            });
+          }
+        },
+      });
       const telemetryAttempt = {
         provider: providerEntry.provider,
         outcome: "success",
@@ -566,7 +594,7 @@ export async function runAgentWithFallback<T>(
         fallbackCount: providerIndex,
       } as const;
       await options?.onProviderAttempt?.(telemetryAttempt);
-      if (options?.telemetryContext) {
+      if (options?.telemetryContext && modelAttemptCount === 0) {
         await recordAiUsageAttempt(options.telemetryContext, {
           ...telemetryAttempt,
           attemptId,

@@ -46,6 +46,8 @@ export type OpenAICompatibleOptions = {
   retryTransient?: boolean;
   /** Cap provider-owned fallback candidates for bounded callers. */
   maxFallbackModels?: number;
+  /** Skip models that already produced an unusable structured result. */
+  excludeModels?: string[];
   /** Bearer API key — required. */
   apiKey: string;
   tools?: ToolDefinition[];
@@ -93,7 +95,22 @@ function coerceProviderText(value: unknown, depth = 0): string | null {
   if (depth > 3 || value === null || value === undefined) return null;
   if (Array.isArray(value)) {
     const parts = value
-      .map((part) => coerceProviderText(part, depth + 1))
+      .map((part) => {
+        if (part && typeof part === "object" && !Array.isArray(part)) {
+          const record = part as Record<string, unknown>;
+          const blockType = typeof record.type === "string"
+            ? record.type.trim().toLowerCase()
+            : "";
+          if (
+            blockType === "reasoning"
+            || blockType === "thinking"
+            || blockType === "redacted_reasoning"
+          ) {
+            return null;
+          }
+        }
+        return coerceProviderText(part, depth + 1);
+      })
       .filter((part): part is string => Boolean(part));
     return parts.length > 0 ? parts.join("\n") : null;
   }
@@ -1237,17 +1254,33 @@ export async function openrouterCompleteWithFallback(
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
       ? opts.maxFallbackModels
       : undefined;
+  const excludedModels = new Set(
+    (opts.excludeModels ?? [])
+      .map((model) => model.trim())
+      .filter(Boolean),
+  );
+  const eligibleChain = resolvedChain.filter((model) => !excludedModels.has(model));
   const chain = maxFallbackModels
-    ? resolvedChain.slice(0, maxFallbackModels)
-    : resolvedChain;
-  if (maxFallbackModels && resolvedChain.length > chain.length) {
+    ? eligibleChain.slice(0, maxFallbackModels)
+    : eligibleChain;
+  if (maxFallbackModels && eligibleChain.length > chain.length) {
     console.info(
       JSON.stringify({
         scope: "openrouter-fallback",
         code: "FALLBACK_CHAIN_BOUNDED",
-        requestedLength: resolvedChain.length,
+        requestedLength: eligibleChain.length,
         appliedLength: chain.length,
         maxFallbackModels,
+      }),
+    );
+  }
+  if (excludedModels.size > 0) {
+    console.info(
+      JSON.stringify({
+        scope: "openrouter-fallback",
+        code: "MODELS_EXCLUDED_AFTER_CONTRACT_FAILURE",
+        excludedModels: [...excludedModels],
+        remainingModels: chain,
       }),
     );
   }

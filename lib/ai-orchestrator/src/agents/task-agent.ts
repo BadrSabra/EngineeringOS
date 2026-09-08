@@ -66,7 +66,7 @@ const taskAgent = new TaskAgent();
 
 export async function executeTask(
   input: TaskAgentInput,
-  opts?: Pick<AgentCompleteOpts, "onProgress" | "signal">,
+  opts?: Pick<AgentCompleteOpts, "onProgress" | "signal" | "onModelAttempt">,
 ): Promise<TaskAgentResult> {
   return taskAgent.run(input, opts);
 }

@@ -14,3 +14,9 @@ Recovery attempt telemetry must be emitted only after the returned content passe
 **Why:** A live capability probe returned a transport-successful but malformed/incomplete recovery payload; emitting success before validation and then reusing a generic provider/attempt number allowed idempotent persistence to hide the later contract failure.
 
 **How to apply:** Validate JSON or the bounded recovery normalizer before emitting provider success, emit contract failures as distinct attempts, and namespace attempt IDs with the recovery operation rather than overwriting them at the HTTP route boundary.
+
+Structured-agent retries must exclude the model that returned malformed or schema-invalid output before selecting the next OpenRouter candidate; record each completed model response as its own contract-aware attempt, while transport failures remain provider attempts.
+
+**Why:** HTTP 200 from the previous OpenRouter model was followed by a repeated call to that same weak model, then a 429; the provider transport was successful but the structured contract was not.
+
+**How to apply:** Carry the actual response model through agent completion, pass an exclusion set into OpenRouter fallback, and emit bounded model-attempt telemetry without storing raw prompts or provider content.

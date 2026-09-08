@@ -398,7 +398,11 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
         remediationPlan: task.remediationPlan ?? null,
         projectContext,
         ...opts,
-      }, { onProgress: writeProgress }),
+      }, {
+        onProgress: writeProgress,
+        signal: opts.signal,
+        onModelAttempt: opts.onModelAttempt,
+      }),
       {
         qualityProfile: "task_execution",
         telemetryContext: {
@@ -735,7 +739,11 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
             remediationPlan: task.remediationPlan ?? null,
             projectContext,
             ...opts,
-          }, { onProgress: writeAutoProgress }),
+          }, {
+            onProgress: writeAutoProgress,
+            signal: opts.signal,
+            onModelAttempt: opts.onModelAttempt,
+          }),
           {
             qualityProfile: "task_execution",
             telemetryContext: {

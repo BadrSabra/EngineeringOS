@@ -22,6 +22,13 @@ import { getProviderLifecycleSnapshot } from "./provider-lifecycle.js";
 
 export type { ProviderId };
 
+export type AgentModelAttempt = {
+  model?: string | null;
+  outcome: "success" | "failure";
+  contractOutcome?: "accepted" | "malformed_but_recovered" | "semantic_failure";
+  contractFailureKind?: string | null;
+};
+
 export type AgentCompleteOpts = {
   /** Caller-owned cancellation signal for the complete request and retries. */
   signal?: AbortSignal;
@@ -51,6 +58,10 @@ export type AgentCompleteOpts = {
   maxFallbackModels?: number;
   /** For OpenRouter, advance to another model instead of retrying transient errors. */
   retryTransient?: boolean;
+  /** OpenRouter models that already returned an unusable structured result. */
+  excludeModels?: string[];
+  /** Reports each completed model response after local contract parsing. */
+  onModelAttempt?: (attempt: AgentModelAttempt) => void | Promise<void>;
 };
 
 function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
@@ -160,7 +171,7 @@ export async function validateProviderKey(
 export async function agentComplete(
   messages: Message[],
   opts: AgentCompleteOpts,
-): Promise<{ content: string }> {
+): Promise<{ content: string; model?: string }> {
   const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
   const executionScope = inferExecutionScope(opts.qualityProfile, qualityHints);
   const executionPlan = resolveExecutionDecision(executionScope, {
@@ -205,7 +216,7 @@ export async function agentComplete(
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
-      return { content: assertContent(provider, result.content) };
+      return { content: assertContent(provider, result.content), model: result.model };
     }
 
     case "openrouter": {
@@ -221,11 +232,12 @@ export async function agentComplete(
         quality: modelDecision.quality,
         requireTools: qualityHints?.requireTools ?? false,
         maxFallbackModels: opts.maxFallbackModels,
+        excludeModels: opts.excludeModels,
         retryTransient: opts.retryTransient,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
-      return { content: assertContent(provider, result.content) };
+      return { content: assertContent(provider, result.content), model: result.model };
     }
 
     case "gemini": {
@@ -236,7 +248,7 @@ export async function agentComplete(
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
-      return { content: assertContent(provider, result.content) };
+      return { content: assertContent(provider, result.content), model: result.model };
     }
 
     default: {
@@ -247,7 +259,7 @@ export async function agentComplete(
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
-      return { content: assertContent(provider, result.content) };
+      return { content: assertContent(provider, result.content), model: result.model };
     }
   }
 }

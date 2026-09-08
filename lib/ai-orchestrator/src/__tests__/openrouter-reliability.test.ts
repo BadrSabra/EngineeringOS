@@ -35,6 +35,7 @@ import {
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
 import {
   classifyOpenRouterFailure,
+  openrouterCompleteWithFallback,
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
 import {
@@ -501,6 +502,72 @@ describe("error classification", () => {
 
     expect(result.content).toBe("final text");
     expect(result.outputText).toBe("final text");
+  });
+
+  it("keeps reasoning blocks out of the final structured content", async () => {
+    const { oacCompleteRaw } = await import("../openai-compatible-client.js");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          choices: [{
+            finish_reason: "stop",
+            message: {
+              content: [
+                { type: "reasoning", text: "intermediate object: { not final JSON }" },
+                { type: "text", text: '{"summary":"valid"}' },
+              ],
+            },
+          }],
+          model: "actual/model:free",
+          usage: {},
+        }),
+    }) as typeof fetch;
+
+    const result = await oacCompleteRaw(
+      [{ role: "user", content: "return JSON" }],
+      {
+        apiKey: "sk-test",
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerName: "OpenRouter",
+        model: "requested/model:free",
+      },
+    );
+
+    expect(result.content).toBe('{"summary":"valid"}');
+    expect(result.reasoningContent).toBeNull();
+  });
+
+  it("skips a model excluded after a structured-output failure", async () => {
+    const initialModel = "nvidia/nemotron-3-super-120b-a12b:free";
+    const chain = buildFallbackChainFromId(initialModel);
+    expect(chain.length).toBeGreaterThan(1);
+    const expectedNext = chain.find((model) => model !== initialModel)!;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }],
+        model: expectedNext,
+        usage: {},
+      }),
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "return JSON" }],
+      {
+        apiKey: "sk-test",
+        model: initialModel,
+        excludeModels: [initialModel],
+        maxFallbackModels: 1,
+      },
+    );
+
+    expect(result.model).toBe(expectedNext);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.model).toBe(expectedNext);
   });
 
   it("retries the same model without JSON mode when OpenRouter rejects it", async () => {

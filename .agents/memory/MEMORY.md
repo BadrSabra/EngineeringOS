@@ -108,6 +108,7 @@
 - [Capability probe resume contract](capability-probe-root-causes.md) — only explicit probe metadata makes a BEHAVIOR_QUERY resumable; ordinary behavior queries remain non-resumable.
 - [Provider usage normalization](provider-usage-normalization.md) — partial provider token metadata must be zero-filled at the public chat-output boundary.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, and failure-kind metrics separately.
+- [Structured model contract fallback](contract-telemetry-separation.md) — exclude models after malformed structured output and record each completed model response separately from transport failures.
 - [Vite build/runtime separation](vite-build-runtime-separation.md) — build-only non-secret defaults must be selected by the Vite build command; dev/preview stay fail-fast on workflow configuration.
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
 - [Durable evidence boundary](durable-evidence-boundary.md) — tool traces retain read metadata only; acceptance-proof snapshots must capture verifier-owned complete bodies before runtime state is discarded.
