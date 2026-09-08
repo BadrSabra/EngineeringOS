@@ -1257,6 +1257,10 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         ...redactUserFacingValue(result) as Record<string, unknown>,
         ...auditEnvelope(metadata),
       },
+      terminalProjection: await loadStructuredTerminalProjection({
+        executionId: structuredExecution.started.executionId,
+        sessionId: structuredExecution.started.sessionId,
+      }),
     });
     close();
     logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
