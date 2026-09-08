@@ -107,6 +107,7 @@ import {
   parseExecutionRequest,
   transitionAutonomousOperation,
   validateAutonomousOperationCompletion,
+  validateAnalysisEvidenceCompletion,
 } from "./ai-execution-state.js";
 
 describe("createAiExecution", () => {
@@ -178,6 +179,60 @@ describe("claimAiExecution", () => {
 });
 
 describe("autonomous operation contract", () => {
+  it("accepts project analysis only when source claims close against the objective", () => {
+    const evidence = {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+      requiredPaths: ["src/chat.ts", "src/agent.ts"],
+      completedReadFiles: ["src/chat.ts", "src/agent.ts"],
+      acceptedEvidenceFiles: ["src/chat.ts"],
+      acceptedClaimCount: 1,
+      evidenceConsistent: true,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+    };
+
+    expect(validateAnalysisEvidenceCompletion(evidence, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    })).toEqual({ allowed: true, reasons: [] });
+
+    expect(validateAnalysisEvidenceCompletion({
+      ...evidence,
+      acceptedClaimCount: 0,
+    }, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    })).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining(["no analysis claim has been accepted"]),
+    });
+  });
+
+  it("rejects project analysis source reads that are not bound to the current revision", () => {
+    const result = validateAnalysisEvidenceCompletion({
+      operationId: "analysis-operation",
+      sourceRevision: "revision-stale",
+      requiredPaths: ["src/chat.ts"],
+      completedReadFiles: ["src/chat.ts"],
+      acceptedEvidenceFiles: ["src/chat.ts"],
+      acceptedClaimCount: 1,
+      evidenceConsistent: true,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+    }, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    });
+
+    expect(result).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining(["analysis evidence is not bound to the execution revision"]),
+    });
+  });
+
   it("round-trips capability probe request and checkpoint metadata", () => {
     const capabilityProbe = {
       sourceFiles: [

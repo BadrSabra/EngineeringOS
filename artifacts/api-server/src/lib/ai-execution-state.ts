@@ -508,6 +508,67 @@ export function validateAutonomousOperationCompletion(
   };
 }
 
+export type AnalysisEvidenceCompletion = {
+  operationId: string;
+  sourceRevision: string;
+  requiredPaths: readonly string[];
+  completedReadFiles: readonly string[];
+  acceptedEvidenceFiles: readonly string[];
+  acceptedClaimCount: number;
+  evidenceConsistent: boolean;
+  completionGateResult?: string;
+  objectiveVerdict?: string;
+  finalState?: string;
+};
+
+export type AnalysisEvidenceCompletionCheck = {
+  allowed: boolean;
+  reasons: string[];
+};
+
+/**
+ * Read-backed project analysis has a different proof contract from delivery:
+ * complete source reads are necessary, but accepted claims and the objective
+ * completion gate must also close. This keeps source citations from being
+ * mistaken for validation artifacts while still allowing analysis to finish
+ * without a build validation run.
+ */
+export function validateAnalysisEvidenceCompletion(
+  evidence: AnalysisEvidenceCompletion,
+  expected: {
+    operationId: string;
+    sourceRevision: string;
+  },
+): AnalysisEvidenceCompletionCheck {
+  const reasons: string[] = [];
+  const normalizePath = (value: string): string =>
+    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const completed = new Set(evidence.completedReadFiles.map(normalizePath));
+  const required = [...new Set(evidence.requiredPaths.map(normalizePath).filter(Boolean))];
+  if (evidence.operationId !== expected.operationId) {
+    reasons.push("analysis evidence is not bound to the execution operation");
+  }
+  if (evidence.sourceRevision !== expected.sourceRevision) {
+    reasons.push("analysis evidence is not bound to the execution revision");
+  }
+  if (required.length === 0) reasons.push("analysis objective has no required evidence paths");
+  const missingPaths = required.filter((path) => !completed.has(path));
+  if (missingPaths.length > 0) {
+    reasons.push(`required analysis source paths are missing: ${missingPaths.slice(0, 8).join(", ")}`);
+  }
+  if (!evidence.evidenceConsistent) reasons.push("analysis evidence telemetry is inconsistent");
+  if (evidence.acceptedClaimCount < 1) reasons.push("no analysis claim has been accepted");
+  if (evidence.acceptedEvidenceFiles.length < 1) reasons.push("no accepted analysis evidence file has been recorded");
+  if (evidence.completionGateResult !== "PROVEN") {
+    reasons.push(`analysis completion gate is ${evidence.completionGateResult ?? "NOT_RECORDED"}`);
+  }
+  if (evidence.objectiveVerdict !== "ANSWER_COMPLETE") {
+    reasons.push(`analysis objective verdict is ${evidence.objectiveVerdict ?? "NOT_RECORDED"}`);
+  }
+  if (evidence.finalState !== "VERIFIED") reasons.push("analysis decision was not verified");
+  return { allowed: reasons.length === 0, reasons };
+}
+
 export function assertAutonomousOperationIdentity(
   original: AutonomousOperationContract,
   candidate: AutonomousOperationContract,
@@ -1803,6 +1864,7 @@ export async function completeAiExecution(params: {
     | "projectRevision"
     | "candidateHash"
   >[];
+  analysisEvidence?: AnalysisEvidenceCompletion;
   operationId?: string;
   candidateIdentity?: string | null;
   recipeBinding?: RecipeOperationBinding;
@@ -1855,24 +1917,31 @@ export async function completeAiExecution(params: {
     if (!operation) return false;
     if (!request?.workspaceRevision) return false;
     const durableOperationId = current.operationId ?? params.executionId;
-    const pendingProposal = Boolean(params.proposalId);
-    const completion = validateAutonomousOperationCompletion(operation, {
-      evidenceRefs: params.evidenceRefs,
-      evidence: params.evidence,
-      evidenceVerdict: params.evidenceVerdict,
-      workspaceRevision: request?.workspaceRevision,
-      candidateIdentity: params.candidateIdentity,
-      operationId: params.operationId ?? durableOperationId,
-      checkpointOperationId: checkpoint?.operation?.operationId ?? "",
-      nodeStates: params.nodeStates?.map((node) => ({
-        status: node.status,
-        evidenceRefs: node.evidenceRefs ?? [],
-      })),
-      // A pending approval proposal is intentionally review-ready rather than
-      // autonomously proven. It still has to satisfy identity, scope, node, and
-      // evidence-reference checks before the chat execution is finalized.
-      requireProven: !pendingProposal,
-    });
+    const completion = params.analysisEvidence
+      ? validateAnalysisEvidenceCompletion(params.analysisEvidence, {
+          operationId: params.operationId ?? durableOperationId,
+          sourceRevision: request.workspaceRevision,
+        })
+      : (() => {
+          const pendingProposal = Boolean(params.proposalId);
+          return validateAutonomousOperationCompletion(operation, {
+            evidenceRefs: params.evidenceRefs,
+            evidence: params.evidence,
+            evidenceVerdict: params.evidenceVerdict,
+            workspaceRevision: request.workspaceRevision,
+            candidateIdentity: params.candidateIdentity,
+            operationId: params.operationId ?? durableOperationId,
+            checkpointOperationId: checkpoint?.operation?.operationId ?? "",
+            nodeStates: params.nodeStates?.map((node) => ({
+              status: node.status,
+              evidenceRefs: node.evidenceRefs ?? [],
+            })),
+            // A pending approval proposal is intentionally review-ready rather than
+            // autonomously proven. It still has to satisfy identity, scope, node, and
+            // evidence-reference checks before the chat execution is finalized.
+            requireProven: !pendingProposal,
+          });
+        })();
     if (!completion.allowed) return false;
   }
   const now = new Date();
@@ -1908,14 +1977,18 @@ export async function completeAiExecution(params: {
     terminalStatus: "completed",
     reasonCode: "ACCEPTED",
     recoveryState: "NONE",
-    evidence: {
-      operationId: params.operationId,
-      sourceRevision: request?.workspaceRevision,
-      candidateIdentity: params.candidateIdentity,
-      verdict: params.evidenceVerdict,
-      required: requiresProof,
-      reads: params.evidenceReads,
-    } satisfies EvidenceSnapshotInput,
+    ...(requiresProof
+      ? {
+          evidence: {
+            operationId: params.operationId,
+            sourceRevision: request?.workspaceRevision,
+            candidateIdentity: params.candidateIdentity,
+            verdict: params.evidenceVerdict,
+            required: true,
+            reads: params.evidenceReads,
+          } satisfies EvidenceSnapshotInput,
+        }
+      : {}),
     resumable: false,
     sourceRevision: request?.workspaceRevision,
     candidateIdentity: params.candidateIdentity,
@@ -2009,7 +2082,8 @@ export async function failAiExecution(params: {
       ? {
           operationId: current.operationId,
           sourceRevision: request?.workspaceRevision,
-          verdict: params.evidenceVerdict,
+           verdict: params.evidenceVerdict ?? (request?.proofRequired === true ? "NOT_RECORDED" : undefined),
+           required: request?.proofRequired === true,
           reads: params.evidenceReads,
         }
       : undefined,

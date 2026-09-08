@@ -150,6 +150,8 @@ import {
   unregisterAiExecutionController,
   type AiExecutionCheckpoint,
   type AiExecutionRequestEnvelope,
+  type AnalysisEvidenceCompletion,
+  validateAnalysisEvidenceCompletion,
 } from "../../lib/ai-execution-state.js";
 import {
   classifyAiTerminalOutcome,
@@ -258,6 +260,46 @@ function hasRecoveryAttempted(traceSteps: AgentStep[]): boolean {
       Number.isInteger(step.trace.recoveryAttempt) &&
       step.trace.recoveryAttempt! > 0,
     );
+}
+
+function deriveProjectQueryAnalysisEvidence(params: {
+  traceSteps: AgentStep[];
+  objective: unknown;
+  operationId: string;
+  sourceRevision: string;
+}): AnalysisEvidenceCompletion | undefined {
+  const objective = ObjectiveContractSchema.safeParse(params.objective);
+  if (!objective.success) return undefined;
+  const integrity = [...params.traceSteps]
+    .reverse()
+    .find((step): step is Extract<AgentStep, { kind: "evidence_integrity" }> =>
+      step.kind === "evidence_integrity",
+    );
+  const decision = [...params.traceSteps]
+    .reverse()
+    .find((step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
+      step.kind === "decision_trace",
+    );
+  if (!integrity || !decision) return undefined;
+  const completedReadFiles = [
+    ...(integrity.completedReadFiles ?? []),
+    ...decision.trace.filesRead,
+  ];
+  const objectiveVerdict = decision.trace.objectiveVerdict;
+  return {
+    operationId: params.operationId,
+    sourceRevision: params.sourceRevision,
+    requiredPaths: objective.data.requiredEvidencePaths ?? [],
+    completedReadFiles: [...new Set(completedReadFiles)],
+    acceptedEvidenceFiles: integrity.acceptedEvidenceFiles ?? [],
+    acceptedClaimCount: integrity.acceptedClaimCount ?? 0,
+    evidenceConsistent: integrity.consistent,
+    ...(integrity.completionGateResult
+      ? { completionGateResult: integrity.completionGateResult }
+      : {}),
+    ...(objectiveVerdict ? { objectiveVerdict } : {}),
+    finalState: decision.trace.finalState,
+  };
 }
 
 function latestCapabilityProbeRecoveryMetadata(traceSteps: AgentStep[]): {
@@ -6622,6 +6664,24 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
       }
     }
+    const analysisEvidence = streamTurnIntent.kind === "PROJECT_QUERY" && proofRequired
+      ? deriveProjectQueryAnalysisEvidence({
+          traceSteps,
+          objective: executionRequest.objective,
+          operationId: aiExecution.operationId ?? aiExecution.id,
+          sourceRevision: analysisCorrelation.projectRevision,
+        })
+      : undefined;
+    if (analysisEvidence) {
+      const analysisCheck = validateAnalysisEvidenceCompletion(analysisEvidence, {
+        operationId: aiExecution.operationId ?? aiExecution.id,
+        sourceRevision: analysisCorrelation.projectRevision,
+      });
+      if (analysisCheck.allowed) {
+        executionEvidenceVerdict = "PROVEN";
+        executionEvidenceReason = "Project analysis claims were accepted from source evidence bound to this revision.";
+      }
+    }
     if (autonomousOperation) {
       const finalEvidenceRef = finalValidation?.kind === "validation"
         ? finalValidation.result.evidence.artifactRef
@@ -6735,6 +6795,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
+        ...(analysisEvidence ? { analysisEvidence } : {}),
         ...(capabilityProbeTerminal ? { capabilityProbe: capabilityProbeTerminal } : {}),
         proofRequired,
         operationId: aiExecution.operationId ?? aiExecution.id,
