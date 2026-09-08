@@ -8348,6 +8348,7 @@ export default function AiChat() {
   const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<string[]>([]);
   const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
+  const [structuredCooldowns, setStructuredCooldowns] = useState<Partial<Record<'analyze' | 'review', string>>>({});
   const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
   const [historicalExecutionId, setHistoricalExecutionId] = useState<string | null>(null);
@@ -8915,6 +8916,9 @@ export default function AiChat() {
       onError: (err) => {
         const failureEvents = agentActivityEventsRef.current;
         const failure = safeStructuredFailure(err, task);
+        if (err.retryAt && Date.parse(err.retryAt) > Date.now()) {
+          setStructuredCooldowns((previous) => ({ ...previous, [task]: err.retryAt }));
+        }
         if (err.sessionId) {
           persistAiChatSelection({
             version: 1,
@@ -9014,10 +9018,10 @@ export default function AiChat() {
   function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
     const activeRun = structuredTaskRunRef.current;
     if (structuredRetryMessageId || isTaskSending) return;
-    const retryAt = activeExecutionStatus?.acceptance?.disposition?.retryAt;
+    const retryAt = structuredCooldowns[task]
+      ?? activeExecutionStatus?.acceptance?.disposition?.retryAt;
     if (
-      activeExecutionStatus?.acceptance?.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
-      && retryAt
+      retryAt
       && Date.parse(retryAt) > Date.now()
     ) {
       const seconds = Math.max(1, Math.ceil((Date.parse(retryAt) - Date.now()) / 1_000));
@@ -9026,6 +9030,13 @@ export default function AiChat() {
         description: `Try again in about ${seconds} second${seconds === 1 ? '' : 's'}.`,
       });
       return;
+    }
+    if (retryAt) {
+      setStructuredCooldowns((previous) => {
+        const next = { ...previous };
+        delete next[task];
+        return next;
+      });
     }
     const run = activeRun?.task === task
       ? activeRun

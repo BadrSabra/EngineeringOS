@@ -1364,6 +1364,8 @@ export function useAiTaskStream() {
           error?: string;
           hint?: string;
           retryable?: boolean;
+          retryAfterMs?: number;
+          retryAt?: string;
           failureKind?: AiStreamErrorEvent['failureKind'];
           providerFailureCategory?: AiStreamErrorEvent['providerFailureCategory'];
           sessionId?: string;
@@ -1381,6 +1383,8 @@ export function useAiTaskStream() {
           code: parsed.code ?? 'request_failed',
           message: parsed.error ?? `Request failed (${res.status})`,
           retryable: parsed.retryable ?? failureKind !== 'CONFIGURATION',
+          retryAfterMs: parsed.retryAfterMs,
+          retryAt: parsed.retryAt,
           failureKind,
           providerFailureCategory: parsed.providerFailureCategory,
           outcome: 'FAILED',

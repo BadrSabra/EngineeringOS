@@ -39,6 +39,7 @@ import {
 } from "../../lib/ai-route-helpers.js";
 import {
   startStructuredExecution,
+  StructuredExecutionCooldownError,
   type StructuredExecution,
 } from "../../lib/structured-task-execution.js";
 
@@ -703,6 +704,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
   const idempotencyKey = typeof req.body?.idempotencyKey === "string" ? req.body.idempotencyKey : undefined;
   const metadata = await createAuditMetadata(projectId, project);
   recordTrace(metadata, "analyze", "started");
+  const preflightProvider = await resolveProvider(req.userId, { qualityProfile: "analysis" });
   let structuredExecution: StructuredExecution;
   try {
     structuredExecution = await startStructuredExecution({
@@ -711,6 +713,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       projectRevision: metadata.projectRevision,
       task: "analyze",
       prompt: "Analyze the latest scan results and suggest the top 3 improvements.",
+      providerName: preflightProvider?.provider,
       sessionId: requestedSessionId,
       executionId: requestedExecutionId,
       resumeToken: requestedResumeToken,
@@ -718,6 +721,17 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "EXECUTION_START_FAILED";
+    if (error instanceof StructuredExecutionCooldownError) {
+      return res.status(429).json({
+        error: error.message,
+        code: error.code,
+        retryable: true,
+        retryAfterMs: error.retryAfterMs,
+        retryAt: error.retryAt,
+        failureKind: "RATE_LIMIT",
+        sessionId: error.sessionId,
+      });
+    }
     return res.status(code === "EXECUTION_NOT_FOUND" ? 404 : 409).json({
       error: code,
       code,
@@ -729,7 +743,8 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
   });
   await structuredExecution.checkpoint("running", "Structured analysis started");
 
-  const providerResolved = await resolveProvider(req.userId, { qualityProfile: "analysis" });
+  const providerResolved = preflightProvider
+    ?? await resolveProvider(req.userId, { qualityProfile: "analysis" });
   if (!providerResolved) {
     await persistStructuredExecutionFailure({
       execution: structuredExecution,
@@ -921,6 +936,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
 
   const metadata = await createAuditMetadata(projectId, project);
   recordTrace(metadata, "review", "started");
+  const preflightProvider = await resolveProvider(req.userId, { qualityProfile: "code_review" });
   let structuredExecution: StructuredExecution;
   try {
     structuredExecution = await startStructuredExecution({
@@ -929,6 +945,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
       projectRevision: metadata.projectRevision,
       task: "review",
       prompt: "Review the codebase and identify the most critical quality issues.",
+      providerName: preflightProvider?.provider,
       sessionId: requestedSessionId,
       executionId: requestedExecutionId,
       resumeToken: requestedResumeToken,
@@ -936,6 +953,17 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "EXECUTION_START_FAILED";
+    if (error instanceof StructuredExecutionCooldownError) {
+      return res.status(429).json({
+        error: error.message,
+        code: error.code,
+        retryable: true,
+        retryAfterMs: error.retryAfterMs,
+        retryAt: error.retryAt,
+        failureKind: "RATE_LIMIT",
+        sessionId: error.sessionId,
+      });
+    }
     return res.status(code === "EXECUTION_NOT_FOUND" ? 404 : 409).json({
       error: code,
       code,
@@ -947,7 +975,8 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
   });
   await structuredExecution.checkpoint("running", "Structured review started");
 
-  const providerResolved = await resolveProvider(req.userId, { qualityProfile: "code_review" });
+  const providerResolved = preflightProvider
+    ?? await resolveProvider(req.userId, { qualityProfile: "code_review" });
   if (!providerResolved) {
     const details = structuredFailureDetails(
       await getProviderSelectionFailure(req.userId, { qualityProfile: "code_review" }),

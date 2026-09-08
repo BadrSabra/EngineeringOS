@@ -1,8 +1,9 @@
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
   db,
 } from "@workspace/db";
@@ -15,6 +16,7 @@ import {
   failAiExecution,
   getAiExecutionForUser,
   heartbeatAiExecution,
+  parseAiExecutionCheckpoint,
   parseExecutionRequest,
   registerAiExecutionController,
   unregisterAiExecutionController,
@@ -25,6 +27,90 @@ import {
 
 export type StructuredTask = "analyze" | "review";
 type AiExecution = typeof aiExecutionsTable.$inferSelect;
+
+export class StructuredExecutionCooldownError extends Error {
+  readonly code = "RATE_LIMITED" as const;
+  readonly retryAfterMs: number;
+  readonly retryAt: string;
+  readonly sessionId?: string;
+  readonly executionId?: string;
+
+  constructor(params: {
+    retryAfterMs: number;
+    retryAt: string;
+    sessionId?: string | null;
+    executionId?: string;
+  }) {
+    super("The AI provider is temporarily rate-limited.");
+    this.name = "StructuredExecutionCooldownError";
+    this.retryAfterMs = params.retryAfterMs;
+    this.retryAt = params.retryAt;
+    this.sessionId = params.sessionId ?? undefined;
+    this.executionId = params.executionId;
+  }
+}
+
+async function findStructuredExecutionCooldown(params: {
+  userId: string;
+  projectId: string;
+  task: StructuredTask;
+  providerName?: string;
+}): Promise<StructuredExecutionCooldownError | undefined> {
+  const turnIntent = params.task === "review" ? "STRUCTURED_REVIEW" : "STRUCTURED_ANALYZE";
+  const rows = await db
+    .select({
+      executionId: aiExecutionsTable.id,
+      sessionId: aiExecutionsTable.sessionId,
+      request: aiExecutionsTable.request,
+      checkpoint: aiExecutionsTable.checkpoint,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      outcome: aiExecutionAcceptancesTable.outcome,
+      disposition: aiExecutionAcceptancesTable.disposition,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .innerJoin(
+      aiExecutionsTable,
+      eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+    )
+    .where(and(
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.projectId, params.projectId),
+      eq(aiExecutionAcceptancesTable.nextActionCode, "RETRY_AFTER_RATE_LIMIT"),
+      eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
+    ))
+    .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
+    .limit(16);
+
+  const now = Date.now();
+  for (const row of rows) {
+    const request = parseExecutionRequest(row.request);
+    if (!request || request.turnIntent !== turnIntent) continue;
+    const checkpoint = parseAiExecutionCheckpoint(row.checkpoint);
+    const priorProviders = checkpoint?.providerAttempts ?? [];
+    if (
+      params.providerName
+      && priorProviders.length > 0
+      && !priorProviders.some((attempt) =>
+        attempt.provider.trim().toLowerCase() === params.providerName!.trim().toLowerCase())
+    ) {
+      continue;
+    }
+    const disposition = row.disposition && typeof row.disposition === "object"
+      ? row.disposition as Record<string, unknown>
+      : undefined;
+    const retryAtValue = disposition?.retryAt ?? checkpoint?.retryAt;
+    if (typeof retryAtValue !== "string") continue;
+    const retryAtMs = Date.parse(retryAtValue);
+    if (!Number.isFinite(retryAtMs) || retryAtMs <= now) continue;
+    return new StructuredExecutionCooldownError({
+      retryAfterMs: Math.max(1_000, retryAtMs - now),
+      retryAt: new Date(retryAtMs).toISOString(),
+      sessionId: row.sessionId,
+      executionId: row.executionId,
+    });
+  }
+  return undefined;
+}
 
 export type StructuredExecutionStarted = {
   executionId: string;
@@ -121,6 +207,7 @@ export async function startStructuredExecution(params: {
   projectRevision: string;
   task: StructuredTask;
   prompt: string;
+  providerName?: string;
   sessionId?: string;
   executionId?: string;
   resumeToken?: string;
@@ -152,6 +239,14 @@ export async function startStructuredExecution(params: {
     if (!claimed) throw new Error("EXECUTION_CLAIM_CONFLICT");
     execution = claimed;
   } else {
+    const cooldown = await findStructuredExecutionCooldown({
+      userId: params.userId,
+      projectId: params.projectId,
+      task: params.task,
+      providerName: params.providerName,
+    });
+    if (cooldown) throw cooldown;
+
     const initialSession = await ensureSession({
       projectId: params.projectId,
       task: params.task,

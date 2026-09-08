@@ -2810,6 +2810,108 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     expect(failures.every((message) => message.errorCode === "model_output_invalid")).toBe(true);
     expect(failures.every((message) => message.toolTrace?.includes("structured_task_failure"))).toBe(true);
   });
+
+  it("blocks a structured retry during the durable provider cooldown", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const retryAt = new Date(Date.now() + 30_000).toISOString();
+    const now = new Date();
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Scan analysis",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      sessionId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        sessionId,
+        message: "Analyze the latest scan results and suggest the top 3 improvements.",
+        modelMessage: "Analyze the latest scan results and suggest the top 3 improvements.",
+        turnIntent: "STRUCTURED_ANALYZE",
+        validationTargetPaths: [],
+        proofRequired: false,
+      },
+    });
+    const executionId = created.execution.id;
+    await db.update(aiExecutionsTable).set({
+      status: "failed",
+      checkpoint: JSON.stringify({
+        stage: "failed",
+        sequence: 1,
+        providerAttempts: [{ provider: "Groq", code: "RATE_LIMITED" }],
+        retryAfterMs: 30_000,
+        retryAt,
+        updatedAt: now.toISOString(),
+      }),
+      updatedAt: now,
+      completedAt: now,
+    }).where(eq(aiExecutionsTable.id, executionId));
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `execution:${executionId}:attempt:0:cooldown`,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      disposition: {
+        outcome: "FAILED",
+        retryAfterMs: 30_000,
+        retryAt,
+        failureKind: "PROVIDER_FAILURE",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_RATE_LIMIT",
+      },
+      resumable: 0,
+      createdAt: now,
+    });
+
+    const before = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        eq(aiExecutionsTable.userId, "test-user"),
+      ));
+
+    const response = await request(app)
+      .post(`/api/ai/projects/${projectId}/analyze/stream`)
+      .send({ sessionId });
+
+    expect(response.status).toBe(429);
+    expect(response.body).toMatchObject({
+      code: "RATE_LIMITED",
+      failureKind: "RATE_LIMIT",
+      retryAt,
+      sessionId,
+    });
+    expect(response.body.retryAfterMs).toBeGreaterThan(0);
+
+    const after = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        eq(aiExecutionsTable.userId, "test-user"),
+      ));
+    expect(after).toHaveLength(before.length);
+
+    const usage = await db
+      .select({ id: aiUsageEventsTable.id })
+      .from(aiUsageEventsTable)
+      .where(eq(aiUsageEventsTable.executionId, executionId));
+    expect(usage).toHaveLength(0);
+  });
 });
 
 // ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────

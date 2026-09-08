@@ -125,3 +125,4 @@
 - [Structured task terminal events](structured-task-terminal-events.md) — structured SSE ends with task_done; parsers must treat it as terminal or clean EOF becomes a false interruption.
 - [Structured execution adapter](structured-execution-adapter.md) — Analyze/Review must reserve durable execution state before provider work and persist the assistant terminal row before acceptance.
 - [Structured provider fallback](structured-provider-fallback.md) — structured routes must explicitly opt into bounded transient model fallback; resolver chains alone do not consume on 429.
+- [Server cooldown gates](server-cooldown-gates.md) — a persisted retryAt is only protective when new execution creation rejects early; client guards and acceptance projection are not authoritative.
