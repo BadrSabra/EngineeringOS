@@ -863,7 +863,7 @@ describe("AI execution resume-capability recovery", () => {
     expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
   });
 
-  it("preserves both terminal attempts across provider failure, resume, REST history, and chat history", async () => {
+  it("release-smoke-resumable-failure: preserves both terminal attempts across provider failure, resume, REST history, and chat history", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const sessionId = await insertChatSession(projectId, "Provider resume history");
@@ -4391,7 +4391,7 @@ describe("Concurrent chat ordering and ownership", () => {
 // ─── INT-005: SSE success path ────────────────────────────────────────────────
 
 describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
-  it("should stream successful OpenRouter completion over SSE", async () => {
+  it("release-smoke-success: should stream successful OpenRouter completion over SSE", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
 
@@ -6419,7 +6419,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(JSON.stringify(historyAssistant)).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
   });
 
-  it("keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
+  it("release-smoke-cancellation: keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");

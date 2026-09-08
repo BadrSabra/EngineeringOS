@@ -82,6 +82,28 @@ describe("AI release quality gate", () => {
     ]));
   });
 
+  it("registers a bounded stream lifecycle smoke as a blocking release check", () => {
+    const check = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "ai-stream-release-smoke",
+    );
+    expect(check).toMatchObject({
+      kind: "operation",
+      blocking: true,
+      enabled: true,
+      command: "pnpm --filter @workspace/api-server run test:release-ai-stream-smoke",
+      milestones: [
+        "stream-success",
+        "resumable-failure",
+        "cancellation",
+      ],
+    });
+    expect(check?.coverage).toEqual(expect.arrayContaining([
+      "successful SSE stream",
+      "resumable provider failure and reconnect",
+      "cancellation with retained evidence",
+    ]));
+  });
+
   it("retains ownership milestones in the release receipt after a passing check", () => {
     const check = getAiReleaseChecks().find(
       (candidate) => candidate.id === "ai-long-run-ownership",
@@ -97,6 +119,31 @@ describe("AI release quality gate", () => {
       "terminal-completion",
       "heartbeat-cleanup",
     ]);
+  });
+
+  it("retains a safe stream lifecycle stage when normalizing failure diagnostics", () => {
+    const decision = evaluateAiReleaseQuality([result({
+      id: "ai-stream-release-smoke",
+      kind: "operation",
+      status: "failed",
+      failureCode: "AI_STREAM_RELEASE_SMOKE_FAILED_1",
+      diagnostic: {
+        classification: "assertion_failure",
+        code: "TEST_ASSERTION_FAILED",
+        testFiles: ["src/routes/ai-stream-integration.test.ts"],
+        testIds: [
+          "release-smoke-cancellation: retained evidence",
+          "provider diagnostic: Bearer secret-value",
+        ],
+      },
+    })]);
+    expect(decision.checks[0]?.diagnostic).toEqual({
+      classification: "assertion_failure",
+      code: "TEST_ASSERTION_FAILED",
+      testFiles: ["src/routes/ai-stream-integration.test.ts"],
+      testIds: ["release-smoke-cancellation: retained evidence"],
+    });
+    expect(JSON.stringify(decision)).not.toMatch(/Bearer|secret-value|provider diagnostic/i);
   });
 
   it("blocks a failed typecheck or false-success benchmark without raw output", () => {

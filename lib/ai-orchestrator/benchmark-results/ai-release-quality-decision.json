@@ -1,13 +1,13 @@
 {
   "kind": "ai-release-quality-decision",
-  "version": 1,
-  "generatedAt": "2026-09-08T12:34:19.786Z",
+  "version": 2,
+  "generatedAt": "2026-09-08T12:57:16.124Z",
   "status": "passed",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
   "summary": {
-    "totalCases": 13,
-    "passedCases": 12,
+    "totalCases": 15,
+    "passedCases": 14,
     "failedCases": 0,
     "skippedCases": 1,
     "blockingFailures": 0,
@@ -25,7 +25,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 33335
+      "durationMs": 31606
     },
     {
       "id": "dashboard-typecheck",
@@ -37,7 +37,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7624
+      "durationMs": 7175
     },
     {
       "id": "openapi-client-parity",
@@ -50,7 +50,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6555
+      "durationMs": 6701
     },
     {
       "id": "truth-flow-parity",
@@ -62,7 +62,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1362
+      "durationMs": 1434
     },
     {
       "id": "ai-contract-and-json",
@@ -77,7 +77,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 89388
+      "durationMs": 58183
     },
     {
       "id": "ai-structured-review-fallback",
@@ -93,7 +93,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 3808
+      "durationMs": 1576
     },
     {
       "id": "ai-capability-probe-provider-matrix",
@@ -109,7 +109,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 4945
+      "durationMs": 4359
     },
     {
       "id": "ai-sse-and-redaction",
@@ -124,7 +124,46 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 36511
+      "durationMs": 30697
+    },
+    {
+      "id": "ai-stream-release-smoke",
+      "kind": "operation",
+      "command": "pnpm --filter @workspace/api-server run test:release-ai-stream-smoke",
+      "blocking": true,
+      "coverage": [
+        "successful SSE stream",
+        "resumable provider failure and reconnect",
+        "cancellation with retained evidence"
+      ],
+      "milestones": [
+        "stream-success",
+        "resumable-failure",
+        "cancellation"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 9764
+    },
+    {
+      "id": "ai-long-run-ownership",
+      "kind": "operation",
+      "command": "RELEASE_AI_STREAM_TEST_NAME=\"renews ownership through a bounded long provider/tool phase beyond one heartbeat interval and cleans up after success\" pnpm --filter @workspace/api-server exec node scripts/run-release-ai-stream.mjs",
+      "blocking": true,
+      "coverage": [
+        "bounded provider/tool phase beyond one heartbeat interval",
+        "renewed durable execution ownership",
+        "terminal completion",
+        "heartbeat cleanup"
+      ],
+      "milestones": [
+        "ownership-renewed",
+        "terminal-completion",
+        "heartbeat-cleanup"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 9204
     },
     {
       "id": "ai-operational-safety",
@@ -140,7 +179,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 85346
+      "durationMs": 61069
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -155,7 +194,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 951
+      "durationMs": 803
     },
     {
       "id": "benchmark-baseline-regression",
@@ -168,7 +207,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 990
+      "durationMs": 1043
     },
     {
       "id": "benchmark-runtime-oracle-preflight",
@@ -181,7 +220,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7691
+      "durationMs": 7659
     },
     {
       "id": "dashboard-preview-contract",

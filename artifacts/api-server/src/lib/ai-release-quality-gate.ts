@@ -135,6 +135,22 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
     coverage: ["SSE contract", "redaction", "stale revision", "resume"],
   },
   {
+    id: "ai-stream-release-smoke",
+    kind: "operation",
+    command: "pnpm --filter @workspace/api-server run test:release-ai-stream-smoke",
+    blocking: true,
+    coverage: [
+      "successful SSE stream",
+      "resumable provider failure and reconnect",
+      "cancellation with retained evidence",
+    ],
+    milestones: [
+      "stream-success",
+      "resumable-failure",
+      "cancellation",
+    ],
+  },
+  {
     id: "ai-long-run-ownership",
     kind: "operation",
     command: "RELEASE_AI_STREAM_TEST_NAME=\"renews ownership through a bounded long provider/tool phase beyond one heartbeat interval and cleans up after success\" pnpm --filter @workspace/api-server exec node scripts/run-release-ai-stream.mjs",
@@ -415,7 +431,7 @@ async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise
     // The quality gate owns the shared release lock for the whole campaign.
     // Let the focused stream runner reuse that ownership instead of treating
     // its nested invocation as a database-isolation collision.
-    if (check.id === "ai-long-run-ownership") {
+    if (check.id === "ai-long-run-ownership" || check.id === "ai-stream-release-smoke") {
       childEnv.RELEASE_AI_STREAM_LOCK_HELD = "1";
     } else {
       delete childEnv.RELEASE_AI_STREAM_LOCK_HELD;

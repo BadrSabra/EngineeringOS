@@ -12,6 +12,7 @@
     "test": "vitest run && node --test scripts/stop-old-api.test.mjs scripts/release-lock.test.mjs scripts/run-live-openrouter-free-smoke.test.mjs",
     "test:discovery-release": "DISCOVERY_RELEASE_RECEIPT_PATH=../../test-results/discovery/release-receipt.json vitest run src/routes/discovery.test.ts",
     "test:release-fixture-collisions": "node ./scripts/run-release-fixture-collision-check.mjs",
+    "test:release-ai-stream-smoke": "RELEASE_AI_STREAM_TEST_NAME=\"release-smoke-\" node ./scripts/run-release-ai-stream.mjs",
     "test:release-synthesis-telemetry": "node ./scripts/run-release-ai-stream.mjs && node ./scripts/run-release-synthesis-telemetry.mjs",
     "test:process-recovery": "node ./scripts/run-real-process-recovery.mjs",
     "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
