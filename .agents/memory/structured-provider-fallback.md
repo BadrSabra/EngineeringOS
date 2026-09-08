@@ -8,3 +8,9 @@ A resolved OpenRouter fallback chain is only a candidate list. Structured Analyz
 **Why:** A real structured run selected a multi-model chain but produced one RATE_LIMITED usage row and no model fallback because retryTransient was not enabled at the agent boundary.
 
 **How to apply:** Keep transient fallback bounded, preserve Retry-After safety, bind every provider/model attempt to the durable execution and operation, and test first-model 429 → next-model success plus exhausted-chain terminal behavior. A new Retry execution is not a Resume; only a request that claims the existing execution with its resume token is a real resume path. Structured stream failure finalization must carry the observed provider-attempt summary into acceptance; otherwise a persisted `RATE_LIMITED` assistant error can be projected as generic `EXECUTION_FAILED/ABANDON_EXECUTION`, losing the retry policy and misleading the Dashboard.
+
+OpenRouter `RATE_LIMITED` is provider/account scoped unless the response proves otherwise. It must not cause an immediate same-provider model cascade: three models failed within roughly 300ms in the latest live session, so model fallback amplified a provider-wide throttle rather than increasing the chance of a valid answer.
+
+**Why:** Free-model fallback changed the model ID but not the constrained OpenRouter credential or rate window; the second and third requests were therefore made under the same exhausted condition.
+
+**How to apply:** Treat provider-wide rate limits as a stop-and-wait or provider-level fallback decision, honor `Retry-After`/cooldown, and only use same-provider model fallback for model-scoped failures such as model unavailable/not found.
