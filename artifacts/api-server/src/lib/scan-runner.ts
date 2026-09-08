@@ -152,7 +152,7 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
   }, SCAN_HEARTBEAT_INTERVAL_MS);
 
   try {
-    const result = await performScan(projectId);
+    const result = await performScan(projectId, undefined, jobId);
     clearInterval(heartbeatInterval);
     heartbeatInterval = undefined;
     const finishedAt = new Date();
@@ -223,7 +223,11 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
   }
 }
 
-export async function performScan(projectId: string, signal?: AbortSignal): Promise<ScanJobResult> {
+export async function performScan(
+  projectId: string,
+  signal?: AbortSignal,
+  scanJobId?: string,
+): Promise<ScanJobResult> {
   const checkCancelled = (): void => {
     if (signal?.aborted) throw new Error("scan refresh cancelled");
   };
@@ -502,6 +506,16 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
     );
   }
 
+  // New scans own the surviving graph rows as well as newly inserted rows.
+  // Legacy/direct callers may omit scanJobId, in which case provenance remains
+  // unchanged rather than inventing a durable job identity.
+  if (scanJobId) {
+    await tx
+      .update(graphEntitiesTable)
+      .set({ scanJobId })
+      .where(eq(graphEntitiesTable.projectId, projectId));
+  }
+
   const entitiesToInsert = graph.entities.filter(
     (e) => !entityKeyToId.has(`${e.type}::${e.path ?? e.name}::${e.name}`),
   );
@@ -510,6 +524,7 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
     const entityRows = entitiesToInsert.map((e) => ({
       id: randomUUID(),
       projectId,
+      ...(scanJobId ? { scanJobId } : {}),
       type: e.type,
       name: e.name,
       path: e.path,
@@ -560,6 +575,7 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
         sourceId,
         targetId,
         projectId, // denormalised for efficient project-level queries (KG 2.0)
+        ...(scanJobId ? { scanJobId } : {}),
         relation: rel.relation,
         // ── Knowledge Graph 2.0 semantic fields ─────────────────────────
         relationType: rel.relationType,
