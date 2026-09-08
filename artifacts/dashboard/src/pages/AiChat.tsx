@@ -6003,6 +6003,12 @@ function structuredTaskLabel(task: 'analyze' | 'review'): string {
   return task === 'analyze' ? 'scan analysis' : 'code review';
 }
 
+function structuredTaskPrompt(task: 'analyze' | 'review'): string {
+  return task === 'analyze'
+    ? 'Analyze the latest scan results and suggest the top 3 improvements.'
+    : 'Review the codebase and identify the most critical quality issues.';
+}
+
 function parseStructuredFailureMetadata(toolTrace: string | null | undefined): {
   task: 'analyze' | 'review';
   failureKind?: AiStreamErrorEvent['failureKind'];
@@ -8881,6 +8887,7 @@ export default function AiChat() {
             sessionId: err.sessionId,
           });
           setSessionId(err.sessionId);
+          void qc.invalidateQueries({ queryKey: ['ai-messages', err.sessionId] });
           qc.setQueryData<Session[]>(
             ['ai-sessions', selectedProjectId],
             (previous = []) => previous.some((session) => session.id === err.sessionId)
@@ -8943,8 +8950,15 @@ export default function AiChat() {
   }
 
   function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
-    const run = structuredTaskRunRef.current;
-    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+    const activeRun = structuredTaskRunRef.current;
+    if (structuredRetryMessageId || isTaskSending) return;
+    const run = activeRun?.task === task
+      ? activeRun
+      : {
+          task,
+          prompt: structuredTaskPrompt(task),
+          placeholderId: `${task}-placeholder`,
+        };
     setStructuredRetryMessageId(messageId);
     startStructuredTask(task, run.prompt, messageId);
   }

@@ -4269,6 +4269,37 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText(/Project score: 92\/100/)).toBeInTheDocument();
   });
 
+  it('retries a persisted structured failure after the page is reloaded', async () => {
+    mocks.serverProposal = { changes: [] };
+    mocks.proposalMessages = [{
+      id: 'persisted-analysis-failure',
+      role: 'assistant',
+      content: '',
+      toolTrace: JSON.stringify([{
+        kind: 'structured_task_failure',
+        task: 'analyze',
+        failureKind: 'RATE_LIMIT',
+        retryable: true,
+      }]),
+      outcome: 'FAILED',
+      failureKind: 'RATE_LIMIT',
+      retryable: true,
+      createdAt: '2026-08-13T00:01:00.000Z',
+    }] as typeof mocks.proposalMessages;
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('Scan analysis paused')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry analysis' }));
+
+    expect(mocks.taskSentParams).toEqual({
+      projectId: 'project-1',
+      task: 'analyze',
+      sessionId: 'session-1',
+    });
+  });
+
   it('marks a setup-blocked code review as not retryable', async () => {
     renderAiChat();
 

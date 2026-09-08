@@ -1004,7 +1004,13 @@ export async function processAiStream(
 
       if (event.type === 'execution_started') executionStarted = true;
       if (event.type === 'task_started') taskStarted = true;
-      if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
+      if (
+        event.type === 'done'
+        || event.type === 'error'
+        || event.type === 'task_done'
+      ) {
+        terminalEventReceived = true;
+      }
 
        switch (event.type) {
         case 'execution_started':
@@ -1159,7 +1165,10 @@ export function useAiChatStream() {
       onAuditState: (event) => { if (isCurrent()) callbacks.onAuditState?.(event); },
       onVerification: (event) => { if (isCurrent()) callbacks.onVerification?.(event); },
       onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
-      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
+      onStreamReset: () => {
+        if (!isCurrent() || terminalDelivered) return;
+        callbacks.onStreamReset?.();
+      },
       onDone: (event) => {
         if (!isCurrent() || terminalDelivered) return;
         terminalDelivered = true;
@@ -1321,7 +1330,10 @@ export function useAiTaskStream() {
         terminalDelivered = true;
         callbacks.onError?.(event);
       },
-      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
+      onStreamReset: () => {
+        if (!isCurrent() || terminalDelivered) return;
+        callbacks.onStreamReset?.();
+      },
     };
 
     try {

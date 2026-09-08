@@ -734,6 +734,7 @@ describe('processAiStream — structured task events', () => {
     const model = vi.fn();
     const done = vi.fn();
     const delta = vi.fn();
+    const onStreamReset = vi.fn();
 
     await processAiStream(
       makeSseStream(
@@ -743,7 +744,14 @@ describe('processAiStream — structured task events', () => {
         sseFrame({ type: 'model_call' }),
         sseFrame({ type: 'task_done', task: 'analyze', result: { summary: 'complete' } }),
       ),
-      { onTaskStarted: started, onTaskProgress: progress, onModelCall: model, onTaskDone: done, onDelta: delta },
+       {
+         onTaskStarted: started,
+         onTaskProgress: progress,
+         onModelCall: model,
+         onTaskDone: done,
+         onDelta: delta,
+         onStreamReset,
+       },
     );
 
     expect(started).toHaveBeenCalledWith({ type: 'task_started', task: 'analyze', projectId: 'project-1' });
@@ -755,6 +763,7 @@ describe('processAiStream — structured task events', () => {
     expect(model).toHaveBeenCalledWith({ type: 'model_call' });
     expect(done).toHaveBeenCalledWith({ type: 'task_done', task: 'analyze', result: { summary: 'complete' } });
     expect(delta).not.toHaveBeenCalled();
+    expect(onStreamReset).not.toHaveBeenCalled();
   });
 });
 

@@ -122,3 +122,4 @@
 - [SSE recovery authority](sse-recovery-authority.md) — transport keepalive is separate from lease ownership; after EOF, durable status and acceptance decide recovery.
 - [Cancellation registration race](cancellation-registration-race.md) — cancel can win before the worker registers its controller; re-read durable state after registration and abort immediately.
 - [Dashboard proof fixture contracts](dashboard-proof-fixtures.md) — proof-bearing resumable fixtures must preserve proofRequired through terminal/reload state or the proof panel correctly disappears.
+- [Structured task terminal events](structured-task-terminal-events.md) — structured SSE ends with task_done; parsers must treat it as terminal or clean EOF becomes a false interruption.
