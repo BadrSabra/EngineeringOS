@@ -10,6 +10,8 @@ import { db } from "@workspace/db";
 import {
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiExecutionAcceptancesTable,
+  aiExecutionsTable,
   auditLogsTable,
   eventsTable,
   projectsTable,
@@ -44,6 +46,7 @@ import {
   type StructuredExecution,
   type StructuredRetryAfterSource,
 } from "../../lib/structured-task-execution.js";
+import type { AiTerminalProjection } from "../../lib/ai-terminal-outcome.js";
 
 const router = Router();
 const STRUCTURED_MAX_MODEL_FALLBACKS = 3;
@@ -67,8 +70,8 @@ type StructuredTaskEvent =
      | { type: "task_started"; task: StructuredTask; projectId: string }
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
-     | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string }
-      | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string })
+      | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string; terminalProjection?: AiTerminalProjection }
+       | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string; terminalProjection?: AiTerminalProjection })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
@@ -358,6 +361,88 @@ function structuredResultContent(task: StructuredTask, result: Record<string, un
   ].filter(Boolean).join("\n");
 }
 
+async function loadStructuredTerminalProjection(params: {
+  executionId: string;
+  sessionId: string;
+}): Promise<AiTerminalProjection | undefined> {
+  const [execution] = await db
+    .select({
+      id: aiExecutionsTable.id,
+      sessionId: aiExecutionsTable.sessionId,
+      attempt: aiExecutionsTable.attempt,
+      status: aiExecutionsTable.status,
+      finalMessageId: aiExecutionsTable.finalMessageId,
+      operationId: aiExecutionsTable.operationId,
+      correlationId: aiExecutionsTable.correlationId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.sessionId, params.sessionId),
+    ))
+    .limit(1);
+  if (!execution) return undefined;
+
+  const [acceptance] = await db
+    .select({
+      id: aiExecutionAcceptancesTable.id,
+      messageId: aiExecutionAcceptancesTable.messageId,
+      terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+      outcome: aiExecutionAcceptancesTable.outcome,
+      reasonCode: aiExecutionAcceptancesTable.reasonCode,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      resumable: aiExecutionAcceptancesTable.resumable,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+
+  const status = acceptance?.terminalStatus === "completed"
+      || acceptance?.terminalStatus === "failed"
+      || acceptance?.terminalStatus === "cancelled"
+      || acceptance?.terminalStatus === "paused"
+    ? acceptance.terminalStatus
+    : execution.status === "completed"
+      || execution.status === "failed"
+      || execution.status === "cancelled"
+      || execution.status === "paused"
+      ? execution.status
+      : "failed";
+  const outcome = acceptance?.outcome === "SUCCEEDED"
+    || acceptance?.outcome === "FAILED"
+    || acceptance?.outcome === "INTERRUPTED"
+    ? acceptance.outcome
+    : status === "completed"
+      ? "SUCCEEDED"
+      : status === "cancelled"
+        ? "INTERRUPTED"
+        : "FAILED";
+
+  return {
+    executionId: execution.id,
+    sessionId: execution.sessionId ?? params.sessionId,
+    attempt: execution.attempt,
+    messageId: acceptance?.messageId ?? execution.finalMessageId ?? null,
+    acceptanceId: acceptance?.id ?? null,
+    operationId: execution.operationId ?? null,
+    correlationId: execution.correlationId ?? execution.operationId ?? execution.id,
+    status,
+    outcome,
+    reasonCode: acceptance?.reasonCode ?? (
+      status === "cancelled"
+        ? "EXECUTION_CANCELLED"
+        : status === "completed"
+          ? "ACCEPTED"
+          : "EXECUTION_FAILED"
+    ),
+    nextActionCode: acceptance?.nextActionCode ?? null,
+    resumable: Boolean(acceptance?.resumable) || status === "paused",
+  };
+}
+
 async function persistStructuredExecutionFailure(params: {
   execution: StructuredExecution;
   task: StructuredTask;
@@ -406,6 +491,10 @@ async function persistStructuredExecutionFailure(params: {
       ? { retryAfterSource }
       : undefined,
   });
+  const terminalProjection = await loadStructuredTerminalProjection({
+    executionId: execution.started.executionId,
+    sessionId: execution.started.sessionId,
+  });
   emit({
     type: "error",
     code: details.code,
@@ -423,6 +512,7 @@ async function persistStructuredExecutionFailure(params: {
     outcome: "FAILED",
     sessionId: execution.started.sessionId,
     executionId: execution.started.executionId,
+    ...(terminalProjection ? { terminalProjection } : {}),
   });
   close();
 }
@@ -918,6 +1008,10 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         ...redactUserFacingValue(result) as Record<string, unknown>,
         ...auditEnvelope(metadata),
       },
+      terminalProjection: await loadStructuredTerminalProjection({
+        executionId: structuredExecution.started.executionId,
+        sessionId: structuredExecution.started.sessionId,
+      }),
     });
     close();
     logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");

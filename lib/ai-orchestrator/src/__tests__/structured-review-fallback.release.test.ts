@@ -122,6 +122,7 @@ describe("structured review provider fallback release check", () => {
     name: string;
     firstResponse: () => FixtureResponse;
     failureResponseCount?: number;
+    terminal?: boolean;
   }> = [
     {
       name: "reasoning-only response",
@@ -151,6 +152,7 @@ describe("structured review provider fallback release check", () => {
       firstResponse: () => jsonResponse({
         error: { message: "Too many requests; try again later." },
       }, 429, new Headers({ "Retry-After": "1" })),
+      terminal: true,
     },
     {
       name: "empty response",
@@ -161,8 +163,8 @@ describe("structured review provider fallback release check", () => {
   ];
 
   it.each(transportFailureCases)(
-    "falls back after a $name and returns a cited finding",
-    async ({ firstResponse, failureResponseCount = 1 }) => {
+    "handles a $name according to provider fallback policy",
+    async ({ firstResponse, failureResponseCount = 1, terminal = false }) => {
       const { completionCalls } = installOpenRouterFixture((model, callNumber) =>
         callNumber <= failureResponseCount ? firstResponse() : jsonResponse({
           choices: [{ message: { content: reviewWithFinding } }],
@@ -170,6 +172,13 @@ describe("structured review provider fallback release check", () => {
           usage: {},
         }),
       );
+
+      if (terminal) {
+        await expect(runReview()).rejects.toMatchObject({ code: "RATE_LIMITED" });
+        expect(completionCalls).toHaveLength(1);
+        expect(completionCalls[0]).toBe(reviewModels[0]!.id);
+        return;
+      }
 
       const result = await runReview();
 

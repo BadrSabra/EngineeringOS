@@ -397,6 +397,10 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   // `instanceof` checks. Without it vitest throws "No GroqClientError export".
   GroqClientError: class GroqClientError extends Error {
     readonly code: string;
+    readonly providerName?: string;
+    readonly providerModel?: string;
+    readonly providerStatus?: number;
+    readonly retryAfterMs?: number;
     readonly providerCode?: string;
     readonly catalogStatus?: "never" | "success" | "failed" | "empty";
     readonly catalogError?: string;
@@ -404,6 +408,10 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
       code: string,
       message: string,
       options?: { context?: {
+        providerName?: string;
+        providerModel?: string;
+        providerStatus?: number;
+        retryAfterMs?: number;
         providerCode?: string;
         catalogStatus?: "never" | "success" | "failed" | "empty";
         catalogError?: string;
@@ -412,12 +420,20 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
       super(message);
       this.name = "GroqClientError";
       this.code = code;
+      this.providerName = options?.context?.providerName;
+      this.providerModel = options?.context?.providerModel;
+      this.providerStatus = options?.context?.providerStatus;
+      this.retryAfterMs = options?.context?.retryAfterMs;
       this.providerCode = options?.context?.providerCode;
       this.catalogStatus = options?.context?.catalogStatus;
       this.catalogError = options?.context?.catalogError;
     }
       toProviderContext() {
         return {
+          providerName: this.providerName,
+          providerModel: this.providerModel,
+          providerStatus: this.providerStatus,
+          retryAfterMs: this.retryAfterMs,
           providerCode: this.providerCode,
           catalogStatus: this.catalogStatus,
           catalogError: this.catalogError,
@@ -2739,6 +2755,233 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       .from(aiUsageEventsTable)
       .where(eq(aiUsageEventsTable.executionId, executionStarted.executionId!));
     expect(usageRows.length).toBeGreaterThan(0);
+  });
+
+  it("recovers from malformed OpenRouter analysis output and projects one accepted terminal identity", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    const firstModel = "openrouter/malformed-analysis";
+    const recoveredModel = "openrouter/recovered-analysis";
+    const rawMalformedResponse = `{"summary":"raw provider content ${randomUUID()}"}`;
+    type AnalysisOptions = {
+      onModelAttempt?: (attempt: {
+        model?: string | null;
+        outcome: "success" | "failure";
+        contractOutcome?: "accepted" | "malformed_but_recovered" | "semantic_failure";
+        contractFailureKind?: string | null;
+      }) => void | Promise<void>;
+      excludeModels?: string[];
+    };
+
+    vi.mocked(mockAnalyzeScan).mockImplementationOnce(async (
+      _context: unknown,
+      options: AnalysisOptions,
+    ) => {
+      await options.onModelAttempt?.({
+        model: firstModel,
+        outcome: "failure",
+        contractOutcome: "semantic_failure",
+        contractFailureKind: "malformed_json",
+      });
+      await options.onModelAttempt?.({
+        model: recoveredModel,
+        outcome: "success",
+        contractOutcome: "malformed_but_recovered",
+      });
+      return {
+        summary: "Recovered analysis",
+        overallAssessment: "The fallback model returned a valid structured result.",
+        insights: [],
+        topPriority: "Keep the fallback contract test covered",
+        estimatedImpact: "High",
+      };
+    });
+
+    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const previousGroqKey = process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    delete process.env.GROQ_API_KEY;
+    try {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+
+      const response = await request(app)
+        .post(`/api/ai/projects/${projectId}/analyze/stream`);
+      expect(response.status).toBe(200);
+      const events = response.text
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
+      const started = events.find((event) => event.type === "execution_started");
+      const done = events.find((event) => event.type === "task_done");
+      expect(done).toMatchObject({
+        task: "analyze",
+        result: { summary: "Recovered analysis" },
+        terminalProjection: {
+          status: "completed",
+          outcome: "SUCCEEDED",
+          reasonCode: "ACCEPTED",
+          resumable: false,
+        },
+      });
+      expect(done?.terminalProjection).toEqual(expect.objectContaining({
+        executionId: started?.executionId,
+        sessionId: started?.sessionId,
+      }));
+
+      const executionId = String(started?.executionId);
+      const sessionId = String(started?.sessionId);
+      const detail = await request(app).get(`/api/ai/executions/${executionId}`);
+      const history = await request(app)
+        .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`);
+      const messages = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+      expect(detail.status).toBe(200);
+      expect(history.status).toBe(200);
+      expect(messages.status).toBe(200);
+
+      const terminalProjection = done?.terminalProjection;
+      expect(detail.body.terminalProjection).toEqual(terminalProjection);
+      expect(history.body.find((entry: { id: string }) => entry.id === executionId)).toBeUndefined();
+      expect(messages.body.find((entry: { role: string }) => entry.role === "assistant").terminalProjection)
+        .toEqual(terminalProjection);
+
+      const usageRows = await db
+        .select()
+        .from(aiUsageEventsTable)
+        .where(eq(aiUsageEventsTable.executionId, executionId));
+      expect(usageRows).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          provider: "openrouter",
+          model: firstModel,
+          outcome: "failure",
+          contractOutcome: "semantic_failure",
+          contractFailureKind: "malformed_json",
+        }),
+        expect.objectContaining({
+          provider: "openrouter",
+          model: recoveredModel,
+          outcome: "success",
+          contractOutcome: "malformed_but_recovered",
+        }),
+      ]));
+      expect(JSON.stringify(usageRows)).not.toContain(rawMalformedResponse);
+      expect(JSON.stringify(response.body)).not.toContain(rawMalformedResponse);
+    } finally {
+      if (previousOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+      if (previousGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = previousGroqKey;
+    }
+  });
+
+  it("makes malformed-then-429 analysis terminal with the same SSE, acceptance, and history projection", async () => {
+    const { analyzeScan: mockAnalyzeScan, GroqClientError } = await import("@workspace/ai-orchestrator");
+    const malformedModel = "openrouter/malformed-analysis";
+    const rateLimitedModel = "openrouter/rate-limited-analysis";
+    const rawMalformedResponse = `{"summary":"raw provider content ${randomUUID()}"}`;
+    type AnalysisOptions = {
+      onModelAttempt?: (attempt: {
+        model?: string | null;
+        outcome: "success" | "failure";
+        contractOutcome?: "accepted" | "malformed_but_recovered" | "semantic_failure";
+        contractFailureKind?: string | null;
+      }) => void | Promise<void>;
+    };
+
+    vi.mocked(mockAnalyzeScan).mockImplementationOnce(async (
+      _context: unknown,
+      options: AnalysisOptions,
+    ) => {
+      await options.onModelAttempt?.({
+        model: malformedModel,
+        outcome: "failure",
+        contractOutcome: "semantic_failure",
+        contractFailureKind: "malformed_json",
+      });
+      throw new GroqClientError("RATE_LIMITED", "OpenRouter returned a 429 after malformed output", {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: rateLimitedModel,
+          providerStatus: 429,
+          retryAfterMs: 2_000,
+        },
+      });
+    });
+
+    const previousOpenRouterKey = process.env.OPENROUTER_API_KEY;
+    const previousGroqKey = process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = "test-openrouter-key";
+    delete process.env.GROQ_API_KEY;
+    try {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+
+      const response = await request(app)
+        .post(`/api/ai/projects/${projectId}/analyze/stream`);
+      expect(response.status).toBe(200);
+      const events = response.text
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => JSON.parse(line.slice("data: ".length)) as Record<string, unknown>);
+      const started = events.find((event) => event.type === "execution_started");
+      const error = events.at(-1);
+      expect(error).toMatchObject({
+        type: "error",
+        code: "RATE_LIMITED",
+        failureKind: "RATE_LIMIT",
+        outcome: "FAILED",
+        terminalProjection: {
+          status: "failed",
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_PROVIDER_FAILURE",
+          resumable: false,
+        },
+      });
+      expect(error?.terminalProjection).toEqual(expect.objectContaining({
+        executionId: started?.executionId,
+        sessionId: started?.sessionId,
+      }));
+
+      const executionId = String(started?.executionId);
+      const sessionId = String(started?.sessionId);
+      const terminalProjection = error?.terminalProjection;
+      const detail = await request(app).get(`/api/ai/executions/${executionId}`);
+      const history = await request(app)
+        .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`);
+      const messages = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+      expect(detail.body.terminalProjection).toEqual(terminalProjection);
+      expect(history.body.find((entry: { id: string }) => entry.id === executionId).terminalProjection)
+        .toEqual(terminalProjection);
+      expect(messages.body.find((entry: { role: string }) => entry.role === "assistant").terminalProjection)
+        .toEqual(terminalProjection);
+      expect(messages.body.filter((entry: { role: string }) => entry.role === "assistant")).toHaveLength(1);
+
+      const usageRows = await db
+        .select()
+        .from(aiUsageEventsTable)
+        .where(eq(aiUsageEventsTable.executionId, executionId));
+      expect(usageRows).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          provider: "openrouter",
+          model: malformedModel,
+          outcome: "failure",
+          contractOutcome: "semantic_failure",
+          contractFailureKind: "malformed_json",
+        }),
+        expect.objectContaining({
+          provider: "openrouter",
+          model: rateLimitedModel,
+          outcome: "failure",
+          providerFailureKind: "RATE_LIMITED",
+        }),
+      ]));
+      expect(JSON.stringify(usageRows)).not.toContain(rawMalformedResponse);
+      expect(response.text).not.toContain(rawMalformedResponse);
+    } finally {
+      if (previousOpenRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousOpenRouterKey;
+      if (previousGroqKey === undefined) delete process.env.GROQ_API_KEY;
+      else process.env.GROQ_API_KEY = previousGroqKey;
+    }
   });
 
   it("persists structured failures and preserves them when the session is retried", async () => {
