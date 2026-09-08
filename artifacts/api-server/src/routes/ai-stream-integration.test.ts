@@ -34,6 +34,7 @@ import {
   aiChangeProposalsTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiProviderCredentialsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
@@ -4035,6 +4036,218 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     // No internal stack trace or crash in the response body
     expect(res.text).not.toMatch(/Error:/);
     expect(res.text).not.toMatch(/at\s+\w+\s+\(/); // stack trace pattern
+  });
+
+  it("keeps successful ordinary CHAT outside the evidence snapshot ledger", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "مرحبا" });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const started = events.find((event) => event.type === "execution_started");
+    const done = events.find((event) => event.type === "done");
+    expect(started).toMatchObject({
+      turnIntent: "CHAT",
+      proofRequired: false,
+      resumable: false,
+    });
+    expect(done?.message).toMatchObject({
+      outcome: "SUCCEEDED",
+      executionId: expect.any(String),
+    });
+
+    const executionId = (done?.message as { executionId?: string } | undefined)?.executionId;
+    expect(executionId).toEqual(expect.any(String));
+    const [acceptance] = await db
+      .select({
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId!))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      evidenceRequired: 0,
+      evidenceComplete: 1,
+      evidenceSnapshotId: null,
+    });
+    expect(await db
+      .select({ id: aiExecutionEvidenceSnapshotsTable.id })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, executionId!)))
+      .toHaveLength(0);
+  });
+
+  it("keeps a simple PROJECT_QUERY outside proof acceptance", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "ما اسم المشروع" });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    expect(events.find((event) => event.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: false,
+    });
+    const done = events.find((event) => event.type === "done");
+    const executionId = (done?.message as { executionId?: string } | undefined)?.executionId;
+    expect(executionId).toEqual(expect.any(String));
+
+    const [acceptance] = await db
+      .select({
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId!))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      evidenceRequired: 0,
+      evidenceSnapshotId: null,
+    });
+  });
+
+  it("records required incomplete evidence when an analytical PROJECT_QUERY only reads sources", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sources = [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+    ];
+    const incomplete = "ANALYSIS_INCOMPLETE: source reads completed, but no grounded claims were accepted.";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as { retainedEvidence?: Map<string, string> };
+      for (const source of sources) {
+        input.retainedEvidence?.set(source, `source body for ${source}\n`);
+        args[6]?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path: source },
+          cached: false,
+        });
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          outputLength: source.length + 20,
+        });
+      }
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sources.length,
+        uniqueFilesRead: sources.length,
+        evidenceFileCount: sources.length,
+        acceptedEvidenceCount: 0,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: [],
+        acceptedClaimCount: 0,
+        completionGateResult: "RECOVERY_SCOPE_FAILURE",
+      });
+      args[6]?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: sources,
+          filesRead: sources,
+          evidenceSelected: 0,
+          claim: "embedded AI analysis",
+          validator: "project-query",
+          rejectionReason: ["no accepted claims"],
+          recoveryAttempt: 0,
+          objectiveVerdict: "RECOVERY_REQUIRED",
+          finalState: "RECOVERY_REQUIRED",
+        },
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: sources.length,
+        prefetchToolCalls: sources.length,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      args[3]?.(incomplete);
+      return {
+        result: {
+          response: incomplete,
+          sources,
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "قم بتحليل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    expect(events.find((event) => event.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution).toMatchObject({ status: "failed" });
+
+    const [acceptance] = await db
+      .select({
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      evidenceSnapshotId: expect.any(String),
+    });
+
+    const [snapshot] = await db
+      .select({
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(snapshot).toMatchObject({
+      verdict: "NOT_RECORDED",
+      complete: 0,
+      readCount: sources.length,
+    });
   });
 
   it("persists an Arabic behavioral answer with accepted evidence through SSE", async () => {
