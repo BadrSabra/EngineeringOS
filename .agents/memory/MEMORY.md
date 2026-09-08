@@ -117,3 +117,4 @@
 - [Deterministic command routing](deterministic-command-routing.md) — named local report/build commands need an explicit server dispatcher, not generic AI action classification.
 - [Cancellation content precedence](cancellation-content-precedence.md) — a terminal cancellation must own persisted assistant content; lower-level empty/validation fallbacks must not leak into cancelled turns.
 - [Project-query target binding](project-query-target-binding.md) — architecture/project questions need target-aware read planning; provider success and citations alone cannot accept an unrelated answer.
+- [SSE recovery authority](sse-recovery-authority.md) — transport keepalive is separate from lease ownership; after EOF, durable status and acceptance decide recovery.
