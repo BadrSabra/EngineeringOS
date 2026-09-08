@@ -111,6 +111,7 @@
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
 - [Durable evidence boundary](durable-evidence-boundary.md) — tool traces retain read metadata only; acceptance-proof snapshots must capture verifier-owned complete bodies before runtime state is discarded.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
+- [Heartbeat test timing](heartbeat-test-timing.md) — fake-clock stream tests must await async heartbeat writes without draining unrelated execution deadlines.
 - [Durable provisional messages](durable-acceptance-provisional.md) — execution-backed assistant rows stay non-terminal until the acceptance finalizer commits outcome and final content.
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate the immutable acceptance attempt when the resume token is claimed, not when the token is merely issued.
 - [Terminal frame idempotency](terminal-frame-idempotency.md) — client streams must deliver only the first terminal frame so stale or duplicate SSE cannot overwrite durable acceptance.

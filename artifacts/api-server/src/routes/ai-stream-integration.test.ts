@@ -63,6 +63,7 @@ import {
   validateCapabilityProbeCitations,
 } from "../../../../lib/ai-orchestrator/src/agents/chat-agent.js";
 import {
+  AI_EXECUTION_HEARTBEAT_INTERVAL_MS,
   claimAiExecution,
   checkpointAiExecution,
   completeAiExecution,
@@ -76,6 +77,7 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
 } from "../lib/ai-execution-state.js";
+import * as aiExecutionState from "../lib/ai-execution-state.js";
 import { tryAdvisoryLock } from "../lib/advisory-lock.js";
 
 vi.mock("../lib/advisory-lock.js", async (importOriginal) => {
@@ -3351,6 +3353,336 @@ function parseSseEvents(body: string): SseEvent[] {
     })
     .filter((ev): ev is SseEvent => ev !== null);
 }
+
+async function loadExecutionLease(executionId: string): Promise<{
+  status: string;
+  lastHeartbeatAt: Date | null;
+  leaseUntil: Date | null;
+}> {
+  const [execution] = await db
+    .select({
+      status: aiExecutionsTable.status,
+      lastHeartbeatAt: aiExecutionsTable.lastHeartbeatAt,
+      leaseUntil: aiExecutionsTable.leaseUntil,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, executionId))
+    .limit(1);
+  if (!execution) throw new Error(`Execution ${executionId} was not found.`);
+  return execution;
+}
+
+async function waitForExecutionId(projectId: string): Promise<string> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const [execution] = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    if (execution) return execution.id;
+    await Promise.resolve();
+  }
+  throw new Error("The stream did not create an execution.");
+}
+
+describe("AI execution heartbeat ownership", () => {
+  const longPhaseResult = {
+    result: {
+      response: "The long provider phase completed.",
+      sources: ["context"],
+      pendingChanges: [],
+    },
+    effectiveProvider: "groq" as const,
+  } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+
+  function emitLongToolPhase(args: Parameters<typeof chatWithFallback>): void {
+    args[6]?.({
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: "src/heartbeat-fixture.ts" },
+      cached: false,
+    } as never);
+  }
+
+  async function expectHeartbeatStopped(
+    executionId: string,
+    lastHeartbeatAt: Date | null,
+    heartbeatCallCount: number,
+    clearIntervalCallCount: number,
+    clearIntervalSpy: {
+      mock: {
+        calls: unknown[][];
+      };
+    },
+  ): Promise<void> {
+    expect(lastHeartbeatAt).toBeInstanceOf(Date);
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (clearIntervalSpy.mock.calls.length > clearIntervalCallCount) break;
+      await loadExecutionLease(executionId);
+    }
+    expect(clearIntervalSpy.mock.calls.length).toBeGreaterThan(clearIntervalCallCount);
+    vi.advanceTimersByTime(AI_EXECUTION_HEARTBEAT_INTERVAL_MS * 2);
+    const afterCleanup = await loadExecutionLease(executionId);
+    expect(afterCleanup.lastHeartbeatAt).toBeNull();
+    expect(afterCleanup.leaseUntil).toBeNull();
+    expect(aiExecutionState.heartbeatAiExecution).toHaveBeenCalledTimes(heartbeatCallCount);
+  }
+
+  async function runHeartbeatInterval(
+    executionId: string,
+    previousHeartbeatAt: Date | null,
+    heartbeatSpy: {
+      mock: {
+        results: Array<{ value: unknown }>;
+      };
+    },
+  ): Promise<void> {
+    vi.advanceTimersByTime(AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
+    const heartbeatResult = heartbeatSpy.mock.results.at(-1)?.value;
+    if (heartbeatResult && typeof (heartbeatResult as PromiseLike<unknown>).then === "function") {
+      await heartbeatResult;
+    }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const execution = await loadExecutionLease(executionId);
+      if (execution.lastHeartbeatAt?.getTime() !== previousHeartbeatAt?.getTime()) return;
+    }
+    throw new Error("The AI execution heartbeat did not complete.");
+  }
+
+  it("renews ownership through a long provider/tool phase and cleans up after success", async () => {
+    vi.useFakeTimers();
+    const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    const clearIntervalCallCount = clearIntervalSpy.mock.calls.length;
+    let phaseStarted!: () => void;
+    let releasePhase!: () => void;
+    const started = new Promise<void>((resolve) => { phaseStarted = resolve; });
+    const released = new Promise<void>((resolve) => { releasePhase = resolve; });
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      emitLongToolPhase(args);
+      phaseStarted();
+      await released;
+      args[3]?.("The long provider phase completed.");
+      return longPhaseResult;
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const stream = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "Hello heartbeat fixture" });
+    const responsePromise = stream.then((response) => response);
+
+    try {
+      await started;
+      const executionId = await waitForExecutionId(projectId);
+      const beforeHeartbeat = await loadExecutionLease(executionId);
+      await runHeartbeatInterval(executionId, beforeHeartbeat.lastHeartbeatAt, heartbeatSpy);
+      const renewed = await loadExecutionLease(executionId);
+
+      expect(renewed.status).toBe("running");
+      expect(renewed.lastHeartbeatAt?.getTime()).toBeGreaterThan(
+        beforeHeartbeat.lastHeartbeatAt?.getTime() ?? 0,
+      );
+      expect(renewed.leaseUntil?.getTime()).toBeGreaterThan(
+        beforeHeartbeat.leaseUntil?.getTime() ?? 0,
+      );
+
+      releasePhase();
+      const response = await responsePromise;
+      expect(response.status).toBe(200);
+      expect(parseSseEvents(response.text).some((event) => event.type === "done")).toBe(true);
+
+      const completed = await loadExecutionLease(executionId);
+      expect(completed.status).toBe("completed");
+      await expectHeartbeatStopped(
+        executionId,
+        renewed.lastHeartbeatAt,
+        heartbeatSpy.mock.calls.length,
+        clearIntervalCallCount,
+        clearIntervalSpy,
+      );
+    } finally {
+      releasePhase();
+      vi.useRealTimers();
+    }
+  });
+
+  it("cleans up the heartbeat after a long provider failure", async () => {
+    vi.useFakeTimers();
+    const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    const clearIntervalCallCount = clearIntervalSpy.mock.calls.length;
+    let phaseStarted!: () => void;
+    let releasePhase!: () => void;
+    const started = new Promise<void>((resolve) => { phaseStarted = resolve; });
+    const released = new Promise<void>((resolve) => { releasePhase = resolve; });
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      emitLongToolPhase(args);
+      phaseStarted();
+      await released;
+      throw new Error("long provider fixture failed");
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const stream = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "Hello heartbeat fixture" });
+    const responsePromise = stream.then((response) => response);
+
+    try {
+      await started;
+      const executionId = await waitForExecutionId(projectId);
+      const beforeHeartbeat = await loadExecutionLease(executionId);
+      await runHeartbeatInterval(executionId, beforeHeartbeat.lastHeartbeatAt, heartbeatSpy);
+      const renewed = await loadExecutionLease(executionId);
+      releasePhase();
+
+      const response = await responsePromise;
+      expect(response.status).toBe(200);
+      expect(parseSseEvents(response.text).some((event) => event.type === "error")).toBe(true);
+
+      const failed = await loadExecutionLease(executionId);
+      expect(failed.status).toBe("failed");
+      await expectHeartbeatStopped(
+        executionId,
+        renewed.lastHeartbeatAt,
+        heartbeatSpy.mock.calls.length,
+        clearIntervalCallCount,
+        clearIntervalSpy,
+      );
+    } finally {
+      releasePhase();
+      vi.useRealTimers();
+    }
+  });
+
+  it("cleans up the heartbeat after cancellation during a long provider/tool phase", async () => {
+    vi.useFakeTimers();
+    const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    const clearIntervalCallCount = clearIntervalSpy.mock.calls.length;
+    let phaseStarted!: () => void;
+    const started = new Promise<void>((resolve) => { phaseStarted = resolve; });
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      emitLongToolPhase(args);
+      phaseStarted();
+      const signal = (args[1] as { signal?: AbortSignal }).signal;
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) {
+          resolve();
+          return;
+        }
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      throw new Error("provider observed cancellation");
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const stream = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "Hello heartbeat fixture" });
+    const responsePromise = stream.then((response) => response);
+
+    try {
+      await started;
+      const executionId = await waitForExecutionId(projectId);
+      const beforeHeartbeat = await loadExecutionLease(executionId);
+      await runHeartbeatInterval(executionId, beforeHeartbeat.lastHeartbeatAt, heartbeatSpy);
+      const renewed = await loadExecutionLease(executionId);
+      const cancel = await requestAiExecutionCancel({
+        executionId,
+        userId: "test-user",
+      });
+      expect(cancel?.status).toBe("cancelling");
+
+      const response = await responsePromise;
+      expect(response.status).toBe(200);
+      expect(parseSseEvents(response.text).some((event) => event.type === "error")).toBe(true);
+
+      const cancelled = await loadExecutionLease(executionId);
+      expect(cancelled.status).toBe("cancelled");
+      await expectHeartbeatStopped(
+        executionId,
+        renewed.lastHeartbeatAt,
+        heartbeatSpy.mock.calls.length,
+        clearIntervalCallCount,
+        clearIntervalSpy,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cleans up the heartbeat after the client disconnects from a long phase", async () => {
+    vi.useFakeTimers();
+    const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution");
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution");
+    const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
+    const clearIntervalCallCount = clearIntervalSpy.mock.calls.length;
+    let phaseStarted!: () => void;
+    let releasePhase!: () => void;
+    let phaseFinished!: () => void;
+    const started = new Promise<void>((resolve) => { phaseStarted = resolve; });
+    const released = new Promise<void>((resolve) => { releasePhase = resolve; });
+    const finished = new Promise<void>((resolve) => { phaseFinished = resolve; });
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      emitLongToolPhase(args);
+      phaseStarted();
+      await released;
+      phaseFinished();
+      return longPhaseResult;
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const stream = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "Hello heartbeat fixture" });
+    const requestFinished = new Promise<void>((resolve) => {
+      stream.end(() => resolve());
+    });
+
+    try {
+      await started;
+      const executionId = await waitForExecutionId(projectId);
+      const beforeHeartbeat = await loadExecutionLease(executionId);
+      await runHeartbeatInterval(executionId, beforeHeartbeat.lastHeartbeatAt, heartbeatSpy);
+      const renewed = await loadExecutionLease(executionId);
+      stream.abort();
+      await requestFinished;
+      releasePhase();
+      await finished;
+
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const completion = completeSpy.mock.results.at(-1)?.value;
+        if (completion && typeof (completion as PromiseLike<unknown>).then === "function") {
+          await completion;
+          break;
+        }
+        await loadExecutionLease(executionId);
+      }
+      await expectHeartbeatStopped(
+        executionId,
+        renewed.lastHeartbeatAt,
+        heartbeatSpy.mock.calls.length,
+        clearIntervalCallCount,
+        clearIntervalSpy,
+      );
+      const completed = await loadExecutionLease(executionId);
+      expect(completed.status).toBe("completed");
+    } finally {
+      releasePhase();
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("Phase 6 — Arabic evidence persistence and history rehydration", () => {
   it("preserves the Arabic report, structured evidence, verdict, and redacted trace after reload", async () => {
