@@ -4355,6 +4355,8 @@ router.post("/ai/chat/stream", async (req, res) => {
   let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
   let executionAbortController: AbortController | undefined;
   let executionHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let sseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let sseConnectionClosed = false;
   let executionTerminal = false;
   let terminalAssistantMessageId: string | undefined;
   let completedTerminalProjection: AiTerminalProjection | undefined;
@@ -4383,7 +4385,29 @@ router.post("/ai/chat/stream", async (req, res) => {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    // Keep the proxy/browser connection alive while provider or tool work is
+    // quiet. This is separate from the durable execution heartbeat below:
+    // the latter protects worker ownership, while this comment frame protects
+    // the client's ability to observe the eventual terminal result.
+    sseHeartbeatTimer = setInterval(() => {
+      if (sseConnectionClosed || res.writableEnded || res.destroyed) return;
+      try {
+        res.write(": heartbeat\n\n");
+      } catch {
+        sseConnectionClosed = true;
+      }
+    }, 15_000);
+
+    res.once("close", () => {
+      sseConnectionClosed = true;
+      if (sseHeartbeatTimer) {
+        clearInterval(sseHeartbeatTimer);
+        sseHeartbeatTimer = undefined;
+      }
+    });
+
     function sse(data: Record<string, unknown>): void {
+      if (sseConnectionClosed || res.writableEnded || res.destroyed) return;
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     }
 
@@ -7119,6 +7143,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     return;
   } finally {
+    if (sseHeartbeatTimer) {
+      clearInterval(sseHeartbeatTimer);
+      sseHeartbeatTimer = undefined;
+    }
     if (executionHeartbeatTimer) {
       clearInterval(executionHeartbeatTimer);
       executionHeartbeatTimer = undefined;
@@ -7402,7 +7430,12 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     updatedAt: execution.updatedAt,
     startedAt: execution.startedAt,
     completedAt: execution.completedAt,
-    resumable: execution.status === "paused" || execution.status === "failed",
+    // The acceptance row is the canonical recovery decision. Falling back to
+    // status alone makes every failed execution look resumable, including
+    // proof-incomplete runs whose operator action is START_NEW_RUN.
+    resumable: currentAcceptance
+      ? currentAcceptance.resumable && currentAcceptance.nextActionCode === "RESUME_ALLOWED"
+      : execution.status === "paused",
     recovery: {
       uncertain: operationRecord?.state === "uncertain",
       operationId,

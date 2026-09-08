@@ -8400,7 +8400,10 @@ export default function AiChat() {
     }
   })();
 
-  const { data: activeExecutionStatus } = useGetAiExecution(
+  const {
+    data: activeExecutionStatus,
+    refetch: refetchActiveExecutionStatus,
+  } = useGetAiExecution(
     activeExecution?.id ?? '',
     {
       query: {
@@ -9999,10 +10002,58 @@ export default function AiChat() {
         },
         onStreamReset: () => {
           if (generation !== streamGenerationRef.current) return;
-          // GAP-A2: SSE stream broke mid-flight — clear the partial bubble so
-          // the full fallback response in the subsequent `done` event is shown
-          // cleanly without a flash of inconsistent partial content.
+          // A server/provider stream_reset is recoverable transport state, not
+          // a terminal execution outcome. Clear only ephemeral live activity;
+          // the durable execution remains the source of truth while the
+          // immediate status refresh determines whether it is still running,
+          // completed, or needs an explicit recovery action.
           setStreamingContent('');
+          setAgentSteps([]);
+          clearLiveActivityEvents();
+          setAgentStage('Connection interrupted — checking the saved execution…');
+          setAgentStartedAt(null);
+          setAgentElapsedSeconds(0);
+          const execution = activeExecutionRef.current;
+          if (execution) {
+            void refetchActiveExecutionStatus()
+              .then(({ data: status }) => {
+                if (
+                  generation !== streamGenerationRef.current
+                  || !status
+                  || status.id !== execution.id
+                ) return;
+                if (status.status === 'completed' || status.status === 'cancelled') {
+                  const recoveredSessionId = status.sessionId ?? execution.sessionId;
+                  if (recoveredSessionId) {
+                    void qc.invalidateQueries({ queryKey: ['ai-messages', recoveredSessionId] });
+                    void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', recoveredSessionId] });
+                    publishAiChatData(requestProjectId, recoveredSessionId);
+                  }
+                  void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
+                  setAgentStage(
+                    status.status === 'completed'
+                      ? 'Execution completed — restoring the saved result…'
+                      : 'Execution cancelled — restoring the saved result…',
+                  );
+                } else if (
+                  status.status === 'paused'
+                  || status.status === 'failed'
+                ) {
+                  setAgentStage(
+                    status.acceptance?.nextActionCode === 'RESUME_ALLOWED'
+                      ? 'Execution saved — ready to resume'
+                      : 'Execution ended — start a new run',
+                  );
+                } else {
+                  setAgentStage('Execution is still running on the server…');
+                }
+              })
+              .catch(() => {
+                if (generation === streamGenerationRef.current) {
+                  setAgentStage('Connection interrupted — the server is still being checked…');
+                }
+              });
+          }
         },
         onToolCall: (event) => {
           if (generation !== streamGenerationRef.current) return;
