@@ -536,6 +536,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
 
   const projectContext = await buildProjectContext(projectId, {
     sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+    operationId: metadata.operationId,
   });
 
   const rlAnalyze = await checkProjectRateLimitDb(projectId);
