@@ -15,8 +15,9 @@ import {
   auditLogsTable,
   eventsTable,
   projectsTable,
+  scanJobsTable,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -281,10 +282,25 @@ async function createAuditMetadata(
   project: typeof projectsTable.$inferSelect,
 ): Promise<StructuredAuditMetadata> {
   const root = await resolveRootPath(project.rootPath, projectId);
+  const [latestScan] = await db
+    .select({
+      status: scanJobsTable.status,
+      result: scanJobsTable.result,
+    })
+    .from(scanJobsTable)
+    .where(eq(scanJobsTable.projectId, projectId))
+    .orderBy(desc(scanJobsTable.createdAt))
+    .limit(1);
+  const scanResult = latestScan?.result;
+  const scanRevision =
+    latestScan?.status === "completed" &&
+    typeof scanResult?.projectRevision === "string"
+      ? scanResult.projectRevision
+      : undefined;
   return {
     operationId: randomUUID(),
     projectId,
-    projectRevision: project.updatedAt.toISOString(),
+    projectRevision: scanRevision ?? project.updatedAt.toISOString(),
     rootAvailable: Boolean(root.validRootPath),
     incomplete: !root.validRootPath,
     operationalTrace: [],
