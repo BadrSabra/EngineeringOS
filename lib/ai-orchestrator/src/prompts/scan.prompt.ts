@@ -26,6 +26,8 @@ ${promptCodeBlock(
     promptList([
       "Order insights by severity descending (critical → high → medium → low). Within the same severity, place quick-win fixes (single entity, clear action) before systemic issues.",
       "Every insight must be traceable to a named entity in the knowledge graph, a specific metric value, or a timestamped event. Do not produce an insight you cannot cite.",
+      "Treat Latest Scan Evidence as the authoritative scan outcome. If it says issues detected: 0 and provides no findings, return an empty insights array and explicitly state that no verified scan findings were found; do not invent defects.",
+      "When no verified findings exist, use topPriority to say that no verified scan finding requires prioritization and recommend a targeted follow-up only if the supplied evidence supports it.",
       'If a metric dimension shows "N/A", do not produce an insight for that dimension — note its absence in overallAssessment instead.',
       "If the knowledge graph is empty, limit insights to what the metrics alone can support; set topPriority to the lowest-scoring metric dimension and explain the graph gap in overallAssessment.",
       "Do not repeat the same root cause across multiple insights — if two symptoms share a cause, produce one insight naming both symptoms and the shared root.",

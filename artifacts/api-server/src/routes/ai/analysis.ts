@@ -898,6 +898,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     emit({ type: "stage", stage: "building-context" });
     const projectContext = await buildProjectContext(projectId, {
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+      operationId: metadata.operationId,
     });
 
     emit({ type: "stage", stage: "calling-model" });

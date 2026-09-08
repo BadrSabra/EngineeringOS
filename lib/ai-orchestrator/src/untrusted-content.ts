@@ -8,6 +8,7 @@ export type UntrustedContentSource =
   | "source"
   | "git"
   | "checkpoint"
+  | "scan"
   | "session_memory"
   | "tool_output"
   | "provider_diagnostic";

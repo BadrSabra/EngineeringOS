@@ -66,6 +66,8 @@ const AgentContextBaseSchema = z
     project: z.string().min(1),
     recentTasks: z.string().min(1),
     latestMetrics: z.string().min(1),
+    /** Bounded, allowlisted evidence from the latest durable scan result. */
+    latestScanEvidence: z.string().min(1).optional(),
     graphSummary: z.string().min(1),
     recentEvents: z.string().min(1),
     workflows: z.string().min(1),

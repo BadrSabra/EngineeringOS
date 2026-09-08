@@ -186,6 +186,47 @@ function buildMetricsSummary(loaded: LoadedProjectContext): string {
     : `${rawMetrics}\n⚠ WARNING: These metrics were NOT produced by a successful scan. They are placeholder values set at import time and do NOT reflect real code analysis. Do NOT present them to the user as actual quality measurements. Tell the user to run a scan first.`;
 }
 
+function buildScanEvidenceSummary(loaded: LoadedProjectContext): string {
+  const scan = loaded.latestScanJob;
+  if (!scan) return "Latest scan evidence unavailable — no scan job was found.";
+
+  const result = scan.result ?? {};
+  const value = (key: string): unknown => result[key];
+  const numberValue = (key: string): string | undefined => {
+    const candidate = value(key);
+    return typeof candidate === "number" && Number.isFinite(candidate)
+      ? String(candidate)
+      : undefined;
+  };
+  const stringValue = (key: string): string | undefined => {
+    const candidate = value(key);
+    return typeof candidate === "string" && candidate.length > 0
+      ? candidate
+      : undefined;
+  };
+
+  const lines = [
+    `Scan job: ${scan.id}`,
+    `Status: ${scan.status}`,
+    `Summary: ${stringValue("summary") ?? "No scan summary was recorded."}`,
+    `Scanned at: ${stringValue("scannedAt") ?? scan.finishedAt?.toISOString() ?? "unknown"}`,
+    `Files found: ${numberValue("filesFound") ?? "unknown"}`,
+    `Source files: ${numberValue("sourceFiles") ?? "unknown"}`,
+    `Issues detected: ${numberValue("issuesDetected") ?? "unknown"}`,
+    `Tasks created: ${numberValue("tasksCreated") ?? "unknown"}`,
+    `Entities extracted: ${numberValue("entitiesExtracted") ?? "unknown"}`,
+    `Relationships extracted: ${numberValue("relationshipsExtracted") ?? "unknown"}`,
+    `Scan completeness: ${stringValue("scanCompleteness") ?? "UNAVAILABLE"}`,
+    `Source provenance: ${stringValue("sourceProvenance") ?? "unknown"}`,
+    `Project revision: ${stringValue("projectRevision") ?? "unknown"}`,
+    `Scan correlation: ${stringValue("scanCorrelationId") ?? "unknown"}`,
+    `Scanner version: ${stringValue("scannerVersion") ?? "unknown"}`,
+  ];
+
+  if (scan.error) lines.push(`Scan error: ${scan.error.slice(0, 240)}`);
+  return lines.join("\n");
+}
+
 function buildGraphSummary(loaded: LoadedProjectContext): string {
   const { entities, relationships } = loaded;
   const entityState = buildSliceSummary(
@@ -350,6 +391,7 @@ export function buildProjectContextFromLoadedContext(
     workflows: buildWorkflowSummary(loaded),
     recentTasks: buildTaskSummary(loaded),
     latestMetrics: buildMetricsSummary(loaded),
+    latestScanEvidence: buildScanEvidenceSummary(loaded),
     graphSummary: buildGraphSummary(loaded),
     recentEvents: buildEventSummary(loaded),
     metricsVerified: loaded.scanVerified,

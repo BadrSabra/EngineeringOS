@@ -45,7 +45,7 @@ export type WorkflowRow = Workflow;
 /** Projected subset of scan_jobs fetched by loadScanJobs(). */
 export type ScanJobRow = Pick<
   typeof scanJobsTable.$inferSelect,
-  "status" | "error" | "finishedAt" | "result"
+  "id" | "status" | "error" | "createdAt" | "finishedAt" | "result"
 >;
 
 /** Projected subset of graph_relationships fetched by loadGraph(). */
@@ -415,8 +415,10 @@ export async function loadScanJobs(
 ): Promise<ScanJobRow | undefined> {
   const rows = await tx
     .select({
+      id: scanJobsTable.id,
       status: scanJobsTable.status,
       error: scanJobsTable.error,
+      createdAt: scanJobsTable.createdAt,
       finishedAt: scanJobsTable.finishedAt,
       result: scanJobsTable.result,
     })

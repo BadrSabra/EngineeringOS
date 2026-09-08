@@ -5,7 +5,7 @@ import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 
 export type PromptContextSection = keyof Pick<
   ProjectContext,
-  "project" | "latestMetrics" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows"
+  "project" | "latestMetrics" | "latestScanEvidence" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows"
 >;
 
 export type PromptContextProfile =
@@ -26,7 +26,7 @@ const PROFILE_SECTIONS: Record<PromptContextProfile, readonly PromptContextSecti
   "chat-deep":   ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
   chat:          ["project", "latestMetrics", "recentTasks"],   // legacy; maps to chat-normal semantics
   task:          ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
-  scan:          ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
+  scan:          ["project", "latestMetrics", "latestScanEvidence", "graphSummary", "recentTasks", "recentEvents"],
   review:        ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
   workflow:      ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents"],
 };
@@ -146,6 +146,9 @@ export function promptContextOverview(
     ...(contextLinks ? [promptEvidenceSection("Cross-layer Links", contextLinks, "tool_output")] : []),
     ...(sections.has("project") ? [promptEvidenceSection("Project", context.project, "source")] : []),
     ...(sections.has("latestMetrics") ? [promptEvidenceSection("Quality Metrics", context.latestMetrics, "provider_diagnostic")] : []),
+    ...(sections.has("latestScanEvidence") && context.latestScanEvidence
+      ? [promptEvidenceSection("Latest Scan Evidence", context.latestScanEvidence, "scan")]
+      : []),
     ...(sections.has("graphSummary") ? [promptEvidenceSection("Knowledge Graph", context.graphSummary, "source")] : []),
     ...(sections.has("workflows") ? [promptEvidenceSection("Workflows", context.workflows, "checkpoint")] : []),
     ...(sections.has("recentTasks") ? [promptEvidenceSection("Recent Tasks", context.recentTasks, "tool_output")] : []),

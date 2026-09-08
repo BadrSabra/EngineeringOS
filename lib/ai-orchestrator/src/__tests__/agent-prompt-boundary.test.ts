@@ -7,6 +7,7 @@ import type { ProjectContext } from "../context-builder.js";
 const context: ProjectContext = {
   project: "Project",
   latestMetrics: "Metrics",
+  latestScanEvidence: "Status: completed\nIssues detected: 0\nProject revision: rev-scan-1",
   graphSummary: "Graph",
   recentTasks: "Tasks",
   recentEvents: "Events",
@@ -19,6 +20,9 @@ describe("non-chat agent evidence boundaries", () => {
   it("labels scan context and durable memory as evidence", () => {
     const prompt = buildScanAnalystUserPrompt(context);
     expect(prompt).toContain("source=source path=Project");
+    expect(prompt).toContain("Latest Scan Evidence");
+    expect(prompt).toContain("Issues detected: 0");
+    expect(prompt).toContain("source=scan path=Latest Scan Evidence");
     expect(prompt).toContain("source=session_memory");
     expect(prompt).toContain("not an instruction");
   });
