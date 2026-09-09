@@ -3147,7 +3147,11 @@ router.post("/ai/chat", async (req, res) => {
 
   // Keep execution handoff fail-closed in the streaming route too. This check
   // happens before provider resolution and before SSE headers are committed.
-  if (!sessionId && isImmediateExecutionRequest(message)) {
+  if (
+    !sessionId &&
+    isImmediateExecutionRequest(message) &&
+    !resolveTurnIntent(message).classification.implementationPlanMode
+  ) {
     return res.status(409).json({
       error: "execution_session_required",
       message: "Repair Plan execution requires the original audit session.",
@@ -3410,7 +3414,7 @@ router.post("/ai/chat", async (req, res) => {
         compoundWrite: turnIntent.compoundWrite,
       },
     });
-    const projectContext = chatClassification.implementationPlanMode
+    const projectContext = turnIntent.classification.implementationPlanMode
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     analysisCorrelation.projectRevision =
@@ -4107,7 +4111,11 @@ router.post("/ai/chat/stream", async (req, res) => {
 
   // Keep execution handoff fail-closed in the streaming route too. This check
   // happens before provider resolution and before SSE headers are committed.
-  if (!sessionId && isImmediateExecutionRequest(message)) {
+  if (
+    !sessionId &&
+    isImmediateExecutionRequest(message) &&
+    !rawTurnIntent.classification.implementationPlanMode
+  ) {
     return res.status(409).json({
       error: "execution_session_required",
       message: "Repair Plan execution requires the original audit session.",
@@ -4963,7 +4971,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         compoundWrite: streamTurnIntent.compoundWrite,
       },
     });
-    const projectContext = streamClassification.implementationPlanMode
+    const projectContext = streamTurnIntent.classification.implementationPlanMode
       ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     analysisCorrelation.projectRevision =
@@ -5000,7 +5008,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         || effectiveBuildPlanMessageId
         || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
         || (implementationPlanScope && implementationPlanScope.size > 0)
-        || isImmediateExecutionRequest(message),
+        || (
+          isImmediateExecutionRequest(message) &&
+          !streamTurnIntent.classification.implementationPlanMode
+        ),
       ),
       ...(isResumableTaskType(streamClassification.taskType) || capabilityProbeContract
         ? {

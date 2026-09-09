@@ -1517,7 +1517,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     }
   });
 
-  it("routes composed polite modification requests as delivery on JSON and SSE", async () => {
+  it("routes direct modification requests through reviewable plan mode on JSON and SSE", async () => {
     const captured: Array<{
       turnIntent?: Record<string, unknown>;
       options?: Record<string, unknown>;
@@ -1541,13 +1541,37 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
           turnIntent: input.turnIntent,
           options: options as Record<string, unknown>,
         });
-        return MOCK_CHAT_RESULT;
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            taskResult: {
+              kind: "IMPLEMENTATION_PLAN_RESULT",
+              objective: "إنشاء ملف tasks.json",
+              summary: "مراجعة نطاق الملف قبل منح صلاحية الكتابة.",
+              assumptions: [],
+              steps: [{
+                id: "step-1",
+                title: "تحديد محتوى الملف",
+                description: "تحقق من بنية المشروع قبل أي تغيير.",
+                action: "inspect",
+                files: ["tasks.json"],
+                dependsOn: [],
+                validation: ["راجع الخطة قبل بدء Build."],
+              }],
+              validationCommands: [],
+              risks: [],
+              approvalStatus: "PENDING_APPROVAL",
+              writeAccess: "NOT_AUTHORIZED",
+            },
+          },
+        };
       },
     );
 
     const body = {
       projectId: "test-project-id",
-      message: "Can you please fix it?",
+      message: "إنشاء ملف tasks.json في جذر المشروع",
     };
     const json = await request(app).post("/api/ai/chat").send(body);
     const stream = await request(app).post("/api/ai/chat/stream").send(body);
@@ -1555,23 +1579,46 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(json.status, JSON.stringify(json.body)).toBe(200);
     expect(stream.status, stream.text).toBe(200);
     expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
-      { requireTools: true, qualityProfile: "task_execution" },
-      { requireTools: true, qualityProfile: "task_execution" },
+      { requireTools: false, qualityProfile: "chat" },
+      { requireTools: false, qualityProfile: "chat" },
     ]);
     expect(captured).toHaveLength(2);
     for (const call of captured) {
       expect(call.turnIntent).toMatchObject({
         kind: "DELIVERY",
-        executionTaskType: "task_execution",
-        requiresTools: true,
+        executionTaskType: "chat",
+        requiresTools: false,
         requiresEvidence: false,
         operationMode: "DELIVERY",
       });
+      expect((call.turnIntent?.classification as Record<string, unknown>).implementationPlanMode).toBe(true);
+      expect((call.turnIntent?.classification as Record<string, unknown>).implementationTaskMode).toBe(false);
       expect(call.options).toEqual({
-        requireTools: true,
-        qualityProfile: "task_execution",
+        requireTools: false,
+        qualityProfile: "chat",
       });
     }
+    expect(json.body.taskResult).toMatchObject({
+      kind: "IMPLEMENTATION_PLAN_RESULT",
+      approvalStatus: "PENDING_APPROVAL",
+      writeAccess: "NOT_AUTHORIZED",
+    });
+    expect(json.body.pendingChanges).toEqual([]);
+    expect(json.body.proposalId).toBeUndefined();
+    const frames = parseSseFrames(stream.text) as Array<{
+      type?: string;
+      operationMode?: string;
+      message?: { turnIntent?: string };
+      pendingChanges?: unknown[];
+    }>;
+    const done = frames.find((frame) => frame.type === "done");
+    expect(done).toBeDefined();
+    expect(done).toMatchObject({
+      type: "done",
+      operationMode: "DELIVERY",
+      message: { turnIntent: "DELIVERY" },
+    });
+    expect(done?.pendingChanges).toEqual([]);
   });
 
   it("ignores stale Build and execution metadata for an Arabic greeting", async () => {

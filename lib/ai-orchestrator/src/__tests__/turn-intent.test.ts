@@ -129,7 +129,7 @@ describe("resolveTurnIntent", () => {
   it("only marks write-capable delivery turns for apply serialization", () => {
     expect(isWriteCapableTurn(resolveTurnIntent("Open src/server.ts and explain the route."))).toBe(false);
     expect(isWriteCapableTurn(resolveTurnIntent("Create an implementation plan for feature X."))).toBe(false);
-    expect(isWriteCapableTurn(resolveTurnIntent("Please fix the route in src/server.ts."))).toBe(true);
+    expect(isWriteCapableTurn(resolveTurnIntent("Please fix the route in src/server.ts."))).toBe(false);
     expect(isWriteCapableTurn(resolveTurnIntent("Build the approved implementation plan.", {
       buildHandoff: true,
     }))).toBe(true);
@@ -308,6 +308,25 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it.each([
+    "إنشاء ملف tasks.json في جذر المشروع",
+    "أنشئ الملف الجديد",
+  ])("routes direct mutations through reviewable plan mode: %s", (message) => {
+    const intent = resolveTurnIntent(message);
+
+    expect(intent.classification.implementationPlanMode).toBe(true);
+    expect(intent.classification.implementationTaskMode).toBe(false);
+    expect(intent).toMatchObject({
+      kind: "DELIVERY",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
+      allowsBuildHandoff: false,
+      operationMode: "DELIVERY",
+      compoundWrite: false,
+    });
+  });
+
   it("routes a persisted implementation-plan continuation to tools without replanning", () => {
     const classification = classifyRequest("Continue");
     const intent = resolveTurnIntent("Continue", {
@@ -341,18 +360,20 @@ describe("resolveTurnIntent", () => {
   );
 
   it.each(["Can you please fix it?", "Please can you change it?"])(
-    "routes a composed polite modification request as delivery: %s",
+    "routes a composed polite modification request through plan mode: %s",
     (message) => {
       const intent = resolveTurnIntent(message);
 
       expect(intent).toMatchObject({
         kind: "DELIVERY",
-        executionTaskType: "task_execution",
-        requiresTools: true,
+        executionTaskType: "chat",
+        requiresTools: false,
         requiresEvidence: false,
         allowsBuildHandoff: false,
         operationMode: "DELIVERY",
       });
+      expect(intent.classification.implementationPlanMode).toBe(true);
+      expect(intent.classification.implementationTaskMode).toBe(false);
     },
   );
 

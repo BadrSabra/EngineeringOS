@@ -2829,7 +2829,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText('Workspace review is NOT PROVEN without completed source reads.')).toBeInTheDocument();
   });
 
-  it('renders an implementation plan once and keeps its file details collapsed', async () => {
+  it('renders a direct file-creation plan with approval and keeps details collapsed', async () => {
     mocks.serverProposal = { proposalId: 'implementation-plan-proposal', changes: [] };
     mocks.proposalMessages[0].content = [
       '## Implementation plan',
@@ -2837,16 +2837,16 @@ it('shows Groq model readiness without requiring a personal key when the server 
     ].join('\n');
     mocks.proposalMessages[0].taskResult = {
       kind: 'IMPLEMENTATION_PLAN_RESULT',
-      objective: 'Improve the chat experience',
-      summary: 'Make the plan evidence-grounded and easier to review.',
+      objective: 'إنشاء ملف tasks.json في جذر المشروع',
+      summary: 'حدد نطاق الملف قبل منح صلاحية الكتابة.',
       assumptions: ['The existing chat route remains the entry point.'],
       steps: [{
         id: 'step-1',
-        title: 'Read the relevant UI files',
-        description: 'Inspect the current message and plan renderers.',
+        title: 'تحديد محتوى الملف',
+        description: 'تحقق من بنية المشروع قبل أي تغيير.',
         action: 'inspect',
-        files: ['artifacts/dashboard/src/pages/AiChat.tsx'],
-        validation: ['Run the dashboard tests'],
+        files: ['tasks.json'],
+        validation: ['راجع الخطة قبل بدء Build.'],
       }],
       validationCommands: ['pnpm test'],
       risks: [],
@@ -2856,12 +2856,14 @@ it('shows Groq model readiness without requiring a personal key when the server 
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
-    expect(await screen.findByText('Improve the chat experience')).toBeInTheDocument();
+    expect(await screen.findByText('إنشاء ملف tasks.json في جذر المشروع')).toBeInTheDocument();
     expect(screen.getAllByText('Implementation plan')).toHaveLength(1);
-    expect(screen.queryByText('artifacts/dashboard/src/pages/AiChat.tsx')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve plan' })).toBeInTheDocument();
+    expect(screen.getByText(/No files were changed/)).toBeInTheDocument();
+    expect(screen.queryByText('tasks.json')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Files, validation, and assumptions' }));
-    expect(screen.getByText('artifacts/dashboard/src/pages/AiChat.tsx')).toBeInTheDocument();
+    expect(screen.getByText('tasks.json')).toBeInTheDocument();
     expect(screen.getByText('The existing chat route remains the entry point.')).toBeInTheDocument();
   });
 

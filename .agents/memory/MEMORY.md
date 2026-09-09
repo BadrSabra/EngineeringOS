@@ -133,3 +133,4 @@
 - [Browser-safe AI routing](browser-safe-ai-routing.md) — client intent helpers must avoid importing the Node-heavy orchestrator root into Vite.
 - [Server-action terminality](server-action-terminality.md) — queued server actions must stay non-terminal until the durable job result is authoritative.
 - [Scan execution binding](scan-execution-binding.md) — server-owned scans must share one execution/operation identity from queue through terminal acceptance and reconnect.
+- [Direct mutation approval boundary](direct-mutation-approval.md) — unapproved mutation language enters read-only plan mode; only server-owned Build handoff enables writes.

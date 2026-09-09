@@ -188,13 +188,32 @@ export function resolveTurnIntent(
     implementationPlanResume?: boolean;
   } = {},
 ): TurnIntent {
-  const classification = options.classification ?? classifyRequest(message);
+  const baseClassification = options.classification ?? classifyRequest(message);
   const serverAction = isRunProjectScanRequest(message) ? "RUN_PROJECT_SCAN" as const : undefined;
-  const route = routeTask(classification.taskType);
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
   const compoundExecution = isCompoundExecutionRequest(message);
   const compoundWrite = isCompoundWriteRequest(message);
+  // A direct mutation request has no server-owned file scope or approval
+  // manifest yet. Route it through the read-only implementation-plan contract
+  // instead of allowing the model to discover write_file and fail at the
+  // authorization gate without producing an operator-visible proposal.
+  const directImplementationPlanRequest =
+    !buildHandoff &&
+    !implementationPlanResume &&
+    !compoundWrite &&
+    (
+      baseClassification.implementationTaskMode ||
+      isExecutionActionRequest(message)
+    );
+  const classification = directImplementationPlanRequest
+    ? {
+        ...baseClassification,
+        implementationPlanMode: true,
+        implementationTaskMode: false,
+      }
+    : baseClassification;
+  const route = routeTask(classification.taskType);
   const planDelivery =
     !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
   const implementationDelivery =
