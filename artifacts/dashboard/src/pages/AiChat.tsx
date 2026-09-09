@@ -11575,7 +11575,7 @@ export default function AiChat() {
               ))}
                {capabilityGap && <CapabilityGapNotice gap={capabilityGap} projectId={selectedProjectId} />}
                <RecipeProgressPanel nodes={recipeNodes} />
-              {isAgentBusy ? (
+               {(isAgentBusy || liveBehaviorProgress) ? (
                 /* Single unified live bubble — steps always visible above streaming text */
                 <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">

@@ -2620,6 +2620,91 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getByText('maxIterations returns exhausted once the cap is reached.')).toBeInTheDocument();
   });
 
+  it('shows Behavior progress revisions during the stream and removes them for the final answer', async () => {
+    renderAiChat();
+
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'How does the request flow behave?' } });
+
+    act(() => {
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+      const callbacks = mocks.streamCallbacks as {
+        onBehaviorProgress?: (event: Record<string, unknown>) => void;
+        onDone?: (event: Record<string, unknown>) => void;
+      };
+      callbacks.onBehaviorProgress?.({
+        type: 'behavior_progress',
+        revision: 1,
+        phase: 'reading',
+        status: 'running',
+        readCount: 1,
+        completedReadFiles: ['src/routes/request.ts'],
+      });
+    });
+
+    expect(screen.getByRole('status', { name: 'Behavior analysis progress' })).toBeInTheDocument();
+    expect(screen.getByText('Reading project evidence')).toBeInTheDocument();
+    expect(screen.getByText('1 read')).toBeInTheDocument();
+    expect(screen.getByText(/src\/routes\/request\.ts/)).toBeInTheDocument();
+    expect(screen.queryByText('Behavior answer')).not.toBeInTheDocument();
+
+    act(() => {
+      const callbacks = mocks.streamCallbacks as {
+        onBehaviorProgress?: (event: Record<string, unknown>) => void;
+        onDone?: (event: Record<string, unknown>) => void;
+      };
+      callbacks.onBehaviorProgress?.({
+        type: 'behavior_progress',
+        revision: 2,
+        phase: 'validating',
+        status: 'running',
+        readCount: 2,
+        completedReadFiles: ['src/routes/request.ts', 'src/lib/handler.ts'],
+        evidenceCount: 2,
+        acceptedEvidenceCount: 1,
+        acceptedClaimCount: 1,
+      });
+    });
+
+    expect(screen.getByText('Validating gathered evidence')).toBeInTheDocument();
+    expect(screen.getByText('2 reads')).toBeInTheDocument();
+    expect(screen.getByText('1/2 evidence accepted')).toBeInTheDocument();
+    expect(screen.getByText('1 claim closed')).toBeInTheDocument();
+    expect(screen.getByText('revision 2')).toBeInTheDocument();
+
+    act(() => {
+      const callbacks = mocks.streamCallbacks as {
+        onBehaviorProgress?: (event: Record<string, unknown>) => void;
+        onDone?: (event: Record<string, unknown>) => void;
+      };
+      callbacks.onDone?.({
+        type: 'done',
+        sessionId: 'session-1',
+        taskResult: {
+          kind: 'BEHAVIOR_ANSWER_RESULT',
+          answer: {
+            answer: 'The handler validates the request before dispatch.',
+            confidence: 1,
+            sourceScope: ['src/routes/request.ts'],
+            evidence: [{ source: 'src/routes/request.ts', excerpt: 'validate(request)' }],
+          },
+        },
+        message: {
+          id: 'assistant-behavior-progress',
+          role: 'assistant',
+          content: 'The handler validates the request before dispatch.',
+          createdAt: '2026-09-09T00:00:00.000Z',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status', { name: 'Behavior analysis progress' })).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Behavior answer')).toBeInTheDocument();
+    expect(screen.getAllByText('The handler validates the request before dispatch.').length).toBeGreaterThan(0);
+  });
+
   it('renders an Arabic behavioral answer together with its accepted evidence', async () => {
     mocks.serverProposal = { proposalId: 'arabic-behavior-answer', changes: [] };
     mocks.proposalMessages[0].content =
