@@ -29,6 +29,7 @@ import {
   CAPABILITY_PROBE_CLAIM_IDS,
   CAPABILITY_PROBE_SOURCE_FILES,
 } from "./prompts/capability-probe.js";
+import type { ProjectQueryTarget } from "./project-query-target.js";
 
 const RESUMABLE_TASK_TYPES = [
   "FINDING_ANALYSIS",
@@ -168,6 +169,28 @@ export const ActiveTaskStateSchema = z.object({
     sourceFiles: z.array(z.string().min(1).max(500)).min(1).max(8),
     requiredClaims: z.array(z.string().min(1).max(20)).min(1).max(8),
     outputContract: z.enum(ACTIVE_OUTPUT_CONTRACTS),
+  }).strict().optional(),
+  /**
+   * Targeted PROJECT_QUERY turns are resumable as a new execution after a
+   * failure, but ordinary BEHAVIOR_QUERY turns are not. Keeping the target in
+   * the session contract lets a short retry inherit the server-owned evidence
+   * scope instead of being reclassified from the word "retry".
+   */
+  projectQuery: z.object({
+    id: z.literal("embedded-ai"),
+    label: z.string().min(1).max(160),
+    confidence: z.number().min(0).max(1),
+    firstEvidencePath: z.string().min(1).max(500),
+    primaryPaths: z.array(z.string().min(1).max(500)).min(1).max(24),
+    allowedExpansionPaths: z.array(z.string().min(1).max(500)).max(24),
+    forbiddenPaths: z.array(z.string().min(1).max(500)).max(24),
+    requiredEvidencePaths: z.array(z.string().min(1).max(500)).min(1).max(24),
+    requiredClaims: z.array(z.object({
+      claimId: z.string().min(1).max(160),
+      text: z.string().min(1).max(1000),
+      requiredEvidencePaths: z.array(z.string().min(1).max(500)).min(1).max(24),
+    }).strict()).min(1).max(24),
+    promptHint: z.string().min(1).max(2000),
   }).strict().optional(),
   executionPlan: ActiveTaskExecutionPlanSchema.nullable().default(null),
   startedAt: z.string().datetime({ offset: true }),
@@ -535,9 +558,10 @@ export function buildActiveTaskState(args: {
   operationId?: string;
   executionId?: string;
   capabilityProbe?: boolean;
+  projectQuery?: ProjectQueryTarget;
   now?: Date;
 }): ActiveTaskState | null {
-  if (!isResumableTaskType(args.classification.taskType) && !args.capabilityProbe) return null;
+  if (!isResumableTaskType(args.classification.taskType) && !args.capabilityProbe && !args.projectQuery) return null;
   const now = (args.now ?? new Date()).toISOString();
   const route = routeTask(args.classification.taskType);
   return {
@@ -562,6 +586,21 @@ export function buildActiveTaskState(args: {
             sourceFiles: [...CAPABILITY_PROBE_SOURCE_FILES],
             requiredClaims: [...CAPABILITY_PROBE_CLAIM_IDS],
             outputContract: route.outputContract,
+          },
+        }
+      : {}),
+    ...(args.projectQuery
+      ? {
+          projectQuery: {
+            ...args.projectQuery,
+            primaryPaths: [...args.projectQuery.primaryPaths],
+            allowedExpansionPaths: [...args.projectQuery.allowedExpansionPaths],
+            forbiddenPaths: [...args.projectQuery.forbiddenPaths],
+            requiredEvidencePaths: [...args.projectQuery.requiredEvidencePaths],
+            requiredClaims: args.projectQuery.requiredClaims.map((claim) => ({
+              ...claim,
+              requiredEvidencePaths: [...claim.requiredEvidencePaths],
+            })),
           },
         }
       : {}),
@@ -610,7 +649,7 @@ export function resumeActiveTaskClassification(
 ): { classification: ClassifiedRequest; resumed: boolean } {
   if (
     !state ||
-    (!isResumableTaskType(state.taskType) && !state.capabilityProbe) ||
+    (!isResumableTaskType(state.taskType) && !state.capabilityProbe && !state.projectQuery) ||
     state.scope.projectId.length === 0 ||
     !isTaskContinuationRequest(message)
   ) {
@@ -630,6 +669,7 @@ export function resumeActiveTaskClassification(
       allowPrefetch: false,
       implementationTaskMode: false,
       implementationPlanMode: Boolean(state.executionPlan?.implementationPlan),
+      ...(state.projectQuery ? { projectTarget: state.projectQuery } : {}),
     },
     resumed: true,
   };

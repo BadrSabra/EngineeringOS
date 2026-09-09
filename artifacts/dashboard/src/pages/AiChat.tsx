@@ -5073,6 +5073,8 @@ function MessageBubble({
   reportRegenerationPending,
   onRetryStructuredTask,
   retryPending,
+  onRetryProjectQuery,
+  projectQueryRetryPending,
 }: {
   msg: ChatMessage;
   projectId?: string;
@@ -5086,6 +5088,8 @@ function MessageBubble({
   reportRegenerationPending?: boolean;
   onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
   retryPending?: boolean;
+  onRetryProjectQuery?: (messageId: string) => void;
+  projectQueryRetryPending?: boolean;
 }) {
   const isUser = msg.role === 'user';
   const isChatTurn = !isUser && msg.turnIntent === 'CHAT';
@@ -5217,6 +5221,13 @@ function MessageBubble({
   const partialProviderResponse = failedTurn && !structuredFailure
     ? safePartialProviderResponse(msg, displayContent, internalTechnicalDump)
     : null;
+  const canRetryProjectQuery = Boolean(
+    failedTurn
+    && !structuredFailure
+    && msg.turnIntent === 'PROJECT_QUERY'
+    && msg.retryable !== false
+    && onRetryProjectQuery,
+  );
   return (
     <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
       <div
@@ -5315,6 +5326,22 @@ function MessageBubble({
                       </div>
                     )}
                   </div>
+                   {canRetryProjectQuery && (
+                     <Button
+                       type="button"
+                       size="sm"
+                       variant="outline"
+                       className="mt-2 h-8 justify-center text-xs"
+                       onClick={() => onRetryProjectQuery?.(msg.id)}
+                       disabled={projectQueryRetryPending}
+                       aria-label="Retry project analysis"
+                     >
+                       {projectQueryRetryPending
+                         ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                         : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                       {projectQueryRetryPending ? 'Retrying…' : 'Retry project analysis'}
+                     </Button>
+                   )}
                   <AcceptanceDispositionNotice disposition={msg.acceptanceDisposition} />
                 </>
               )}
@@ -8396,6 +8423,7 @@ export default function AiChat() {
   const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<string[]>([]);
   const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
+  const [projectQueryRetryMessageId, setProjectQueryRetryMessageId] = useState<string | null>(null);
   const [structuredCooldowns, setStructuredCooldowns] = useState<Partial<Record<'analyze' | 'review', string>>>({});
   const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
@@ -9124,6 +9152,12 @@ export default function AiChat() {
         };
     setStructuredRetryMessageId(messageId);
     startStructuredTask(task, run.prompt, messageId);
+  }
+
+  function retryProjectQuery(messageId: string) {
+    if (projectQueryRetryMessageId || isSending || !sessionId) return;
+    setProjectQueryRetryMessageId(messageId);
+    sendMessage('retry');
   }
 
   const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
@@ -10572,6 +10606,7 @@ export default function AiChat() {
           });
           const activityEvents = agentActivityEventsRef.current;
           setAgentStage(null);
+           setProjectQueryRetryMessageId(null);
           setStreamingContent('');
           setAgentSteps([]);
           setAgentIter(null);
@@ -10703,6 +10738,7 @@ export default function AiChat() {
              return;
            }
           setAgentStage(null);
+          setProjectQueryRetryMessageId(null);
           setStreamingContent('');
           setAgentSteps([]);
           setAgentIter(null);
@@ -11571,6 +11607,8 @@ export default function AiChat() {
                   reportRegenerationPending={regenerateReportMutation.isPending && regenerateReportMutation.variables === msg.id}
                   onRetryStructuredTask={retryStructuredTask}
                   retryPending={structuredRetryMessageId === msg.id}
+                  onRetryProjectQuery={retryProjectQuery}
+                  projectQueryRetryPending={projectQueryRetryMessageId === msg.id}
                 />
               ))}
                {capabilityGap && <CapabilityGapNotice gap={capabilityGap} projectId={selectedProjectId} />}

@@ -60,6 +60,40 @@ describe("active task session state", () => {
     })).toBeNull();
   });
 
+  it("persists a targeted project-query contract and resumes it without changing task type", () => {
+    const classification = classifyRequest("حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع");
+    expect(classification.projectTarget).toBeDefined();
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      revision: "revision-a",
+      projectQuery: classification.projectTarget,
+    });
+
+    expect(state).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      outputContract: "BEHAVIOR_ANSWER",
+      scope: { revision: "revision-a" },
+      projectQuery: {
+        id: "embedded-ai",
+        requiredEvidencePaths: expect.arrayContaining([
+          "artifacts/api-server/src/routes/ai/chat.ts",
+        ]),
+      },
+    });
+
+    const resumed = resumeActiveTaskClassification(
+      "أعد المحاولة",
+      classifyRequest("أعد المحاولة"),
+      parseActiveTaskState(serializeActiveTaskState(state)),
+    );
+    expect(resumed.resumed).toBe(true);
+    expect(resumed.classification.taskType).toBe("BEHAVIOR_QUERY");
+    expect(resumed.classification.projectTarget?.id).toBe("embedded-ai");
+  });
+
   it("round-trips a validated resumable task state", () => {
     const state = buildActiveTaskState({
       classification: auditClassification,

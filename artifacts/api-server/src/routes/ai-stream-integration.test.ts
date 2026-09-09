@@ -4922,6 +4922,122 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("retries a failed analytical PROJECT_QUERY as a new execution with the saved contract", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const source = "artifacts/api-server/src/routes/ai/chat.ts";
+    let retryInput: { message?: string; turnIntent?: { kind?: string }; activeTaskState?: {
+      taskType?: string;
+      projectQuery?: { id?: string; requiredEvidencePaths?: string[] };
+      scope?: { projectId?: string; revision?: string };
+      evidence?: { readFiles?: string[] };
+    } | null } | undefined;
+
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(async (...args) => {
+        const input = args[1] as { retainedEvidence?: Map<string, string> };
+        input.retainedEvidence?.set(source, "export const failedFixture = true;\n");
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+        } as never);
+        throw new Error("project query provider failed");
+      })
+      .mockImplementationOnce(async (...args) => {
+        retryInput = args[1] as typeof retryInput;
+        return {
+          result: {
+            response: "The project analysis retry completed.",
+            sources: [source],
+            pendingChanges: [],
+          },
+          effectiveProvider: "groq" as const,
+        } as Awaited<ReturnType<typeof chatWithFallback>>;
+      });
+
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
+    expect(first.status).toBe(200);
+    const firstEvents = parseSseEvents(first.text);
+    const firstStarted = firstEvents.find((event) => event.type === "execution_started");
+    expect(firstStarted).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+
+    const [firstExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        sessionId: aiExecutionsTable.sessionId,
+        status: aiExecutionsTable.status,
+        request: aiExecutionsTable.request,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(firstExecution).toMatchObject({ status: "failed" });
+    expect(firstExecution?.sessionId).toEqual(expect.any(String));
+
+    const [sessionAfterFailure] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, firstExecution!.sessionId!))
+      .limit(1);
+    const savedState = JSON.parse(sessionAfterFailure!.activeTaskState!);
+    expect(savedState).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      projectQuery: { id: "embedded-ai" },
+      scope: {
+        projectId,
+        revision: expect.any(String),
+      },
+      evidence: { readFiles: [source] },
+    });
+
+    const retry = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId: firstExecution!.sessionId,
+        message: "أعد المحاولة",
+      });
+    expect(retry.status).toBe(200);
+    const retryEvents = parseSseEvents(retry.text);
+    expect(retryEvents.find((event) => event.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+    expect(retryEvents.find((event) => event.type === "execution_started")?.executionId)
+      .not.toBe(firstExecution!.id);
+    expect(retryInput?.message).toBe("أعد المحاولة");
+    expect(retryInput?.turnIntent?.kind).toBe("PROJECT_QUERY");
+    expect(retryInput?.activeTaskState).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      projectQuery: {
+        id: "embedded-ai",
+        requiredEvidencePaths: expect.arrayContaining([source]),
+      },
+      scope: {
+        projectId,
+        revision: savedState.scope.revision,
+      },
+      evidence: { readFiles: [source] },
+    });
+
+    const executions = await db
+      .select({ id: aiExecutionsTable.id, status: aiExecutionsTable.status })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(executions).toHaveLength(2);
+    expect(new Set(executions.map((execution) => execution.id)).size).toBe(2);
+  });
+
   it("persists an Arabic behavioral answer with accepted evidence through SSE", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

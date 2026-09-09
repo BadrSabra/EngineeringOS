@@ -3078,7 +3078,11 @@ async function recoverSessionTaskStateFromExecution(params: {
       if (evidenceRefs.length === 0 && !hasReadEvidence) continue;
     }
     const classification = classifyRequest(request.message);
-    if (!isResumableTaskType(classification.taskType) && !request.capabilityProbe) continue;
+    const projectQueryTarget =
+      request.turnIntent === "PROJECT_QUERY" && request.proofRequired === true
+        ? classification.projectTarget
+        : undefined;
+    if (!isResumableTaskType(classification.taskType) && !request.capabilityProbe && !projectQueryTarget) continue;
     const state = buildActiveTaskState({
       classification,
       projectId: params.projectId,
@@ -3088,6 +3092,7 @@ async function recoverSessionTaskStateFromExecution(params: {
       operationId: request.operationId ?? execution.operationId ?? undefined,
       executionId: execution.id,
       capabilityProbe: Boolean(request.capabilityProbe),
+      projectQuery: projectQueryTarget,
     });
     if (state) return state;
   }
@@ -3233,6 +3238,7 @@ function nextSessionTaskState(args: {
   operationId?: string;
   executionId?: string;
   capabilityProbe?: boolean;
+  projectQuery?: NonNullable<ReturnType<typeof resolveTurnIntent>["projectTarget"]>;
   forcePersist?: boolean;
   now: Date;
   readFiles: string[];
@@ -3248,7 +3254,7 @@ function nextSessionTaskState(args: {
     && !args.executionPlan
   ) return null;
 
-  if (args.persisted && (args.resumed || args.executionPlan)) {
+  if (args.persisted && (args.resumed || args.executionPlan || args.projectQuery)) {
     const touched = touchActiveTaskState(args.persisted, args.now);
     const revised = args.revision && !touched.scope.revision
       ? {
@@ -3256,8 +3262,13 @@ function nextSessionTaskState(args: {
           scope: { ...touched.scope, revision: args.revision.slice(0, 240) },
         }
       : touched;
+    const {
+      operationId: _previousOperationId,
+      executionId: _previousExecutionId,
+      ...withoutPreviousExecutionIdentity
+    } = revised;
     const identityBound = {
-      ...revised,
+      ...withoutPreviousExecutionIdentity,
       ...(args.operationId ? { operationId: args.operationId.slice(0, 160) } : {}),
       ...(args.executionId ? { executionId: args.executionId.slice(0, 160) } : {}),
     };
@@ -3274,20 +3285,32 @@ function nextSessionTaskState(args: {
             : undefined,
         }
       : identityBound;
-    const existingPlan = canonicalized.executionPlan;
+    const withProjectQuery = args.projectQuery
+      ? {
+          ...canonicalized,
+          projectQuery: args.projectQuery,
+        }
+      : canonicalized;
+    const existingPlan = withProjectQuery.executionPlan;
     const progressedPlan = existingPlan
       ? advanceImplementationPlan(existingPlan, args.readFiles)
       : null;
     return serializeActiveTaskState(
       {
-        ...mergeActiveTaskEvidence(canonicalized, args.readFiles, args.now),
+        ...mergeActiveTaskEvidence(withProjectQuery, args.readFiles, args.now),
         executionPlan: args.executionPlan ?? progressedPlan ?? canonicalized.executionPlan,
       },
     );
   }
   const shouldPersistExecutionPlan = Boolean(args.executionPlan);
-  if (isResumableTaskType(args.classification.taskType) || args.capabilityProbe || shouldPersistExecutionPlan || args.forcePersist) {
-    const stateClassification = args.capabilityProbe
+  if (
+    isResumableTaskType(args.classification.taskType)
+    || args.capabilityProbe
+    || args.projectQuery
+    || shouldPersistExecutionPlan
+    || args.forcePersist
+  ) {
+    const stateClassification = args.capabilityProbe || args.projectQuery
       ? {
           ...args.classification,
           taskType: "BEHAVIOR_QUERY" as const,
@@ -3309,6 +3332,7 @@ function nextSessionTaskState(args: {
       operationId: args.operationId,
       executionId: args.executionId,
       capabilityProbe: args.capabilityProbe,
+      projectQuery: args.projectQuery,
       now: args.now,
     });
     return serializeActiveTaskState(state
@@ -3518,6 +3542,7 @@ router.post("/ai/chat", async (req, res) => {
     linkedTaskId: effectiveLinkedTaskId,
     revision: project.updatedAt.toISOString(),
     capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
+    projectQuery: turnIntent.projectTarget,
     forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
     now: msgNow,
     readFiles: [],
@@ -4142,6 +4167,7 @@ router.post("/ai/chat", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
+      projectQuery: turnIntent.projectTarget,
       forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
@@ -5303,7 +5329,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           )
         ),
       ),
-      ...(isResumableTaskType(streamClassification.taskType) || capabilityProbeContract
+      ...(isResumableTaskType(streamClassification.taskType)
+        || capabilityProbeContract
+        || streamTurnIntent.projectTarget
         ? {
             resumeContract: {
               taskType: streamClassification.taskType,
@@ -5546,6 +5574,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
+      projectQuery: streamTurnIntent.projectTarget,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
@@ -5700,6 +5729,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
       executionId: aiExecution?.id,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
+      projectQuery: streamTurnIntent.projectTarget,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
