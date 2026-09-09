@@ -8,14 +8,25 @@ import {
   AI_RECOVERY_OUTCOMES,
   type AiContractOutcome,
   type AiRecoveryOutcome,
+  type AiUsageEvent,
 } from "@workspace/db";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { reconcileAiBudgetReservation } from "./ai-budget.js";
+import {
+  AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES,
+  AI_EXECUTION_DIAGNOSTIC_PROVIDERS,
+  AI_EXECUTION_PROVIDER_FAILURE_CATEGORIES,
+  type AiExecutionContractFailureCategory,
+  type AiExecutionDiagnostics,
+  type AiExecutionProviderFailureCategory,
+} from "./ai-terminal-outcome.js";
+import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
 export const AI_USAGE_RETENTION_DAYS = 90;
 export const AI_USAGE_DEFAULT_WINDOW_DAYS = 30;
 export const AI_USAGE_MAX_WINDOW_DAYS = 90;
+export const AI_EXECUTION_DIAGNOSTICS_MAX_ATTEMPTS = 5_000;
 export const AI_USAGE_DAILY_ATTEMPT_LIMIT = Math.max(
   1,
   Number.parseInt(process.env.AI_USAGE_DAILY_ATTEMPT_LIMIT ?? "1000", 10) || 1000,
@@ -58,6 +69,135 @@ export type AiContractTelemetry = Pick<
   | "contractRecoveryLatencyMs"
   | "contractFailureKind"
 >;
+
+type AiExecutionTelemetryRow = Pick<
+  AiUsageEvent,
+  | "provider"
+  | "outcome"
+  | "fallbackCount"
+  | "contractOutcome"
+  | "providerFailureKind"
+>;
+
+function incrementCategory(
+  counts: Partial<Record<string, number>>,
+  category: string,
+): void {
+  counts[category] = (counts[category] ?? 0) + 1;
+}
+
+function contractFailureCategory(
+  row: AiExecutionTelemetryRow,
+): AiExecutionContractFailureCategory | undefined {
+  switch (row.contractOutcome) {
+    case "not_applicable":
+    case "accepted":
+      return undefined;
+    case "malformed_but_recovered":
+      return "MALFORMED_RESPONSE";
+    case "missing_claims":
+      return "MISSING_CLAIMS";
+    case "citation_mismatch":
+      return "CITATION_MISMATCH";
+    case "semantic_failure":
+      return "SEMANTIC_FAILURE";
+    case "provider_empty":
+      return "PROVIDER_EMPTY";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+/**
+ * Project durable attempt telemetry into the bounded execution diagnostic
+ * contract. Keep this projection independent from the full usage summary so
+ * adding a private telemetry column cannot accidentally make it public.
+ */
+export function projectAiExecutionDiagnostics(
+  rows: readonly AiExecutionTelemetryRow[],
+): AiExecutionDiagnostics {
+  const boundedRows = rows.slice(0, AI_EXECUTION_DIAGNOSTICS_MAX_ATTEMPTS);
+  const allowedProviders = new Set<string>(AI_EXECUTION_DIAGNOSTIC_PROVIDERS);
+  const providers = new Map<string, {
+    attempts: number;
+    failedAttempts: number;
+    fallbackAttempts: number;
+  }>();
+  const providerFailures: Partial<Record<AiExecutionProviderFailureCategory, number>> = {};
+  const contractFailures: Partial<Record<AiExecutionContractFailureCategory, number>> = {};
+
+  let failedAttempts = 0;
+  let cancelledAttempts = 0;
+  let fallbackAttempts = 0;
+  for (const row of boundedRows) {
+    if (row.outcome === "failure") failedAttempts += 1;
+    if (row.outcome === "cancelled") cancelledAttempts += 1;
+    fallbackAttempts += Math.max(0, Math.min(32, row.fallbackCount ?? 0));
+
+    if (allowedProviders.has(row.provider)) {
+      const current = providers.get(row.provider) ?? {
+        attempts: 0,
+        failedAttempts: 0,
+        fallbackAttempts: 0,
+      };
+      current.attempts += 1;
+      if (row.outcome === "failure") current.failedAttempts += 1;
+      current.fallbackAttempts += Math.max(0, Math.min(32, row.fallbackCount ?? 0));
+      providers.set(row.provider, current);
+    }
+
+    if (row.providerFailureKind) {
+      const category = classifyProviderFailure({ code: row.providerFailureKind });
+      if (category && AI_EXECUTION_PROVIDER_FAILURE_CATEGORIES.includes(category)) {
+        incrementCategory(providerFailures, category);
+      }
+    }
+    const contractCategory = contractFailureCategory(row);
+    if (contractCategory && AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES.includes(contractCategory)) {
+      incrementCategory(contractFailures, contractCategory);
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    attempts: boundedRows.length,
+    failedAttempts,
+    cancelledAttempts,
+    fallbackAttempts,
+    providers: [...providers.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([provider, counts]) => ({
+        provider: provider as AiExecutionDiagnostics["providers"][number]["provider"],
+        ...counts,
+      })),
+    failureCategories: {
+      provider: providerFailures,
+      contract: contractFailures,
+    },
+  };
+}
+
+export async function getAiExecutionDiagnostics(params: {
+  userId: string;
+  executionId: string;
+}): Promise<AiExecutionDiagnostics> {
+  const rows = await db
+    .select({
+      provider: aiUsageEventsTable.provider,
+      outcome: aiUsageEventsTable.outcome,
+      fallbackCount: aiUsageEventsTable.fallbackCount,
+      contractOutcome: aiUsageEventsTable.contractOutcome,
+      providerFailureKind: aiUsageEventsTable.providerFailureKind,
+    })
+    .from(aiUsageEventsTable)
+    .where(and(
+      eq(aiUsageEventsTable.userId, params.userId),
+      eq(aiUsageEventsTable.executionId, params.executionId),
+    ))
+    .orderBy(aiUsageEventsTable.occurredAt, aiUsageEventsTable.id)
+    .limit(AI_EXECUTION_DIAGNOSTICS_MAX_ATTEMPTS);
+  return projectAiExecutionDiagnostics(rows);
+}
 
 /**
  * Classify the capability-probe contract independently from provider HTTP

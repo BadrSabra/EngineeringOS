@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
+import type { AiExecutionDiagnostics } from './aiExecutionDiagnostics';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { GetAiExecution200Checkpoint } from './getAiExecution200Checkpoint';
 import type { GetAiExecution200EvidenceVerdict } from './getAiExecution200EvidenceVerdict';
@@ -55,6 +56,7 @@ export type GetAiExecution200 = {
   terminalProjection?: AiTerminalProjection | null;
   recovery?: GetAiExecution200Recovery;
   operationEvidence: OperationEvidenceProjection;
+  executionDiagnostics: AiExecutionDiagnostics;
   createdAt?: Date;
   updatedAt?: Date;
   startedAt?: Date | null;

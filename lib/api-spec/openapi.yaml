@@ -1523,7 +1523,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence]
+                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics]
                 properties:
                   id: { type: string, description: UUID of the AI execution }
                   projectId: { type: string }
@@ -1592,6 +1592,8 @@ paths:
                     additionalProperties: false
                   operationEvidence:
                     $ref: "#/components/schemas/OperationEvidenceProjection"
+                  executionDiagnostics:
+                    $ref: "#/components/schemas/AiExecutionDiagnostics"
                   createdAt: { type: string, format: date-time }
                   updatedAt: { type: string, format: date-time }
                   startedAt: { type: string, format: date-time, nullable: true }
@@ -1689,13 +1691,15 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [format, exportedAt, execution, operationEvidence, timeline, validations, affectedFiles, redaction]
+                required: [format, exportedAt, execution, operationEvidence, executionDiagnostics, timeline, validations, affectedFiles, redaction]
                 properties:
                   format: { type: string, example: engineeringos.execution-audit.v1 }
                   exportedAt: { type: string, format: date-time }
                   execution: { type: object, additionalProperties: true }
                   operationEvidence:
                     $ref: "#/components/schemas/OperationEvidenceProjection"
+                  executionDiagnostics:
+                    $ref: "#/components/schemas/AiExecutionDiagnostics"
                   timeline: { type: array, items: { type: object, additionalProperties: true } }
                   validations: { type: array, items: { type: object, additionalProperties: true } }
                   affectedFiles: { type: array, items: { type: string } }
@@ -1706,7 +1710,7 @@ paths:
                       excluded:
                         type: array
                         items: { type: string }
-                        example: [provider secrets, raw model output, private runtime paths]
+                        example: [provider secrets, raw model output, raw provider messages, private runtime paths]
                     additionalProperties: false
   /api/ai/projects/{projectId}/recipe:
     post:
@@ -5726,6 +5730,48 @@ components:
       type: string
       enum: [TIMEOUT, MODEL_REJECTED, MODEL_UNAVAILABLE, RATE_LIMITED, FALLBACK_EXHAUSTED, TRANSPORT_FAILURE, MALFORMED_RESPONSE, UNKNOWN]
       description: Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
+
+    AiExecutionDiagnostics:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, attempts, failedAttempts, cancelledAttempts, fallbackAttempts, providers, failureCategories]
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        attempts: { type: integer, minimum: 0, maximum: 5000 }
+        failedAttempts: { type: integer, minimum: 0, maximum: 5000 }
+        cancelledAttempts: { type: integer, minimum: 0, maximum: 5000 }
+        fallbackAttempts: { type: integer, minimum: 0, maximum: 160000 }
+        providers:
+          type: array
+          maxItems: 4
+          items:
+            type: object
+            additionalProperties: false
+            required: [provider, attempts, failedAttempts, fallbackAttempts]
+            properties:
+              provider:
+                type: string
+                enum: [groq, deepseek, openrouter, gemini]
+              attempts: { type: integer, minimum: 0, maximum: 5000 }
+              failedAttempts: { type: integer, minimum: 0, maximum: 5000 }
+              fallbackAttempts: { type: integer, minimum: 0, maximum: 160000 }
+        failureCategories:
+          type: object
+          additionalProperties: false
+          required: [provider, contract]
+          properties:
+            provider:
+              type: object
+              additionalProperties:
+                type: integer
+                minimum: 0
+                maximum: 5000
+            contract:
+              type: object
+              additionalProperties:
+                type: integer
+                minimum: 0
+                maximum: 5000
 
     AiTerminalProjection:
       type: object

@@ -2574,6 +2574,78 @@ export interface AiChatMessage {
   createdAt: string;
 }
 
+export type AiExecutionDiagnosticsSchemaVersion = typeof AiExecutionDiagnosticsSchemaVersion[keyof typeof AiExecutionDiagnosticsSchemaVersion];
+
+
+export const AiExecutionDiagnosticsSchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiExecutionDiagnosticsProvidersItemProvider = typeof AiExecutionDiagnosticsProvidersItemProvider[keyof typeof AiExecutionDiagnosticsProvidersItemProvider];
+
+
+export const AiExecutionDiagnosticsProvidersItemProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  openrouter: 'openrouter',
+  gemini: 'gemini',
+} as const;
+
+export type AiExecutionDiagnosticsProvidersItem = {
+  provider: AiExecutionDiagnosticsProvidersItemProvider;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  attempts: number;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  failedAttempts: number;
+  /**
+     * @minimum 0
+     * @maximum 160000
+     */
+  fallbackAttempts: number;
+};
+
+export type AiExecutionDiagnosticsFailureCategoriesProvider = {[key: string]: number};
+
+export type AiExecutionDiagnosticsFailureCategoriesContract = {[key: string]: number};
+
+export type AiExecutionDiagnosticsFailureCategories = {
+  provider: AiExecutionDiagnosticsFailureCategoriesProvider;
+  contract: AiExecutionDiagnosticsFailureCategoriesContract;
+};
+
+export interface AiExecutionDiagnostics {
+  schemaVersion: AiExecutionDiagnosticsSchemaVersion;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  attempts: number;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  failedAttempts: number;
+  /**
+     * @minimum 0
+     * @maximum 5000
+     */
+  cancelledAttempts: number;
+  /**
+     * @minimum 0
+     * @maximum 160000
+     */
+  fallbackAttempts: number;
+  /** @maxItems 4 */
+  providers: AiExecutionDiagnosticsProvidersItem[];
+  failureCategories: AiExecutionDiagnosticsFailureCategories;
+}
+
 export type AiImplementationPlanResultKind = typeof AiImplementationPlanResultKind[keyof typeof AiImplementationPlanResultKind];
 
 
@@ -4756,6 +4828,7 @@ export type GetAiExecution200 = {
   terminalProjection?: AiTerminalProjection | null;
   recovery?: GetAiExecution200Recovery;
   operationEvidence: OperationEvidenceProjection;
+  executionDiagnostics: AiExecutionDiagnostics;
   createdAt?: string;
   updatedAt?: string;
   startedAt?: string | null;
@@ -4847,6 +4920,7 @@ export type ExportAiExecutionAudit200 = {
   exportedAt: string;
   execution: ExportAiExecutionAudit200Execution;
   operationEvidence: OperationEvidenceProjection;
+  executionDiagnostics: AiExecutionDiagnostics;
   timeline: ExportAiExecutionAudit200TimelineItem[];
   validations: ExportAiExecutionAudit200ValidationsItem[];
   affectedFiles: string[];

@@ -1,4 +1,4 @@
-import type { AgentStep } from "@workspace/ai-orchestrator";
+import type { AgentStep, ProviderId } from "@workspace/ai-orchestrator";
 import {
   classifyProviderFailure,
   decideProviderFailurePolicy,
@@ -42,6 +42,63 @@ export type AiTerminalProjection = {
   reasonCode: string | null;
   nextActionCode: string | null;
   resumable: boolean;
+};
+
+/**
+ * Small, server-owned summary of provider fallback activity. This is the
+ * only attempt telemetry shape that may cross an operator-facing execution
+ * boundary. It intentionally contains counts and bounded categories only:
+ * model output, prompts, paths, credentials, and provider messages never
+ * belong here.
+ */
+export const AI_EXECUTION_DIAGNOSTIC_PROVIDERS = [
+  "groq",
+  "deepseek",
+  "openrouter",
+  "gemini",
+] as const satisfies readonly ProviderId[];
+export type AiExecutionDiagnosticProvider = (typeof AI_EXECUTION_DIAGNOSTIC_PROVIDERS)[number];
+
+export const AI_EXECUTION_PROVIDER_FAILURE_CATEGORIES = [
+  "TIMEOUT",
+  "MODEL_REJECTED",
+  "MODEL_UNAVAILABLE",
+  "RATE_LIMITED",
+  "FALLBACK_EXHAUSTED",
+  "TRANSPORT_FAILURE",
+  "MALFORMED_RESPONSE",
+  "UNKNOWN",
+] as const;
+export type AiExecutionProviderFailureCategory =
+  (typeof AI_EXECUTION_PROVIDER_FAILURE_CATEGORIES)[number];
+
+export const AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES = [
+  "MALFORMED_RESPONSE",
+  "MISSING_CLAIMS",
+  "CITATION_MISMATCH",
+  "SEMANTIC_FAILURE",
+  "PROVIDER_EMPTY",
+  "UNKNOWN",
+] as const;
+export type AiExecutionContractFailureCategory =
+  (typeof AI_EXECUTION_CONTRACT_FAILURE_CATEGORIES)[number];
+
+export type AiExecutionDiagnostics = {
+  schemaVersion: 1;
+  attempts: number;
+  failedAttempts: number;
+  cancelledAttempts: number;
+  fallbackAttempts: number;
+  providers: Array<{
+    provider: AiExecutionDiagnosticProvider;
+    attempts: number;
+    failedAttempts: number;
+    fallbackAttempts: number;
+  }>;
+  failureCategories: {
+    provider: Partial<Record<AiExecutionProviderFailureCategory, number>>;
+    contract: Partial<Record<AiExecutionContractFailureCategory, number>>;
+  };
 };
 
 /**

@@ -3711,6 +3711,35 @@ export const getAiExecutionResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
 
 export const getAiExecutionResponseTerminalProjectionOneAttemptMin = 0;
 
+export const getAiExecutionResponseExecutionDiagnosticsAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsAttemptsMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsFailedAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsFailedAttemptsMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsCancelledAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsCancelledAttemptsMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsFallbackAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsFallbackAttemptsMax = 160000;
+
+export const getAiExecutionResponseExecutionDiagnosticsProvidersItemAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsProvidersItemAttemptsMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsProvidersItemFailedAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsProvidersItemFailedAttemptsMax = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMin = 0;
+export const getAiExecutionResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMax = 160000;
+
+export const getAiExecutionResponseExecutionDiagnosticsProvidersMax = 4;
+
+export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMinOne = 0;
+export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne = 5000;
+
+export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMinOne = 0;
+export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
+
 
 
 export const GetAiExecutionResponse = zod.object({
@@ -3825,6 +3854,23 @@ export const GetAiExecutionResponse = zod.object({
   "detail": zod.string()
 }))
 }),
+  "executionDiagnostics": zod.object({
+  "schemaVersion": zod.literal(1),
+  "attempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsAttemptsMax),
+  "failedAttempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailedAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsFailedAttemptsMax),
+  "cancelledAttempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsCancelledAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsCancelledAttemptsMax),
+  "fallbackAttempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFallbackAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsFallbackAttemptsMax),
+  "providers": zod.array(zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "attempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsProvidersItemAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsProvidersItemAttemptsMax),
+  "failedAttempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsProvidersItemFailedAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsProvidersItemFailedAttemptsMax),
+  "fallbackAttempts": zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMin).max(getAiExecutionResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMax)
+})).max(getAiExecutionResponseExecutionDiagnosticsProvidersMax),
+  "failureCategories": zod.object({
+  "provider": zod.record(zod.string(), zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMinOne).max(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne)),
+  "contract": zod.record(zod.string(), zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMinOne).max(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne))
+})
+}),
   "createdAt": zod.coerce.date().optional(),
   "updatedAt": zod.coerce.date().optional(),
   "startedAt": zod.coerce.date().nullish(),
@@ -3930,6 +3976,37 @@ export const ExportAiExecutionAuditParams = zod.object({
   "executionId": zod.coerce.string()
 })
 
+export const exportAiExecutionAuditResponseExecutionDiagnosticsAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsAttemptsMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFailedAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFailedAttemptsMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsCancelledAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsCancelledAttemptsMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFallbackAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFallbackAttemptsMax = 160000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemAttemptsMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFailedAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFailedAttemptsMax = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMin = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMax = 160000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsProvidersMax = 4;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesProviderMinOne = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne = 5000;
+
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMinOne = 0;
+export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
+
+
+
 export const ExportAiExecutionAuditResponse = zod.object({
   "format": zod.string(),
   "exportedAt": zod.coerce.date(),
@@ -3962,6 +4039,23 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
   "detail": zod.string()
 }))
+}),
+  "executionDiagnostics": zod.object({
+  "schemaVersion": zod.literal(1),
+  "attempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsAttemptsMax),
+  "failedAttempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsFailedAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsFailedAttemptsMax),
+  "cancelledAttempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsCancelledAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsCancelledAttemptsMax),
+  "fallbackAttempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsFallbackAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsFallbackAttemptsMax),
+  "providers": zod.array(zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']),
+  "attempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemAttemptsMax),
+  "failedAttempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFailedAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFailedAttemptsMax),
+  "fallbackAttempts": zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMin).max(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersItemFallbackAttemptsMax)
+})).max(exportAiExecutionAuditResponseExecutionDiagnosticsProvidersMax),
+  "failureCategories": zod.object({
+  "provider": zod.record(zod.string(), zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesProviderMinOne).max(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne)),
+  "contract": zod.record(zod.string(), zod.number().int().min(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMinOne).max(exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMaxOne))
+})
 }),
   "timeline": zod.array(zod.record(zod.string(), zod.unknown())),
   "validations": zod.array(zod.record(zod.string(), zod.unknown())),

@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiExecutionDiagnostics } from './aiExecutionDiagnostics';
 import type { ExportAiExecutionAudit200Execution } from './exportAiExecutionAudit200Execution';
 import type { ExportAiExecutionAudit200Redaction } from './exportAiExecutionAudit200Redaction';
 import type { ExportAiExecutionAudit200TimelineItem } from './exportAiExecutionAudit200TimelineItem';
@@ -16,6 +17,7 @@ export type ExportAiExecutionAudit200 = {
   exportedAt: Date;
   execution: ExportAiExecutionAudit200Execution;
   operationEvidence: OperationEvidenceProjection;
+  executionDiagnostics: AiExecutionDiagnostics;
   timeline: ExportAiExecutionAudit200TimelineItem[];
   validations: ExportAiExecutionAudit200ValidationsItem[];
   affectedFiles: string[];

@@ -191,7 +191,10 @@ import {
   atomicallyPromoteFile,
 } from "../../lib/delivery-workspace.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
-import { recordAiUsageAttempt } from "../../lib/ai-telemetry.js";
+import {
+  getAiExecutionDiagnostics,
+  recordAiUsageAttempt,
+} from "../../lib/ai-telemetry.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -7393,6 +7396,10 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     ? checkpointRecord.recovery as Record<string, unknown>
     : undefined;
   const operationEvidence = await loadOperationEvidence(execution);
+  const executionDiagnostics = await getAiExecutionDiagnostics({
+    userId: req.userId,
+    executionId: execution.id,
+  });
   const [acceptanceRow] = await db
     .select()
     .from(aiExecutionAcceptancesTable)
@@ -7478,6 +7485,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     // used after reload/reconnect. This is already a redacted projection; raw
     // provider, model, and workspace diagnostics never cross this boundary.
     operationEvidence: redactOperationEvidence(operationEvidence),
+    executionDiagnostics,
       ...(execution.recipeReceipt ? { recipeReceipt: toPublicRecipeReceipt(execution.recipeReceipt) } : {}),
   });
 });
@@ -7492,6 +7500,10 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
   const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
   if (!execution) return res.status(404).json({ error: "AI execution not found" });
   const operationEvidence = await loadOperationEvidence(execution);
+  const executionDiagnostics = await getAiExecutionDiagnostics({
+    userId: req.userId,
+    executionId: execution.id,
+  });
 
   const parseRecord = (raw: string): Record<string, unknown> => {
     try {
@@ -7650,11 +7662,12 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
        }),
     },
     operationEvidence: redactOperationEvidence(operationEvidence),
+    executionDiagnostics,
     timeline,
     validations,
     affectedFiles,
     redaction: {
-      excluded: ["provider secrets", "raw model output", "private runtime paths"],
+      excluded: ["provider secrets", "raw model output", "raw provider messages", "private runtime paths"],
     },
   };
   res.setHeader("Content-Disposition", `attachment; filename="execution-${execution.id}-audit.json"`);

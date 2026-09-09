@@ -51,6 +51,7 @@ import {
 } from "../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 import { resolveStructuredRetryAfter } from "../lib/structured-task-execution.js";
+import { recordAiUsageAttempt } from "../lib/ai-telemetry.js";
 import {
   createDeliveryWorkspace,
   deliveryWorkspaceExists,
@@ -1855,6 +1856,79 @@ describe("GET /api/ai/executions/history", () => {
 });
 
 describe("GET /api/ai/executions/:executionId/audit-export", () => {
+  it("keeps execution diagnostics identical across detail and audit export", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        message: "Analyze the service",
+        modelMessage: "Analyze the service",
+        validationTargetPaths: [],
+      },
+    });
+    const correlationId = `diagnostic-projection-${randomUUID()}`;
+    await recordAiUsageAttempt({
+      userId: "test-user",
+      projectId,
+      executionId: created.execution.id,
+      correlationId,
+    }, {
+      attemptId: `${correlationId}:primary`,
+      provider: "openrouter",
+      model: "private-model-name",
+      outcome: "failure",
+      providerFailureKind: "RATE_LIMITED",
+      fallbackCount: 0,
+    });
+    await recordAiUsageAttempt({
+      userId: "test-user",
+      projectId,
+      executionId: created.execution.id,
+      correlationId,
+    }, {
+      attemptId: `${correlationId}:fallback`,
+      provider: "gemini",
+      model: "fallback-model-name",
+      outcome: "success",
+      contractOutcome: "malformed_but_recovered",
+      fallbackCount: 1,
+    });
+
+    const detail = await request(app).get(`/api/ai/executions/${created.execution.id}`);
+    const exported = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+
+    expect(detail.status).toBe(200);
+    expect(exported.status).toBe(200);
+    expect(detail.body.executionDiagnostics).toEqual(exported.body.executionDiagnostics);
+    expect(detail.body.executionDiagnostics).toEqual({
+      schemaVersion: 1,
+      attempts: 2,
+      failedAttempts: 1,
+      cancelledAttempts: 0,
+      fallbackAttempts: 1,
+      providers: [
+        { provider: "gemini", attempts: 1, failedAttempts: 0, fallbackAttempts: 1 },
+        { provider: "openrouter", attempts: 1, failedAttempts: 1, fallbackAttempts: 0 },
+      ],
+      failureCategories: {
+        provider: { RATE_LIMITED: 1 },
+        contract: { MALFORMED_RESPONSE: 1 },
+      },
+    });
+    const serialized = JSON.stringify({
+      detail: detail.body.executionDiagnostics,
+      export: exported.body.executionDiagnostics,
+    });
+    expect(serialized).not.toContain("private-model-name");
+    expect(serialized).not.toContain("fallback-model-name");
+    await db.delete(aiUsageEventsTable).where(eq(aiUsageEventsTable.correlationId, correlationId));
+  });
+
   it("projects stable terminal codes instead of persisted diagnostics", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

@@ -9,6 +9,7 @@ import { db, aiUsageEventsTable } from "@workspace/db";
 import {
   deriveAiContractTelemetry,
   getAiUsageSummary,
+  projectAiExecutionDiagnostics,
   recordAiUsageAttempt,
 } from "./ai-telemetry.js";
 
@@ -22,6 +23,52 @@ afterEach(async () => {
 });
 
 describe("durable AI telemetry", () => {
+  it("projects bounded execution diagnostics without provider content", () => {
+    const diagnostics = projectAiExecutionDiagnostics([
+      {
+        provider: "openrouter",
+        outcome: "failure",
+        fallbackCount: 0,
+        contractOutcome: "semantic_failure",
+        providerFailureKind: "RATE_LIMITED",
+      },
+      {
+        provider: "gemini",
+        outcome: "success",
+        fallbackCount: 1,
+        contractOutcome: "malformed_but_recovered",
+        providerFailureKind: null,
+      },
+      {
+        provider: "untrusted-provider",
+        outcome: "failure",
+        fallbackCount: 32,
+        contractOutcome: "missing_claims",
+        providerFailureKind: "provider body https://secret.invalid token=sk-live",
+      },
+    ]);
+
+    expect(diagnostics).toEqual({
+      schemaVersion: 1,
+      attempts: 3,
+      failedAttempts: 2,
+      cancelledAttempts: 0,
+      fallbackAttempts: 33,
+      providers: [
+        { provider: "gemini", attempts: 1, failedAttempts: 0, fallbackAttempts: 1 },
+        { provider: "openrouter", attempts: 1, failedAttempts: 1, fallbackAttempts: 0 },
+      ],
+      failureCategories: {
+        provider: { RATE_LIMITED: 1, UNKNOWN: 1 },
+        contract: { SEMANTIC_FAILURE: 1, MALFORMED_RESPONSE: 1, MISSING_CLAIMS: 1 },
+      },
+    });
+    const serialized = JSON.stringify(diagnostics);
+    expect(serialized).not.toContain("untrusted-provider");
+    expect(serialized).not.toContain("https://secret.invalid");
+    expect(serialized).not.toContain("sk-live");
+  });
+
   it("separates provider success from an incomplete capability contract", () => {
     const telemetry = deriveAiContractTelemetry({
       message: "# AI Model Capability Probe\nC1–C7",
