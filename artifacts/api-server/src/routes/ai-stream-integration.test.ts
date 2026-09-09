@@ -3956,6 +3956,7 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
         source: publicSource,
         details: [sensitiveDiagnostic],
         cached: false,
+        readStatus: "READ_COMPLETE",
       } as never);
       args[6]?.({
         kind: "done",
@@ -3977,6 +3978,9 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
         consistent: true,
         acceptedClaimCount: 1,
         acceptedEvidenceCount: 1,
+        completedReadFiles: [publicSource],
+        retainedBodyFiles: [publicSource],
+        acceptedEvidenceFiles: [publicSource],
         evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
       } as never);
       args[6]?.({
@@ -4939,6 +4943,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         'if (!flag) return "partial";\n',
       );
       args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        readStatus: "READ_COMPLETE",
+      } as never);
+      args[6]?.({
         kind: "forensic_status",
         sourceCoverage: "COMPLETE",
         behavioralAssessment: "COMPLETE",
@@ -4949,6 +4960,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         consistent: true,
         acceptedClaimCount: 1,
         acceptedEvidenceCount: 1,
+        completedReadFiles: [source],
+        retainedBodyFiles: [source],
+        acceptedEvidenceFiles: [source],
         evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
       } as never);
       args[6]?.({
@@ -7462,6 +7476,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         source: completePath,
         cached: false,
         outputLength: completeBody.length,
+        readStatus: "READ_COMPLETE",
         resultSummary: "Complete source read retained.",
       });
       onStep?.({
@@ -7470,7 +7485,14 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         source: incompletePath,
         cached: false,
         outputLength: 448_966,
+        readStatus: "READ_TRUNCATED",
         resultSummary: "Source preview was truncated.",
+      });
+      onStep?.({
+        kind: "evidence_integrity",
+        completedReadFiles: [completePath],
+        retainedBodyFiles: [completePath],
+        acceptedEvidenceFiles: [],
       });
       throw new GroqClientError("NON_200", "provider rejected the request", {
         context: { providerStatus: 400 },
@@ -7497,6 +7519,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         content: aiChatMessagesTable.content,
         outcome: aiChatMessagesTable.outcome,
         errorCode: aiChatMessagesTable.errorCode,
+        sources: aiChatMessagesTable.sources,
       })
       .from(aiChatMessagesTable)
       .where(and(
@@ -7510,6 +7533,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     });
     expect(storedMessage?.content).toContain("قراءة مصدرية مكتملة");
     expect(storedMessage?.content).not.toContain("قبل قراءة الملفات المطلوبة");
+    expect(JSON.parse(storedMessage?.sources ?? "[]")).toEqual([completePath]);
 
     const [execution] = await db
       .select({
@@ -7551,6 +7575,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         tool: "read_file",
         source,
         cached: false,
+        readStatus: "READ_COMPLETE",
         resultSummary: "Source read completed before transport interruption.",
       });
       onStreamReset?.();
@@ -7632,6 +7657,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
           tool: "read_file",
           source,
           cached: false,
+          readStatus: "READ_COMPLETE",
           resultSummary: "Source retained before provider failover.",
         });
       } else if (turn > 2) {
@@ -7851,6 +7877,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
         source: truncatedPath,
         cached: false,
         outputLength: 448_966,
+        readStatus: "READ_TRUNCATED",
         resultSummary: "Source preview was truncated.",
       });
       throw new GroqClientError("NON_200", "provider rejected the request", {
@@ -7875,6 +7902,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       .select({
         content: aiChatMessagesTable.content,
         outcome: aiChatMessagesTable.outcome,
+        sources: aiChatMessagesTable.sources,
       })
       .from(aiChatMessagesTable)
       .where(and(
@@ -7887,6 +7915,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       "The analysis stopped after attempting to read source files, but no complete source read was retained.",
     );
     expect(storedMessage?.content).not.toContain("before reading the required files");
+    expect(JSON.parse(storedMessage?.sources ?? "[]")).toEqual([]);
 
     const [execution] = await db
       .select({ checkpoint: aiExecutionsTable.checkpoint })

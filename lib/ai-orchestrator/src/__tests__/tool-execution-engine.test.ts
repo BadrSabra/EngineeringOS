@@ -1157,6 +1157,7 @@ describe("executeToolLoop", () => {
     const COMPLETE = "File: src/cache.ts\n```\nexport const verified = true;\n```";
     FILE_TOOL_MOCK.mockResolvedValueOnce(COMPLETE);
     FILE_TOOL_MOCK.mockClear();
+    const steps: AgentStep[] = [];
 
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("upgrade-1", "read_file", { path: "src/cache.ts" })]),
@@ -1177,6 +1178,7 @@ describe("executeToolLoop", () => {
       ]]),
       completeReads: true,
       maxIterations: 3,
+      onStep: (step) => steps.push(step),
     });
 
     expect(result.kind).toBe("response");
@@ -1191,6 +1193,8 @@ describe("executeToolLoop", () => {
       expect(result.fileContents?.get("src/cache.ts")).toContain("verified");
       expect(result.sourceRetrieval?.truncatedReads).toBe(0);
     }
+    expect(steps.find((step) => step.kind === "tool_result" && step.tool === "read_file"))
+      .toMatchObject({ source: "src/cache.ts", readStatus: "READ_COMPLETE" });
   });
 
   it("classifies a targeted window read as READ_TARGETED evidence (SR-003/SR-008)", async () => {
@@ -1203,6 +1207,7 @@ describe("executeToolLoop", () => {
   it("retains a successful read_file_range body in the canonical file evidence map", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockResolvedValue("File: src/a.ts\n```\nexport const value = 1;\n```\n");
+    const steps: AgentStep[] = [];
     const strategy = makeStrategy([
       makeResponse("", [
         makeToolCall("range-1", "read_file_range", {
@@ -1228,6 +1233,7 @@ describe("executeToolLoop", () => {
       pendingChanges: [],
       maxIterations: 3,
       maxToolCalls: 3,
+      onStep: (step) => steps.push(step),
     });
 
     expect(result.kind).toBe("response");
@@ -1236,6 +1242,8 @@ describe("executeToolLoop", () => {
       expect(result.sourceRetrieval?.targetedReads).toBe(1);
       expect(result.sourceRetrieval?.uniqueReads).toBe(1);
     }
+    expect(steps.find((step) => step.kind === "tool_result" && step.tool === "read_file_range"))
+      .toMatchObject({ source: "src/a.ts", readStatus: "READ_TARGETED" });
   });
 
   it("classifies truncation markers as READ_TRUNCATED, never READ_COMPLETE (SR-001 gate)", async () => {

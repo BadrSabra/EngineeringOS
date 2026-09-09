@@ -1521,6 +1521,8 @@ export type AgentStep =
       source?: string;
       cached: boolean;
       outputLength: number;
+      /** Server-owned classification for source reads; provider text is never authoritative. */
+      readStatus?: ReadStatus;
        resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
        diagnosticCode?: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
        analysisFailureCategory?: import("./tools/analysis-tools.js").AnalysisFailureCategory;
@@ -4365,6 +4367,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             source: cachedSource,
             cached: true,
             outputLength: cached.length,
+            ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+              ? { readStatus: classifyReadStatus(tc.function.name, cached) }
+              : {}),
            ...(tc.function.name === "run_command"
              ? { commandStatus: parseCommandStatus(cached) }
              : {}),
@@ -4820,6 +4825,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           source: toolResult.source,
           cached: false,
           outputLength: toolResult.output.length,
+          ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+            ? { readStatus: classifyReadStatus(tc.function.name, toolResult.output) }
+            : {}),
           ...(tc.function.name === "run_command"
             ? { commandStatus: parseCommandStatus(toolResult.output) }
             : {}),

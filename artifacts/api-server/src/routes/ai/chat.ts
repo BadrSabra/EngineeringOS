@@ -2490,6 +2490,7 @@ type PersistedToolTraceEntry = {
   args?: Record<string, string>;
   source?: string;
   cached?: boolean;
+  readStatus?: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_CACHED" | "READ_TARGETED";
   prefetched?: boolean;
   iter?: number;
   maxIterations?: number;
@@ -2682,6 +2683,7 @@ function serializeToolTrace(
           tool: step.tool,
           source: step.source,
           cached: step.cached,
+          ...("readStatus" in step && step.readStatus ? { readStatus: step.readStatus } : {}),
           ...("resultKind" in step && step.resultKind ? { resultKind: step.resultKind } : {}),
           ...("diagnosticCode" in step && step.diagnosticCode ? { diagnosticCode: step.diagnosticCode } : {}),
            ...("commandStatus" in step && step.commandStatus ? { commandStatus: step.commandStatus } : {}),
@@ -3121,18 +3123,22 @@ function collectVerifiedTurnSources(
   steps: AgentStep[],
 ): string[] {
   const authoritative = new Map<string, string>();
-  const addAuthoritative = (value: string | undefined): void => {
+  const verifiedReadPaths = new Set<string>();
+  const addVerifiedRead = (value: string | undefined): void => {
     if (!value) return;
     const publicPath = publicEvidencePath(value);
-    if (publicPath) authoritative.set(publicPath, publicPath);
+    if (!publicPath) return;
+    verifiedReadPaths.add(publicPath);
+    authoritative.set(publicPath, publicPath);
   };
 
   for (const step of steps) {
     if (
       step.kind === "tool_result"
       && (step.tool === "read_file" || step.tool === "read_file_range")
+      && (step.readStatus === "READ_COMPLETE" || step.readStatus === "READ_TARGETED")
     ) {
-      addAuthoritative(step.source);
+      addVerifiedRead(step.source);
     }
     if (step.kind === "evidence_integrity") {
       for (const source of [
@@ -3140,7 +3146,7 @@ function collectVerifiedTurnSources(
         ...(step.retainedBodyFiles ?? []),
         ...(step.acceptedEvidenceFiles ?? []),
       ]) {
-        addAuthoritative(source);
+        addVerifiedRead(source);
       }
     }
   }
@@ -3160,20 +3166,24 @@ function collectVerifiedTurnSources(
   ) return [];
   if (hasStructuredEvidenceContract && !acceptedEvidence) return [];
   if (acceptedEvidence) {
-    for (const evidence of result.behaviorEvidence ?? []) addAuthoritative(evidence.source);
+    for (const evidence of result.behaviorEvidence ?? []) {
+      const source = publicEvidencePath(evidence.source ?? "");
+      if (source && verifiedReadPaths.has(source)) authoritative.set(source, source);
+    }
     const taskEvidence = result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT"
       ? result.taskResult.answer.evidence
       : [];
-    for (const evidence of taskEvidence) addAuthoritative(evidence.source);
+    for (const evidence of taskEvidence) {
+      const source = publicEvidencePath(evidence.source ?? "");
+      if (source && verifiedReadPaths.has(source)) authoritative.set(source, source);
+    }
   }
 
   if (authoritative.size === 0) return [];
-  return [...new Set(
-    (result.sources ?? [])
-      .map((source) => publicEvidencePath(source))
-      .filter((source): source is string => Boolean(source))
-      .filter((source) => authoritative.has(source)),
-  )].slice(-48);
+  // The server-owned read ledger is the source of truth. Do not require the
+  // provider/model to repeat a verified path in result.sources, and never add
+  // a path merely because the provider returned it there.
+  return [...authoritative.keys()].slice(-48);
 }
 
 function normalizeTaskResultForTurn(
@@ -7088,6 +7098,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         createdAt: now,
         assistantAt: msgNow,
         toolTrace: traceSteps,
+         sources: collectVerifiedTurnSources({}, traceSteps),
         executionLedgerSnapshot,
         evidenceSummary: evidenceFailureSummary(),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
