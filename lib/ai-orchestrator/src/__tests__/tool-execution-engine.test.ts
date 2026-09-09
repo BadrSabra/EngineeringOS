@@ -510,6 +510,80 @@ describe("executeToolLoop", () => {
     expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
   });
 
+  it("forces the next missing required source after recovering a truncated first read", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("r0", "read_file", {
+        path: "artifacts/api-server/src/routes/ai/chat.ts",
+      })]),
+      makeResponse("", [makeToolCall("r1", "read_file_range", {
+        path: "artifacts/api-server/src/routes/ai/chat.ts",
+        startLine: "1",
+        endLine: "20",
+      })]),
+      makeResponse("", [makeToolCall("r2", "read_file", {
+        path: "lib/ai-orchestrator/src/turn-intent.ts",
+      })]),
+      makeResponse("", [makeToolCall("p1", "git_status", {})]),
+      makeResponse("", [makeToolCall("p2", "git_status", {})]),
+      makeResponse("", [makeToolCall("r3", "read_file", {
+        path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+      })]),
+      makeResponse("all required sources were read"),
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) => {
+      if (name === "read_file" && args.path?.endsWith("/chat.ts")) {
+        return "File: chat.ts\n```\nconst partial = true;\n[... output truncated\n```";
+      }
+      if (name === "read_file_range" && args.path?.endsWith("/chat.ts")) {
+        return "File: chat.ts\n```\nexport const recovered = true;\n```";
+      }
+      return `File: ${args.path ?? "unknown"}\nexport const source = true;`;
+    });
+    const steps: AgentStep[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+        { type: "function", function: { name: "git_status", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 10,
+      firstEvidenceTargetPath: "artifacts/api-server/src/routes/ai/chat.ts",
+      objective: {
+        goal: "trace the embedded AI layer",
+        requiredEvidencePaths: [
+          "artifacts/api-server/src/routes/ai/chat.ts",
+          "lib/ai-orchestrator/src/turn-intent.ts",
+          "lib/ai-orchestrator/src/agents/chat-agent.ts",
+        ],
+        requiredClaims: [],
+      },
+      onStep: (step) => void steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.sourceRetrieval?.truncatedReads).toBe(1);
+    expect(result.sourceRetrieval?.readPaths).toEqual(expect.arrayContaining([
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+    ]));
+    expect(steps.some(
+      (step) =>
+        step.kind === "diagnostic" &&
+        step.code === "FORCE_PRIMARY_EVIDENCE_ACTION" &&
+        step.details?.some((detail) => detail.includes("chat-agent.ts")),
+    )).toBe(true);
+  });
+
   it("rejects a tool emitted outside the server-owned phase", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const diagnostics: AgentStep[] = [];

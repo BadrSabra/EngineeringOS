@@ -48,6 +48,7 @@ import {
   buildProjectQueryObjective,
   isWriteCapableTurn,
   isImmediateExecutionRequest,
+  isPlanExecutionRequest,
   isCapabilityProbeRequest,
   isTaskContinuationRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
@@ -3148,6 +3149,13 @@ router.post("/ai/chat", async (req, res) => {
       message: "Repair Plan execution requires the original audit session.",
     });
   }
+  if (isPlanExecutionRequest(message)) {
+    return res.status(409).json({
+      error: "approved_plan_handoff_required",
+      code: "PLAN_APPROVAL_REQUIRED",
+      message: "Approve an implementation plan and start Build Mode before executing it.",
+    });
+  }
 
   const rlChat = await checkProjectRateLimitDb(projectId);
   if (!rlChat.allowed) {
@@ -4097,6 +4105,13 @@ router.post("/ai/chat/stream", async (req, res) => {
     return res.status(409).json({
       error: "execution_session_required",
       message: "Repair Plan execution requires the original audit session.",
+    });
+  }
+  if (isPlanExecutionRequest(message) && !buildPlanMessageId) {
+    return res.status(409).json({
+      error: "approved_plan_handoff_required",
+      code: "PLAN_APPROVAL_REQUIRED",
+      message: "Approve an implementation plan and start Build Mode before executing it.",
     });
   }
   if (effectiveExecutionId && !sessionId) {

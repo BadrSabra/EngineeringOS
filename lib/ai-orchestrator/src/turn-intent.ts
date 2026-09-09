@@ -112,6 +112,20 @@ const ENGLISH_EXECUTION_ACTION_RE =
 const ARABIC_EXECUTION_ACTION_RE =
   /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
 
+const PLAN_EXECUTION_REQUEST_RE =
+  /^\s*(?:(?:ابدأ|ابدا|إبدأ|إبدا|start|proceed|go\s+ahead)\s+)?(?:في\s+)?(?:تنفيذ|تطبيق|تعديل|إصلاح|implement|apply|execute)\s+(?:هذه\s+|the\s+|this\s+|approved\s+)?(?:الخطة|التعديلات|الإصلاحات|plan|changes|fixes)(?:\s|$|[.,!?])/iu;
+
+/**
+ * A plan-execution command is not a generic implementation request. It must
+ * carry the server-owned approved Build handoff, otherwise the route would
+ * accept arbitrary source reads as proof of execution without a proposal or
+ * apply journal.
+ */
+export function isPlanExecutionRequest(message: string): boolean {
+  const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
+  return PLAN_EXECUTION_REQUEST_RE.test(normalized);
+}
+
 const COMPOUND_REQUEST_RE =
   /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|اختبر|شغّل|شغل|تحقق)/iu;
 

@@ -1925,6 +1925,18 @@ export async function completeAiExecution(params: {
   }
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
   const operation = params.operation ?? checkpoint?.operation;
+  const inferredEvidenceRefs = [
+    ...(params.evidenceRefs ?? []),
+    ...(params.evidenceReads ?? [])
+      .filter((read) => read.complete && !read.truncated)
+      .map((read) => `source-read:${read.path}`),
+  ];
+  const effectiveEvidenceVerdict =
+    params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
+      ? params.evidenceVerdict
+      : params.evidenceReads?.some((read) => read.complete && !read.truncated)
+        ? "PROVEN" as const
+        : params.evidenceVerdict;
   if (requiresProof) {
     if (!operation) return false;
     if (!request?.workspaceRevision) return false;
@@ -1942,20 +1954,9 @@ export async function completeAiExecution(params: {
             // validation artifact. Give the operation a deterministic
             // reference so read-only forensic turns can satisfy the same
             // proof gate without trusting provider prose alone.
-            evidenceRefs: [
-              ...(params.evidenceRefs ?? []),
-              ...(params.evidenceReads ?? [])
-                .filter((read) => read.complete && !read.truncated)
-                .map((read) => `source-read:${read.path}`),
-            ],
+              evidenceRefs: inferredEvidenceRefs,
             evidence: params.evidence,
-            evidenceVerdict: (
-              params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
-                ? params.evidenceVerdict
-                : params.evidenceReads?.some((read) => read.complete && !read.truncated)
-                  ? "PROVEN"
-                  : undefined
-            ),
+              evidenceVerdict: effectiveEvidenceVerdict,
             workspaceRevision: request.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
             operationId: params.operationId ?? durableOperationId,
@@ -1986,9 +1987,9 @@ export async function completeAiExecution(params: {
             .slice(0, AI_EXECUTION_NODE_LIMIT),
         }
       : {}),
-    ...(params.evidenceVerdict ? { evidenceVerdict: params.evidenceVerdict } : {}),
-    ...(params.evidenceRefs && params.evidenceRefs.length > 0
-      ? { evidenceRefs: [...new Set(params.evidenceRefs)].slice(0, 48) }
+    ...(effectiveEvidenceVerdict ? { evidenceVerdict: effectiveEvidenceVerdict } : {}),
+    ...(inferredEvidenceRefs.length > 0
+      ? { evidenceRefs: [...new Set(inferredEvidenceRefs)].slice(0, 48) }
       : {}),
     ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
     ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
@@ -2011,13 +2012,7 @@ export async function completeAiExecution(params: {
             operationId: params.operationId,
             sourceRevision: request?.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
-          verdict: (
-            params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
-              ? params.evidenceVerdict
-              : params.evidenceReads?.some((read) => read.complete && !read.truncated)
-                ? "PROVEN"
-                : params.evidenceVerdict
-          ),
+              verdict: effectiveEvidenceVerdict,
             required: true,
             reads: params.evidenceReads,
           } satisfies EvidenceSnapshotInput,

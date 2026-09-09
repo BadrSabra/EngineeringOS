@@ -1849,8 +1849,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   for (const [path, body] of opts.initialFileContents ?? []) {
     sourceEvidenceByCanonical.set(canonicalRel(path), body);
   }
-  const recordSourceEvidence = (path: string | undefined, output: string): void => {
-    if (typeof path === "string" && path.trim()) {
+  const recordSourceEvidence = (
+    path: string | undefined,
+    output: string,
+    toolName = "read_file",
+  ): void => {
+    if (
+      typeof path === "string" &&
+      path.trim() &&
+      (classifyReadStatus(toolName, output) === "READ_COMPLETE" ||
+        classifyReadStatus(toolName, output) === "READ_TARGETED")
+    ) {
       sourceEvidenceByCanonical.set(canonicalRel(path), output);
       opts.retainedFileContents?.set(path, output);
     }
@@ -2103,6 +2112,29 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const fegTarget = firstEvidenceTargetPath
     ? firstEvidenceTargetPath.replaceAll("\\", "/").replace(/^(\.\/)+/, "")
     : null;
+  /**
+   * Objective evidence is a server-owned traversal contract. FEG still
+   * chooses the first source, but once that read is complete the next missing
+   * required path becomes the forced target. This prevents a provider from
+   * satisfying the first-evidence latch repeatedly while leaving a required
+   * claim source unread.
+   */
+  const nextMissingObjectiveEvidencePath = (): string | null => {
+    if (!objective) return null;
+    const requiredPaths = [
+      ...(objective.requiredEvidencePaths ?? []),
+      ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
+    ];
+    if (requiredPaths.length === 0) return null;
+    const verified = new Set(
+      [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
+        .map((value) => canonicalRel(value)),
+    );
+    return requiredPaths
+      .map((value) => canonicalRel(value))
+      .find((value) => value.length > 0 && !verified.has(value)) ?? null;
+  };
+  let forcedEvidenceTarget = fegTarget;
   const allowedReads = allowedReadPaths
     ? (() => {
         const set = new Set(
@@ -2472,7 +2504,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     if (toolName !== "read_file" && toolName !== "read_file_range") return false;
     if (typeof path !== "string" || !path.trim()) return false;
     const normalized = path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
-    return fegTarget ? normalized === fegTarget : true;
+    return forcedEvidenceTarget ? normalized === forcedEvidenceTarget : true;
   };
   // A SUCCESSFUL source-evidence read: a nonempty, permitted source path whose
   // read produced usable, non-error output (READ_COMPLETE or READ_TARGETED).
@@ -4268,6 +4300,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           // evidence and does not clear the forced-evidence state. Judged by
           // completed-evidence status (isCompletedPath), never mere attempt
           // (map.has), so a truncated-recovery window is a real acquisition.
+          let clearingActiveForce = false;
           const alreadyRead = isCompletedPath(pathForRead);
           if (isSuccessfulSourceRead(tc.function.name, pathForRead, cached)) {
             // A permitted cached read that satisfies the mandate clears the
@@ -4281,7 +4314,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             // controller resets the no-progress streak to zero and the force
             // does not re-fire on the immediately following call: a fresh pair
             // of NO_PROGRESS iterations is required to re-force.
-            const clearingActiveForce = forcedEvidenceActive;
+            clearingActiveForce = forcedEvidenceActive;
             forcedEvidenceActive = false;
             forcedPrimaryEvidence = false;
             if (clearingActiveForce) iterationNewRead = true;
@@ -4297,7 +4330,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             }
           }
           recordRead(tc.function.name, args.path, cached);
-          recordSourceEvidence(args.path, cached);
+          recordSourceEvidence(args.path, cached, tc.function.name);
+          if (clearingActiveForce) {
+            forcedEvidenceTarget = nextMissingObjectiveEvidencePath();
+          }
           if (compoundWriteMode && fileContents.size > 0) {
             compoundProposalActive = true;
           }
@@ -4681,6 +4717,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           failedValidationFingerprints.delete(validationProfile ?? "");
         }
       }
+      let clearingActiveForce = false;
       if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
         // Only a SUCCESSFUL source-evidence read counts as progress and clears
         // forced-evidence mode. A failed read (error, empty body, directory
@@ -4698,6 +4735,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           // Force-clearing re-arms the one-run fire latch so circular planning
           // that resumes AFTER this successful read can be re-forced by a later
           // no-progress pair (reusable force lifecycle).
+          clearingActiveForce = forcedEvidenceActive;
           forcedEvidenceActive = false;
           forcedPrimaryEvidence = false;
           if (firstSourceReadIter === null) {
@@ -4745,7 +4783,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         recordRead(tc.function.name, args.path, toolResult.output);
         // Retain the body as source evidence so a later dependency proof may
         // cite `from_file` and reference text grounded in what was actually read.
-        recordSourceEvidence(args.path, toolResult.output);
+        recordSourceEvidence(args.path, toolResult.output, tc.function.name);
+        if (clearingActiveForce) {
+          forcedEvidenceTarget = nextMissingObjectiveEvidencePath();
+        }
         if (compoundWriteMode && fileContents.size > 0) {
           compoundProposalActive = true;
         }
@@ -4832,15 +4873,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               code: "FORCE_PRIMARY_EVIDENCE_ACTION",
               details: [
                 `${noProgressStreak} consecutive planning iterations without new evidence` +
-                  (fegTarget
-                    ? `; forcing read of primary evidence target "${fegTarget}"`
+                  ((forcedEvidenceTarget = nextMissingObjectiveEvidencePath() ?? fegTarget)
+                    ? `; forcing read of primary evidence target "${forcedEvidenceTarget}"`
                     : "; forcing a source read"),
               ],
             });
           } catch { /* ignore */ }
           // Force the primary evidence target into the allow/read policy on the
           // next iteration so the model cannot keep planning past this point.
-          if (fegTarget && allowedReads) allowedReads.add(fegTarget);
+          if (forcedEvidenceTarget && allowedReads) allowedReads.add(forcedEvidenceTarget);
           // Hide planning tools on the next turn so the only route forward is
           // a read (or a synthesis of already-gathered evidence). The
           // dispatch-level forced-evidence gate independently rejects
@@ -4881,13 +4922,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             code: "FORCE_PRIMARY_EVIDENCE_ACTION",
             details: [
               `planning budget exhausted (${planningIterations} planning iters >= ${runBudget.planning} allocation) before the first source read` +
-                (fegTarget
-                  ? `; forcing read of primary evidence target "${fegTarget}"`
+                  ((forcedEvidenceTarget = nextMissingObjectiveEvidencePath() ?? fegTarget)
+                    ? `; forcing read of primary evidence target "${forcedEvidenceTarget}"`
                   : "; forcing a source read"),
             ],
           });
         } catch { /* ignore */ }
-        if (fegTarget && allowedReads) allowedReads.add(fegTarget);
+        if (forcedEvidenceTarget && allowedReads) allowedReads.add(forcedEvidenceTarget);
         temporarilyDisabledTools.add("search_code");
         temporarilyDisabledTools.add("list_directory");
       }

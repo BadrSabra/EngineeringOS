@@ -2771,6 +2771,25 @@ describe("Implementation Plan Build handoff", () => {
     expect(res.body.code).toBe("PLAN_APPROVAL_REQUIRED");
   });
 
+  it("rejects Arabic plan execution without an approved Build handoff", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-plan-handoff-");
+    rootPaths.push(rootPath);
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const plan = await insertApprovedPlan(projectId, "APPROVED", "src/example.ts");
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId: plan.sessionId,
+        message: "ابدأ تنفيذ الخطة",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("PLAN_APPROVAL_REQUIRED");
+  });
+
   it("blocks Build Mode for an already-approved plan with no safe file scope", async () => {
     const rootPath = await fs.mkdtemp("/tmp/stream-build-empty-scope-");
     rootPaths.push(rootPath);

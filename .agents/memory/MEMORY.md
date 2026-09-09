@@ -128,3 +128,4 @@
 - [Structured provider fallback](structured-provider-fallback.md) — structured routes must explicitly opt into bounded transient model fallback; resolver chains alone do not consume on 429.
 - [Server cooldown gates](server-cooldown-gates.md) — a persisted retryAt is only protective when new execution creation rejects early; client guards and acceptance projection are not authoritative.
 - [Structured cooldown backoff](structured-cooldown-backoff.md) — missing provider Retry-After uses bounded adaptive windows, while explicit provider/project durations remain authoritative.
+- [Evidence scheduler contract](evidence-scheduler-contract.md) — required source paths need complete/targeted reads; stalled loops force the next missing path, not repeated first-file reads.
