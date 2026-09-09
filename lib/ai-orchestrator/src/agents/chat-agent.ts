@@ -7863,7 +7863,19 @@ export async function chat(opts: {
       // The model never writes pendingChanges itself — they come from the tool
       // loop — but using the full output schema keeps the type consistent with
       // the return value and avoids a TS2339 on .pendingChanges below.
-      const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+      // Ordinary chat providers are allowed to return plain text. Only attempt
+      // envelope parsing when the response is shaped like a JSON object;
+      // otherwise a normal Arabic/English answer should not be reported as a
+      // malformed JSON response or trigger the structured correction path.
+      const parsedDirect =
+        !structuredOutputMode
+        && !deterministicTaskExecution
+         && !repairPlanExecution
+         && taskType !== "task_execution"
+         && !classification.implementationTaskMode
+         && !directContent.trimStart().startsWith("{")
+        ? { ok: true as const, data: fallbackChatOutput(directContent) }
+        : parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
       const responseText =
         normalizeAssistantText(parsedDirect.data.response) ||
         normalizeAssistantText(directContent) ||
@@ -8373,7 +8385,14 @@ export async function chat(opts: {
             sources: normalizedCapability.sources,
           },
         }
-      : parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+      : !structuredOutputMode
+        && !deterministicTaskExecution
+        && !repairPlanExecution
+        && taskType !== "task_execution"
+        && !classification.implementationTaskMode
+        && !content.trimStart().startsWith("{")
+          ? { ok: true as const, data: fallbackChatOutput(content) }
+          : parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
   if (
     normalizedCapability &&
     parsed.ok &&

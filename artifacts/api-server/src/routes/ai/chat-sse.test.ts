@@ -1670,6 +1670,16 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       type: "done",
       operationMode: "CHAT",
     });
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+        messages: Array<Record<string, unknown>>;
+      };
+    }).__chatTestFixture;
+    expect(dbFixture.execution.status).toBe("completed");
+    expect(dbFixture.execution.finalMessageId).toBeTruthy();
+    expect(dbFixture.messages.filter((entry) => entry.role === "assistant")).toHaveLength(1);
   });
 
   it("emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step", async () => {

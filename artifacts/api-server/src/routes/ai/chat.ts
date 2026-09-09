@@ -7230,6 +7230,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         .select({
           id: aiExecutionsTable.id,
           status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
           finalMessageId: aiExecutionsTable.finalMessageId,
         })
         .from(aiExecutionsTable)
