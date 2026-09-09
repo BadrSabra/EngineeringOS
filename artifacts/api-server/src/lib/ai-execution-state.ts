@@ -1911,6 +1911,13 @@ export async function completeAiExecution(params: {
     | "candidateHash"
   >[];
   analysisEvidence?: AnalysisEvidenceCompletion;
+  /**
+   * A forensic/capability execution must be accepted by the server-owned
+   * forensic terminal gate before the durable autonomous completion path can
+   * finalize it.  Complete source reads are retained separately and are not
+   * sufficient proof.
+   */
+  forensicAccepted?: boolean;
   operationId?: string;
   candidateIdentity?: string | null;
   recipeBinding?: RecipeOperationBinding;
@@ -1958,6 +1965,8 @@ export async function completeAiExecution(params: {
     if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
   }
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
+  const forensicExecution = request?.turnIntent === "FORENSIC_AUDIT"
+    || Boolean(request?.capabilityProbe && request?.proofRequired === true);
   const operation = params.operation ?? checkpoint?.operation;
   const inferredEvidenceRefs = [
     ...(params.evidenceRefs ?? []),
@@ -1968,10 +1977,11 @@ export async function completeAiExecution(params: {
   const effectiveEvidenceVerdict =
     params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
       ? params.evidenceVerdict
-      : params.evidenceReads?.some((read) => read.complete && !read.truncated)
+      : !forensicExecution && params.evidenceReads?.some((read) => read.complete && !read.truncated)
         ? "PROVEN" as const
         : params.evidenceVerdict;
   if (requiresProof) {
+    if (forensicExecution && params.forensicAccepted !== true) return false;
     if (!operation) return false;
     if (!request?.workspaceRevision) return false;
     const durableOperationId = current.operationId ?? params.executionId;

@@ -920,6 +920,23 @@ describe("AI execution resume-capability recovery", () => {
           synthesisStarted: false,
           diagnosticCodes: [],
         });
+        args[6]?.({
+          kind: "forensic_status",
+          sourceCoverage: "COMPLETE",
+          behavioralAssessment: "COMPLETE",
+          findingStatus: "PROVEN",
+        } as never);
+        args[6]?.({
+          kind: "evidence_integrity",
+          consistent: true,
+          acceptedClaimCount: 1,
+          acceptedEvidenceCount: 1,
+          evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+        } as never);
+        args[6]?.({
+          kind: "decision_trace",
+          trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+        } as never);
         return {
           result: {
             response: resumedReport,
@@ -2041,8 +2058,15 @@ describe("Durable AI execution crash/reconnect", () => {
       .post("/api/ai/chat/stream")
       .send({ projectId, message: "forensic audit" });
     expect(first.status).toBe(200);
-    const sessionId = parseSseEvents(first.text)
-      .find((event) => event["type"] === "done")?.["sessionId"] as string;
+    const firstEvents = parseSseEvents(first.text);
+    const firstTerminal = firstEvents.find((event) =>
+      event["type"] === "done" || event["type"] === "error",
+    );
+    expect(firstTerminal).toMatchObject({
+      type: "error",
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+    });
+    const sessionId = firstTerminal?.["sessionId"] as string;
     expect(sessionId).toBeTruthy();
 
     const requestEnvelope = {
@@ -3861,6 +3885,23 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
         synthesisStarted: true,
         diagnosticCodes: [],
       } as never);
+      args[6]?.({
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "PROVEN",
+      } as never);
+      args[6]?.({
+        kind: "evidence_integrity",
+        consistent: true,
+        acceptedClaimCount: 1,
+        acceptedEvidenceCount: 1,
+        evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+      } as never);
+      args[6]?.({
+        kind: "decision_trace",
+        trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+      } as never);
       args[3]?.("تمت قراءة المصدر والتحقق من السلوك.");
       return {
         result: {
@@ -4816,6 +4857,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         source,
         'if (!flag) return "partial";\n',
       );
+      args[6]?.({
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "PROVEN",
+      } as never);
+      args[6]?.({
+        kind: "evidence_integrity",
+        consistent: true,
+        acceptedClaimCount: 1,
+        acceptedEvidenceCount: 1,
+        evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+      } as never);
+      args[6]?.({
+        kind: "decision_trace",
+        trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+      } as never);
       return {
         result: {
         response:
@@ -5728,6 +5786,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         synthesisStarted: false,
         diagnosticCodes: [],
       });
+      args[6]?.({
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "PROVEN",
+      } as never);
+      args[6]?.({
+        kind: "evidence_integrity",
+        consistent: true,
+        acceptedClaimCount: 1,
+        acceptedEvidenceCount: 1,
+        evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+      } as never);
+      args[6]?.({
+        kind: "decision_trace",
+        trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+      } as never);
       return {
         result: {
           response: [
@@ -5909,6 +5984,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         "src/initial.ts",
         "export const initial = true;\n",
       );
+      args[6]?.({
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "PROVEN",
+      } as never);
+      args[6]?.({
+        kind: "evidence_integrity",
+        consistent: true,
+        acceptedClaimCount: 1,
+        acceptedEvidenceCount: 1,
+        evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+      } as never);
+      args[6]?.({
+        kind: "decision_trace",
+        trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+      } as never);
       return {
         result: initial,
         effectiveProvider: "groq",
@@ -5951,6 +6043,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           "src/older.ts",
           "export const older = true;\n",
         );
+         args[6]?.({
+           kind: "forensic_status",
+           sourceCoverage: "COMPLETE",
+           behavioralAssessment: "COMPLETE",
+           findingStatus: "PROVEN",
+         } as never);
+         args[6]?.({
+           kind: "evidence_integrity",
+           consistent: true,
+           acceptedClaimCount: 1,
+           acceptedEvidenceCount: 1,
+           evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+         } as never);
+         args[6]?.({
+           kind: "decision_trace",
+           trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+         } as never);
         resolveOldCallStarted();
         await oldReady;
         args[3]?.("older");
@@ -5964,6 +6073,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           "src/newer.ts",
           "export const newer = true;\n",
         );
+         args[6]?.({
+           kind: "forensic_status",
+           sourceCoverage: "COMPLETE",
+           behavioralAssessment: "COMPLETE",
+           findingStatus: "PROVEN",
+         } as never);
+         args[6]?.({
+           kind: "evidence_integrity",
+           consistent: true,
+           acceptedClaimCount: 1,
+           acceptedEvidenceCount: 1,
+           evidenceSourceCoverage: { status: "COMPLETE", roots: [] },
+         } as never);
+         args[6]?.({
+           kind: "decision_trace",
+           trace: { finalState: "VERIFIED", evidenceSelected: 1 },
+         } as never);
         await newReady;
         args[3]?.("newer");
         return {
@@ -6635,8 +6761,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       "## 6) Final Judgment",
       "ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.",
     ].join("\n");
+    let resolveProviderStarted!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      resolveProviderStarted = resolve;
+    });
     const recoveryStarted = new Promise<void>((resolve, reject) => {
       void (async () => {
+        await providerStarted;
         let execution: { id: string } | undefined;
         for (let attempt = 0; attempt < 50 && !execution; attempt += 1) {
           [execution] = await db
@@ -6668,6 +6799,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         onStep,
       ) => {
         const signal = (input as { signal?: AbortSignal }).signal;
+        resolveProviderStarted();
         onDelta?.("partial evidence");
         onStep?.({
           kind: "tool_result",

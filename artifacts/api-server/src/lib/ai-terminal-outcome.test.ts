@@ -187,6 +187,34 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("accepts a deterministic no-finding fallback without claiming a proven Finding", () => {
+    expect(classify([
+      { kind: "diagnostic", code: "FORENSIC_STRUCTURED_RECOVERY_REJECTED" },
+      { kind: "diagnostic", code: "FORENSIC_DETERMINISTIC_NO_FINDING" },
+      { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE", findingStatus: "NO_FINDING" },
+      { kind: "evidence_integrity", consistent: true, acceptedClaimCount: 0, acceptedEvidenceCount: 0 },
+      { kind: "decision_trace", trace: { finalState: "VERIFIED" } },
+    ])).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceAccepted: true,
+      recoveryState: "NONE",
+    });
+  });
+
+  it("rejects forensic recovery failure when no deterministic fallback was accepted", () => {
+    expect(classify([
+      { kind: "diagnostic", code: "FORENSIC_STRUCTURED_RECOVERY_REJECTED" },
+      { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE", findingStatus: "NO_FINDING" },
+      { kind: "evidence_integrity", consistent: true, acceptedClaimCount: 0, acceptedEvidenceCount: 0 },
+      { kind: "decision_trace", trace: { finalState: "VERIFIED" } },
+    ])).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      code: "FORENSIC_RECOVERY_FAILED",
+      evidenceAccepted: false,
+    });
+  });
+
   it("does not apply forensic prose gates to ordinary delivery turns", () => {
     expect(classify([
       { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },

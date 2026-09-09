@@ -3633,7 +3633,8 @@ router.post("/ai/chat", async (req, res) => {
         const terminalOutcome = classifyAiTerminalOutcome({
           trace: traceSteps,
           requiresEvidence: turnIntent.requiresEvidence,
-          forensic: turnIntent.kind === "FORENSIC_AUDIT",
+          forensic: turnIntent.kind === "FORENSIC_AUDIT"
+            || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
           cancelled: false,
           endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
           providerEmptyBeforeEvidence:
@@ -3686,7 +3687,8 @@ router.post("/ai/chat", async (req, res) => {
       result,
       trace: traceSteps,
       requiresEvidence: turnIntent.requiresEvidence,
-      forensic: turnIntent.kind === "FORENSIC_AUDIT",
+      forensic: turnIntent.kind === "FORENSIC_AUDIT"
+        || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
       endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
     });
     executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
@@ -5466,6 +5468,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     let executionEvidenceReason = proofRequired
       ? "No accepted validation evidence has been recorded."
       : "Ordinary chat response; Flight Deck proof is not required.";
+    let finalForensicAccepted: boolean | undefined;
+    const forensicExecution = streamTurnIntent.kind === "FORENSIC_AUDIT"
+      || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence);
     // Checkpoints include the accumulated agent trace, including the first
     // lifecycle checkpoint below. Initialize it before creating or invoking
     // the checkpoint writer so this closure never hits the temporal dead zone.
@@ -7615,6 +7620,22 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceReads: evidenceReadsForTerminal(),
       });
     } else {
+      if (forensicExecution) {
+        const finalForensicOutcome = classifyAiTerminalOutcome({
+          result,
+          trace: traceSteps,
+          requiresEvidence: streamTurnIntent.requiresEvidence,
+          forensic: true,
+          endedBeforeEvidence,
+        });
+        finalForensicAccepted =
+          finalForensicOutcome.outcome === "SUCCEEDED"
+          && finalForensicOutcome.evidenceAccepted;
+        if (finalForensicAccepted) {
+          executionEvidenceVerdict = "PROVEN";
+          executionEvidenceReason = "Forensic result passed the server-owned terminal evidence gate.";
+        }
+      }
       const capabilityProbeTerminal = executionRequest.capabilityProbe
         ? {
             ...executionRequest.capabilityProbe,
@@ -7675,6 +7696,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
         ...(analysisEvidence ? { analysisEvidence } : {}),
+        ...(forensicExecution ? { forensicAccepted: finalForensicAccepted === true } : {}),
         ...(capabilityProbeTerminal ? { capabilityProbe: capabilityProbeTerminal } : {}),
         proofRequired,
         operationId: aiExecution.operationId ?? aiExecution.id,

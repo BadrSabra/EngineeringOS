@@ -261,6 +261,24 @@ function hasDiagnostic(
 }
 
 /**
+ * Recovery diagnostics are not all terminal failures: a server-owned
+ * deterministic Finding/no-Finding fallback may intentionally replace a
+ * rejected provider report.  Only treat the provider/contract recovery as
+ * blocking when that authoritative fallback marker is absent.
+ */
+export function hasForensicRecoveryBlocker(trace: readonly AgentStep[]): boolean {
+  const deterministicFallbackAccepted = hasDiagnostic(
+    trace,
+    /FORENSIC_DETERMINISTIC_(?:NO_FINDING|FINDING)/i,
+  );
+  if (deterministicFallbackAccepted) return false;
+  return hasDiagnostic(
+    trace,
+    /FORENSIC_(?:CONTRACT_RECOVERY_(?:EXHAUSTED|FAILED|REJECTED|PARSE_FAILED)|STRUCTURED_RECOVERY_REJECTED|EVIDENCE_ONLY_FALLBACK)/i,
+  );
+}
+
+/**
  * Classify a completed orchestrator turn before it is persisted or projected.
  *
  * Precedence is intentionally strict:
@@ -336,7 +354,7 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
   const recoveryDiagnostic = hasDiagnostic(
     trace,
     /(?:RECOVERY_FAILED|RECOVERY_REQUIRED|CORRECTION_FAILED|CONTRACT_.*FAILED)/i,
-  );
+  ) || hasForensicRecoveryBlocker(trace);
   const recoveryAttempted = trace.some((step) =>
     step.kind === "forensic_recovery_start"
       || step.kind === "recovery_model_call",
@@ -452,14 +470,54 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     && forensicStatus.behavioralAssessment === "COMPLETE"
     && finalState === "VERIFIED"
     && evidenceIntegrity.consistent === true;
+  const acceptedFinding = input.requiresEvidence === true
+    && forensicStatus.findingStatus === "PROVEN"
+    && forensicStatus.sourceCoverage === "COMPLETE"
+    && forensicStatus.behavioralAssessment === "COMPLETE"
+    && finalState === "VERIFIED"
+    && evidenceIntegrity.consistent === true
+    && Number(evidenceIntegrity.acceptedClaimCount ?? 0) > 0
+    && Number(evidenceIntegrity.acceptedEvidenceCount ?? 0) > 0;
+  const taskResult = input.result && typeof input.result === "object"
+    ? (input.result as { taskResult?: unknown }).taskResult
+    : undefined;
+  const acceptedCapabilityProbe = input.requiresEvidence === true
+    && taskResult
+    && typeof taskResult === "object"
+    && (taskResult as { kind?: unknown }).kind === "CAPABILITY_PROBE_RESULT"
+    && (taskResult as { score?: unknown }).score === 7
+    && (taskResult as { coverage?: { complete?: unknown } }).coverage?.complete === true;
+  const missingForensicContract = forensic
+    && input.requiresEvidence === true
+    && !forensicStatus.sourceCoverage
+    && !forensicStatus.findingStatus
+    && !evidenceIntegrity.evidenceSourceCoverage
+    && !finalState;
 
-  if (forensic && forensicStatus.findingStatus === "NO_FINDING" && !acceptedNoFinding) {
+  if (forensic && input.requiresEvidence === true && !acceptedNoFinding && !acceptedFinding && !acceptedCapabilityProbe) {
+    if (missingForensicContract) {
+      // Let the durable completion gate publish the stable acceptance error.
+      // This avoids turning a provider response with no server-owned contract
+      // into a provider/recovery failure while still preventing completion.
+      return {
+        outcome: "SUCCEEDED",
+        retryable: false,
+        code: "FORENSIC_ACCEPTANCE_REQUIRED",
+        message: "The forensic response has no server-owned acceptance contract.",
+        recoveryState: "INCOMPLETE",
+        evidenceAccepted: false,
+      };
+    }
     return {
       outcome: "FAILED",
       failureKind: "INCOMPLETE",
-      retryable: true,
-      code: "FORENSIC_EVIDENCE_NOT_ACCEPTED",
-      message: "The no-finding result did not pass the complete evidence gates.",
+      retryable: !hasForensicRecoveryBlocker(trace),
+      code: hasForensicRecoveryBlocker(trace)
+        ? "FORENSIC_RECOVERY_FAILED"
+        : "FORENSIC_EVIDENCE_NOT_ACCEPTED",
+      message: hasForensicRecoveryBlocker(trace)
+        ? "The forensic result could not be recovered into a complete, verified report."
+        : "The forensic result did not pass the complete evidence gates.",
       recoveryState: "INCOMPLETE",
       evidenceAccepted: false,
     };
@@ -469,6 +527,6 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     outcome: "SUCCEEDED",
     retryable: false,
     recoveryState: "NONE",
-    evidenceAccepted: acceptedNoFinding || input.requiresEvidence !== true,
+    evidenceAccepted: acceptedNoFinding || acceptedFinding || Boolean(acceptedCapabilityProbe) || input.requiresEvidence !== true,
   };
 }

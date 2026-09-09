@@ -1338,6 +1338,11 @@ export function buildRuntimeLedger(input: {
   recoveryAttempts?: number;
   finalResult?: BehaviorFindingStatus;
   /**
+   * Scope labels describe Finding proof only. Deterministic no-finding
+   * fallbacks must not inherit a stale PRODUCTION_PROVEN label.
+   */
+  scopedFindingStatusOverride?: ScopedFindingStatus;
+  /**
    * EI-017/018: pre-built targeted evidence records produced during claim
    * recovery. These carry `readType: "TARGETED"`, a `recoveryAttemptId`, and
    * the same `runId` as the enclosing run — they are appended to the normal
@@ -1360,6 +1365,7 @@ export function buildRuntimeLedger(input: {
     prefetchPaths = [],
     recoveryAttempts = 0,
     finalResult,
+    scopedFindingStatusOverride,
     additionalRecoveryRecords = [],
     sourceCoverage,
   } = input;
@@ -1415,6 +1421,9 @@ export function buildRuntimeLedger(input: {
     uniqueFilesRead: reconciledUniqueReads,
     scopeExpansions,
     unjustifiedReads,
+    ...(scopedFindingStatusOverride
+      ? { scopedFindingStatus: scopedFindingStatusOverride }
+      : {}),
   };
 }
 

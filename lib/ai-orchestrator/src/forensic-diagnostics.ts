@@ -258,13 +258,24 @@ export function deriveForensicDiagnostic(
   // coverage over stale generic forensic status/terminal entries: a complete
   // retained body plus zero accepted claims is CLAIM_UNCLOSED, not
   // NO_EVIDENCE_REACHED.
+  const integrityDeclaredCoverage = String(integrityCoverage ?? "").toUpperCase();
   const declaredCoverage = [
     audit.sourceCoverage,
     status.sourceCoverage,
   ]
     .map((value) => String(value ?? "").toUpperCase())
     .filter((value) => value && value !== "NONE");
-  const coverage = declaredCoverage[0] ?? String(integrityCoverage ?? "NONE").toUpperCase();
+  // The server-owned read ledger is authoritative. Older audit/status entries
+  // are only a compatibility fallback when the integrity event is absent.
+  // An explicit PARTIAL/NONE scope signal still wins over a stale COMPLETE
+  // integrity snapshot so unread/truncated paths remain fail-closed.
+  const declaredIncompleteCoverage = declaredCoverage.find(
+    (value) => value === "PARTIAL" || value === "NONE",
+  );
+  const coverage = declaredIncompleteCoverage
+    ?? (integrityDeclaredCoverage && integrityDeclaredCoverage !== "NONE"
+    ? integrityDeclaredCoverage
+    : (declaredCoverage[0] ?? "NONE"));
   const finding = String(status.findingStatus ?? audit.findingStatus ?? "NOT_PROVEN");
   const behavior = String(status.behavioralAssessment ?? audit.behaviorAssessment ?? "NOT_STARTED");
   const finalState = String(record(latest(entries, "decision_trace")).finalState ?? "");

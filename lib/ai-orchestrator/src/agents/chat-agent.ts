@@ -11032,6 +11032,9 @@ export async function chat(opts: {
           ...(forensicSourceCoverage.reason ? { reason: forensicSourceCoverage.reason } : {}),
         }
       : undefined,
+    ...(authoritativeNoFindingFallback
+      ? { scopedFindingStatusOverride: "NOT_PROVEN" as const }
+      : {}),
     recoveryAttempts: recoveryAttemptsUsed,
     finalResult: buildBehaviorFindingStatus({
       behaviorSupported: !behaviorAnswerRejected || acceptedBehaviorEvidence.length > 0,
