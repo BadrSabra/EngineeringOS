@@ -3023,6 +3023,87 @@ function collectReadEvidencePaths(steps: AgentStep[]): string[] {
     .slice(-48);
 }
 
+function publicEvidencePath(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return redactUserFacingText(trimmed).slice(0, 500);
+}
+
+function collectVerifiedTurnSources(
+  result: {
+    sources?: string[];
+    behaviorEvidence?: Array<{ source?: string }>;
+    taskResult?: ChatTaskResult;
+  },
+  steps: AgentStep[],
+): string[] {
+  const authoritative = new Map<string, string>();
+  const addAuthoritative = (value: string | undefined): void => {
+    if (!value) return;
+    const publicPath = publicEvidencePath(value);
+    if (publicPath) authoritative.set(publicPath, publicPath);
+  };
+
+  for (const step of steps) {
+    if (
+      step.kind === "tool_result"
+      && (step.tool === "read_file" || step.tool === "read_file_range")
+    ) {
+      addAuthoritative(step.source);
+    }
+    if (step.kind === "evidence_integrity") {
+      for (const source of [
+        ...(step.completedReadFiles ?? []),
+        ...(step.retainedBodyFiles ?? []),
+        ...(step.acceptedEvidenceFiles ?? []),
+      ]) {
+        addAuthoritative(source);
+      }
+    }
+  }
+
+  const acceptedEvidence = steps.some((step) =>
+    (step.kind === "evidence_integrity"
+      && ((step.acceptedEvidenceCount ?? 0) > 0 || (step.acceptedClaimCount ?? 0) > 0))
+    || (step.kind === "verification" && (step.trace.acceptedEvidenceCount ?? 0) > 0)
+    || (step.kind === "decision_trace" && (step.trace.evidenceSelected ?? 0) > 0),
+  );
+  const hasStructuredEvidenceContract =
+    result.behaviorEvidence !== undefined
+    || result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT";
+  if (
+    result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT"
+    && result.taskResult.answer.evidence.length === 0
+  ) return [];
+  if (hasStructuredEvidenceContract && !acceptedEvidence) return [];
+  if (acceptedEvidence) {
+    for (const evidence of result.behaviorEvidence ?? []) addAuthoritative(evidence.source);
+    const taskEvidence = result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT"
+      ? result.taskResult.answer.evidence
+      : [];
+    for (const evidence of taskEvidence) addAuthoritative(evidence.source);
+  }
+
+  if (authoritative.size === 0) return [];
+  return [...new Set(
+    (result.sources ?? [])
+      .map((source) => publicEvidencePath(source))
+      .filter((source): source is string => Boolean(source))
+      .filter((source) => authoritative.has(source)),
+  )].slice(-48);
+}
+
+function normalizeTaskResultForTurn(
+  turnKind: string,
+  taskResult: ChatTaskResult | undefined,
+): ChatTaskResult | undefined {
+  if (turnKind !== "CHAT") return taskResult;
+  // A grounded behavior answer is the only typed result that can remain on
+  // the ordinary chat contract. Reports, findings, repair results, and
+  // capability results require a non-chat contract and retained evidence.
+  return taskResult?.kind === "BEHAVIOR_ANSWER_RESULT" ? taskResult : undefined;
+}
+
 type RetainedEvidenceRead = {
   path: string;
   readType: "source";
@@ -3050,6 +3131,7 @@ function collectRetainedEvidenceReads(
 function nextSessionTaskState(args: {
   persisted: ReturnType<typeof parseActiveTaskState>;
   classification: ReturnType<typeof classifyRequest>;
+  effectiveTurnKind: string;
   resumed: boolean;
   projectId: string;
   rootPath: string | undefined;
@@ -3063,6 +3145,16 @@ function nextSessionTaskState(args: {
   readFiles: string[];
   executionPlan: ActiveTaskExecutionPlan | null;
 }): string | null {
+  // The resolved turn intent is authoritative. A raw classifier task type can
+  // match a forensic pattern (for example, a bare retry phrase) while the
+  // effective turn is ordinary CHAT because no verified resumable contract was
+  // recovered. Never create or preserve forensic session state for that turn.
+  if (
+    args.effectiveTurnKind === "CHAT"
+    && !args.persisted
+    && !args.executionPlan
+  ) return null;
+
   if (args.persisted && (args.resumed || args.executionPlan)) {
     const touched = touchActiveTaskState(args.persisted, args.now);
     const revised = args.revision && !touched.scope.revision
@@ -3326,6 +3418,7 @@ router.post("/ai/chat", async (req, res) => {
   const resumableTaskStateAtStart = nextSessionTaskState({
     persisted: resumableStateForTurn,
     classification: chatClassification,
+    effectiveTurnKind: turnIntent.kind,
     resumed: classificationResolution.resumed,
     projectId,
     rootPath: validRootPath,
@@ -3715,7 +3808,7 @@ router.post("/ai/chat", async (req, res) => {
         errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
         errorMessage: safeMessage,
         content: report,
-        sources: result.sources,
+        sources: collectReadEvidencePaths(traceSteps),
         taskResult: result.taskResult,
         behaviorEvidence: result.behaviorEvidence,
         repairPlanMetadata: result.repairPlan,
@@ -3896,6 +3989,14 @@ router.post("/ai/chat", async (req, res) => {
       throw error;
     }
 
+    // Public source metadata is server-owned. Provider-reported paths that do
+    // not have a matching read trace are not current sources for this turn.
+    result = {
+      ...result,
+      sources: collectVerifiedTurnSources(result, traceSteps),
+      taskResult: normalizeTaskResultForTurn(turnIntent.kind, result.taskResult),
+    };
+
     // Chat turns don't modify project data — no cache invalidation needed.
     // Full invalidation happens only in /apply-changes when files are written.
 
@@ -3941,6 +4042,7 @@ router.post("/ai/chat", async (req, res) => {
     const activeTaskState = nextSessionTaskState({
       persisted: resumableStateForTurn,
       classification: chatClassification,
+      effectiveTurnKind: turnIntent.kind,
       resumed: classificationResolution.resumed,
       projectId,
       rootPath: validRootPath,
@@ -4006,7 +4108,7 @@ router.post("/ai/chat", async (req, res) => {
           content: sanitizeResponseText(result.response),
           turnIntent: turnIntent.kind,
           outcome: "SUCCEEDED",
-          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+          sources: JSON.stringify(result.sources),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
               serializeToolTrace(traceSteps),
@@ -4064,7 +4166,7 @@ router.post("/ai/chat", async (req, res) => {
         await writeSessionMemories(
           sessionIdToUse,
           projectId,
-          redactUserFacingValue(result.sources),
+          collectReadEvidencePaths(traceSteps),
           sanitizeResponseText(result.response),
           assistantMsg.id,
           {
@@ -4097,7 +4199,7 @@ router.post("/ai/chat", async (req, res) => {
       turnIntent: turnIntent.kind,
       outcome: "SUCCEEDED",
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-      sources: redactUserFacingValue(result.sources),
+      sources: parseStoredJson(assistantMsg.sources) ?? [],
       toolTrace: assistantMsg.toolTrace,
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       pendingChanges: proposalId
@@ -5326,6 +5428,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     const resumableTaskStateAtStart = nextSessionTaskState({
       persisted: streamResumableStateForTurn,
       classification: streamClassification,
+      effectiveTurnKind: streamTurnIntent.kind,
       resumed: streamClassificationResolution.resumed || Boolean(aiExecution && effectiveExecutionId),
       projectId,
       rootPath: validRootPath,
@@ -5478,6 +5581,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     const failureActiveTaskState = (): string | null => nextSessionTaskState({
       persisted: streamResumableStateForTurn,
       classification: streamClassification,
+      effectiveTurnKind: streamTurnIntent.kind,
       resumed: streamClassificationResolution.resumed || Boolean(aiExecution && effectiveExecutionId),
       projectId,
       rootPath: validRootPath,
@@ -6529,6 +6633,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           behaviorEvidence: undefined,
         };
       }
+      result = {
+        ...result,
+        sources: collectVerifiedTurnSources(result, traceSteps),
+        taskResult: normalizeTaskResultForTurn(streamTurnIntent.kind, result.taskResult),
+      };
       // Classify every terminal result before it can reach the successful
       // assistant-message transaction. This keeps JSON and SSE semantics
       // identical and makes cancellation/tool/recovery precedence explicit.
@@ -6605,7 +6714,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           errorCode: terminalOutcome.code ?? "AI_EXECUTION_INCOMPLETE",
           errorMessage: safeMessage,
           content: report,
-          sources: result.sources,
+          sources: collectVerifiedTurnSources(result, traceSteps),
           taskResult: result.taskResult,
           behaviorEvidence: result.behaviorEvidence,
           repairPlanMetadata: result.repairPlan,
@@ -6717,7 +6826,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               sessionId: sessionIdToUse,
               role: "assistant",
               content: publicContent,
-              sources: JSON.stringify(redactUserFacingValue(result.sources)),
+              sources: JSON.stringify(collectVerifiedTurnSources(result, traceSteps)),
               toolTrace: publicToolTrace,
               taskResult: redactUserFacingValue(result.taskResult),
               behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
@@ -6741,7 +6850,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
               ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
             },
-            sources: redactUserFacingValue(result.sources),
+            sources: collectVerifiedTurnSources(result, traceSteps),
             toolTrace: publicToolTrace,
              contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             pendingChanges: redactUserFacingValue(result.pendingChanges),
@@ -7143,6 +7252,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
     })();
 
+    // Keep the streamed public source projection evidence-bound as well.
+    result = {
+      ...result,
+      sources: collectVerifiedTurnSources(result, traceSteps),
+      taskResult: normalizeTaskResultForTurn(streamTurnIntent.kind, result.taskResult),
+    };
+
     // Atomic: session creation (when needed) + user message + assistant message
     // + session timestamp update in one transaction — prevents a half-saved
     // conversation if one insert fails.
@@ -7181,6 +7297,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     const activeTaskState = nextSessionTaskState({
       persisted: streamResumableStateForTurn,
       classification: streamClassification,
+      effectiveTurnKind: streamTurnIntent.kind,
       resumed: streamClassificationResolution.resumed,
       projectId,
       rootPath: validRootPath,
@@ -7368,7 +7485,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           turnIntent: streamTurnIntent.kind,
           executionId: aiExecutionId,
           outcome: "SUCCEEDED",
-          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+          sources: JSON.stringify(result.sources),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
               serializeToolTrace(traceSteps, true, streamAuditScopeDescription, result.taskResult),
@@ -7789,7 +7906,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         await writeSessionMemories(
           sessionIdToUse,
           projectId,
-          redactUserFacingValue(result.sources),
+          collectReadEvidencePaths(traceSteps),
           sanitizeResponseText(result.response),
           assistantMsg.id,
           {
@@ -7832,13 +7949,20 @@ router.post("/ai/chat/stream", async (req, res) => {
     // The database row is intentionally retained with full diagnostics, but
     // every SSE projection of that row must use the public trace.
     assistantMsg.toolTrace = publicToolTrace;
+    const publicAssistantTaskResult = parseTaskResult(assistantMsg.taskResult);
+    const parsedAssistantSources = parseStoredJson(assistantMsg.sources);
+    const publicAssistantSources =
+      publicAssistantTaskResult?.kind === "BEHAVIOR_ANSWER_RESULT"
+      && publicAssistantTaskResult.answer.evidence.length === 0
+        ? []
+        : parsedAssistantSources ?? [];
     const publicExecutionSummary = projectPublicExecutionSummary(executionSummary, true);
     const publicAssistantMsg = {
       id: assistantMsg.id,
       sessionId: assistantMsg.sessionId,
       role: assistantMsg.role,
       content: assistantMsg.content,
-      sources: assistantMsg.sources,
+      sources: JSON.stringify(publicAssistantSources),
       repairPlanMetadata: assistantMsg.repairPlanMetadata,
       behaviorEvidence: assistantMsg.behaviorEvidence,
       createdAt: assistantMsg.createdAt,
@@ -7858,10 +7982,10 @@ router.post("/ai/chat/stream", async (req, res) => {
       sessionId: sessionIdToUse,
       message: {
         ...publicAssistantMsg,
-        taskResult: parseTaskResult(assistantMsg.taskResult),
+        taskResult: publicAssistantTaskResult,
       },
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-      sources: redactUserFacingValue(result.sources),
+      sources: publicAssistantSources,
       toolTrace: publicToolTrace,
       pendingChanges: proposalId
         ? proposalChanges

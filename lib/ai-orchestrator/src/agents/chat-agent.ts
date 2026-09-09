@@ -4540,6 +4540,7 @@ async function awaitBoundedRecovery<T>(
  */
 export function buildTaskResult(opts: {
   forensicTaskType: ForensicTaskType;
+  effectiveTurnKind?: TurnIntent["kind"];
   finalResponse: string;
   mergedSources: string[];
   semanticBehaviorAnswer: SemanticBehaviorAnswer | undefined;
@@ -4550,6 +4551,7 @@ export function buildTaskResult(opts: {
 }): ChatTaskResult | undefined {
   const {
     forensicTaskType,
+    effectiveTurnKind,
     finalResponse,
     mergedSources,
     semanticBehaviorAnswer,
@@ -4558,6 +4560,14 @@ export function buildTaskResult(opts: {
     capabilityProbeReport,
     implementationPlan,
   } = opts;
+
+  // Raw forensicTaskType is retained for diagnostics, but it must not create a
+  // typed forensic result after routing has resolved the turn as ordinary chat.
+  // This is especially important for short continuation phrases with no
+  // recoverable evidence contract.
+  if (effectiveTurnKind === "CHAT" && forensicTaskType !== "BEHAVIOR_QUERY") {
+    return undefined;
+  }
 
   if (implementationPlan) return implementationPlan;
   if (capabilityProbeReport) {
@@ -11757,6 +11767,7 @@ export async function chat(opts: {
   // AI-008: per-task typed result — discriminated on `kind` by forensicTaskType.
   const taskResult = buildTaskResult({
     forensicTaskType,
+    effectiveTurnKind: turnIntent.kind,
     finalResponse: terminalResponse,
     mergedSources,
     semanticBehaviorAnswer,

@@ -183,6 +183,15 @@ describe("buildTaskResult (per-task typed results)", () => {
     }
   });
 
+  it("does not create a forensic result when the resolved turn is CHAT", () => {
+    const result = build("FULL_FORENSIC_AUDIT", {
+      effectiveTurnKind: "CHAT",
+      finalResponse: "A provider-generated report without retained reads.",
+    });
+
+    expect(result).toBeUndefined();
+  });
+
   it("returns undefined from FULL_FORENSIC_AUDIT when the report text is empty", () => {
     expect(
       build("FULL_FORENSIC_AUDIT", { finalResponse: "   ", mergedSources: [] }),

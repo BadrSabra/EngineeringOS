@@ -447,7 +447,7 @@ import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.j
 import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { tryAdvisoryLock } from "../../lib/advisory-lock.js";
-import { enrichContextWithMemories } from "@workspace/ai-orchestrator";
+import { enrichContextWithMemories, writeSessionMemories } from "@workspace/ai-orchestrator";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -1425,6 +1425,38 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       expect.objectContaining({ kind: "tool_result", source: "[runtime path] (request [internal id])" }),
       expect.objectContaining({ kind: "execution_ledger", terminalReason: "completed" }),
     ]));
+  });
+
+  it("does not publish or remember a model-reported source without a read trace", async () => {
+    vi.mocked(writeSessionMemories).mockClear();
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockResolvedValue({
+      ...MOCK_CHAT_RESULT,
+      result: {
+        ...MOCK_CHAT_RESULT.result,
+        response: "The model mentioned src/model-only.ts without reading it.",
+        sources: ["src/model-only.ts"],
+      },
+    } as never);
+
+    const body = { projectId: "test-project-id", message: "Summarize the claimed source." };
+    const json = await request(app).post("/api/ai/chat").send(body);
+    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+
+    expect(json.status).toBe(200);
+    expect(json.body.sources).toEqual([]);
+    const done = parseSseFrames(stream.text).find(
+      (frame) => typeof frame === "object"
+        && frame !== null
+        && (frame as Record<string, unknown>).type === "done",
+    ) as Record<string, unknown> | undefined;
+    expect(done?.sources).toEqual([]);
+    expect((done?.message as Record<string, unknown> | undefined)?.sources).toBe("[]");
+
+    const memoryCalls = vi.mocked(writeSessionMemories).mock.calls;
+    expect(memoryCalls.length).toBeGreaterThan(0);
+    for (const call of memoryCalls) {
+      expect(call[2]).toEqual([]);
+    }
   });
 
   it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {

@@ -16,3 +16,9 @@ The resolved `TurnIntent` must also be the only source for typed result construc
 **Why:** A continuation phrase can match broad-audit patterns even when no resumable contract was recovered. In that case `kind=CHAT`, `requiresEvidence=false`, and `outputContract=GENERIC_RESPONSE` can coexist with `forensicTaskType=FULL_FORENSIC_AUDIT`; the stored session then contradicts the execution and assistant message.
 
 **How to apply:** Gate `buildTaskResult`, `nextSessionTaskState`, resume contracts, and public source provenance on the final intent/contract. Preserve raw classifier values only for diagnostics; never let them override a non-forensic resolved turn.
+
+Public `sources` are an acceptance projection, not a copy of provider output. For ordinary chat, a source must intersect a server-observed read trace; for behavior/forensic contracts, it must also have accepted evidence. Session memory receives only the server-observed read paths, never model-reported citations.
+
+**Why:** A provider can report plausible file paths after a zero-tool retry, and a completed read can still have zero accepted behavioral evidence. Publishing either as a current source makes history, memory, and the next retry claim more than the server verified.
+
+**How to apply:** Derive source projections from read/tool and evidence-integrity traces in both JSON and SSE success/failure paths. Keep the final turn intent as the gate for typed task results and resumable state, and preserve redaction at every user-facing boundary.
