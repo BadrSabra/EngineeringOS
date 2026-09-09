@@ -78,6 +78,7 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
 } from "../lib/ai-execution-state.js";
+import { loadReusableEvidenceReads } from "../lib/ai-execution-acceptance.js";
 import * as aiExecutionState from "../lib/ai-execution-state.js";
 import { tryAdvisoryLock } from "../lib/advisory-lock.js";
 
@@ -1130,6 +1131,85 @@ describe("AI execution resume-capability recovery", () => {
 });
 
 describe("Durable AI completion identity", () => {
+  it("reloads only complete source bodies from the prior execution attempt", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Reusable evidence reads");
+    const operationId = `reusable-evidence-${randomUUID()}`;
+    const sourceRevision = new Date().toISOString();
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        operationId,
+        message: "Inspect the saved evidence.",
+        modelMessage: "Inspect the saved evidence.",
+        workspaceRevision: sourceRevision,
+        validationTargetPaths: [],
+        proofRequired: true,
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    const snapshotId = randomUUID();
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: snapshotId,
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      operationId,
+      sourceRevision,
+      verdict: "UNAVAILABLE",
+      complete: 0,
+      readCount: 2,
+      totalBytes: 64,
+    });
+    await db.insert(aiExecutionEvidenceReadsTable).values([
+      {
+        id: randomUUID(),
+        snapshotId,
+        path: "src/complete.ts",
+        readType: "source",
+        contentHash: "complete-hash",
+        byteLength: PROOF_FIXTURE_BODY.length,
+        complete: 1,
+        truncated: 0,
+        body: PROOF_FIXTURE_BODY,
+      },
+      {
+        id: randomUUID(),
+        snapshotId,
+        path: "src/truncated.ts",
+        readType: "source",
+        contentHash: "truncated-hash",
+        byteLength: 8,
+        complete: 0,
+        truncated: 1,
+        body: "prefix",
+      },
+    ]);
+
+    await expect(loadReusableEvidenceReads({
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      operationId,
+      sourceRevision,
+    })).resolves.toEqual([{
+      path: "src/complete.ts",
+      body: PROOF_FIXTURE_BODY,
+    }]);
+    await expect(loadReusableEvidenceReads({
+      executionId: created.execution.id,
+      projectId,
+      attempt: created.execution.attempt,
+      operationId,
+      sourceRevision: "stale-revision",
+    })).resolves.toEqual([]);
+  });
+
   it("completes a proof-bearing project analysis from accepted source evidence", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

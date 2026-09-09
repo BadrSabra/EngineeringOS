@@ -55,6 +55,11 @@ export type EvidenceSnapshotInput = {
   reads?: readonly EvidenceReadInput[];
 };
 
+export type ReusableEvidenceRead = {
+  path: string;
+  body: string;
+};
+
 export type NormalizedEvidenceSnapshot = {
   complete: boolean;
   verdict: string;
@@ -358,6 +363,52 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       ? "Evidence snapshot exceeds the server-owned byte limit."
       : "Required source evidence is missing, incomplete, or truncated." }),
   };
+}
+
+/**
+ * Load only complete source bodies from the prior attempt of an execution.
+ * The snapshot itself may be incomplete because another required read failed;
+ * individually complete reads are still safe to reuse, while truncated reads
+ * must never become provider context or proof.
+ */
+export async function loadReusableEvidenceReads(params: {
+  executionId: string;
+  projectId: string;
+  attempt: number;
+  operationId?: string | null;
+  sourceRevision?: string | null;
+}): Promise<ReusableEvidenceRead[]> {
+  const conditions = [
+    eq(aiExecutionEvidenceSnapshotsTable.executionId, params.executionId),
+    eq(aiExecutionEvidenceSnapshotsTable.projectId, params.projectId),
+    eq(aiExecutionEvidenceSnapshotsTable.attempt, params.attempt),
+    eq(aiExecutionEvidenceReadsTable.complete, 1),
+    eq(aiExecutionEvidenceReadsTable.truncated, 0),
+    eq(aiExecutionEvidenceReadsTable.readType, "source"),
+  ];
+  if (params.operationId) {
+    conditions.push(eq(aiExecutionEvidenceSnapshotsTable.operationId, params.operationId));
+  }
+  if (params.sourceRevision) {
+    conditions.push(eq(aiExecutionEvidenceSnapshotsTable.sourceRevision, params.sourceRevision));
+  }
+
+  const rows = await db
+    .select({
+      path: aiExecutionEvidenceReadsTable.path,
+      body: aiExecutionEvidenceReadsTable.body,
+    })
+    .from(aiExecutionEvidenceReadsTable)
+    .innerJoin(
+      aiExecutionEvidenceSnapshotsTable,
+      eq(aiExecutionEvidenceReadsTable.snapshotId, aiExecutionEvidenceSnapshotsTable.id),
+    )
+    .where(and(...conditions));
+
+  return rows
+    .filter((row) => row.path.trim().length > 0)
+    .slice(0, MAX_READS)
+    .map((row) => ({ path: row.path, body: row.body }));
 }
 
 export function deriveAcceptanceNextAction(params: {

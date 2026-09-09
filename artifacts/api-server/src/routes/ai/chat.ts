@@ -173,7 +173,10 @@ import {
   isProviderFailureCategory,
   type ProviderFailureCategory,
 } from "../../lib/provider-failure-diagnostics.js";
-import { projectExecutionAcceptance } from "../../lib/ai-execution-acceptance.js";
+import {
+  loadReusableEvidenceReads,
+  projectExecutionAcceptance,
+} from "../../lib/ai-execution-acceptance.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -5365,6 +5368,19 @@ router.post("/ai/chat/stream", async (req, res) => {
       const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
       if (resumeContext) {
         modelMessage = `${modelMessage}\n\n${resumeContext}`;
+      }
+      const previousAttempt = aiExecution.attempt;
+      if (streamTurnIntent.requiresEvidence) {
+        const reusableEvidence = await loadReusableEvidenceReads({
+          executionId: aiExecution.id,
+          projectId,
+          attempt: previousAttempt,
+          operationId: aiExecution.operationId,
+          sourceRevision: storedRequest.workspaceRevision,
+        });
+        for (const read of reusableEvidence) {
+          retainedEvidence.set(read.path, read.body);
+        }
       }
       const claimed = await claimAiExecution({
         executionId: aiExecution.id,
