@@ -50,6 +50,7 @@ import {
   buildProjectQueryObjective,
   isWriteCapableTurn,
   isImmediateExecutionRequest,
+  isRepairPlanExecutionRequest,
   isPlanExecutionRequest,
   isCapabilityProbeRequest,
   isTaskContinuationRequest,
@@ -642,6 +643,14 @@ async function loadTerminalProjection(params: {
         : []),
     ))
     .limit(1);
+
+  const hasTerminalExecutionStatus = execution.status === "completed"
+    || execution.status === "failed"
+    || execution.status === "cancelled"
+    || execution.status === "paused";
+  // A missing acceptance on a live execution means terminalization has not
+  // happened yet. Do not manufacture a failed projection for a running row.
+  if (!acceptance && !hasTerminalExecutionStatus) return undefined;
 
   const status = acceptance?.terminalStatus === "completed"
       || acceptance?.terminalStatus === "failed"
@@ -1552,6 +1561,7 @@ async function persistFailedChatTurn(params: {
   linkedTaskId?: string;
   createSessionIfMissing?: boolean;
   executionId?: string;
+  workerId?: string;
   outcome: "FAILED" | "INTERRUPTED";
   errorCode: string;
   errorMessage: string;
@@ -1646,6 +1656,8 @@ async function persistFailedChatTurn(params: {
     let lockedExecution: {
       id: string;
       status: string;
+      workerId: string | null;
+      leaseUntil: Date | null;
       finalMessageId: string | null;
     } | undefined;
     const reservedAssistantId = params.executionId ? randomUUID() : undefined;
@@ -1666,6 +1678,26 @@ async function persistFailedChatTurn(params: {
         lockedExecution = (await (executionLockQuery as { limit: (count: number) => Promise<unknown[]> }).limit(1))[0] as typeof lockedExecution;
       }
       if (!lockedExecution) return undefined;
+
+      const ownsLiveFailureLease = Boolean(
+        params.workerId
+        && lockedExecution.workerId === params.workerId
+        && lockedExecution.leaseUntil
+        && lockedExecution.leaseUntil > new Date(),
+      );
+      const requiresWorkerFence = lockedExecution.status === "running"
+        || lockedExecution.status === "cancelling";
+      if (
+        !params.workerId
+        || (requiresWorkerFence && !ownsLiveFailureLease && lockedExecution.status === "running")
+        || (requiresWorkerFence && lockedExecution.status === "cancelling"
+          && lockedExecution.workerId !== params.workerId)
+        // Reconciliation already owns a paused execution. Only replay an
+        // existing final row there; never reserve a new stale-worker failure.
+        || (lockedExecution.status === "paused" && !lockedExecution.finalMessageId)
+      ) {
+        return undefined;
+      }
 
       // finalMessageId is the single terminal-message reservation for this
       // execution. A resumed execution may already have its authoritative
@@ -3177,7 +3209,10 @@ router.post("/ai/chat", async (req, res) => {
   if (
     !sessionId &&
     isImmediateExecutionRequest(message) &&
-    !resolveTurnIntent(message).classification.implementationPlanMode
+    (
+      !resolveTurnIntent(message).classification.implementationPlanMode
+      || isRepairPlanExecutionRequest(message)
+    )
   ) {
     return res.status(409).json({
       error: "execution_session_required",
@@ -4155,7 +4190,10 @@ router.post("/ai/chat/stream", async (req, res) => {
   if (
     !sessionId &&
     isImmediateExecutionRequest(message) &&
-    !rawTurnIntent.classification.implementationPlanMode
+    (
+      !rawTurnIntent.classification.implementationPlanMode
+      || isRepairPlanExecutionRequest(message)
+    )
   ) {
     return res.status(409).json({
       error: "execution_session_required",
@@ -5057,7 +5095,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         || (implementationPlanScope && implementationPlanScope.size > 0)
         || (
           isImmediateExecutionRequest(message) &&
-          !streamTurnIntent.classification.implementationPlanMode
+          (
+            !streamTurnIntent.classification.implementationPlanMode
+            || isRepairPlanExecutionRequest(message)
+          )
         ),
       ),
       ...(isResumableTaskType(streamClassification.taskType) || capabilityProbeContract
@@ -6569,6 +6610,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           toolTrace: traceSteps,
           executionLedgerSnapshot,
            contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          workerId: executionWorkerId,
         });
         if (aiExecution && (
           !persistedFailedMessage
@@ -6822,6 +6864,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         turnIntent: streamTurnIntent.kind,
            activeTaskState: failureActiveTaskState(),
         executionId: aiExecution?.id,
+         workerId: executionWorkerId,
         outcome: cancelled ? "INTERRUPTED" : "FAILED",
         errorCode: providerErrorCode,
         errorMessage: cancelled
@@ -6928,6 +6971,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         turnIntent: streamTurnIntent.kind,
            activeTaskState: failureActiveTaskState(),
         executionId: aiExecution?.id,
+           workerId: executionWorkerId,
         outcome: "FAILED",
         errorCode: quality.code,
         errorMessage: safeMessage,
@@ -7008,6 +7052,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           turnIntent: streamTurnIntent.kind,
            activeTaskState: failureActiveTaskState(),
           executionId: aiExecution?.id,
+           workerId: executionWorkerId,
           outcome: "FAILED",
           errorCode: "MODEL_OUTPUT_INVALID",
           errorMessage: "The AI model returned an unexpected response.",
@@ -7380,10 +7425,83 @@ router.post("/ai/chat/stream", async (req, res) => {
       return msg;
     });
     if (!assistantMsg) {
-      // A competing terminal path already owns this execution. The durable
-      // message and execution state will be visible to the reconnecting
-      // client; this request must not emit a contradictory second outcome.
+      // A competing terminal path may already own this execution. If it does
+      // not, convert the unexpected persistence miss into a durable failure
+      // instead of closing SSE while the execution remains running.
+      const persistenceExecutionId = aiExecution.id;
+      let persistenceFailureProjection = await loadTerminalProjection({
+        executionId: persistenceExecutionId,
+        sessionId: sessionIdToUse,
+      });
+      if (!persistenceFailureProjection && executionWorkerId) {
+        const persistenceFailure = await persistFailedChatTurn({
+          sessionId: sessionIdToUse,
+          projectId,
+          message,
+          turnIntent: streamTurnIntent.kind,
+          activeTaskState: failureActiveTaskState(),
+          executionId: aiExecution.id,
+          workerId: executionWorkerId,
+          outcome: "FAILED",
+          errorCode: "ASSISTANT_PERSISTENCE_FAILED",
+          errorMessage: "The assistant response could not be durably persisted.",
+          content: "The assistant response could not be durably persisted. Please retry.",
+          createdAt: now,
+          assistantAt: msgNow,
+          toolTrace: traceSteps,
+          executionLedgerSnapshot,
+          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+          terminalOutcome: {
+            failureKind: "INCOMPLETE",
+            retryable: true,
+            recoveryState: "INCOMPLETE",
+          },
+        }).catch((persistError) => {
+          logger.error(
+            { persistError, executionId: persistenceExecutionId },
+            "chat stream: failed to persist assistant persistence failure",
+          );
+          return undefined;
+        });
+        if (persistenceFailure) {
+          await failAiExecution({
+            executionId: persistenceExecutionId,
+            workerId: executionWorkerId,
+            finalMessageId: persistenceFailure.id,
+            finalMessageErrorCode: "ASSISTANT_PERSISTENCE_FAILED",
+            error: "The assistant response could not be durably persisted.",
+            resumable: false,
+            nodeStates: executionNodeStates,
+            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+          }).catch((terminalError) => {
+            logger.warn(
+              { terminalError, executionId: persistenceExecutionId },
+              "chat stream: assistant persistence failure terminalization failed",
+            );
+          });
+          persistenceFailureProjection = await loadTerminalProjection({
+            executionId: persistenceExecutionId,
+            sessionId: sessionIdToUse,
+            fallbackMessageId: persistenceFailure.id,
+          });
+        }
+      }
       executionTerminal = true;
+      if (!persistenceFailureProjection) {
+        sse({
+          type: "error",
+          code: "ASSISTANT_PERSISTENCE_FAILED",
+          message: "The assistant response could not be durably persisted. Please retry.",
+          outcome: "FAILED",
+          failureKind: "INCOMPLETE",
+          retryable: true,
+          recoveryState: "INCOMPLETE",
+          executionId: persistenceExecutionId,
+          sessionId: sessionIdToUse,
+          terminalProjection: persistenceFailureProjection,
+          executionLedger: executionLedgerSnapshot,
+        });
+      }
       res.end();
       return;
     }

@@ -1445,6 +1445,16 @@ export async function recoverAiExecutionResumeToken(params: {
       eq(aiExecutionAcceptancesTable.attempt, candidate.attempt),
     ))
     .limit(1);
+  const request = parseExecutionRequest(candidate.request);
+  const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
+  // Ordinary chat has no durable resume contract. This guard also protects
+  // legacy paused rows created before reconciliation learned that distinction.
+  if (
+    ordinaryChat
+    || (priorAcceptance && priorAcceptance.resumable !== 1)
+  ) {
+    return undefined;
+  }
   if (
     candidate.status === "failed" &&
     (checkpoint?.evidenceVerdict === "CLAIM_UNCLOSED"
@@ -2253,6 +2263,8 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
       continue;
     }
     const operation = checkpoint?.operation;
+    const request = parseExecutionRequest(execution.request);
+    const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
     const uncertainOperation = operation
       ? { ...operation, state: "uncertain" as const, updatedAt: now.toISOString() }
       : undefined;
@@ -2276,7 +2288,9 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
       terminalStatus: "paused",
       reasonCode: "EXECUTION_LEASE_EXPIRED",
       recoveryState: "REQUIRED",
-      resumable: true,
+      // A plain CHAT turn is retriable by starting a new turn, but it is not
+      // resumable through the forensic/task recovery contract.
+      resumable: !ordinaryChat,
       error: "Execution interrupted; operator recovery is required.",
       checkpoint: nextCheckpoint ? JSON.stringify(nextCheckpoint) : undefined,
     });

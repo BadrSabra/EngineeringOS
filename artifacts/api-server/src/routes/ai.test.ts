@@ -6311,6 +6311,65 @@ describe("autonomous task acceptance finalization races", () => {
     });
   });
 
+  it("keeps an expired ordinary CHAT execution non-resumable", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Ordinary chat recovery",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "مرحبا",
+        modelMessage: "مرحبا",
+        turnIntent: "CHAT",
+        proofRequired: false,
+        validationTargetPaths: [],
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    const workerId = randomUUID();
+    await db.update(aiExecutionsTable).set({
+      status: "running",
+      workerId,
+      leaseUntil: new Date(Date.now() - 60_000),
+      lastHeartbeatAt: new Date(Date.now() - 60_000),
+      startedAt: now,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+
+    expect(await reconcileAiExecutions({ expiredOnly: true })).toBeGreaterThanOrEqual(1);
+
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+    expect(acceptance).toMatchObject({
+      terminalStatus: "paused",
+      reasonCode: "EXECUTION_LEASE_EXPIRED",
+      resumable: 0,
+      nextActionCode: "ABANDON_EXECUTION",
+    });
+
+    const resumeCapability = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
+    expect(resumeCapability.status).toBe(409);
+    expect(resumeCapability.body).toMatchObject({
+      code: "EXECUTION_NOT_RESUMABLE",
+      status: "paused",
+    });
+  });
+
   it("preserves the proof contract when a proof-bearing execution lease expires", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
