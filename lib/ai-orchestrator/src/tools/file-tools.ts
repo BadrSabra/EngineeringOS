@@ -35,6 +35,12 @@ const READ_TRUNCATION_MARKER =
 const FORENSIC_READ_TRUNCATION_MARKER =
   "\n\n[... forensic read exceeded the maximum safe evidence window; complete source evidence is unavailable for this file. ...]";
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".next", "__pycache__", ".venv", "build", "coverage"]);
+const BLOCKED_SENSITIVE_PATH =
+  /(?:^|[/\\])(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.htpasswd|credentials(?:\.[^/\\]*)?|(?:service[-_.]?account|.*(?:private|secret|token|credential)).*\.(?:json|ya?ml|toml|ini|cfg|conf)|id_(?:rsa|dsa|ecdsa)|.*\.(?:pem|key|p12|pfx|jks|kdbx|gpg|asc))$/i;
+
+export function isSensitiveProjectPath(filePath: string): boolean {
+  return BLOCKED_SENSITIVE_PATH.test(filePath);
+}
 
 /**
  * Convert filesystem failures into actionable, user-safe tool output.
@@ -214,6 +220,11 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
             type: "string",
             description:
               "Optional glob to restrict the search to specific file types (e.g. '*.ts', '*.py'). Omit to search all files.",
+          },
+          path: {
+            type: "string",
+            description:
+              "Optional project-relative file or directory to search. Required for evidence-scoped analysis; omit only for ordinary project chat.",
           },
         },
         required: ["pattern"],
@@ -420,6 +431,9 @@ export async function executeFileTool(
   switch (toolName) {
     // ── read_file ─────────────────────────────────────────────────────────────
     case "read_file": {
+      if (isSensitiveProjectPath(args.path ?? "")) {
+        return `Error: reading "${args.path}" is not allowed because the path is classified as sensitive.`;
+      }
       const abs = await safePath(resolvedRoot, args.path ?? "");
       if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
       try {
@@ -449,6 +463,9 @@ export async function executeFileTool(
 
     // ── read_file_range ──────────────────────────────────────────────────────
     case "read_file_range": {
+      if (isSensitiveProjectPath(args.path ?? "")) {
+        return `Error: reading "${args.path}" is not allowed because the path is classified as sensitive.`;
+      }
       const abs = await safePath(resolvedRoot, args.path ?? "");
       if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
       const startLine = Number(args.startLine);
@@ -489,6 +506,9 @@ export async function executeFileTool(
     // ── list_directory ────────────────────────────────────────────────────────
     case "list_directory": {
       const target = args.path ?? ".";
+      if (isSensitiveProjectPath(target)) {
+        return `Error: listing "${target}" is not allowed because the path is classified as sensitive.`;
+      }
       const abs = await safePath(resolvedRoot, target);
       if (!abs) return `Error: "${target}" resolves outside the project root.`;
       try {
@@ -515,7 +535,7 @@ export async function executeFileTool(
         }
         const entries = await fs.readdir(abs, { withFileTypes: true });
         const lines = entries
-          .filter((e) => !SKIP_DIRS.has(e.name))
+          .filter((e) => !SKIP_DIRS.has(e.name) && !isSensitiveProjectPath(e.name))
           .sort((a, b) => {
             // Directories first, then files, alphabetically.
             if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
@@ -533,6 +553,12 @@ export async function executeFileTool(
     case "search_code": {
       if (!args.pattern) return 'Error: "pattern" argument is required.';
       if (args.pattern.includes("\0")) return 'Error: "pattern" must not contain null bytes.';
+      const searchTarget = args.path?.trim() || ".";
+      if (isSensitiveProjectPath(searchTarget)) {
+        return `Error: searching "${searchTarget}" is not allowed because the path is classified as sensitive.`;
+      }
+      const searchAbs = await safePath(resolvedRoot, searchTarget);
+      if (!searchAbs) return `Error: "${searchTarget}" resolves outside the project root.`;
 
       // Build the argv array directly — no shell is involved so no quoting or
       // escaping is needed. The pattern and root path are passed as opaque
@@ -541,6 +567,16 @@ export async function executeFileTool(
         "-r",   // recursive
         "-n",   // line numbers
         "-m", "5", // at most 5 matches per file (limits per-file output)
+        "--exclude", ".env",
+        "--exclude", ".env.*",
+        "--exclude", ".npmrc",
+        "--exclude", ".pypirc",
+        "--exclude", "*.pem",
+        "--exclude", "*.key",
+        "--exclude", "*.p12",
+        "--exclude", "*.pfx",
+        "--exclude", "*.jks",
+        "--exclude", "*.kdbx",
       ];
 
       if (args.file_glob) {
@@ -550,7 +586,7 @@ export async function executeFileTool(
 
       // "--" ends option parsing: prevents a pattern starting with "-" from
       // being treated as a grep flag even though there is no shell involved.
-      grepArgs.push("--", args.pattern, resolvedRoot);
+      grepArgs.push("--", args.pattern, searchAbs);
 
       try {
         const { stdout } = await execFileAsync("grep", grepArgs, {

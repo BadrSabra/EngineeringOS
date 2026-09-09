@@ -679,6 +679,7 @@ describe("executeToolLoop", () => {
       rootPath: "/project",
       pendingChanges: [],
       maxIterations: 2,
+      allowedReadPaths: ["src/target.ts"],
       objectiveScopePolicy: {
         primaryPaths: ["src/target.ts"],
         allowedExpansionPaths: ["src/caller.ts"],
@@ -730,6 +731,75 @@ describe("executeToolLoop", () => {
       path: "src/caller.ts",
       matchedPolicyPath: "src/caller.ts",
     }]);
+  });
+
+  it("allows a scoped search only when its path is inside the objective policy", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValue("src/caller.ts:1:return target();");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("search-1", "search_code", {
+        pattern: "target",
+        path: "src/caller.ts",
+      })]),
+      makeResponse("done"),
+    ]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      objectiveScopePolicy: {
+        primaryPaths: ["src/target.ts"],
+        allowedExpansionPaths: ["src/caller.ts"],
+        forbiddenPaths: [],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "search_code",
+      expect.objectContaining({ path: "src/caller.ts" }),
+      "/project",
+      expect.any(Array),
+    );
+    expect(result.sourceRetrieval?.scopeExpansions).toEqual([{
+      kind: "JUSTIFIED_SCOPE_EXPANSION",
+      path: "src/caller.ts",
+      matchedPolicyPath: "src/caller.ts",
+    }]);
+  });
+
+  it("blocks an unscoped search in an objective-bound turn", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("search-2", "search_code", { pattern: "secret" })]),
+      makeResponse("blocked"),
+    ]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "search_code", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      objectiveScopePolicy: {
+        primaryPaths: ["src/target.ts"],
+        allowedExpansionPaths: ["src/caller.ts"],
+        forbiddenPaths: [],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
   });
 
   it("reruns the same validation profile after each repair and blocks attempt four", async () => {

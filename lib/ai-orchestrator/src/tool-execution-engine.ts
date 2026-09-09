@@ -3889,10 +3889,26 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         objectiveScopePolicy &&
         (tc.function.name === "read_file" ||
           tc.function.name === "read_file_range" ||
-          tc.function.name === "list_directory")
+          tc.function.name === "list_directory" ||
+          tc.function.name === "search_code")
       ) {
+        if (
+          tc.function.name === "search_code"
+          && (typeof args.path !== "string" || !args.path.trim())
+        ) {
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content:
+              "OBJECTIVE_SCOPE_PATH_REQUIRED: evidence-scoped search_code calls must include a " +
+              "project-relative file or directory path inside the declared objective scope.",
+          });
+          continue;
+        }
         const requestedPath =
-          typeof args.path === "string" && args.path.trim() ? args.path : ".";
+          tc.function.name === "search_code"
+            ? args.path
+            : typeof args.path === "string" && args.path.trim() ? args.path : ".";
         const expansion = recordScopeExpansion(requestedPath);
         if (expansion?.kind === "JUSTIFIED_SCOPE_EXPANSION") {
           try {
@@ -3931,7 +3947,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         allowedReads &&
         (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
         (typeof args.path !== "string" ||
-          !allowedReads.has(args.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "")))
+          (
+            !allowedReads.has(args.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "")) &&
+            !(
+              objectiveScopePolicy &&
+              classifyObjectiveScopePath(args.path, objectiveScopePolicy)?.kind === "JUSTIFIED_SCOPE_EXPANSION"
+            )
+          ))
       ) {
         messages.push({
           role: "tool",

@@ -17,7 +17,7 @@ vi.mock("node:child_process", () => ({
 
 // Import after mock is registered.
 import { execFile } from "node:child_process";
-import { executeFileTool, FILE_TOOL_DEFINITIONS, stripReadFileWrapper } from "../tools/file-tools.js";
+import { executeFileTool, FILE_TOOL_DEFINITIONS, isSensitiveProjectPath, stripReadFileWrapper } from "../tools/file-tools.js";
 import { buildPatchHunks, hashPatchBase } from "../patch-contract.js";
 
 const mockExecFile = vi.mocked(execFile);
@@ -84,6 +84,37 @@ describe("executeFileTool — search_code error handling", () => {
 });
 
 describe("executeFileTool — bounded source reads", () => {
+  it("blocks sensitive project files from direct and ranged reads", async () => {
+    expect(isSensitiveProjectPath(".env")).toBe(true);
+    expect(isSensitiveProjectPath("config/service-account.json")).toBe(true);
+
+    const direct = await executeFileTool("read_file", { path: ".env" }, "/tmp", []);
+    const ranged = await executeFileTool(
+      "read_file_range",
+      { path: "keys/server.pem", startLine: "1", endLine: "2" },
+      "/tmp",
+      [],
+    );
+
+    expect(direct).toMatch(/not allowed|sensitive/i);
+    expect(ranged).toMatch(/not allowed|sensitive/i);
+  });
+
+  it("does not expose sensitive entries through directory listing", async () => {
+    const directory = path.join("/tmp", `sensitive-list-${Date.now()}`);
+    await fs.mkdir(directory);
+    await fs.writeFile(path.join(directory, ".env"), "TOKEN=hidden\n", "utf-8");
+    await fs.writeFile(path.join(directory, "safe.ts"), "export const safe = true;\n", "utf-8");
+
+    try {
+      const result = await executeFileTool("list_directory", { path: path.basename(directory) }, "/tmp", []);
+      expect(result).toContain("safe.ts");
+      expect(result).not.toContain(".env");
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("reports a missing file without exposing the absolute runtime path", async () => {
     const result = await executeFileTool(
       "read_file",
@@ -155,6 +186,15 @@ describe("executeFileTool — bounded source reads", () => {
     const readTool = FILE_TOOL_DEFINITIONS.find((tool) => tool.function.name === "read_file");
     expect(readTool?.function.description).toContain("first 128 KB");
     expect(readTool?.function.description).toContain("not proof that the file is incomplete");
+  });
+
+  it("describes an optional scoped path for search_code", () => {
+    const searchTool = FILE_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_code");
+    expect(searchTool?.function.parameters).toMatchObject({
+      properties: {
+        path: expect.any(Object),
+      },
+    });
   });
 });
 
