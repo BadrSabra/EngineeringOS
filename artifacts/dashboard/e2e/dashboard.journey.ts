@@ -425,6 +425,18 @@ type ArabicAiFixture = {
   message: Record<string, unknown>;
 };
 
+type StructuredReviewFixture = {
+  projectId: string;
+  sessionId: string;
+  executionId: string;
+  question: string;
+  streamBody: string;
+  message: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  terminalProjection: Record<string, unknown>;
+  rawProviderBody: string;
+};
+
 type AcceptanceSnapshotOverrides = Partial<AiExecutionAcceptance>;
 
 function createAcceptanceSnapshot(
@@ -480,6 +492,7 @@ async function installApiFixtures(
     alternateAi?: ArabicAiFixture;
     disconnectAi?: ArabicAiFixture;
     interruptedAi?: ArabicAiFixture;
+    structuredReview?: StructuredReviewFixture;
     resumeFailure?: {
       fixture: ArabicAiFixture;
       execution: Record<string, unknown>;
@@ -561,6 +574,7 @@ async function installApiFixtures(
     const alternateAi = overrides?.alternateAi;
     const disconnectAi = overrides?.disconnectAi;
     const interruptedAi = overrides?.interruptedAi;
+    const structuredReview = overrides?.structuredReview;
     const recoveryAi =
       overrides?.resumeFailure?.fixture ?? overrides?.interruptedResume?.fixture;
     const aiFixtures = [
@@ -573,7 +587,11 @@ async function installApiFixtures(
     ].filter((fixture): fixture is ArabicAiFixture => Boolean(fixture));
     const hasConfiguredAiFixture =
       aiFixtures.length > 0 ||
-      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
+      Boolean(
+        overrides?.resumeFailure ||
+          overrides?.interruptedResume ||
+          structuredReview,
+      );
 
     if (
       overrides?.operatorAlertsPassthrough &&
@@ -610,6 +628,55 @@ async function installApiFixtures(
           })),
         ),
       );
+    }
+    if (
+      structuredReview &&
+      path.endsWith("/api/ai/chat/sessions")
+    ) {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: structuredReview.sessionId,
+            title: "Code review",
+            updatedAt: "2026-01-01T00:03:00.000Z",
+          },
+        ]),
+      );
+    }
+    if (
+      structuredReview &&
+      path === `/api/ai/projects/${structuredReview.projectId}/review/stream`
+    ) {
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: { "Cache-Control": "no-cache" },
+        body: structuredReview.streamBody,
+      });
+    }
+    if (
+      structuredReview &&
+      path === `/api/ai/chat/${structuredReview.sessionId}/messages`
+    ) {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: `${structuredReview.sessionId}-user-message`,
+            sessionId: structuredReview.sessionId,
+            role: "user",
+            content: structuredReview.question,
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          structuredReview.message,
+        ]),
+      );
+    }
+    if (
+      structuredReview &&
+      path === "/api/ai/executions/history" &&
+      url.searchParams.get("projectId") === structuredReview.projectId
+    ) {
+      return route.fulfill(jsonResponse([structuredReview.execution]));
     }
     if (
       overrides?.historicalAudits &&
@@ -1193,6 +1260,12 @@ async function installApiFixtures(
       return route.fulfill(jsonResponse(overrides.interruptedResume.execution));
     }
     if (
+      structuredReview &&
+      path === `/api/ai/executions/${structuredReview.executionId}`
+    ) {
+      return route.fulfill(jsonResponse(structuredReview.execution));
+    }
+    if (
       overrides?.interruptedResume &&
       path ===
         `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}/resume-capability`
@@ -1426,6 +1499,220 @@ async function installArabicAiFixture(
     projectId: options?.projectId,
     streamBody,
     message,
+  };
+}
+
+function installStructuredReviewFixture(
+  outcome: "success" | "rate-limit",
+): StructuredReviewFixture {
+  const projectId = "e2e-project";
+  const sessionId = `e2e-review-${outcome}-session`;
+  const executionId = `e2e-review-${outcome}-execution`;
+  const messageId = `e2e-review-${outcome}-message`;
+  const acceptanceId = `e2e-review-${outcome}-acceptance`;
+  const operationId = `e2e-review-${outcome}-operation`;
+  const correlationId = `e2e-review-${outcome}-correlation`;
+  const question = "Review the codebase and identify the most critical quality issues.";
+  const rawProviderBody =
+    '{"overallScore":null,"summary":"provider diagnostic: /tmp/raw-review-output"}';
+  const success = outcome === "success";
+  const result = {
+    overallScore: 92,
+    verdict: "approved",
+    summary: "The fallback review completed with a verified, actionable result.",
+    strengths: ["The execution boundary is clearly separated from the UI."],
+    issues: [],
+    securityConcerns: [],
+    reviewScope: {
+      mode: "GRAPH_AND_METRICS",
+      selectedFiles: { total: 4, omitted: 0, clippedExcerpts: 0 },
+      scanCompleteness: "COMPLETE",
+    },
+  };
+  const terminalProjection = {
+    executionId,
+    sessionId,
+    attempt: 1,
+    messageId,
+    acceptanceId,
+    operationId,
+    correlationId,
+    status: success ? "completed" : "failed",
+    outcome: success ? "SUCCEEDED" : "FAILED",
+    reasonCode: success ? "REVIEW_COMPLETED" : "PROVIDER_RATE_LIMITED",
+    nextActionCode: success ? "NONE" : "RETRY_AFTER_COOLDOWN",
+    resumable: false,
+  };
+  const acceptance = {
+    id: acceptanceId,
+    attempt: 1,
+    terminalStatus: success ? "completed" : "failed",
+    outcome: success ? "SUCCEEDED" : "FAILED",
+    reasonCode: terminalProjection.reasonCode,
+    nextActionCode: terminalProjection.nextActionCode,
+    evidenceComplete: success,
+    evidenceRequired: false,
+    resumable: false,
+  };
+  const reviewContent = [
+    "## Code Review — 92/100  ✅ Approved",
+    "",
+    result.summary,
+    "",
+    "### Strengths",
+    "- The execution boundary is clearly separated from the UI.",
+    "",
+    "**Verdict:** approved",
+  ].join("\n");
+  const safeFailure = {
+    title: "Code review paused",
+    reason:
+      "This code review reached a temporary usage limit. Wait a moment, then try again.",
+  };
+  const message = {
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: success ? reviewContent : safeFailure.reason,
+    executionId,
+    attempt: 1,
+    terminalProjection,
+    acceptance,
+    outcome: success ? "SUCCEEDED" : "FAILED",
+    ...(success
+      ? {
+          structuredTask: "review",
+          structuredReview: result,
+        }
+      : {
+          errorCode: "REVIEW_PROVIDER_RATE_LIMITED",
+          errorMessage: safeFailure.reason,
+          failureKind: "RATE_LIMIT",
+          providerFailureCategory: "RATE_LIMITED",
+          retryable: true,
+          structuredTask: "review",
+          toolTrace: JSON.stringify([
+            {
+              kind: "stage",
+              label: "Fallback provider was rate-limited",
+              status: "failed",
+            },
+          ]),
+        }),
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const execution = {
+    id: executionId,
+    projectId,
+    sessionId,
+    operationId,
+    correlationId,
+    status: success ? "completed" : "failed",
+    flightState: success ? "COMPLETED" : "FAILED",
+    attempt: 1,
+    proofRequired: false,
+    resumable: false,
+    evidenceVerdict: success ? "PROVEN" : "UNAVAILABLE",
+    evidenceReason: success
+      ? "The fallback review result was accepted."
+      : "The provider did not produce an accepted review result.",
+    acceptance,
+    terminalProjection,
+    objective: question,
+    checkpoint: {
+      stage: success ? "complete" : "failed",
+      detail: success
+        ? "Fallback review completed."
+        : "Fallback review ended after the provider rate limit.",
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:02:00.000Z",
+    completedAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const common = [
+    sse({
+      type: "session_started",
+      sessionId,
+      title: "Code review",
+      updatedAt: "2026-01-01T00:03:00.000Z",
+    }),
+    sse({
+      type: "execution_started",
+      executionId,
+      sessionId,
+      status: "running",
+      resumable: false,
+    }),
+    sse({
+      type: "task_started",
+      task: "review",
+      projectId,
+      operationId,
+      projectRevision: "e2e-review-revision",
+      rootAvailable: true,
+      incomplete: false,
+      operationalTrace: [],
+    }),
+    sse({
+      type: "stage",
+      stage: "calling-model",
+    }),
+    sse({
+      type: "task_progress",
+      task: "review",
+      message: "The first provider response was malformed; trying the fallback model.",
+      operationId,
+      projectId,
+      projectRevision: "e2e-review-revision",
+      rootAvailable: true,
+      incomplete: false,
+      operationalTrace: [],
+    }),
+    sse({
+      type: "model_call",
+      model: "fallback-review-model",
+    }),
+  ];
+  const terminal = success
+    ? sse({
+        type: "task_done",
+        task: "review",
+        result,
+        executionId,
+        operationId,
+        projectId,
+        projectRevision: "e2e-review-revision",
+        rootAvailable: true,
+        incomplete: false,
+        operationalTrace: [],
+        terminalProjection,
+      })
+    : sse({
+        type: "error",
+        code: "REVIEW_PROVIDER_RATE_LIMITED",
+        message: "The review provider is temporarily rate-limited.",
+        retryable: true,
+        retryAfterMs: 30_000,
+        executionId,
+        attempt: 1,
+        sessionId,
+        outcome: "FAILED",
+        failureKind: "RATE_LIMIT",
+        providerFailureCategory: "RATE_LIMITED",
+        terminalProjection,
+      });
+  return {
+    projectId,
+    sessionId,
+    executionId,
+    question,
+    streamBody: [...common, terminal].join(""),
+    message,
+    execution,
+    terminalProjection,
+    rawProviderBody,
   };
 }
 
@@ -3646,6 +3933,245 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       /file-tools\.ts[^\n]{0,80}(?:truncated|↕)/i,
     );
     expect(bodyText).not.toMatch(/(?:\/home\/|\/tmp\/|\/srv\/|\/workspace\/)/);
+  });
+
+  test("keeps code-review fallback completion identity after reconnect and reload", async ({
+    page,
+  }) => {
+    const fixture = installStructuredReviewFixture("success");
+    await installApiFixtures(page, { structuredReview: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const streamResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith(
+        `/api/ai/projects/${fixture.projectId}/review/stream`,
+      ),
+    );
+    await page.getByRole("button", { name: "Code Review", exact: true }).click();
+    const streamResponse = await streamResponsePromise;
+    expect(streamResponse.status()).toBe(200);
+    const streamEvents = parseSse(await streamResponse.text());
+    expect(streamEvents.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "task_done",
+        terminalProjection: fixture.terminalProjection,
+      }),
+    );
+
+    await expect(
+      page.getByText(
+        "The fallback review completed with a verified, actionable result.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+
+    const readPublicState = () =>
+      page.evaluate(
+        async ({ executionId, projectId, sessionId }) => {
+          const paths = [
+            `/api/ai/executions/${executionId}`,
+            `/api/ai/executions/history?projectId=${projectId}`,
+            `/api/ai/chat/${sessionId}/messages`,
+          ];
+          const responses = await Promise.all(
+            paths.map(async (path) => {
+              const response = await fetch(path, { credentials: "include" });
+              return { status: response.status, body: await response.json() };
+            }),
+          );
+          return {
+            execution: responses[0],
+            history: responses[1],
+            messages: responses[2],
+          };
+        },
+        {
+          executionId: fixture.executionId,
+          projectId: fixture.projectId,
+          sessionId: fixture.sessionId,
+        },
+      );
+    const beforeReload = await readPublicState();
+    expect(beforeReload.execution.status).toBe(200);
+    expect(beforeReload.history.status).toBe(200);
+    expect(beforeReload.messages.status).toBe(200);
+    expect(beforeReload.execution.body.terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(beforeReload.history.body[0].terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(beforeReload.messages.body.at(-1).terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(beforeReload.messages.body.at(-1).id).toBe(
+      fixture.terminalProjection.messageId,
+    );
+    expect(beforeReload.messages.body.at(-1).acceptance.id).toBe(
+      fixture.terminalProjection.acceptanceId,
+    );
+
+    const reconnectExecutionResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/ai/executions/${fixture.executionId}`) &&
+        response.request().method() === "GET",
+    );
+    await page.reload();
+    const reconnectExecutionResponse =
+      await reconnectExecutionResponsePromise;
+    expect(reconnectExecutionResponse.status()).toBe(200);
+    await expect(
+      page.getByText(
+        "The fallback review completed with a verified, actionable result.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+
+    const visibleBeforeReload = await page.locator("body").innerText();
+    expect(visibleBeforeReload).not.toContain(fixture.rawProviderBody);
+    expect(visibleBeforeReload).not.toMatch(
+      /provider diagnostic|\/tmp\/raw-review-output|\/home\/runner|stack trace/i,
+    );
+
+    await page.reload();
+    await expect(
+      page.getByText(
+        "The fallback review completed with a verified, actionable result.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const afterReload = await readPublicState();
+    expect(afterReload.execution.body.terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(afterReload.history.body[0].terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(afterReload.messages.body.at(-1).terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(afterReload.messages.body.at(-1).id).toBe(
+      fixture.terminalProjection.messageId,
+    );
+    expect(afterReload.messages.body.at(-1).acceptance.id).toBe(
+      fixture.terminalProjection.acceptanceId,
+    );
+    const visibleAfterReload = await page.locator("body").innerText();
+    expect(visibleAfterReload).not.toContain(fixture.rawProviderBody);
+    expect(visibleAfterReload).not.toMatch(
+      /provider diagnostic|\/tmp\/raw-review-output|\/home\/runner|stack trace/i,
+    );
+  });
+
+  test("keeps code-review rate-limit identity and safe failure after reload", async ({
+    page,
+  }) => {
+    const fixture = installStructuredReviewFixture("rate-limit");
+    await installApiFixtures(page, { structuredReview: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const streamResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith(
+        `/api/ai/projects/${fixture.projectId}/review/stream`,
+      ),
+    );
+    await page.getByRole("button", { name: "Code Review", exact: true }).click();
+    const streamResponse = await streamResponsePromise;
+    const streamEvents = parseSse(await streamResponse.text());
+    expect(streamEvents.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        failureKind: "RATE_LIMIT",
+        terminalProjection: fixture.terminalProjection,
+      }),
+    );
+    await expect(page.getByText("Code review paused", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        "This code review reached a temporary usage limit. Wait a moment, then try again.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain(fixture.rawProviderBody);
+    expect(visibleText).not.toMatch(
+      /provider diagnostic|\/tmp\/raw-review-output|\/home\/runner|stack trace|fallback-review-model/i,
+    );
+
+    const readPublicState = () =>
+      page.evaluate(
+        async ({ executionId, projectId, sessionId }) => {
+          const paths = [
+            `/api/ai/executions/${executionId}`,
+            `/api/ai/executions/history?projectId=${projectId}`,
+            `/api/ai/chat/${sessionId}/messages`,
+          ];
+          const responses = await Promise.all(
+            paths.map(async (path) => {
+              const response = await fetch(path, { credentials: "include" });
+              return { status: response.status, body: await response.json() };
+            }),
+          );
+          return {
+            execution: responses[0],
+            history: responses[1],
+            messages: responses[2],
+          };
+        },
+        {
+          executionId: fixture.executionId,
+          projectId: fixture.projectId,
+          sessionId: fixture.sessionId,
+        },
+      );
+    const beforeReload = await readPublicState();
+    expect(beforeReload.execution.body.terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(beforeReload.history.body[0].terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(beforeReload.messages.body.at(-1).terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(beforeReload.messages.body.at(-1).id).toBe(
+      fixture.terminalProjection.messageId,
+    );
+    expect(beforeReload.messages.body.at(-1).acceptance.id).toBe(
+      fixture.terminalProjection.acceptanceId,
+    );
+
+    await page.reload();
+    await expect(page.getByText("Code review paused", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        "This code review reached a temporary usage limit. Wait a moment, then try again.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    const afterReload = await readPublicState();
+    expect(afterReload.execution.body.terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(afterReload.history.body[0].terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(afterReload.messages.body.at(-1).terminalProjection).toEqual(
+      fixture.terminalProjection,
+    );
+    expect(afterReload.messages.body.at(-1).id).toBe(
+      fixture.terminalProjection.messageId,
+    );
+    expect(afterReload.messages.body.at(-1).acceptance.id).toBe(
+      fixture.terminalProjection.acceptanceId,
+    );
+    const reloadedText = await page.locator("body").innerText();
+    expect(reloadedText).not.toContain(fixture.rawProviderBody);
+    expect(reloadedText).not.toMatch(
+      /provider diagnostic|\/tmp\/raw-review-output|\/home\/runner|stack trace|fallback-review-model/i,
+    );
   });
 
   test("rehydrates a completed Capability Probe without changing its report", async ({
