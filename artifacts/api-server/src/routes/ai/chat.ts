@@ -5588,6 +5588,53 @@ router.post("/ai/chat/stream", async (req, res) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
     });
 
+    const behaviorProgressEnabled = streamClassification.taskType === "BEHAVIOR_QUERY";
+    let behaviorProgressRevision = 0;
+    const publishBehaviorProgress = (
+      phase: "reading" | "validating" | "synthesizing",
+    ): void => {
+      if (!behaviorProgressEnabled) return;
+      const completedReadFiles = Array.from(new Set(
+        traceSteps
+          .filter((candidate): candidate is Extract<AgentStep, { kind: "tool_result" }> =>
+            candidate.kind === "tool_result"
+            && (candidate.tool === "read_file" || candidate.tool === "read_file_range"),
+          )
+          .map((candidate) => candidate.source ? safeForensicTracePath(candidate.source) : undefined)
+          .filter((source): source is string => Boolean(source)),
+      )).slice(0, 48);
+      let evidenceCount: number | undefined;
+      let acceptedEvidenceCount: number | undefined;
+      let acceptedClaimCount: number | undefined;
+      for (const candidate of [...traceSteps].reverse()) {
+        if (candidate.kind === "verification") {
+          evidenceCount = candidate.trace.evidenceCount;
+          acceptedEvidenceCount = candidate.trace.acceptedEvidenceCount;
+          break;
+        }
+        if (candidate.kind === "evidence_integrity") {
+          evidenceCount = candidate.evidenceFileCount;
+          acceptedEvidenceCount = candidate.acceptedEvidenceCount;
+          acceptedClaimCount = candidate.acceptedClaimCount;
+          break;
+        }
+      }
+      sse({
+        type: "behavior_progress",
+        revision: ++behaviorProgressRevision,
+        phase,
+        status: "running",
+        readCount: traceSteps.filter((candidate) =>
+          candidate.kind === "tool_result"
+          && (candidate.tool === "read_file" || candidate.tool === "read_file_range"),
+        ).length,
+        completedReadFiles,
+        ...(evidenceCount !== undefined ? { evidenceCount } : {}),
+        ...(acceptedEvidenceCount !== undefined ? { acceptedEvidenceCount } : {}),
+        ...(acceptedClaimCount !== undefined ? { acceptedClaimCount } : {}),
+      });
+    };
+
     // Public, bounded intent notification. Keep internal prompt construction,
     // provider diagnostics, and raw telemetry out of the SSE contract.
     sse({
@@ -5599,6 +5646,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       workspaceRevision: projectContext.workspaceRevision,
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
     });
+    publishBehaviorProgress("reading");
 
     sse({ type: "stage", stage: "calling-model" });
 
@@ -5737,6 +5785,16 @@ router.post("/ai/chat/stream", async (req, res) => {
     // searches it runs, and how many iterations it has taken.
     function onStep(step: AgentStep): void {
       traceSteps.push(step);
+      if (
+        step.kind === "tool_result"
+        && (step.tool === "read_file" || step.tool === "read_file_range")
+      ) {
+        publishBehaviorProgress("reading");
+      } else if (step.kind === "verification" || step.kind === "evidence_integrity") {
+        publishBehaviorProgress("validating");
+      } else if (step.kind === "synthesis_start") {
+        publishBehaviorProgress("synthesizing");
+      }
       if (
         step.kind === "tool_result" &&
         (step.tool === "read_file" || step.tool === "read_file_range") &&

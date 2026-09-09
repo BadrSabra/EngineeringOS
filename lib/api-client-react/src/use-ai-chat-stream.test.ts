@@ -39,6 +39,7 @@ import type {
   AiStreamExecutionNodesEvent,
   AiStreamIntentEvent,
   AiStreamAuditStateEvent,
+  AiStreamBehaviorProgressEvent,
   AiStreamVerificationEvent,
 } from './use-ai-chat-stream.js';
 
@@ -442,6 +443,27 @@ describe('processAiStream — routing and verification contract dispatch', () =>
     expect(onIntent).toHaveBeenCalledWith(intent);
     expect(onAuditState).toHaveBeenCalledWith(auditState);
     expect(onVerification).toHaveBeenCalledWith(verification);
+  });
+
+  it('dispatches safe behavior progress without treating it as a final answer', async () => {
+    const progress: AiStreamBehaviorProgressEvent = {
+      type: 'behavior_progress',
+      revision: 2,
+      phase: 'reading',
+      status: 'running',
+      readCount: 1,
+      completedReadFiles: ['src/worker.ts'],
+    };
+    const onBehaviorProgress = vi.fn();
+    const onDone = vi.fn();
+
+    await processAiStream(
+      makeSseStream(sseFrame(progress)),
+      { onBehaviorProgress, onDone },
+    );
+
+    expect(onBehaviorProgress).toHaveBeenCalledWith(progress);
+    expect(onDone).not.toHaveBeenCalled();
   });
 });
 

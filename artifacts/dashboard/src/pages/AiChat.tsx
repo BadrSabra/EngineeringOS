@@ -58,6 +58,7 @@ import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
 import type {
   AiStreamErrorEvent,
+  AiStreamBehaviorProgressEvent,
   AiAcceptanceDisposition,
   AiTerminalProjection,
   AiExecutionNodeSnapshot,
@@ -320,6 +321,52 @@ function formatValidationDuration(valueMs: number): string {
   const seconds = valueMs / 1000;
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+function BehaviorProgressCard({
+  progress,
+}: {
+  progress: AiStreamBehaviorProgressEvent;
+}) {
+  const phaseLabel = progress.phase === 'reading'
+    ? 'Reading project evidence'
+    : progress.phase === 'validating'
+      ? 'Validating gathered evidence'
+      : 'Preparing the evidence-based answer';
+  const files = progress.completedReadFiles.slice(-6);
+
+  return (
+    <div
+      className="rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs"
+      role="status"
+      aria-live="polite"
+      aria-label="Behavior analysis progress"
+    >
+      <div className="flex items-center gap-2">
+        <FileSearch className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+        <span className="font-medium">{phaseLabel}</span>
+        <Loader2 className="ml-auto h-3.5 w-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" />
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+        <span>{progress.readCount} read{progress.readCount === 1 ? '' : 's'}</span>
+        {progress.evidenceCount !== undefined && (
+          <span>{progress.acceptedEvidenceCount ?? 0}/{progress.evidenceCount} evidence accepted</span>
+        )}
+        {progress.acceptedClaimCount !== undefined && (
+          <span>{progress.acceptedClaimCount} claim{progress.acceptedClaimCount === 1 ? '' : 's'} closed</span>
+        )}
+        <span>revision {progress.revision}</span>
+      </div>
+      {files.length > 0 && (
+        <div className="mt-1.5 truncate font-mono text-[10px] text-muted-foreground" title={files.join(', ')}>
+          Latest reads: {files.join(', ')}
+        </div>
+      )}
+      <div className="mt-1 text-[10px] text-muted-foreground/80">
+        Progress only — the verified answer appears after validation.
+      </div>
+    </div>
+  );
 }
 
 function browserValidationBlockExplanation(reasonCode: BrowserValidationBlockReason | undefined): {
@@ -8371,6 +8418,7 @@ export default function AiChat() {
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
   } | null>(null);
   const [liveAuditScopeDescription, setLiveAuditScopeDescription] = useState<string | null>(null);
+  const [liveBehaviorProgress, setLiveBehaviorProgress] = useState<AiStreamBehaviorProgressEvent | null>(null);
   /** NI-35: live evidence_integrity (EI-012) reconciliation shown during the
    *  stream; cleared on done so the persisted forensic card takes over. */
   const [liveEvidenceIntegrity, setLiveEvidenceIntegrity] = useState<{
@@ -8720,6 +8768,7 @@ export default function AiChat() {
     agentActivityIdRef.current = 0;
     agentActivityEventsRef.current = [];
     setAgentActivityEvents([]);
+    setLiveBehaviorProgress(null);
   }
 
   function clearExecutionScopedState(options?: { preserveBuildPending?: boolean }) {
@@ -10475,6 +10524,10 @@ export default function AiChat() {
              status: state === 'Evidence verified' ? 'done' : 'info',
            });
          },
+          onBehaviorProgress: (event) => {
+            if (generation !== streamGenerationRef.current) return;
+            setLiveBehaviorProgress(event);
+          },
          onVerification: (event) => {
            if (generation !== streamGenerationRef.current) return;
            const status = event.acceptedEvidenceCount > 0
@@ -10530,6 +10583,7 @@ export default function AiChat() {
           setLiveFixtureLocal(false);
           setLiveEvidenceIntegrity(null);
           setLiveVerdictScope(null);
+          setLiveBehaviorProgress(null);
           setLiveAuditScopeDescription(null);
           const terminalProjection = data.terminalProjection;
           const terminalFailure = data.message.outcome === 'FAILED'
@@ -11544,6 +11598,9 @@ export default function AiChat() {
                        verdictScope={liveVerdictScope ?? undefined}
                         auditScopeDescription={liveAuditScopeDescription ?? undefined}
                      />
+                      {liveBehaviorProgress && (
+                        <BehaviorProgressCard progress={liveBehaviorProgress} />
+                      )}
                      {/* NI-35: live EI-012 reconciliation indicator during the stream */}
                      {liveEvidenceIntegrity && (
                        <div className={`mt-1 flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] ${

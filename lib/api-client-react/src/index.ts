@@ -33,6 +33,7 @@ export type {
   AiTerminalProjection,
   AiAcceptanceDisposition,
   AiStreamResetEvent,
+  AiStreamBehaviorProgressEvent,
   AiStreamToolCallEvent,
   AiStreamToolResultEvent,
   AiStreamValidationEvent,

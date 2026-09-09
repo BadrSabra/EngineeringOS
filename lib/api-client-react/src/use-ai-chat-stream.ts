@@ -65,6 +65,19 @@ export type AiStreamAuditStateEvent = {
   productionReachability: 'PROVEN' | 'NOT_PROVEN' | 'OUT_OF_SCOPE';
 };
 
+/** Safe, non-terminal progress for behavior queries; never contains an answer or verdict. */
+export type AiStreamBehaviorProgressEvent = {
+  type: 'behavior_progress';
+  revision: number;
+  phase: 'reading' | 'validating' | 'synthesizing';
+  status: 'running';
+  readCount: number;
+  completedReadFiles: string[];
+  evidenceCount?: number;
+  acceptedEvidenceCount?: number;
+  acceptedClaimCount?: number;
+};
+
 /** Verification telemetry emitted after model output is checked. */
 export type AiStreamVerificationEvent = {
   type: 'verification';
@@ -863,6 +876,7 @@ export type AiStreamEvent =
   | AiStreamDeltaEvent
   | AiStreamIntentEvent
   | AiStreamAuditStateEvent
+  | AiStreamBehaviorProgressEvent
   | AiStreamVerificationEvent
   | AiStreamSessionStartedEvent
   | AiStreamScanStartedEvent
@@ -929,6 +943,8 @@ export type AiChatStreamCallbacks = {
   onIntent?: (event: AiStreamIntentEvent) => void;
   /** Called when the forensic evidence ledger publishes its bounded state. */
   onAuditState?: (event: AiStreamAuditStateEvent) => void;
+  /** Called with safe, non-terminal progress for a behavior query. */
+  onBehaviorProgress?: (event: AiStreamBehaviorProgressEvent) => void;
   /** Called when the server verifies the model response/evidence boundary. */
   onVerification?: (event: AiStreamVerificationEvent) => void;
   /** Called for each incremental text token from the model's streaming response. */
@@ -1083,6 +1099,9 @@ export async function processAiStream(
         case 'audit_state':
           callbacks.onAuditState?.(event);
           break;
+        case 'behavior_progress':
+          callbacks.onBehaviorProgress?.(event);
+          break;
         case 'verification':
           callbacks.onVerification?.(event);
           break;
@@ -1212,6 +1231,7 @@ export function useAiChatStream() {
       onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
       onIntent: (event) => { if (isCurrent()) callbacks.onIntent?.(event); },
       onAuditState: (event) => { if (isCurrent()) callbacks.onAuditState?.(event); },
+      onBehaviorProgress: (event) => { if (isCurrent()) callbacks.onBehaviorProgress?.(event); },
       onVerification: (event) => { if (isCurrent()) callbacks.onVerification?.(event); },
       onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
       onStreamReset: () => {
