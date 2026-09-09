@@ -869,11 +869,12 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     "stale-job sweep scheduled",
   );
   return setInterval(async () => {
-    const [failed, requeued, failedDiscoveries, recoveredTasks, expiredUploads] = await Promise.all([
+    const [failed, requeued, failedDiscoveries, recoveredTasks, reconciledAiExecutions, expiredUploads] = await Promise.all([
       failStaleRunningJobs(),
       requeueStalePendingJobs(),
       failStaleDiscoverySessions(),
       reconcileStaleAiTasks(),
+      reconcileAiExecutions({ expiredOnly: true }),
       sweepExpiredUploads(),
     ]);
     if (failed > 0) {
@@ -884,6 +885,12 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     }
     if (failedDiscoveries > 0 || recoveredTasks > 0) {
       logger.warn({ failedDiscoveries, recoveredTasks }, "stale-job sweep: abandoned work reconciled");
+    }
+    if (reconciledAiExecutions > 0) {
+      logger.warn(
+        { reconciledAiExecutions },
+        "stale-job sweep: expired AI execution leases reconciled",
+      );
     }
     if (expiredUploads > 0) {
       logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");

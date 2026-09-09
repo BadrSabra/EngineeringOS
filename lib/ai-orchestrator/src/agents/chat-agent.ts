@@ -4846,6 +4846,8 @@ export async function chat(opts: {
   onDelta?: (delta: string) => void;
   /** Abort signal owned by the server-side durable execution controller. */
   signal?: AbortSignal;
+  /** Server-owned durable execution lease probe for late provider responses. */
+  assertExecutionOwned?: () => void | Promise<void>;
   /**
    * GAP-A2: Called when the native SSE stream broke mid-flight and the agent
    * is falling back to the non-streaming result. The caller should signal the
@@ -4986,6 +4988,7 @@ export async function chat(opts: {
     executionLedger: suppliedExecutionLedger,
     onProviderAttempt,
     capabilityRecoveryProviders,
+    assertExecutionOwned,
   } = opts;
   const executionLedger =
     suppliedExecutionLedger ??
@@ -6803,6 +6806,7 @@ export async function chat(opts: {
           maxValidationAttempts: remainingValidationAttempts,
           signal,
            onStep: recordNodeStep,
+           assertExecutionOwned,
         });
 
         nodeToolSources.push(...childLoop.toolSources);
@@ -7148,6 +7152,7 @@ export async function chat(opts: {
       : structuredOutputMode || capabilityProbeRequest
         ? "forensic"
         : undefined,
+    assertExecutionOwned,
     compoundWriteMode: deferredWriteProposal,
     executionTargetPaths: repairPlanExecution ? executionFilePaths : undefined,
     // A forensic request can be classified as single-file-shaped before a

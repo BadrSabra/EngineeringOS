@@ -62,6 +62,34 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("classifies an empty provider response before the first read as an incomplete contract", () => {
+    expect(classify([
+      { kind: "iteration_start", iter: 0, maxIterations: 120 },
+    ], {
+      providerError: { code: "EMPTY_RESPONSE", fallbackExhausted: true },
+      providerEmptyBeforeEvidence: true,
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      contractFailureCategory: "PROVIDER_EMPTY",
+      code: "INCOMPLETE_BEFORE_EVIDENCE",
+      recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    });
+  });
+
+  it("keeps lease loss terminal even when the controller was also aborted", () => {
+    expect(classify([], {
+      cancelled: true,
+      leaseLost: true,
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "EXECUTION_LEASE_EXPIRED",
+      recoveryState: "REQUIRED",
+    });
+  });
+
   it("keeps capability-probe claim closure ahead of provider classification", () => {
     const outcome = classify([
       { kind: "diagnostic", code: "CAPABILITY_PROBE_CLAIM_UNCLOSED" },

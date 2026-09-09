@@ -27,7 +27,7 @@ import {
   projectsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { eq, desc, and, inArray, isNull, sql } from "drizzle-orm";
+import { eq, desc, and, gt, inArray, isNull, sql } from "drizzle-orm";
 import { walkProject } from "@workspace/scanner";
 import {
   buildProjectContext,
@@ -145,11 +145,13 @@ import {
   failAiExecution,
   getAiExecutionForUser,
   heartbeatAiExecution,
+  ownsAiExecutionLease,
   recoverAiExecutionResumeToken,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
   requestAiExecutionCancel,
   requestAiExecutionRecovery,
+  reconcileAiExecutions,
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
   unregisterAiExecutionController,
@@ -162,11 +164,11 @@ import {
   classifyAiTerminalOutcome,
   publicAcceptanceDisposition,
   type AiAcceptanceDisposition,
+  type AiExecutionContractFailureCategory,
   type AiTerminalProjection,
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
 import {
-  classifyProviderFailure,
   isProviderFailureCategory,
   type ProviderFailureCategory,
 } from "../../lib/provider-failure-diagnostics.js";
@@ -261,15 +263,6 @@ function hasCapabilityProbeRecoveryActivity(traceSteps: AgentStep[]): boolean {
       || step.kind === "recovery_model_call"
       || (step.kind === "diagnostic" && isCapabilityProbeRecoveryDiagnostic(step.code)),
   );
-}
-
-function hasRecoveryAttempted(traceSteps: AgentStep[]): boolean {
-  return hasCapabilityProbeRecoveryActivity(traceSteps) ||
-    traceSteps.some((step) =>
-      step.kind === "decision_trace" &&
-      Number.isInteger(step.trace.recoveryAttempt) &&
-      step.trace.recoveryAttempt! > 0,
-    );
 }
 
 function deriveProjectQueryAnalysisEvidence(params: {
@@ -553,6 +546,7 @@ function publicQualityFailure(value: QualityFailure): QualityFailure {
 function terminalMetadataFromTrace(value: string | null | undefined): {
   failureKind?: "QUALITY_REVIEW" | "TOOL_FAILURE" | "CANCELLATION" | "RECOVERY_FAILURE" | "INCOMPLETE";
   providerFailureCategory?: ProviderFailureCategory;
+  contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable?: boolean;
   recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
   forensicDiagnostic?: ForensicDiagnostic;
@@ -566,6 +560,9 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   const failureKind = terminal?.failureKind;
   const providerFailureCategory = isProviderFailureCategory(terminal?.providerFailureCategory)
     ? terminal.providerFailureCategory
+    : undefined;
+  const contractFailureCategory = terminal?.contractFailureCategory === "PROVIDER_EMPTY"
+    ? terminal.contractFailureCategory
     : undefined;
   const forensicDiagnostic = deriveForensicDiagnostic(parsed);
   const acceptanceDisposition = publicAcceptanceDisposition({
@@ -584,6 +581,7 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
         ? { failureKind }
         : {}),
     ...(providerFailureCategory ? { providerFailureCategory } : {}),
+    ...(contractFailureCategory ? { contractFailureCategory } : {}),
     ...(typeof terminal?.retryable === "boolean" ? { retryable: terminal.retryable } : {}),
     ...(
       terminal?.recoveryState === "NONE"
@@ -1562,7 +1560,7 @@ async function persistFailedChatTurn(params: {
   taskResult?: unknown;
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
-  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "retryable" | "recoveryState">;
+  terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "contractFailureCategory" | "retryable" | "recoveryState">;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   createdAt: Date;
@@ -1600,6 +1598,9 @@ async function persistFailedChatTurn(params: {
               failureKind: params.terminalOutcome.failureKind,
               ...(params.terminalOutcome.providerFailureCategory
                 ? { providerFailureCategory: params.terminalOutcome.providerFailureCategory }
+                : {}),
+              ...(params.terminalOutcome.contractFailureCategory
+                ? { contractFailureCategory: params.terminalOutcome.contractFailureCategory }
                 : {}),
               retryable: params.terminalOutcome.retryable,
               recoveryState: params.terminalOutcome.recoveryState,
@@ -1653,6 +1654,8 @@ async function persistFailedChatTurn(params: {
         .select({
           id: aiExecutionsTable.id,
           status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
           finalMessageId: aiExecutionsTable.finalMessageId,
         })
         .from(aiExecutionsTable)
@@ -3592,25 +3595,27 @@ router.post("/ai/chat", async (req, res) => {
       }
     } catch (err) {
       if (err instanceof GroqClientError) {
-        const providerFailureCategory = classifyProviderFailure({
-          code: err.code,
-          providerCode: err.providerCode,
-          providerStatus: err.providerStatus,
+        const terminalOutcome = classifyAiTerminalOutcome({
+          trace: traceSteps,
+          requiresEvidence: turnIntent.requiresEvidence,
+          forensic: turnIntent.kind === "FORENSIC_AUDIT",
+          cancelled: false,
+          endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+          providerEmptyBeforeEvidence:
+            turnIntent.requiresEvidence
+            && err.code === "EMPTY_RESPONSE"
+            && endedBeforeFirstSourceRead(traceSteps),
+          providerError: {
+            code: err.code,
+            providerCode: err.providerCode,
+            providerStatus: err.providerStatus,
+            fallbackExhausted: true,
+            retryable: err.code === "TIMEOUT"
+              || err.code === "NETWORK_ERROR"
+              || err.code === "SERVER_ERROR"
+              || err.code === "RATE_LIMITED",
+          },
         });
-        const retryable = err.code === "TIMEOUT"
-          || err.code === "NETWORK_ERROR"
-          || err.code === "SERVER_ERROR"
-          || err.code === "RATE_LIMITED";
-        const terminalOutcome = {
-          failureKind: hasRecoveryAttempted(traceSteps)
-            ? "RECOVERY_FAILURE" as const
-            : "INCOMPLETE" as const,
-          providerFailureCategory,
-          retryable,
-          recoveryState: hasRecoveryAttempted(traceSteps)
-            ? "REQUIRED" as const
-            : "INCOMPLETE" as const,
-        };
         await persistFailedChatTurn({
           sessionId: sessionIdToUse,
           projectId,
@@ -3708,6 +3713,9 @@ router.post("/ai/chat", async (req, res) => {
         ...(terminalOutcome.providerFailureCategory
           ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
           : {}),
+        ...(terminalOutcome.contractFailureCategory
+          ? { contractFailureCategory: terminalOutcome.contractFailureCategory }
+          : {}),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       };
       // The HTTP request completed, but the assistant turn did not. Keep the
@@ -3723,6 +3731,9 @@ router.post("/ai/chat", async (req, res) => {
         ...(terminalOutcome.providerFailureCategory
           ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
           : {}),
+        ...(terminalOutcome.contractFailureCategory
+          ? { contractFailureCategory: terminalOutcome.contractFailureCategory }
+          : {}),
         code: terminalOutcome.code,
         error: safeMessage,
         errorMessage: safeMessage,
@@ -3733,6 +3744,12 @@ router.post("/ai/chat", async (req, res) => {
           recoveryState: terminalOutcome.recoveryState,
           ...(terminalOutcome.providerFailureCategory
             ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+            : {}),
+          ...(terminalOutcome.contractFailureCategory
+            ? { contractFailureCategory: terminalOutcome.contractFailureCategory }
+            : {}),
+          ...(terminalOutcome.contractFailureCategory
+            ? { contractFailureCategory: terminalOutcome.contractFailureCategory }
             : {}),
           acceptanceDisposition: publicAcceptanceDisposition({
             code: terminalOutcome.code,
@@ -4429,6 +4446,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
   let executionAbortController: AbortController | undefined;
   let executionHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let executionLeaseLost = false;
   let sseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let sseConnectionClosed = false;
   let executionTerminal = false;
@@ -5369,13 +5387,18 @@ router.post("/ai/chat/stream", async (req, res) => {
         workerId: executionWorkerId!,
       }).then((renewed) => {
         if (!renewed && !executionTerminal && !activeExecutionAbortController.signal.aborted) {
+          executionLeaseLost = true;
           logger.warn(
             { executionId: aiExecution!.id },
             "AI execution heartbeat lost the durable lease",
           );
-          activeExecutionAbortController.abort();
+          activeExecutionAbortController.abort(new Error("AI execution lease expired"));
         }
       }).catch((err) => {
+        if (!executionTerminal && !activeExecutionAbortController.signal.aborted) {
+          executionLeaseLost = true;
+          activeExecutionAbortController.abort(new Error("AI execution lease could not be renewed"));
+        }
         logger.warn(
           { err, executionId: aiExecution!.id },
           "AI execution heartbeat failed",
@@ -6383,6 +6406,32 @@ router.post("/ai/chat/stream", async (req, res) => {
            buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
+           ...(aiExecution ? {
+             assertExecutionOwned: async () => {
+               if (executionLeaseLost) {
+                 throw new Error("AI execution lease expired");
+               }
+               if (activeExecutionAbortController.signal.aborted) {
+                 throw new Error("AI execution cancellation requested");
+               }
+               let owned: boolean;
+               try {
+                 owned = await ownsAiExecutionLease({
+                   executionId: aiExecution!.id,
+                   workerId: executionWorkerId!,
+                 });
+               } catch (error) {
+                 executionLeaseLost = true;
+                 activeExecutionAbortController.abort(new Error("AI execution lease could not be verified"));
+                 throw error;
+               }
+               if (!owned) {
+                 executionLeaseLost = true;
+                 activeExecutionAbortController.abort(new Error("AI execution lease expired"));
+                 throw new Error("AI execution lease expired");
+               }
+             },
+           } : {}),
           turnIntent: streamTurnIntent,
           retainedEvidence,
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
@@ -6443,7 +6492,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         requiresEvidence: streamTurnIntent.requiresEvidence,
         forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
           || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence),
-        cancelled: activeExecutionAbortController.signal.aborted,
+        cancelled: activeExecutionAbortController.signal.aborted && !executionLeaseLost,
+        leaseLost: executionLeaseLost,
         endedBeforeEvidence,
       });
       executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
@@ -6451,6 +6501,37 @@ router.post("/ai/chat/stream", async (req, res) => {
         trace: traceSteps,
       });
       if (terminalOutcome.outcome !== "SUCCEEDED") {
+        if (aiExecution && executionLeaseLost) {
+          await checkpointChain;
+          await reconcileAiExecutions({ expiredOnly: true }).catch((reconcileError) => {
+            logger.warn(
+              { reconcileError, executionId: aiExecution!.id },
+              "AI execution lease-loss reconciliation failed",
+            );
+          });
+          const terminalProjection = await loadTerminalProjection({
+            executionId: aiExecution.id,
+            sessionId: sessionIdToUse,
+          });
+          executionTerminal = true;
+          sse({
+            type: "error",
+            code: "EXECUTION_LEASE_EXPIRED",
+            message: "Execution ownership expired before completion.",
+            outcome: "FAILED",
+            failureKind: "INCOMPLETE",
+            retryable: true,
+            recoveryState: "REQUIRED",
+            executionId: aiExecution.id,
+            sessionId: sessionIdToUse,
+            attempt: terminalProjection?.attempt,
+            correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
+            terminalProjection,
+            executionLedger: executionLedgerSnapshot,
+          });
+          res.end();
+          return;
+        }
         const safeMessage = redactUserFacingText(
           terminalOutcome.message ?? "The AI request did not complete.",
         ).slice(0, 500);
@@ -6682,36 +6763,45 @@ router.post("/ai/chat/stream", async (req, res) => {
       // PR-011: record failure metrics before emitting the SSE error.
       recordFailure(provider);
       executionLedgerSnapshot = executionLedgerSnapshot ?? finishExecutionLedger(executionLedger, {
-        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+        outcome: executionLeaseLost
+          ? "FAILED"
+          : executionAbortController?.signal.aborted
+            ? "INTERRUPTED"
+            : "FAILED",
         trace: traceSteps,
       });
-      const cancelled = Boolean(executionAbortController?.signal.aborted);
-      const providerFailureCategory = classifyProviderFailure({
-        code: err instanceof GroqClientError ? err.code : undefined,
-        providerCode: err instanceof GroqClientError ? err.providerCode : undefined,
-        providerStatus: err instanceof GroqClientError ? err.providerStatus : undefined,
-        cancelled,
-      });
+      const cancelled = Boolean(executionAbortController?.signal.aborted && !executionLeaseLost);
       const providerErrorCode = err instanceof GroqClientError ? err.code : "UNKNOWN";
-      const providerRetryable = err instanceof GroqClientError
-        ? err.code === "RATE_LIMITED"
-          || err.code === "TIMEOUT"
-          || err.code === "NETWORK_ERROR"
-          || err.code === "SERVER_ERROR"
-          || err.code === "MODEL_UNAVAILABLE"
-        : true;
-      const terminalOutcome = {
-        failureKind: cancelled
-          ? "CANCELLATION" as const
-          : hasRecoveryAttempted(traceSteps)
-            ? "RECOVERY_FAILURE" as const
-            : "INCOMPLETE" as const,
-        ...(providerFailureCategory ? { providerFailureCategory } : {}),
-        retryable: cancelled ? true : providerRetryable,
-        recoveryState: cancelled || !hasRecoveryAttempted(traceSteps)
-          ? "INCOMPLETE" as const
-          : "REQUIRED" as const,
-      };
+      const endedBeforeProviderEvidence =
+        streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
+      const terminalOutcome = classifyAiTerminalOutcome({
+        trace: traceSteps,
+        requiresEvidence: streamTurnIntent.requiresEvidence,
+        forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
+          || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence),
+        cancelled,
+        leaseLost: executionLeaseLost,
+        endedBeforeEvidence: endedBeforeProviderEvidence,
+        providerEmptyBeforeEvidence:
+          endedBeforeProviderEvidence
+          && err instanceof GroqClientError
+          && err.code === "EMPTY_RESPONSE",
+        ...(err instanceof GroqClientError
+          ? {
+              providerError: {
+                code: err.code,
+                providerCode: err.providerCode,
+                providerStatus: err.providerStatus,
+                fallbackExhausted: true,
+                retryable: err.code === "RATE_LIMITED"
+                  || err.code === "TIMEOUT"
+                  || err.code === "NETWORK_ERROR"
+                  || err.code === "SERVER_ERROR"
+                  || err.code === "MODEL_UNAVAILABLE",
+              },
+            }
+          : {}),
+      });
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
           recordInvalidModel(provider);
@@ -6793,7 +6883,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         // stay in the structured server log above. The stream exposes only the
         // bounded public error contract, after durable terminal persistence.
         const publicErrorCode = err instanceof GroqClientError ? err.code : "unknown";
-        const retryable = err instanceof GroqClientError ? providerRetryable : terminalOutcome.retryable;
+        const retryable = terminalOutcome.retryable;
         sse({
           type: "error",
           code: publicErrorCode,
@@ -7147,6 +7237,8 @@ router.post("/ai/chat/stream", async (req, res) => {
       let lockedExecution: {
         id: string;
         status: string;
+        workerId: string | null;
+        leaseUntil: Date | null;
         finalMessageId: string | null;
       } | undefined;
       if (typeof (executionLockQuery as { for?: unknown }).for === "function") {
@@ -7158,6 +7250,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         !lockedExecution
         || lockedExecution.finalMessageId
         || lockedExecution.status !== "running"
+        || lockedExecution.workerId !== executionWorkerId
+        || !lockedExecution.leaseUntil
+        || lockedExecution.leaseUntil <= msgNow
       ) {
         return undefined;
       }
@@ -7170,6 +7265,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         .where(and(
           eq(aiExecutionsTable.id, durableExecutionId),
           eq(aiExecutionsTable.status, "running"),
+          eq(aiExecutionsTable.workerId, executionWorkerId),
+          gt(aiExecutionsTable.leaseUntil, msgNow),
           isNull(aiExecutionsTable.finalMessageId),
         ))
         .returning({ id: aiExecutionsTable.id });
@@ -7664,35 +7761,46 @@ router.post("/ai/chat/stream", async (req, res) => {
       { err, executionId: aiExecution?.id ?? null },
       "chat stream: unexpected error after SSE setup",
     );
-    const unexpectedErrorCode =
-      err instanceof GroqClientError && /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code)
+    const unexpectedErrorCode = executionLeaseLost
+      ? "EXECUTION_LEASE_EXPIRED"
+      : err instanceof GroqClientError && /^[A-Z][A-Z0-9_]{2,79}$/.test(err.code)
         ? err.code
         : "STREAM_INTERNAL_ERROR";
-    const unexpectedExecutionError =
-      err instanceof GroqClientError
+    const unexpectedExecutionError = executionLeaseLost
+      ? "Execution ownership expired before completion."
+      : err instanceof GroqClientError
         ? `AI provider failure: ${unexpectedErrorCode}`
         : "Unexpected error while processing the AI execution.";
     if (aiExecution && !executionTerminal) {
       // The generic catch is the last place that still knows the original
       // failure. Persist it before finally can apply its generic safeguard.
       await settleExecutionCheckpoint();
-      await failAiExecution({
-        executionId: aiExecution.id,
-        workerId: executionWorkerId!,
-        finalMessageId: terminalAssistantMessageId,
-        error: unexpectedExecutionError,
-        cancelled: executionAbortController?.signal.aborted,
-        evidenceVerdict: "UNAVAILABLE",
-        evidenceReason: executionAbortController?.signal.aborted
-          ? "The execution was cancelled before a complete terminal result."
-          : "The execution failed before a complete terminal result.",
-        evidenceReads: evidenceReadsForTerminal(),
-      }).catch((terminalError) => {
-        logger.warn(
-          { terminalError, executionId: aiExecution!.id },
-          "chat stream: unexpected-error terminal update failed",
-        );
-      });
+      if (executionLeaseLost) {
+        await reconcileAiExecutions({ expiredOnly: true }).catch((terminalError) => {
+          logger.warn(
+            { terminalError, executionId: aiExecution!.id },
+            "chat stream: lease-loss reconciliation failed",
+          );
+        });
+      } else {
+        await failAiExecution({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId!,
+          finalMessageId: terminalAssistantMessageId,
+          error: unexpectedExecutionError,
+          cancelled: executionAbortController?.signal.aborted,
+          evidenceVerdict: "UNAVAILABLE",
+          evidenceReason: executionAbortController?.signal.aborted
+            ? "The execution was cancelled before a complete terminal result."
+            : "The execution failed before a complete terminal result.",
+          evidenceReads: evidenceReadsForTerminal(),
+        }).catch((terminalError) => {
+          logger.warn(
+            { terminalError, executionId: aiExecution!.id },
+            "chat stream: unexpected-error terminal update failed",
+          );
+        });
+      }
       executionTerminal = true;
     }
     // SSE headers are already committed for this try block. Do not let
@@ -7704,9 +7812,12 @@ router.post("/ai/chat/stream", async (req, res) => {
           res.write(`data: ${JSON.stringify({
             type: "error",
             code: unexpectedErrorCode,
-            message: "The AI request could not complete. Please retry.",
+            message: executionLeaseLost
+              ? "Execution ownership expired before completion."
+              : "The AI request could not complete. Please retry.",
             outcome: "FAILED",
             retryable: true,
+            ...(executionLeaseLost ? { failureKind: "INCOMPLETE", recoveryState: "REQUIRED" } : {}),
             ...(aiExecution?.id ? { executionId: aiExecution.id } : {}),
           })}\n\n`);
         } catch (writeError) {
@@ -7732,19 +7843,25 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     if (aiExecution && !executionTerminal) {
       await settleExecutionCheckpoint();
-      await failAiExecution({
-        executionId: aiExecution.id,
-        workerId: executionWorkerId!,
-        finalMessageId: terminalAssistantMessageId,
-        error: executionAbortController?.signal.aborted
-          ? "Execution cancelled by the user."
-          : "Execution ended before reaching a terminal result.",
-        cancelled: executionAbortController?.signal.aborted,
-        nodeStates: executionNodeStates,
-        evidenceReads: evidenceReadsForTerminal(),
-      }).catch((err) => {
-        logger.warn({ err, executionId: aiExecution!.id }, "AI execution terminal-state update failed");
-      });
+      if (executionLeaseLost) {
+        await reconcileAiExecutions({ expiredOnly: true }).catch((err) => {
+          logger.warn({ err, executionId: aiExecution!.id }, "AI execution lease-loss reconciliation failed");
+        });
+      } else {
+        await failAiExecution({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId!,
+          finalMessageId: terminalAssistantMessageId,
+          error: executionAbortController?.signal.aborted
+            ? "Execution cancelled by the user."
+            : "Execution ended before reaching a terminal result.",
+          cancelled: executionAbortController?.signal.aborted,
+          nodeStates: executionNodeStates,
+          evidenceReads: evidenceReadsForTerminal(),
+        }).catch((err) => {
+          logger.warn({ err, executionId: aiExecution!.id }, "AI execution terminal-state update failed");
+        });
+      }
       executionTerminal = true;
     }
     if (aiExecution) {

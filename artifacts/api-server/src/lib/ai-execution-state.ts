@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import type {
@@ -1855,6 +1855,30 @@ export async function heartbeatAiExecution(params: {
   return Boolean(updated);
 }
 
+export async function ownsAiExecutionLease(params: {
+  executionId: string;
+  workerId: string;
+}): Promise<boolean> {
+  const [execution] = await db
+    .select({
+      status: aiExecutionsTable.status,
+      workerId: aiExecutionsTable.workerId,
+      leaseUntil: aiExecutionsTable.leaseUntil,
+      cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, params.executionId))
+    .limit(1);
+  return Boolean(
+    execution
+    && execution.status === "running"
+    && execution.workerId === params.workerId
+    && execution.leaseUntil
+    && execution.leaseUntil > new Date()
+    && !execution.cancelRequestedAt,
+  );
+}
+
 export async function completeAiExecution(params: {
   executionId: string;
   workerId: string;
@@ -2193,10 +2217,18 @@ export function unregisterAiExecutionController(executionId: string, controller:
   if (activeControllers.get(executionId) === controller) activeControllers.delete(executionId);
 }
 
-export async function reconcileAiExecutions(): Promise<number> {
+export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = {}): Promise<number> {
   const now = new Date();
   const running = await db.select().from(aiExecutionsTable).where(
-    inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+    params.expiredOnly
+      ? or(
+          eq(aiExecutionsTable.status, "cancelling"),
+          and(
+            eq(aiExecutionsTable.status, "running"),
+            lt(aiExecutionsTable.leaseUntil, now),
+          ),
+        )
+      : inArray(aiExecutionsTable.status, ["running", "cancelling"]),
   );
   let count = 0;
   for (const execution of running) {

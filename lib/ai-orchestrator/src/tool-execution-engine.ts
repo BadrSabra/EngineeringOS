@@ -1293,6 +1293,13 @@ export type ToolLoopOpts = {
 
   /** Request-owned budget shared across every orchestration phase. */
   executionLedger?: ExecutionLedger;
+
+  /**
+   * Optional durable ownership probe. Providers may ignore AbortSignal, so the
+   * loop checks this before and after every provider await and before dispatching
+   * a tool. The callback must throw when the execution is no longer owned.
+   */
+  assertExecutionOwned?: () => void | Promise<void>;
 };
 
 export type ToolLoopResult =
@@ -1769,6 +1776,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     onStep,
     executionLedger: suppliedExecutionLedger,
     toolManifest,
+    assertExecutionOwned,
   } = opts;
   const executionLedger =
     suppliedExecutionLedger ??
@@ -1809,13 +1817,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         `Execution ${kind} budget exhausted.`,
       );
     }
+    if (assertExecutionOwned) await assertExecutionOwned();
     try {
-      return await strategy.call(callMessages, {
+      const response = await strategy.call(callMessages, {
         ...callOptions,
         timeoutMs: executionLedger.timeoutMs(callOptions.timeoutMs),
         signal: callSignal ?? executionLedger.signal,
         executionLedger,
       });
+      if (assertExecutionOwned) await assertExecutionOwned();
+      return response;
     } finally {
       executionLedger.complete(kind, {
         provider,
@@ -4532,6 +4543,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // a later repair attempt.
         validationAttemptPatches.set(validationProfile ?? "", currentPatch);
       }
+      if (assertExecutionOwned) await assertExecutionOwned();
       const toolResult = await executeSingleTool({
         name: tc.function.name,
         args,
@@ -4556,6 +4568,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         analysisDeadlineAt: executionLedger?.deadlineAt,
         signal,
       });
+      if (assertExecutionOwned) await assertExecutionOwned();
 
       if (toolResult.kind === "unknown_tool") {
         console.error(

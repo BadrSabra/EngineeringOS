@@ -16,6 +16,7 @@ export type AiTerminalOutcome = {
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   failureKind?: AiTerminalFailureKind;
   providerFailureCategory?: ProviderFailureCategory;
+  contractFailureCategory?: AiExecutionContractFailureCategory;
   retryable: boolean;
   code?: string;
   message?: string;
@@ -183,13 +184,17 @@ type TerminalClassifierInput = {
   result?: unknown;
   trace: readonly AgentStep[];
   cancelled?: boolean;
+  leaseLost?: boolean;
   transportInterrupted?: boolean;
   providerError?: {
     code?: unknown;
     providerCode?: unknown;
     providerStatus?: unknown;
     fallbackExhausted?: boolean;
+    retryable?: boolean;
   };
+  /** A provider returned no usable completion before any required evidence. */
+  providerEmptyBeforeEvidence?: boolean;
   endedBeforeEvidence?: boolean;
   requiresEvidence?: boolean;
   /** Route intent, rather than response prose, determines forensic gates. */
@@ -274,10 +279,10 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
   );
   const doneRecord = record(done);
   const toolRecord = record(toolResult);
-  const cancelled = Boolean(input.cancelled || input.transportInterrupted)
+  const cancelled = !input.leaseLost && (Boolean(input.cancelled || input.transportInterrupted)
     || doneRecord.stopReason === "cancelled"
     || toolRecord.resultKind === "cancelled"
-    || hasDiagnostic(trace, /AbortError|cancel(?:lation|led).*user/i, true);
+    || hasDiagnostic(trace, /AbortError|cancel(?:lation|led).*user/i, true));
 
   if (cancelled) {
     return {
@@ -287,6 +292,18 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
       code: "EXECUTION_CANCELLED",
       message: "Execution was cancelled before completion.",
       recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    };
+  }
+
+  if (input.leaseLost) {
+    return {
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      retryable: true,
+      code: "EXECUTION_LEASE_EXPIRED",
+      message: "Execution ownership expired before completion.",
+      recoveryState: "REQUIRED",
       evidenceAccepted: false,
     };
   }
@@ -354,6 +371,18 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
         cancelled,
       })
     : undefined;
+  if (forensic && input.providerEmptyBeforeEvidence) {
+    return {
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      contractFailureCategory: "PROVIDER_EMPTY",
+      retryable: true,
+      code: "INCOMPLETE_BEFORE_EVIDENCE",
+      message: "The result is incomplete because no source evidence was read.",
+      recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    };
+  }
   if (providerFailureCategory) {
     const providerPolicy = decideProviderFailurePolicy({
       category: providerFailureCategory,
@@ -366,7 +395,7 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
       outcome: "FAILED",
       failureKind: recoveryAttempted ? "RECOVERY_FAILURE" : "INCOMPLETE",
       providerFailureCategory,
-      retryable: providerPolicy.retryable,
+      retryable: input.providerError?.retryable ?? providerPolicy.retryable,
       code: recoveryAttempted ? "FORENSIC_RECOVERY_FAILED" : "AI_PROVIDER_FAILURE",
       message: "The AI provider could not complete the request.",
       recoveryState: recoveryAttempted ? "REQUIRED" : "INCOMPLETE",
