@@ -6461,7 +6461,7 @@ export const getAiChatStreamUrl = () => {
  *        limited failure labels/codes, and are not report content or evidence.
  *
  *    { "type": "intent",
- *      "intent": "CHAT" | "PROJECT_QUERY" | "FORENSIC_AUDIT" | "DELIVERY",
+ *      "intent": "CHAT" | "PROJECT_QUERY" | "FORENSIC_AUDIT" | "DELIVERY" | "RUN_PROJECT_SCAN",
  *      "operationMode": "CHAT" | "FORENSIC_AUDIT" | "DELIVERY",
  *      "requiresEvidence": true | false }
  *      — Server-authoritative routing decision for this turn.
