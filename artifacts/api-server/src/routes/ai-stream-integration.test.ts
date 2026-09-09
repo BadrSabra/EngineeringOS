@@ -55,6 +55,7 @@ import {
   buildPatchHunks,
   buildProjectContext,
   formatMemoriesForPrompt,
+  GroqClientError,
   hashPatchBase,
   type ExecutionNode,
 } from "@workspace/ai-orchestrator";
@@ -7443,6 +7444,88 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 // ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
 
 describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+  it("describes retained partial evidence accurately when all providers fail", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Partial evidence provider failure");
+    const completePath = "src/complete-evidence.ts";
+    const incompletePath = "artifacts/api-server/src/routes/ai/chat.ts";
+    const completeBody = "export const retainedEvidence = true;\n";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as { retainedEvidence?: Map<string, string> } | undefined;
+      input?.retainedEvidence?.set(completePath, completeBody);
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: completePath,
+        cached: false,
+        outputLength: completeBody.length,
+        resultSummary: "Complete source read retained.",
+      });
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: incompletePath,
+        cached: false,
+        outputLength: 448_966,
+        resultSummary: "Source preview was truncated.",
+      });
+      throw new GroqClientError("NON_200", "provider rejected the request", {
+        context: { providerStatus: 400 },
+      });
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: "أشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع",
+      });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    expect(events.find((event) => event.type === "error")).toMatchObject({
+      outcome: "FAILED",
+      failureKind: expect.any(String),
+    });
+
+    const [storedMessage] = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        outcome: aiChatMessagesTable.outcome,
+        errorCode: aiChatMessagesTable.errorCode,
+      })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.sessionId, sessionId),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ))
+      .limit(1);
+    expect(storedMessage).toMatchObject({
+      outcome: "FAILED",
+      errorCode: "NON_200",
+    });
+    expect(storedMessage?.content).toContain("قراءة مصدرية مكتملة");
+    expect(storedMessage?.content).not.toContain("قبل قراءة الملفات المطلوبة");
+
+    const [execution] = await db
+      .select({
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        eq(aiExecutionsTable.sessionId, sessionId),
+      ))
+      .limit(1);
+    expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+      evidenceReason: "Complete source reads were retained, but the required evidence coverage was incomplete.",
+    });
+  });
+
   it("retains completed evidence after a native stream reset and resumes read-only", async () => {
     const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
     rootPaths.push(rootPath);

@@ -135,3 +135,4 @@
 - [Server-action terminality](server-action-terminality.md) — queued server actions must stay non-terminal until the durable job result is authoritative.
 - [Scan execution binding](scan-execution-binding.md) — server-owned scans must share one execution/operation identity from queue through terminal acceptance and reconnect.
 - [Direct mutation approval boundary](direct-mutation-approval.md) — unapproved mutation language enters read-only plan mode; only server-owned Build handoff enables writes.
+- [Evidence failure projection](evidence-failure-projection.md) — terminal provider failures must distinguish no reads, incomplete reads, and retained complete evidence without exposing provider diagnostics.

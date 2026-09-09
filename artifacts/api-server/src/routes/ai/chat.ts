@@ -1463,6 +1463,91 @@ function endedBeforeFirstSourceRead(traceSteps: AgentStep[]): boolean {
   );
 }
 
+type EvidenceFailureSummary = {
+  sourceReadCount: number;
+  completeSourceReadCount: number;
+  incompleteSourceReadCount: number;
+};
+
+function summarizeEvidenceForFailure(
+  traceSteps: AgentStep[],
+  retainedEvidence: ReadonlyMap<string, string>,
+): EvidenceFailureSummary {
+  const attemptedPaths = new Set<string>();
+  for (const step of traceSteps) {
+    if (
+      step.kind === "tool_call"
+      && (step.tool === "read_file" || step.tool === "read_file_range")
+    ) {
+      const path = step.args.path?.trim();
+      if (path) attemptedPaths.add(path);
+    } else if (
+      step.kind === "tool_result"
+      && (step.tool === "read_file" || step.tool === "read_file_range")
+      && step.source?.trim()
+    ) {
+      attemptedPaths.add(step.source.trim());
+    }
+  }
+
+  const completePaths = new Set(
+    [...retainedEvidence.keys()]
+      .map((path) => path.trim())
+      .filter((path) => path.length > 0),
+  );
+  const sourceReadCount = new Set([...attemptedPaths, ...completePaths]).size;
+  const completeSourceReadCount = completePaths.size;
+  return {
+    sourceReadCount,
+    completeSourceReadCount,
+    incompleteSourceReadCount: Math.max(0, sourceReadCount - completeSourceReadCount),
+  };
+}
+
+function evidenceFailureMessage(
+  message: string,
+  turnIntent: string,
+  summary: EvidenceFailureSummary | undefined,
+  outcome: "FAILED" | "INTERRUPTED",
+): string {
+  if (outcome === "INTERRUPTED") {
+    return /[\u0600-\u06FF]/.test(message)
+      ? "تم إيقاف التحليل قبل اكتماله بناءً على طلب الإلغاء. لم يتم اعتماد تقرير نهائي."
+      : "The analysis was cancelled before completion. No final report was accepted.";
+  }
+  if (turnIntent === "CHAT") {
+    return /[\u0600-\u06FF]/.test(message)
+      ? "تعذر إكمال طلب الذكاء الاصطناعي بسبب فشل مزود الخدمة. يرجى المحاولة مرة أخرى."
+      : "The AI request could not be completed because the provider failed. Please try again.";
+  }
+
+  const sourceReadCount = summary?.sourceReadCount ?? 0;
+  const completeSourceReadCount = summary?.completeSourceReadCount ?? 0;
+  if (sourceReadCount === 0) {
+    return /[\u0600-\u06FF]/.test(message)
+      ? "لم يكتمل التحليل لأن مزودي الذكاء الاصطناعي فشلوا قبل قراءة الملفات المطلوبة. لم يتم إنشاء تقرير مقبول أو جمع أدلة مصدر."
+      : "The analysis could not complete because the AI providers failed before reading the required files. No accepted report or source evidence was produced.";
+  }
+  if (completeSourceReadCount === 0) {
+    return /[\u0600-\u06FF]/.test(message)
+      ? "توقّف التحليل بعد محاولة قراءة المصدر، لكن لم يتم الاحتفاظ بقراءة مكتملة. لم يتم إنشاء تقرير مقبول."
+      : "The analysis stopped after attempting to read source files, but no complete source read was retained. No accepted report was produced.";
+  }
+  return /[\u0600-\u06FF]/.test(message)
+    ? "توقّف التحليل بعد الاحتفاظ بقراءة مصدرية مكتملة، لكن الأدلة المطلوبة لم تكتمل. لم يتم إنشاء تقرير مقبول."
+    : "The analysis stopped after retaining complete source evidence, but the required evidence was incomplete. No accepted report was produced.";
+}
+
+function evidenceFailureReason(summary: EvidenceFailureSummary | undefined): string {
+  if (!summary || summary.sourceReadCount === 0) {
+    return "The provider failed before any source read was completed.";
+  }
+  if (summary.completeSourceReadCount === 0) {
+    return "Source reads were attempted, but no complete source body was retained.";
+  }
+  return "Complete source reads were retained, but the required evidence coverage was incomplete.";
+}
+
 function failClosedBeforeEvidenceResponse(message: string): string {
   return /[\u0600-\u06FF]/.test(message)
     ? "توقف التنفيذ قبل قراءة أي ملف مصدر، لذلك لا يمكن اعتبار النتيجة مكتملة أو مثبتة. أعد المحاولة مع هدف أو ملف واضح."
@@ -1574,6 +1659,7 @@ async function persistFailedChatTurn(params: {
   behaviorEvidence?: unknown;
   repairPlanMetadata?: unknown;
   terminalOutcome?: Pick<AiTerminalOutcome, "failureKind" | "providerFailureCategory" | "contractFailureCategory" | "retryable" | "recoveryState">;
+  evidenceSummary?: EvidenceFailureSummary;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   createdAt: Date;
@@ -1626,13 +1712,7 @@ async function persistFailedChatTurn(params: {
       : persistedTrace;
      const assistantContent = params.content
        ? sanitizeResponseText(params.content).slice(0, 12_000)
-        : params.turnIntent === "CHAT"
-          ? /[\u0600-\u06FF]/.test(params.message)
-            ? "تعذر إكمال طلب الذكاء الاصطناعي بسبب فشل مزود الخدمة. يرجى المحاولة مرة أخرى."
-            : "The AI request could not be completed because the provider failed. Please try again."
-          : /[\u0600-\u06FF]/.test(params.message)
-            ? "لم يكتمل التحليل لأن مزودي الذكاء الاصطناعي فشلوا قبل قراءة الملفات المطلوبة. لم يتم إنشاء تقرير مقبول أو جمع أدلة مصدر."
-            : "The analysis could not complete because the AI providers failed before reading the required files. No accepted report or source evidence was produced.";
+        : evidenceFailureMessage(params.message, params.turnIntent, params.evidenceSummary, params.outcome);
     const assistantErrorMessage = redactUserFacingText(params.errorMessage).slice(0, 500);
     if (params.createSessionIfMissing) {
       const [session] = await tx
@@ -4615,9 +4695,14 @@ router.post("/ai/chat/stream", async (req, res) => {
     if (providerAttemptSummary.length > 8) providerAttemptSummary.shift();
   };
   const retainedEvidence = new Map<string, string>();
+  const traceSteps: AgentStep[] = [];
   const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
     retainedEvidence,
     streamTurnIntent.requiresEvidence,
+  );
+  const evidenceFailureSummary = () => summarizeEvidenceForFailure(
+    traceSteps,
+    retainedEvidence,
   );
 
   try {
@@ -5593,7 +5678,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     // Checkpoints include the accumulated agent trace, including the first
     // lifecycle checkpoint below. Initialize it before creating or invoking
     // the checkpoint writer so this closure never hits the temporal dead zone.
-    const traceSteps: AgentStep[] = [];
     const failureActiveTaskState = (): string | null => nextSessionTaskState({
       persisted: streamResumableStateForTurn,
       classification: streamClassification,
@@ -6735,6 +6819,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           behaviorEvidence: result.behaviorEvidence,
           repairPlanMetadata: result.repairPlan,
           terminalOutcome,
+          evidenceSummary: evidenceFailureSummary(),
           createdAt: now,
           assistantAt: msgNow,
           toolTrace: traceSteps,
@@ -7004,6 +7089,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
+        evidenceSummary: evidenceFailureSummary(),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         terminalOutcome,
       }).catch((persistError) => {
@@ -7033,7 +7119,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             evidenceVerdict: "UNAVAILABLE",
             evidenceReason: cancelled
               ? "The execution was cancelled before source evidence could be collected."
-              : `The provider failed before source evidence could be collected (${providerErrorCode}).`,
+              : evidenceFailureReason(evidenceFailureSummary()),
             evidenceReads: evidenceReadsForTerminal(),
             providerAttempts: providerAttemptSummary,
             finalMessageId: persistedProviderFailure?.id,
@@ -7109,6 +7195,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
+        evidenceSummary: evidenceFailureSummary(),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         terminalOutcome: {
           failureKind: "QUALITY_REVIEW",
@@ -7190,6 +7277,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           assistantAt: msgNow,
           toolTrace: traceSteps,
           executionLedgerSnapshot,
+          evidenceSummary: evidenceFailureSummary(),
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         }).catch((persistError) => {
           logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
@@ -7388,6 +7476,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           assistantAt: msgNow,
           toolTrace: traceSteps,
           executionLedgerSnapshot,
+          evidenceSummary: evidenceFailureSummary(),
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           terminalOutcome: {
             failureKind: "RECOVERY_FAILURE",
