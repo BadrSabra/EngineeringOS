@@ -7782,6 +7782,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     const sessionId = sessions[0]!.id;
     const storedRows = await db
       .select({
+        content: aiChatMessagesTable.content,
         toolTrace: aiChatMessagesTable.toolTrace,
         errorMessage: aiChatMessagesTable.errorMessage,
       })
@@ -7790,6 +7791,10 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       .orderBy(aiChatMessagesTable.createdAt);
     const storedAssistant = storedRows.find((row) => row.toolTrace?.includes("terminal_outcome"));
     expect(storedAssistant).toBeDefined();
+    expect(storedAssistant?.content).toContain(
+      "The analysis could not complete because the AI providers failed before reading the required files.",
+    );
+    expect(storedAssistant?.content).not.toContain("complete source read was retained");
     expect(JSON.parse(storedAssistant?.toolTrace ?? "[]")).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "terminal_outcome",
@@ -7830,6 +7835,70 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     });
     expect(JSON.stringify(history.body)).not.toContain(sensitivePath);
     expect(JSON.stringify(history.body)).not.toContain(internalId);
+  });
+
+  it("describes a truncated-only source read without claiming complete evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Truncated-only provider failure");
+    const truncatedPath = "src/truncated-only.ts";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: truncatedPath,
+        cached: false,
+        outputLength: 448_966,
+        resultSummary: "Source preview was truncated.",
+      });
+      throw new GroqClientError("NON_200", "provider rejected the request", {
+        context: { providerStatus: 400 },
+      });
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: "Run a forensic audit to trigger provider failure",
+      });
+
+    expect(res.status).toBe(200);
+    expect(parseSseEvents(res.text)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "error", outcome: "FAILED" }),
+    ]));
+
+    const [storedMessage] = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        outcome: aiChatMessagesTable.outcome,
+      })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.sessionId, sessionId),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ))
+      .limit(1);
+    expect(storedMessage).toMatchObject({ outcome: "FAILED" });
+    expect(storedMessage?.content).toContain(
+      "The analysis stopped after attempting to read source files, but no complete source read was retained.",
+    );
+    expect(storedMessage?.content).not.toContain("before reading the required files");
+
+    const [execution] = await db
+      .select({ checkpoint: aiExecutionsTable.checkpoint })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        eq(aiExecutionsTable.sessionId, sessionId),
+      ))
+      .limit(1);
+    expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
+      evidenceReason: "Source reads were attempted, but no complete source body was retained.",
+    });
   });
 
   it("should expose a bounded Retry-After hint for an exhausted rate-limited chain", async () => {
