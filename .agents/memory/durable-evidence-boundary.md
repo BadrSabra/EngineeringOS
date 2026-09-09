@@ -7,4 +7,4 @@ Persisted tool traces are observability metadata, not complete source evidence. 
 
 **Why:** The trace serializer intentionally omits tool output bodies to protect the public history surface and keep records bounded. Treating that trace as an immutable proof snapshot would allow a run to look complete after the source body needed to verify it has disappeared.
 
-**How to apply:** Build the evidence manifest from the final verifier state before synthesis/terminalization, fail closed on missing or truncated required bodies, and expose only a redacted manifest/reference projection to clients.
+**How to apply:** Build the evidence manifest from the final verifier state before synthesis/terminalization, fail closed on missing or truncated required bodies, and expose only a redacted manifest/reference projection to clients. Failure and cancellation finalizers should reuse the same bounded retained-body projection only for evidence-required turns; preserve their non-success verdict and resumability independently.

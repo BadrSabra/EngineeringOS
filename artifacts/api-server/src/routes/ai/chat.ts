@@ -2988,6 +2988,30 @@ function collectReadEvidencePaths(steps: AgentStep[]): string[] {
     .slice(-48);
 }
 
+type RetainedEvidenceRead = {
+  path: string;
+  readType: "source";
+  body: string;
+  complete: true;
+  truncated: false;
+};
+
+function collectRetainedEvidenceReads(
+  retainedEvidence: ReadonlyMap<string, string>,
+  requiresEvidence: boolean,
+): RetainedEvidenceRead[] | undefined {
+  if (!requiresEvidence || retainedEvidence.size === 0) return undefined;
+  return [...retainedEvidence.entries()]
+    .slice(0, 128)
+    .map(([filePath, body]) => ({
+      path: filePath,
+      readType: "source" as const,
+      body,
+      complete: true as const,
+      truncated: false as const,
+    }));
+}
+
 function nextSessionTaskState(args: {
   persisted: ReturnType<typeof parseActiveTaskState>;
   classification: ReturnType<typeof classifyRequest>;
@@ -4427,6 +4451,11 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
     if (providerAttemptSummary.length > 8) providerAttemptSummary.shift();
   };
+  const retainedEvidence = new Map<string, string>();
+  const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
+    retainedEvidence,
+    streamTurnIntent.requiresEvidence,
+  );
 
   try {
     res.setHeader("Content-Type", "text/event-stream");
@@ -6273,7 +6302,6 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     let result: Awaited<ReturnType<typeof chat>>;
     let endedBeforeEvidence = false;
-    const retainedEvidence = new Map<string, string>();
     try {
       const chatOut = await chatWithFallback(
         req.userId,
@@ -6512,6 +6540,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                     ?? "Source evidence was retained, but the required capability claims were not closed.",
                 }
               : {}),
+            evidenceReads: evidenceReadsForTerminal(),
           });
           terminalProjection = await loadTerminalProjection({
             executionId: aiExecution.id,
@@ -6742,6 +6771,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             evidenceReason: cancelled
               ? "The execution was cancelled before source evidence could be collected."
               : `The provider failed before source evidence could be collected (${providerErrorCode}).`,
+            evidenceReads: evidenceReadsForTerminal(),
             providerAttempts: providerAttemptSummary,
             finalMessageId: persistedProviderFailure?.id,
             finalMessageErrorCode: providerErrorCode,
@@ -6837,6 +6867,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           recentSteps: serializeExecutionCheckpointSteps(traceSteps),
           evidenceVerdict: "UNAVAILABLE",
           evidenceReason: "The response did not meet the required quality checks.",
+          evidenceReads: evidenceReadsForTerminal(),
         });
         qualityTerminalProjection = await loadTerminalProjection({
           executionId: aiExecution.id,
@@ -6911,6 +6942,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
             evidenceVerdict: "UNAVAILABLE",
             evidenceReason: "The model response could not be parsed into the required result shape.",
+            evidenceReads: evidenceReadsForTerminal(),
           });
           parseTerminalProjection = await loadTerminalProjection({
             executionId: aiExecution.id,
@@ -7066,6 +7098,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                     ?? "Source evidence was retained, but the required capability claims were not closed.",
                 }
               : {}),
+            evidenceReads: evidenceReadsForTerminal(),
           });
         }
         await persistFailedChatTurn({
@@ -7362,6 +7395,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         streamedPreview: streamedContent,
         recentSteps: serializeExecutionCheckpointSteps(traceSteps),
         operation: autonomousOperation,
+        evidenceReads: evidenceReadsForTerminal(),
       });
     } else {
       const capabilityProbeTerminal = executionRequest.capabilityProbe
@@ -7652,6 +7686,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceReason: executionAbortController?.signal.aborted
           ? "The execution was cancelled before a complete terminal result."
           : "The execution failed before a complete terminal result.",
+        evidenceReads: evidenceReadsForTerminal(),
       }).catch((terminalError) => {
         logger.warn(
           { terminalError, executionId: aiExecution!.id },
@@ -7706,6 +7741,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           : "Execution ended before reaching a terminal result.",
         cancelled: executionAbortController?.signal.aborted,
         nodeStates: executionNodeStates,
+        evidenceReads: evidenceReadsForTerminal(),
       }).catch((err) => {
         logger.warn({ err, executionId: aiExecution!.id }, "AI execution terminal-state update failed");
       });

@@ -35,6 +35,7 @@ import {
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
+  aiExecutionEvidenceReadsTable,
   aiProviderCredentialsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
@@ -6394,13 +6395,17 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     vi.mocked(chatWithFallback).mockImplementationOnce(
       async (
         _userId,
-        _input,
+        input,
         _prov,
         onDelta,
         _options,
         _onStreamReset,
         onStep,
       ) => {
+        (input as { retainedEvidence?: Map<string, string> }).retainedEvidence?.set(
+          "src/current.ts",
+          "export const current = true;\n",
+        );
         onDelta?.(report);
         onStep?.({
           kind: "tool_result",
@@ -6516,6 +6521,50 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         verdict: "ANALYSIS_INCOMPLETE",
         reasonCode: "RECOVERY_BLOCKED",
       },
+    });
+
+    const [executionRow] = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    const [acceptance] = await db
+      .select({
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionRow!.id))
+      .limit(1);
+    const [snapshot] = await db
+      .select({
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    const [read] = await db
+      .select({
+        path: aiExecutionEvidenceReadsTable.path,
+        body: aiExecutionEvidenceReadsTable.body,
+      })
+      .from(aiExecutionEvidenceReadsTable)
+      .where(eq(aiExecutionEvidenceReadsTable.snapshotId, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      evidenceSnapshotId: expect.any(String),
+      evidenceComplete: 0,
+    });
+    expect(snapshot).toMatchObject({
+      verdict: "NOT_RECORDED",
+      complete: 0,
+      readCount: 1,
+    });
+    expect(read).toEqual({
+      path: "src/current.ts",
+      body: "export const current = true;\n",
     });
 
     const trace = assistant?.toolTrace ? JSON.parse(assistant.toolTrace) as Array<Record<string, unknown>> : [];
