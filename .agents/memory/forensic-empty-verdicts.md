@@ -3,7 +3,7 @@ name: Forensic empty verdicts
 description: The stable distinction between an evidence-complete empty audit and an incomplete forensic analysis.
 ---
 
-An empty forensic report must distinguish `NO_VERIFIED_FINDING` from `ANALYSIS_INCOMPLETE`: the former means the retained source reads and answer/evidence validation completed without proving a Finding, while the latter includes incomplete reads and runs whose model output or recovery failed before accepted claims were closed. Complete source bodies alone do not justify `NO_VERIFIED_FINDING`.
+An empty forensic report must distinguish `NO_VERIFIED_FINDING` from `ANALYSIS_INCOMPLETE`: the former means the retained source reads and answer/evidence validation completed without proving a Finding, while the latter includes incomplete reads and runs whose model output or recovery failed before accepted claims were closed. Complete source bodies alone do not justify `NO_VERIFIED_FINDING`. Keep the canonical no-finding report marker and terminal classifier in sync; a report using `NO_VERIFIED_FINDING` without the classifier's expected source-grounded basis shape can be downgraded to `NO_EVIDENCE_FOUND`. Scope labels are not proof labels: production read bodies with zero accepted evidence must not project `PRODUCTION_PROVEN`.
 
 **Why:** Treating both outcomes as a generic NOT PROVEN result obscures whether the audit actually completed and makes user-facing recovery output ambiguous.
 
