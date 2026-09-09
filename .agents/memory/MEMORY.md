@@ -131,3 +131,4 @@
 - [Evidence scheduler contract](evidence-scheduler-contract.md) — required source paths need complete/targeted reads; stalled loops force the next missing path, not repeated first-file reads.
 - [Short imperative routing](short-imperative-routing.md) — detect short execution commands before simple-chat fast paths so provider success cannot mask zero-tool non-execution.
 - [Browser-safe AI routing](browser-safe-ai-routing.md) — client intent helpers must avoid importing the Node-heavy orchestrator root into Vite.
+- [Server-action terminality](server-action-terminality.md) — queued server actions must stay non-terminal until the durable job result is authoritative.
