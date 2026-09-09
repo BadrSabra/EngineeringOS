@@ -649,6 +649,7 @@ export type { ActiveTask } from "./prompts/chat.prompt.js";
 export { classifyRequest, isSocialGreeting } from "./prompts/profile-classifier.js";
 export type { ClassifiedRequest, RequestCategory } from "./prompts/profile-classifier.js";
 export {
+  isRunProjectScanRequest,
   isPlanExecutionRequest,
   isWriteCapableTurn,
   resolveTurnIntent,
@@ -656,6 +657,7 @@ export {
 export type {
   TurnIntent,
   TurnIntentKind,
+  TurnServerAction,
   TurnOperationMode,
 } from "./turn-intent.js";
 export {

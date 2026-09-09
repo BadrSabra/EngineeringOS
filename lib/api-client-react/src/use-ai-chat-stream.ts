@@ -50,7 +50,7 @@ export type AiStreamDeltaEvent = {
 /** Server-authoritative routing decision emitted before model work begins. */
 export type AiStreamIntentEvent = {
   type: 'intent';
-  intent: 'CHAT' | 'PROJECT_QUERY' | 'FORENSIC_AUDIT' | 'DELIVERY';
+  intent: 'CHAT' | 'PROJECT_QUERY' | 'FORENSIC_AUDIT' | 'DELIVERY' | 'RUN_PROJECT_SCAN';
   operationMode: 'CHAT' | 'FORENSIC_AUDIT' | 'DELIVERY';
   requiresEvidence: boolean;
 };
@@ -184,6 +184,29 @@ export type AiStreamSessionStartedEvent = {
   sessionId: string;
   title: string;
   updatedAt: string;
+};
+
+export type AiStreamScanStartedEvent = {
+  type: 'scan_started';
+  projectId: string;
+  jobId: string;
+  status: 'queued' | 'running';
+};
+
+export type AiStreamScanProgressEvent = {
+  type: 'scan_progress';
+  projectId: string;
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  error?: string | null;
+};
+
+export type AiStreamScanCompletedEvent = {
+  type: 'scan_completed';
+  projectId: string;
+  jobId: string;
+  status: 'completed' | 'failed';
+  error?: string | null;
 };
 
 export type AiStreamExecutionStartedEvent = {
@@ -842,6 +865,9 @@ export type AiStreamEvent =
   | AiStreamAuditStateEvent
   | AiStreamVerificationEvent
   | AiStreamSessionStartedEvent
+  | AiStreamScanStartedEvent
+  | AiStreamScanProgressEvent
+  | AiStreamScanCompletedEvent
   | AiStreamDoneEvent
   | AiStreamErrorEvent
   | AiStreamResetEvent
@@ -892,6 +918,12 @@ export type AiChatStreamCallbacks = {
   onCapabilityGap?: (event: AiStreamCapabilityGapEvent) => void;
   /** Called once the server has reserved a new session before model work starts. */
   onSessionStarted?: (event: AiStreamSessionStartedEvent) => void;
+  /** Called when a server-owned project scan is queued. */
+  onScanStarted?: (event: AiStreamScanStartedEvent) => void;
+  /** Called when the server-owned project scan changes state. */
+  onScanProgress?: (event: AiStreamScanProgressEvent) => void;
+  /** Called when the server-owned project scan reaches a terminal state. */
+  onScanCompleted?: (event: AiStreamScanCompletedEvent) => void;
   onStage?: (stage: string) => void;
   /** Called once the server has resolved the authoritative turn routing contract. */
   onIntent?: (event: AiStreamIntentEvent) => void;
@@ -1033,6 +1065,15 @@ export async function processAiStream(
         case 'session_started':
           callbacks.onSessionStarted?.(event);
           break;
+        case 'scan_started':
+          callbacks.onScanStarted?.(event);
+          break;
+        case 'scan_progress':
+          callbacks.onScanProgress?.(event);
+          break;
+        case 'scan_completed':
+          callbacks.onScanCompleted?.(event);
+          break;
         case 'stage':
           callbacks.onStage?.(event.stage);
           break;
@@ -1165,6 +1206,9 @@ export function useAiChatStream() {
       onRecipeNodeProgress: (event) => { if (isCurrent()) callbacks.onRecipeNodeProgress?.(event); },
       onCapabilityGap: (event) => { if (isCurrent()) callbacks.onCapabilityGap?.(event); },
       onSessionStarted: (event) => { if (isCurrent()) callbacks.onSessionStarted?.(event); },
+      onScanStarted: (event) => { if (isCurrent()) callbacks.onScanStarted?.(event); },
+      onScanProgress: (event) => { if (isCurrent()) callbacks.onScanProgress?.(event); },
+      onScanCompleted: (event) => { if (isCurrent()) callbacks.onScanCompleted?.(event); },
       onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
       onIntent: (event) => { if (isCurrent()) callbacks.onIntent?.(event); },
       onAuditState: (event) => { if (isCurrent()) callbacks.onAuditState?.(event); },

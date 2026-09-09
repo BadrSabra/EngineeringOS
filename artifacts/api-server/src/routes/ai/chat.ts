@@ -24,6 +24,8 @@ import {
   eventsTable,
   tasksTable,
   browserValidationProfilesTable,
+  projectsTable,
+  scanJobsTable,
 } from "@workspace/db";
 import { eq, desc, and, inArray, isNull, sql } from "drizzle-orm";
 import { walkProject } from "@workspace/scanner";
@@ -180,6 +182,8 @@ import {
   redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
 import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+import { runScanJob } from "../../lib/scan-runner.js";
+import { heavyJobQueue } from "../../lib/job-queue.js";
 import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
 import {
   createDeliveryWorkspace,
@@ -4363,12 +4367,16 @@ router.post("/ai/chat/stream", async (req, res) => {
   // Provider/model routing must use the same authoritative intent as the
   // downstream agent. In particular, a terse continuation can inherit a
   // persisted forensic task and must not be routed from its raw text alone.
-  const providerResolved = await requireProvider(req.userId, res, {
-    requireTools: streamModelHasTools,
-    qualityProfile: streamTurnIntent.executionTaskType,
-  });
-  if (!providerResolved) return;
-  const { provider, apiKey } = providerResolved;
+  // Server-owned actions must not require an AI provider. In particular,
+  // "run scan" is a real project mutation handled by the scan queue below,
+  // not a prompt that a provider may answer narratively.
+  const providerResolved = streamTurnIntent.serverAction === "RUN_PROJECT_SCAN"
+    ? null
+    : await requireProvider(req.userId, res, {
+        requireTools: streamModelHasTools,
+        qualityProfile: streamTurnIntent.executionTaskType,
+      });
+  if (streamTurnIntent.serverAction !== "RUN_PROJECT_SCAN" && !providerResolved) return;
   // Read-only project and forensic turns may safely overlap. The apply lock is
   // reserved for an approved Build handoff, where the model can produce a
   // scoped write proposal and the existing write/approval gates apply.
@@ -4510,6 +4518,191 @@ router.post("/ai/chat/stream", async (req, res) => {
         updatedAt: createdSession.updatedAt.toISOString(),
       });
     }
+
+    if (streamTurnIntent.serverAction === "RUN_PROJECT_SCAN") {
+      const jobId = randomUUID();
+      const queuedAt = new Date();
+      const scanMessageTrace = () => JSON.stringify([{
+        kind: "server_action",
+        action: "RUN_PROJECT_SCAN",
+        jobId,
+      }]);
+
+      sse({
+        type: "intent",
+        intent: "RUN_PROJECT_SCAN",
+        operationMode: "CHAT",
+        requiresEvidence: false,
+      });
+      sse({ type: "stage", stage: "queueing-project-scan" });
+
+      const [queuedJob] = await db.transaction(async (tx) => {
+        const [createdJob] = await tx
+          .insert(scanJobsTable)
+          .values({
+            id: jobId,
+            projectId,
+            status: "queued",
+            createdAt: queuedAt,
+            idempotencyKey: jobId,
+          })
+          .returning();
+        await tx
+          .update(projectsTable)
+          .set({ status: "scanning", updatedAt: queuedAt })
+          .where(eq(projectsTable.id, projectId));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "ProjectScanQueued",
+          projectId,
+          severity: "info",
+          message: "Scan queued from AI chat",
+          payload: { jobId, source: "RUN_PROJECT_SCAN" },
+          correlationId: jobId,
+        });
+        await tx.insert(aiChatMessagesTable).values({
+          id: randomUUID(),
+          sessionId: sessionIdToUse,
+          role: "user",
+          content: message,
+          turnIntent: "RUN_PROJECT_SCAN",
+          outcome: "SUCCEEDED",
+          createdAt: now,
+        });
+        await tx
+          .update(aiChatSessionsTable)
+          .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})` })
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+        return [createdJob];
+      });
+
+      if (!queuedJob) {
+        sse({ type: "error", code: "SCAN_QUEUE_FAILED", message: "The project scan could not be queued." });
+        res.end();
+        return;
+      }
+
+      sse({
+        type: "scan_started",
+        projectId,
+        jobId,
+        status: queuedJob.status,
+      });
+
+      try {
+        heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, projectId));
+      } catch (error) {
+        logger.error({ error, projectId, jobId }, "chat scan action: failed to enqueue scan");
+        await db
+          .update(scanJobsTable)
+          .set({ status: "failed", error: "Failed to queue scan job", finishedAt: new Date() })
+          .where(eq(scanJobsTable.id, jobId));
+      }
+
+      let lastStatus: string | undefined;
+      let completedJob: typeof queuedJob | undefined;
+      const deadline = Date.now() + 15 * 60_000;
+      while (Date.now() < deadline) {
+        const [currentJob] = await db
+          .select()
+          .from(scanJobsTable)
+          .where(eq(scanJobsTable.id, jobId))
+          .limit(1);
+        if (!currentJob) break;
+        completedJob = currentJob;
+        if (currentJob.status !== lastStatus) {
+          lastStatus = currentJob.status;
+          sse({
+            type: "scan_progress",
+            projectId,
+            jobId,
+            status: currentJob.status,
+            ...(currentJob.error ? { error: redactUserFacingText(currentJob.error).slice(0, 240) } : {}),
+          });
+          if (currentJob.status === "running") {
+            sse({ type: "stage", stage: "running-project-scan" });
+          }
+        }
+        if (currentJob.status === "completed" || currentJob.status === "failed") break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+
+      const finalJob = completedJob;
+      const scanSucceeded = finalJob?.status === "completed";
+      const scanError = finalJob?.error
+        ? redactUserFacingText(finalJob.error).slice(0, 500)
+        : !finalJob
+          ? "The scan job could not be read after it was queued."
+          : "The project scan did not complete before the server deadline.";
+      const result = finalJob?.result;
+      const resultSummary = typeof result?.summary === "string" ? result.summary : undefined;
+      const content = scanSucceeded
+        ? [
+            "Project scan completed successfully.",
+            resultSummary,
+            `Scan job: ${jobId}`,
+          ].filter(Boolean).join("\n\n")
+        : `Project scan failed: ${scanError}\n\nScan job: ${jobId}`;
+      const assistantAt = new Date();
+      const [assistantMsg] = await db.transaction(async (tx) => {
+        const [msg] = await tx
+          .insert(aiChatMessagesTable)
+          .values({
+            id: randomUUID(),
+            sessionId: sessionIdToUse,
+            role: "assistant",
+            content,
+            turnIntent: "RUN_PROJECT_SCAN",
+            outcome: scanSucceeded ? "SUCCEEDED" : "FAILED",
+            errorCode: scanSucceeded ? null : "PROJECT_SCAN_FAILED",
+            errorMessage: scanSucceeded ? null : scanError,
+            sources: JSON.stringify([`scan-job:${jobId}`]),
+            toolTrace: scanMessageTrace(),
+            executionId: null,
+            createdAt: assistantAt,
+          })
+          .returning();
+        await tx
+          .update(aiChatSessionsTable)
+          .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${assistantAt})` })
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+        return [msg];
+      });
+
+      sse({
+        type: "scan_completed",
+        projectId,
+        jobId,
+        status: scanSucceeded ? "completed" : "failed",
+        ...(!scanSucceeded ? { error: scanError } : {}),
+      });
+      sse({
+        type: "done",
+        sessionId: sessionIdToUse,
+        message: {
+          ...assistantMsg,
+          sources: JSON.stringify([`scan-job:${jobId}`]),
+          turnIntent: "RUN_PROJECT_SCAN",
+          outcome: scanSucceeded ? "SUCCEEDED" : "FAILED",
+          executionId: null,
+          createdAt: assistantAt.toISOString(),
+        },
+        sources: [`scan-job:${jobId}`],
+        toolTrace: scanMessageTrace(),
+        pendingChanges: [],
+        operationId: jobId,
+        operationMode: "CHAT",
+        telemetry: { latencyMs: Date.now() - now.getTime() },
+      });
+      res.end();
+      return;
+    }
+
+    if (!providerResolved) {
+      throw new Error("AI provider resolution missing for a non-server action");
+    }
+    const { provider, apiKey } = providerResolved;
+
     if (streamAuditScopeDescription) {
       sse({
         type: "forensic_status",

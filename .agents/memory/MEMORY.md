@@ -130,3 +130,4 @@
 - [Structured cooldown backoff](structured-cooldown-backoff.md) — missing provider Retry-After uses bounded adaptive windows, while explicit provider/project durations remain authoritative.
 - [Evidence scheduler contract](evidence-scheduler-contract.md) — required source paths need complete/targeted reads; stalled loops force the next missing path, not repeated first-file reads.
 - [Short imperative routing](short-imperative-routing.md) — detect short execution commands before simple-chat fast paths so provider success cannot mask zero-tool non-execution.
+- [Browser-safe AI routing](browser-safe-ai-routing.md) — client intent helpers must avoid importing the Node-heavy orchestrator root into Vite.

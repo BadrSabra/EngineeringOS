@@ -94,6 +94,7 @@ import type {
   PublicValidationResult,
   ForensicDiagnostic,
 } from '@workspace/ai-orchestrator';
+import { isRunProjectScanRequest } from '@workspace/ai-orchestrator/scan-command';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
 import { ApiError } from '@/lib/api-fetch';
@@ -10010,15 +10011,16 @@ export default function AiChat() {
       toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
       return;
     }
-    if (!activeProvider) {
+    const isProjectScanRequest = isRunProjectScanRequest(msg);
+    if (!isProjectScanRequest && !activeProvider) {
       toast({ title: 'Checking AI provider health', description: 'Please wait a moment and try again.', variant: 'default' });
       return;
     }
-    if (!activeProvider.configured || !activeProvider.provider) {
+    if (!isProjectScanRequest && (!activeProvider?.configured || !activeProvider?.provider)) {
       toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
       return;
     }
-    if (activeProviderSendBlocked) {
+    if (!isProjectScanRequest && activeProviderSendBlocked) {
       toast({
         title: 'AI provider temporarily unavailable',
         description: 'Wait for the provider to recover or configure another provider before retrying.',
@@ -10417,6 +10419,44 @@ export default function AiChat() {
                ? `Evidence mode: ${event.intent.replace(/_/g, ' ')}`
                : `Request mode: ${event.intent.replace(/_/g, ' ')}`,
            );
+         },
+         onScanStarted: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           setAgentStage('Project scan queued');
+           appendLiveActivityEvent({
+             kind: 'stage',
+             label: 'Project scan queued',
+             detail: event.jobId.slice(0, 8),
+             status: 'active',
+           });
+         },
+         onScanProgress: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           const label = event.status === 'running'
+             ? 'Project scan running'
+             : event.status === 'queued'
+               ? 'Project scan queued'
+               : event.status === 'completed'
+                 ? 'Project scan completed'
+                 : 'Project scan failed';
+           setAgentStage(label);
+           appendLiveActivityEvent({
+             kind: 'stage',
+             label,
+             detail: event.error ?? event.jobId.slice(0, 8),
+             status: event.status === 'completed' ? 'done' : event.status === 'failed' ? 'info' : 'active',
+           });
+         },
+         onScanCompleted: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           const succeeded = event.status === 'completed';
+           setAgentStage(succeeded ? 'Project scan completed' : 'Project scan failed');
+           appendLiveActivityEvent({
+             kind: 'stage',
+             label: succeeded ? 'Project scan completed' : 'Project scan failed',
+             detail: event.error ?? event.jobId.slice(0, 8),
+             status: succeeded ? 'done' : 'info',
+           });
          },
          onAuditState: (event) => {
            if (generation !== streamGenerationRef.current) return;

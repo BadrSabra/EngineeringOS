@@ -2,12 +2,37 @@ import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import {
   isCompoundExecutionRequest,
+  isRunProjectScanRequest,
   isWriteCapableTurn,
   resolveTurnIntent,
 } from "../turn-intent.js";
 import { buildProviderTools } from "../agents/chat-agent.js";
 
 describe("resolveTurnIntent", () => {
+  it.each([
+    "تشغيل الفحص",
+    "تشغيل فحص المشروع",
+    "شغّل الفحص",
+    "نفّذ الفحص",
+    "ابدأ الفحص",
+    "run scan",
+    "execute the scan",
+    "please run the project scan",
+  ])("routes a project-scan command to the server-owned action: %s", (message) => {
+    expect(isRunProjectScanRequest(message)).toBe(true);
+    expect(resolveTurnIntent(message).serverAction).toBe("RUN_PROJECT_SCAN");
+  });
+
+  it.each([
+    "ما هو الفحص؟",
+    "اشرح لي الفحص",
+    "What is a project scan?",
+    "Audit the entire repository and identify the root causes.",
+  ])("does not treat a scan question or audit as the scan action: %s", (message) => {
+    expect(isRunProjectScanRequest(message)).toBe(false);
+    expect(resolveTurnIntent(message).serverAction).toBeUndefined();
+  });
+
   it("treats an explicit validation capability request as a project query, not a forensic audit", () => {
     const intent = resolveTurnIntent(
       "pecheck تشغيل اختبارات المعرفة عبر validation.run.knowledge-engine-tests",

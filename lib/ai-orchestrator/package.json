@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./capability-probe": "./src/prompts/capability-probe.ts"
+    "./capability-probe": "./src/prompts/capability-probe.ts",
+    "./scan-command": "./src/scan-command.ts"
   },
   "scripts": {
     "test": "pnpm run test:benchmark-scenarios && vitest run",

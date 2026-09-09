@@ -14,6 +14,9 @@ import {
   type OutputContract,
 } from "./task-contracts.js";
 import type { TaskType } from "./quality/task-profile.js";
+import { isRunProjectScanRequest } from "./scan-command.js";
+
+export { isRunProjectScanRequest } from "./scan-command.js";
 
 export type TurnIntentKind =
   | "CHAT"
@@ -22,6 +25,7 @@ export type TurnIntentKind =
   | "DELIVERY";
 
 export type TurnOperationMode = "CHAT" | "FORENSIC_AUDIT" | "DELIVERY";
+export type TurnServerAction = "RUN_PROJECT_SCAN";
 
 export type TurnIntentPhase =
   | "evidence"
@@ -67,6 +71,8 @@ export type TurnIntent = {
   classification: ClassifiedRequest;
   /** Server-owned subsystem target for a targeted read-only project query. */
   projectTarget?: ClassifiedRequest["projectTarget"];
+  /** A deterministic server-owned action that must not be delegated to a provider. */
+  serverAction?: TurnServerAction;
 };
 
 /**
@@ -183,6 +189,7 @@ export function resolveTurnIntent(
   } = {},
 ): TurnIntent {
   const classification = options.classification ?? classifyRequest(message);
+  const serverAction = isRunProjectScanRequest(message) ? "RUN_PROJECT_SCAN" as const : undefined;
   const route = routeTask(classification.taskType);
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
@@ -338,6 +345,7 @@ export function resolveTurnIntent(
     compoundWrite,
     phases,
     ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
+    ...(serverAction ? { serverAction } : {}),
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, message) }
       : {}),
