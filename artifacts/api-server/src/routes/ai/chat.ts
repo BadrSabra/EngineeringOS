@@ -4094,7 +4094,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     classification: rawTurnClassification,
   });
   const isolatedConversationTurn =
-    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+    rawTurnIntent.kind === "CHAT"
+    && !rawTurnIntent.serverAction
+    && !isTaskContinuationRequest(message);
   const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
   const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
 
@@ -4520,12 +4522,174 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     if (streamTurnIntent.serverAction === "RUN_PROJECT_SCAN") {
+      if (effectiveExecutionId) {
+        const existingScanExecution = await getAiExecutionForUser(effectiveExecutionId, req.userId);
+        const existingScanRequest = existingScanExecution
+          ? parseExecutionRequest(existingScanExecution.request)
+          : undefined;
+        const existingObjective = existingScanRequest?.objective;
+        const existingJobId = existingObjective
+          && typeof existingObjective === "object"
+          && !Array.isArray(existingObjective)
+          && typeof (existingObjective as Record<string, unknown>).scanJobId === "string"
+          ? (existingObjective as Record<string, unknown>).scanJobId as string
+          : existingScanExecution?.operationId;
+        if (!existingScanExecution || existingScanRequest?.turnIntent !== "RUN_PROJECT_SCAN" || !existingJobId) {
+          sse({ type: "error", code: "SCAN_EXECUTION_NOT_FOUND", message: "The requested project scan execution was not found." });
+          res.end();
+          return;
+        }
+        const [existingJob] = await db
+          .select()
+          .from(scanJobsTable)
+          .where(eq(scanJobsTable.id, existingJobId))
+          .limit(1);
+        if (!existingJob) {
+          sse({ type: "error", code: "SCAN_JOB_NOT_FOUND", message: "The durable project scan job was not found." });
+          res.end();
+          return;
+        }
+        if (existingScanExecution.status === "running" || existingScanExecution.status === "queued") {
+          sse({
+            type: "execution_started",
+            executionId: existingScanExecution.id,
+            status: existingScanExecution.status,
+            resumable: true,
+            turnIntent: "RUN_PROJECT_SCAN",
+            operationMode: "CHAT",
+            proofRequired: false,
+          });
+          sse({
+            type: "error",
+            code: "SCAN_ALREADY_RUNNING",
+            message: "This project scan is already running on the server. Follow its durable status instead of starting another scan.",
+            executionId: existingScanExecution.id,
+            jobId: existingJob.id,
+          });
+          res.end();
+          return;
+        }
+        if (existingScanExecution.status === "completed" || existingScanExecution.status === "failed"
+          || existingJob.status === "completed" || existingJob.status === "failed") {
+          const [existingMessage] = existingScanExecution.finalMessageId
+            ? await db
+              .select()
+              .from(aiChatMessagesTable)
+              .where(eq(aiChatMessagesTable.id, existingScanExecution.finalMessageId))
+              .limit(1)
+            : [];
+          if (!existingMessage) {
+            sse({ type: "error", code: "SCAN_RESULT_NOT_FOUND", message: "The completed scan result was not found." });
+            res.end();
+            return;
+          }
+          const terminalProjection = await loadTerminalProjection({
+            executionId: existingScanExecution.id,
+            sessionId: sessionIdToUse,
+            fallbackMessageId: existingMessage.id,
+          });
+          sse({
+            type: "execution_started",
+            executionId: existingScanExecution.id,
+            status: existingScanExecution.status,
+            resumable: false,
+            turnIntent: "RUN_PROJECT_SCAN",
+            operationMode: "CHAT",
+            proofRequired: false,
+          });
+          sse({
+            type: "scan_started",
+            projectId,
+            jobId: existingJob.id,
+            status: existingJob.status,
+          });
+          sse({
+            type: "scan_completed",
+            projectId,
+            jobId: existingJob.id,
+            status: existingJob.status,
+            result: existingJob.result ?? null,
+            error: existingJob.error ? redactUserFacingText(existingJob.error).slice(0, 500) : null,
+          });
+          sse({
+            type: "done",
+            sessionId: sessionIdToUse,
+            executionId: existingScanExecution.id,
+            operationId: existingScanExecution.operationId ?? existingJob.id,
+            operationMode: "CHAT",
+            terminalProjection,
+            message: existingMessage,
+            sources: [`scan-job:${existingJob.id}`],
+            pendingChanges: [],
+            telemetry: { resumed: true },
+          });
+          res.end();
+          return;
+        }
+        sse({ type: "error", code: "SCAN_EXECUTION_NOT_RESUMABLE", message: "This project scan is no longer resumable." });
+        res.end();
+        return;
+      }
+
       const jobId = randomUUID();
       const queuedAt = new Date();
+      const scanRequest: AiExecutionRequestEnvelope = {
+        projectId,
+        turnIntent: "RUN_PROJECT_SCAN",
+        operationId: jobId,
+        sessionId: sessionIdToUse,
+        message,
+        modelMessage: message,
+        workspaceRevision: project.updatedAt.toISOString(),
+        objective: { kind: "RUN_PROJECT_SCAN", scanJobId: jobId },
+        validationTargetPaths: [],
+        proofRequired: false,
+      };
+      executionWorkerId = randomUUID();
+      const createdExecution = await createAiExecution({
+        userId: req.userId,
+        request: scanRequest,
+        idempotencyKey: idempotencyKey ?? jobId,
+        projectId,
+        sessionId: sessionIdToUse,
+        linkedTaskId: effectiveLinkedTaskId,
+        correlationId: jobId,
+      });
+      aiExecution = createdExecution.execution;
+      const claimedExecution = await claimAiExecution({
+        executionId: aiExecution.id,
+        userId: req.userId,
+        workerId: executionWorkerId,
+      });
+      if (!claimedExecution) {
+        sse({ type: "error", code: "EXECUTION_CLAIM_CONFLICT", message: "Another request won the scan execution claim." });
+        res.end();
+        return;
+      }
+      aiExecution = claimedExecution;
+      const scanExecution = aiExecution;
+      await persistPendingUserTurn({
+        sessionId: sessionIdToUse,
+        executionId: scanExecution.id,
+        message,
+        turnIntent: "RUN_PROJECT_SCAN",
+        createdAt: now,
+      });
+      sse({
+        type: "execution_started",
+        executionId: scanExecution.id,
+        status: scanExecution.status,
+        ...(createdExecution.resumeToken ? { resumeToken: createdExecution.resumeToken } : {}),
+        resumable: true,
+        turnIntent: "RUN_PROJECT_SCAN",
+        operationMode: "CHAT",
+        proofRequired: false,
+      });
       const scanMessageTrace = () => JSON.stringify([{
         kind: "server_action",
         action: "RUN_PROJECT_SCAN",
         jobId,
+        executionId: scanExecution.id,
       }]);
 
       sse({
@@ -4560,15 +4724,6 @@ router.post("/ai/chat/stream", async (req, res) => {
           payload: { jobId, source: "RUN_PROJECT_SCAN" },
           correlationId: jobId,
         });
-        await tx.insert(aiChatMessagesTable).values({
-          id: randomUUID(),
-          sessionId: sessionIdToUse,
-          role: "user",
-          content: message,
-          turnIntent: "RUN_PROJECT_SCAN",
-          outcome: "SUCCEEDED",
-          createdAt: now,
-        });
         await tx
           .update(aiChatSessionsTable)
           .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})` })
@@ -4581,6 +4736,30 @@ router.post("/ai/chat/stream", async (req, res) => {
         res.end();
         return;
       }
+
+      let scanCheckpointSequence = scanExecution.checkpointVersion ?? 0;
+      const scanOperation = parseAiExecutionCheckpoint(scanExecution.checkpoint)?.operation;
+      const checkpointScan = async (
+        stage: AiExecutionCheckpoint["stage"],
+        detail: string,
+      ): Promise<void> => {
+        scanCheckpointSequence += 1;
+        const accepted = await checkpointAiExecution({
+          executionId: scanExecution.id,
+          workerId: executionWorkerId!,
+          checkpoint: {
+            stage,
+            sequence: scanCheckpointSequence,
+            ...(scanOperation ? { operation: scanOperation } : {}),
+            detail,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        if (!accepted) {
+          throw new Error("Scan execution lease was lost before terminalization.");
+        }
+      };
+      await checkpointScan("running", "Project scan queued and waiting for the scan worker.");
 
       sse({
         type: "scan_started",
@@ -4602,7 +4781,18 @@ router.post("/ai/chat/stream", async (req, res) => {
       let lastStatus: string | undefined;
       let completedJob: typeof queuedJob | undefined;
       const deadline = Date.now() + 15 * 60_000;
+      let lastExecutionHeartbeatAt = Date.now();
       while (Date.now() < deadline) {
+        if (Date.now() - lastExecutionHeartbeatAt >= AI_EXECUTION_HEARTBEAT_INTERVAL_MS) {
+          const heartbeatAccepted = await heartbeatAiExecution({
+            executionId: scanExecution.id,
+            workerId: executionWorkerId!,
+          });
+          if (!heartbeatAccepted) {
+            throw new Error("Scan execution heartbeat was rejected.");
+          }
+          lastExecutionHeartbeatAt = Date.now();
+        }
         const [currentJob] = await db
           .select()
           .from(scanJobsTable)
@@ -4612,6 +4802,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         completedJob = currentJob;
         if (currentJob.status !== lastStatus) {
           lastStatus = currentJob.status;
+          await checkpointScan(
+            currentJob.status === "completed" || currentJob.status === "failed" ? "finalizing" : "running",
+            `Project scan status: ${currentJob.status}.`,
+          );
           sse({
             type: "scan_progress",
             projectId,
@@ -4644,31 +4838,68 @@ router.post("/ai/chat/stream", async (req, res) => {
           ].filter(Boolean).join("\n\n")
         : `Project scan failed: ${scanError}\n\nScan job: ${jobId}`;
       const assistantAt = new Date();
-      const [assistantMsg] = await db.transaction(async (tx) => {
+      const assistantMessageId = randomUUID();
+      await db.transaction(async (tx) => {
         const [msg] = await tx
           .insert(aiChatMessagesTable)
           .values({
-            id: randomUUID(),
+            id: assistantMessageId,
             sessionId: sessionIdToUse,
             role: "assistant",
             content,
             turnIntent: "RUN_PROJECT_SCAN",
-            outcome: scanSucceeded ? "SUCCEEDED" : "FAILED",
-            errorCode: scanSucceeded ? null : "PROJECT_SCAN_FAILED",
-            errorMessage: scanSucceeded ? null : scanError,
+            executionId: scanExecution.id,
+            outcome: null,
+            errorCode: null,
+            errorMessage: null,
             sources: JSON.stringify([`scan-job:${jobId}`]),
             toolTrace: scanMessageTrace(),
-            executionId: null,
             createdAt: assistantAt,
           })
-          .returning();
+          .returning({ id: aiChatMessagesTable.id });
         await tx
           .update(aiChatSessionsTable)
           .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${assistantAt})` })
           .where(eq(aiChatSessionsTable.id, sessionIdToUse));
-        return [msg];
+        return msg;
       });
 
+      if (!executionWorkerId) {
+        throw new Error("Scan execution worker was not initialized.");
+      }
+      const terminalAccepted = scanSucceeded
+        ? await completeAiExecution({
+            executionId: scanExecution.id,
+            workerId: executionWorkerId,
+            finalMessageId: assistantMessageId,
+            finalMessageContent: content,
+            operationId: jobId,
+            proofRequired: false,
+          })
+        : await failAiExecution({
+            executionId: scanExecution.id,
+            workerId: executionWorkerId,
+            finalMessageId: assistantMessageId,
+            finalMessageErrorCode: "PROJECT_SCAN_FAILED",
+            error: scanError,
+            resumable: false,
+          });
+      if (!terminalAccepted) {
+        throw new Error("Scan execution terminalization was rejected.");
+      }
+      const [assistantMsg] = await db
+        .select()
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, assistantMessageId))
+        .limit(1);
+      if (!assistantMsg) {
+        throw new Error("Scan assistant message was not persisted.");
+      }
+      const terminalProjection = await loadTerminalProjection({
+        executionId: scanExecution.id,
+        sessionId: sessionIdToUse,
+        fallbackMessageId: assistantMessageId,
+      });
       sse({
         type: "scan_completed",
         projectId,
@@ -4684,14 +4915,16 @@ router.post("/ai/chat/stream", async (req, res) => {
           sources: JSON.stringify([`scan-job:${jobId}`]),
           turnIntent: "RUN_PROJECT_SCAN",
           outcome: scanSucceeded ? "SUCCEEDED" : "FAILED",
-          executionId: null,
+          executionId: aiExecution.id,
           createdAt: assistantAt.toISOString(),
         },
         sources: [`scan-job:${jobId}`],
         toolTrace: scanMessageTrace(),
         pendingChanges: [],
+        executionId: aiExecution.id,
         operationId: jobId,
         operationMode: "CHAT",
+        terminalProjection,
         telemetry: { latencyMs: Date.now() - now.getTime() },
       });
       res.end();

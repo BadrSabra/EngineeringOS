@@ -4508,6 +4508,127 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .toHaveLength(0);
   });
 
+  it("binds a server-owned project scan to one durable execution and terminal acceptance", async () => {
+    const rootPath = await fs.mkdtemp(path.join(process.cwd(), ".stream-project-scan-"));
+    rootPaths.push(rootPath);
+    await fs.writeFile(path.join(rootPath, "scan-fixture.ts"), "export const scanFixture = true;\n", "utf8");
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const providerCallsBefore = vi.mocked(chatWithFallback).mock.calls.length;
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "تشغيل الفحص" });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const started = events.find((event) => event.type === "execution_started");
+    const done = events.find((event) => event.type === "done");
+    const executionId = (done?.message as { executionId?: string } | undefined)?.executionId;
+    expect(started).toMatchObject({
+      executionId: expect.any(String),
+      turnIntent: "RUN_PROJECT_SCAN",
+      resumable: true,
+    });
+    expect(done).toMatchObject({
+      executionId: expect.any(String),
+      operationId: expect.any(String),
+      message: {
+        executionId: expect.any(String),
+        outcome: "SUCCEEDED",
+      },
+    });
+    expect(executionId).toBe(started?.executionId);
+    expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(providerCallsBefore);
+
+    const [execution] = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId!))
+      .limit(1);
+    expect(execution).toMatchObject({
+      projectId,
+      status: "completed",
+      operationId: expect.any(String),
+      finalMessageId: expect.any(String),
+    });
+    const storedRequest = JSON.parse(execution!.request) as {
+      objective?: { kind?: string; scanJobId?: string };
+    };
+    expect(storedRequest.objective).toMatchObject({
+      kind: "RUN_PROJECT_SCAN",
+      scanJobId: execution!.operationId,
+    });
+
+    const [scanJob] = await db
+      .select()
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.id, execution!.operationId!))
+      .limit(1);
+    expect(scanJob).toMatchObject({
+      id: execution!.operationId,
+      projectId,
+      status: "completed",
+    });
+
+    const messages = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, execution!.sessionId!));
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(messages.find((message) => message.role === "user")).toMatchObject({
+      executionId: execution!.id,
+      outcome: null,
+    });
+    expect(messages.find((message) => message.role === "assistant")).toMatchObject({
+      id: execution!.finalMessageId,
+      executionId: execution!.id,
+      outcome: "SUCCEEDED",
+    });
+
+    const [acceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      executionId: execution!.id,
+      messageId: execution!.finalMessageId,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId: execution!.sessionId,
+        executionId: execution!.id,
+        message: "تشغيل الفحص",
+      });
+    const resumedEvents = parseSseEvents(resumed.text);
+    const resumedDone = resumedEvents.find((event) => event.type === "done");
+    expect(resumed.status).toBe(200);
+    expect(resumedDone).toMatchObject({
+      executionId: execution!.id,
+      operationId: execution!.operationId,
+      telemetry: { resumed: true },
+    });
+    expect(await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId)))
+      .toHaveLength(1);
+    expect(await db
+      .select({ id: scanJobsTable.id })
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId)))
+      .toHaveLength(1);
+  });
+
   it("keeps a simple PROJECT_QUERY outside proof acceptance", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
