@@ -3515,6 +3515,7 @@ function relayForensicTerminal(opts: {
   claimsUnclosedButEvidenceAvailable: boolean;
   capabilityProbeClaimUnclosed?: boolean;
   capabilityProbeComplete?: boolean;
+  authoritativeNoFinding?: boolean;
   report: string;
   /**
    * AI-OBJ-005: when the Objective Completion Gate refuses finalization, the
@@ -3531,6 +3532,7 @@ function relayForensicTerminal(opts: {
     claimsUnclosedButEvidenceAvailable,
     capabilityProbeClaimUnclosed = false,
     capabilityProbeComplete = false,
+    authoritativeNoFinding = false,
     report,
     objectiveBlocked = false,
   } = opts;
@@ -3549,7 +3551,7 @@ function relayForensicTerminal(opts: {
   const hasFinding = /(?:^|\n)\s*(?:[*-]\s*)?ID:\s*F-\d+\s*·/i.test(findingsSection);
   const finalJudgment = report.match(/##\s*6\)\s*Final Judgment([\s\S]*)$/i)?.[1] ?? report;
   const hasNoFindingBasis = /\bNO FINDING\b/i.test(finalJudgment) && /\bBasis:/i.test(finalJudgment);
-  if (hasFinding || hasNoFindingBasis) return;
+  if (hasFinding || hasNoFindingBasis || authoritativeNoFinding) return;
   const sourceRetrieval =
     "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined;
   const evidenceAcquired =
@@ -8591,6 +8593,15 @@ export async function chat(opts: {
   // forensic fallback.
   let recoveryAttemptsUsed = 0;
   let recoveryFailureKind: RecoveryFailureKind | undefined;
+  // A server-owned deterministic Finding/no-Finding fallback can close the
+  // forensic contract after provider Recovery fails. Keep that resolution
+  // explicit so terminal projection does not report both VERIFIED and a
+  // lingering recovery failure.
+  let authoritativeNoFindingFallback = false;
+  const markDeterministicFallbackAccepted = (noFinding: boolean): void => {
+    recoveryFailureKind = undefined;
+    if (noFinding) authoritativeNoFindingFallback = true;
+  };
   let capabilityProbeRecoveryDeadlineAt: number | null = null;
   let capabilityProbeClaimUnclosed = false;
   /**
@@ -9968,13 +9979,24 @@ export async function chat(opts: {
             forensicEvidence.sourceCoverage?.complete === false
               ? initialContract.response
               : incompleteRecoveryReport;
-          useForensicFallback(
+          const deterministicFallback =
             deterministicBehavioralReport ??
-              (recoveryProducedNoFinding && noFindingRecoveryReport
+            (recoveryProducedNoFinding && noFindingRecoveryReport
               ? noFindingRecoveryReport
-              : deterministicNoFindingReport ??
-                semanticAssessmentFallback ??
-                incompleteScopeFallback),
+              : deterministicNoFindingReport);
+          const deterministicNoFindingFallback =
+            !deterministicBehavioralReport &&
+            Boolean(
+              (recoveryProducedNoFinding && noFindingRecoveryReport) ||
+              deterministicNoFindingReport,
+            );
+          if (deterministicFallback) {
+            markDeterministicFallbackAccepted(deterministicNoFindingFallback);
+          }
+          useForensicFallback(
+            deterministicFallback ??
+              semanticAssessmentFallback ??
+              incompleteScopeFallback,
           );
           const evidenceOnlyFallbackSelected =
             forensicEvidence.fileContents.size > 0 &&
@@ -10105,9 +10127,13 @@ export async function chat(opts: {
           );
           if (executable.plans.length > 0) structuredRepairPlan = executable.plans;
         }
+        const deterministicFallback =
+          deterministicBehavioralReport ?? deterministicNoFindingReport;
+        if (deterministicFallback) {
+          markDeterministicFallbackAccepted(!deterministicBehavioralReport);
+        }
         const evidenceOnlyFallback = applyForensicOutputContract(
-          deterministicBehavioralReport ??
-            deterministicNoFindingReport ??
+          deterministicFallback ??
             semanticAssessmentFallback ??
             incompleteScopeFallback,
           forensicEvidence,
@@ -11568,6 +11594,7 @@ export async function chat(opts: {
       claimsUnclosedButEvidenceAvailable,
       capabilityProbeClaimUnclosed,
       capabilityProbeComplete: capabilityProbeTerminalAccepted,
+      authoritativeNoFinding: authoritativeNoFindingFallback,
       report: terminalResponse,
       objectiveBlocked: Boolean(objectiveBlocksVerdict),
     });

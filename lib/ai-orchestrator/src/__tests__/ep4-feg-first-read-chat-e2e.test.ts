@@ -395,6 +395,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
 
     await mockChatProviders(fakeStrategy);
     let diagnostics: string[] = [];
+    let steps: AgentStep[] = [];
     try {
       const { chat } = await import("../agents/chat-agent.js");
       const result = await chat({
@@ -405,6 +406,7 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
         provider: "openrouter",
         apiKey: "test-or-key",
         onStep: (step) => {
+          steps.push(step);
           if (step.kind === "diagnostic") diagnostics.push(step.code);
         },
       });
@@ -434,6 +436,18 @@ describe("First-Evidence Gate: an explicit-file behavior query reads its target 
       // fragment — source-grounded, not an empty dead end.
       expect(result.response).toContain("Basis: src/classifier.ts");
       expect(result.response).toMatch(/\bBasis:\s*src\/classifier\.ts contains/i);
+
+      // A server-owned deterministic no-finding fallback resolves provider
+      // Recovery failure; it must not leave a contradictory recovery terminal
+      // or a VERIFIED decision carrying recoveryFailureKind.
+      expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
+      const decision = [...steps]
+        .reverse()
+        .find((step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
+          step.kind === "decision_trace",
+        );
+      expect(decision?.trace.finalState).toBe("VERIFIED");
+      expect(decision?.trace.recoveryFailureKind).toBeUndefined();
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
