@@ -230,7 +230,6 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
     await completeAiExecution({
       executionId: operationExecution.id,
       workerId,
-      finalMessageId: randomUUID(),
       evidenceVerdict: "PROVEN",
       evidenceReason: "The workflow decision and phase context were retained in the durable operation ledger.",
       proofRequired: true,

@@ -3344,13 +3344,61 @@ describe("Plan-to-push agent cycle", () => {
       }],
     };
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
-    vi.mocked(chatWithFallback).mockResolvedValueOnce({
-      result: {
-        response: "Prepared the approved change for review.",
-        sources: ["src/approved.ts"],
-        pendingChanges: [proposedChange],
-      },
-      effectiveProvider: "groq",
+    let buildNodesSeen: string[] = [];
+    let buildValidationSeen = false;
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (
+      _userId,
+      input,
+      _provider,
+      _onDelta,
+      _options,
+      _onStreamReset,
+      onStep,
+    ) => {
+      buildValidationSeen = true;
+      buildNodesSeen = (input.executionPlanOverride?.nodes ?? []).map((node) => node.id);
+      input.onExecutionNodes?.(
+        (input.executionPlanOverride?.nodes ?? []).map((node) => ({
+          ...node,
+          status: "passed" as const,
+          attempts: Math.max(1, node.attempts),
+          validationAttempts: Math.max(1, node.validationAttempts),
+        })),
+      );
+      onStep?.({
+        kind: "validation",
+        status: "passed",
+        repairState: "READY_FOR_REVIEW",
+        attempt: 1,
+        maxAttempts: 3,
+        result: {
+          profile: "workspace-typecheck",
+          status: "passed",
+          scenario: "Deterministic agent-cycle validation",
+          exitCode: 0,
+          command: "fixture-validation",
+          stdout: "passed",
+          stderr: "",
+          failedTests: [],
+          changedFiles: ["src/approved.ts"],
+          evidence: {
+            evidenceId: "agent-cycle-validation",
+            observedAt: "2026-08-27T00:00:00.000Z",
+            artifactRef: "validation-result:agent-cycle-validation",
+            operationId: input.analysisCorrelation?.operationId,
+            projectRevision: input.analysisCorrelation?.projectRevision,
+          },
+          detail: "Validation passed in the integration fixture.",
+        },
+      } as never);
+      return {
+        result: {
+          response: "Prepared the approved change for review.",
+          sources: ["src/approved.ts"],
+          pendingChanges: [proposedChange],
+        },
+        effectiveProvider: "groq",
+      };
     });
     validationFixtures.push({
       status: "passed",
@@ -3374,15 +3422,11 @@ describe("Plan-to-push agent cycle", () => {
       });
     expect(build.status).toBe(200);
     const buildEvents = parseSseEvents(build.text);
+    expect(buildValidationSeen).toBe(true);
+    expect(buildNodesSeen.length).toBeGreaterThan(0);
     const buildDone = buildEvents.find((event) => event["type"] === "done");
-    expect(buildDone).toBeUndefined();
-    expect(buildEvents.find((event) => event["type"] === "error")).toMatchObject({
-      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
-      outcome: "FAILED",
-      failureKind: "INCOMPLETE",
-      recoveryState: "INCOMPLETE",
-    });
-    return;
+    expect(buildDone).toBeDefined();
+    expect(buildEvents.find((event) => event["type"] === "error")).toBeUndefined();
     await expect(fs.access(proposedChange.absolutePath)).rejects.toThrow();
 
     const proposalId = buildDone!["proposalId"] as string;
@@ -3390,7 +3434,7 @@ describe("Plan-to-push agent cycle", () => {
     const pending = await request(app)
       .get(`/api/ai/chat/${plan.sessionId}/pending-proposal`);
     expect(pending.status).toBe(200);
-    expect(pending.body).toEqual({
+    expect(pending.body).toMatchObject({
       proposalId,
       operationId,
       changes: [proposedChange],

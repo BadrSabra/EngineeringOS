@@ -170,7 +170,6 @@ export async function executeWorkflowPhase(params: {
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
-      finalMessageId: randomUUID(),
       evidenceVerdict: "PROVEN",
       evidenceReason: `Server-owned workflow phase boundary recorded at revision ${params.revision}.`,
       proofRequired: true,

@@ -52,6 +52,12 @@ export type EvidenceSnapshotInput = {
   candidateIdentity?: string | null;
   verdict?: string;
   required?: boolean;
+  /**
+   * Some execution contracts are proven by a server-owned validation
+   * artifact rather than source-file reads. Keep the acceptance contract
+   * required while allowing that artifact-only snapshot to be complete.
+   */
+  sourceEvidenceRequired?: boolean;
   reads?: readonly EvidenceReadInput[];
 };
 
@@ -339,7 +345,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     };
   });
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
-  const required = input?.required === true;
+  const required = input?.sourceEvidenceRequired ?? input?.required === true;
   const readsComplete = (
     reads.length > 0
     && totalBytes <= MAX_SNAPSHOT_BYTES
@@ -467,10 +473,13 @@ export async function finalizeExecutionAcceptance(
     const storedRequest = parseStoredExecutionRequest(execution.request);
     const storedProofRequired = storedRequest?.proofRequired === true;
     const evidenceRequired = storedProofRequired || params.evidence?.required === true;
+    const sourceEvidenceRequired = params.evidence?.sourceEvidenceRequired
+      ?? evidenceRequired;
     const effectiveEvidence = evidenceRequired
       ? {
           ...(params.evidence ?? {}),
           required: true,
+          sourceEvidenceRequired,
           operationId: params.evidence?.operationId ?? execution.operationId,
           sourceRevision: params.evidence?.sourceRevision
             ?? (typeof storedRequest?.workspaceRevision === "string"

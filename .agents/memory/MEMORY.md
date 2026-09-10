@@ -140,3 +140,4 @@
 - [Direct mutation approval boundary](direct-mutation-approval.md) — unapproved mutation language enters read-only plan mode; only server-owned Build handoff enables writes.
 - [Evidence failure projection](evidence-failure-projection.md) — terminal provider failures must distinguish no reads, incomplete reads, and retained complete evidence without exposing provider diagnostics.
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
+- [Artifact-only acceptance](artifact-only-acceptance.md) — delivery proof can be complete from bound validation evidence without source reads; forensic proof still requires retained reads.

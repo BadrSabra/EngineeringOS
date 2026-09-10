@@ -2017,7 +2017,12 @@ export async function ownsAiExecutionLease(params: {
 export async function completeAiExecution(params: {
   executionId: string;
   workerId: string;
-  finalMessageId: string;
+  /**
+   * Chat executions link acceptance to their persisted assistant message.
+   * Autonomous workflow executions have no chat row and therefore complete
+   * with a null message identity.
+   */
+  finalMessageId?: string | null;
   finalMessageContent?: string;
   proposalId?: string;
   operation?: AutonomousOperationContract;
@@ -2143,6 +2148,9 @@ export async function completeAiExecution(params: {
         })();
     if (!completion.allowed) return false;
   }
+  const sourceEvidenceRequired = forensicExecution
+    || Boolean(params.analysisEvidence)
+    || Boolean(params.evidenceReads && params.evidenceReads.length > 0);
   const now = new Date();
   const checkpointEnvelope = {
     stage: "completed" as const,
@@ -2184,7 +2192,8 @@ export async function completeAiExecution(params: {
             sourceRevision: request?.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
               verdict: effectiveEvidenceVerdict,
-            required: true,
+            required: sourceEvidenceRequired,
+            sourceEvidenceRequired,
             reads: params.evidenceReads,
           } satisfies EvidenceSnapshotInput,
         }

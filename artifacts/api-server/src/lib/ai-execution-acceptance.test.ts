@@ -30,6 +30,20 @@ describe("server-owned execution acceptance", () => {
     expect(snapshot.verdict).toBe("NOT_RECORDED");
   });
 
+  it("accepts an artifact-only validation snapshot without source reads", () => {
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      sourceEvidenceRequired: false,
+      verdict: "PARTIAL",
+    });
+
+    expect(snapshot).toMatchObject({
+      complete: true,
+      verdict: "PARTIAL",
+      reads: [],
+    });
+  });
+
   it("rejects a body over the per-read limit instead of silently accepting a slice", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: true,
