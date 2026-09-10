@@ -3145,6 +3145,7 @@ function gateForensicResponse(
 function recordPrefetchEvidence(
   entries: Array<{ key: string; content: string }>,
   destination: Map<string, string>,
+  retainedEvidence?: Map<string, string>,
 ): string[] {
   const accepted: string[] = [];
   for (const entry of entries) {
@@ -3163,6 +3164,7 @@ function recordPrefetchEvidence(
       if (typeof args.path === "string" && args.path.trim()) {
         const normalizedPath = args.path.replace(/^\.\/+/, "").replace(/\\/g, "/");
         destination.set(normalizedPath, entry.content);
+        retainedEvidence?.set(normalizedPath, entry.content);
         accepted.push(normalizedPath);
       }
     } catch {
@@ -5950,6 +5952,7 @@ export async function chat(opts: {
         try {
           const content = await fs.readFile(real, "utf8");
           prefetchFileContents.set(relPath, content);
+          retainedEvidence?.set(relPath, content);
           prefetchSources.push(relPath);
           // Seed the shared dedup cache so the tool loop serves the complete
           // unbounded read from cache instead of re-executing executeFileTool
@@ -6303,7 +6306,11 @@ export async function chat(opts: {
     for (const entry of discovery.cacheEntries) {
       toolCallCache.set(entry.key, entry.content);
     }
-    const accepted = recordPrefetchEvidence(discovery.cacheEntries, prefetchFileContents);
+    const accepted = recordPrefetchEvidence(
+      discovery.cacheEntries,
+      prefetchFileContents,
+      retainedEvidence,
+    );
     prefetchSources.push(...accepted);
     recordPrefetchTrace(
       accepted,
@@ -6346,7 +6353,11 @@ export async function chat(opts: {
       for (const entry of graphPrefetch.cacheEntries) {
         toolCallCache.set(entry.key, entry.content);
       }
-      const accepted = recordPrefetchEvidence(graphPrefetch.cacheEntries, prefetchFileContents);
+      const accepted = recordPrefetchEvidence(
+        graphPrefetch.cacheEntries,
+        prefetchFileContents,
+        retainedEvidence,
+      );
       prefetchSources.push(...accepted);
       recordPrefetchTrace(
         accepted,
@@ -6391,7 +6402,11 @@ export async function chat(opts: {
       for (const entry of prefetch.cacheEntries) {
         toolCallCache.set(entry.key, entry.content);
       }
-      const accepted = recordPrefetchEvidence(prefetch.cacheEntries, prefetchFileContents);
+      const accepted = recordPrefetchEvidence(
+        prefetch.cacheEntries,
+        prefetchFileContents,
+        retainedEvidence,
+      );
       prefetchSources.push(...accepted);
       recordPrefetchTrace(
         accepted,
@@ -6446,7 +6461,11 @@ export async function chat(opts: {
         for (const entry of memPrefetch.cacheEntries) {
           toolCallCache.set(entry.key, entry.content);
         }
-        const accepted = recordPrefetchEvidence(memPrefetch.cacheEntries, prefetchFileContents);
+        const accepted = recordPrefetchEvidence(
+          memPrefetch.cacheEntries,
+          prefetchFileContents,
+          retainedEvidence,
+        );
         prefetchSources.push(...accepted);
         recordPrefetchTrace(
           accepted,
@@ -6523,7 +6542,11 @@ export async function chat(opts: {
         for (const entry of planPrefetch.cacheEntries) {
           toolCallCache.set(entry.key, entry.content);
         }
-        const accepted = recordPrefetchEvidence(planPrefetch.cacheEntries, prefetchFileContents);
+        const accepted = recordPrefetchEvidence(
+          planPrefetch.cacheEntries,
+          prefetchFileContents,
+          retainedEvidence,
+        );
         prefetchSources.push(...accepted);
         recordPrefetchTrace(
           accepted,
@@ -6555,7 +6578,11 @@ export async function chat(opts: {
       for (const entry of executionPrefetch.cacheEntries) {
         toolCallCache.set(entry.key, entry.content);
       }
-      const accepted = recordPrefetchEvidence(executionPrefetch.cacheEntries, prefetchFileContents);
+      const accepted = recordPrefetchEvidence(
+        executionPrefetch.cacheEntries,
+        prefetchFileContents,
+        retainedEvidence,
+      );
       prefetchSources.push(...accepted);
       recordPrefetchTrace(
         accepted,

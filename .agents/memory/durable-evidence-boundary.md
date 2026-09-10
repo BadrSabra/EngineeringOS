@@ -14,3 +14,9 @@ Public `sources` projections must follow the same boundary: derive them from ser
 **Why:** A provider can name a truncated or failed path as a source, and provider-failure persistence has a separate code path from normal result persistence. Both cases can make the public history disagree with the verifier unless the read ledger is the only authority.
 
 **How to apply:** Attach a read status to every read tool-result event, preserve it for cached and targeted reads, filter public sources to complete/targeted reads, and reuse the same collector in success and provider-failure persistence.
+
+Prefetch is part of the durable evidence boundary only when every accepted prefetch body is mirrored into the request-scoped retained-read map used by terminal acceptance; the private prefetch cache alone is not proof.
+
+**Why:** The first evidence read can be acquired before the tool loop and therefore never pass through the loop's retained-body callback. Keeping it only in the prefetch map makes failure snapshots report zero reads even though the trace shows a completed read.
+
+**How to apply:** When adding a prefetch source, update both the loop/cache evidence map and the shared retained map at the same acceptance point; use that shared map for success, failure, retry, and history projections.

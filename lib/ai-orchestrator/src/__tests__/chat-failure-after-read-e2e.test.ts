@@ -177,6 +177,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
   it("returns an incomplete evidence report after an empty final response", async () => {
     const root = await makeRoot();
     const calls = { count: 0, correctionTools: [] as unknown[] };
+    const retainedEvidence = new Map<string, string>();
     readThen("", calls);
     await mockChatModules();
     try {
@@ -189,6 +190,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
         rootPath: root,
         provider: "openrouter",
         apiKey: "fixture-key",
+        retainedEvidence,
         onStep: (step) => steps.push(step),
       });
 
@@ -203,6 +205,7 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
       expect(result.response).not.toMatch(/\bFINDING(?:_| )PROVEN\b/i);
       expect(result.response).not.toContain("fixture-key");
       expect(result.sources).toContain(FILE);
+      expect(retainedEvidence.get(FILE)).toBe(FILE_CONTENT);
       expect(steps.some((step) => step.kind === "tool_result" && step.source === FILE)).toBe(true);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
