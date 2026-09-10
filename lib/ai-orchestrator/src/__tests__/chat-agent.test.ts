@@ -173,6 +173,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
   it("keeps an Arabic greeting optional-read capable without promoting it to tool chat", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
     const steps: AgentStep[] = [];
+    let capturedTools: Array<{ function?: { name?: string } }> | undefined;
 
     vi.doMock("../model-selection/decision-engine.js", () => ({
       resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => {
@@ -193,10 +194,13 @@ describe("chat agent — ChatOutputSchema validation", () => {
       default: class {
         chat = {
           completions: {
-            create: vi.fn().mockResolvedValue({
+            create: vi.fn((options: { tools?: Array<{ function?: { name?: string } }> }) => {
+              capturedTools = options.tools;
+              return Promise.resolve({
               choices: [{ message: { content: '{"response":"أهلًا بك!","sources":[]}' } }],
               model: "m",
               usage: {},
+              });
             }),
           },
         };
@@ -215,6 +219,12 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(decisionCalls).toHaveLength(1);
     expect(decisionCalls[0]?.scope).toBe("chat");
     expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: false, requireTools: false });
+    expect(capturedTools?.map((tool) => tool.function?.name)).toEqual([
+      "read_file",
+      "read_file_range",
+      "list_directory",
+      "search_code",
+    ]);
     expect(steps.filter((step) => step.kind === "tool_call")).toHaveLength(0);
     expect(steps.find((step) => step.kind === "done")).toMatchObject({ toolCalls: 0 });
     expect(steps.some(
