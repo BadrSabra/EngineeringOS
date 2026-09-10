@@ -18,6 +18,7 @@ import {
   requiresBehavioralFindingAssessment,
   shouldRejectBehaviorAnswerForMissingEvidence,
   buildBehaviorEvidenceIncompleteResponse,
+  buildProjectQueryIncompleteResponse,
   isRepeatedConversationQuestion,
   buildResumedEvidenceLedger,
   structuredRecoveryParseDiagnostic,
@@ -56,6 +57,24 @@ describe("buildBehaviorEvidenceIncompleteResponse", () => {
     expect(response).toContain("ANALYSIS_INCOMPLETE");
     expect(response).toContain("No confirmed file read.");
     expect(response).not.toContain("FINDING PROVEN");
+  });
+});
+
+describe("buildProjectQueryIncompleteResponse", () => {
+  it("does not project a targeted project query as a forensic report", () => {
+    const response = buildProjectQueryIncompleteResponse(
+      "analyze the embedded AI layer",
+      new Map([
+        ["artifacts/api-server/src/routes/ai/chat.ts", "export const route = true;\n"],
+      ]),
+      "en",
+    );
+
+    expect(response).toContain("ANALYSIS_INCOMPLETE");
+    expect(response).toContain("Completed reads");
+    expect(response).toContain("No final project summary was proven");
+    expect(response).not.toContain("## 1) Executive Verdict");
+    expect(response).not.toContain("Final Judgment");
   });
 });
 

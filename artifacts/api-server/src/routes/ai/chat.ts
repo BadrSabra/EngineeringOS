@@ -6691,7 +6691,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             correlationId: aiExecution?.correlationId ?? analysisCorrelation.operationId,
           },
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
-          objective,
+          objective: streamObjective,
           allowValidationTools: Boolean(validationRunner),
            approvalState: validationRunner || approvedImplementationPlan
              ? "APPROVED"

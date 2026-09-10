@@ -4768,6 +4768,53 @@ export function buildBehaviorEvidenceIncompleteResponse(
 }
 
 /**
+ * Targeted project queries use the same retained-read boundary as behavioral
+ * evidence, but they do not have the six-section forensic report contract.
+ * Keep provider degradation target-neutral and explicit instead of projecting
+ * a forensic report for an ordinary read-only architecture question.
+ */
+export function buildProjectQueryIncompleteResponse(
+  message: string,
+  fileContents: ReadonlyMap<string, string>,
+  responseLanguage?: "ar" | "en",
+): string {
+  const isArabic = responseLanguage === "ar" || (
+    responseLanguage === undefined && /[\u0600-\u06FF]/.test(message)
+  );
+  const files = [...fileContents.keys()].sort();
+  if (isArabic) {
+    return [
+      "ANALYSIS_INCOMPLETE — لم تكتمل الإجابة المقيّدة بنطاق السؤال من القراءات المتاحة.",
+      "",
+      "### القراءات المكتملة",
+      ...(files.length > 0
+        ? files.map((file) => `- ${file}`)
+        : ["- لا يوجد ملف مقروء مؤكد."]),
+      "",
+      "### حالة التحليل",
+      "تم الاحتفاظ بالقراءات أعلاه، لكن لم تُغلق الأدلة المطلوبة كل ادعاءات السؤال.",
+      "لا يوجد ملخص نهائي مثبت، ولم يتم تعديل أي ملف.",
+      "",
+      "### الخطوة التالية",
+      "أعد المحاولة أو حدّد دالة أو مساراً بعينه؛ لن تُعاد القراءات المؤكدة دون حاجة.",
+    ].join("\n");
+  }
+  return [
+    "ANALYSIS_INCOMPLETE — the scoped project answer could not be completed from the available reads.",
+    "",
+    "### Completed reads",
+    ...(files.length > 0 ? files.map((file) => `- ${file}`) : ["- No confirmed file read."]),
+    "",
+    "### Analysis status",
+    "The reads above were retained, but the required evidence did not close every claim in the project question.",
+    "No final project summary was proven, and no file was modified.",
+    "",
+    "### Next step",
+    "Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.",
+  ].join("\n");
+}
+
+/**
  * Every forensic terminal must have the same six-section shape, including a
  * terminal reached before synthesis. This builder deliberately accepts only
  * retained server-owned evidence and a short allowlisted reason; provider
@@ -7358,11 +7405,13 @@ export async function chat(opts: {
       undefined,
       responseLanguage,
     );
-    const retainedResponse = buildIncompleteForensicReport(retainedEvidenceReport, {
-      language: responseLanguage,
-      reason: "PROVIDER_SYNTHESIS_UNAVAILABLE",
-      nextAction: "Retry or narrow the question to a specific file or function; retained reads will be reused.",
-    });
+    const retainedResponse = turnIntent.kind === "PROJECT_QUERY"
+      ? buildProjectQueryIncompleteResponse(message, forensicFileContents, responseLanguage)
+      : buildIncompleteForensicReport(retainedEvidenceReport, {
+          language: responseLanguage,
+          reason: "PROVIDER_SYNTHESIS_UNAVAILABLE",
+          nextAction: "Retry or narrow the question to a specific file or function; retained reads will be reused.",
+        });
     const retainedTaskResult = buildTaskResult({
       forensicTaskType,
       finalResponse: retainedResponse,

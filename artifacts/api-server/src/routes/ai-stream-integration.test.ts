@@ -4803,9 +4803,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       "lib/ai-orchestrator/src/agents/chat-agent.ts",
     ];
     const incomplete = "ANALYSIS_INCOMPLETE: source reads completed, but no grounded claims were accepted.";
+    let providerInput: { objective?: { objectiveType?: string; requiredEvidencePaths?: string[] } } | undefined;
 
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
-      const input = args[1] as { retainedEvidence?: Map<string, string> };
+      const input = args[1] as typeof providerInput & { retainedEvidence?: Map<string, string> };
+      providerInput = input;
       for (const source of sources) {
         input.retainedEvidence?.set(source, `source body for ${source}\n`);
         args[6]?.({
@@ -4880,11 +4882,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .send({ projectId, message: "قم بتحليل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
 
     expect(res.status).toBe(200);
+    expect(providerInput?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: sources,
+    });
     const events = parseSseEvents(res.text);
     expect(events.find((event) => event.type === "execution_started")).toMatchObject({
       turnIntent: "PROJECT_QUERY",
       proofRequired: true,
     });
+    expect(events.some((event) => event.type === "forensic_recovery_start")).toBe(false);
+    expect(events.some((event) => event.type === "forensic_terminal")).toBe(false);
+    const doneTaskResult = events.find((event) => event.type === "done")?.taskResult as
+      | { kind?: string }
+      | undefined;
+    expect(doneTaskResult?.kind)
+      .not.toBe("FORENSIC_REPORT_RESULT");
 
     const [execution] = await db
       .select({
