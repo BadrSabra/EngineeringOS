@@ -170,6 +170,34 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.pendingChanges).toEqual([]);
   });
 
+  it("advances the objective evidence cursor past retained files", async () => {
+    const { nextObjectiveEvidenceTarget } = await import("../agents/chat-agent.js");
+    const objective = {
+      objectiveType: "PROJECT_QUERY",
+      requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+      requiredClaims: [
+        {
+          claimId: "claim-1",
+          text: "second and third sources are required",
+          requiredEvidencePaths: ["src/second.ts", "src/third.ts"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+    };
+
+    expect(nextObjectiveEvidenceTarget(objective, ["src/first.ts"])).toBe("src/second.ts");
+    expect(
+      nextObjectiveEvidenceTarget(objective, ["./src/first.ts", "src/second.ts"]),
+    ).toBe("src/third.ts");
+    expect(
+      nextObjectiveEvidenceTarget(objective, [
+        "src/first.ts",
+        "src/second.ts",
+        "src/third.ts",
+      ]),
+    ).toBeUndefined();
+  });
+
   it("keeps an Arabic greeting optional-read capable without promoting it to tool chat", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
     const steps: AgentStep[] = [];

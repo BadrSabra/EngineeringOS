@@ -229,6 +229,31 @@ const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
   "search_code",
 ]);
 
+/**
+ * Return the first server-declared evidence path that is not already retained.
+ * This is intentionally independent of provider state: fallback and recovery
+ * must resume at the same manifest cursor instead of reusing the initial FEG
+ * target.
+ *
+ * @internal — exported for deterministic scheduler regression tests.
+ */
+export function nextObjectiveEvidenceTarget(
+  objective: ObjectiveContract | undefined,
+  retainedPaths: Iterable<string>,
+): string | undefined {
+  if (!objective) return undefined;
+  const requiredPaths = [
+    ...(objective.requiredEvidencePaths ?? []),
+    ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
+  ]
+    .map((value) => canonicalRelativePath(value))
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+  const retained = new Set(
+    [...retainedPaths].map((value) => canonicalRelativePath(value)),
+  );
+  return requiredPaths.find((value) => !retained.has(value));
+}
+
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -7226,6 +7251,19 @@ export async function chat(opts: {
   // ── Agentic tool loop ─────────────────────────────────────────────────────
   // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
   // and model fallback to the self-contained ToolExecutionEngine.
+  //
+  // Evidence collection can cross provider/recovery boundaries while this
+  // request is still alive. The primary FEG target is intentionally retained
+  // for the initial direct-read proof above, but it must not be reused as the
+  // loop target once its body is already present. Otherwise a fallback can
+  // re-arm the first file and starve the ordered objective manifest.
+  const nextObjectiveEvidenceTargetPath = nextObjectiveEvidenceTarget(
+    objective,
+    prefetchFileContents.keys(),
+  );
+  const loopEvidenceTargetPath = objective
+    ? nextObjectiveEvidenceTargetPath
+    : firstEvidenceTargetPath;
   const loopResult = await executeToolLoop({
     messages,
     strategy,
@@ -7298,7 +7336,7 @@ export async function chat(opts: {
           ? [...turnIntent.projectTarget.primaryPaths]
           : undefined,
     objectiveScopePolicy: objective?.scopePolicy,
-    firstEvidenceTargetPath: firstEvidenceTargetPath ?? undefined,
+    firstEvidenceTargetPath: loopEvidenceTargetPath ?? undefined,
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
     allowTestSources: includeTestSources,
     allowExecutionTools: allowValidationTools,
