@@ -1522,6 +1522,64 @@ describe("executeToolLoop", () => {
     expect(classifyReadStatus("read_file", 'Error reading "x.ts"')).toBe("READ_FAILED");
   });
 
+  it("restores a prefetched truncated status and forces a targeted recovery window", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const steps: AgentStep[] = [];
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("full", "read_file", { path: "src/big.ts" })]),
+      makeResponse("", [makeToolCall("range", "read_file_range", {
+        path: "src/big.ts",
+        startLine: "1",
+        endLine: "20",
+      })]),
+      makeResponse("verified from the targeted source window"),
+    ]);
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">([
+      ["src/big.ts", "READ_TRUNCATED"],
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) => {
+      if (name === "read_file_range") {
+        return "File: src/big.ts\n```\nexport const recovered = true;\n```";
+      }
+      return `unexpected ${name} for ${args.path ?? "unknown"}`;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      maxIterations: 3,
+      objective: {
+        goal: "verify the large source",
+        requiredEvidencePaths: ["src/big.ts"],
+        requiredClaims: [{ claimId: "claim-1", requiredEvidencePaths: ["src/big.ts"] }],
+      },
+      onStep: (step) => void steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file_range",
+      { path: "src/big.ts", startLine: "1", endLine: "20" },
+      "/project",
+      [],
+    );
+    expect(result.sourceRetrieval?.redundantReads).toBe(1);
+    expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
+  });
+
   it("runs one no-tools JSON synthesis pass after forensic prefetch", async () => {
     const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([

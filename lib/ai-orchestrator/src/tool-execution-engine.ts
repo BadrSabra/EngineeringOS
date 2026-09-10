@@ -1148,6 +1148,16 @@ export type ToolLoopOpts = {
   initialFileContents?: Map<string, string>;
 
   /**
+   * Read outcomes observed by the server-owned prefetch phase, including
+   * truncated and failed reads that have no complete body to place in
+   * initialFileContents.
+   */
+  initialReadStatuses?: ReadonlyMap<string, ReadStatus>;
+
+  /** Mutable read-status handoff updated after every loop read. */
+  retainedReadStatuses?: Map<string, ReadStatus>;
+
+  /**
    * Optional per-request evidence handoff shared by provider retries. Only
    * successful read bodies are copied here; it never contains provider or
    * session metadata.
@@ -1913,6 +1923,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // blocked instead of repeated. Telemetry is surfaced to callers so the
   // dashboard can show initial→TRUNCATED→targeted read progression.
   const readStatusByPath = new Map<string, ReadStatus>();
+  let initialReadStatusSeen = false;
+  for (const [path, status] of opts.initialReadStatuses ?? []) {
+    if (!path.trim()) continue;
+    initialReadStatusSeen = true;
+    readStatusByPath.set(path, status);
+    readStatusByPath.set(canonicalRel(path), status);
+  }
   const sourceRetrieval: SourceRetrievalTelemetry = createSourceRetrievalTelemetry();
   const recordScopeExpansion = (path: string | undefined): ScopeExpansion | undefined => {
     if (!objectiveScopePolicy || !path?.trim()) return undefined;
@@ -1944,6 +1961,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         readStatusByPath.get(path) === "READ_COMPLETE" ||
         readStatusByPath.get(path) === "READ_TARGETED";
       readStatusByPath.set(path, status);
+      opts.retainedReadStatuses?.set(path, status);
+      opts.retainedReadStatuses?.set(canonicalRel(path), status);
       if (status === "READ_COMPLETE" || status === "READ_TARGETED") {
         if (priorHadEvidence) {
           sourceRetrieval.duplicateReads += 1;
@@ -2591,6 +2610,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // soft_limit_with_zero_reads — a zero-read verdict for a run that DID acquire
   // evidence. The negative sentinel PREFETCH_FIRST_READ_ITER is unambiguous
   // versus real 0-based loop iterations.
+  let objectiveEvidenceRearmedFromPrefetch = false;
+  if (initialReadStatusSeen && objective) {
+    rearmNextObjectiveEvidencePath();
+    objectiveEvidenceRearmedFromPrefetch = true;
+  }
   if (opts.initialFileContents) {
     let usablePrefetchSeen = false;
     for (const [path, body] of opts.initialFileContents) {
@@ -2612,7 +2636,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // Prefetch satisfies acquisition of the first source, not the complete
       // objective manifest. Re-arm the next missing required path before the
       // first provider turn so unrelated reads cannot expand the scope.
-      rearmNextObjectiveEvidencePath();
+      if (!objectiveEvidenceRearmedFromPrefetch) {
+        rearmNextObjectiveEvidencePath();
+      }
     }
   }
 

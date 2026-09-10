@@ -105,6 +105,7 @@ import type {
   ExecutionTerminalReason,
   ForensicDiagnostic,
   ExecutionPlan,
+  ReadStatus,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
@@ -4971,6 +4972,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     if (providerAttemptSummary.length > 8) providerAttemptSummary.shift();
   };
   const retainedEvidence = new Map<string, string>();
+  const retainedReadStatuses = new Map<string, ReadStatus>();
   const traceSteps: AgentStep[] = [];
   const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
     retainedEvidence,
@@ -6986,6 +6988,7 @@ router.post("/ai/chat/stream", async (req, res) => {
            } : {}),
           turnIntent: streamTurnIntent,
           retainedEvidence,
+          retainedReadStatuses,
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,

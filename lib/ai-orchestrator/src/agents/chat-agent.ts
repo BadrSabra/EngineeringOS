@@ -120,6 +120,7 @@ import {
   BUDGET_BY_SCOPE,
   type AgentStep,
   type AgentDiagnosticCode,
+  type ReadStatus,
   type ToolLoopResult,
 } from "../tool-execution-engine.js";
 import {
@@ -3214,7 +3215,7 @@ function recordPrefetchTrace(
   fileContents: Map<string, string>,
   enabled: boolean,
   onStep?: (step: AgentStep) => void,
-  readStatuses?: ReadonlyMap<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">,
+  readStatuses?: ReadonlyMap<string, ReadStatus>,
 ): void {
   if (!enabled) return;
   for (const source of paths) {
@@ -5025,6 +5026,8 @@ export async function chat(opts: {
    * provider. This map is request-scoped and contains read bodies only.
    */
   retainedEvidence?: Map<string, string>;
+  /** Read outcomes retained across provider attempts, including truncation. */
+  retainedReadStatuses?: Map<string, ReadStatus>;
    /**
     * Optional server-owned capability registry. Its catalog is injected into
     * planning context only; it does not add an execution tool.
@@ -5080,6 +5083,7 @@ export async function chat(opts: {
     turnIntent: suppliedTurnIntent,
     executionPlan: suppliedExecutionPlan,
     retainedEvidence,
+    retainedReadStatuses,
     capabilityRegistry,
     capabilityCatalogRequest,
     executionLedger: suppliedExecutionLedger,
@@ -5890,7 +5894,9 @@ export async function chat(opts: {
   const prefetchSources: string[] = [];
   /** Ground-truth read bodies from speculative/plan prefetch. */
   const prefetchTraceContents = new Map<string, string>(retainedEvidence ?? []);
-  const prefetchReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
+  const prefetchReadStatuses =
+    retainedReadStatuses ??
+    new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
   const prefetchFileContents = new Map(
     [...(retainedEvidence ?? [])].filter(([, content]) => {
       const complete = Buffer.byteLength(content, "utf8") <= MAX_COMPLETE_EVIDENCE_BYTES;
@@ -7299,6 +7305,8 @@ export async function chat(opts: {
     rootPath: rootPath ?? "",
     pendingChanges,
     initialFileContents: prefetchFileContents,
+    initialReadStatuses: prefetchReadStatuses,
+    retainedReadStatuses: prefetchReadStatuses,
     retainedFileContents: retainedEvidence,
     cache: toolCallCache,
     toolChoice:

@@ -43,6 +43,7 @@ import type {
   TurnIntent,
   ValidationRunner,
   GroqErrorCode,
+  ReadStatus,
   ExecutionLedgerPublicSnapshot,
   ExecutionLedgerSnapshot,
   AgentModelAttempt,
@@ -688,6 +689,8 @@ export async function chatWithFallback(
     executionPlan?: import("@workspace/ai-orchestrator").ExecutionPlan;
   /** Request-scoped read evidence shared across provider retries. */
   retainedEvidence?: Map<string, string>;
+   /** Request-scoped read outcomes shared across provider retries. */
+   retainedReadStatuses?: Map<string, ReadStatus>;
     /** Enabled only after the route validates an approved implementation plan. */
     allowValidationTools?: boolean;
      /** Server-owned approval state for write/validation/execution tools. */
@@ -799,6 +802,8 @@ export async function chatWithFallback(
   // The route may seed this map when resuming a request; do not replace it or
   // the text-only fallback will lose evidence acquired by the prior attempt.
   const retainedEvidence = baseParams.retainedEvidence ?? new Map<string, string>();
+  const retainedReadStatuses =
+    baseParams.retainedReadStatuses ?? new Map<string, ReadStatus>();
 
   for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (providerIndex > 0 && !executionLedger.admit("provider_change", { provider: providerEntry.provider })) {
@@ -941,6 +946,7 @@ export async function chatWithFallback(
         signal: baseParams.signal,
         turnIntent: baseParams.turnIntent,
         retainedEvidence,
+         retainedReadStatuses,
         capabilityRecoveryProviders: capabilityProbeTurn
           ? orderedProviders
                .filter((candidate) =>
