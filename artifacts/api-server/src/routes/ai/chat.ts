@@ -200,6 +200,7 @@ import {
   hashDeliveryTree,
   DELIVERY_TREE_DIGEST_VERSION,
   atomicallyPromoteFile,
+  writeDeliveryWorkspaceFile,
 } from "../../lib/delivery-workspace.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import {
@@ -4173,6 +4174,18 @@ router.post("/ai/chat", async (req, res) => {
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
     });
+    const assistantMessageId = randomUUID();
+    const preparedDeliveryWorkspace = proposalId && proposalChanges.length > 0
+      ? await createDeliveryWorkspace({
+          rootPath: validRootPath ?? project.rootPath,
+          operationId: assistantMessageId,
+          baseRevision: analysisCorrelation.projectRevision ?? project.updatedAt.toISOString(),
+          changes: proposalChanges.map((change) => ({
+            path: change.path,
+            newContent: change.newContent,
+          })),
+        })
+      : undefined;
 
     const assistantMsg = await db.transaction(async (tx) => {
       if (existingSession) {
@@ -4221,7 +4234,7 @@ router.post("/ai/chat", async (req, res) => {
       const [msg] = await tx
         .insert(aiChatMessagesTable)
         .values({
-          id: randomUUID(),
+          id: assistantMessageId,
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
@@ -4253,6 +4266,17 @@ router.post("/ai/chat", async (req, res) => {
           messageId: operationId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
+           ...(preparedDeliveryWorkspace
+             ? {
+                 operationId: preparedDeliveryWorkspace.operationId,
+                 workspaceRoot: preparedDeliveryWorkspace.workspaceRoot,
+                 baseRevision: preparedDeliveryWorkspace.baseRevision,
+                 baseTreeHash: preparedDeliveryWorkspace.baseTreeHash,
+                 candidateTreeHash: preparedDeliveryWorkspace.candidateTreeHash,
+                 treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+                 changeSetHash: preparedDeliveryWorkspace.changeSetHash,
+               }
+             : {}),
           createdAt: msgNow,
         });
         }
@@ -7535,6 +7559,17 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
     const assistantMessageId = randomUUID();
+    const preparedDeliveryWorkspace = proposalId && proposalChanges.length > 0
+      ? await createDeliveryWorkspace({
+          rootPath: validRootPath ?? project.rootPath,
+          operationId: assistantOperationId ?? assistantMessageId,
+          baseRevision: analysisCorrelation.projectRevision ?? project.updatedAt.toISOString(),
+          changes: proposalChanges.map((change) => ({
+            path: change.path,
+            newContent: change.newContent,
+          })),
+        })
+      : undefined;
     const durableExecutionId = aiExecution.id;
     const assistantMsg = await db.transaction(async (tx) => {
       // The execution row is the shared terminal fence. Lock it before the
@@ -7658,6 +7693,17 @@ router.post("/ai/chat/stream", async (req, res) => {
           messageId: proposalMessageId,
           changes: serializeServerPendingChanges(proposalChanges),
           status: "pending",
+           ...(preparedDeliveryWorkspace
+             ? {
+                 operationId: preparedDeliveryWorkspace.operationId,
+                 workspaceRoot: preparedDeliveryWorkspace.workspaceRoot,
+                 baseRevision: preparedDeliveryWorkspace.baseRevision,
+                 baseTreeHash: preparedDeliveryWorkspace.baseTreeHash,
+                 candidateTreeHash: preparedDeliveryWorkspace.candidateTreeHash,
+                 treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+                 changeSetHash: preparedDeliveryWorkspace.changeSetHash,
+               }
+             : {}),
           createdAt: msgNow,
         });
         await tx
@@ -10321,7 +10367,8 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       ))
       .orderBy(desc(aiExecutionsTable.updatedAt))
       .limit(1);
-    const canonicalOperationId = proposalExecution?.operationId
+    const canonicalOperationId = proposal.operationId
+      ?? proposalExecution?.operationId
       ?? proposalExecution?.buildPlanMessageId
       ?? proposalExecution?.id
       ?? proposal.messageId;
@@ -10337,14 +10384,37 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     // before touching the user's checkout. This workspace is retained as the
     // recovery/proof artifact; the durable root is only written after all
     // revision, path, and validation gates below pass.
-    const deliveryWorkspace = await createDeliveryWorkspace({
-      rootPath: project.rootPath,
-      operationId: applyCorrelationId,
-      baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
-      // The stored proposal is the authorization envelope. Materialize only
-      // the exact subset submitted by the approval request.
-      changes: [],
-    });
+    const submittedChangeSetHash = hashChangeSet(changes);
+    const preparedCandidateExists = proposal.operationId && proposal.workspaceRoot
+      ? await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId)
+      : false;
+    const canReusePreparedCandidate = Boolean(
+      preparedCandidateExists
+      && proposal.operationId
+      && proposal.workspaceRoot
+      && proposal.changeSetHash === submittedChangeSetHash
+      && proposal.baseTreeHash
+      && proposal.candidateTreeHash,
+    );
+    const deliveryWorkspace = canReusePreparedCandidate
+      ? {
+          operationId: proposal.operationId!,
+          rootPath: project.rootPath,
+          workspaceRoot: proposal.workspaceRoot!,
+          baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+          changeSetHash: proposal.changeSetHash!,
+          baseTreeHash: proposal.baseTreeHash!,
+          candidateTreeHash: proposal.candidateTreeHash!,
+          lifecycle: "isolated" as const,
+        }
+      : await createDeliveryWorkspace({
+          rootPath: project.rootPath,
+          operationId: applyCorrelationId,
+          baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+          // The stored proposal is the authorization envelope. Materialize only
+          // the exact subset submitted by the approval request.
+          changes: [],
+        });
     await db.update(aiChangeProposalsTable)
       .set({
         operationId: applyCorrelationId,
@@ -10573,13 +10643,11 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     // bytes before any live-root file is promoted.
     const candidateChanges = writableChanges;
     for (const change of candidateChanges) {
-      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
-      if (candidatePath !== deliveryWorkspace.workspaceRoot
-        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
-        throw new Error("Delivery candidate path escapes isolated workspace");
-      }
-      await fs.mkdir(path.dirname(candidatePath), { recursive: true });
-      await fs.writeFile(candidatePath, change.newContent, "utf8");
+      await writeDeliveryWorkspaceFile(
+        deliveryWorkspace.workspaceRoot,
+        change.path,
+        change.newContent,
+      );
     }
     candidateTreeHash = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
     const candidateHash = candidateTreeHash;

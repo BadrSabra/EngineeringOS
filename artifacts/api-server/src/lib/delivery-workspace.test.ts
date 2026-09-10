@@ -11,6 +11,8 @@ import {
   transitionDeliveryLifecycle,
   atomicallyPromoteFile,
   recoverPromotion,
+  writeDeliveryWorkspaceFile,
+  deliveryWorkspacePath,
 } from "./delivery-workspace.js";
 
 describe("delivery workspaces", () => {
@@ -73,6 +75,38 @@ describe("delivery workspaces", () => {
     expect(transitionDeliveryLifecycle("proposed", "isolated")).toBe(true);
     expect(transitionDeliveryLifecycle("isolated", "committed")).toBe(false);
     expect(transitionDeliveryLifecycle("committed", "isolated")).toBe(false);
+  });
+
+  it("does not follow a candidate symlink when overlaying approved bytes", async () => {
+    const fixture = `/tmp/delivery-symlink-${randomUUID()}`;
+    const outside = `/tmp/delivery-symlink-outside-${randomUUID()}`;
+    const operationId = randomUUID();
+    await mkdir(fixture, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    try {
+      await expect(createDeliveryWorkspace({
+        rootPath: fixture,
+        operationId,
+        baseRevision: "base-1",
+        changes: [],
+      })).resolves.toMatchObject({ lifecycle: "isolated" });
+      const workspaceRoot = deliveryWorkspacePath(operationId);
+      await symlink(outside, join(workspaceRoot, "escape"));
+      await expect(writeDeliveryWorkspaceFile(
+        workspaceRoot,
+        "escape/payload.txt",
+        "must-not-write\n",
+      )).rejects.toThrow(/symbolic link|outside isolated workspace/i);
+      await expect(readFile(join(outside, "payload.txt"), "utf8"))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(fixture, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+      await rm(deliveryWorkspacePath(operationId), {
+        recursive: true,
+        force: true,
+      });
+    }
   });
 
   it("recovers a mixed promotion only from exact base bytes", async () => {

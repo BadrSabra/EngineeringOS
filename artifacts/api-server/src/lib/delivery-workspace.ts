@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, rename } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, readlink, realpath, rename } from "node:fs/promises";
 import path from "node:path";
 
 export type DeliveryLifecycle =
@@ -232,6 +232,47 @@ export function deliveryWorkspacePath(operationId: string): string {
   return path.join(WORKSPACES_DIR, operationId);
 }
 
+export async function writeDeliveryWorkspaceFile(
+  workspaceRoot: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  const resolvedRoot = path.resolve(workspaceRoot);
+  const normalized = normalizeDeliveryRelativePath(relativePath);
+  const target = path.resolve(resolvedRoot, normalized);
+  if (target === resolvedRoot || !target.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error("Delivery change escapes isolated workspace");
+  }
+
+  let cursor = target;
+  while (cursor !== resolvedRoot && cursor.startsWith(`${resolvedRoot}${path.sep}`)) {
+    try {
+      if ((await lstat(cursor)).isSymbolicLink()) {
+        throw new Error("Delivery change traverses a symbolic link");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    cursor = path.dirname(cursor);
+  }
+  await mkdir(path.dirname(target), { recursive: true });
+  const [realRoot, realParent] = await Promise.all([
+    realpath(resolvedRoot),
+    realpath(path.dirname(target)),
+  ]);
+  if (realParent !== realRoot && !realParent.startsWith(`${realRoot}${path.sep}`)) {
+    throw new Error("Delivery change resolves outside isolated workspace");
+  }
+  try {
+    if ((await lstat(target)).isSymbolicLink()) {
+      throw new Error("Delivery change targets a symbolic link");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  await writeFile(target, content, "utf8");
+}
+
 export async function createDeliveryWorkspace(input: {
   rootPath: string;
   operationId: string;
@@ -241,7 +282,11 @@ export async function createDeliveryWorkspace(input: {
   const workspaceRoot = deliveryWorkspacePath(input.operationId);
   await mkdir(WORKSPACES_DIR, { recursive: true });
   try {
-    const baseTreeHash = await hashDeliveryTree(input.rootPath);
+    // Project roots may be stable symlink aliases (imports and test fixtures
+    // commonly use them). Clone the resolved directory, while retaining the
+    // caller's root identity in the returned workspace metadata.
+    const sourceRoot = await realpath(input.rootPath);
+    const baseTreeHash = await hashDeliveryTree(sourceRoot);
     // A retry of the same operation may be recovering a failed validation.
     // Reuse is allowed only for the exact server-owned workspace marker;
     // another operation's workspace is never removed.
@@ -252,7 +297,7 @@ export async function createDeliveryWorkspace(input: {
     } catch {
       // The destination does not exist yet.
     }
-    const resolvedInputRoot = path.resolve(input.rootPath);
+    const resolvedInputRoot = path.resolve(sourceRoot);
     const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
     const workspaceIsInsideSource =
       resolvedWorkspaceRoot.startsWith(`${resolvedInputRoot}${path.sep}`);
@@ -260,7 +305,7 @@ export async function createDeliveryWorkspace(input: {
       ? path.join("/tmp", `engineeringos-delivery-${input.operationId}`)
       : workspaceRoot;
     await rm(copyDestination, { recursive: true, force: true });
-    await cp(input.rootPath, copyDestination, {
+    await cp(sourceRoot, copyDestination, {
       recursive: true,
       force: false,
       errorOnExist: true,
@@ -293,17 +338,20 @@ export async function createDeliveryWorkspace(input: {
       },
     });
     if (copyDestination !== workspaceRoot) {
-      await rename(copyDestination, workspaceRoot);
+      // The managed workspace can be on a different filesystem from /tmp.
+      // Copy the already-filtered temporary tree instead of relying on a
+      // cross-device rename during imports whose source is the workspace root.
+      await cp(copyDestination, workspaceRoot, {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+        verbatimSymlinks: true,
+      });
+      await rm(copyDestination, { recursive: true, force: true });
     }
     await writeFile(path.join(workspaceRoot, MARKER), `${input.operationId}\n`, { flag: "wx", mode: 0o600 });
     for (const change of input.changes) {
-      const relative = change.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
-      const target = path.resolve(workspaceRoot, relative);
-      if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${path.sep}`)) {
-        throw new Error("Delivery change escapes isolated workspace");
-      }
-      await mkdir(path.dirname(target), { recursive: true });
-      await writeFile(target, change.newContent, "utf8");
+      await writeDeliveryWorkspaceFile(workspaceRoot, change.path, change.newContent);
     }
     const candidateTreeHash = await hashDeliveryTree(workspaceRoot);
     return {
