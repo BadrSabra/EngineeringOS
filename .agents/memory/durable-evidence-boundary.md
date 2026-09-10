@@ -20,3 +20,9 @@ Prefetch is part of the durable evidence boundary only when every accepted prefe
 **Why:** The first evidence read can be acquired before the tool loop and therefore never pass through the loop's retained-body callback. Keeping it only in the prefetch map makes failure snapshots report zero reads even though the trace shows a completed read.
 
 **How to apply:** When adding a prefetch source, update both the loop/cache evidence map and the shared retained map at the same acceptance point; use that shared map for success, failure, retry, and history projections.
+
+Runtime failure summaries must use the same byte-limit and read-status normalization as acceptance snapshots. A retained prefetch body larger than the acceptance limit is not a complete proof, even if the in-memory map still contains the raw body.
+
+**Why:** A provider failure can otherwise produce a message saying complete evidence was retained while the durable snapshot correctly marks the same body truncated, making reload and resume disagree with the original turn.
+
+**How to apply:** Normalize retained reads once before building failure text, checkpoints, acceptance, or resumability; preserve the raw body only in the bounded private path needed for diagnostic hashing, never as a second “complete” evidence view.
