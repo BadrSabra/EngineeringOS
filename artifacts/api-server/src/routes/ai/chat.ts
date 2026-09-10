@@ -9,7 +9,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { db } from "@workspace/db";
@@ -159,6 +159,7 @@ import {
   type AiExecutionCheckpoint,
   type AiExecutionRequestEnvelope,
   type AnalysisEvidenceCompletion,
+  type AnalysisEvidenceRead,
   validateAnalysisEvidenceCompletion,
 } from "../../lib/ai-execution-state.js";
 import {
@@ -275,6 +276,7 @@ function deriveProjectQueryAnalysisEvidence(params: {
   objective: unknown;
   operationId: string;
   sourceRevision: string;
+  retainedEvidence: ReadonlyMap<string, string>;
 }): AnalysisEvidenceCompletion | undefined {
   const objective = ObjectiveContractSchema.safeParse(params.objective);
   if (!objective.success) return undefined;
@@ -304,6 +306,39 @@ function deriveProjectQueryAnalysisEvidence(params: {
       .map((entry) => entry.path),
   ].filter((path) => readStatuses.get(path) !== "READ_TRUNCATED"
     && readStatuses.get(path) !== "READ_FAILED");
+  const normalizePath = (value: string): string =>
+    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const retainedBodies = new Map(
+    [...params.retainedEvidence.entries()].map(([filePath, body]) => [
+      normalizePath(filePath),
+      body,
+    ]),
+  );
+  const manifestPaths = new Set([
+    ...(objective.data.requiredEvidencePaths ?? []),
+    ...completedReadFiles,
+    ...(integrity.acceptedEvidenceFiles ?? []),
+    ...(forensicStatus?.readStatuses ?? []).map((entry) => entry.path),
+  ].map(normalizePath).filter(Boolean));
+  const readManifest: AnalysisEvidenceRead[] = [...manifestPaths]
+    .sort()
+    .map((filePath) => {
+      const body = retainedBodies.get(filePath);
+      const status = readStatuses.get(filePath)
+        ?? (completedReadFiles.some((path) => normalizePath(path) === filePath)
+          ? "READ_COMPLETE"
+          : "READ_FAILED");
+      return {
+        path: filePath,
+        status,
+        operationId: params.operationId,
+        sourceRevision: params.sourceRevision,
+        contentHash: body === undefined
+          ? ""
+          : createHash("sha256").update(body).digest("hex"),
+        byteLength: body === undefined ? 0 : Buffer.byteLength(body, "utf8"),
+      };
+    });
   const objectiveVerdict = decision.trace.objectiveVerdict;
   return {
     operationId: params.operationId,
@@ -311,6 +346,7 @@ function deriveProjectQueryAnalysisEvidence(params: {
     requiredPaths: objective.data.requiredEvidencePaths ?? [],
     completedReadFiles: [...new Set(completedReadFiles)],
     acceptedEvidenceFiles: integrity.acceptedEvidenceFiles ?? [],
+    readManifest,
     acceptedClaimCount: integrity.acceptedClaimCount ?? 0,
     evidenceConsistent: integrity.consistent,
     ...(integrity.completionGateResult
@@ -7891,6 +7927,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           objective: executionRequest.objective,
           operationId: aiExecution.operationId ?? aiExecution.id,
           sourceRevision: analysisCorrelation.projectRevision,
+          retainedEvidence,
         })
       : undefined;
     if (analysisEvidence) {
@@ -10727,7 +10764,12 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
     const liveRootHashBeforePromotion = await hashDeliveryTree(resolvedRoot);
     const liveRootChangedBeforePromotion = liveRootHashBeforePromotion !== deliveryWorkspace.baseTreeHash;
-    const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
+    const candidateHashBeforePromotion = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
+    const candidateChangedBeforePromotion = candidateHashBeforePromotion !== candidateHash;
+    const validationNeedsReview = candidateChangedDuringValidation
+      || candidateChangedBeforePromotion
+      || liveRootChangedBeforePromotion
+      || [...verificationByProfile.values()].some((validation) =>
       validation.status === "failed" ||
       validation.status === "unavailable" ||
       validation.status === "skipped" ||
@@ -10747,10 +10789,13 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       await appendApplyJournal("BLOCKED", {
         reason: candidateChangedDuringValidation
           ? "candidate_changed_after_validation"
+          : candidateChangedBeforePromotion
+            ? "candidate_changed_before_promotion"
           : liveRootChangedBeforePromotion
             ? "live_root_changed_before_promotion"
             : "behavioral_validation",
         candidateHash,
+        candidateHashBeforePromotion,
         changeSetHash: effectiveChangeSetHash,
         baseTreeHash: deliveryWorkspace.baseTreeHash,
         candidateTreeHash,

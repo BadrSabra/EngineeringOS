@@ -19,7 +19,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
@@ -1258,6 +1258,14 @@ describe("Durable AI completion identity", () => {
         requiredPaths: ["src/proof-fixture.ts"],
         completedReadFiles: ["src/proof-fixture.ts"],
         acceptedEvidenceFiles: ["src/proof-fixture.ts"],
+        readManifest: [{
+          path: "src/proof-fixture.ts",
+          status: "READ_COMPLETE",
+          operationId,
+          sourceRevision: fixture.request.workspaceRevision,
+          contentHash: createHash("sha256").update(PROOF_FIXTURE_BODY).digest("hex"),
+          byteLength: Buffer.byteLength(PROOF_FIXTURE_BODY, "utf8"),
+        }],
         acceptedClaimCount: 1,
         evidenceConsistent: true,
         completionGateResult: "PROVEN",

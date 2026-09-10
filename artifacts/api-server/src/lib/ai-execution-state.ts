@@ -518,11 +518,21 @@ export type AnalysisEvidenceCompletion = {
   requiredPaths: readonly string[];
   completedReadFiles: readonly string[];
   acceptedEvidenceFiles: readonly string[];
+  readManifest?: readonly AnalysisEvidenceRead[];
   acceptedClaimCount: number;
   evidenceConsistent: boolean;
   completionGateResult?: string;
   objectiveVerdict?: string;
   finalState?: string;
+};
+
+export type AnalysisEvidenceRead = {
+  path: string;
+  status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+  operationId: string;
+  sourceRevision: string;
+  contentHash: string;
+  byteLength: number;
 };
 
 export type AnalysisEvidenceCompletionCheck = {
@@ -550,18 +560,49 @@ export function validateAnalysisEvidenceCompletion(
   const completed = new Set(evidence.completedReadFiles.map(normalizePath));
   const required = [...new Set(evidence.requiredPaths.map(normalizePath).filter(Boolean))];
   const accepted = [...new Set(evidence.acceptedEvidenceFiles.map(normalizePath).filter(Boolean))];
+  const manifest = new Map(
+    (evidence.readManifest ?? [])
+      .map((read) => [normalizePath(read.path), read] as const)
+      .filter(([path]) => Boolean(path)),
+  );
+  const manifestCompleted = new Set(
+    [...manifest.entries()]
+      .filter(([, read]) => read.status === "READ_COMPLETE")
+      .map(([path]) => path),
+  );
   if (evidence.operationId !== expected.operationId) {
     reasons.push("analysis evidence is not bound to the execution operation");
   }
   if (evidence.sourceRevision !== expected.sourceRevision) {
     reasons.push("analysis evidence is not bound to the execution revision");
   }
+  if (manifest.size === 0) {
+    reasons.push("analysis evidence read manifest is missing");
+  }
   if (required.length === 0) reasons.push("analysis objective has no required evidence paths");
-  const missingPaths = required.filter((path) => !completed.has(path));
+  const missingPaths = required.filter((path) => !completed.has(path) || !manifestCompleted.has(path));
   if (missingPaths.length > 0) {
     reasons.push(`required analysis source paths are missing: ${missingPaths.slice(0, 8).join(", ")}`);
   }
-  const acceptedWithoutCompleteRead = accepted.filter((path) => !completed.has(path));
+  const malformedManifest = [...manifest.entries()]
+    .filter(([, read]) =>
+      read.operationId !== expected.operationId
+      || read.sourceRevision !== expected.sourceRevision
+      || !/^[a-f0-9]{64}$/i.test(read.contentHash)
+      || !Number.isInteger(read.byteLength)
+      || read.byteLength < 0,
+    )
+    .map(([path]) => path);
+  if (malformedManifest.length > 0) {
+    reasons.push(`analysis evidence manifest is invalid: ${malformedManifest.slice(0, 8).join(", ")}`);
+  }
+  const unmanifestedCompleted = [...completed].filter((path) => !manifest.has(path));
+  if (unmanifestedCompleted.length > 0) {
+    reasons.push(`completed analysis reads are missing from the manifest: ${unmanifestedCompleted.slice(0, 8).join(", ")}`);
+  }
+  const acceptedWithoutCompleteRead = accepted.filter((path) =>
+    !completed.has(path) || !manifestCompleted.has(path),
+  );
   if (acceptedWithoutCompleteRead.length > 0) {
     reasons.push(
       `accepted analysis evidence is not backed by complete reads: ${acceptedWithoutCompleteRead.slice(0, 8).join(", ")}`,
