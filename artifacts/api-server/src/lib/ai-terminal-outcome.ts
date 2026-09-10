@@ -199,6 +199,8 @@ type TerminalClassifierInput = {
   requiresEvidence?: boolean;
   /** Route intent, rather than response prose, determines forensic gates. */
   forensic?: boolean;
+  /** Server-owned source reads survived a provider failure. */
+  retainedEvidenceAvailable?: boolean;
 };
 
 function record(step: AgentStep | undefined): Record<string, unknown> {
@@ -402,6 +404,18 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     };
   }
   if (providerFailureCategory) {
+    if (input.requiresEvidence && input.retainedEvidenceAvailable) {
+      return {
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        providerFailureCategory,
+        retryable: input.providerError?.retryable ?? true,
+        code: "INCOMPLETE_AFTER_PROVIDER_FAILURE",
+        message: "The provider failed after source evidence was retained; the result is incomplete.",
+        recoveryState: "INCOMPLETE",
+        evidenceAccepted: false,
+      };
+    }
     const providerPolicy = decideProviderFailurePolicy({
       category: providerFailureCategory,
       fallbackAttempted: input.providerError?.fallbackExhausted === true,

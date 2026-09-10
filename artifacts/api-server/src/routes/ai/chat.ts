@@ -53,6 +53,10 @@ import {
   isRepairPlanExecutionRequest,
   isPlanExecutionRequest,
   isCapabilityProbeRequest,
+  buildBehaviorEvidenceIncompleteResponse,
+  buildProjectQueryIncompleteResponse,
+  buildIncompleteForensicReport,
+  collectForensicEvidence,
   isTaskContinuationRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
@@ -1686,6 +1690,23 @@ function summarizeEvidenceForFailure(
     completeSourceReadCount,
     incompleteSourceReadCount: Math.max(0, sourceReadCount - completeSourceReadCount),
   };
+}
+
+function buildProviderFailureEvidenceResponse(
+  turnKind: string,
+  message: string,
+  retainedEvidence: ReadonlyMap<string, string>,
+): string {
+  if (turnKind === "FORENSIC_AUDIT") {
+    return buildIncompleteForensicReport(
+      collectForensicEvidence([], [], new Map(retainedEvidence), true),
+      { reason: "PROVIDER_FAILURE_AFTER_EVIDENCE" },
+    );
+  }
+  if (turnKind === "PROJECT_QUERY") {
+    return buildProjectQueryIncompleteResponse(message, retainedEvidence);
+  }
+  return buildBehaviorEvidenceIncompleteResponse(message, retainedEvidence);
 }
 
 function evidenceFailureMessage(
@@ -3959,8 +3980,11 @@ router.post("/ai/chat", async (req, res) => {
       },
     }, "chat: dispatching chatWithFallback");
 
-    let result: Awaited<ReturnType<typeof chat>>;
+    let result = undefined as unknown as Awaited<ReturnType<typeof chat>>;
     const traceSteps: AgentStep[] = [];
+    const retainedEvidence = new Map<string, string>();
+    const retainedReadStatuses = new Map<string, ReadStatus>();
+    let providerFailureAfterEvidence: GroqClientError | undefined;
     const sessionIdToUse = existingSession?.id ?? sessionId ?? randomUUID();
     try {
       const chatOut = await chatWithFallback(
@@ -3997,6 +4021,8 @@ router.post("/ai/chat", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective: effectiveObjective,
           turnIntent,
+           retainedEvidence,
+           retainedReadStatuses,
           allowValidationTools: Boolean(validationRunner),
            approvalState: validationRunner
              ? "APPROVED"
@@ -4047,6 +4073,21 @@ router.post("/ai/chat", async (req, res) => {
       }
     } catch (err) {
       if (err instanceof GroqClientError) {
+        if (turnIntent.requiresEvidence && retainedEvidence.size > 0) {
+          providerFailureAfterEvidence = err;
+          result = {
+            response: buildProviderFailureEvidenceResponse(
+              turnIntent.kind,
+              message,
+              retainedEvidence,
+            ),
+            sources: [...retainedEvidence.keys()],
+            pendingChanges: [],
+            repairPlan: undefined,
+            taskResult: undefined,
+            behaviorEvidence: undefined,
+          };
+        } else {
         const terminalOutcome = classifyAiTerminalOutcome({
           trace: traceSteps,
           requiresEvidence: turnIntent.requiresEvidence,
@@ -4096,8 +4137,9 @@ router.post("/ai/chat", async (req, res) => {
           executionLedger,
           incompleteReview: { sessionId: sessionIdToUse },
         })) return;
+        }
       }
-      throw err;
+      if (!result) throw err;
     }
 
     const terminalOutcome = classifyAiTerminalOutcome({
@@ -4107,6 +4149,21 @@ router.post("/ai/chat", async (req, res) => {
       forensic: turnIntent.kind === "FORENSIC_AUDIT"
         || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
       endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+      retainedEvidenceAvailable: Boolean(providerFailureAfterEvidence && retainedEvidence.size > 0),
+      ...(providerFailureAfterEvidence
+        ? {
+            providerError: {
+              code: providerFailureAfterEvidence.code,
+              providerCode: providerFailureAfterEvidence.providerCode,
+              providerStatus: providerFailureAfterEvidence.providerStatus,
+              fallbackExhausted: true,
+              retryable: providerFailureAfterEvidence.code === "RATE_LIMITED"
+                || providerFailureAfterEvidence.code === "TIMEOUT"
+                || providerFailureAfterEvidence.code === "NETWORK_ERROR"
+                || providerFailureAfterEvidence.code === "SERVER_ERROR",
+            },
+          }
+        : {}),
     });
     executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
       outcome: terminalOutcome.outcome,
@@ -7325,6 +7382,20 @@ router.post("/ai/chat/stream", async (req, res) => {
     } catch (err) {
       // PR-011: record failure metrics before emitting the SSE error.
       recordFailure(provider);
+      if (streamTurnIntent.requiresEvidence && retainedEvidence.size > 0) {
+        result = {
+          response: buildProviderFailureEvidenceResponse(
+            streamTurnIntent.kind,
+            message,
+            retainedEvidence,
+          ),
+          sources: [...retainedEvidence.keys()],
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: undefined,
+          behaviorEvidence: undefined,
+        };
+      }
       executionLedgerSnapshot = executionLedgerSnapshot ?? finishExecutionLedger(executionLedger, {
         outcome: executionLeaseLost
           ? "FAILED"
@@ -7345,6 +7416,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         cancelled,
         leaseLost: executionLeaseLost,
         endedBeforeEvidence: endedBeforeProviderEvidence,
+        retainedEvidenceAvailable: Boolean(
+          streamTurnIntent.requiresEvidence && retainedEvidence.size > 0,
+        ),
         providerEmptyBeforeEvidence:
           endedBeforeProviderEvidence
           && err instanceof GroqClientError

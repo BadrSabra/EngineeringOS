@@ -62,6 +62,22 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("keeps retained source reads as an explicit incomplete result after provider failure", () => {
+    expect(classify([
+      { kind: "tool_result", tool: "read_file", source: "src/index.ts", readStatus: "READ_COMPLETE" },
+    ], {
+      providerError: { code: "TIMEOUT", fallbackExhausted: true },
+      retainedEvidenceAvailable: true,
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "INCOMPLETE_AFTER_PROVIDER_FAILURE",
+      recoveryState: "INCOMPLETE",
+      providerFailureCategory: "TIMEOUT",
+      evidenceAccepted: false,
+    });
+  });
+
   it("classifies an empty provider response before the first read as an incomplete contract", () => {
     expect(classify([
       { kind: "iteration_start", iter: 0, maxIterations: 120 },
