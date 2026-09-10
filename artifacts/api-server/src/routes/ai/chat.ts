@@ -157,6 +157,7 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
   type AiExecutionCheckpoint,
+  type AiEvidenceProgressCheckpoint,
   type AiExecutionRequestEnvelope,
   type AnalysisEvidenceCompletion,
   type AnalysisEvidenceRead,
@@ -354,6 +355,87 @@ function deriveProjectQueryAnalysisEvidence(params: {
       : {}),
     ...(objectiveVerdict ? { objectiveVerdict } : {}),
     finalState: decision.trace.finalState,
+  };
+}
+
+function deriveEvidenceProgressCheckpoint(params: {
+  objective: unknown;
+  traceSteps: AgentStep[];
+  retainedEvidence: ReadonlyMap<string, string>;
+  operationId: string;
+  sourceRevision: string;
+}): AiEvidenceProgressCheckpoint | undefined {
+  const parsed = ObjectiveContractSchema.safeParse(params.objective);
+  if (!parsed.success) return undefined;
+  const normalizePath = (value: string): string =>
+    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const requiredPaths = [
+    ...(parsed.data.requiredEvidencePaths ?? []),
+    ...parsed.data.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
+  ]
+    .map(normalizePath)
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+  const statusByPath = new Map<string, AiEvidenceProgressCheckpoint["pathStatuses"][number]["status"]>();
+  const evidenceStatusRank: Record<AiEvidenceProgressCheckpoint["pathStatuses"][number]["status"], number> = {
+    missing: 0,
+    failed: 1,
+    truncated: 2,
+    targeted: 3,
+    complete: 4,
+  };
+  const recordStatus = (
+    path: string,
+    status: AiEvidenceProgressCheckpoint["pathStatuses"][number]["status"],
+  ): void => {
+    const previous = statusByPath.get(path);
+    if (!previous || evidenceStatusRank[status] >= evidenceStatusRank[previous]) {
+      statusByPath.set(path, status);
+    }
+  };
+  for (const path of [...params.retainedEvidence.keys()].map(normalizePath).filter(Boolean)) {
+    recordStatus(path, "complete");
+  }
+  for (const step of params.traceSteps) {
+    if (
+      step.kind === "tool_result"
+      && (step.tool === "read_file" || step.tool === "read_file_range")
+      && step.source
+    ) {
+      const path = normalizePath(step.source);
+      const status =
+        step.readStatus === "READ_COMPLETE" || step.readStatus === "READ_CACHED"
+          ? "complete"
+          : step.readStatus === "READ_TARGETED"
+            ? "targeted"
+            : step.readStatus === "READ_TRUNCATED"
+              ? "truncated"
+              : step.readStatus === "READ_FAILED"
+                ? "failed"
+                : undefined;
+      if (path && status) recordStatus(path, status);
+    }
+  }
+  const pathStatuses = requiredPaths.map((path) => ({
+    path,
+    status: statusByPath.get(path) ?? "missing",
+  }));
+  const completedPaths = pathStatuses
+    .filter((entry) => entry.status === "complete")
+    .map((entry) => entry.path);
+  const missingPaths = pathStatuses
+    .filter((entry) => entry.status !== "complete")
+    .map((entry) => entry.path);
+  const nextRequiredPath = pathStatuses.find((entry) =>
+    entry.status === "missing" || entry.status === "truncated" || entry.status === "failed"
+  )?.path;
+  return {
+    operationId: params.operationId,
+    sourceRevision: params.sourceRevision,
+    requiredPaths,
+    pathStatuses,
+    completedPaths,
+    missingPaths,
+    ...(nextRequiredPath ? { nextRequiredPath } : {}),
   };
 }
 
@@ -5503,6 +5585,10 @@ router.post("/ai/chat/stream", async (req, res) => {
       const bindingMatches = storedRequest &&
         storedRequest.projectId === executionRequest.projectId &&
         storedRequest.sessionId === executionRequest.sessionId &&
+        // Requests persisted before turnIntent became part of the durable
+        // contract remain resumable; every newer request must match exactly.
+        (storedRequest.turnIntent === undefined ||
+          storedRequest.turnIntent === executionRequest.turnIntent) &&
         storedRequest.message === executionRequest.message &&
         (
           storedRequest.modelMessage === executionRequest.modelMessage
@@ -5942,6 +6028,16 @@ router.post("/ai/chat/stream", async (req, res) => {
           : {}),
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
+        ...(() => {
+          const evidenceProgress = deriveEvidenceProgressCheckpoint({
+            objective: executionRequest.objective,
+            traceSteps,
+            retainedEvidence,
+            operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
+            sourceRevision: analysisCorrelation.projectRevision,
+          });
+          return evidenceProgress ? { evidenceProgress } : {};
+        })(),
         proofRequired,
         ...(capabilityProbeCheckpoint ? { capabilityProbe: capabilityProbeCheckpoint } : {}),
         sequence,
@@ -8509,8 +8605,9 @@ router.get("/ai/executions/history", async (req, res) => {
     const capabilityProbeTerminalFailure =
       request?.message && isCapabilityProbeRequest(request.message) &&
       checkpointRecord.stage === "failed";
-    const resumable = execution.status === "paused" ||
-      (execution.status === "failed" && !capabilityProbeTerminalFailure);
+    const resumable = currentAcceptance
+      ? currentAcceptance.resumable && currentAcceptance.nextActionCode === "RESUME_ALLOWED"
+      : execution.status === "paused" && !capabilityProbeTerminalFailure;
     const disposition = evidenceVerdict === "PROVEN"
       ? "RETAIN_FOR_REVIEW"
       : "NEW_RUN_RECOMMENDED";
@@ -9199,24 +9296,23 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     ? await acceptanceQuery.limit(500)
     : [];
   const projectionEntries = messages.flatMap((message) => {
-      if (!message.executionId) return [];
-      const acceptance = acceptanceRows
-        .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
-        .sort((left, right) => right.attempt - left.attempt)[0];
-      if (!acceptance) return [];
-      return [{
-        messageId: message.id,
-        executionId: message.executionId,
-        attempt: acceptance.attempt,
-      }];
-    });
+    if (!message.executionId) return [];
+    const acceptance = acceptanceRows
+      .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
+      .sort((left, right) => right.attempt - left.attempt)[0];
+    return [{
+      messageId: message.id,
+      executionId: message.executionId,
+      ...(acceptance ? { attempt: acceptance.attempt } : {}),
+    }];
+  });
   const terminalProjectionByMessage = new Map(
     (await Promise.all(projectionEntries.map(async (entry) => [
       entry.messageId,
       await loadTerminalProjection({
         executionId: entry.executionId,
         sessionId,
-        attempt: entry.attempt,
+        ...(entry.attempt !== undefined ? { attempt: entry.attempt } : {}),
         messageId: entry.messageId,
       }),
     ] as const)))

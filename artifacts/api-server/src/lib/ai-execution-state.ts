@@ -710,6 +710,21 @@ export type AiProviderAttemptCheckpoint = {
   code: string;
 };
 
+export type AiEvidencePathStatus = "missing" | "complete" | "targeted" | "truncated" | "failed";
+
+export type AiEvidenceProgressCheckpoint = {
+  operationId: string;
+  sourceRevision: string;
+  requiredPaths: string[];
+  pathStatuses: Array<{
+    path: string;
+    status: AiEvidencePathStatus;
+  }>;
+  completedPaths: string[];
+  missingPaths: string[];
+  nextRequiredPath?: string;
+};
+
 export type AiExecutionNodeCheckpoint = Pick<
   ExecutionNode,
   | "id"
@@ -744,6 +759,7 @@ export type AiExecutionCheckpoint = {
   completedNodes?: string[];
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
+  evidenceProgress?: AiEvidenceProgressCheckpoint;
   proofRequired?: boolean;
   capabilityProbe?: AiCapabilityProbeCheckpoint;
   providerAttempts?: AiProviderAttemptCheckpoint[];
