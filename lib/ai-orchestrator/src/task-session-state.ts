@@ -522,6 +522,11 @@ const CONTINUATION_PATTERNS = [
   /^(?:أكمل|استكمل|تابع|تابع\s+التحقيق|أكمل\s+التحقيق|استكمل\s+التحقيق|أكمل\s+التحليل|استكمل\s+التحليل|تابع\s+التحليل|استمر|ابدأ|نفّذ|نفذ|ابدأ\s+التنفيذ|تابع\s+التنفيذ|قم\s+بذلك|أعد\s+المحاولة|اعد\s+المحاولة|أعد\s+(?:توليد|إنتاج|إنشاء|صياغة)\s+(?:التقرير|الخطة)|اعد\s+(?:توليد|إنتاج|إنشاء|صياغة)\s+(?:التقرير|الخطة))[\s!.،,:;]*$/u,
 ];
 
+const PROJECT_QUERY_FOLLOW_UP_PATTERNS = [
+  /^(?:and\s+)?(?:what happens next|what happens after that|what about the next step|how does that part work|can you explain that part|what about memory)[\s!.?,:;]*$/i,
+  /^(?:وماذا يحدث بعد ذلك|وماذا بعد ذلك|ماذا يحدث بعد هذا|وماذا عن الخطوة التالية|كيف يعمل هذا الجزء|اشرح الجزء التالي|ماذا عن الذاكرة)[\s!.،,:;؟]*$/u,
+];
+
 export function parseActiveTaskState(value: string | null | undefined): ActiveTaskState | null {
   if (!value) return null;
   try {
@@ -540,9 +545,17 @@ export function serializeActiveTaskState(value: ActiveTaskState | null | undefin
   return JSON.stringify(value);
 }
 
-export function isTaskContinuationRequest(message: string): boolean {
+export function isTaskContinuationRequest(
+  message: string,
+  state?: ActiveTaskState | null,
+): boolean {
   const normalized = message.normalize("NFKC").trim();
-  return normalized.length <= 80 && CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized));
+  if (normalized.length > 120) return false;
+  if (CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
+  return Boolean(
+    state?.projectQuery
+    && PROJECT_QUERY_FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(normalized)),
+  );
 }
 
 export function isResumableTaskType(taskType: ForensicTaskType): boolean {
@@ -651,7 +664,7 @@ export function resumeActiveTaskClassification(
     !state ||
     (!isResumableTaskType(state.taskType) && !state.capabilityProbe && !state.projectQuery) ||
     state.scope.projectId.length === 0 ||
-    !isTaskContinuationRequest(message)
+    !isTaskContinuationRequest(message, state)
   ) {
     return { classification, resumed: false };
   }

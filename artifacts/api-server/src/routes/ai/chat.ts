@@ -3565,7 +3565,8 @@ router.post("/ai/chat", async (req, res) => {
   // is an explicit continuation. This mirrors the SSE path, so stale forensic
   // state cannot turn neutral conversation into an evidence-gated audit.
   const isolatedConversationTurn =
-    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+    rawTurnIntent.kind === "CHAT"
+    && !isTaskContinuationRequest(message, persistedActiveTaskState);
   const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
@@ -4484,7 +4485,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const rawTurnIntent = resolveTurnIntent(message, {
     classification: rawTurnClassification,
   });
-  const isolatedConversationTurn =
+  let isolatedConversationTurn =
     rawTurnIntent.kind === "CHAT"
     && !rawTurnIntent.serverAction
     && !isTaskContinuationRequest(message);
@@ -4542,7 +4543,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   // Decide this from the validated user text before any Build handoff
   // augmentation. A greeting must never inherit Build Mode state, even when
   // the client retries with stale buildPlanMessageId metadata.
-  const greetingTurnForExecution = isolatedConversationTurn;
+  let greetingTurnForExecution = isolatedConversationTurn;
   const effectiveBuildPlanMessageId = isolatedConversationTurn ? undefined : buildPlanMessageId;
   if (effectiveBuildPlanMessageId) {
     if (!sessionId) {
@@ -4686,6 +4687,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     existingSession?.activeTaskState,
     projectId,
   );
+  if (persistedActiveTaskState && isTaskContinuationRequest(message, persistedActiveTaskState)) {
+    isolatedConversationTurn = false;
+    greetingTurnForExecution = false;
+  }
   const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,

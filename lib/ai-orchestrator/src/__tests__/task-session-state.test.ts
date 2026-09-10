@@ -136,6 +136,32 @@ describe("active task session state", () => {
     expect(resumed.classification.analysisMode).toBe("FORENSIC");
   });
 
+  it("retains only a targeted project-query scope for natural follow-ups", () => {
+    const classification = classifyRequest("حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع");
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      projectQuery: classification.projectTarget,
+    });
+
+    expect(isTaskContinuationRequest("وماذا يحدث بعد ذلك؟")).toBe(false);
+    expect(isTaskContinuationRequest("وماذا يحدث بعد ذلك؟", state)).toBe(true);
+    expect(isTaskContinuationRequest("what happens next?", state)).toBe(true);
+    expect(isTaskContinuationRequest("ما الذي يحدث عند انتهاء المهلة؟", state)).toBe(false);
+
+    const resumed = resumeActiveTaskClassification(
+      "وماذا يحدث بعد ذلك؟",
+      classifyRequest("وماذا يحدث بعد ذلك؟"),
+      state,
+    );
+
+    expect(resumed.resumed).toBe(true);
+    expect(resumed.classification.projectTarget?.id).toBe("embedded-ai");
+    expect(resumed.classification.taskType).toBe("BEHAVIOR_QUERY");
+  });
+
   it("retains the project binding in the persisted scope", () => {
     const state = buildActiveTaskState({
       classification: auditClassification,
