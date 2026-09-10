@@ -7365,6 +7365,10 @@ export async function chat(opts: {
         : turnIntent.projectTarget
           ? [...turnIntent.projectTarget.primaryPaths]
           : undefined,
+    // Preserve the server-owned objective manifest at the tool-loop boundary.
+    // The scope policy alone can reject unrelated paths, but the ordered
+    // evidence cursor and forced recovery require the complete objective.
+    objective,
     objectiveScopePolicy: objective?.scopePolicy,
     firstEvidenceTargetPath: loopEvidenceTargetPath ?? undefined,
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,

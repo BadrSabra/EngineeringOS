@@ -1,13 +1,9 @@
 /**
  * Phase 0 baseline for the latest PROJECT_QUERY evidence failure.
  *
- * This test intentionally characterizes the current handoff before the
- * objective traversal fix. The API/chat layer has a required evidence
- * manifest, but the main chat-agent -> executeToolLoop call currently drops
- * the objective while still passing its scope policy.
- *
- * The expectation in this file should be changed as part of the phase 1
- * wiring fix, not silently removed.
+ * This test protects the chat-agent -> executeToolLoop handoff. The API/chat
+ * layer has a required evidence manifest, and the engine must receive the
+ * complete objective rather than only its scope policy.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
@@ -92,7 +88,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     else process.env.GROQ_API_KEY = originalGroqApiKey;
   });
 
-  it("captures the current truncated-prefetch handoff before the objective wiring fix", async () => {
+  it("preserves the objective across the truncated-prefetch handoff", async () => {
     let capturedOptions: Record<string, unknown> | undefined;
 
     vi.doMock("../tool-execution-engine.js", async () => {
@@ -175,9 +171,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         new Map([[REQUIRED_PATHS[0], "READ_TRUNCATED"]]),
       );
 
-      // Phase 0 characterization: this is the current defect. The objective
-      // exists at chat(), but is absent at the engine boundary.
-      expect(capturedOptions?.objective).toBeUndefined();
+      expect(capturedOptions?.objective).toEqual(OBJECTIVE);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
