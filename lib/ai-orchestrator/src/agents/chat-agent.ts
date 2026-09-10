@@ -5688,15 +5688,26 @@ export async function chat(opts: {
   // The shared intent is authoritative. Do not infer tool use again from the
   // augmented model message or from rootPath availability.
   const toolExecutionRequested = turnIntent.requiresTools;
+  // Keep ordinary CHAT lightweight and non-evidence-gated while allowing the
+  // model to request a bounded source read when it needs current project
+  // details. This capability is intentionally separate from requiresTools so
+  // optional reads do not promote a greeting into a tool-chat execution plan.
+  const optionalProjectReadCapability =
+    !!rootPath &&
+    (turnIntent.kind === "CHAT" || turnIntent.kind === "PROJECT_QUERY") &&
+    !turnIntent.requiresEvidence;
   const immediateExecution = rootPath !== undefined && immediateIntent;
   const agentScope = rootPath && toolExecutionRequested
     ? turnIntent.executionTaskType
     : "chat";
-  const modelHasTools = !!rootPath && toolExecutionRequested;
+  const modelHasTools = !!rootPath && (toolExecutionRequested || optionalProjectReadCapability);
 
   const executionPlan = suppliedExecutionPlan ?? resolveExecutionDecision(agentScope, {
-    hasTools: modelHasTools,
-    requireTools: modelHasTools,
+    // Optional CHAT reads expose tools without changing ordinary-chat model
+    // selection. PROJECT_QUERY and delivery turns still require tools through
+    // the canonical intent contract.
+    hasTools: toolExecutionRequested,
+    requireTools: toolExecutionRequested,
     ...(capabilityProbeRequest
       ? {
           qualityProfile: "capability_probe" as const,
@@ -5966,6 +5977,8 @@ export async function chat(opts: {
   // hide tools such as read_file_range after their scope is established, but
   // the provider normalizer and the configuration guard still need the full
   // authorized source-evidence surface.
+  const projectReadToolMode =
+    optionalProjectReadCapability ? "project-read-only" as const : "workspace" as const;
   const toolManifest = modelHasTools
     ? buildProviderTools(
         providerId,
@@ -5978,11 +5991,10 @@ export async function chat(opts: {
         false,
         false,
         true,
-        turnIntent.kind === "PROJECT_QUERY" ? "project-read-only" : "workspace",
+         projectReadToolMode,
       )
     : undefined;
-  const projectChatToolMode: "workspace" | "project-read-only" =
-    turnIntent.kind === "PROJECT_QUERY" ? "project-read-only" : "workspace";
+  const projectChatToolMode: "workspace" | "project-read-only" = projectReadToolMode;
   const tools = modelHasTools
     ? buildProviderTools(
         providerId,
