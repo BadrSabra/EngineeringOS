@@ -2098,6 +2098,8 @@ export async function completeAiExecution(params: {
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
   const forensicExecution = request?.turnIntent === "FORENSIC_AUDIT"
     || Boolean(request?.capabilityProbe && request?.proofRequired === true);
+  const projectQueryProofExecution =
+    request?.turnIntent === "PROJECT_QUERY" && requiresProof && !forensicExecution;
   const operation = params.operation ?? checkpoint?.operation;
   const inferredEvidenceRefs = [
     ...(params.evidenceRefs ?? []),
@@ -2116,6 +2118,11 @@ export async function completeAiExecution(params: {
     if (!operation) return false;
     if (!request?.workspaceRevision) return false;
     const durableOperationId = current.operationId ?? params.executionId;
+    // A proof-required project query has a semantic acceptance contract:
+    // complete source reads alone do not prove that the requested claims were
+    // answered. Never fall back to the generic operation gate when the
+    // project-query analysis evidence was not produced.
+    if (projectQueryProofExecution && !params.analysisEvidence) return false;
     const completion = params.analysisEvidence
       ? validateAnalysisEvidenceCompletion(params.analysisEvidence, {
           operationId: params.operationId ?? durableOperationId,

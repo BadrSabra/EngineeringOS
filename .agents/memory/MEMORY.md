@@ -85,6 +85,7 @@
 - [OpenRouter catalog state](openrouter-catalog-state.md) — only a successful usable live snapshot is authoritative; failed or expired refreshes retain static compatibility candidates.
 - [Benchmark behavior gates](benchmark-behavior-gates.md) — release validation must execute every fixture oracle against an isolated passing candidate, not only check registration.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
+- [Project-query semantic acceptance](project-query-semantic-acceptance.md) — complete source reads never prove a proof-required PROJECT_QUERY without accepted claims and a verified objective verdict.
 - [Browser readiness fixture boundary](browser-readiness-fixture-boundary.md) — fixture mode validates a non-empty authenticated project response; live mode validates its explicit disposable project ID.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
 - [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.

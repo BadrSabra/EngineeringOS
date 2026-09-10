@@ -5060,6 +5060,144 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("does not accept a proof-required PROJECT_QUERY when complete reads have no semantic evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sources = [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+    ];
+    const blocked = "محظور — لم تُغلق الادعاءات المطلوبة.";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as { retainedEvidence?: Map<string, string> };
+      for (const source of sources) {
+        input.retainedEvidence?.set(source, `complete source body for ${source}\n`);
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: source.length + 30,
+        });
+      }
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sources.length,
+        uniqueFilesRead: sources.length,
+        evidenceFileCount: sources.length,
+        acceptedEvidenceCount: 0,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: [],
+        acceptedClaimCount: 0,
+        completionGateResult: "BLOCKED",
+      });
+      args[6]?.({
+        kind: "diagnostic",
+        code: "OBJECTIVE_BLOCKED",
+        details: ["declared objective not completed; no final verdict emitted"],
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: sources.length,
+        prefetchToolCalls: sources.length,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: true,
+        diagnosticCodes: ["OBJECTIVE_BLOCKED"],
+      });
+      args[3]?.(blocked);
+      return {
+        result: {
+          response: blocked,
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "قم بتحليل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text);
+    expect(events.find((event) => event.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+    const terminalError = events.find((event) => event.type === "error");
+    expect(terminalError).toMatchObject({
+      outcome: "FAILED",
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+    });
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution).toMatchObject({ status: "failed" });
+
+    const [acceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      terminalStatus: "failed",
+      evidenceComplete: 0,
+      evidenceSnapshotId: expect.any(String),
+    });
+
+    const [snapshot] = await db
+      .select({
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(snapshot).toMatchObject({
+      verdict: "NOT_RECORDED",
+      complete: 0,
+      readCount: sources.length,
+    });
+
+    const done = terminalError;
+    const history = await request(app)
+      .get(`/api/ai/chat/${done?.sessionId}/messages`)
+      .expect(200);
+    const replayed = (history.body as Array<Record<string, unknown>>)
+      .find((message) => message.role === "assistant");
+    expect(replayed).toMatchObject({
+      content: blocked,
+      outcome: "FAILED",
+    });
+  });
+
   it("retries a failed analytical PROJECT_QUERY as a new execution with the saved contract", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
