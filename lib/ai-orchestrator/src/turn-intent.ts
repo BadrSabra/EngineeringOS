@@ -121,6 +121,16 @@ const ENGLISH_EXECUTION_ACTION_RE =
 const ARABIC_EXECUTION_ACTION_RE =
   /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
 
+/**
+ * A direct mutation is normally kept in reviewable plan mode. These narrower
+ * forms are explicit execution commands, however: they either name the task
+ * that must run or use a continuation verb ("execute it", "نفّذها"). Keeping
+ * this distinction here preserves the review boundary for "create a file"
+ * while allowing task telemetry and deterministic execution degradation.
+ */
+const EXPLICIT_TASK_EXECUTION_RE =
+  /(?:وقم\s+بتنفيذ|نفّذ(?:ها)?\s+(?:الخطة|الإصلاحات|التعديلات|المهمة|الاختبارات|repair\s+plan)|نفذ(?:ها)?\s+(?:الخطة|الإصلاحات|التعديلات|المهمة|الاختبارات|repair\s+plan)|^\s*(?:please\s+)?\bexecute\b|\b(?:execute|run)\b[\s\S]{0,80}\b(?:task|tests?|repair\s+plan)\b)/iu;
+
 const PLAN_EXECUTION_REQUEST_RE =
   /^\s*(?:(?:ابدأ|ابدا|إبدأ|إبدا|start|proceed|go\s+ahead)\s+)?(?:في\s+)?(?:تنفيذ|تطبيق|تعديل|إصلاح|implement|apply|execute)\s+(?:هذه\s+|the\s+|this\s+|approved\s+)?(?:الخطة|التعديلات|الإصلاحات|plan|changes|fixes)(?:\s|$|[.,!?])/iu;
 
@@ -197,16 +207,18 @@ export function resolveTurnIntent(
   const implementationPlanResume = options.implementationPlanResume === true;
   const compoundExecution = isCompoundExecutionRequest(message);
   const compoundWrite = isCompoundWriteRequest(message);
-  // A direct mutation request has no server-owned file scope or approval
-  // manifest yet. Route it through the read-only implementation-plan contract
-  // instead of allowing the model to discover write_file and fail at the
-  // authorization gate without producing an operator-visible proposal.
+  // Explicit implementation-plan language remains read-only, and ordinary
+  // direct mutations remain reviewable plan requests. Task-shaped requests and
+  // explicit execution continuations retain task_execution so the server-owned
+  // policy can collect telemetry and produce deterministic degradation reports.
   const directImplementationPlanRequest =
     !buildHandoff &&
     !implementationPlanResume &&
     !compoundWrite &&
+    !baseClassification.implementationTaskMode &&
+    !EXPLICIT_TASK_EXECUTION_RE.test(message) &&
     (
-      baseClassification.implementationTaskMode ||
+      baseClassification.implementationPlanMode ||
       isExecutionActionRequest(message)
     );
   const classification = directImplementationPlanRequest
