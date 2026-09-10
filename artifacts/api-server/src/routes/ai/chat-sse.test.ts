@@ -832,6 +832,95 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("keeps forensic diagnostics out of ordinary CHAT history but retains them for project queries", async () => {
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+        messages: Array<Record<string, unknown>>;
+      };
+    });
+    const dbFixture = dbModule.__chatTestFixture;
+    dbFixture.session = {
+      id: "test-session-id",
+      projectId: "test-project-id",
+      title: "Test session",
+      linkedTaskId: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+
+    const forensicTrace = JSON.stringify([
+      {
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "NO_FINDING",
+        repairReadiness: "BLOCKED",
+        productionReachability: "NOT_PROVEN",
+        implementationFiles: 1,
+        contextFiles: 0,
+        generatedFiles: 0,
+      },
+      {
+        kind: "evidence_integrity",
+        consistent: true,
+        evidenceSourceCoverage: { status: "COMPLETE" },
+      },
+      { kind: "decision_trace", finalState: "VERIFIED" },
+      {
+        kind: "forensic_recovery_start",
+        attempt: 1,
+      },
+    ]);
+    dbFixture.messages.push(
+      {
+        id: "chat-message-id",
+        sessionId: "test-session-id",
+        role: "assistant",
+        content: "Ordinary response",
+        sources: "[]",
+        toolTrace: forensicTrace,
+        repairPlanMetadata: null,
+        turnIntent: "CHAT",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        id: "project-query-message-id",
+        sessionId: "test-session-id",
+        role: "assistant",
+        content: "Project query response",
+        sources: "[]",
+        toolTrace: forensicTrace,
+        repairPlanMetadata: null,
+        turnIntent: "PROJECT_QUERY",
+        createdAt: new Date("2026-01-01T00:00:01.000Z"),
+      },
+    );
+
+    const response = await request(app).get("/api/ai/chat/test-session-id/messages");
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    const [chatMessage, projectQueryMessage] = response.body as Array<Record<string, unknown>>;
+    expect(chatMessage).not.toHaveProperty("forensicDiagnostic");
+    expect(JSON.parse(String(chatMessage.toolTrace))).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "forensic_status" }),
+        expect.objectContaining({ kind: "evidence_integrity" }),
+        expect.objectContaining({ kind: "forensic_recovery_start" }),
+      ]),
+    );
+    expect(projectQueryMessage).toHaveProperty("forensicDiagnostic", expect.objectContaining({
+      verdict: "NO_VERIFIED_FINDING",
+    }));
+    expect(JSON.parse(String(projectQueryMessage.toolTrace))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "forensic_status" }),
+        expect.objectContaining({ kind: "evidence_integrity" }),
+        expect.objectContaining({ kind: "forensic_recovery_start" }),
+      ]),
+    );
+  });
+
   it("terminalizes provider failures with the provider code instead of the generic lifecycle error", async () => {
     vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
       .mockRejectedValueOnce(new Error("upstream rate limit"));

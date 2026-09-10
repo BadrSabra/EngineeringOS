@@ -964,13 +964,34 @@ function readExecutionLedgerTrace(value: string | null | undefined): ExecutionLe
  * ordinary trace entries, but the allowlisted ledger is the public identity
  * shared by live, history, and resume responses.
  */
-function redactHistoricalToolTrace(value: string | null | undefined): string | null | undefined {
+const FORENSIC_HISTORY_TRACE_KINDS = new Set([
+  "audit_state",
+  "decision_trace",
+  "evidence_integrity",
+  "forensic_diagnostic",
+  "forensic_packet",
+  "forensic_recovery_start",
+  "forensic_status",
+  "forensic_terminal",
+  "production_trace",
+  "verification",
+]);
+
+function isForensicHistoryTurn(turnIntent: string | null | undefined): boolean {
+  return turnIntent === "PROJECT_QUERY" || turnIntent === "FORENSIC_AUDIT";
+}
+
+function redactHistoricalToolTrace(
+  value: string | null | undefined,
+  options: { includeForensicDetails?: boolean } = {},
+): string | null | undefined {
   if (!value) return value;
   const parsed = parseStoredJson(value);
   if (!Array.isArray(parsed)) {
     return JSON.stringify(redactUserFacingValue(parsed));
   }
 
+  const includeForensicDetails = options.includeForensicDetails ?? true;
   const executionLedger = readExecutionLedgerTrace(value);
   const redactedEntries = redactUserFacingValue(scrubHistoricalValidationRecord(parsed));
   const entries = Array.isArray(redactedEntries)
@@ -978,7 +999,13 @@ function redactHistoricalToolTrace(value: string | null | undefined): string | n
         (entry) => !(
           entry
           && typeof entry === "object"
-          && (entry as Record<string, unknown>).kind === "execution_ledger"
+          && (
+            (entry as Record<string, unknown>).kind === "execution_ledger"
+            || (
+              !includeForensicDetails
+              && FORENSIC_HISTORY_TRACE_KINDS.has(String((entry as Record<string, unknown>).kind))
+            )
+          )
         ),
       )
     : [];
@@ -9198,6 +9225,8 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
   return res.json(messages.map((message) => {
     const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
     const terminalMetadata = terminalMetadataFromTrace(message.toolTrace);
+    const { forensicDiagnostic: historicalForensicDiagnostic, ...safeTerminalMetadata } = terminalMetadata;
+    const includeForensicDetails = isForensicHistoryTurn(message.turnIntent);
     const executionAcceptance = message.executionId
       ? acceptanceRows
         .filter((row) => row.executionId === message.executionId && row.messageId === message.id)
@@ -9211,13 +9240,16 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       sources: message.sources
         ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
         : message.sources,
-      toolTrace: redactHistoricalToolTrace(message.toolTrace),
+      toolTrace: redactHistoricalToolTrace(message.toolTrace, { includeForensicDetails }),
       turnIntent: message.turnIntent,
       executionId: message.executionId,
       outcome: message.outcome,
       errorCode: boundedPublicErrorCode(message.errorCode),
       errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
-      ...terminalMetadata,
+      ...safeTerminalMetadata,
+      ...(includeForensicDetails && historicalForensicDiagnostic
+        ? { forensicDiagnostic: historicalForensicDiagnostic }
+        : {}),
       ...(projectedAcceptance?.disposition
         ? { acceptanceDisposition: projectedAcceptance.disposition }
         : {}),
