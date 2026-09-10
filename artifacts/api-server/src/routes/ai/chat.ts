@@ -3558,15 +3558,6 @@ router.post("/ai/chat", async (req, res) => {
   // messages reuse the verified contract stored on the session.
   const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
   const rawTurnClassification = classifyRequest(message);
-  const rawTurnIntent = resolveTurnIntent(message, {
-    classification: rawTurnClassification,
-  });
-  // Any ordinary CHAT request starts an isolated conversational turn unless it
-  // is an explicit continuation. This mirrors the SSE path, so stale forensic
-  // state cannot turn neutral conversation into an evidence-gated audit.
-  const isolatedConversationTurn =
-    rawTurnIntent.kind === "CHAT"
-    && !isTaskContinuationRequest(message, persistedActiveTaskState);
   const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
@@ -3574,9 +3565,12 @@ router.post("/ai/chat", async (req, res) => {
         rootPath: validRootPath,
       })
     : null;
-  const resumableStateForTurn = isolatedConversationTurn
-    ? null
-    : persistedActiveTaskState ?? recoveredActiveTaskState;
+  const resumableStateCandidate = persistedActiveTaskState ?? recoveredActiveTaskState;
+  // Reuse session evidence only for a bounded continuation. A new project
+  // question may still require tools, but it must begin with a fresh
+  // server-owned evidence scope instead of inheriting the previous target.
+  const resumesSessionState = isTaskContinuationRequest(message, resumableStateCandidate);
+  const resumableStateForTurn = resumesSessionState ? resumableStateCandidate : null;
   const classificationResolution = resumeActiveTaskClassification(
     message,
     rawTurnClassification,
@@ -4687,10 +4681,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     existingSession?.activeTaskState,
     projectId,
   );
-  if (persistedActiveTaskState && isTaskContinuationRequest(message, persistedActiveTaskState)) {
-    isolatedConversationTurn = false;
-    greetingTurnForExecution = false;
-  }
   const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
@@ -4698,9 +4688,21 @@ router.post("/ai/chat/stream", async (req, res) => {
         rootPath: validRootPath,
       })
     : null;
-  const streamResumableStateForTurn = isolatedConversationTurn
-    ? null
-    : persistedActiveTaskState ?? recoveredActiveTaskState;
+  const streamResumableStateCandidate = persistedActiveTaskState ?? recoveredActiveTaskState;
+  const resumesSessionState =
+    isTaskContinuationRequest(message, streamResumableStateCandidate)
+    || Boolean(effectiveExecutionId)
+    || Boolean(effectiveBuildPlanMessageId);
+  // A fresh project query remains tool-capable, but must not inherit the
+  // previous turn's target or evidence requirements.
+  isolatedConversationTurn =
+    rawTurnIntent.kind === "CHAT"
+    && !rawTurnIntent.serverAction
+    && !resumesSessionState;
+  greetingTurnForExecution = isolatedConversationTurn;
+  const streamResumableStateForTurn = resumesSessionState
+    ? streamResumableStateCandidate
+    : null;
   const streamClassificationResolution = resumeActiveTaskClassification(
     message,
     rawTurnClassification,

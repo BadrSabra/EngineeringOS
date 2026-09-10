@@ -5064,6 +5064,138 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(new Set(executions.map((execution) => execution.id)).size).toBe(2);
   });
 
+  it("keeps natural project-query follow-ups scoped, but does not resume without a target", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const seenInputs: Array<{
+      message?: string;
+      activeTaskState?: {
+        taskType?: string;
+        projectQuery?: { id?: string; requiredEvidencePaths?: string[] };
+        scope?: { projectId?: string };
+      } | null;
+      objective?: { objectiveType?: string; requiredEvidencePaths?: string[] };
+      turnIntent?: {
+        kind?: string;
+        requiresTools?: boolean;
+        requiresEvidence?: boolean;
+        resumed?: boolean;
+        projectTarget?: { id?: string };
+      };
+    }> = [];
+
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const input = args[1] as typeof seenInputs[number];
+      seenInputs.push(input);
+      if (seenInputs.length === 1) {
+        throw new Error("project query provider failed");
+      }
+      return {
+        result: {
+          response: "The project query completed.",
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
+    expect(first.status).toBe(200);
+    const [firstExecution] = await db
+      .select({ sessionId: aiExecutionsTable.sessionId })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    const sessionId = firstExecution?.sessionId;
+    expect(sessionId).toEqual(expect.any(String));
+    expect(seenInputs[0]?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresEvidence: true,
+      projectTarget: { id: "embedded-ai" },
+    });
+    expect(seenInputs[0]?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+    });
+    const [sessionAfterFirst] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId!))
+      .limit(1);
+    expect(sessionAfterFirst?.activeTaskState).toContain('"projectQuery"');
+
+    const englishFollowUp = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "and what happens after that?" });
+    expect(englishFollowUp.status).toBe(200);
+    expect(seenInputs[1]?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: true,
+    });
+    expect(seenInputs[1]?.activeTaskState).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      projectQuery: {
+        id: "embedded-ai",
+        requiredEvidencePaths: expect.arrayContaining([
+          "artifacts/api-server/src/routes/ai/chat.ts",
+        ]),
+      },
+      scope: { projectId },
+    });
+    expect(seenInputs[1]?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: seenInputs[0]?.objective?.requiredEvidencePaths,
+    });
+
+    const arabicFollowUp = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "وماذا يحدث بعد ذلك؟" });
+    expect(arabicFollowUp.status).toBe(200);
+    expect(seenInputs[2]?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: true,
+    });
+    expect(seenInputs[2]?.activeTaskState).toMatchObject({
+      projectQuery: { id: "embedded-ai" },
+      scope: { projectId },
+    });
+
+    const unrelated = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "What is the timeout behavior?" });
+    expect(unrelated.status).toBe(200);
+    expect(seenInputs[3]?.activeTaskState).toBeNull();
+    expect(seenInputs[3]?.turnIntent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: false,
+    });
+
+    const noTarget = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "and what happens after that?" });
+    expect(noTarget.status).toBe(200);
+    expect(seenInputs[4]?.activeTaskState).toBeNull();
+    expect(seenInputs[4]?.turnIntent).toMatchObject({
+      kind: "CHAT",
+      requiresTools: false,
+      requiresEvidence: false,
+      resumed: false,
+    });
+  });
+
   it("persists an Arabic behavioral answer with accepted evidence through SSE", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
