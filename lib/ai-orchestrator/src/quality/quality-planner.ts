@@ -57,6 +57,8 @@ export type ExecutionPlanOptions = {
   graphModeOverride?: GraphMode;
   /** Override the history mode inferred from task type. */
   historyModeOverride?: HistoryMode;
+  /** Explicit section manifest for bounded project-chat context. */
+  contextSectionsOverride?: readonly ExecutionContextSection[];
 };
 
 // Budget tables — all values are in approximate tokens.
@@ -157,10 +159,12 @@ export function buildExecutionPlan(
     historyDepth:  HISTORY_DEPTH[historyMode],
     memoryDepth:   MEMORY_DEPTH[memoryMode],
     cacheMode:     CACHE_MODE_BY_INTENSITY[contextIntensity],
-    contextSections: getExecutionPlanContextSections({
-      promptProfile: promptPlan.contextProfile,
-      taskProfile,
-    }),
+    contextSections: options?.contextSectionsOverride
+      ? [...options.contextSectionsOverride]
+      : getExecutionPlanContextSections({
+          promptProfile: promptPlan.contextProfile,
+          taskProfile,
+        }),
     phases: {
       localization: getPhaseBudget("localization"),
       evidence: getPhaseBudget("evidence"),

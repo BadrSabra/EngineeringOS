@@ -12,6 +12,7 @@ export const ContextIntentSchema = z.object({
   kind: z.string().min(1).max(80),
   classification: z.string().min(1).max(80).optional(),
   operationMode: z.string().min(1).max(80).optional(),
+  contextMode: z.enum(["light", "project"]).optional(),
   phases: z.array(z.string().min(1).max(80)).max(16),
   requiresEvidence: z.boolean(),
   compoundExecution: z.boolean().optional(),

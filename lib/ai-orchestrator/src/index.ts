@@ -659,6 +659,7 @@ export type {
   TurnIntentKind,
   TurnServerAction,
   TurnOperationMode,
+  TurnContextMode,
 } from "./turn-intent.js";
 export {
   CAPABILITY_PROBE_CLAIM_IDS,

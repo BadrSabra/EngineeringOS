@@ -92,7 +92,7 @@ import {
   createImplementationPlan,
 } from "./implementation-planner.js";
 import type { ImplementationPlan } from "../schemas/implementation-plan.schema.js";
-import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+import { getAllowedToolDefinitions, resolveToolPolicy, type ToolMode } from "../tool-policy.js";
 import {
   buildCapabilityCatalog,
   formatCapabilityCatalogPrompt,
@@ -221,6 +221,13 @@ import {
   type ActiveTaskState,
   type ExecutionNode,
 } from "../task-session-state.js";
+
+const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
+  "read_file",
+  "read_file_range",
+  "list_directory",
+  "search_code",
+]);
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -4169,11 +4176,12 @@ export function buildProviderTools(
   allowAnalysisTools = false,
   compoundExecution = false,
   compoundWrite = true,
+  toolMode: ToolMode = "workspace",
 ) {
   const policy = resolveToolPolicy({
     provider,
     rootPath,
-    mode: "workspace",
+    mode: toolMode,
     allowExecution: allowValidationTools,
     allowAnalysis: allowAnalysisTools,
   });
@@ -4190,7 +4198,9 @@ export function buildProviderTools(
   }
   const tools = getAllowedToolDefinitions(policy);
   const scopedTools =
-    capabilityProbeMode
+    toolMode === "project-read-only"
+      ? tools.filter((tool) => PROJECT_CHAT_READ_TOOL_NAMES.has(tool.function.name))
+      : capabilityProbeMode
       ? tools.filter((tool) => RECOVERY_READ_TOOL_NAMES.has(tool.function.name))
       : singleFileForensicMode
       ? tools.filter((tool) => tool.function.name === "read_file")
@@ -5957,8 +5967,22 @@ export async function chat(opts: {
   // the provider normalizer and the configuration guard still need the full
   // authorized source-evidence surface.
   const toolManifest = modelHasTools
-    ? buildProviderTools(providerId, rootPath)
+    ? buildProviderTools(
+        providerId,
+        rootPath,
+        undefined,
+        false,
+        false,
+        [],
+        false,
+        false,
+        false,
+        true,
+        turnIntent.kind === "PROJECT_QUERY" ? "project-read-only" : "workspace",
+      )
     : undefined;
+  const projectChatToolMode: "workspace" | "project-read-only" =
+    turnIntent.kind === "PROJECT_QUERY" ? "project-read-only" : "workspace";
   const tools = modelHasTools
     ? buildProviderTools(
         providerId,
@@ -5975,6 +5999,7 @@ export async function chat(opts: {
         allowAnalysisTools,
         turnIntent.compoundExecution,
         turnIntent.compoundWrite,
+        projectChatToolMode,
       )
     : undefined;
   const executionToolManifest = turnIntent.requiresEvidence ? toolManifest : undefined;
@@ -6138,6 +6163,7 @@ export async function chat(opts: {
       content: buildChatSystemPrompt({
         context: projectContext,
         hasTools: tools != null,
+        toolMode: projectChatToolMode,
         streamingMode: false,
         focusHint: combinedFocusHint || undefined,
         profile: effectivePromptProfile,
@@ -8111,7 +8137,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 

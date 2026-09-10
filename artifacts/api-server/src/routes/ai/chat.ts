@@ -2968,6 +2968,22 @@ function resolveChatExecutionPlan(
           historyModeOverride: "none" as const,
         }
       : {}),
+    ...(intent.contextMode === "project" && !stateless
+      ? {
+          contextIntensityOverride: "normal" as const,
+          memoryModeOverride: "summary" as const,
+          graphModeOverride: "index" as const,
+          historyModeOverride: "recent" as const,
+          contextSectionsOverride: [
+            "tasks",
+            "metrics",
+            "graphEntities",
+            "graphRelationships",
+            "events",
+            "workflows",
+          ] as const,
+        }
+      : {}),
     ...(isCapabilityProbeRequest(message)
       ? {
           contextIntensityOverride: "lite" as const,
@@ -3684,6 +3700,7 @@ router.post("/ai/chat", async (req, res) => {
         operationMode: turnIntent.operationMode,
         phases: turnIntent.phases.map((phase) => String(phase)),
         requiresEvidence: turnIntent.requiresEvidence,
+        contextMode: turnIntent.contextMode,
         compoundExecution: turnIntent.compoundExecution,
         compoundWrite: turnIntent.compoundWrite,
       },
@@ -5304,6 +5321,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         operationMode: streamTurnIntent.operationMode,
         phases: streamTurnIntent.phases.map((phase) => String(phase)),
         requiresEvidence: streamTurnIntent.requiresEvidence,
+        contextMode: streamTurnIntent.contextMode,
         compoundExecution: streamTurnIntent.compoundExecution,
         compoundWrite: streamTurnIntent.compoundWrite,
       },

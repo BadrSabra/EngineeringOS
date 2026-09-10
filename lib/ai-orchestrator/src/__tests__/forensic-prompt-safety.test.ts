@@ -26,6 +26,18 @@ function makeMemoryContext(): ProjectContext {
 }
 
 describe("forensic prompt safety", () => {
+  it("describes ordinary project chat as source-read-only", () => {
+    const prompt = buildChatSystemPrompt({
+      context: {} as never,
+      hasTools: true,
+      toolMode: "project-read-only",
+    });
+
+    expect(prompt).toContain("read_file · read_file_range · list_directory · search_code");
+    expect(prompt).toContain("no write, validation, terminal, git, analysis, or delivery tools");
+    expect(prompt).not.toContain("replace_text · write_file");
+  });
+
   it("uses the plain-text capability contract instead of the generic ChatResponse envelope", () => {
     const prompt = buildChatSystemPrompt({
       context: makeContext(),

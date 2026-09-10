@@ -1398,6 +1398,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
           kind: "tool_result",
           tool: "read_file",
           source,
+          readStatus: "READ_COMPLETE",
           cached: false,
         } as AgentStep);
         return {

@@ -83,4 +83,26 @@ describe("tool policy", () => {
     expect(missingRoot.allowFileWrite).toBe(false);
     expect(gemini.allowFileRead).toBe(true);
   });
+
+  it("exposes only source-read tools for ordinary project chat", () => {
+    const policy = resolveToolPolicy({
+      provider: "groq",
+      rootPath: "/tmp/project",
+      mode: "project-read-only",
+      allowExecution: true,
+      allowAnalysis: true,
+    });
+    const toolNames = getAllowedToolDefinitions(policy).map((tool) => tool.function.name);
+
+    expect(toolNames).toEqual([
+      "read_file",
+      "read_file_range",
+      "list_directory",
+      "search_code",
+    ]);
+    expect(policy.allowFileWrite).toBe(false);
+    expect(policy.allowGit).toBe(false);
+    expect(policy.allowExecution).toBe(false);
+    expect(policy.allowAnalysis).toBe(false);
+  });
 });

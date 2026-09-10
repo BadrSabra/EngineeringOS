@@ -26,6 +26,7 @@ export type TurnIntentKind =
 
 export type TurnOperationMode = "CHAT" | "FORENSIC_AUDIT" | "DELIVERY";
 export type TurnServerAction = "RUN_PROJECT_SCAN";
+export type TurnContextMode = "light" | "project";
 
 export type TurnIntentPhase =
   | "evidence"
@@ -68,6 +69,8 @@ export type TurnIntent = {
   /** User-readable description of the boundary approved for this audit. */
   auditScopeDescription?: string;
   operationMode: TurnOperationMode;
+  /** Server-owned context depth; social chat stays on the lightweight path. */
+  contextMode: TurnContextMode;
   classification: ClassifiedRequest;
   /** Server-owned subsystem target for a targeted read-only project query. */
   projectTarget?: ClassifiedRequest["projectTarget"];
@@ -328,6 +331,15 @@ export function resolveTurnIntent(
       : kind === "FORENSIC_AUDIT"
         ? "FORENSIC_AUDIT"
         : "CHAT";
+  const contextMode: TurnContextMode =
+    isLowRiskChat ||
+    (
+      classification.category === "simple" &&
+      !targetedProjectQuery &&
+      !hasProjectToolSignal
+    )
+      ? "light"
+      : "project";
   const phases: TurnIntentPhase[] =
     compoundExecution
       ? compoundWrite
@@ -347,9 +359,9 @@ export function resolveTurnIntent(
       ? classification.analysisMode
       : "STANDARD",
     outputContract:
-      kind !== "CHAT"
-        ? classification.outputContract
-        : "GENERIC_RESPONSE",
+      kind === "CHAT" || (kind === "PROJECT_QUERY" && !explicitEvidenceIntent)
+        ? "GENERIC_RESPONSE"
+        : classification.outputContract,
     executionTaskType,
     requiresTools,
     requiresEvidence: explicitEvidenceIntent && !scopeClarificationRequired,
@@ -369,6 +381,7 @@ export function resolveTurnIntent(
       ? { auditScopeDescription: describeAuditScope(classification, message) }
       : {}),
     operationMode,
+    contextMode,
     classification,
   };
 }

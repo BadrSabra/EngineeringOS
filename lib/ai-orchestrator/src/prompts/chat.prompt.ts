@@ -27,7 +27,10 @@ export type ActiveTask = {
  * When false the model is told explicitly it has NO file access so it cannot
  * hallucinate tool calls or invent file contents.
  */
-function buildChatToolSection(hasTools: boolean): string {
+function buildChatToolSection(
+  hasTools: boolean,
+  toolMode: "workspace" | "project-read-only" = "workspace",
+): string {
   if (!hasTools) {
     return `**File-system tools: NOT active in this session.**
 You have zero access to the project's files on disk.
@@ -37,6 +40,19 @@ STRICTLY FORBIDDEN:
 - Pretending to execute a tool call.
 - Saying "I read file X" or "the file contains Y" unless that text appears verbatim in the context above.
 If a question requires file-level detail that is absent from the context, state precisely what is missing and why you cannot answer — do not guess or fabricate.`;
+  }
+
+  if (toolMode === "project-read-only") {
+    return composePrompt(
+      promptSection(
+        "Read-only project tools available in this session",
+        `Source tools: read_file · read_file_range · list_directory · search_code
+Use them only when the user's question needs current project or file details.
+- Reads are bounded to the authenticated project root and may be refused for traversal, symlink, or sensitive-file violations.
+- Results are evidence from the server-observed read only; do not invent paths or citations.
+- This session has no write, validation, terminal, git, analysis, or delivery tools. Never claim that a change was made.`,
+      ),
+    );
   }
 
   return composePrompt(
@@ -317,6 +333,7 @@ function buildTaskContractSection(outputContract: OutputContract): string | null
 export function buildChatSystemPrompt({
   context,
   hasTools = false,
+  toolMode = "workspace",
   capabilityCatalog,
   streamingMode = false,
   focusHint,
@@ -334,6 +351,8 @@ export function buildChatSystemPrompt({
 }: {
   context: ProjectContext;
   hasTools?: boolean;
+  /** Server-owned tool scope; project chat is read-only even with a root. */
+  toolMode?: "workspace" | "project-read-only";
   /** Server-owned planning projection; never treated as an executable tool. */
   capabilityCatalog?: string;
   streamingMode?: boolean;
@@ -428,7 +447,7 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // Must appear AFTER context and BEFORE rules so the model sees the
     // correct reasoning pattern before it encounters the output constraints.
     structuredOutputMode ? buildStructuredOutputFewShot() : null,
-    buildChatToolSection(hasTools),
+    buildChatToolSection(hasTools, toolMode),
     buildChatRulesBlock(
       streamingMode,
       immediateExecution,

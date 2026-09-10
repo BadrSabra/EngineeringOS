@@ -51,6 +51,7 @@ describe("resolveTurnIntent", () => {
     expect(intent.executionTaskType).toBe("chat");
     expect(intent.requiresTools).toBe(false);
     expect(intent.requiresEvidence).toBe(false);
+    expect(intent.contextMode).toBe("light");
   });
 
   it.each([
@@ -70,6 +71,8 @@ describe("resolveTurnIntent", () => {
       requiresTools: true,
       requiresEvidence: false,
       operationMode: "CHAT",
+      contextMode: "project",
+      outputContract: "GENERIC_RESPONSE",
     });
   });
 
@@ -109,6 +112,7 @@ describe("resolveTurnIntent", () => {
         requiresEvidence: false,
         allowsBuildHandoff: false,
         operationMode: "CHAT",
+        contextMode: "light",
         outputContract: "GENERIC_RESPONSE",
       });
     },
@@ -123,7 +127,33 @@ describe("resolveTurnIntent", () => {
       requiresTools: true,
       requiresEvidence: false,
       operationMode: "CHAT",
+      contextMode: "project",
+      outputContract: "GENERIC_RESPONSE",
     });
+  });
+
+  it("keeps the ordinary project-query provider manifest source-read-only", () => {
+    const tools = buildProviderTools(
+      "groq",
+      "/tmp/project",
+      undefined,
+      false,
+      false,
+      [],
+      false,
+      false,
+      false,
+      true,
+      "project-read-only",
+    );
+    const names = (tools ?? []).map((tool) => tool.function.name);
+
+    expect(names).toEqual([
+      "read_file",
+      "read_file_range",
+      "list_directory",
+      "search_code",
+    ]);
   });
 
   it("only marks write-capable delivery turns for apply serialization", () => {

@@ -11,7 +11,7 @@ import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
 import { ANALYSIS_TOOL_DEFINITIONS } from "./tools/analysis-tools.js";
 import type { AuthorizedToolManifestEntry } from "./context-contract.js";
 
-export type ToolMode = "workspace" | "read-only";
+export type ToolMode = "workspace" | "read-only" | "project-read-only";
 
 export type ToolDefinitionLike = ToolDefinition | GitToolDefinition;
 
@@ -122,9 +122,9 @@ export function resolveToolPolicy(opts: {
       enabled: true,
       allowFileRead: true,
       allowFileWrite: mode === "workspace",
-      allowGit: true,
+      allowGit: mode !== "project-read-only",
       allowExecution,
-      allowAnalysis: opts.allowAnalysis === true,
+      allowAnalysis: opts.allowAnalysis === true && mode !== "project-read-only",
     };
   }
 
