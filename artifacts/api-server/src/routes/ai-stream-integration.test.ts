@@ -667,6 +667,11 @@ afterEach(async () => {
   vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
   vi.mocked(requireProvider).mockReset();
   vi.mocked(requireProvider).mockImplementation(defaultRequireProvider!);
+  vi.mocked(tryAdvisoryLock).mockReset();
+  vi.mocked(tryAdvisoryLock).mockResolvedValue({
+    acquired: true,
+    release: async () => undefined,
+  });
   const recoveryFixtures = recoveryTeardownFixtures.splice(0);
   for (const discoveryId of discoverySessionIds.splice(0)) {
     await db

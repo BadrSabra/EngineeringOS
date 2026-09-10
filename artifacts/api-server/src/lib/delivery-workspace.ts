@@ -228,7 +228,13 @@ export async function hashDeliveryFiles(
 }
 
 export function deliveryWorkspacePath(operationId: string): string {
-  if (!/^[0-9a-f-]{36}$/i.test(operationId)) throw new Error("Invalid delivery operation identity");
+  // Operation identities are server-owned opaque text values. Most production
+  // operations are UUIDs, but durable recovery fixtures and imported execution
+  // identities may use a prefixed value. Keep the workspace path safe without
+  // coupling it to one identifier format.
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/.test(operationId)) {
+    throw new Error("Invalid delivery operation identity");
+  }
   return path.join(WORKSPACES_DIR, operationId);
 }
 

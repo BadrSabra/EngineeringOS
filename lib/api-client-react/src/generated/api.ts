@@ -6474,6 +6474,18 @@ export const getAiChatStreamUrl = () => {
  *      "productionReachability": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE" }
  *      — Bounded forensic ledger state; it contains no source content.
  *
+ *    { "type": "behavior_progress",
+ *      "revision": 3,
+ *      "phase": "reading" | "validating" | "synthesizing",
+ *      "status": "running",
+ *      "readCount": 2,
+ *      "completedReadFiles": ["src/example.ts"],
+ *      "evidenceCount"?: 1,
+ *      "acceptedEvidenceCount"?: 1,
+ *      "acceptedClaimCount"?: 0 }
+ *      — Safe non-terminal progress for behavior queries. It contains no
+ *        provisional answer and never replaces the final task result.
+ *
  *    { "type": "verification",
  *      "stage": "MODEL_RESPONSE" | "VERIFIED_RESPONSE",
  *      "responseLength": 123,
