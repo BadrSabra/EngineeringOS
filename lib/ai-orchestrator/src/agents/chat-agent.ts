@@ -5753,7 +5753,7 @@ export async function chat(opts: {
   // primary request while another provider is absent, unhealthy, or outside
   // the request's authorized selection set.
   const modelDecision = resolveExecutionModel(providerId, executionPlan);
-  const sameProviderModelFallbacks = modelDecision.fallbackChain
+  const sameProviderModelFallbacks = (modelDecision.fallbackChain ?? [])
     .filter((candidateModel) => candidateModel !== modelDecision.model)
     .map((candidateModel) => ({
       provider: providerId,

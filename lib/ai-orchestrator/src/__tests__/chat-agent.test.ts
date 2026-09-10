@@ -170,7 +170,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.pendingChanges).toEqual([]);
   });
 
-  it("keeps an Arabic greeting out of the tool loop when a project root is present", async () => {
+  it("keeps an Arabic greeting optional-read capable without promoting it to tool chat", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
     const steps: AgentStep[] = [];
 
@@ -2712,7 +2712,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(result.response).not.toMatch(/^\{/);
   });
 
-  it("disables tool payloads for Gemini and still returns a response from context", async () => {
+  it("allows bounded read-only tool payloads for Gemini and still returns a response", async () => {
     vi.resetModules();
     process.env.GROQ_API_KEY = "test-key";
 
@@ -2743,7 +2743,12 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       apiKey: "test-gemini-key",
     });
 
-    expect(capturedTools).toBeUndefined();
+    expect(capturedTools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ function: expect.objectContaining({ name: "read_file" }) }),
+      expect.objectContaining({ function: expect.objectContaining({ name: "read_file_range" }) }),
+      expect.objectContaining({ function: expect.objectContaining({ name: "list_directory" }) }),
+      expect.objectContaining({ function: expect.objectContaining({ name: "search_code" }) }),
+    ]));
     expect(result.response).toContain("Gemini context-only answer");
   });
 
