@@ -2555,6 +2555,30 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const status = classifyReadStatus(toolName, output);
     return status === "READ_COMPLETE" || status === "READ_TARGETED";
   };
+  /**
+   * Keep objective evidence traversal server-owned after a required read.
+   * Prefetch and a successful forced read both acquire valid evidence, but
+   * neither means that the complete objective manifest is satisfied.
+   */
+  const rearmNextObjectiveEvidencePath = (): string | null => {
+    if (!objective || objectiveRequiredEvidencePaths.length === 0) return null;
+
+    const nextRequiredPath = nextMissingObjectiveEvidencePath();
+    forcedEvidenceTarget = nextRequiredPath;
+    if (!nextRequiredPath) {
+      forcedEvidenceActive = false;
+      forcedPrimaryEvidence = false;
+      maybeForceObjectiveSynthesis();
+      return null;
+    }
+
+    forcedEvidenceActive = true;
+    forcedPrimaryEvidence = true;
+    if (allowedReads) allowedReads.add(nextRequiredPath);
+    temporarilyDisabledTools.add("search_code");
+    temporarilyDisabledTools.add("list_directory");
+    return nextRequiredPath;
+  };
 
   // ── Prefetch-aware first-read & SLA accounting (FEG-007) ───────────────
   // `initialFileContents` carries source bodies acquired BEFORE the loop
@@ -2585,6 +2609,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       sourceRetrieval.firstEvidenceAcquired = true;
       sourceRetrieval.prefetchBeforeFirstRead = true;
       sourceRetrieval.iterationsWithoutEvidence = 0;
+      // Prefetch satisfies acquisition of the first source, not the complete
+      // objective manifest. Re-arm the next missing required path before the
+      // first provider turn so unrelated reads cannot expand the scope.
+      rearmNextObjectiveEvidencePath();
     }
   }
 
@@ -4530,7 +4558,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           recordRead(tc.function.name, args.path, cached);
           recordSourceEvidence(args.path, cached, tc.function.name);
           if (clearingActiveForce) {
-            forcedEvidenceTarget = nextMissingObjectiveEvidencePath();
+            rearmNextObjectiveEvidencePath();
           }
           maybeForceObjectiveSynthesis();
           if (compoundWriteMode && fileContents.size > 0) {
@@ -4989,7 +5017,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // cite `from_file` and reference text grounded in what was actually read.
         recordSourceEvidence(args.path, toolResult.output, tc.function.name);
         if (clearingActiveForce) {
-          forcedEvidenceTarget = nextMissingObjectiveEvidencePath();
+          rearmNextObjectiveEvidencePath();
         }
         maybeForceObjectiveSynthesis();
         if (compoundWriteMode && fileContents.size > 0) {

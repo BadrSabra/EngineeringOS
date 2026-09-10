@@ -7,4 +7,4 @@ The evidence loop should derive one ordered missing-path queue from both objecti
 
 **Why:** Provider turns can succeed while analysis remains empty if the model is allowed to synthesize after reading only one source or can reset the force latch with duplicate reads.
 
-**How to apply:** Keep the scheduler server-owned, preserve targeted range reads as valid evidence, and keep terminal checkpoint evidence refs/verdicts derived from the same accepted reads. A successful prefetch must not suppress the transition to the next missing required path; prefetch satisfies evidence acquisition, not the complete objective manifest.
+**How to apply:** Keep the scheduler server-owned, preserve targeted range reads as valid evidence, and keep terminal checkpoint evidence refs/verdicts derived from the same accepted reads. A successful prefetch must not suppress the transition to the next missing required path; prefetch satisfies evidence acquisition, not the complete objective manifest. After prefetch or each successful forced read, re-arm the gate for the next missing path; clear it only when the manifest is complete.

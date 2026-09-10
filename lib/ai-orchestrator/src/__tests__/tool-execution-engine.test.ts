@@ -534,7 +534,6 @@ describe("executeToolLoop", () => {
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("read-chat-1", "read_file", { path: "src/chat.ts" })]),
       makeResponse("", [makeToolCall("read-chat-2", "read_file", { path: "src/chat.ts" })]),
-      makeResponse("", [makeToolCall("read-intent", "read_file", { path: "src/turn-intent.ts" })]),
       makeResponse("verified from both required sources"),
     ]);
     const steps: AgentStep[] = [];
@@ -548,7 +547,7 @@ describe("executeToolLoop", () => {
       tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
       rootPath: "/project",
       pendingChanges: [],
-      maxIterations: 4,
+       maxIterations: 3,
       onStep: (step) => void steps.push(step),
       objective: {
         goal: "verify the embedded AI layer",
@@ -566,8 +565,76 @@ describe("executeToolLoop", () => {
     expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(2, "read_file", { path: "src/turn-intent.ts" }, "/project", []);
     expect(steps).toContainEqual(expect.objectContaining({
       kind: "diagnostic",
-      code: "REQUIRED_EVIDENCE_PATH_ADVANCE",
+      code: "FORCE_PRIMARY_EVIDENCE_ACTION",
+      details: expect.arrayContaining([
+        expect.stringContaining("src/turn-intent.ts"),
+      ]),
     }));
+  });
+
+  it("advances through every missing objective path after prefetched evidence", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockImplementation(
+      async (_name: unknown, args: { path?: string }) =>
+        `File: ${args.path ?? "unknown"}\nexport const evidence = true;`,
+    );
+    const prefetchedPath = "artifacts/api-server/src/routes/ai/chat.ts";
+    const requiredPaths = [
+      prefetchedPath,
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+    ];
+    // The provider keeps attempting unrelated scope expansion. The server
+    // must replace those calls with the next required read after prefetch and
+    // after each forced read.
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("scope-1", "read_file", { path: "." })]),
+      makeResponse("", [makeToolCall("scope-2", "read_file", { path: "lib/db" })]),
+      makeResponse("verified from the complete objective manifest"),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialFileContents: new Map([[
+        prefetchedPath,
+        `File: ${prefetchedPath}\nexport const route = true;`,
+      ]]),
+      maxIterations: 3,
+      objective: {
+        goal: "verify the embedded AI layer",
+        requiredEvidencePaths: requiredPaths,
+        requiredClaims: [{
+          claimId: "agent-routing",
+          requiredEvidencePaths: requiredPaths,
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      1,
+      "read_file",
+      { path: requiredPaths[1] },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      2,
+      "read_file",
+      { path: requiredPaths[2] },
+      "/project",
+      [],
+    );
+    expect(result.fileContents?.has(requiredPaths[1])).toBe(true);
+    expect(result.fileContents?.has(requiredPaths[2])).toBe(true);
   });
 
   it("dispatches a server-owned read when the provider returns text before evidence", async () => {
@@ -659,10 +726,6 @@ describe("executeToolLoop", () => {
         path: "lib/ai-orchestrator/src/turn-intent.ts",
       })]),
       makeResponse("", [makeToolCall("p1", "git_status", {})]),
-      makeResponse("", [makeToolCall("p2", "git_status", {})]),
-      makeResponse("", [makeToolCall("r3", "read_file", {
-        path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
-      })]),
       makeResponse("all required sources were read"),
     ]);
     FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) => {
