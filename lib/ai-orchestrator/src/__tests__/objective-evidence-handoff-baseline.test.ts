@@ -171,7 +171,14 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         new Map([[REQUIRED_PATHS[0], "READ_TRUNCATED"]]),
       );
 
-      expect(capturedOptions?.objective).toEqual(OBJECTIVE);
+      expect(capturedOptions?.objective).toMatchObject({
+        goal: message,
+        requiredEvidencePaths: OBJECTIVE.requiredEvidencePaths,
+        requiredClaims: OBJECTIVE.requiredClaims.map((claim) => ({
+          claimId: claim.claimId,
+          requiredEvidencePaths: claim.requiredEvidencePaths,
+        })),
+      });
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

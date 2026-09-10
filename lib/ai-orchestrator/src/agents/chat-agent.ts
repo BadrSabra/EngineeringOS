@@ -7292,6 +7292,18 @@ export async function chat(opts: {
   const loopEvidenceTargetPath = objective
     ? nextObjectiveEvidenceTargetPath
     : firstEvidenceTargetPath;
+  const loopObjective = objective
+    ? {
+        // ObjectiveContract allows callers to omit goal; the tool-loop
+        // contract needs a concrete value for its durable objective state.
+        goal: objective.goal ?? message,
+        requiredEvidencePaths: objective.requiredEvidencePaths,
+        requiredClaims: objective.requiredClaims.map((claim) => ({
+          claimId: claim.claimId,
+          requiredEvidencePaths: claim.requiredEvidencePaths,
+        })),
+      }
+    : undefined;
   const loopResult = await executeToolLoop({
     messages,
     strategy,
@@ -7368,7 +7380,7 @@ export async function chat(opts: {
     // Preserve the server-owned objective manifest at the tool-loop boundary.
     // The scope policy alone can reject unrelated paths, but the ordered
     // evidence cursor and forced recovery require the complete objective.
-    objective,
+    objective: loopObjective,
     objectiveScopePolicy: objective?.scopePolicy,
     firstEvidenceTargetPath: loopEvidenceTargetPath ?? undefined,
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
