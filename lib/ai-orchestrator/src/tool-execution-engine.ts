@@ -2134,18 +2134,32 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
    */
   const nextMissingObjectiveEvidencePath = (): string | null => {
     if (!objective) return null;
-    const requiredPaths = [
-      ...(objective.requiredEvidencePaths ?? []),
-      ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
-    ];
-    if (requiredPaths.length === 0) return null;
     const verified = new Set(
       [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
         .map((value) => canonicalRel(value)),
     );
-    return requiredPaths
-      .map((value) => canonicalRel(value))
+    return objectiveRequiredEvidencePaths
       .find((value) => value.length > 0 && !verified.has(value)) ?? null;
+  };
+  const objectiveRequiredEvidencePaths = objective
+    ? [
+        ...(objective.requiredEvidencePaths ?? []),
+        ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
+      ].map((value) => canonicalRel(value))
+    : [];
+  const isObjectiveRequiredEvidencePath = (path: string): boolean =>
+    objectiveRequiredEvidencePaths.includes(canonicalRel(path));
+  const maybeForceObjectiveSynthesis = (): void => {
+    if (
+      objectiveRequiredEvidencePaths.length > 0 &&
+      nextMissingObjectiveEvidencePath() === null
+    ) {
+      // Once every server-declared evidence path is complete, the provider
+      // must not decide to continue searching indefinitely. Final claim
+      // validation still happens downstream; this only closes the gathering
+      // phase and moves the loop to the bounded synthesis phase.
+      forceSynthesisNext = true;
+    }
   };
   let forcedEvidenceTarget = fegTarget;
   const allowedReads = allowedReadPaths
@@ -2571,6 +2585,36 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
   }
 
+  // Server-owned first-evidence enforcement: objective runs must not depend on
+  // the provider voluntarily choosing a read before it starts searching,
+  // planning, or synthesizing. When no usable prefetch exists, select the
+  // first missing required path and require a tool call on the next turn.
+  // Dispatch still validates the exact path, so `tool_choice=required` cannot
+  // authorize an unrelated read.
+  if (
+    objective &&
+    requiresEvidence &&
+    readToolConfigured &&
+    firstSourceReadIter === null
+  ) {
+    const firstRequiredPath = nextMissingObjectiveEvidencePath() ?? fegTarget;
+    if (firstRequiredPath) {
+      forcedEvidenceTarget = firstRequiredPath;
+      forcedEvidenceActive = true;
+      forcedPrimaryEvidence = true;
+      sourceRetrieval.progressForced = true;
+      try {
+        onStep?.({
+          kind: "diagnostic",
+          code: "FORCE_PRIMARY_EVIDENCE_ACTION",
+          details: [
+            `server-owned objective gate requires the first source read "${firstRequiredPath}" before planning or synthesis`,
+          ],
+        });
+      } catch { /* ignore */ }
+    }
+  }
+
   // ── Zero-read terminal classification (FEG-010) ────────────────────────────
   // A run that exits the loop with ZERO source reads never acquired evidence to
   // weigh — that is NOT a normal terminal, it is INCOMPLETE_BEFORE_EVIDENCE.
@@ -2932,8 +2976,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // after the tool result. Keep the policy explicit whenever tools are
     // exposed: relying on a provider/model default can be interpreted as
     // tool_choice=none even though the model emits a tool call.
-    const callToolChoice =
-      iter === 0
+    const forcedReadAvailable =
+      forcedEvidenceActive &&
+      iterationTools?.some((tool) =>
+        tool.function.name === "read_file" || tool.function.name === "read_file_range",
+      );
+    const callToolChoice = forcedReadAvailable
+      ? "required"
+      : iter === 0
         ? opts.toolChoice
         : iterationTools && iterationTools.length > 0
           ? "auto"
@@ -3395,6 +3445,66 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             error: err instanceof Error ? err.message : String(err),
           }),
         );
+      }
+    }
+
+    // Hard server-owned recovery for providers that ignore tool_choice=required
+    // and return ordinary text or an unrelated tool before the declared
+    // evidence is complete. The synthetic call enters the same authorization,
+    // cache, read-status, and evidence bookkeeping path as a model call; the
+    // provider only decides what to say after the required source is acquired.
+    const hasForcedTargetRead = result.toolCalls?.some((toolCall) => {
+      if (
+        toolCall.function.name !== "read_file" &&
+        toolCall.function.name !== "read_file_range"
+      ) {
+        return false;
+      }
+      try {
+        const parsed = JSON.parse(toolCall.function.arguments) as { path?: unknown };
+        return isForcedTargetRead(
+          toolCall.function.name,
+          typeof parsed.path === "string" ? parsed.path : undefined,
+        );
+      } catch {
+        return false;
+      }
+    }) ?? false;
+    if (
+      (
+        !result.toolCalls ||
+        result.toolCalls.length === 0 ||
+        (forcedEvidenceActive && !hasForcedTargetRead)
+      ) &&
+      !synthesisOnly &&
+      objective &&
+      requiresEvidence &&
+      readToolConfigured &&
+      totalToolCalls < maxToolCalls
+    ) {
+      const serverOwnedEvidencePath = nextMissingObjectiveEvidencePath();
+      if (serverOwnedEvidencePath) {
+        const serverOwnedToolCallId = `server-evidence-${iter}`;
+        result = {
+          ...result,
+          toolCalls: [{
+            id: serverOwnedToolCallId,
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: JSON.stringify({ path: serverOwnedEvidencePath }),
+            },
+          }],
+        };
+        try {
+          onStep?.({
+            kind: "diagnostic",
+            code: "FORCE_PRIMARY_EVIDENCE_ACTION",
+            details: [
+              `provider returned no tool call; server dispatched required read "${serverOwnedEvidencePath}"`,
+            ],
+          });
+        } catch { /* ignore */ }
       }
     }
 
@@ -4041,6 +4151,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const alreadyRead =
           depPath !== "" && (readStatusByPath.has(depPath) || readStatusByPath.has(rawPath));
         const isPrimaryTarget = fegTarget !== null && depPath !== "" && depPath === fegTarget;
+        const isServerDeclaredEvidenceTarget =
+          depPath !== "" && isObjectiveRequiredEvidencePath(depPath);
         // A dependency proof is only valid when it is grounded in EVIDENCE this
         // run actually acquired — not when the model supplies four arbitrary
         // strings. It requires:
@@ -4080,7 +4192,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             retainedBody.replace(/\r\n/g, "\n").includes(reference.replace(/\r\n/g, "\n"));
           evidenceGrounded = fromSuccessful && referenceOccurs;
         }
-        if (!evidenceGrounded && !alreadyRead && !isPrimaryTarget && depPath !== "") {
+        if (
+          !evidenceGrounded &&
+          !alreadyRead &&
+          !isPrimaryTarget &&
+          !isServerDeclaredEvidenceTarget &&
+          depPath !== ""
+        ) {
           try {
             onStep?.({
               kind: "diagnostic",
@@ -4369,6 +4487,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           if (clearingActiveForce) {
             forcedEvidenceTarget = nextMissingObjectiveEvidencePath();
           }
+          maybeForceObjectiveSynthesis();
           if (compoundWriteMode && fileContents.size > 0) {
             compoundProposalActive = true;
           }
@@ -4827,6 +4946,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         if (clearingActiveForce) {
           forcedEvidenceTarget = nextMissingObjectiveEvidencePath();
         }
+        maybeForceObjectiveSynthesis();
         if (compoundWriteMode && fileContents.size > 0) {
           compoundProposalActive = true;
         }

@@ -487,12 +487,13 @@ describe("executeToolLoop", () => {
 
   it("closes a declared claim only from its server-owned evidence path", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]),
+      makeResponse("verified"),
+    ]);
     const result = await executeToolLoop({
       messages: makeMessages(),
-      strategy: makeStrategy([
-        makeResponse("", [makeToolCall("read-1", "read_file", { path: "src/proof.ts" })]),
-        makeResponse("verified"),
-      ]),
+      strategy,
       model: "fast",
       powerModel: "powerful",
       provider: "test",
@@ -508,6 +509,97 @@ describe("executeToolLoop", () => {
 
     expect(result.kind).toBe("response");
     expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(strategy.call).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.objectContaining({
+        toolChoice: "required",
+        tools: expect.arrayContaining([
+          expect.objectContaining({ function: expect.objectContaining({ name: "read_file" }) }),
+        ]),
+      }),
+    );
+    expect(strategy.call).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({
+        tools: [],
+      }),
+    );
+  });
+
+  it("dispatches a server-owned read when the provider returns text before evidence", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValue("File: src/proof.ts\nexport const verified = true;");
+    const strategy = makeStrategy([
+      makeResponse("I can answer without reading the source."),
+      makeResponse("verified from the required source"),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      objective: {
+        goal: "verify the requested claim",
+        requiredEvidencePaths: ["src/proof.ts"],
+        requiredClaims: [{ claimId: "claim-1", requiredEvidencePaths: ["src/proof.ts"] }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/proof.ts" }, "/project", []);
+    expect(strategy.call).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.objectContaining({ tools: [] }),
+    );
+  });
+
+  it("replaces an unrelated provider tool with the server-owned evidence read", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValue("File: src/proof.ts\nexport const verified = true;");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("search-1", "search_code", { query: "verified" })]),
+      makeResponse("verified from the required source"),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      objective: {
+        goal: "verify the requested claim",
+        requiredEvidencePaths: ["src/proof.ts"],
+        requiredClaims: [{ claimId: "claim-1", requiredEvidencePaths: ["src/proof.ts"] }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/proof.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "search_code",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("forces the next missing required source after recovering a truncated first read", async () => {
