@@ -711,6 +711,63 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("dispatches targeted recovery directly for a prefetched truncated required path", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/large-proof.ts";
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">([
+      [requiredPath, "READ_TRUNCATED"],
+    ]);
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("search-1", "search_code", { query: "verified" })]),
+      makeResponse("verified from the targeted recovery window"),
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) => {
+      if (name === "read_file_range") {
+        return `File: ${requiredPath}\n\`\`\`\nexport const verified = true;\n\`\`\``;
+      }
+      return `unexpected ${name} for ${args.path ?? "unknown"}`;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      maxIterations: 2,
+      objective: {
+        goal: "verify the truncated source",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [{ claimId: "claim-1", requiredEvidencePaths: [requiredPath] }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "1", endLine: "200" },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "read_file",
+      { path: requiredPath },
+      "/project",
+      [],
+    );
+  });
+
   it("forces the next missing required source after recovering a truncated first read", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([

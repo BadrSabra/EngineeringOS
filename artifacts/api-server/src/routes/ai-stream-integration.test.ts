@@ -8260,7 +8260,10 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(JSON.parse(storedMessage?.sources ?? "[]")).toEqual([]);
 
     const [execution] = await db
-      .select({ checkpoint: aiExecutionsTable.checkpoint })
+      .select({
+        id: aiExecutionsTable.id,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
       .from(aiExecutionsTable)
       .where(and(
         eq(aiExecutionsTable.projectId, projectId),
@@ -8269,6 +8272,35 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       .limit(1);
     expect(parseAiExecutionCheckpoint(execution!.checkpoint)).toMatchObject({
       evidenceReason: "Source reads were attempted, but no complete source body was retained.",
+    });
+
+    const [acceptance] = await db
+      .select({ evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    const [snapshot] = await db
+      .select({
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    const [read] = await db
+      .select({
+        path: aiExecutionEvidenceReadsTable.path,
+        complete: aiExecutionEvidenceReadsTable.complete,
+        truncated: aiExecutionEvidenceReadsTable.truncated,
+      })
+      .from(aiExecutionEvidenceReadsTable)
+      .where(eq(aiExecutionEvidenceReadsTable.snapshotId, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(snapshot).toMatchObject({ complete: 0, readCount: 1 });
+    expect(read).toEqual({
+      path: truncatedPath,
+      complete: 0,
+      truncated: 1,
     });
   });
 

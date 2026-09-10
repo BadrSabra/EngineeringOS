@@ -1649,6 +1649,7 @@ type EvidenceFailureSummary = {
 function summarizeEvidenceForFailure(
   traceSteps: AgentStep[],
   retainedEvidence: ReadonlyMap<string, string>,
+  retainedReadStatuses?: ReadonlyMap<string, ReadStatus>,
 ): EvidenceFailureSummary {
   const attemptedPaths = new Set<string>();
   for (const step of traceSteps) {
@@ -1666,6 +1667,9 @@ function summarizeEvidenceForFailure(
       attemptedPaths.add(step.source.trim());
     }
   }
+  for (const [path, status] of retainedReadStatuses ?? []) {
+    if (path.trim() && status) attemptedPaths.add(path.trim());
+  }
 
   const normalized = normalizeEvidenceSnapshot({
     required: true,
@@ -1677,10 +1681,18 @@ function summarizeEvidenceForFailure(
       truncated: false,
     })),
   });
+  const normalizePath = (value: string): string =>
+    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const incompletePaths = new Set(
+    [...(retainedReadStatuses ?? [])]
+      .filter(([, status]) => status === "READ_TRUNCATED" || status === "READ_FAILED")
+      .map(([path]) => normalizePath(path)),
+  );
   const completePaths = new Set(
     normalized.reads
       .filter((read) => read.complete && !read.truncated)
-      .map((read) => read.path.trim())
+      .map((read) => normalizePath(read.path))
+      .filter((path) => !incompletePaths.has(path))
       .filter((path) => path.length > 0),
   );
   const sourceReadCount = new Set([...attemptedPaths, ...completePaths]).size;
@@ -3434,19 +3446,73 @@ type RetainedEvidenceRead = {
 function collectRetainedEvidenceReads(
   retainedEvidence: ReadonlyMap<string, string>,
   requiresEvidence: boolean,
+  retainedReadStatuses?: ReadonlyMap<string, ReadStatus>,
+  traceSteps?: readonly AgentStep[],
 ): RetainedEvidenceRead[] | undefined {
-  if (!requiresEvidence || retainedEvidence.size === 0) return undefined;
+  const traceHasSourceRead = (traceSteps ?? []).some((step) =>
+    step.kind === "tool_result"
+      && (step.tool === "read_file" || step.tool === "read_file_range")
+      && Boolean(step.source?.trim()),
+  );
+  if (
+    !requiresEvidence
+    || (
+      retainedEvidence.size === 0
+      && (!retainedReadStatuses || retainedReadStatuses.size === 0)
+      && !traceHasSourceRead
+    )
+  ) {
+    return undefined;
+  }
+  const normalizePath = (value: string): string =>
+    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const retainedBodies = new Map<string, string>();
+  for (const [filePath, body] of retainedEvidence) {
+    const normalizedPath = normalizePath(filePath);
+    if (normalizedPath && !retainedBodies.has(normalizedPath)) {
+      retainedBodies.set(normalizedPath, body);
+    }
+  }
+  const readStatuses = new Map<string, ReadStatus>();
+  for (const [filePath, status] of retainedReadStatuses ?? []) {
+    const normalizedPath = normalizePath(filePath);
+    if (normalizedPath && !readStatuses.has(normalizedPath)) {
+      readStatuses.set(normalizedPath, status);
+    }
+  }
+  for (const step of traceSteps ?? []) {
+    if (
+      step.kind !== "tool_result"
+      || (step.tool !== "read_file" && step.tool !== "read_file_range")
+      || !step.source?.trim()
+    ) {
+      continue;
+    }
+    const normalizedPath = normalizePath(step.source);
+    if (!normalizedPath || readStatuses.has(normalizedPath)) continue;
+    const status = step.readStatus
+      ?? (step.resultKind === "failed" ? "READ_FAILED" : undefined);
+    if (status) readStatuses.set(normalizedPath, status);
+  }
+  const paths = [...new Set([...retainedBodies.keys(), ...readStatuses.keys()])].slice(0, 128);
   const normalized = normalizeEvidenceSnapshot({
     required: true,
-    reads: [...retainedEvidence.entries()]
-      .slice(0, 128)
-      .map(([filePath, body]) => ({
+    reads: paths.map((filePath) => {
+      const status = readStatuses.get(filePath);
+      const body = retainedBodies.get(filePath) ?? "";
+      const hasRetainedBody = retainedBodies.has(filePath);
+      const completeStatus = status === undefined
+        || status === "READ_COMPLETE"
+        || status === "READ_CACHED"
+        || status === "READ_TARGETED";
+      return {
         path: filePath,
         readType: "source" as const,
         body,
-        complete: true,
-        truncated: false,
-      })),
+        complete: hasRetainedBody && completeStatus,
+        truncated: status === "READ_TRUNCATED",
+      };
+    }),
   });
   return normalized.reads.map((read) => ({
     path: read.path,
@@ -4073,7 +4139,12 @@ router.post("/ai/chat", async (req, res) => {
       }
     } catch (err) {
       if (err instanceof GroqClientError) {
-        if (turnIntent.requiresEvidence && retainedEvidence.size > 0) {
+        const providerEvidenceSummary = summarizeEvidenceForFailure(
+          traceSteps,
+          retainedEvidence,
+          retainedReadStatuses,
+        );
+        if (turnIntent.requiresEvidence && providerEvidenceSummary.sourceReadCount > 0) {
           providerFailureAfterEvidence = err;
           result = {
             response: buildProviderFailureEvidenceResponse(
@@ -4149,7 +4220,10 @@ router.post("/ai/chat", async (req, res) => {
       forensic: turnIntent.kind === "FORENSIC_AUDIT"
         || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
       endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
-      retainedEvidenceAvailable: Boolean(providerFailureAfterEvidence && retainedEvidence.size > 0),
+      retainedEvidenceAvailable: Boolean(
+        providerFailureAfterEvidence
+        && summarizeEvidenceForFailure(traceSteps, retainedEvidence, retainedReadStatuses).sourceReadCount > 0,
+      ),
       ...(providerFailureAfterEvidence
         ? {
             providerError: {
@@ -5034,6 +5108,8 @@ router.post("/ai/chat/stream", async (req, res) => {
   const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
     retainedEvidence,
     streamTurnIntent.requiresEvidence,
+    retainedReadStatuses,
+    traceSteps,
   );
   const evidenceProgressForTerminal = () => deriveEvidenceProgressCheckpoint({
     objective: streamObjective,
@@ -5045,6 +5121,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const evidenceFailureSummary = () => summarizeEvidenceForFailure(
     traceSteps,
     retainedEvidence,
+    retainedReadStatuses,
   );
 
   try {
@@ -7382,7 +7459,8 @@ router.post("/ai/chat/stream", async (req, res) => {
     } catch (err) {
       // PR-011: record failure metrics before emitting the SSE error.
       recordFailure(provider);
-      if (streamTurnIntent.requiresEvidence && retainedEvidence.size > 0) {
+      const providerEvidenceSummary = evidenceFailureSummary();
+      if (streamTurnIntent.requiresEvidence && providerEvidenceSummary.sourceReadCount > 0) {
         result = {
           response: buildProviderFailureEvidenceResponse(
             streamTurnIntent.kind,
@@ -7417,7 +7495,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         leaseLost: executionLeaseLost,
         endedBeforeEvidence: endedBeforeProviderEvidence,
         retainedEvidenceAvailable: Boolean(
-          streamTurnIntent.requiresEvidence && retainedEvidence.size > 0,
+          streamTurnIntent.requiresEvidence && providerEvidenceSummary.sourceReadCount > 0,
         ),
         providerEmptyBeforeEvidence:
           endedBeforeProviderEvidence

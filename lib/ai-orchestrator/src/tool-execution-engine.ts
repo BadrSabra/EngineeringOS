@@ -3542,14 +3542,27 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const serverOwnedEvidencePath = nextMissingObjectiveEvidencePath();
       if (serverOwnedEvidencePath) {
         const serverOwnedToolCallId = `server-evidence-${iter}`;
+        const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
+          ? "read_file_range"
+          : "read_file";
+        const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
+          ? {
+              path: serverOwnedEvidencePath,
+              // A truncated full read has no reliable symbol span. Use a
+              // bounded source window rather than reissuing the capped read;
+              // later provider-directed ranges can refine the evidence.
+              startLine: "1",
+              endLine: "200",
+            }
+          : { path: serverOwnedEvidencePath };
         result = {
           ...result,
           toolCalls: [{
             id: serverOwnedToolCallId,
             type: "function",
             function: {
-              name: "read_file",
-              arguments: JSON.stringify({ path: serverOwnedEvidencePath }),
+              name: serverOwnedToolName,
+              arguments: JSON.stringify(serverOwnedToolArgs),
             },
           }],
         };
@@ -3558,7 +3571,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             kind: "diagnostic",
             code: "FORCE_PRIMARY_EVIDENCE_ACTION",
             details: [
-              `provider returned no tool call; server dispatched required read "${serverOwnedEvidencePath}"`,
+              `provider returned no usable evidence action; server dispatched ${serverOwnedToolName} for "${serverOwnedEvidencePath}"`,
             ],
           });
         } catch { /* ignore */ }
