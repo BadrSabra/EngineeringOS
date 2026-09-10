@@ -16,8 +16,21 @@ function start() {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });
-  child.stdout.on('data', (chunk) => process.stdout.write(chunk));
-  child.stderr.on('data', (chunk) => process.stderr.write(chunk));
+  child.expectedStop = false;
+  child.stdout.on('data', (chunk) => {
+    if (!child.expectedStop || !chunk.toString().includes('ELIFECYCLE')) {
+      process.stdout.write(chunk);
+    }
+  });
+  child.stderr.on('data', (chunk) => {
+    // pnpm reports ELIFECYCLE when the intentionally stopped process group
+    // receives SIGTERM. Keep real startup/runtime diagnostics visible, but do
+    // not make the workflow look failed because the smoke test stopped a
+    // healthy first server as part of the restart assertion.
+    if (!child.expectedStop || !chunk.toString().includes('ELIFECYCLE')) {
+      process.stderr.write(chunk);
+    }
+  });
   child.on('error', (error) => {
     child.startupError = error;
   });
@@ -67,6 +80,7 @@ async function waitForExit(child, timeoutMs = 10000) {
 
 async function stop(child) {
   if (!child || child.exitCode !== null) return;
+  child.expectedStop = true;
   try {
     process.kill(-child.pid, 'SIGTERM');
   } catch (error) {

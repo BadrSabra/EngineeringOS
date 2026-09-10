@@ -176,4 +176,26 @@ describe('Flight Deck mission control', () => {
     expect(screen.getByText(/Do not rely on this result as verified/)).toBeInTheDocument();
     expect(screen.queryByText('Verified chain')).toBeNull();
   });
+
+  it('blocks delivery actions when a commit or push receipt is uncertain', () => {
+    mocks.execution = {
+      ...baseExecution('COMMITTED', 'passed'),
+      status: 'completed',
+      evidenceVerdict: 'PROVEN',
+      operationEvidence: {
+        completeness: 'complete',
+        receipts: [{
+          kind: 'push',
+          status: 'unknown',
+          attempt: 1,
+          timestamp: '2026-08-18T05:01:00.000Z',
+        }],
+      },
+    };
+    renderDeck();
+
+    expect(screen.getByText(/Delivery recovery is required/)).toBeInTheDocument();
+    const pushButton = screen.getByRole('button', { name: 'Push committed operation' });
+    expect(pushButton).toBeDisabled();
+  });
 });

@@ -315,6 +315,7 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
   try {
     await assertRootPathExists(rootPath);
     let scopedPaths: string[] | undefined;
+    let commitAlreadyExists = false;
     let deliveryProof: {
       baseTreeHash: string;
       candidateTreeHash: string;
@@ -332,6 +333,40 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         .limit(1);
       if (!proposal) {
         return res.status(404).json({ error: "AI change proposal not found", code: "AI_PROPOSAL_NOT_FOUND" });
+      }
+      if (
+        proposal.lifecycle === "committed"
+        && proposal.operationId === correlationId
+        && proposal.commitHash
+        && proposal.committedTreeHash
+      ) {
+        const commitReceipt = await findOperationEvent(projectId, "GitCommitCreated", correlationId);
+        if (
+          commitReceipt?.proposalId === proposalId
+          && commitReceipt.commitHash === proposal.commitHash
+          && commitReceipt.committedTreeHash === proposal.committedTreeHash
+        ) {
+          return res.json({
+            ok: true,
+            idempotent: true,
+            output: "Commit already recorded for this delivery operation.",
+            correlationId,
+            commitHash: proposal.commitHash,
+            committedTreeHash: proposal.committedTreeHash,
+            ...(typeof commitReceipt.treeDigestVersion === "string"
+              ? { treeDigestVersion: commitReceipt.treeDigestVersion }
+              : {}),
+            committedPaths: Array.isArray(commitReceipt.committedPaths)
+              ? commitReceipt.committedPaths
+              : [],
+          });
+        }
+        return res.status(409).json({
+          error: "The commit receipt is incomplete; reconcile the delivery before retrying.",
+          code: "AI_COMMIT_RECEIPT_INCOMPLETE",
+          proposalId,
+          operationId: correlationId,
+        });
       }
       if (proposal.status !== "applied") {
         return res.status(409).json({
@@ -494,6 +529,29 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
           actualTree: liveTreeBeforeCommit,
         });
       }
+      if (workingTreePaths.length === 0) {
+        const { stdout: headMetadata } = await runGit(
+          ["log", "-1", "--format=%H%x00%s"],
+          rootPath,
+        );
+        const [headHash, ...headMessageParts] = headMetadata.split("\0");
+        const headMessage = headMessageParts.join("\0");
+        const headPaths = (await runGit(
+          ["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+          rootPath,
+        )).stdout.split("\n").filter(Boolean).sort();
+        if (
+          headHash
+          && headMessage === message.trim()
+          && headPaths.length === scopedPaths.length
+          && headPaths.every((candidate, index) => candidate === [...scopedPaths!].sort()[index])
+        ) {
+          // The Git side effect may have completed before the durable receipt
+          // was written. Reuse that exact local commit instead of issuing a
+          // second commit or returning a misleading "nothing to commit".
+          commitAlreadyExists = true;
+        }
+      }
       deliveryProof = {
         baseTreeHash: proposal.baseTreeHash,
         candidateTreeHash: proposal.candidateTreeHash,
@@ -502,21 +560,31 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
       };
 
       // Stage only the paths from the server-owned, already-verified proposal.
-      await runGit(["add", "--", ...scopedPaths], rootPath);
+      if (!commitAlreadyExists) {
+        await runGit(["add", "--", ...scopedPaths], rootPath);
+      }
     } else {
       // Generic Git commits retain their existing behavior.
       await runGit(["add", "-A"], rootPath);
     }
 
-    // Commit with a fixed identity so git never fails on "user.email not set"
-    const { stdout, stderr } = await runGit(
-      [
-        "-c", "user.name=EngineeringOS",
-        "-c", "user.email=ai@engineeringos.local",
-        "commit", "-m", message.trim(),
-      ],
-      rootPath,
-    );
+    // Commit with a fixed identity so git never fails on "user.email not set".
+    // A clean, exact scoped tree can indicate a commit completed before the
+    // process crashed while persisting its receipt; in that case reuse it.
+    let stdout = "";
+    let stderr = "";
+    if (!commitAlreadyExists) {
+      ({ stdout, stderr } = await runGit(
+        [
+          "-c", "user.name=EngineeringOS",
+          "-c", "user.email=ai@engineeringos.local",
+          "commit", "-m", message.trim(),
+        ],
+        rootPath,
+      ));
+    } else {
+      stdout = "Recovered existing local commit.";
+    }
     const { stdout: commitHash } = await runGit(["rev-parse", "HEAD"], rootPath);
     const committedTreeHash = await hashDeliveryTree(rootPath);
     if (scopedPaths) {
@@ -657,6 +725,7 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
 
     return res.json({
       ok: true,
+      ...(commitAlreadyExists ? { recovered: true } : {}),
       output: stdout || stderr,
       correlationId,
       commitHash,
@@ -709,6 +778,8 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
 
   const branch = project.gitDefaultBranch ?? "main";
   const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
+  let pushAttempted = false;
+  let pushCommitHash: string | undefined;
 
   try {
     await assertRootPathExists(project.rootPath);
@@ -750,6 +821,28 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
           proposalId,
           operationId: correlationId,
           lifecycle: proposal?.lifecycle ?? null,
+        });
+      }
+      const pushReceipt = await findOperationEvent(project.id, "GitPushed", correlationId);
+      if (
+        pushReceipt?.proposalId === proposalId
+        && pushReceipt.operationId === correlationId
+        && typeof pushReceipt.commitHash === "string"
+        && pushReceipt.commitHash === proposal.commitHash
+      ) {
+        return res.json({
+          ok: true,
+          idempotent: true,
+          output: "Push already recorded for this delivery operation.",
+          branch,
+          correlationId,
+          commitHash: pushReceipt.commitHash,
+          ...(typeof pushReceipt.remoteCommitHash === "string"
+            ? { remoteCommitHash: pushReceipt.remoteCommitHash }
+            : {}),
+          ...(typeof pushReceipt.remoteUrl === "string"
+            ? { remoteUrl: pushReceipt.remoteUrl }
+            : {}),
         });
       }
       deliveryProof = {
@@ -816,6 +909,8 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
           code: "GITHUB_PUSH_REQUIRES_LOCAL_COMMIT",
         });
       }
+      pushAttempted = true;
+      pushCommitHash = commitHash;
       const pushed = await pushLocalCommitToGitHub({
         rootPath: project.rootPath,
         remote: githubRemote,
@@ -828,6 +923,8 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     } else if (allowLegacyFixture) {
       const token = await getGithubToken(req.userId);
       if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
+      pushAttempted = true;
+      pushCommitHash = commitHash;
       const result = await runGit(
         ["push", buildAuthUrl(project.gitRemoteUrl, token), branch],
         project.rootPath,
@@ -975,6 +1072,37 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     }
     const e = err as { stderr?: string; stdout?: string; message?: string };
     const raw = e.stderr?.trim() || e.stdout?.trim() || e.message || "git push failed";
+    if (pushAttempted) {
+      const existingRecovery = await findOperationEvent(project.id, "GitPushRecoveryRequired", correlationId);
+      if (!existingRecovery) {
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "GitPushRecoveryRequired",
+          projectId: project.id,
+          severity: "error",
+          message: "Git push ended with an unknown remote state; reconciliation is required.",
+          correlationId,
+          payload: {
+            ...(proposalId ? { proposalId } : {}),
+            operationId: correlationId,
+            branch,
+            remoteUrl: project.gitRemoteUrl,
+            commitHash: pushCommitHash,
+            recoveryState: "REQUIRED",
+          },
+        }).catch((persistError) => {
+          logger.error({ err: persistError, projectId: project.id, correlationId }, "failed to persist Git push recovery receipt");
+        });
+      }
+      return res.status(409).json({
+        error: "Git push may have reached the remote, but its result was not confirmed. Reconcile before retrying.",
+        code: "GIT_PUSH_RECOVERY_REQUIRED",
+        recoveryState: "REQUIRED",
+        proposalId,
+        operationId: correlationId,
+        commitHash: pushCommitHash,
+      });
+    }
     return res.status(500).json({ error: redact(raw) });
   }
 });

@@ -62,6 +62,23 @@ function evidenceClasses(verdict: string): string {
   return 'border-border/60 bg-background/30 text-muted-foreground';
 }
 
+function deliveryRecoveryRequired(
+  execution: {
+    recovery?: { uncertain?: boolean } | null;
+    operationEvidence?: {
+      completeness?: string;
+      receipts?: Array<{ kind?: string; status?: string }>;
+    } | null;
+  },
+): boolean {
+  if (execution.recovery?.uncertain === true || execution.operationEvidence?.completeness === 'uncertain') {
+    return true;
+  }
+  return (execution.operationEvidence?.receipts ?? []).some((receipt) =>
+    (receipt.kind === 'commit' || receipt.kind === 'push') && receipt.status === 'unknown',
+  );
+}
+
 function checkpointNodes(checkpoint: Record<string, unknown> | undefined): FlightNode[] {
   if (!checkpoint || !Array.isArray(checkpoint.nodeStates)) return [];
   return checkpoint.nodeStates.filter((node): node is FlightNode => {
@@ -201,8 +218,8 @@ function DeliveryProofTimeline({
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
           <span>Operation <code className="text-foreground">{evidence.operationId}</code></span>
           <span>Revision <code className="text-foreground">{evidence.revision ?? 'not recorded'}</code></span>
-          {evidence.hashes.changeSet && <span>Candidate <code className="text-foreground">{evidence.hashes.changeSet}</code></span>}
-          {evidence.hashes.committed && <span>Delivered bytes <code className="text-foreground">{evidence.hashes.committed}</code></span>}
+          {evidence.hashes?.changeSet && <span>Candidate <code className="text-foreground">{evidence.hashes.changeSet}</code></span>}
+          {evidence.hashes?.committed && <span>Delivered bytes <code className="text-foreground">{evidence.hashes.committed}</code></span>}
         </div>
       </div>
       <div className="divide-y divide-border/50">
@@ -355,11 +372,16 @@ export default function FlightDeck() {
         : 'No unresolved risk recorded';
   const elapsed = formatElapsed(execution.startedAt, execution.completedAt);
   const changedFiles = gitStatus.data?.files ?? [];
+  const recoveryRequired = deliveryRecoveryRequired(execution);
   const canCommit = isDeliveryExecution && state === 'APPLIED'
     && Boolean(execution.proposalId && operationId)
     && changedFiles.length > 0
-    && Boolean(commitMessage.trim());
-  const canPush = isDeliveryExecution && state === 'COMMITTED' && Boolean(execution.proposalId && operationId);
+    && Boolean(commitMessage.trim())
+    && !recoveryRequired;
+  const canPush = isDeliveryExecution
+    && state === 'COMMITTED'
+    && Boolean(execution.proposalId && operationId)
+    && !recoveryRequired;
 
   return (
     <div className="space-y-5">
@@ -505,6 +527,11 @@ export default function FlightDeck() {
               <p className="mt-3 text-xs text-red-200">Workspace status unavailable. No Git action is enabled.</p>
             ) : (
               <>
+                {recoveryRequired && (
+                  <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
+                    Delivery recovery is required. Reconcile the operation against the current project and remote state before retrying Commit or Push.
+                  </p>
+                )}
                 <div className="mt-3 rounded-md bg-background/30 px-3 py-2 text-xs">
                   <span className="text-muted-foreground">Working tree: </span>
                   <span className={gitStatus.data?.clean ? 'text-emerald-200' : 'text-amber-200'}>
