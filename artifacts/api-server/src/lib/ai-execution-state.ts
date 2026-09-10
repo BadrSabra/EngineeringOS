@@ -549,6 +549,7 @@ export function validateAnalysisEvidenceCompletion(
     value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
   const completed = new Set(evidence.completedReadFiles.map(normalizePath));
   const required = [...new Set(evidence.requiredPaths.map(normalizePath).filter(Boolean))];
+  const accepted = [...new Set(evidence.acceptedEvidenceFiles.map(normalizePath).filter(Boolean))];
   if (evidence.operationId !== expected.operationId) {
     reasons.push("analysis evidence is not bound to the execution operation");
   }
@@ -559,6 +560,12 @@ export function validateAnalysisEvidenceCompletion(
   const missingPaths = required.filter((path) => !completed.has(path));
   if (missingPaths.length > 0) {
     reasons.push(`required analysis source paths are missing: ${missingPaths.slice(0, 8).join(", ")}`);
+  }
+  const acceptedWithoutCompleteRead = accepted.filter((path) => !completed.has(path));
+  if (acceptedWithoutCompleteRead.length > 0) {
+    reasons.push(
+      `accepted analysis evidence is not backed by complete reads: ${acceptedWithoutCompleteRead.slice(0, 8).join(", ")}`,
+    );
   }
   if (!evidence.evidenceConsistent) reasons.push("analysis evidence telemetry is inconsistent");
   if (evidence.acceptedClaimCount < 1) reasons.push("no analysis claim has been accepted");

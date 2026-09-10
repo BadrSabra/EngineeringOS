@@ -289,10 +289,21 @@ function deriveProjectQueryAnalysisEvidence(params: {
       step.kind === "decision_trace",
     );
   if (!integrity || !decision) return undefined;
+  const forensicStatus = [...params.traceSteps]
+    .reverse()
+    .find((step): step is Extract<AgentStep, { kind: "forensic_status" }> =>
+      step.kind === "forensic_status",
+    );
+  const readStatuses = new Map(
+    (forensicStatus?.readStatuses ?? []).map((entry) => [entry.path, entry.status]),
+  );
   const completedReadFiles = [
     ...(integrity.completedReadFiles ?? []),
-    ...decision.trace.filesRead,
-  ];
+    ...(forensicStatus?.readStatuses ?? [])
+      .filter((entry) => entry.status === "READ_COMPLETE")
+      .map((entry) => entry.path),
+  ].filter((path) => readStatuses.get(path) !== "READ_TRUNCATED"
+    && readStatuses.get(path) !== "READ_FAILED");
   const objectiveVerdict = decision.trace.objectiveVerdict;
   return {
     operationId: params.operationId,

@@ -233,6 +233,31 @@ describe("autonomous operation contract", () => {
     });
   });
 
+  it("rejects accepted evidence files that have no complete read", () => {
+    const result = validateAnalysisEvidenceCompletion({
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+      requiredPaths: ["src/chat.ts"],
+      completedReadFiles: ["src/chat.ts"],
+      acceptedEvidenceFiles: ["src/stale.ts"],
+      acceptedClaimCount: 1,
+      evidenceConsistent: true,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+    }, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    });
+
+    expect(result).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining([
+        "accepted analysis evidence is not backed by complete reads: src/stale.ts",
+      ]),
+    });
+  });
+
   it("round-trips capability probe request and checkpoint metadata", () => {
     const capabilityProbe = {
       sourceFiles: [
