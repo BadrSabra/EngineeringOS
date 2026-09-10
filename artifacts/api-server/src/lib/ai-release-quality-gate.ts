@@ -363,6 +363,31 @@ function normalizedRuntimeOraclePreflight(
   };
 }
 
+export function buildAiReleaseCheckEnvironment(
+  check: AiReleaseCheckDefinition,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const childEnv = { ...baseEnv };
+  // Provider-free contract suites intentionally mock transport and lifecycle
+  // boundaries. Do not turn those tests into live credential/catalog checks
+  // merely because the enclosing release run is controlled. Preview and
+  // explicitly live-provider checks still receive the controlled marker.
+  if (check.kind === "preview" || check.id === "live-provider-quality") {
+    childEnv.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+  } else {
+    delete childEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
+  }
+  // The quality gate owns the shared release lock for the whole campaign.
+  // Let the focused stream runner reuse that ownership instead of treating
+  // its nested invocation as a database-isolation collision.
+  if (check.id === "ai-long-run-ownership" || check.id === "ai-stream-release-smoke") {
+    childEnv.RELEASE_AI_STREAM_LOCK_HELD = "1";
+  } else {
+    delete childEnv.RELEASE_AI_STREAM_LOCK_HELD;
+  }
+  return childEnv;
+}
+
 export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[], options: {
   enableLiveProvider?: boolean;
   enablePreview?: boolean;
@@ -418,24 +443,7 @@ async function runCommand(check: AiReleaseCheckDefinition, cwd: string): Promise
     // Output is deliberately drained but never included in the report. This
     // keeps prompts, model output, source snippets, and credentials out of
     // persisted release artifacts.
-    const childEnv = { ...process.env };
-    // Provider-free contract suites intentionally mock transport and lifecycle
-    // boundaries. Do not turn those tests into live credential/catalog checks
-    // merely because the enclosing release run is controlled. Preview and
-    // explicitly live-provider checks still receive the controlled marker.
-    if (check.kind === "preview" || check.id === "live-provider-quality") {
-      childEnv.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
-    } else {
-      delete childEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
-    }
-    // The quality gate owns the shared release lock for the whole campaign.
-    // Let the focused stream runner reuse that ownership instead of treating
-    // its nested invocation as a database-isolation collision.
-    if (check.id === "ai-long-run-ownership" || check.id === "ai-stream-release-smoke") {
-      childEnv.RELEASE_AI_STREAM_LOCK_HELD = "1";
-    } else {
-      delete childEnv.RELEASE_AI_STREAM_LOCK_HELD;
-    }
+    const childEnv = buildAiReleaseCheckEnvironment(check);
     let output = "";
     const capture = (chunk: Buffer | string): void => {
       if (output.length >= MAX_CAPTURED_OUTPUT) return;

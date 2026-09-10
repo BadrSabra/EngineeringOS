@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAiReleaseCheckEnvironment,
   evaluateAiReleaseQuality,
   getAiReleaseChecks,
   type AiReleaseCheckResult,
@@ -102,6 +103,28 @@ describe("AI release quality gate", () => {
       "resumable provider failure and reconnect",
       "cancellation with retained evidence",
     ]));
+  });
+
+  it("hands the campaign lock to focused stream checks without enabling live credentials", () => {
+    const baseEnv = {
+      DATABASE_URL: "provider-free-fixture",
+      OPENROUTER_API_KEY: "should-not-be-used",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "stale",
+    };
+    for (const id of ["ai-long-run-ownership", "ai-stream-release-smoke"]) {
+      const check = getAiReleaseChecks().find((candidate) => candidate.id === id)!;
+      expect(buildAiReleaseCheckEnvironment(check, baseEnv)).toMatchObject({
+        DATABASE_URL: "provider-free-fixture",
+        RELEASE_AI_STREAM_LOCK_HELD: "1",
+      });
+      expect(buildAiReleaseCheckEnvironment(check, baseEnv)).not.toHaveProperty(
+        "RUN_CONTROLLED_RELEASE_VALIDATION",
+      );
+    }
+    const ordinaryCheck = getAiReleaseChecks().find((candidate) => candidate.id === "api-typecheck")!;
+    expect(buildAiReleaseCheckEnvironment(ordinaryCheck, baseEnv)).not.toHaveProperty(
+      "RELEASE_AI_STREAM_LOCK_HELD",
+    );
   });
 
   it("retains ownership milestones in the release receipt after a passing check", () => {

@@ -21,6 +21,7 @@ export const validationLockPath = path.join(
   RELEASE_LOCK_ROOT,
   "engineeringos-release-validation.lock",
 );
+export const MAX_RELEASE_TEST_NAME_LENGTH = 160;
 
 const ownerFile = (directory) => path.join(directory, "owner.json");
 const ownerToken = () =>
@@ -185,6 +186,47 @@ export async function acquireReleaseLock(
   };
 }
 
+export function shouldReuseReleaseLock(env = process.env) {
+  return env.RELEASE_AI_STREAM_LOCK_HELD === "1";
+}
+
+export async function acquireReleaseRunnerLock({
+  env = process.env,
+  targetPath = lockPath,
+  acquire = acquireReleaseLock,
+} = {}) {
+  if (shouldReuseReleaseLock(env)) return async () => {};
+  return acquire(targetPath);
+}
+
+export function buildReleaseVitestArgs({
+  root = artifactRoot,
+  testName,
+} = {}) {
+  const args = [
+    "exec",
+    "vitest",
+    "run",
+    "--config",
+    path.join(root, "vitest.config.ts"),
+    path.relative(root, expectedTest),
+    "--pool",
+    "forks",
+  ];
+  if (testName !== undefined && testName !== "") {
+    if (testName.includes("\u0000")) {
+      throw new Error("RELEASE_AI_STREAM_TEST_NAME cannot contain a NUL character.");
+    }
+    if (testName.length > MAX_RELEASE_TEST_NAME_LENGTH) {
+      throw new Error(
+        `RELEASE_AI_STREAM_TEST_NAME must be at most ${MAX_RELEASE_TEST_NAME_LENGTH} characters.`,
+      );
+    }
+    args.push("-t", testName);
+  }
+  return args;
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) {
     console.log(
@@ -206,14 +248,23 @@ async function main() {
     return 1;
   }
 
+  let vitestArgs;
+  try {
+    vitestArgs = buildReleaseVitestArgs({
+      root: expectedRoot,
+      testName: process.env.RELEASE_AI_STREAM_TEST_NAME,
+    });
+  } catch (error) {
+    console.error(error.message);
+    return 1;
+  }
+
   let cleanup = async () => {};
-  if (process.env.RELEASE_AI_STREAM_LOCK_HELD !== "1") {
-    try {
-      cleanup = await acquireReleaseLock(lockPath);
-    } catch (error) {
-      console.error(error.message);
-      return 1;
-    }
+  try {
+    cleanup = await acquireReleaseRunnerLock();
+  } catch (error) {
+    console.error(error.message);
+    return 1;
   }
   process.once("SIGINT", async () => {
     await cleanup();
@@ -226,18 +277,6 @@ async function main() {
 
   const runValidation = () =>
     new Promise((resolve, reject) => {
-      const testName = process.env.RELEASE_AI_STREAM_TEST_NAME;
-      const vitestArgs = [
-        "exec",
-        "vitest",
-        "run",
-        "--config",
-        path.join(expectedRoot, "vitest.config.ts"),
-        path.relative(expectedRoot, expectedTest),
-        "--pool",
-        "forks",
-      ];
-      if (testName) vitestArgs.push("-t", testName);
       const child = spawn(
         "pnpm",
         vitestArgs,
