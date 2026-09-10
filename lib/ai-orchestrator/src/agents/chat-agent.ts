@@ -8569,7 +8569,8 @@ export async function chat(opts: {
             sources: normalizedCapability.sources,
           },
         }
-      : !structuredOutputMode
+      : provider !== "openrouter"
+        && !structuredOutputMode
         && !deterministicTaskExecution
         && !repairPlanExecution
         && taskType !== "task_execution"
