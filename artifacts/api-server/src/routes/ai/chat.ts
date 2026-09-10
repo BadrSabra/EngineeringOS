@@ -1646,6 +1646,28 @@ type EvidenceFailureSummary = {
   incompleteSourceReadCount: number;
 };
 
+type TerminalEvidenceState = Pick<
+  Parameters<typeof classifyAiTerminalOutcome>[0],
+  | "evidenceAttempted"
+  | "completeEvidenceAvailable"
+  | "incompleteEvidenceAvailable"
+  | "requiredEvidencePending"
+  | "nextRequiredPath"
+>;
+
+function terminalEvidenceState(
+  summary: EvidenceFailureSummary,
+  progress?: AiEvidenceProgressCheckpoint,
+): TerminalEvidenceState {
+  return {
+    evidenceAttempted: summary.sourceReadCount > 0,
+    completeEvidenceAvailable: summary.completeSourceReadCount > 0,
+    incompleteEvidenceAvailable: summary.incompleteSourceReadCount > 0,
+    requiredEvidencePending: Boolean(progress && progress.missingPaths.length > 0),
+    ...(progress?.nextRequiredPath ? { nextRequiredPath: progress.nextRequiredPath } : {}),
+  };
+}
+
 function summarizeEvidenceForFailure(
   traceSteps: AgentStep[],
   retainedEvidence: ReadonlyMap<string, string>,
@@ -4159,6 +4181,13 @@ router.post("/ai/chat", async (req, res) => {
             behaviorEvidence: undefined,
           };
         } else {
+        const failureEvidenceProgress = deriveEvidenceProgressCheckpoint({
+          objective: effectiveObjective,
+          traceSteps,
+          retainedEvidence,
+          operationId: analysisCorrelation.operationId ?? sessionIdToUse,
+          sourceRevision: analysisCorrelation.projectRevision,
+        });
         const terminalOutcome = classifyAiTerminalOutcome({
           trace: traceSteps,
           requiresEvidence: turnIntent.requiresEvidence,
@@ -4166,6 +4195,7 @@ router.post("/ai/chat", async (req, res) => {
             || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
           cancelled: false,
           endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+          ...terminalEvidenceState(providerEvidenceSummary, failureEvidenceProgress),
           providerEmptyBeforeEvidence:
             turnIntent.requiresEvidence
             && err.code === "EMPTY_RESPONSE"
@@ -4213,6 +4243,18 @@ router.post("/ai/chat", async (req, res) => {
       if (!result) throw err;
     }
 
+    const terminalEvidenceSummary = summarizeEvidenceForFailure(
+      traceSteps,
+      retainedEvidence,
+      retainedReadStatuses,
+    );
+    const terminalEvidenceProgress = deriveEvidenceProgressCheckpoint({
+      objective: effectiveObjective,
+      traceSteps,
+      retainedEvidence,
+      operationId: analysisCorrelation.operationId ?? sessionIdToUse,
+      sourceRevision: analysisCorrelation.projectRevision,
+    });
     const terminalOutcome = classifyAiTerminalOutcome({
       result,
       trace: traceSteps,
@@ -4220,10 +4262,7 @@ router.post("/ai/chat", async (req, res) => {
       forensic: turnIntent.kind === "FORENSIC_AUDIT"
         || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
       endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
-      retainedEvidenceAvailable: Boolean(
-        providerFailureAfterEvidence
-        && summarizeEvidenceForFailure(traceSteps, retainedEvidence, retainedReadStatuses).sourceReadCount > 0,
-      ),
+      ...terminalEvidenceState(terminalEvidenceSummary, terminalEvidenceProgress),
       ...(providerFailureAfterEvidence
         ? {
             providerError: {
@@ -4313,6 +4352,9 @@ router.post("/ai/chat", async (req, res) => {
         failureKind: terminalOutcome.failureKind,
         retryable: terminalOutcome.retryable,
         recoveryState: terminalOutcome.recoveryState,
+        ...(terminalOutcome.nextRequiredPath
+          ? { nextRequiredPath: terminalOutcome.nextRequiredPath }
+          : {}),
         ...(terminalOutcome.providerFailureCategory
           ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
           : {}),
@@ -4327,6 +4369,9 @@ router.post("/ai/chat", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
+          ...(terminalOutcome.nextRequiredPath
+            ? { nextRequiredPath: terminalOutcome.nextRequiredPath }
+            : {}),
           ...(terminalOutcome.providerFailureCategory
             ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
             : {}),
@@ -5122,6 +5167,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     traceSteps,
     retainedEvidence,
     retainedReadStatuses,
+  );
+  const terminalEvidenceStateForRun = () => terminalEvidenceState(
+    evidenceFailureSummary(),
+    evidenceProgressForTerminal(),
   );
 
   try {
@@ -7189,6 +7238,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         cancelled: activeExecutionAbortController.signal.aborted && !executionLeaseLost,
         leaseLost: executionLeaseLost,
         endedBeforeEvidence,
+        ...terminalEvidenceStateForRun(),
       });
       executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
         outcome: terminalOutcome.outcome,
@@ -7342,6 +7392,9 @@ router.post("/ai/chat/stream", async (req, res) => {
             failureKind: terminalOutcome.failureKind,
             retryable: terminalOutcome.retryable,
             recoveryState: terminalOutcome.recoveryState,
+            ...(terminalOutcome.nextRequiredPath
+              ? { nextRequiredPath: terminalOutcome.nextRequiredPath }
+              : {}),
             ...(terminalOutcome.providerFailureCategory
               ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
               : {}),
@@ -7381,6 +7434,9 @@ router.post("/ai/chat/stream", async (req, res) => {
               failureKind: terminalOutcome.failureKind,
               retryable: terminalOutcome.retryable,
               recoveryState: terminalOutcome.recoveryState,
+              ...(terminalOutcome.nextRequiredPath
+                ? { nextRequiredPath: terminalOutcome.nextRequiredPath }
+                : {}),
               attempt: terminalProjection?.attempt,
               correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
               terminalProjection,
@@ -7494,8 +7550,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         cancelled,
         leaseLost: executionLeaseLost,
         endedBeforeEvidence: endedBeforeProviderEvidence,
-        retainedEvidenceAvailable: Boolean(
-          streamTurnIntent.requiresEvidence && providerEvidenceSummary.sourceReadCount > 0,
+        ...terminalEvidenceState(
+          providerEvidenceSummary,
+          evidenceProgressForTerminal(),
         ),
         providerEmptyBeforeEvidence:
           endedBeforeProviderEvidence
@@ -7615,6 +7672,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable,
           recoveryState: terminalOutcome.recoveryState,
+          ...(terminalOutcome.nextRequiredPath
+            ? { nextRequiredPath: terminalOutcome.nextRequiredPath }
+            : {}),
           executionId: terminalProjection?.executionId ?? aiExecution?.id,
           sessionId: terminalProjection?.sessionId ?? sessionIdToUse,
           attempt: terminalProjection?.attempt,
@@ -8336,6 +8396,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           requiresEvidence: streamTurnIntent.requiresEvidence,
           forensic: true,
           endedBeforeEvidence,
+          ...terminalEvidenceStateForRun(),
         });
         finalForensicAccepted =
           finalForensicOutcome.outcome === "SUCCEEDED"

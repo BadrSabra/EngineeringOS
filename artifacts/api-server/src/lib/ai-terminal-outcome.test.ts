@@ -67,7 +67,66 @@ describe("classifyAiTerminalOutcome", () => {
       { kind: "tool_result", tool: "read_file", source: "src/index.ts", readStatus: "READ_COMPLETE" },
     ], {
       providerError: { code: "TIMEOUT", fallbackExhausted: true },
-      retainedEvidenceAvailable: true,
+      evidenceAttempted: true,
+      completeEvidenceAvailable: true,
+      requiredEvidencePending: true,
+      nextRequiredPath: "src/next.ts",
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "INCOMPLETE_AFTER_PROVIDER_FAILURE",
+      recoveryState: "INCOMPLETE",
+      providerFailureCategory: "TIMEOUT",
+      nextRequiredPath: "src/next.ts",
+      evidenceAccepted: false,
+    });
+  });
+
+  it("distinguishes a truncated-only evidence attempt from failure before evidence", () => {
+    expect(classify([
+      { kind: "forensic_status", sourceCoverage: "PARTIAL", behavioralAssessment: "INCOMPLETE" },
+      { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },
+    ], {
+      evidenceAttempted: true,
+      incompleteEvidenceAvailable: true,
+      requiredEvidencePending: true,
+      nextRequiredPath: "src/large.ts",
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "INCOMPLETE_AFTER_EVIDENCE_ATTEMPT",
+      recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    });
+  });
+
+  it("classifies complete evidence with unclosed objective claims as objective incomplete", () => {
+    expect(classify([
+      { kind: "forensic_status", sourceCoverage: "PARTIAL", behavioralAssessment: "INCOMPLETE" },
+      { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },
+    ], {
+      evidenceAttempted: true,
+      completeEvidenceAvailable: true,
+      requiredEvidencePending: true,
+      nextRequiredPath: "src/behavior.ts",
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "OBJECTIVE_INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    });
+  });
+
+  it("classifies a provider failure after an incomplete evidence attempt separately", () => {
+    expect(classify([
+      { kind: "tool_result", tool: "read_file", source: "src/large.ts", readStatus: "READ_TRUNCATED" },
+    ], {
+      providerError: { code: "TIMEOUT" },
+      evidenceAttempted: true,
+      incompleteEvidenceAvailable: true,
+      requiredEvidencePending: true,
+      nextRequiredPath: "src/behavior.ts",
     })).toMatchObject({
       outcome: "FAILED",
       failureKind: "INCOMPLETE",

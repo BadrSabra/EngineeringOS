@@ -23,6 +23,8 @@ export type AiTerminalOutcome = {
   recoveryState: "NONE" | "REQUIRED" | "INCOMPLETE";
   /** True only when the existing forensic evidence gates accepted the result. */
   evidenceAccepted: boolean;
+  /** Server-owned next required path, when the evidence contract provides one. */
+  nextRequiredPath?: string;
 };
 
 /**
@@ -199,7 +201,20 @@ type TerminalClassifierInput = {
   requiresEvidence?: boolean;
   /** Route intent, rather than response prose, determines forensic gates. */
   forensic?: boolean;
-  /** Server-owned source reads survived a provider failure. */
+  /** At least one source read was attempted, including failed/truncated reads. */
+  evidenceAttempted?: boolean;
+  /** At least one complete, server-owned source body is available. */
+  completeEvidenceAvailable?: boolean;
+  /** At least one source read is incomplete (failed or truncated). */
+  incompleteEvidenceAvailable?: boolean;
+  /** The server-owned objective still has an unmet required evidence path/claim. */
+  requiredEvidencePending?: boolean;
+  /** The next server-selected required path, when one is known. */
+  nextRequiredPath?: string;
+  /**
+   * Legacy alias retained for callers that have not yet supplied the full
+   * evidence state. New callers should pass the separated fields above.
+   */
   retainedEvidenceAvailable?: boolean;
 };
 
@@ -365,6 +380,16 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     trace,
     /CAPABILITY_PROBE_(?:CLAIM_UNCLOSED|EVIDENCE_RECOVERY_REJECTED)/i,
   );
+  const evidenceAttempted = input.evidenceAttempted
+    ?? input.completeEvidenceAvailable
+    ?? input.incompleteEvidenceAvailable
+    ?? input.retainedEvidenceAvailable
+    ?? false;
+  const completeEvidenceAvailable = input.completeEvidenceAvailable
+    ?? input.retainedEvidenceAvailable
+    ?? false;
+  const incompleteEvidenceAvailable = input.incompleteEvidenceAvailable ?? false;
+  const requiredEvidencePending = input.requiredEvidencePending ?? false;
 
   // Execution evidence and forensic audit evidence are different contracts.
   // Only the authoritative route intent may activate forensic terminal rules;
@@ -404,7 +429,7 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     };
   }
   if (providerFailureCategory) {
-    if (input.requiresEvidence && input.retainedEvidenceAvailable) {
+    if (input.requiresEvidence && evidenceAttempted) {
       return {
         outcome: "FAILED",
         failureKind: "INCOMPLETE",
@@ -414,6 +439,7 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
         message: "The provider failed after source evidence was retained; the result is incomplete.",
         recoveryState: "INCOMPLETE",
         evidenceAccepted: false,
+        ...(input.nextRequiredPath ? { nextRequiredPath: input.nextRequiredPath } : {}),
       };
     }
     const providerPolicy = decideProviderFailurePolicy({
@@ -465,6 +491,36 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
   );
 
   if (explicitIncomplete) {
+    if (
+      requiredEvidencePending
+      && completeEvidenceAvailable
+      && !incompleteEvidenceAvailable
+    ) {
+      return {
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        retryable: true,
+        code: "OBJECTIVE_INCOMPLETE",
+        message: input.nextRequiredPath
+          ? "The available source evidence is complete, but the objective still requires additional evidence."
+          : "The available source evidence is complete, but the objective claims are not closed.",
+        recoveryState: "INCOMPLETE",
+        evidenceAccepted: false,
+        ...(input.nextRequiredPath ? { nextRequiredPath: input.nextRequiredPath } : {}),
+      };
+    }
+    if (evidenceAttempted && incompleteEvidenceAvailable) {
+      return {
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        retryable: true,
+        code: "INCOMPLETE_AFTER_EVIDENCE_ATTEMPT",
+        message: "The result is incomplete because one or more source reads were truncated or failed.",
+        recoveryState: "INCOMPLETE",
+        evidenceAccepted: false,
+        ...(input.nextRequiredPath ? { nextRequiredPath: input.nextRequiredPath } : {}),
+      };
+    }
     return {
       outcome: "FAILED",
       failureKind: "INCOMPLETE",

@@ -14,3 +14,9 @@ Ordinary `CHAT` turns are terminally non-proof-bearing: they must not create an 
 **Why:** A provider failure can enter the generic execution finalizer after intent routing has already classified the turn as chat; without this boundary, a greeting becomes a forensic, resumable run.
 
 **How to apply:** Persist the server-owned turn intent in the execution request and use it when finalizing failures, emitting `execution_started`, projecting history, and deciding whether the dashboard may retain an execution proof panel.
+
+Evidence-required terminal classification must receive separate server-owned signals for attempted reads, complete bodies, incomplete reads, pending required evidence, and the next required path. Keep the old retained-evidence flag only as a compatibility fallback.
+
+**Why:** A provider failure after a truncated read is materially different from a failure before evidence, and complete source bodies with unclosed objective claims need a distinct incomplete outcome without exposing provider diagnostics.
+
+**How to apply:** Derive the signals from retained-read/status maps and the evidence progress checkpoint in both JSON and SSE routes; preserve incomplete evidence and `nextRequiredPath` in terminal projections.
