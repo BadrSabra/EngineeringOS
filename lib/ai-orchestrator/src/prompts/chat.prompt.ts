@@ -47,7 +47,7 @@ If a question requires file-level detail that is absent from the context, state 
       promptSection(
         "Read-only project tools available in this session",
         `Source tools: read_file · read_file_range · list_directory · search_code
-Use them only when the user's question needs current project or file details.
+Use them only when the user's question or a server-provided project target needs current project or file details; do not scan broadly just because the tools are present.
 - Reads are bounded to the authenticated project root and may be refused for traversal, symlink, or sensitive-file violations.
 - Results are evidence from the server-observed read only; do not invent paths or citations.
 - This session has no write, validation, terminal, git, analysis, or delivery tools. Never claim that a change was made.`,
