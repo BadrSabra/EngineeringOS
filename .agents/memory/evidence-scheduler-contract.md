@@ -8,3 +8,9 @@ The evidence loop should derive one ordered missing-path queue from both objecti
 **Why:** Provider turns can succeed while analysis remains empty if the model is allowed to synthesize after reading only one source or can reset the force latch with duplicate reads.
 
 **How to apply:** Keep the scheduler server-owned, preserve targeted range reads as valid evidence, and keep terminal checkpoint evidence refs/verdicts derived from the same accepted reads. A successful prefetch must not suppress the transition to the next missing required path; prefetch satisfies evidence acquisition, not the complete objective manifest. After prefetch or each successful forced read, re-arm the gate for the next missing path; clear it only when the manifest is complete.
+
+Provider fallback must continue from the same evidence cursor and execution budget. If a provider fails after tool progress, the server should emit a bounded incomplete-evidence report (with a resumable cursor) rather than restart the loop from iteration zero and surface only a generic provider error.
+
+**Why:** In a live project question, a truncated first prefetch left the first path outstanding; the model spent the loop retrying blocked scope expansions, then provider fallback arrived after the shared budget was exhausted. The durable checkpoint was safe, but the user lost the actionable partial result.
+
+**How to apply:** Preserve tool messages, read-status state, forced target, and ledger across provider changes; reserve bounded fallback capacity; map provider failure plus retained/incomplete evidence to the server-owned incomplete contract.
