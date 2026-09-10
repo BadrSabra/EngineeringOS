@@ -66,6 +66,18 @@ describe("chat quality profile", () => {
   });
 });
 
+describe("tool chat quality profile", () => {
+  it("keeps project reads tool-capable without forcing reasoning-only provider features", () => {
+    const plan = buildQualityPlan("tool_chat", { requireTools: true });
+
+    expect(plan.strictHints.requireTools).toBe(true);
+    expect(plan.strictHints.requireFunctionCalling).toBe(true);
+    expect(plan.strictHints.requireReasoning).toBeUndefined();
+    expect(plan.strictHints.requireThinking).toBeUndefined();
+    expect(plan.relaxedHints.requireReasoning).toBeUndefined();
+  });
+});
+
 describe("code_review quality profile", () => {
   it("requires structured JSON without forcing reasoning-only output", () => {
     const plan = buildQualityPlan("code_review");

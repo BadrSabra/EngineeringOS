@@ -56,15 +56,12 @@ function buildBasePlans(profile: QualityProfile): Pick<QualityPlan, "strictHints
           requireStreaming: true,
           requireTools: true,
           requireJsonMode: true,
-          requireReasoning: true,
           requireFunctionCalling: true,
-          requireThinking: true,
         },
         relaxedHints: {
           requireStreaming: true,
           requireTools: true,
           requireJsonMode: true,
-          requireReasoning: true,
         },
       };
     case "analysis":

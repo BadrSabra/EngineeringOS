@@ -38,6 +38,11 @@ describe("target-aware project queries", () => {
     expect(objective.scopePolicy?.forbiddenPaths).toContain("node_modules");
   });
 
+  it("recognizes Arabic agent-mechanics questions without requiring the word تحليل", () => {
+    expect(resolveProjectQueryTarget("ما هي آلية عمل وكيل الذكاء الاصطناعي؟")?.id)
+      .toBe("embedded-ai");
+  });
+
   it("leaves a generic project question as a non-evidence project query", () => {
     const message = "ما هذا المشروع؟";
     const classification = classifyRequest(message);

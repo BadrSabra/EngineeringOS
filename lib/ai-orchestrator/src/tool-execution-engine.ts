@@ -1458,6 +1458,9 @@ export type AgentDiagnosticCode =
   // so the loop is forced toward the primary evidence target instead of
   // continuing to plan.
   | "FORCE_PRIMARY_EVIDENCE_ACTION"
+  // Objective traversal: a completed source was replayed while a required
+  // manifest path remained unread, so the provider was redirected.
+  | "REQUIRED_EVIDENCE_PATH_ADVANCE"
   // Budget rebalancing (FEG-009/010): the run ended with ZERO source reads ever
   // acquired. This is classified as incomplete-before-evidence - it is NOT a
   // normal terminal - and, within the recovery allocation, the loop forces a
@@ -4330,6 +4333,48 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             `REDUNDANT_FULL_READ_BLOCKED: "${args.path}" was already read and exceeded the safe evidence window. ` +
             "Repeating the same full read cannot recover the missing lines. " +
             "Use search_code to locate the exact symbol or line, then read_file_range(path, startLine, endLine) to retrieve only the required window.",
+        });
+        continue;
+      }
+
+      // Objective evidence is ordered by the server-owned manifest. Once a
+      // required source body has been acquired, replaying that completed path
+      // is not progress while another required path is still missing. Reject
+      // the replay before cache dispatch and point the provider at the next
+      // required path; otherwise a cached read can make an evidence loop look
+      // productive without increasing coverage.
+      if (
+        objective &&
+        firstSourceReadIter !== null &&
+        (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
+        typeof args.path === "string" &&
+        isCompletedPath(args.path) &&
+        nextMissingObjectiveEvidencePath() !== null &&
+        canonicalRel(args.path) !== nextMissingObjectiveEvidencePath()
+      ) {
+        const nextRequiredPath = nextMissingObjectiveEvidencePath()!;
+        sourceRetrieval.redundantReads += 1;
+        forcedEvidenceTarget = nextRequiredPath;
+        forcedEvidenceActive = true;
+        if (allowedReads) allowedReads.add(nextRequiredPath);
+        temporarilyDisabledTools.add("search_code");
+        temporarilyDisabledTools.add("list_directory");
+        try {
+          onStep?.({
+            kind: "diagnostic",
+            code: "REQUIRED_EVIDENCE_PATH_ADVANCE",
+            details: [
+              `completed path "${args.path}" was replayed while required path "${nextRequiredPath}" is missing`,
+            ],
+          });
+        } catch { /* ignore */ }
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            `REQUIRED_EVIDENCE_PATH_ADVANCE: "${args.path}" already has complete evidence. ` +
+            `Read the next required source path "${nextRequiredPath}" before synthesizing. ` +
+            "Do not repeat the completed read.",
         });
         continue;
       }

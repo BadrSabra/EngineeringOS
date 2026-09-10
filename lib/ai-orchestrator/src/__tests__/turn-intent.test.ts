@@ -76,6 +76,21 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it("routes an Arabic question about the AI agent internals to the targeted project query", () => {
+    const message = "ما هي آلية عمل وكيل الذكاء الاصطناعي؟";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    expect(intent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
+      requiresEvidence: true,
+      contextMode: "project",
+    });
+  });
+
   it.each(["ممكن تساعدني؟", "كيف أبدأ؟", "Can you help me?"])(
     "keeps generic question tool-free: %s",
     (message) => {

@@ -528,6 +528,48 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("advances to the next required evidence path instead of replaying completed source", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockResolvedValue("File: src/chat.ts\nexport const answer = true;");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("read-chat-1", "read_file", { path: "src/chat.ts" })]),
+      makeResponse("", [makeToolCall("read-chat-2", "read_file", { path: "src/chat.ts" })]),
+      makeResponse("", [makeToolCall("read-intent", "read_file", { path: "src/turn-intent.ts" })]),
+      makeResponse("verified from both required sources"),
+    ]);
+    const steps: AgentStep[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 4,
+      onStep: (step) => void steps.push(step),
+      objective: {
+        goal: "verify the embedded AI layer",
+        requiredEvidencePaths: ["src/chat.ts", "src/turn-intent.ts"],
+        requiredClaims: [{
+          claimId: "agent-routing",
+          requiredEvidencePaths: ["src/chat.ts", "src/turn-intent.ts"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(1, "read_file", { path: "src/chat.ts" }, "/project", []);
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(2, "read_file", { path: "src/turn-intent.ts" }, "/project", []);
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "REQUIRED_EVIDENCE_PATH_ADVANCE",
+    }));
+  });
+
   it("dispatches a server-owned read when the provider returns text before evidence", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockResolvedValue("File: src/proof.ts\nexport const verified = true;");

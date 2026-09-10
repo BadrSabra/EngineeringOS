@@ -218,6 +218,19 @@ describe("session memory policy", () => {
         sessionId,
         projectId,
         [],
+        "This ordinary conversational response is intentionally long enough to look like a summary.",
+        `${turnId}-chat-summary`,
+        {
+          outcome: "SUCCEEDED",
+          turnIntent: "CHAT",
+          memoryMode: "summary",
+        },
+      );
+      await drainSessionMemoryOutbox();
+      await writeSessionMemories(
+        sessionId,
+        projectId,
+        [],
         "short",
         `${turnId}-semantic`,
         {

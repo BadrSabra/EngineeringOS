@@ -4,7 +4,8 @@
  * At the end of every successful chat exchange the route calls
  * `writeSessionMemories()` to enqueue a durable, retryable write:
  *   • file_summary rows — one per file actually accessed via tool calls
- *   • session_summary  — compressed first paragraph of the agent's response
+ *   • session_summary  — compressed first paragraph of a successful
+ *     project/task response; ordinary CHAT responses are not durable facts
  *
  * At the start of the next exchange `enrichContextWithMemories()` fetches the
  * top-N eligible memories by relevance and recency, formats them into a readable string, and injects
@@ -314,7 +315,11 @@ function buildMemoryRows(payload: MemoryWritePayload, now: Date): InsertAiSessio
     .split(/\n\s*\n/, 1)[0]!
     .trim()
     .slice(0, MAX_SUMMARY_CHARS);
-  if (summary.length > 30) {
+  // A normal CHAT answer is not project evidence or a user decision. It must
+  // not become navigation context merely because the provider returned text.
+  // Explicit semantic records remain handled separately and are validated
+  // before they reach this function.
+  if (payload.responseText.length > 0 && summary.length > 30) {
     rows.push({
       id: randomUUID(),
       projectId: payload.projectId,
@@ -487,7 +492,9 @@ export async function writeSessionMemories(
     projectId,
     turnId,
     toolSources: toolSources.filter((value): value is string => typeof value === "string"),
-    responseText,
+    // CHAT output is not durable project context. Explicit semantic records
+    // are still allowed, but the provider's prose must not become a summary.
+    responseText: options.turnIntent === "CHAT" ? "" : responseText,
     createdAt: now,
     semanticRecords,
   };
