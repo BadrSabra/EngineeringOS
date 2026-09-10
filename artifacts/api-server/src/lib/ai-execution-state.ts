@@ -1044,6 +1044,10 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ? undefined
       : parseCapabilityProbeCheckpoint(value.capabilityProbe);
     if (value.capabilityProbe !== undefined && !capabilityProbe) return undefined;
+    const evidenceProgress = value.evidenceProgress === undefined
+      ? undefined
+      : parseEvidenceProgressCheckpoint(value.evidenceProgress);
+    if (value.evidenceProgress !== undefined && !evidenceProgress) return undefined;
     const providerAttempts = Array.isArray(value.providerAttempts)
       ? value.providerAttempts
           .filter((attempt) => Boolean(attempt) && typeof attempt === "object")
@@ -1083,6 +1087,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ...(typeof value.evidenceReason === "string"
         ? { evidenceReason: value.evidenceReason.slice(0, 500) }
         : {}),
+      ...(evidenceProgress ? { evidenceProgress } : {}),
       ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
       ...(capabilityProbe ? { capabilityProbe } : {}),
       ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
@@ -1094,6 +1099,58 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
   } catch {
     return undefined;
   }
+}
+
+function parseEvidenceProgressCheckpoint(value: unknown): AiEvidenceProgressCheckpoint | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<AiEvidenceProgressCheckpoint>;
+  const validStatuses = new Set<AiEvidencePathStatus>([
+    "missing",
+    "complete",
+    "targeted",
+    "truncated",
+    "failed",
+  ]);
+  if (
+    typeof candidate.operationId !== "string"
+    || typeof candidate.sourceRevision !== "string"
+    || !Array.isArray(candidate.requiredPaths)
+    || !Array.isArray(candidate.pathStatuses)
+    || !Array.isArray(candidate.completedPaths)
+    || !Array.isArray(candidate.missingPaths)
+    || (candidate.nextRequiredPath !== undefined && typeof candidate.nextRequiredPath !== "string")
+  ) return undefined;
+  const requiredPaths = candidate.requiredPaths
+    .filter((path): path is string => typeof path === "string")
+    .slice(0, 64)
+    .map((path) => path.slice(0, 500));
+  const pathStatuses = candidate.pathStatuses
+    .slice(0, 64)
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const item = entry as { path?: unknown; status?: unknown };
+      if (
+        typeof item.path !== "string"
+        || typeof item.status !== "string"
+        || !validStatuses.has(item.status as AiEvidencePathStatus)
+      ) return [];
+      return [{ path: item.path.slice(0, 500), status: item.status as AiEvidencePathStatus }];
+    });
+  const toPaths = (paths: unknown[]) => paths
+    .filter((path): path is string => typeof path === "string")
+    .slice(0, 64)
+    .map((path) => path.slice(0, 500));
+  return {
+    operationId: candidate.operationId.slice(0, 160),
+    sourceRevision: candidate.sourceRevision.slice(0, 500),
+    requiredPaths,
+    pathStatuses,
+    completedPaths: toPaths(candidate.completedPaths),
+    missingPaths: toPaths(candidate.missingPaths),
+    ...(candidate.nextRequiredPath !== undefined
+      ? { nextRequiredPath: candidate.nextRequiredPath.slice(0, 500) }
+      : {}),
+  };
 }
 
 function parseAutonomousOperation(value: unknown): AutonomousOperationContract | undefined {
@@ -1577,6 +1634,7 @@ function mergeTerminalCheckpoint(
     acceptanceDisposition?: AiAcceptanceDisposition;
     evidenceVerdict?: FlightDeckEvidenceVerdict;
     evidenceReason?: string;
+    evidenceProgress?: AiExecutionCheckpoint["evidenceProgress"];
     capabilityProbe?: AiCapabilityProbeCheckpoint;
     providerAttempts?: AiProviderAttemptCheckpoint[];
     retryAfterMs?: number;
@@ -1635,6 +1693,9 @@ function mergeTerminalCheckpoint(
       : {}),
     ...(params.evidenceReason
       ? { evidenceReason: params.evidenceReason.slice(0, 500) }
+      : {}),
+    ...(params.evidenceProgress
+      ? { evidenceProgress: params.evidenceProgress }
       : {}),
     ...(params.capabilityProbe
       ? { capabilityProbe: params.capabilityProbe }
@@ -1963,6 +2024,7 @@ export async function completeAiExecution(params: {
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
+  evidenceProgress?: AiExecutionCheckpoint["evidenceProgress"];
   capabilityProbe?: AiCapabilityProbeCheckpoint;
   proofRequired?: boolean;
   evidenceRefs?: readonly string[];
@@ -2100,6 +2162,7 @@ export async function completeAiExecution(params: {
       ? { evidenceRefs: [...new Set(inferredEvidenceRefs)].slice(0, 48) }
       : {}),
     ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
+    ...(params.evidenceProgress ? { evidenceProgress: params.evidenceProgress } : {}),
     ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
     ...(params.capabilityProbe ? { capabilityProbe: params.capabilityProbe } : {}),
     updatedAt: now.toISOString(),
@@ -2151,6 +2214,7 @@ export async function failAiExecution(params: {
   acceptanceDisposition?: AiAcceptanceDisposition;
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
+  evidenceProgress?: AiExecutionCheckpoint["evidenceProgress"];
   providerAttempts?: AiProviderAttemptCheckpoint[];
   retryAfterMs?: number;
   retryAt?: string;

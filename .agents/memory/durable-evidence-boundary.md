@@ -26,3 +26,9 @@ Runtime failure summaries must use the same byte-limit and read-status normaliza
 **Why:** A provider failure can otherwise produce a message saying complete evidence was retained while the durable snapshot correctly marks the same body truncated, making reload and resume disagree with the original turn.
 
 **How to apply:** Normalize retained reads once before building failure text, checkpoints, acceptance, or resumability; preserve the raw body only in the bounded private path needed for diagnostic hashing, never as a second “complete” evidence view.
+
+Persisted evidence-progress fields must be accepted by the checkpoint parser as well as written by terminalizers; otherwise reconnect silently loses the cursor even when the database row contains it.
+
+**Why:** Checkpoint parsing is a validation boundary, not a transparent JSON round-trip. A newly written progress field that is absent from the parser's projected return value disappears before resume can use it.
+
+**How to apply:** Add a bounded parser/validator for every new evidence-progress field and cover both terminal persistence and parsed reconnect state in the same regression test.

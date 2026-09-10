@@ -1295,6 +1295,74 @@ describe("Durable AI completion identity", () => {
     });
   });
 
+  it("persists incomplete evidence progress when a provider fails after an oversized read", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Oversized evidence failure");
+    const operationId = `oversized-evidence-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+    });
+    const largeBody = "x".repeat(256 * 1024 + 1);
+    const evidenceProgress = {
+      operationId,
+      sourceRevision: fixture.request.workspaceRevision,
+      requiredPaths: ["src/large.ts", "src/next.ts"],
+      pathStatuses: [
+        { path: "src/large.ts", status: "truncated" as const },
+        { path: "src/next.ts", status: "missing" as const },
+      ],
+      completedPaths: [],
+      missingPaths: ["src/large.ts", "src/next.ts"],
+      nextRequiredPath: "src/large.ts",
+    };
+
+    expect(await failAiExecution({
+      executionId: fixture.created.execution.id,
+      workerId: fixture.workerId!,
+      error: "provider failed after the source read",
+      evidenceVerdict: "UNAVAILABLE",
+      evidenceReason: "Source reads were attempted, but the required body was truncated.",
+      evidenceProgress,
+      providerAttempts: [{ provider: "openrouter", code: "RATE_LIMITED" }],
+      evidenceReads: [{
+        path: "src/large.ts",
+        readType: "source",
+        body: largeBody,
+        complete: true,
+        truncated: false,
+      }],
+    })).toBe(true);
+
+    const [stored] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(stored?.status).toBe("failed");
+    expect(parseAiExecutionCheckpoint(stored!.checkpoint)).toMatchObject({
+      stage: "failed",
+      evidenceVerdict: "UNAVAILABLE",
+      evidenceProgress,
+    });
+
+    const [snapshot] = await db
+      .select({
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, fixture.created.execution.id))
+      .limit(1);
+    expect(snapshot?.complete).toBe(0);
+
+  });
+
   it("reloads a proof contract after reconciliation and rejects every identity drift", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

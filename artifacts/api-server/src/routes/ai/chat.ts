@@ -177,6 +177,7 @@ import {
 } from "../../lib/provider-failure-diagnostics.js";
 import {
   loadReusableEvidenceReads,
+  normalizeEvidenceSnapshot,
   projectExecutionAcceptance,
 } from "../../lib/ai-execution-acceptance.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
@@ -393,7 +394,21 @@ function deriveEvidenceProgressCheckpoint(params: {
     }
   };
   for (const path of [...params.retainedEvidence.keys()].map(normalizePath).filter(Boolean)) {
-    recordStatus(path, "complete");
+    const normalized = normalizeEvidenceSnapshot({
+      required: true,
+      reads: [{
+        path,
+        readType: "source",
+        body: params.retainedEvidence.get(path) ?? "",
+        complete: true,
+        truncated: false,
+      }],
+    });
+    const read = normalized.reads[0];
+    recordStatus(
+      path,
+      read?.complete && !read.truncated ? "complete" : "truncated",
+    );
   }
   for (const step of params.traceSteps) {
     if (
@@ -1647,9 +1662,20 @@ function summarizeEvidenceForFailure(
     }
   }
 
+  const normalized = normalizeEvidenceSnapshot({
+    required: true,
+    reads: [...retainedEvidence.entries()].map(([path, body]) => ({
+      path,
+      readType: "source",
+      body,
+      complete: true,
+      truncated: false,
+    })),
+  });
   const completePaths = new Set(
-    [...retainedEvidence.keys()]
-      .map((path) => path.trim())
+    normalized.reads
+      .filter((read) => read.complete && !read.truncated)
+      .map((read) => read.path.trim())
       .filter((path) => path.length > 0),
   );
   const sourceReadCount = new Set([...attemptedPaths, ...completePaths]).size;
@@ -3379,8 +3405,8 @@ type RetainedEvidenceRead = {
   path: string;
   readType: "source";
   body: string;
-  complete: true;
-  truncated: false;
+  complete: boolean;
+  truncated: boolean;
 };
 
 function collectRetainedEvidenceReads(
@@ -3388,15 +3414,25 @@ function collectRetainedEvidenceReads(
   requiresEvidence: boolean,
 ): RetainedEvidenceRead[] | undefined {
   if (!requiresEvidence || retainedEvidence.size === 0) return undefined;
-  return [...retainedEvidence.entries()]
-    .slice(0, 128)
-    .map(([filePath, body]) => ({
-      path: filePath,
-      readType: "source" as const,
-      body,
-      complete: true as const,
-      truncated: false as const,
-    }));
+  const normalized = normalizeEvidenceSnapshot({
+    required: true,
+    reads: [...retainedEvidence.entries()]
+      .slice(0, 128)
+      .map(([filePath, body]) => ({
+        path: filePath,
+        readType: "source" as const,
+        body,
+        complete: true,
+        truncated: false,
+      })),
+  });
+  return normalized.reads.map((read) => ({
+    path: read.path,
+    readType: "source" as const,
+    body: read.body,
+    complete: read.complete,
+    truncated: read.truncated,
+  }));
 }
 
 function nextSessionTaskState(args: {
@@ -4940,6 +4976,13 @@ router.post("/ai/chat/stream", async (req, res) => {
     retainedEvidence,
     streamTurnIntent.requiresEvidence,
   );
+  const evidenceProgressForTerminal = () => deriveEvidenceProgressCheckpoint({
+    objective: streamObjective,
+    traceSteps,
+    retainedEvidence,
+    operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
+    sourceRevision: analysisCorrelation.projectRevision,
+  });
   const evidenceFailureSummary = () => summarizeEvidenceForFailure(
     traceSteps,
     retainedEvidence,
@@ -7138,6 +7181,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                 }
               : {}),
             evidenceReads: evidenceReadsForTerminal(),
+            evidenceProgress: evidenceProgressForTerminal(),
           });
           terminalProjection = await loadTerminalProjection({
             executionId: aiExecution.id,
@@ -7381,6 +7425,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               ? "The execution was cancelled before source evidence could be collected."
               : evidenceFailureReason(evidenceFailureSummary()),
             evidenceReads: evidenceReadsForTerminal(),
+            evidenceProgress: evidenceProgressForTerminal(),
             providerAttempts: providerAttemptSummary,
             finalMessageId: persistedProviderFailure?.id,
             finalMessageErrorCode: providerErrorCode,
@@ -7479,6 +7524,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           evidenceVerdict: "UNAVAILABLE",
           evidenceReason: "The response did not meet the required quality checks.",
           evidenceReads: evidenceReadsForTerminal(),
+          evidenceProgress: evidenceProgressForTerminal(),
         });
         qualityTerminalProjection = await loadTerminalProjection({
           executionId: aiExecution.id,
@@ -7556,6 +7602,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             evidenceVerdict: "UNAVAILABLE",
             evidenceReason: "The model response could not be parsed into the required result shape.",
             evidenceReads: evidenceReadsForTerminal(),
+            evidenceProgress: evidenceProgressForTerminal(),
           });
           parseTerminalProjection = await loadTerminalProjection({
             executionId: aiExecution.id,
@@ -7720,6 +7767,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                 }
               : {}),
             evidenceReads: evidenceReadsForTerminal(),
+            evidenceProgress: evidenceProgressForTerminal(),
           });
         }
         await persistFailedChatTurn({
@@ -8123,6 +8171,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         recentSteps: serializeExecutionCheckpointSteps(traceSteps),
         operation: autonomousOperation,
         evidenceReads: evidenceReadsForTerminal(),
+        evidenceProgress: evidenceProgressForTerminal(),
       });
     } else {
       if (forensicExecution) {
@@ -8212,13 +8261,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidence: finalValidation?.kind === "validation"
           ? [finalValidation.result.evidence]
           : [],
-        evidenceReads: [...retainedEvidence.entries()].slice(0, 128).map(([filePath, body]) => ({
-              path: filePath,
-              readType: "source",
-              body,
-              complete: true,
-              truncated: false,
-            }))
+        evidenceReads: evidenceReadsForTerminal(),
+        evidenceProgress: evidenceProgressForTerminal(),
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
@@ -8239,13 +8283,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           acceptanceDisposition,
           evidenceVerdict: executionEvidenceVerdict,
           evidenceReason: executionEvidenceReason,
-          evidenceReads: [...retainedEvidence.entries()].slice(0, 128).map(([filePath, body]) => ({
-            path: filePath,
-            readType: "source",
-            body,
-            complete: true,
-            truncated: false,
-          })),
+          evidenceReads: evidenceReadsForTerminal(),
+          evidenceProgress: evidenceProgressForTerminal(),
         });
         const acceptanceTerminalProjection = await loadTerminalProjection({
           executionId: aiExecution.id,
@@ -8448,6 +8487,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             ? "The execution was cancelled before a complete terminal result."
             : "The execution failed before a complete terminal result.",
           evidenceReads: evidenceReadsForTerminal(),
+          evidenceProgress: evidenceProgressForTerminal(),
         }).catch((terminalError) => {
           logger.warn(
             { terminalError, executionId: aiExecution!.id },
@@ -8512,6 +8552,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           cancelled: executionAbortController?.signal.aborted,
           nodeStates: executionNodeStates,
           evidenceReads: evidenceReadsForTerminal(),
+          evidenceProgress: evidenceProgressForTerminal(),
         }).catch((err) => {
           logger.warn({ err, executionId: aiExecution!.id }, "AI execution terminal-state update failed");
         });

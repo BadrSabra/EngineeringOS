@@ -40,6 +40,33 @@ describe("server-owned execution acceptance", () => {
     expect(snapshot.reads[0]?.body).toBe("");
   });
 
+  it("uses the same incomplete projection for an oversized retained body", () => {
+    const body = "x".repeat(256 * 1024 + 1);
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      verdict: "UNAVAILABLE",
+      reads: [{
+        path: "artifacts/api-server/src/routes/ai/chat.ts",
+        readType: "source",
+        body,
+        complete: true,
+        truncated: false,
+      }],
+    });
+
+    expect(snapshot).toMatchObject({
+      complete: false,
+      verdict: "UNAVAILABLE",
+      reason: "Required source evidence is missing, incomplete, or truncated.",
+    });
+    expect(snapshot.reads[0]).toMatchObject({
+      complete: false,
+      truncated: true,
+      body: "",
+      byteLength: body.length,
+    });
+  });
+
   it("derives bounded operator actions without exposing provider details", () => {
     expect(deriveAcceptanceNextAction({
       outcome: "FAILED",

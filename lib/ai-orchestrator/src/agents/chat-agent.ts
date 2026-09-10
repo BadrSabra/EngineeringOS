@@ -228,6 +228,7 @@ const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
   "list_directory",
   "search_code",
 ]);
+const MAX_COMPLETE_EVIDENCE_BYTES = 256 * 1024;
 
 /**
  * Return the first server-declared evidence path that is not already retained.
@@ -3213,6 +3214,7 @@ function recordPrefetchTrace(
   fileContents: Map<string, string>,
   enabled: boolean,
   onStep?: (step: AgentStep) => void,
+  readStatuses?: ReadonlyMap<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">,
 ): void {
   if (!enabled) return;
   for (const source of paths) {
@@ -3233,6 +3235,7 @@ function recordPrefetchTrace(
         cached: false,
         prefetched: true,
         outputLength: content.length,
+        readStatus: readStatuses?.get(source) ?? "READ_COMPLETE",
       });
     } catch {
       // Observability must never interrupt source collection or synthesis.
@@ -5886,11 +5889,26 @@ export async function chat(opts: {
   /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
   const prefetchSources: string[] = [];
   /** Ground-truth read bodies from speculative/plan prefetch. */
-  const prefetchFileContents = new Map<string, string>(retainedEvidence ?? []);
+  const prefetchTraceContents = new Map<string, string>(retainedEvidence ?? []);
+  const prefetchReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
+  const prefetchFileContents = new Map(
+    [...(retainedEvidence ?? [])].filter(([, content]) => {
+      const complete = Buffer.byteLength(content, "utf8") <= MAX_COMPLETE_EVIDENCE_BYTES;
+      return complete;
+    }),
+  );
   // A provider retry may not expose tools (for example Gemini), but its
   // server-owned evidence must still be visible to the final evidence gate.
   // Seed the same cache key used by read_file so a tool-capable fallback does
   // not execute the already-completed read again.
+  for (const [filePath, content] of prefetchTraceContents) {
+    prefetchReadStatuses.set(
+      filePath,
+      Buffer.byteLength(content, "utf8") <= MAX_COMPLETE_EVIDENCE_BYTES
+        ? "READ_COMPLETE"
+        : "READ_TRUNCATED",
+    );
+  }
   for (const [filePath, content] of prefetchFileContents) {
     if (!prefetchSources.includes(filePath)) prefetchSources.push(filePath);
     toolCallCache.set(toolCacheKey("read_file", { path: filePath }), content);
@@ -5976,14 +5994,17 @@ export async function chat(opts: {
         }
         try {
           const content = await fs.readFile(real, "utf8");
-          prefetchFileContents.set(relPath, content);
-          retainedEvidence?.set(relPath, content);
-          prefetchSources.push(relPath);
-          // Seed the shared dedup cache so the tool loop serves the complete
-          // unbounded read from cache instead of re-executing executeFileTool
-          // (which applies a forensic byte cap that would overwrite the full
-          // content at merge time and cause coverage to report PARTIAL).
-          toolCallCache.set(toolCacheKey("read_file", { path: relPath }), content);
+          prefetchTraceContents.set(relPath, content);
+          const complete = Buffer.byteLength(content, "utf8") <= MAX_COMPLETE_EVIDENCE_BYTES;
+          prefetchReadStatuses.set(relPath, complete ? "READ_COMPLETE" : "READ_TRUNCATED");
+          if (complete) {
+            prefetchFileContents.set(relPath, content);
+            retainedEvidence?.set(relPath, content);
+            prefetchSources.push(relPath);
+            // Seed the shared dedup cache so the tool loop serves the complete
+            // read from cache instead of re-executing executeFileTool.
+            toolCallCache.set(toolCacheKey("read_file", { path: relPath }), content);
+          }
           if (
             firstEvidenceTargetPath &&
             canonicalRelativePath(firstEvidenceTargetPath) === relPath &&
@@ -6007,9 +6028,10 @@ export async function chat(opts: {
   if (firstEvidenceReadEmitted) {
     recordPrefetchTrace(
       [firstEvidenceTargetPath as string],
-      prefetchFileContents,
+      prefetchTraceContents,
       true,
       relayAgentStep,
+      prefetchReadStatuses,
     );
     relayAgentStep({
       kind: "diagnostic",
