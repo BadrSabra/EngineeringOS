@@ -63,6 +63,19 @@ function makeContext(metricsVerified = true) {
 }
 
 describe("query-planner — knowledge-graph enrichment", () => {
+  it("infers a citation-required GAPS part from the shared gap signal", async () => {
+    const { inferCompoundParts } = await import("../agents/query-planner.js");
+
+    expect(inferCompoundParts("ما هي نقاط الضعف لدى الوكيل")).toEqual([
+      {
+        id: "gaps",
+        kind: "GAPS",
+        question: "What verified gaps or missing capabilities exist?",
+        requiresCitation: true,
+      },
+    ]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

@@ -11,6 +11,7 @@ import {
   RepairAnalysisSchema,
   routeTask,
   extractQuestionCoverage,
+  isGapAnalysisRequest,
   SemanticBehaviorAnswerSchema,
   validateBehaviorEvidence,
   validateTaskResponse,
@@ -18,6 +19,12 @@ import {
 } from "../task-contracts.js";
 
 describe("task-aware contracts", () => {
+  it("shares the GAPS signal across routing and query planning", () => {
+    expect(isGapAnalysisRequest("ما هي نقاط الضعف لدى الوكيل")).toBe(true);
+    expect(isGapAnalysisRequest("Find the missing capabilities")).toBe(true);
+    expect(isGapAnalysisRequest("ما اسم المشروع؟")).toBe(false);
+  });
+
   it("keeps the six task types explicit", () => {
     expect(ForensicTaskTypeSchema.options).toEqual([
       "BEHAVIOR_QUERY",

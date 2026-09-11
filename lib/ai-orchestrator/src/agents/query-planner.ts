@@ -47,6 +47,7 @@ import {
   type SemanticGraphEdge,
   type SemanticGraphNode,
 } from "../semantic-trace.js";
+import { isGapAnalysisRequest } from "../task-contracts.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
   }
 }
 
-function inferCompoundParts(message: string): CompoundQueryPart[] {
+export function inferCompoundParts(message: string): CompoundQueryPart[] {
   const parts: CompoundQueryPart[] = [];
   const add = (id: string, kind: CompoundPartKind, question: string, requiredCount?: number) =>
     parts.push({ id, kind, question, ...(requiredCount ? { requiredCount } : {}), requiresCitation: true });
@@ -367,7 +368,7 @@ function inferCompoundParts(message: string): CompoundQueryPart[] {
   if (/(?:feature|features|capabilit|وظائف|ميزات|إمكانات)/iu.test(message)) {
     add("features", "FEATURES", "What features or capabilities currently exist?");
   }
-  if (/(?:gap|gaps|missing|weakness|deficien|ثغر|فجوات|نواقص|نقاط الضعف)/iu.test(message)) {
+  if (isGapAnalysisRequest(message)) {
     add("gaps", "GAPS", "What verified gaps or missing capabilities exist?");
   }
   const topThree = /(?:top|first|priority|priorities|الأولويات|أول|ثلاث|3)\b/iu.test(message);

@@ -7,6 +7,7 @@ import {
 } from "./prompts/profile-classifier.js";
 import {
   isExplicitBehaviorQueryRequest,
+  isGapAnalysisRequest,
   isProductionReachabilityRequest,
   routeTask,
   type AnalysisMode,
@@ -262,6 +263,17 @@ export function resolveTurnIntent(
   const broadForensicTask =
     classification.taskType === "FULL_FORENSIC_AUDIT" ||
     classification.taskType === "WORKSPACE_REVIEW";
+  // Gap questions are analytical project queries, but they are not broad
+  // forensic audits unless the classifier already assigned a broad task.
+  // Keep this separate from projectTarget: a question such as "what are the
+  // agent's weaknesses?" still needs grounded claims even when it does not
+  // name the embedded-AI target explicitly.
+  const gapAnalysisProjectQuery =
+    classification.taskType === "BEHAVIOR_QUERY" &&
+    classification.analysisMode === "STANDARD" &&
+    !classification.structuredOutputMode &&
+    !classification.singleFileForensicMode &&
+    isGapAnalysisRequest(message);
   const broadAuditIntent =
     !broadForensicTask ||
     BROAD_AUDIT_REQUEST_RE.test(message) ||
@@ -311,6 +323,7 @@ export function resolveTurnIntent(
       isProductionReachabilityRequest(message) ||
       FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
      ) ||
+     gapAnalysisProjectQuery ||
      targetedProjectQuery ||
      resumedForensicContinuation,
   );
@@ -325,14 +338,20 @@ export function resolveTurnIntent(
 
   const kind: TurnIntentKind = implementationDelivery || planDelivery
     ? "DELIVERY"
-    : explicitEvidenceIntent && !scopeClarificationRequired && !targetedProjectQuery
+    : explicitEvidenceIntent &&
+        !scopeClarificationRequired &&
+        !targetedProjectQuery &&
+        !gapAnalysisProjectQuery
       ? "FORENSIC_AUDIT"
       : requiresTools
         ? "PROJECT_QUERY"
         : "CHAT";
   const executionTaskType: TaskType = implementationDelivery
     ? "task_execution"
-     : explicitEvidenceIntent && !scopeClarificationRequired && !targetedProjectQuery
+     : explicitEvidenceIntent &&
+         !scopeClarificationRequired &&
+         !targetedProjectQuery &&
+         !gapAnalysisProjectQuery
       ? "analysis"
       : requiresTools
         ? "tool_chat"

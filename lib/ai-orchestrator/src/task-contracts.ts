@@ -644,6 +644,22 @@ const BEHAVIOR_QUERY_PATTERNS = [
   /(?:ما\s+الذي\s+يحدث|كيف\s+يعمل|هل\s+يؤدي|السلوك)/u,
 ];
 
+const GAP_ANALYSIS_PATTERNS = [
+  /\b(?:gap|gaps|missing|weakness|deficien)\b/i,
+  /(?:ثغر|فجوات|نواقص|نقاط الضعف)/iu,
+];
+
+/**
+ * Shared signal for analytical gap questions.
+ *
+ * The query planner uses this to preserve a GAPS compound-part contract, while
+ * turn-intent uses the same signal to require grounded evidence for otherwise
+ * ordinary-looking project questions.
+ */
+export function isGapAnalysisRequest(message: string): boolean {
+  return matchesAny(message.normalize("NFKC").trim(), GAP_ANALYSIS_PATTERNS);
+}
+
 function normalizeEvidencePath(value: string): string {
   return value.trim().replace(/\\/g, "/").replace(/^\.\/+/, "");
 }

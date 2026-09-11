@@ -4914,6 +4914,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("requires proof for an analytical Arabic gap PROJECT_QUERY", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "ما هي نقاط الضعف لدى الوكيل" });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    expect(events.find((event) => event.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+  });
+
   it("records required incomplete evidence when an analytical PROJECT_QUERY only reads sources", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
