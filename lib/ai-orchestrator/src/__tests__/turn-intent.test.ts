@@ -302,6 +302,27 @@ describe("resolveTurnIntent", () => {
     expect(intent.requiresEvidence).toBe(true);
   });
 
+  it.each([
+    ["of", "project"],
+    ["on", "workspace"],
+    ["in", "repository"],
+    ["of", "repo"],
+    ["in", "codebase"],
+  ])("keeps whole-project audit wording tool-enabled: %s the %s", (preposition, scope) => {
+    const intent = resolveTurnIntent(
+      `Audit important problems ${preposition} the ${scope}.`,
+    );
+
+    expect(intent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      executionTaskType: "analysis",
+      requiresTools: true,
+      requiresEvidence: true,
+      scopeClarificationRequired: false,
+      operationMode: "FORENSIC_AUDIT",
+    });
+  });
+
   it("resumes the verified prior classification for a real continuation", () => {
     const prior = classifyRequest(
       "Audit the entire repository and identify the root causes.",
