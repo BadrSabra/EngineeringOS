@@ -148,3 +148,4 @@
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Forensic recovery deferral](forensic-recovery-deferral.md) — retained structured forensic candidates must reach bounded recovery before objective incompleteness becomes terminal.
 - [Project-query direct-stream acceptance](project-query-direct-stream-acceptance.md) — direct streaming must emit decision trace and accepted-claim evidence before project-query acceptance can finalize.
+- [Project-query terminal parity](project-query-terminal-parity.md) — accepted project queries must not lose objective verdicts in public projections or emit generic forensic incompleteness.
