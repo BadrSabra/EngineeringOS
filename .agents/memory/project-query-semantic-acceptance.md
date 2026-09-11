@@ -33,3 +33,16 @@ success at a different layer.
 **How to apply:** Keep the behavioral-flow check before telemetry finalization,
 carry `OBJECTIVE_BLOCKED`/`NO_ANSWER` through SSE and history, and keep
 forensic terminal diagnostics out of project-query projections.
+
+For embedded-AI objectives, behavioral claim prose and source evidence needles
+are separate contract fields: the prose must be asserted by the answer, while
+the needle only locates a server-owned source window. Preserve both fields
+through tool-loop and resumable session serialization.
+
+**Why:** The behavioral assertions intentionally do not appear verbatim in
+TypeScript source. Reusing prose as the source matcher either produced no
+evidence or encouraged symbol inventory to masquerade as a behavioral answer.
+
+**How to apply:** Materialize evidence from bounded `evidenceNeedles`, close a
+claim only when its behavioral assertion is present in the response and the
+needle is in accepted evidence, and keep generic gap-analysis claims unchanged.
