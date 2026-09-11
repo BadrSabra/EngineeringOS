@@ -1687,10 +1687,19 @@ function applyObjectiveCompletionGate(opts: {
   blocked: boolean;
   gatedResponse: string;
   rejectionReason: string | undefined;
+  telemetryLedger: import("../evidence-integrity.js").RunLedger | null;
+  telemetryReconciliation: import("../evidence-integrity.js").TelemetryReconciliation | null;
 } {
   const { objective } = opts;
   if (!objective) {
-    return { gate: null, blocked: false, gatedResponse: opts.response, rejectionReason: undefined };
+    return {
+      gate: null,
+      blocked: false,
+      gatedResponse: opts.response,
+      rejectionReason: undefined,
+      telemetryLedger: null,
+      telemetryReconciliation: null,
+    };
   }
   const provenEdges = [
     ...(opts.provenEdges ?? [])
@@ -1745,6 +1754,13 @@ function applyObjectiveCompletionGate(opts: {
         evidenceIds: [],
         status: "SUPPORTED" as const,
       })),
+    validations: closedClaims
+      .filter((c) => c.status === "CLOSED")
+      .map((c) => ({
+        claimId: c.claimId,
+        result: "PROVEN" as const,
+        reasons: [],
+      })),
     sourceRetrieval: {
       readAttempts: opts.fileContents.size,
       uniqueReads: opts.fileContents.size,
@@ -1785,7 +1801,72 @@ function applyObjectiveCompletionGate(opts: {
       ? OBJECTIVE_BLOCKED_NOT_PROVEN_AR
       : OBJECTIVE_BLOCKED_NOT_PROVEN_EN
     : opts.response;
-  return { gate, blocked, gatedResponse, rejectionReason };
+  return {
+    gate,
+    blocked,
+    gatedResponse,
+    rejectionReason,
+    telemetryLedger,
+    telemetryReconciliation,
+  };
+}
+
+function relayStreamObjectiveFinalization(opts: {
+  relayAgentStep: (step: AgentStep) => void;
+  objective: ObjectiveContract | undefined;
+  forensicTaskType: ForensicTaskType;
+  allowedFiles: readonly string[];
+  filesRead: readonly string[];
+  evidenceSelected: number;
+  evidenceCount: number;
+  acceptedEvidenceCount: number;
+  responseLength: number;
+  mergedSourceCount: number;
+  outputContract: string;
+  validator: string;
+  rejectionReasons: readonly string[];
+  recoveryAttempt: number;
+  recoveryFailureKind?: RecoveryFailureKind;
+  objectiveVerdict: ObjectiveVerdictKind;
+}): void {
+  if (!opts.objective) return;
+  const rejectionReasons = opts.rejectionReasons.slice(0, 4);
+  const finalState =
+    rejectionReasons.length === 0
+      ? "VERIFIED" as const
+      : opts.recoveryAttempt > 0
+        ? opts.recoveryFailureKind
+          ? "FAILED" as const
+          : "RECOVERY_REQUIRED" as const
+        : "NOT_PROVEN" as const;
+
+  opts.relayAgentStep({
+    kind: "verification",
+    trace: {
+      stage: "VERIFIED_RESPONSE",
+      responseLength: opts.responseLength,
+      sourceCount: opts.mergedSourceCount,
+      evidenceCount: opts.evidenceCount,
+      acceptedEvidenceCount: opts.acceptedEvidenceCount,
+      rejectionReasons,
+    },
+  });
+  opts.relayAgentStep({
+    kind: "decision_trace",
+    trace: {
+      taskType: opts.forensicTaskType,
+      allowedFiles: opts.allowedFiles.slice(0, 8),
+      filesRead: opts.filesRead.slice(0, 48),
+      evidenceSelected: opts.evidenceSelected,
+      claim: opts.outputContract,
+      validator: opts.validator,
+      rejectionReason: rejectionReasons,
+      recoveryAttempt: opts.recoveryAttempt,
+      ...(opts.recoveryFailureKind ? { recoveryFailureKind: opts.recoveryFailureKind } : {}),
+      finalState,
+      objectiveVerdict: opts.objectiveVerdict,
+    },
+  });
 }
 
 /**
@@ -5750,6 +5831,7 @@ export async function chat(opts: {
   // terminal happened — an inventory is not an answer. Generic chats (neither
   // forensic nor behavior-evidence) must never emit a forensic_terminal step.
   const isForensicOrEvidenceRun = turnIntent.requiresEvidence;
+  let recoveryFailureKind: RecoveryFailureKind | undefined;
   const promptOutputContract = forensicOutputMode
     ? "FORENSIC_REPORT"
     : turnIntent.outputContract;
@@ -8403,13 +8485,17 @@ export async function chat(opts: {
         streamingObjectiveGate.gate,
         objective,
       );
-      const streamingTelemetryReconciliation = validateTelemetry(streamingTelemetryLedger);
+      const objectiveTelemetryLedger =
+        streamingObjectiveGate.telemetryLedger ?? streamingTelemetryLedger;
+      const objectiveTelemetryReconciliation =
+        streamingObjectiveGate.telemetryReconciliation ??
+        validateTelemetry(objectiveTelemetryLedger);
       relayObjectiveTelemetry(
         relayAgentStep,
         objective,
         streamingObjectiveGate.gate,
-        streamingTelemetryLedger,
-        streamingTelemetryReconciliation,
+        objectiveTelemetryLedger,
+        objectiveTelemetryReconciliation,
       );
 
       if (isForensicOrEvidenceRun) {
@@ -8479,23 +8565,40 @@ export async function chat(opts: {
         ),
         ...(streamingObjectiveGate.rejectionReason ? [streamingObjectiveGate.rejectionReason] : []),
       ];
-      if (
-        (streamingRequiredClaimGate.anyRequiredClaimUnclosed &&
-          streamingRequiredClaimGate.claimsUnclosedButEvidenceAvailable) ||
-        Boolean(streamingObjectiveGate.rejectionReason)
-      ) {
-        relayAgentStep({
-          kind: "verification",
-          trace: {
-            stage: "VERIFIED_RESPONSE",
-            responseLength: emittedGatedResponse.length,
-            sourceCount: mergedSources.length,
-            evidenceCount: streamingBehaviorGated.evidence.length,
-            acceptedEvidenceCount: streamingAcceptedFiles.length,
-            rejectionReasons: streamingRejectionReasons,
-          },
-        });
-      }
+      const streamingObjectiveVerdict = classifyObjectiveVerdict({
+        primaryClaimClosed:
+          !streamingObjectiveGate.blocked &&
+          !streamingRequiredClaimGate.anyRequiredClaimUnclosed &&
+          objectiveTelemetryReconciliation.consistent,
+        allClaimsProven:
+          streamingObjectiveGate.gate?.status === "PROVEN" &&
+          objectiveTelemetryReconciliation.consistent,
+        anyClaimProven:
+          (streamingObjectiveGate.gate?.completedClaims.length ?? 0) > 0 ||
+          (streamingObjectiveGate.gate?.provenEdges.length ?? 0) > 0,
+        evidenceCollected:
+          objectiveTelemetryLedger.evidenceFileCount > 0 ||
+          objectiveTelemetryLedger.acceptedEvidenceCount > 0,
+        recoveryAvailable: recoveryAttemptsUsed < 1,
+      });
+      relayStreamObjectiveFinalization({
+        relayAgentStep,
+        objective,
+        forensicTaskType,
+        allowedFiles: singleFilePaths.length > 0 ? singleFilePaths : orderedForensicRoots,
+        filesRead: [...forensicFileContents.keys()],
+        evidenceSelected: objectiveTelemetryLedger.acceptedClaimCount ?? 0,
+        evidenceCount: streamingBehaviorGated.evidence.length,
+        acceptedEvidenceCount: objectiveTelemetryLedger.acceptedEvidenceCount,
+        responseLength: emittedGatedResponse.length,
+        mergedSourceCount: mergedSources.length,
+        outputContract,
+        validator: taskRoute.validator,
+        rejectionReasons: streamingRejectionReasons,
+        recoveryAttempt: recoveryAttemptsUsed,
+        recoveryFailureKind,
+        objectiveVerdict: streamingObjectiveVerdict,
+      });
       const streamingTaskResult = buildTaskResult({
         forensicTaskType,
         finalResponse: emittedGatedResponse,
@@ -8665,13 +8768,17 @@ export async function chat(opts: {
         nativeSseObjectiveGate.gate,
         objective,
       );
-      const nativeSseTelemetryReconciliation = validateTelemetry(nativeSseTelemetryLedger);
+      const nativeObjectiveTelemetryLedger =
+        nativeSseObjectiveGate.telemetryLedger ?? nativeSseTelemetryLedger;
+      const nativeObjectiveTelemetryReconciliation =
+        nativeSseObjectiveGate.telemetryReconciliation ??
+        validateTelemetry(nativeObjectiveTelemetryLedger);
       relayObjectiveTelemetry(
         relayAgentStep,
         objective,
         nativeSseObjectiveGate.gate,
-        nativeSseTelemetryLedger,
-        nativeSseTelemetryReconciliation,
+        nativeObjectiveTelemetryLedger,
+        nativeObjectiveTelemetryReconciliation,
       );
       // AI-OBJ-010: native SSE reaches this seam before the non-streaming
       // final-answer validator below. An explicit production-reachability
@@ -8738,23 +8845,40 @@ export async function chat(opts: {
         ),
         ...(nativeSseObjectiveGate.rejectionReason ? [nativeSseObjectiveGate.rejectionReason] : []),
       ];
-      if (
-        (nativeSseRequiredClaimGate.anyRequiredClaimUnclosed &&
-          nativeSseRequiredClaimGate.claimsUnclosedButEvidenceAvailable) ||
-        Boolean(nativeSseObjectiveGate.rejectionReason)
-      ) {
-        relayAgentStep({
-          kind: "verification",
-          trace: {
-            stage: "VERIFIED_RESPONSE",
-            responseLength: nativeSseResponse.length,
-            sourceCount: mergedSources.length,
-            evidenceCount: nativeSseBehaviorValidation.evidence.length,
-            acceptedEvidenceCount: nativeSseAcceptedFiles.length,
-            rejectionReasons: nativeSseRejectionReasons,
-          },
-        });
-      }
+      const nativeObjectiveVerdict = classifyObjectiveVerdict({
+        primaryClaimClosed:
+          !nativeSseObjectiveGate.blocked &&
+          !nativeSseRequiredClaimGate.anyRequiredClaimUnclosed &&
+          nativeObjectiveTelemetryReconciliation.consistent,
+        allClaimsProven:
+          nativeSseObjectiveGate.gate?.status === "PROVEN" &&
+          nativeObjectiveTelemetryReconciliation.consistent,
+        anyClaimProven:
+          (nativeSseObjectiveGate.gate?.completedClaims.length ?? 0) > 0 ||
+          (nativeSseObjectiveGate.gate?.provenEdges.length ?? 0) > 0,
+        evidenceCollected:
+          nativeObjectiveTelemetryLedger.evidenceFileCount > 0 ||
+          nativeObjectiveTelemetryLedger.acceptedEvidenceCount > 0,
+        recoveryAvailable: recoveryAttemptsUsed < 1,
+      });
+      relayStreamObjectiveFinalization({
+        relayAgentStep,
+        objective,
+        forensicTaskType,
+        allowedFiles: singleFilePaths.length > 0 ? singleFilePaths : orderedForensicRoots,
+        filesRead: [...forensicFileContents.keys()],
+        evidenceSelected: nativeObjectiveTelemetryLedger.acceptedClaimCount ?? 0,
+        evidenceCount: nativeSseBehaviorValidation.evidence.length,
+        acceptedEvidenceCount: nativeObjectiveTelemetryLedger.acceptedEvidenceCount,
+        responseLength: nativeSseResponse.length,
+        mergedSourceCount: mergedSources.length,
+        outputContract,
+        validator: taskRoute.validator,
+        rejectionReasons: nativeSseRejectionReasons,
+        recoveryAttempt: recoveryAttemptsUsed,
+        recoveryFailureKind,
+        objectiveVerdict: nativeObjectiveVerdict,
+      });
       const nativeSseTaskResult = buildTaskResult({
         forensicTaskType,
         finalResponse: nativeSseResponse,
@@ -9039,7 +9163,6 @@ export async function chat(opts: {
   // it is still safe to show to the no-tools recovery prompt, while skipping
   // recovery would turn a recoverable plain-text synthesis into an immediate
   // forensic fallback.
-  let recoveryFailureKind: RecoveryFailureKind | undefined;
   // A server-owned deterministic Finding/no-Finding fallback can close the
   // forensic contract after provider Recovery fails. Keep that resolution
   // explicit so terminal projection does not report both VERIFIED and a

@@ -177,6 +177,7 @@ describe("chat() blocks a final answer when the declared objective is uncomplete
     await mockChatProviders(fakeStrategy, capturedLedgers);
 
     const forensicStatuses: Array<Record<string, unknown>> = [];
+      const emitted: string[] = [];
     let steps: AgentStep[] = [];
     try {
       const { chat } = await import("../agents/chat-agent.js");
@@ -199,6 +200,9 @@ describe("chat() blocks a final answer when the declared objective is uncomplete
             });
           }
         },
+        // Exercise the non-native direct-content streaming path. This path
+        // must publish the same terminal evidence projection as non-streaming.
+        onDelta: (delta) => emitted.push(delta),
       });
 
       // 0. The objective round-trips onto the typed output.
@@ -210,6 +214,7 @@ describe("chat() blocks a final answer when the declared objective is uncomplete
       expect(result.response).not.toContain("ID: F-01");
        expect(result.response).not.toMatch(/\bFINDING\s+PROVEN\b/);
       expect(result.response).not.toContain("unsafe eval() over untrusted input");
+      expect(emitted.join("")).toContain("BLOCKED");
 
       // 2. The returned decision trace is gated: NOT_PROVEN (rejection), not a
       //    passed verdict. And an OBJECTIVE_BLOCKED diagnostic step was relayed.
@@ -220,6 +225,13 @@ describe("chat() blocks a final answer when the declared objective is uncomplete
         expect(
           (dt.trace.rejectionReason ?? []).some((r: string) => r.startsWith("objective:")),
         ).toBe(true);
+      }
+      const verification = [...steps].reverse().find((s) => s.kind === "verification");
+      expect(verification?.kind).toBe("verification");
+      if (verification?.kind === "verification") {
+        expect(verification.trace.rejectionReasons).toEqual(
+          expect.arrayContaining([expect.stringMatching(/^objective:/)]),
+        );
       }
       const blockedDiag = steps.some(
         (s) => s.kind === "diagnostic" && s.code === "OBJECTIVE_BLOCKED",
