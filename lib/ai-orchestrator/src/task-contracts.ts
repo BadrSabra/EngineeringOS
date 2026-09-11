@@ -649,6 +649,7 @@ const GAP_ANALYSIS_PATTERNS = [
   /\bwhat\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:does\s+not|doesn't|doesnt)\s+(?:cover|handle|support|address)\b/iu,
   /\bwhat\s+does\s+(?:the\s+)?(?:agent|system|project|it)\s+not\s+(?:cover|handle|support|address)\b/iu,
   /\bwhere\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:fails?|breaks?)\b/iu,
+  /\bwhere\s+does\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:fail|break)\b/iu,
   /(?:ثغر|فجوات|نواقص|نقاط\s+الضعف|القيود|قيود|نقاط\s+(?:عمياء|العمى))/u,
   /(?:ما\s+لا\s+(?:يغطيه|يشمله|يدعمه|يعالجه)|اين\s+(?:يفشل|يتعطل))/u,
 ];
