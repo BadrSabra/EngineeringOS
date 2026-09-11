@@ -1,6 +1,7 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
+import { isGapAnalysisRequest } from "./task-contracts.js";
 
-export type ProjectQueryTargetId = "embedded-ai";
+export type ProjectQueryTargetId = "embedded-ai" | "gap-analysis";
 
 export type ProjectQueryTarget = {
   id: ProjectQueryTargetId;
@@ -75,26 +76,95 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "with their source paths before synthesizing. Do not stop at one provider client or a generic project-access explanation.",
 };
 
+const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
+  id: "gap-analysis",
+  label: "verified project gaps",
+  firstEvidencePath: "lib/ai-orchestrator/src/turn-intent.ts",
+  primaryPaths: [
+    "lib/ai-orchestrator/src/turn-intent.ts",
+    "lib/ai-orchestrator/src/agents/query-planner.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+    "artifacts/api-server/src/lib/ai-execution-state.ts",
+  ],
+  allowedExpansionPaths: [
+    "lib/ai-orchestrator/src",
+    "artifacts/api-server/src/routes/ai",
+    "artifacts/api-server/src/lib",
+  ],
+  forbiddenPaths: [
+    "node_modules",
+    "dist",
+    "build",
+  ],
+  requiredEvidencePaths: [
+    "lib/ai-orchestrator/src/turn-intent.ts",
+    "lib/ai-orchestrator/src/agents/query-planner.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+    "artifacts/api-server/src/lib/ai-execution-state.ts",
+  ],
+  requiredClaims: [
+    {
+      claimId: "gap-routing",
+      text: "resolveTurnIntent",
+      requiredEvidencePaths: [
+        "lib/ai-orchestrator/src/turn-intent.ts",
+      ],
+    },
+    {
+      claimId: "gap-planning",
+      text: "inferCompoundParts",
+      requiredEvidencePaths: [
+        "lib/ai-orchestrator/src/agents/query-planner.ts",
+      ],
+    },
+    {
+      claimId: "gap-acceptance",
+      text: "validateAnalysisEvidenceCompletion",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/routes/ai/chat.ts",
+        "artifacts/api-server/src/lib/ai-execution-state.ts",
+      ],
+    },
+  ],
+  promptHint:
+    "Targeted project gap analysis: identify only gaps supported by retained source evidence. " +
+    "Read the routing, query-planning, and semantic-acceptance paths before synthesizing. " +
+    "Separate verified gaps from unverified hypotheses and cite every gap to its source path.",
+};
+
+const BROAD_GAP_REQUEST_RE =
+  /(?:\b(?:full|complete|comprehensive|entire|whole|repository|workspace|codebase|audit|review)\b|(?:تدقيق|دقق|شامل|بالكامل|كل\s+(?:المشروع|الكود)))/iu;
+
+function materializeTarget(
+  target: Omit<ProjectQueryTarget, "confidence">,
+  confidence: number,
+): ProjectQueryTarget {
+  return {
+    ...target,
+    confidence,
+    primaryPaths: [...target.primaryPaths],
+    allowedExpansionPaths: [...target.allowedExpansionPaths],
+    forbiddenPaths: [...target.forbiddenPaths],
+    requiredEvidencePaths: [...target.requiredEvidencePaths],
+    requiredClaims: target.requiredClaims.map((claim) => ({
+      ...claim,
+      requiredEvidencePaths: [...(claim.requiredEvidencePaths ?? [])],
+    })),
+  };
+}
+
 export function resolveProjectQueryTarget(message: string): ProjectQueryTarget | undefined {
   const aiSignal =
     /(?:الذكاء\s+الاصطناعي|ذكاء\s+اصطناعي|طبقة\s+(?:ال)?الذكاء\s+الاصطناعي|\bAI\b|\bLLM\b|provider|orchestrator|chat\s+agent|نموذج\s+الذكاء)/iu;
   const targetScopeSignal =
     /(?:تحليل|حلل|طبقة|داخل\s+المشروع|المشروع|embedded|integrated|architecture|layer|analy[sz]|trace|flow|وكيل|الوكيل|آلية\s+عمل|سلوك\s+الوكيل|كيف\s+يعمل)/iu;
   if (!aiSignal.test(message) || !targetScopeSignal.test(message)) {
-    return undefined;
+    if (!isGapAnalysisRequest(message) || BROAD_GAP_REQUEST_RE.test(message)) {
+      return undefined;
+    }
+    return materializeTarget(GAP_ANALYSIS_TARGET, 0.9);
   }
-  return {
-    ...EMBEDDED_AI_TARGET,
-    confidence: 0.98,
-    primaryPaths: [...EMBEDDED_AI_TARGET.primaryPaths],
-    allowedExpansionPaths: [...EMBEDDED_AI_TARGET.allowedExpansionPaths],
-    forbiddenPaths: [...EMBEDDED_AI_TARGET.forbiddenPaths],
-    requiredEvidencePaths: [...EMBEDDED_AI_TARGET.requiredEvidencePaths],
-    requiredClaims: EMBEDDED_AI_TARGET.requiredClaims.map((claim) => ({
-      ...claim,
-      requiredEvidencePaths: [...claim.requiredEvidencePaths],
-    })),
-  };
+  return materializeTarget(EMBEDDED_AI_TARGET, 0.98);
 }
 
 export function buildProjectQueryObjective(

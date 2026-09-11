@@ -101,6 +101,7 @@ describe("resolveTurnIntent", () => {
       requiresEvidence: true,
       outputContract: "BEHAVIOR_ANSWER",
       operationMode: "CHAT",
+      projectTarget: { id: "gap-analysis" },
     });
   });
 

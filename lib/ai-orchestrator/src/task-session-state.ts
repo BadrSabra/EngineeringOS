@@ -177,7 +177,7 @@ export const ActiveTaskStateSchema = z.object({
    * scope instead of being reclassified from the word "retry".
    */
   projectQuery: z.object({
-    id: z.literal("embedded-ai"),
+    id: z.enum(["embedded-ai", "gap-analysis"]),
     label: z.string().min(1).max(160),
     confidence: z.number().min(0).max(1),
     firstEvidencePath: z.string().min(1).max(500),

@@ -43,6 +43,28 @@ describe("target-aware project queries", () => {
       .toBe("embedded-ai");
   });
 
+  it("creates a bounded target and objective for an otherwise generic gap question", () => {
+    const message = "ما هي الفجوات المتبقية بناءً على التقارير السابقة؟";
+    const target = resolveProjectQueryTarget(message);
+
+    expect(target?.id).toBe("gap-analysis");
+    expect(target?.requiredEvidencePaths).toContain(
+      "lib/ai-orchestrator/src/agents/query-planner.ts",
+    );
+
+    const objective = buildProjectQueryObjective(target!, message);
+    expect(objective.objectiveType).toBe("PROJECT_QUERY_GAP-ANALYSIS");
+    expect(objective.requiredClaims.map((claim) => claim.text)).toEqual([
+      "resolveTurnIntent",
+      "inferCompoundParts",
+      "validateAnalysisEvidenceCompletion",
+    ]);
+  });
+
+  it("does not weaken broad-audit scope consent for generic gap language", () => {
+    expect(resolveProjectQueryTarget("راجع المشروع بالكامل وابحث عن الفجوات")).toBeUndefined();
+  });
+
   it("leaves a generic project question as a non-evidence project query", () => {
     const message = "ما هذا المشروع؟";
     const classification = classifyRequest(message);

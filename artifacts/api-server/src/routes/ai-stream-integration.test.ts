@@ -4929,6 +4929,140 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       turnIntent: "PROJECT_QUERY",
       proofRequired: true,
     });
+    const [execution] = await db
+      .select({ id: aiExecutionsTable.id, request: aiExecutionsTable.request })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution?.request).toContain('"objectiveType":"PROJECT_QUERY_GAP-ANALYSIS"');
+  });
+
+  it("accepts a gap PROJECT_QUERY when its objective claims are grounded", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sources = [
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/query-planner.ts",
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "artifacts/api-server/src/lib/ai-execution-state.ts",
+    ];
+    const response =
+      "تم التحقق من فجوة مرتبطة بمسار تحليل الفجوات، مع ربطها بمصادر التنفيذ والقبول.";
+    let providerInput: {
+      objective?: {
+        objectiveType?: string;
+        requiredEvidencePaths?: string[];
+      };
+      retainedEvidence?: Map<string, string>;
+    } | undefined;
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      providerInput = args[1] as typeof providerInput;
+      for (const source of sources) {
+        providerInput?.retainedEvidence?.set(source, `source body for ${source}\n`);
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: source.length + 20,
+        });
+      }
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sources.length,
+        uniqueFilesRead: sources.length,
+        evidenceFileCount: sources.length,
+        acceptedEvidenceCount: sources.length,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: sources,
+        acceptedClaimCount: 3,
+        completionGateResult: "PROVEN",
+      });
+      args[6]?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: sources,
+          filesRead: sources,
+          evidenceSelected: sources.length,
+          claim: "verified gap analysis",
+          validator: "project-query",
+          rejectionReason: [],
+          recoveryAttempt: 0,
+          objectiveVerdict: "ANSWER_COMPLETE",
+          finalState: "VERIFIED",
+        },
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: sources.length,
+        prefetchToolCalls: 0,
+        loopToolCalls: sources.length,
+        stopReason: "response",
+        synthesisStarted: true,
+        diagnosticCodes: [],
+      });
+      args[3]?.(response);
+      return {
+        result: {
+          response,
+          sources,
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "ما هي الفجوات المتبقية بناءً على التقارير السابقة؟" });
+
+    expect(res.status).toBe(200);
+    expect(providerInput?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+      requiredEvidencePaths: sources,
+    });
+    const events = parseSseEvents(res.text);
+    expect(events.find((event) => event.type === "error")).toBeUndefined();
+    expect(events.find((event) => event.type === "done")).toMatchObject({
+      message: {
+        outcome: "SUCCEEDED",
+      },
+    });
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution).toMatchObject({ status: "completed" });
+
+    const [acceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+    });
   });
 
   it("records required incomplete evidence when an analytical PROJECT_QUERY only reads sources", async () => {
