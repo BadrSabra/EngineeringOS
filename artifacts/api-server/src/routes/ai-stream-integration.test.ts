@@ -1271,6 +1271,7 @@ describe("Durable AI completion identity", () => {
         completionGateResult: "PROVEN",
         objectiveVerdict: "ANSWER_COMPLETE",
         finalState: "VERIFIED",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
       },
     });
 
@@ -4983,6 +4984,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         acceptedEvidenceFiles: sources,
         acceptedClaimCount: 3,
         completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
       });
       args[6]?.({
         kind: "decision_trace",
