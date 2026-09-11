@@ -5351,6 +5351,225 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("accepts the real embedded-AI objective through SSE, DB acceptance, and history", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sources = [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+    ];
+    const sourceBodies = new Map<string, string>([
+      [
+        sources[0],
+        [
+          "const turnIntent = resolveTurnIntent(message);",
+          "const provider = await requireProvider();",
+          "return chatWithFallback(provider, turnIntent);",
+        ].join("\n"),
+      ],
+      [sources[1], "export const turnIntent = resolveTurnIntent(message);"],
+      [
+        sources[2],
+        [
+          "const loopResult = await executeToolLoop({ objective });",
+          "return synthesize(loopResult);",
+        ].join("\n"),
+      ],
+    ]);
+    const response = [
+      "تم تتبع التدفق الكامل من التوجيه إلى حلقة الأدوات ثم إرسال الطلب إلى provider والتحقق النهائي.",
+      "The chat route resolves the turn intent before selecting the execution path.",
+      "The tool-enabled chat execution enters executeToolLoop and retains its tool results before synthesis.",
+      "The route dispatches provider requests through chatWithFallback before final response validation.",
+    ].join("\n\n");
+    let providerInput: {
+      objective?: {
+        objectiveType?: string;
+        requiredEvidencePaths?: string[];
+        requiredClaims?: Array<{ claimId?: string; text?: string }>;
+      };
+      retainedEvidence?: Map<string, string>;
+    } | undefined;
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      providerInput = args[1] as typeof providerInput;
+      for (const source of sources) {
+        providerInput?.retainedEvidence?.set(source, sourceBodies.get(source)!);
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: sourceBodies.get(source)!.length,
+        });
+      }
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sources.length,
+        uniqueFilesRead: sources.length,
+        evidenceFileCount: sources.length,
+        acceptedEvidenceCount: sources.length,
+        completedReadFiles: sources,
+        retainedBodyFiles: sources,
+        acceptedEvidenceFiles: sources,
+        acceptedClaimCount: 3,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+      });
+      args[6]?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: sources,
+          filesRead: sources,
+          evidenceSelected: sources.length,
+          claim: "embedded AI end-to-end behavior",
+          validator: "project-query",
+          rejectionReason: [],
+          recoveryAttempt: 0,
+          objectiveVerdict: "ANSWER_COMPLETE",
+          finalState: "VERIFIED",
+        },
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: sources.length,
+        prefetchToolCalls: 0,
+        loopToolCalls: sources.length,
+        stopReason: "response",
+        synthesisStarted: true,
+        diagnosticCodes: [],
+      });
+      args[3]?.(response);
+      return {
+        result: {
+          response,
+          sources,
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
+
+    expect(stream.status).toBe(200);
+    expect(providerInput?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: sources,
+      requiredClaims: [
+        {
+          claimId: "ai-routing",
+          text: "The chat route resolves the turn intent before selecting the execution path.",
+        },
+        {
+          claimId: "ai-tool-loop",
+          text: "The tool-enabled chat execution enters executeToolLoop and retains its tool results before synthesis.",
+        },
+        {
+          claimId: "ai-provider-dispatch",
+          text: "The route dispatches provider requests through chatWithFallback before final response validation.",
+        },
+      ],
+    });
+    const events = parseSseEvents(stream.text);
+    expect(events.find((event) => event.type === "error")).toBeUndefined();
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({
+      message: {
+        content: response,
+        outcome: "SUCCEEDED",
+      },
+    });
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        sessionId: aiExecutionsTable.sessionId,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution).toMatchObject({
+      sessionId: expect.any(String),
+      status: "completed",
+    });
+
+    const [acceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      evidenceSnapshotId: expect.any(String),
+    });
+
+    const [snapshot] = await db
+      .select({
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(snapshot).toMatchObject({
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: sources.length,
+    });
+    const evidenceReads = await db
+      .select({
+        path: aiExecutionEvidenceReadsTable.path,
+        complete: aiExecutionEvidenceReadsTable.complete,
+        truncated: aiExecutionEvidenceReadsTable.truncated,
+        body: aiExecutionEvidenceReadsTable.body,
+      })
+      .from(aiExecutionEvidenceReadsTable)
+      .where(eq(aiExecutionEvidenceReadsTable.snapshotId, acceptance!.evidenceSnapshotId!));
+    expect(evidenceReads).toHaveLength(sources.length);
+    expect(evidenceReads).toEqual(expect.arrayContaining(
+      sources.map((source) => expect.objectContaining({
+        path: source,
+        complete: 1,
+        truncated: 0,
+      })),
+    ));
+    expect(evidenceReads.map((read) => read.body).join("\n")).toContain("executeToolLoop");
+    expect(evidenceReads.map((read) => read.body).join("\n")).toContain("chatWithFallback");
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${execution!.sessionId}/messages`)
+      .expect(200);
+    expect(history.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: response,
+        outcome: "SUCCEEDED",
+      }),
+    ]));
+  });
+
   it("retries a failed analytical PROJECT_QUERY as a new execution with the saved contract", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
