@@ -81,6 +81,25 @@ describe("server-owned execution acceptance", () => {
     });
   });
 
+  it("retains every complete read in a broad evidence snapshot", () => {
+    const reads = Array.from({ length: 129 }, (_, index) => ({
+      path: `src/file-${index}.ts`,
+      body: `export const value${index} = ${index};`,
+      complete: true,
+      truncated: false,
+    }));
+
+    const snapshot = normalizeEvidenceSnapshot({
+      required: true,
+      verdict: "PROVEN",
+      reads,
+    });
+
+    expect(snapshot.reads).toHaveLength(129);
+    expect(snapshot.reads.at(-1)?.path).toBe("src/file-128.ts");
+    expect(snapshot.complete).toBe(true);
+  });
+
   it("derives bounded operator actions without exposing provider details", () => {
     expect(deriveAcceptanceNextAction({
       outcome: "FAILED",

@@ -11827,7 +11827,9 @@ export async function chat(opts: {
       onStep,
       loopResult,
       fileContents: forensicFileContents,
-      claimsUnclosedButEvidenceAvailable,
+      claimsUnclosedButEvidenceAvailable:
+        claimsUnclosedButEvidenceAvailable
+        || (forensicSourceCoverage?.complete === false && forensicFileContents.size > 0),
       capabilityProbeClaimUnclosed,
       capabilityProbeComplete: capabilityProbeTerminalAccepted,
       authoritativeNoFinding: authoritativeNoFindingFallback,

@@ -3516,7 +3516,7 @@ function collectRetainedEvidenceReads(
       ?? (step.resultKind === "failed" ? "READ_FAILED" : undefined);
     if (status) readStatuses.set(normalizedPath, status);
   }
-  const paths = [...new Set([...retainedBodies.keys(), ...readStatuses.keys()])].slice(0, 128);
+  const paths = [...new Set([...retainedBodies.keys(), ...readStatuses.keys()])];
   const normalized = normalizeEvidenceSnapshot({
     required: true,
     reads: paths.map((filePath) => {

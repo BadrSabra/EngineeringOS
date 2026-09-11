@@ -319,14 +319,13 @@ export async function getPublicTaskExecutionAcceptances(
 
 const MAX_READ_BYTES = 256 * 1024;
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
-const MAX_READS = 128;
 
 function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
 export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefined): NormalizedEvidenceSnapshot {
-  const reads = (input?.reads ?? []).slice(0, MAX_READS).map((read) => {
+  const reads = (input?.reads ?? []).map((read) => {
     const body = typeof read.body === "string" ? read.body : "";
     const bytes = byteLength(body);
     const complete = read.complete !== false
@@ -413,7 +412,6 @@ export async function loadReusableEvidenceReads(params: {
 
   return rows
     .filter((row) => row.path.trim().length > 0)
-    .slice(0, MAX_READS)
     .map((row) => ({ path: row.path, body: row.body }));
 }
 
