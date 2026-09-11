@@ -7517,13 +7517,15 @@ export async function chat(opts: {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
   }
 
-  // PROJECT_QUERY objectives have a stronger recovery contract than ordinary
-  // chat: once the server-owned manifest is complete, a provider empty/partial
-  // result must not restart source collection. Give the provider one bounded
-  // no-tools synthesis pass over retained evidence, then use the same
-  // server-owned claim materialization as the deterministic fallback.
+  // Targeted PROJECT_QUERY objectives have a stronger recovery contract than
+  // ordinary chat: once the server-owned manifest is complete, a provider
+  // empty/partial result must not restart source collection. Give the provider
+  // one bounded no-tools synthesis pass over retained evidence, then use the
+  // same server-owned claim materialization as the deterministic fallback.
+  const isTargetedProjectQueryObjective =
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
   const materializedProjectQueryEvidence =
-    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS" &&
+    isTargetedProjectQueryObjective &&
     objectiveManifestIsComplete(objective, forensicFileContents)
       ? materializeObjectiveClaimEvidence({
           objective,
@@ -7531,7 +7533,7 @@ export async function chat(opts: {
         })
       : [];
   if (
-    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS" &&
+    isTargetedProjectQueryObjective &&
     materializedProjectQueryEvidence.length === objective.requiredClaims.length
   ) {
     const initialCandidate =
@@ -10817,7 +10819,7 @@ export async function chat(opts: {
     ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
     : { valid: true, violations: [], evidence: [] };
   if (
-    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS" &&
+    isTargetedProjectQueryObjective &&
     materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
     objectiveClaimsAreMentioned(objective, responseBeforeBehaviorEvidence)
   ) {
@@ -10832,9 +10834,10 @@ export async function chat(opts: {
       productionReachability: "NOT_PROVEN",
       evidenceClass: "BEHAVIOR_PROVEN",
     }));
-    // Gap-analysis evidence is server-owned: it is materialized from complete
-    // retained bodies, not inferred from provider citations. Preserve any
-    // provider evidence too, but never let it replace a required claim window.
+    // Targeted project-query evidence is server-owned: it is materialized from
+    // complete retained bodies, not inferred from provider citations. Preserve
+    // any provider evidence too, but never let it replace a required claim
+    // window.
     behaviorEvidenceValidation = {
       valid: true,
       violations: [],
