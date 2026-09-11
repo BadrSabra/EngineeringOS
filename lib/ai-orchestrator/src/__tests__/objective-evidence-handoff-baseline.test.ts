@@ -183,4 +183,134 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it("materializes embedded-AI claims from complete retained reads", async () => {
+    const completeFileContents = new Map<string, string>([
+      [
+        REQUIRED_PATHS[0],
+        [
+          'import { resolveTurnIntent } from "turn-intent";',
+          "export async function chatWithFallback() {",
+          "  if (true) return resolveTurnIntent;",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        REQUIRED_PATHS[1],
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  if (message) return message;",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        REQUIRED_PATHS[2],
+        [
+          "export async function executeToolLoop() {",
+          "  if (true) return;",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "response" as const,
+          result: {
+            content: JSON.stringify({
+              response: "The embedded AI uses resolveTurnIntent, executeToolLoop, and chatWithFallback.",
+              sources: [],
+            }),
+            toolCalls: [],
+            model: "baseline-model",
+            usage: {},
+          },
+          toolSources: [],
+          fileContents: completeFileContents,
+          sourceRetrieval: {
+            readAttempts: REQUIRED_PATHS.length,
+            readPaths: [...REQUIRED_PATHS],
+            uniqueReads: REQUIRED_PATHS.length,
+            truncatedReads: 0,
+            targetedReads: 0,
+            redundantReads: 0,
+            cachedReads: 0,
+            evidenceWindows: REQUIRED_PATHS.length,
+            prefetchReads: 0,
+            dependencyReads: 0,
+            duplicateReads: 0,
+            firstEvidenceAcquired: true,
+            iterationsUntilFirstRead: 0,
+            iterationsWithoutEvidence: 0,
+            planningIterations: 0,
+            evidenceIterations: REQUIRED_PATHS.length,
+            crossFileQueriesBeforeFirstRead: 0,
+            prefetchBeforeFirstRead: false,
+            iterationsUntilFirstSourceRead: 0,
+            progressForced: false,
+            budgetAllocation: { planning: 1, evidence: 3, reasoning: 1 },
+          },
+        })),
+      };
+    });
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: '{"response":"baseline","sources":[]}' } }],
+              model: "baseline-model",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-embedded-materialization-"));
+    try {
+      const message = "Explain how the embedded AI agent works.";
+      const classification = classifyRequest(message);
+      const turnIntent = resolveTurnIntent(message, {
+        classification,
+        resumed: false,
+      });
+      const steps: Array<Record<string, unknown>> = [];
+
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "groq",
+        apiKey: "test-key",
+        objective: OBJECTIVE,
+        turnIntent,
+        onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+      });
+
+      expect(result.response).toContain("resolveTurnIntent");
+      expect(result.response).toContain("executeToolLoop");
+      expect(result.response).toContain("chatWithFallback");
+      expect(result.response).not.toMatch(/BLOCKED|محظور/);
+
+      const integrity = [...steps]
+        .reverse()
+        .find((step) => step.kind === "evidence_integrity");
+      expect(integrity).toMatchObject({
+        acceptedClaimCount: 3,
+        completionGateResult: "PROVEN",
+      });
+      expect(integrity?.acceptedEvidenceCount).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });
