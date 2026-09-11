@@ -7752,15 +7752,37 @@ export async function chat(opts: {
     objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS";
   const canSynthesizeProjectQuery =
     hasBehavioralProjectQueryContract || isGapAnalysisProjectQueryObjective;
-  const materializedProjectQueryEvidence =
+  const projectQueryManifestComplete =
     isTargetedProjectQueryObjective &&
-    objectiveManifestIsComplete(objective, forensicFileContents)
+    objectiveManifestIsComplete(objective, forensicFileContents);
+  const materializedProjectQueryEvidence =
+    projectQueryManifestComplete
       ? materializeObjectiveClaimEvidence({
           objective,
           fileContents: forensicFileContents,
           sourceWindows: loopResult.evidenceWindows,
         })
       : [];
+  if (isTargetedProjectQueryObjective) {
+    const materializedClaimIds = new Set(
+      materializedProjectQueryEvidence.map((item) => item.claimId),
+    );
+    const missingClaimIds = objective.requiredClaims
+      .map((claim) => claim.claimId)
+      .filter((claimId) => !materializedClaimIds.has(claimId));
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+      details: [
+        `manifestComplete=${projectQueryManifestComplete ? "true" : "false"}`,
+        `requiredClaims=${objective.requiredClaims.length}`,
+        `materializedClaims=${materializedProjectQueryEvidence.length}`,
+        ...(missingClaimIds.length > 0
+          ? [`missingClaims=${missingClaimIds.slice(0, 8).join(",")}`]
+          : ["missingClaims=none"]),
+      ],
+    });
+  }
   if (
     isTargetedProjectQueryObjective &&
     materializedProjectQueryEvidence.length === objective.requiredClaims.length

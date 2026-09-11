@@ -365,4 +365,56 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
     expect(materialized[0]?.sourceSpan).toEqual({ startLine: 340, endLine: 342 });
     expect(materialized[0]?.excerpt).toContain("executeToolLoop");
   });
+
+  it("falls back to the retained body when a bounded window omits a required needle", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["src/chat.ts"],
+      requiredClaims: [
+        {
+          claimId: "routing",
+          text: "The route resolves intent before selecting the execution path.",
+          evidenceNeedles: ["resolveTurnIntent"],
+          requiredEvidencePaths: ["src/chat.ts"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+      scopePolicy: {
+        primaryPaths: ["src/chat.ts"],
+        allowedExpansionPaths: [],
+        forbiddenPaths: ["node_modules"],
+      },
+    };
+
+    const materialized = materializeObjectiveClaimEvidence({
+      objective,
+      fileContents: new Map([
+        [
+          "src/chat.ts",
+          [
+            "import { resolveTurnIntent } from './turn-intent';",
+            "export function route(message: string) {",
+            "  return resolveTurnIntent(message);",
+            "}",
+          ].join("\n"),
+        ],
+      ]),
+      sourceWindows: [
+        {
+          file: "src/chat.ts",
+          content: "export function unrelatedHelper() { return true; }",
+          startLine: 90,
+          endLine: 90,
+        },
+      ],
+    });
+
+    expect(materialized).toHaveLength(1);
+    expect(materialized[0]).toMatchObject({
+      claimId: "routing",
+      source: "src/chat.ts",
+      sourceSpan: { startLine: 1, endLine: 4 },
+    });
+    expect(materialized[0]?.excerpt).toContain("resolveTurnIntent");
+  });
 });

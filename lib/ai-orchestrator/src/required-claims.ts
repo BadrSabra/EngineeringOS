@@ -246,11 +246,15 @@ export function materializeObjectiveClaimEvidence(input: {
     lines: window.content.split("\n"),
     baseLine: window.startLine,
   }));
-  const windowPaths = new Set(windowEntries.map((entry) => entry.path));
+  // Prefer bounded windows because they carry absolute source spans, but do
+  // not let a window shadow the retained body for the same path. A bounded
+  // window may be valid evidence for one claim while omitting another needle
+  // in the same source file. The retained body is an accepted fallback, never
+  // a locator body, and keeps materialization aligned with the evidence
+  // snapshot's per-path read inventory.
   const bodyEntries = [
     ...windowEntries,
     ...[...input.fileContents.entries()]
-      .filter(([path]) => !windowPaths.has(normalizePath(path)))
       .map(([path, content]) => ({
         path: normalizePath(path),
         content,

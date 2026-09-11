@@ -443,8 +443,19 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       const finalDecision = [...steps]
         .reverse()
         .find((step) => step.kind === "decision_trace");
+      const materialization = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+      );
       expect(result.response).toContain("uses resolveTurnIntent");
       expect(result.response).not.toMatch(/BLOCKED|محظور/);
+      expect(materialization?.details).toEqual(
+        expect.arrayContaining([
+          "manifestComplete=true",
+          "requiredClaims=3",
+          "materializedClaims=3",
+          "missingClaims=none",
+        ]),
+      );
 
       const integrity = finalIntegrity;
       expect(integrity).toMatchObject({
