@@ -30,7 +30,16 @@ const provider = (process.env.LIVE_REVIEW_PROVIDER?.trim() || "openrouter") as P
 const projectId = process.env.LIVE_REVIEW_PROJECT_ID?.trim();
 const outputPath = process.env.LIVE_REVIEW_OUTPUT_PATH?.trim();
 const selectedFile = "src/provider-review-fixture.ts";
-const fixtureContents = "export function normalize(input: string) { return input.trim(); }\n";
+// The campaign must exercise accepted selected-file evidence, not merely prove
+// that a model can return an empty clean-review result. Keep one obvious,
+// bounded defect in the disposable fixture so a valid review has a concrete
+// finding to cite.
+const fixtureContents = [
+  "export function buildUserLookup(name: string): string {",
+  '  return "SELECT * FROM users WHERE name = \'" + name + "\'";',
+  "}",
+  "",
+].join("\n");
 
 function isScenario(value: string | undefined): value is CodeReviewCampaignScenario {
   return Boolean(value && (CODE_REVIEW_CAMPAIGN_SCENARIOS as readonly string[]).includes(value));
