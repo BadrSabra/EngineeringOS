@@ -147,3 +147,4 @@
 - [OpenRouter live acceptance](openrouter-live-acceptance.md) — catalog/auth success does not prove structured review acceptance; free-model contract/rate failures must remain incomplete and may trigger only classified paid fallback.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
 - [Forensic recovery deferral](forensic-recovery-deferral.md) — retained structured forensic candidates must reach bounded recovery before objective incompleteness becomes terminal.
+- [Project-query direct-stream acceptance](project-query-direct-stream-acceptance.md) — direct streaming must emit decision trace and accepted-claim evidence before project-query acceptance can finalize.
