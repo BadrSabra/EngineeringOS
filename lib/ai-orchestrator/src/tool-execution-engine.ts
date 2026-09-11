@@ -4104,6 +4104,25 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // Malformed arguments — leave args empty; handler returns an error string.
       }
 
+      // Objective evidence windows are server-owned. A provider may identify
+      // the right required file but still request an arbitrary head range
+      // such as 1..200, which can contain only imports or declarations while
+      // the behavioral claim is implemented hundreds of lines later. When the
+      // retained server-owned locator body can resolve the declared needles,
+      // normalize the provider's range before cache lookup and dispatch so the
+      // retained evidence is the claim window, not provider-selected context.
+      if (
+        objective &&
+        tc.function.name === "read_file_range" &&
+        typeof args.path === "string" &&
+        isObjectiveRequiredEvidencePath(args.path)
+      ) {
+        const targetedRange = objectiveTargetedReadRange(args.path);
+        if (targetedRange) {
+          args = { ...args, ...targetedRange };
+        }
+      }
+
       const isValidationCall = tc.function.name === "run_validation";
       const validationProfile = isValidationCall ? args.profile?.trim() : undefined;
       const validationAttempt = isValidationCall
