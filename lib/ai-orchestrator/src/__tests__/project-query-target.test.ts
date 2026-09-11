@@ -31,9 +31,13 @@ describe("target-aware project queries", () => {
     expect(objective.objectiveType).toBe("PROJECT_QUERY_EMBEDDED-AI");
     expect(objective.requiredEvidencePaths).toHaveLength(3);
     expect(objective.requiredClaims.map((claim) => claim.text)).toEqual([
+      "The chat route resolves the turn intent before selecting the execution path.",
+      "The tool-enabled chat execution enters executeToolLoop and retains its tool results before synthesis.",
+      "The route dispatches provider requests through chatWithFallback before final response validation.",
+    ]);
+    expect(objective.requiredClaims[0]?.evidenceNeedles).toEqual([
       "resolveTurnIntent",
-      "executeToolLoop",
-      "chatWithFallback",
+      "turnIntent",
     ]);
     expect(objective.scopePolicy?.forbiddenPaths).toContain("node_modules");
   });

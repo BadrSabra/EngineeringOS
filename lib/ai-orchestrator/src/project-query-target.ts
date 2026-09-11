@@ -16,6 +16,7 @@ export type ProjectQueryTarget = {
     claimId: string;
     text: string;
     requiredEvidencePaths: string[];
+    evidenceNeedles?: string[];
   }>;
   promptHint: string;
 };
@@ -49,25 +50,28 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
   requiredClaims: [
     {
       claimId: "ai-routing",
-      text: "resolveTurnIntent",
+      text: "The chat route resolves the turn intent before selecting the execution path.",
       requiredEvidencePaths: [
         "artifacts/api-server/src/routes/ai/chat.ts",
         "lib/ai-orchestrator/src/turn-intent.ts",
       ],
+      evidenceNeedles: ["resolveTurnIntent", "turnIntent"],
     },
     {
       claimId: "ai-tool-loop",
-      text: "executeToolLoop",
+      text: "The tool-enabled chat execution enters executeToolLoop and retains its tool results before synthesis.",
       requiredEvidencePaths: [
         "lib/ai-orchestrator/src/agents/chat-agent.ts",
       ],
+      evidenceNeedles: ["executeToolLoop", "loopResult"],
     },
     {
       claimId: "ai-provider-dispatch",
-      text: "chatWithFallback",
+      text: "The route dispatches provider requests through chatWithFallback before final response validation.",
       requiredEvidencePaths: [
         "artifacts/api-server/src/routes/ai/chat.ts",
       ],
+      evidenceNeedles: ["chatWithFallback", "provider"],
     },
   ],
   promptHint:
@@ -178,6 +182,7 @@ export function buildProjectQueryObjective(
       claimId: claim.claimId,
       text: claim.text,
       requiredEvidencePaths: [...claim.requiredEvidencePaths],
+      ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
     })),
     requiredEvidenceEdges: [],
     scopePolicy: {

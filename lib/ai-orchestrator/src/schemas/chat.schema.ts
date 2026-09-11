@@ -36,6 +36,12 @@ export const ObjectiveRequiredClaimSchema = z.object({
   text: z.string().min(1),
   /** Evidence paths that must be read before this claim can close. */
   requiredEvidencePaths: z.array(z.string().min(1).max(500)).max(12).optional(),
+  /**
+   * Server-owned source tokens used to materialize an exact evidence window.
+   * These are deliberately separate from `text`: a behavioral claim can be
+   * true of source code without its prose assertion appearing verbatim there.
+   */
+  evidenceNeedles: z.array(z.string().min(1).max(240)).max(8).optional(),
 }).strict();
 export type ObjectiveRequiredClaim = z.infer<typeof ObjectiveRequiredClaimSchema>;
 

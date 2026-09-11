@@ -4968,7 +4968,7 @@ function projectQueryAnswerHasBehavioralFlow(
     return false;
   }
   const flowSignals = [
-    /\b(?:first|then|after|finally|through|because|calls?|reads?|routes?|resolves?|persists?|accepts?|fallback)\b/iu,
+    /\b(?:first|then|after|before|finally|through|because|calls?|reads?|routes?|resolves?|enters?|dispatches?|retains?|selects?|persists?|accepts?|validates?|fallback)\b/iu,
     /(?:أولًا|أولا|ثم|بعد ذلك|أخيرًا|أخيرا|عبر|يقرأ|يستدعي|يحدد|يوجه|يحفظ|يقبل|يتحقق|ينتقل)/u,
   ];
   return flowSignals.filter((pattern) => pattern.test(normalized)).length >= 2;
