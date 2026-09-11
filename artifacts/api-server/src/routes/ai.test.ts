@@ -3106,6 +3106,7 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       kind: "structured_task_failure",
       task: "analyze",
       failureKind: "PROVIDER_FORMAT",
+      parseCode: "MALFORMED_JSON",
       retryable: true,
     }]);
 

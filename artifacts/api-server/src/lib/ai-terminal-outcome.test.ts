@@ -290,6 +290,54 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("classifies exhausted malformed structured output separately from evidence failure", () => {
+    expect(classify([
+      {
+        kind: "diagnostic",
+        code: "FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED",
+        details: ["parse code: MALFORMED_JSON"],
+      },
+      { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE" },
+      { kind: "evidence_integrity", consistent: true, acceptedClaimCount: 0, acceptedEvidenceCount: 0 },
+    ])).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      contractFailureCategory: "MALFORMED_RESPONSE",
+      code: "MALFORMED_STRUCTURED_OUTPUT",
+    });
+
+    expect(classify([
+      {
+        kind: "decision_trace",
+        trace: { finalState: "RECOVERY_REQUIRED", recoveryFailureKind: "EVIDENCE_FAILURE" },
+      },
+      { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE" },
+      { kind: "evidence_integrity", consistent: true, acceptedClaimCount: 0, acceptedEvidenceCount: 0 },
+    ], {
+      forensic: false,
+      requiresEvidence: true,
+    })).toMatchObject({
+      outcome: "SUCCEEDED",
+    });
+  });
+
+  it("does not retain a format failure after a repaired response is verified", () => {
+    expect(classify([
+      {
+        kind: "diagnostic",
+        code: "FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED",
+        details: ["parse code: MALFORMED_JSON"],
+      },
+      { kind: "forensic_status", sourceCoverage: "COMPLETE", behavioralAssessment: "COMPLETE", findingStatus: "NO_FINDING" },
+      { kind: "evidence_integrity", consistent: true },
+      { kind: "decision_trace", trace: { finalState: "VERIFIED" } },
+    ])).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceAccepted: true,
+      recoveryState: "NONE",
+    });
+  });
+
   it("does not apply forensic prose gates to ordinary delivery turns", () => {
     expect(classify([
       { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },

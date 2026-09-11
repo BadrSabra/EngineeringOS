@@ -715,7 +715,9 @@ function terminalMetadataFromTrace(value: string | null | undefined): {
   const providerFailureCategory = isProviderFailureCategory(terminal?.providerFailureCategory)
     ? terminal.providerFailureCategory
     : undefined;
-  const contractFailureCategory = terminal?.contractFailureCategory === "PROVIDER_EMPTY"
+  const contractFailureCategory =
+    terminal?.contractFailureCategory === "PROVIDER_EMPTY"
+    || terminal?.contractFailureCategory === "MALFORMED_RESPONSE"
     ? terminal.contractFailureCategory
     : undefined;
   const forensicDiagnostic = deriveForensicDiagnostic(parsed);

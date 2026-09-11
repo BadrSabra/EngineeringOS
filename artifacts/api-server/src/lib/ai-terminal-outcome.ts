@@ -295,6 +295,16 @@ export function hasForensicRecoveryBlocker(trace: readonly AgentStep[]): boolean
   );
 }
 
+function hasMalformedStructuredOutput(trace: readonly AgentStep[]): boolean {
+  const decision = record(latest(trace, "decision_trace"));
+  if (decision.finalState === "VERIFIED") return false;
+  return hasDiagnostic(
+    trace,
+    /FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED/i,
+    true,
+  );
+}
+
 /**
  * Classify a completed orchestrator turn before it is persisted or projected.
  *
@@ -425,6 +435,18 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
       code: "INCOMPLETE_BEFORE_EVIDENCE",
       message: "The result is incomplete because no source evidence was read.",
       recoveryState: "INCOMPLETE",
+      evidenceAccepted: false,
+    };
+  }
+  if (forensic && hasMalformedStructuredOutput(trace)) {
+    return {
+      outcome: "FAILED",
+      failureKind: "RECOVERY_FAILURE",
+      contractFailureCategory: "MALFORMED_RESPONSE",
+      retryable: true,
+      code: "MALFORMED_STRUCTURED_OUTPUT",
+      message: "The structured AI response could not be recovered into the required format.",
+      recoveryState: "REQUIRED",
       evidenceAccepted: false,
     };
   }

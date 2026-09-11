@@ -72,7 +72,7 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
      | { type: "task_progress"; task: StructuredTask; message: string }
       | { type: "task_done"; task: StructuredTask; result: Record<string, unknown>; executionId?: string; terminalProjection?: AiTerminalProjection }
-       | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string; terminalProjection?: AiTerminalProjection })
+        | { type: "error"; code: string; message: string; hint?: string; parseCode?: string; retryable?: boolean; retryAfterMs?: number; retryAt?: string; retryAfterSource?: StructuredRetryAfterSource; failureKind?: "PROVIDER_FORMAT" | "QUALITY_REVIEW" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; quality?: { code: "QUALITY_REVIEW_LOW"; score: number; threshold: number; reasons: string[] }; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string; executionId?: string; terminalProjection?: AiTerminalProjection })
     & Partial<StructuredAuditMetadata>;
 
 type StructuredFailureKind =
@@ -107,12 +107,16 @@ function structuredFailureDetails(err: unknown): {
   failureKind: StructuredFailureKind;
   message: string;
   retryable: boolean;
+  parseCode?: string;
   retryAfterMs?: number;
   retryAfterSource?: StructuredRetryAfterSource;
   providerAttempts?: Array<{ provider: string; code: string }>;
 } {
   const candidate = err as { code?: unknown };
   const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
+  const parseCode = typeof (err as { parseCode?: unknown }).parseCode === "string"
+    ? (err as { parseCode: string }).parseCode
+    : undefined;
   const failureKind =
     code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" || code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
     code === "QUALITY_REVIEW_LOW" || code === "quality_review_low" ? "QUALITY_REVIEW" :
@@ -149,6 +153,7 @@ function structuredFailureDetails(err: unknown): {
     failureKind,
     message,
     retryable: failureKind !== "CONFIGURATION",
+    ...(parseCode ? { parseCode } : {}),
     retryAfterMs,
     retryAfterSource: failureKind === "RATE_LIMIT"
       ? hasProviderRetryAfter ? "provider" : "server_default"
@@ -493,6 +498,7 @@ async function persistStructuredExecutionFailure(params: {
       kind: "structured_task_failure",
       task,
       failureKind: details.failureKind,
+      ...(details.parseCode ? { parseCode: details.parseCode } : {}),
       retryable: details.retryable,
     }]),
   });
@@ -525,6 +531,7 @@ async function persistStructuredExecutionFailure(params: {
     retryAt,
     retryAfterSource,
     failureKind: details.failureKind,
+    ...(details.parseCode ? { parseCode: details.parseCode } : {}),
     outcome: "FAILED",
     sessionId: execution.started.sessionId,
     executionId: execution.started.executionId,
@@ -957,7 +964,10 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
       await persistStructuredExecutionFailure({
         execution: structuredExecution,
         task: "analyze",
-        details: structuredFailureDetails({ code: "model_output_invalid" }),
+        details: structuredFailureDetails({
+          code: "model_output_invalid",
+          parseCode: result._parseError.code,
+        }),
         emit,
         close,
       });
@@ -1202,7 +1212,10 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
       await persistStructuredExecutionFailure({
         execution: structuredExecution,
         task: "review",
-        details: structuredFailureDetails({ code: "model_output_invalid" }),
+        details: structuredFailureDetails({
+          code: "model_output_invalid",
+          parseCode: result._parseError.code,
+        }),
         emit,
         close,
       });
