@@ -7797,6 +7797,14 @@ export async function chat(opts: {
         ? normalizeRecoveryAssistantText(loopResult.result.content ?? "")
         : "";
     let recoveredText = initialText;
+    const deterministicProjectQueryResponse =
+      canSynthesizeProjectQuery
+        ? buildProjectQueryEvidenceSynthesis(
+            objective,
+            materializedProjectQueryEvidence,
+            responseLanguage,
+          )
+        : "";
     if (
       canSynthesizeProjectQuery &&
       (
@@ -7854,8 +7862,23 @@ export async function chat(opts: {
               : "provider synthesis was incomplete; deterministic claim assembly was used",
           ],
         });
-      } catch {
+      } catch (error) {
         recoveredText = "";
+        const providerOutcome =
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          typeof (error as { code?: unknown }).code === "string"
+            ? (error as { code: string }).code
+            : "PROVIDER_FAILURE";
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+          details: [
+            "provider synthesis failed; deterministic claim assembly was used",
+            `provider outcome:${providerOutcome.slice(0, 48)}`,
+          ],
+        });
       }
     }
     if (
@@ -7865,11 +7888,17 @@ export async function chat(opts: {
         || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
       )
     ) {
-      recoveredText = buildProjectQueryEvidenceSynthesis(
-        objective,
-        materializedProjectQueryEvidence,
-        responseLanguage,
-      );
+      recoveredText = deterministicProjectQueryResponse;
+    }
+    // Once every server-owned behavioral claim has a materialized source
+    // window, the final candidate must be deterministic and response-bound.
+    // Provider prose remains useful for telemetry and recovery decisions, but
+    // it cannot be the text later consumed by closeObjectiveClaimsFromEvidence.
+    if (
+      canSynthesizeProjectQuery &&
+      materializedProjectQueryEvidence.length === objective.requiredClaims.length
+    ) {
+      recoveredText = deterministicProjectQueryResponse;
     }
     projectQueryEvidenceResponseOverride = recoveredText;
     const priorLoopResult = loopResult;
@@ -11202,6 +11231,27 @@ export async function chat(opts: {
       ],
     };
   }
+  if (
+    isTargetedProjectQueryObjective &&
+    projectQueryEvidenceResponseOverride &&
+    materializedProjectQueryEvidence.length === objective.requiredClaims.length
+  ) {
+    const responseClaimMatches = objective.requiredClaims.map((claim) =>
+      `${claim.claimId}:${responseBeforeBehaviorEvidence.toLowerCase().includes(claim.text.trim().toLowerCase()) ? "true" : "false"}`,
+    );
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_QUERY_RESPONSE_BINDING",
+      details: [
+        "overridePresent=true",
+        `overrideLength=${projectQueryEvidenceResponseOverride.length}`,
+        `finalResponseLength=${responseBeforeBehaviorEvidence.length}`,
+        `responseUsesOverride=${responseBeforeBehaviorEvidence === projectQueryEvidenceResponseOverride ? "true" : "false"}`,
+        `responseClaims=${responseClaimMatches.join(",")}`,
+        `materializedClaims=${materializedProjectQueryEvidence.length}`,
+      ],
+    });
+  }
   /**
    * Normal behavior questions need one bounded citation correction when the
    * provider answered without an exact executable excerpt. This is deliberately
@@ -11932,6 +11982,15 @@ export async function chat(opts: {
     boundedObjectiveScope !== null &&
     boundedObjectiveScope.size > 0 &&
     recoveredReadData.some((datum) => !boundedObjectiveScope.has(datum.file));
+  const objectiveEvidenceClosure = objective
+    ? closeObjectiveClaimsFromEvidence({
+        objective,
+        response: responseBeforeBehaviorEvidence,
+        evidence: evidenceForRun,
+        fileContents: forensicFileContents,
+        requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
+      })
+    : [];
   const objectiveGate: ObjectiveCompletionGateResult | null = objective
     ? objectiveCompletionGate({
         ledger: runtimeLedger,
@@ -11945,13 +12004,7 @@ export async function chat(opts: {
         // WITH evidence. This is what lets a genuinely completed objective
         // reach PROVEN instead of being a blanket denial.
         closedClaimIds: [
-          ...closeObjectiveClaimsFromEvidence({
-            objective,
-            response: responseBeforeBehaviorEvidence,
-            evidence: evidenceForRun,
-            fileContents: forensicFileContents,
-            requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
-          })
+          ...objectiveEvidenceClosure
             .filter((c) => c.status === "CLOSED")
             .map((c) => c.claimId.replace(/^edge:/, "").replace(/^objective:/, "")),
           ...closeObjectiveClaimsFromEdges({
@@ -11963,6 +12016,20 @@ export async function chat(opts: {
         ],
       })
     : null;
+  if (isTargetedProjectQueryObjective && objectiveGate) {
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+      details: [
+        `closedClaims=${objectiveEvidenceClosure
+          .filter((claim) => claim.status === "CLOSED")
+          .map((claim) => claim.claimId.replace(/^objective:/, ""))
+          .join(",") || "none"}`,
+        `acceptedEvidenceCount=${evidenceForRun.filter((item) => item.supportsClaim).length}`,
+        `gateStatus=${objectiveGate.status}`,
+      ],
+    });
+  }
   const projectQueryAnswerRejected =
     objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
     && !projectQueryAnswerHasBehavioralFlow(objective, responseBeforeBehaviorEvidence);

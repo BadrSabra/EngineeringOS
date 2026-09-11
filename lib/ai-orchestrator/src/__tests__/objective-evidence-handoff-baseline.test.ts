@@ -499,6 +499,190 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(response).toContain("بعد ذلك");
   });
 
+  it("closes the real embedded-AI objective from materialized evidence when provider synthesis fails", async () => {
+    const message = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+    const completeFileContents = new Map<string, string>([
+      [
+        REQUIRED_PATHS[0],
+        [
+          "import { resolveTurnIntent } from './turn-intent';",
+          "export async function chatWithFallback(provider: string) {",
+          "  const turnIntent = resolveTurnIntent(provider);",
+          "  return { provider, turnIntent };",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        REQUIRED_PATHS[1],
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  const turnIntent = message ? { kind: 'PROJECT_QUERY' } : { kind: 'CHAT' };",
+          "  return turnIntent;",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        REQUIRED_PATHS[2],
+        [
+          "export async function executeToolLoop() {",
+          "  const loopResult = await readSources();",
+          "  return synthesize(loopResult);",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "response" as const,
+          result: {
+            content: JSON.stringify({ response: "", sources: [] }),
+            toolCalls: [],
+            model: "provider-failure-model",
+            usage: {},
+          },
+          toolSources: [...REQUIRED_PATHS],
+          fileContents: completeFileContents,
+          evidenceWindows: [],
+          sourceRetrieval: {
+            readAttempts: REQUIRED_PATHS.length,
+            readPaths: [...REQUIRED_PATHS],
+            uniqueReads: REQUIRED_PATHS.length,
+            truncatedReads: 0,
+            targetedReads: 0,
+            redundantReads: 0,
+            cachedReads: 0,
+            evidenceWindows: 0,
+            prefetchReads: REQUIRED_PATHS.length,
+            dependencyReads: 0,
+            duplicateReads: 0,
+            firstEvidenceAcquired: true,
+            iterationsUntilFirstRead: 0,
+            iterationsWithoutEvidence: 0,
+            planningIterations: 0,
+            evidenceIterations: REQUIRED_PATHS.length,
+            crossFileQueriesBeforeFirstRead: 0,
+            prefetchBeforeFirstRead: true,
+            progressForced: false,
+            budgetAllocation: { planning: 1, evidence: 3, reasoning: 1 },
+          },
+        })),
+      };
+    });
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockRejectedValue(
+              Object.assign(new Error("fixture provider failure"), {
+                code: "FIXTURE_PROVIDER_FAILURE",
+                status: 401,
+                response: { status: 401 },
+              }),
+            ),
+          },
+        };
+      },
+    }));
+
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-embedded-provider-failure-"));
+    try {
+      for (const [requiredPath, content] of completeFileContents) {
+        const absolutePath = path.join(rootPath, requiredPath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, content, "utf8");
+      }
+
+      const classification = classifyRequest(message);
+      const turnIntent = resolveTurnIntent(message, {
+        classification,
+        resumed: false,
+      });
+      const steps: Array<Record<string, unknown>> = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "groq",
+        apiKey: "test-key",
+        objective,
+        turnIntent,
+        onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+      });
+
+      expect(result.response).toContain(objective.requiredClaims[0].text);
+      expect(result.response).toContain("أولاً");
+
+      const materialization = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+      );
+      expect(materialization?.details).toEqual(
+        expect.arrayContaining([
+          "manifestComplete=true",
+          "requiredClaims=3",
+          "materializedClaims=3",
+          "missingClaims=none",
+        ]),
+      );
+
+      const synthesisDiagnostics = steps.filter(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+      );
+      expect(synthesisDiagnostics.some((step) =>
+        (step.details as string[] | undefined)?.some((detail) => detail.includes("provider synthesis failed")),
+      )).toBe(true);
+
+      const binding = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+      );
+      expect(binding?.details).toEqual(
+        expect.arrayContaining([
+          "overridePresent=true",
+          "responseUsesOverride=true",
+          "responseClaims=ai-routing:true,ai-tool-loop:true,ai-provider-dispatch:true",
+          "materializedClaims=3",
+        ]),
+      );
+
+      const closure = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+      );
+      expect(closure?.details).toEqual(
+        expect.arrayContaining([
+          "closedClaims=ai-routing,ai-tool-loop,ai-provider-dispatch",
+          "acceptedEvidenceCount=3",
+          "gateStatus=PROVEN",
+        ]),
+      );
+
+      const integrity = [...steps]
+        .reverse()
+        .find((step) => step.kind === "evidence_integrity");
+      expect(integrity).toMatchObject({
+        // Two claims use chat.ts; the ledger count is accepted evidence
+        // records after the source-read projection, not the claim count.
+        acceptedEvidenceCount: 2,
+        acceptedClaimCount: 3,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+        missingClaims: [],
+      });
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("keeps an Arabic embedded-AI run incomplete when the provider emits no usable evidence action", async () => {
     const message = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع";
     const target = resolveProjectQueryTarget(message);
