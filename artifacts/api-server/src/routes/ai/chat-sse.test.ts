@@ -921,6 +921,125 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     );
   });
 
+  it.each([
+    "Audit important problems of the project.",
+    "Audit important problems on the workspace.",
+    "Audit important problems in the repository.",
+    "Audit important problems of the repo.",
+    "Audit important problems in the codebase.",
+  ])("preserves whole-project audit intent at the API boundary: %s", async (message) => {
+    let captured:
+      | {
+          turnIntent?: Record<string, unknown>;
+          options?: Record<string, unknown>;
+        }
+      | undefined;
+
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementationOnce(
+      async (_userId, params, _provider, _onDelta, options) => {
+        const input = params as { turnIntent?: Record<string, unknown> };
+        captured = {
+          turnIntent: input.turnIntent,
+          options: options as Record<string, unknown>,
+        };
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message });
+
+    expect(response.status, response.text).toBe(200);
+    expect(captured?.turnIntent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      executionTaskType: "analysis",
+      requiresTools: true,
+      requiresEvidence: true,
+      scopeClarificationRequired: false,
+      operationMode: "FORENSIC_AUDIT",
+    });
+    expect(captured?.options).toMatchObject({
+      requireTools: true,
+      qualityProfile: "analysis",
+    });
+    expect(requireProvider).toHaveBeenCalledWith(
+      "test-user",
+      expect.anything(),
+      { requireTools: true, qualityProfile: "analysis" },
+    );
+
+    const executionStarted = parseSseFrames(response.text).find(
+      (frame) => typeof frame === "object"
+        && frame !== null
+        && (frame as Record<string, unknown>).type === "execution_started",
+    ) as Record<string, unknown> | undefined;
+    expect(executionStarted).toMatchObject({
+      type: "execution_started",
+      operationMode: "FORENSIC_AUDIT",
+      turnIntent: "FORENSIC_AUDIT",
+      proofRequired: true,
+      resumable: true,
+    });
+  });
+
+  it.each([
+    "Review my project and tell me about important problems.",
+    "Audit my project for important problems.",
+  ])("keeps an unscoped broad review on the API scope-consent path: %s", async (message) => {
+    let capturedIntent: Record<string, unknown> | undefined;
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementationOnce(
+      async (_userId, params) => {
+        const input = params as { turnIntent?: Record<string, unknown> };
+        capturedIntent = input.turnIntent;
+        const response = capturedIntent?.scopeClarificationRequired
+          ? "Before I start a broad audit, what scope should I use? Choose the core production files, a specific folder/files, or the entire project."
+          : "Unexpectedly entered model execution.";
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            response,
+          },
+        };
+      },
+    );
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message });
+
+    expect(response.status, response.text).toBe(200);
+    expect(capturedIntent).toMatchObject({
+      kind: "CHAT",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
+      scopeClarificationRequired: true,
+      operationMode: "CHAT",
+    });
+    expect(requireProvider).toHaveBeenCalledWith(
+      "test-user",
+      expect.anything(),
+      { requireTools: false, qualityProfile: "chat" },
+    );
+
+    const done = parseSseFrames(response.text).find(
+      (frame) => typeof frame === "object"
+        && frame !== null
+        && (frame as Record<string, unknown>).type === "done",
+    ) as Record<string, unknown> | undefined;
+    expect(done).toMatchObject({
+      type: "done",
+      operationMode: "CHAT",
+      message: {
+        turnIntent: "CHAT",
+        content: "Before I start a broad audit, what scope should I use? Choose the core production files, a specific folder/files, or the entire project.",
+      },
+    });
+    expect(response.text).not.toContain("Unexpectedly entered model execution.");
+  });
+
   it("terminalizes provider failures with the provider code instead of the generic lifecycle error", async () => {
     vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
       .mockRejectedValueOnce(new Error("upstream rate limit"));
