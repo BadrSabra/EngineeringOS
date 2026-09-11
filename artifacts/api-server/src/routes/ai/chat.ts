@@ -3482,6 +3482,8 @@ function normalizeTaskResultForTurn(
 type RetainedEvidenceRead = {
   path: string;
   readType: "source";
+  lineStart?: number;
+  lineEnd?: number;
   body: string;
   complete: boolean;
   truncated: boolean;
@@ -3518,6 +3520,7 @@ function collectRetainedEvidenceReads(
     }
   }
   const readStatuses = new Map<string, ReadStatus>();
+  const readSpans = new Map<string, { lineStart?: number; lineEnd?: number }>();
   for (const [filePath, status] of retainedReadStatuses ?? []) {
     const normalizedPath = normalizePath(filePath);
     if (normalizedPath && !readStatuses.has(normalizedPath)) {
@@ -3525,6 +3528,17 @@ function collectRetainedEvidenceReads(
     }
   }
   for (const step of traceSteps ?? []) {
+    if (step.kind === "tool_call" && (step.tool === "read_file" || step.tool === "read_file_range")) {
+      const source = typeof step.args.path === "string" ? normalizePath(step.args.path) : "";
+      if (source && step.tool === "read_file_range") {
+        const lineStart = Number(step.args.startLine);
+        const lineEnd = Number(step.args.endLine);
+        if (Number.isInteger(lineStart) && lineStart > 0 && Number.isInteger(lineEnd) && lineEnd >= lineStart) {
+          readSpans.set(source, { lineStart, lineEnd });
+        }
+      }
+      continue;
+    }
     if (
       step.kind !== "tool_result"
       || (step.tool !== "read_file" && step.tool !== "read_file_range")
@@ -3552,6 +3566,7 @@ function collectRetainedEvidenceReads(
       return {
         path: filePath,
         readType: "source" as const,
+        ...(readSpans.get(filePath) ?? {}),
         body,
         complete: hasRetainedBody && completeStatus,
         truncated: status === "READ_TRUNCATED",
@@ -3561,6 +3576,8 @@ function collectRetainedEvidenceReads(
   return normalized.reads.map((read) => ({
     path: read.path,
     readType: "source" as const,
+    ...(read.lineStart != null ? { lineStart: read.lineStart } : {}),
+    ...(read.lineEnd != null ? { lineEnd: read.lineEnd } : {}),
     body: read.body,
     complete: read.complete,
     truncated: read.truncated,

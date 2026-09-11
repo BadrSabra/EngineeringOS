@@ -7609,6 +7609,13 @@ export async function chat(opts: {
   // Merge prefetch sources with the engine's ground-truth sources.
   // Prefetch sources are prepended since they were resolved first.
   const toolSources = [...prefetchSources, ...loopResult.toolSources];
+  // A targeted project-query synthesis is a server-owned replacement for the
+  // provider's candidate response. Keep it separate from loopResult because
+  // the response parser is created later in this function. Without this
+  // handoff, the deterministic synthesis can be stored in loopResult and then
+  // silently discarded when the later acceptance path reads the original
+  // provider result.
+  let projectQueryEvidenceResponseOverride: string | undefined;
   // Keep both prefetch and in-loop read bodies available to the forensic gate.
   // The loop may read files that were not part of the initial plan.
   //
@@ -7721,6 +7728,7 @@ export async function chat(opts: {
         responseLanguage,
       );
     }
+    projectQueryEvidenceResponseOverride = recoveredText;
     const priorLoopResult = loopResult;
     loopResult = {
       kind: "response",
@@ -10911,7 +10919,8 @@ export async function chat(opts: {
       : cleanModelSources;
 
   const providerResponseCandidate =
-    parseError?.code === "EMPTY_MODEL_RESPONSE" &&
+    projectQueryEvidenceResponseOverride ??
+    (parseError?.code === "EMPTY_MODEL_RESPONSE" &&
     isForensicOrEvidenceRun &&
     forensicFileContents.size > 0
     ? buildBehaviorEvidenceIncompleteResponse(
@@ -10919,7 +10928,7 @@ export async function chat(opts: {
         forensicFileContents,
         responseLanguage,
       )
-    : parsed.data.response;
+    : parsed.data.response);
   let responseBeforeBehaviorEvidence = validateResponseForTask(
     finalizeTaskResponse(
       repairPlanExecution

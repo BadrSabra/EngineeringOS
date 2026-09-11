@@ -1937,13 +1937,37 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       .filter(Boolean);
     if (needles.length === 0) return undefined;
 
+    const sourceLineAt = (lineNumber: number): string =>
+      sourceLines[lineNumber - 1] ?? "";
+    const lineNumberAt = (index: number): number =>
+      (sourceBody.slice(0, index).match(/\n/g)?.length ?? 0) + 1;
+    const candidateLineForNeedle = (needle: string): number | undefined => {
+      const candidates: Array<{ line: number; score: number }> = [];
+      let searchFrom = 0;
+      while (searchFrom < sourceBody.length) {
+        const index = sourceBody.indexOf(needle, searchFrom);
+        if (index < 0) break;
+        const line = lineNumberAt(index);
+        const context = sourceLines
+          .slice(Math.max(0, line - 3), Math.min(sourceLines.length, line + 2))
+          .join("\n");
+        const lineText = sourceLineAt(line);
+        let score = 0;
+        // Imports are useful locators, but they do not explain runtime
+        // behavior. Prefer a later executable occurrence when one exists.
+        if (/^\s*import\b|^\s*export\s+type\b/.test(lineText)) score -= 100;
+        if (/\b(?:function|const|let|var|if|else|return|await|throw|switch)\b/.test(context)) {
+          score += 10;
+        }
+        if (lineText.includes(needle)) score += 5;
+        score += Math.min(line, 10_000) / 10_000;
+        candidates.push({ line, score });
+        searchFrom = index + Math.max(needle.length, 1);
+      }
+      return candidates.sort((a, b) => b.score - a.score || a.line - b.line)[0]?.line;
+    };
     const matchingLineNumbers = needles
-      .map((needle) => {
-        const index = sourceBody.indexOf(needle);
-        return index >= 0
-          ? (sourceBody.slice(0, index).match(/\n/g)?.length ?? 0) + 1
-          : undefined;
-      })
+      .map(candidateLineForNeedle)
       .filter((line): line is number => line !== undefined);
     if (matchingLineNumbers.length === 0) return undefined;
 
