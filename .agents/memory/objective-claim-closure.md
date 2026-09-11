@@ -8,3 +8,5 @@ For `PROJECT_QUERY_*`, complete server-owned evidence windows are necessary but 
 **Why:** A real Arabic embedded-AI run collected complete bounded windows for all declared paths and preserved execution/operation/revision identity, but final acceptance still failed because the response-bound claim projection did not survive to closure.
 
 **How to apply:** When acquisition is complete but acceptance is blocked, inspect per-claim closure after the final response projection before changing evidence scheduling. Server-owned deterministic synthesis may establish the claim text and flow, but it must remain authoritative through later validation and must never be replaced by a generic blocked response.
+
+An evidence snapshot can report three complete accepted reads while objective materialization reports zero closed claims; treat that split as a projection-boundary failure and inspect the materializer inputs before changing the final gate.
