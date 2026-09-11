@@ -225,6 +225,76 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
     expect(closure.filter((claim) => claim.status === "CLOSED")).toHaveLength(2);
   });
 
+  it("requires behavioral assertions while using source needles for project evidence", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["src/chat.ts", "src/agent.ts"],
+      requiredClaims: [
+        {
+          claimId: "routing",
+          text: "The route resolves intent before selecting the execution path.",
+          evidenceNeedles: ["resolveTurnIntent", "turnIntent"],
+          requiredEvidencePaths: ["src/chat.ts"],
+        },
+        {
+          claimId: "loop",
+          text: "The agent enters executeToolLoop and retains results before synthesis.",
+          evidenceNeedles: ["executeToolLoop", "loopResult"],
+          requiredEvidencePaths: ["src/agent.ts"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+      scopePolicy: {
+        primaryPaths: ["src/chat.ts", "src/agent.ts"],
+        allowedExpansionPaths: [],
+        forbiddenPaths: ["node_modules"],
+      },
+    };
+    const retained = new Map([
+      ["src/chat.ts", "const intent = resolveTurnIntent(message);\nreturn route(intent);"],
+      ["src/agent.ts", "const loopResult = await executeToolLoop(context);\nreturn synthesize(loopResult);"],
+    ]);
+    const materialized = materializeObjectiveClaimEvidence({
+      objective,
+      fileContents: retained,
+    });
+    expect(materialized).toHaveLength(2);
+    expect(materialized.map((item) => item.source)).toEqual(["src/chat.ts", "src/agent.ts"]);
+
+    const evidence = materialized.map((item) => ({
+      source: item.source,
+      excerpt: item.excerpt,
+      sourceSpan: item.sourceSpan,
+      supportsClaim: true,
+      relevance: 1,
+      directness: "DIRECT" as const,
+      sourceType: "IMPLEMENTATION" as const,
+      productionReachability: "NOT_PROVEN" as const,
+      evidenceClass: "BEHAVIOR_PROVEN" as const,
+    }));
+    const behavioralResponse = [
+      "The route resolves intent before selecting the execution path.",
+      "The agent enters executeToolLoop and retains results before synthesis.",
+    ].join("\n");
+    const behavioralClosure = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: behavioralResponse,
+      evidence,
+      fileContents: retained,
+      requireAcceptedEvidence: true,
+    });
+    expect(behavioralClosure.filter((claim) => claim.status === "CLOSED")).toHaveLength(2);
+
+    const inventoryOnlyClosure = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: materialized.map((item) => item.excerpt).join("\n"),
+      evidence,
+      fileContents: retained,
+      requireAcceptedEvidence: true,
+    });
+    expect(inventoryOnlyClosure.every((claim) => claim.status === "UNCLOSED")).toBe(true);
+  });
+
   it("does not close an objective from retained bodies when accepted evidence is absent", () => {
     const objective: ObjectiveContract = {
       objectiveType: "PROJECT_QUERY_EMBEDDED-AI",

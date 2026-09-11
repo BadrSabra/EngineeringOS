@@ -76,8 +76,10 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
   ],
   promptHint:
     "Targeted project analysis: analyze the embedded AI layer end to end. " +
-    "Read and explicitly cover resolveTurnIntent, chatWithFallback, and executeToolLoop " +
-    "with their source paths before synthesizing. Do not stop at one provider client or a generic project-access explanation.",
+    "Read and explicitly cover the server-owned behavioral claims for routing, the tool loop, " +
+    "provider dispatch, and acceptance with their source paths before synthesizing. " +
+    "State each claim assertion verbatim, then explain the sequence in the requested language. " +
+    "Do not stop at a symbol inventory, one provider client, or a generic project-access explanation.",
 };
 
 const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {

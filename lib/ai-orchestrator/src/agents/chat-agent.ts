@@ -4962,7 +4962,7 @@ function projectQueryAnswerHasBehavioralFlow(
   objective: ObjectiveContract | undefined,
   response: string,
 ): boolean {
-  if (!objective?.objectiveType.startsWith("PROJECT_QUERY_")) return true;
+  if (objective?.objectiveType !== "PROJECT_QUERY_EMBEDDED-AI") return true;
   const normalized = response.trim();
   if (normalized.length < 240 || !objectiveClaimsAreMentioned(objective, normalized)) {
     return false;
@@ -7472,7 +7472,9 @@ export async function chat(opts: {
         requiredEvidencePaths: objective.requiredEvidencePaths,
         requiredClaims: objective.requiredClaims.map((claim) => ({
           claimId: claim.claimId,
+          text: claim.text,
           requiredEvidencePaths: claim.requiredEvidencePaths,
+          ...(claim.evidenceNeedles ? { evidenceNeedles: claim.evidenceNeedles } : {}),
         })),
       }
     : undefined;
@@ -7664,7 +7666,9 @@ export async function chat(opts: {
               role: "system",
               content:
                 "Synthesize a scoped project answer from the retained evidence below. " +
-                "Do not call tools, do not request more files, and mention every claim symbol exactly.",
+              "Do not call tools or request more files. State every server-owned behavioral claim " +
+              "assertion verbatim, then explain the execution sequence in the requested language. " +
+              "Do not replace a behavioral explanation with a symbol inventory.",
             },
             {
               role: "user",

@@ -220,8 +220,9 @@ export function decomposeObjectiveClaims(objective: ObjectiveContract): Required
  * This is intentionally independent of provider prose. It is used only after
  * the objective manifest is complete, and it never searches the filesystem or
  * accepts a path supplied by the model. Each returned excerpt contains the
- * exact claim symbol plus a small surrounding source window so the normal
- * evidence ledger can retain a verifiable span.
+ * server-owned source needle plus a small surrounding source window so the
+ * normal evidence ledger can retain a verifiable span. A behavioral claim's
+ * prose does not need to appear verbatim in source code.
  */
 export function materializeObjectiveClaimEvidence(input: {
   objective: ObjectiveContract;
@@ -240,7 +241,10 @@ export function materializeObjectiveClaimEvidence(input: {
 
   for (const claim of input.objective.requiredClaims) {
     const claimNeedle = claim.text.trim();
-    if (!claimNeedle) continue;
+    const evidenceNeedles = (claim.evidenceNeedles ?? [claimNeedle])
+      .map((needle) => needle.trim())
+      .filter(Boolean);
+    if (evidenceNeedles.length === 0) continue;
     const preferredPaths = (claim.requiredEvidencePaths ?? []).map(normalizePath);
     // A claim with an explicit evidence manifest must be grounded in one of
     // those paths. Falling back to an unrelated retained body lets a matching
@@ -250,14 +254,18 @@ export function materializeObjectiveClaimEvidence(input: {
       ? bodyEntries.filter((entry) => preferredPaths.includes(entry.path))
       : bodyEntries;
     const match = candidates
-      .map((entry) => ({ entry, index: entry.content.indexOf(claimNeedle) }))
+      .flatMap((entry) => evidenceNeedles.map((needle) => ({
+        entry,
+        needle,
+        index: entry.content.indexOf(needle),
+      })))
       .find((candidate) => candidate.index >= 0);
     if (!match) continue;
 
     const startLine = Math.max(1, lineOf(match.entry.content, match.index) - 2);
     const endLine = Math.min(match.entry.lines.length, startLine + 6);
     const excerpt = match.entry.lines.slice(startLine - 1, endLine).join("\n").trim();
-    if (!excerpt || !excerpt.includes(claimNeedle)) continue;
+    if (!excerpt || !excerpt.includes(match.needle)) continue;
     results.push({
       claimId: claim.claimId,
       source: match.entry.path,
@@ -276,8 +284,8 @@ export function materializeObjectiveClaimEvidence(input: {
  * objective.
  *
  * A required claim (non-edge) closes ONLY when BOTH of the following hold:
- *   1. The run retained a read whose body contains the claim's assertion text
- *      (the evidence inventory `fileContents` / completed reads), AND
+ *   1. The run retained a read whose body contains the claim's source evidence
+ *      needle (the evidence inventory `fileContents` / completed reads), AND
  *   2. The candidate answer actually asserts the claim — its text appears in the
  *      response. A read that merely happens to contain the words is NOT enough:
  *      a response that never answers the objective must stay unclosed, so a claim
@@ -330,17 +338,20 @@ export function closeObjectiveClaimsFromEvidence(input: {
     // (optionally one cited) AND be asserted by the candidate answer itself.
     let closed = false;
     let path = "";
-    const needle = normalize(claim.text);
     const claimSpec = objective.requiredClaims.find(
-      (candidate) => candidate.claimId === claim.claimId,
+      (candidate) => `objective:${candidate.claimId}` === claim.claimId,
     );
+    const sourceNeedles = (claimSpec?.evidenceNeedles ?? [claim.text])
+      .map((needle: string) => normalize(needle))
+      .filter(Boolean);
+    const responseNeedle = normalize(claim.text);
     const preferredPaths = (claimSpec?.requiredEvidencePaths ?? []).map((path: string) =>
       path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, ""),
     );
-    if (needle.length >= 3 && responseNorm.includes(needle)) {
+    if (responseNeedle.length >= 3 && responseNorm.includes(responseNeedle)) {
       for (const [file, body] of bodies) {
         if (
-          body.includes(needle) &&
+          sourceNeedles.some((needle) => body.includes(needle)) &&
           (!requireCited || groundedSources.has(file)) &&
           (preferredPaths.length === 0 || preferredPaths.includes(file))
         ) {
