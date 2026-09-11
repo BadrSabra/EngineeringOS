@@ -20,9 +20,21 @@ import {
 
 describe("task-aware contracts", () => {
   it("shares the GAPS signal across routing and query planning", () => {
-    expect(isGapAnalysisRequest("ما هي نقاط الضعف لدى الوكيل")).toBe(true);
-    expect(isGapAnalysisRequest("Find the missing capabilities")).toBe(true);
+    for (const message of [
+      "ما هي نقاط الضعف لدى الوكيل",
+      "Find the missing capabilities",
+      "What are the system's limitations?",
+      "Show me the blind spots and risks",
+      "What does the agent not cover?",
+      "Where does the agent fail?",
+      "ما هي القيود ونقاط عمياء الوكيل؟",
+      "ما لا يغطيه الوكيل؟",
+      "أين يفشل الوكيل؟",
+    ]) {
+      expect(isGapAnalysisRequest(message), message).toBe(true);
+    }
     expect(isGapAnalysisRequest("ما اسم المشروع؟")).toBe(false);
+    expect(isGapAnalysisRequest("What is the current project state?")).toBe(false);
   });
 
   it("keeps the six task types explicit", () => {

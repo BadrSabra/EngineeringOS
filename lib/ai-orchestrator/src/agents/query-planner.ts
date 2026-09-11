@@ -47,7 +47,10 @@ import {
   type SemanticGraphEdge,
   type SemanticGraphNode,
 } from "../semantic-trace.js";
-import { isGapAnalysisRequest } from "../task-contracts.js";
+import {
+  findGapAnalysisMatch,
+  normalizeIntentText,
+} from "../task-contracts.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -359,23 +362,89 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
 }
 
 export function inferCompoundParts(message: string): CompoundQueryPart[] {
-  const parts: CompoundQueryPart[] = [];
-  const add = (id: string, kind: CompoundPartKind, question: string, requiredCount?: number) =>
-    parts.push({ id, kind, question, ...(requiredCount ? { requiredCount } : {}), requiresCitation: true });
-  if (/(?:current|currently|today|existing|implemented|الحالي|الحالية|الموجود|الميزات الحالية)/iu.test(message)) {
-    add("current-state", "CURRENT_STATE", "What is the current project state?");
-  }
-  if (/(?:feature|features|capabilit|وظائف|ميزات|إمكانات)/iu.test(message)) {
-    add("features", "FEATURES", "What features or capabilities currently exist?");
-  }
-  if (isGapAnalysisRequest(message)) {
-    add("gaps", "GAPS", "What verified gaps or missing capabilities exist?");
-  }
-  const topThree = /(?:top|first|priority|priorities|الأولويات|أول|ثلاث|3)\b/iu.test(message);
-  if (topThree || /priority|أولوية/iu.test(message)) {
-    add("priorities", "PRIORITIES", "What should be prioritized based on the verified project state?", topThree ? 3 : undefined);
-  }
-  return parts;
+  const normalized = normalizeIntentText(message);
+  const detectors: Array<{
+    id: string;
+    kind: CompoundPartKind;
+    question: string;
+    patterns: RegExp[];
+    requiredCount?: number;
+  }> = [
+    {
+      id: "current-state",
+      kind: "CURRENT_STATE",
+      question: "What is the current project state?",
+      patterns: [
+        /\b(?:current|currently|today|existing|implemented)\b/iu,
+        /(?:الحالي|الحالية|حاليا|اليوم|الموجود|الموجودة|المطبق|المطبقة)/u,
+      ],
+    },
+    {
+      id: "features",
+      kind: "FEATURES",
+      question: "What features or capabilities currently exist?",
+      patterns: [
+        /\b(?:feature|features|capabilit\w*)\b/iu,
+        /(?:وظائف|ميزات|إمكانات|امكانات)/u,
+      ],
+    },
+    {
+      id: "gaps",
+      kind: "GAPS",
+      question: "What verified gaps or missing capabilities exist?",
+      patterns: [],
+    },
+    {
+      id: "priorities",
+      kind: "PRIORITIES",
+      question: "What should be prioritized based on the verified project state?",
+      patterns: [
+        /\b(?:priorit(?:y|ies|ize|ise|ized|ised)|priority|priorities)\b/iu,
+        /(?:اولوية|اولويات|رتب|ترتيب|الأولويات)/u,
+      ],
+    },
+  ];
+
+  const topThreePatterns = [
+    /\b(?:top|first)\s+(?:three|3)\b/iu,
+    /\btop\s*3\b/iu,
+    /\bthree\s+(?:top|highest|priority|priorities)\b/iu,
+    /(?:اول|اعلى)\s*(?:ثلاث|ثلاثة|3)/u,
+    /(?:ثلاث|ثلاثة|3)\s+(?:اولوية|اولويات)/u,
+  ];
+
+  const firstMatchIndex = (patterns: RegExp[]): number | null => {
+    let first: number | null = null;
+    for (const pattern of patterns) {
+      const match = pattern.exec(normalized);
+      if (match && (first === null || match.index < first)) first = match.index;
+    }
+    return first;
+  };
+
+  const candidates = detectors.flatMap((detector) => {
+    const index =
+      detector.id === "gaps"
+        ? findGapAnalysisMatch(normalized)?.index ?? null
+        : firstMatchIndex(detector.patterns);
+    if (index === null) return [];
+
+    const requiredCount =
+      detector.id === "priorities" && firstMatchIndex(topThreePatterns) !== null
+        ? 3
+        : detector.requiredCount;
+    return [{ ...detector, index, requiredCount }];
+  });
+
+  return candidates
+    .sort((left, right) => left.index - right.index)
+    .map(({ index: _index, patterns: _patterns, ...part }) => ({
+      id: part.id,
+      kind: part.kind,
+      question: part.question,
+      ...(part.requiredCount ? { requiredCount: part.requiredCount } : {}),
+      requiresCitation: true,
+    }));
 }
 
 // ── Deterministic graph-guided file planning ───────────────────────────────────

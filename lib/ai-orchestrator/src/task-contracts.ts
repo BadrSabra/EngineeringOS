@@ -645,10 +645,52 @@ const BEHAVIOR_QUERY_PATTERNS = [
 ];
 
 const GAP_ANALYSIS_PATTERNS = [
-  /\b(?:gap|gaps|missing|weakness|deficien)\b/i,
-  /\b(?:weaknesses|deficiencies)\b/i,
-  /(?:ثغر|فجوات|نواقص|نقاط الضعف)/iu,
+  /\b(?:gap|gaps|missing|weakness(?:es)?|deficien\w*|limitation\w*|blind\s+spots?|risks?)\b/iu,
+  /\bwhat\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:does\s+not|doesn't|doesnt)\s+(?:cover|handle|support|address)\b/iu,
+  /\bwhere\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:fails?|breaks?)\b/iu,
+  /(?:ثغر|فجوات|نواقص|نقاط\s+الضعف|القيود|قيود|نقاط\s+عمياء)/u,
+  /(?:ما\s+لا\s+(?:يغطيه|يشمله|يدعمه|يعالجه)|اين\s+(?:يفشل|يتعطل))/u,
 ];
+
+/**
+ * Normalize user-intent text before matching shared routing/planning signals.
+ * NFKC handles compatibility forms; the Arabic cleanup keeps harmless
+ * diacritics, tatweel, and alef variants from splitting an otherwise known
+ * phrase. This is intentionally not a general Arabic stemmer.
+ */
+export function normalizeIntentText(message: string): string {
+  return message
+    .normalize("NFKC")
+    .replace(/[\u064B-\u065F\u0670]/gu, "")
+    .replace(/\u0640/gu, "")
+    .replace(/[أإآٱ]/gu, "ا")
+    .replace(/ى/gu, "ي")
+    .trim();
+}
+
+export type IntentMatch = {
+  index: number;
+  length: number;
+};
+
+/**
+ * Return the first shared gap signal so callers that need decomposition can
+ * preserve the user's requested order without duplicating the signal list.
+ */
+export function findGapAnalysisMatch(message: string): IntentMatch | null {
+  const normalized = normalizeIntentText(message);
+  let first: IntentMatch | null = null;
+
+  for (const pattern of GAP_ANALYSIS_PATTERNS) {
+    const match = pattern.exec(normalized);
+    if (!match) continue;
+    if (first === null || match.index < first.index) {
+      first = { index: match.index, length: match[0].length };
+    }
+  }
+
+  return first;
+}
 
 /**
  * Shared signal for analytical gap questions.
@@ -658,7 +700,7 @@ const GAP_ANALYSIS_PATTERNS = [
  * ordinary-looking project questions.
  */
 export function isGapAnalysisRequest(message: string): boolean {
-  return matchesAny(message.normalize("NFKC").trim(), GAP_ANALYSIS_PATTERNS);
+  return findGapAnalysisMatch(message) !== null;
 }
 
 function normalizeEvidencePath(value: string): string {

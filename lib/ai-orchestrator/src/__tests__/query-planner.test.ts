@@ -76,6 +76,64 @@ describe("query-planner — knowledge-graph enrichment", () => {
     ]);
   });
 
+  it("preserves compound-part order, deduplicates related gap signals, and marks explicit top-three requests", async () => {
+    const { inferCompoundParts } = await import("../agents/query-planner.js");
+
+    expect(
+      inferCompoundParts(
+        "What are the current features, limitations, blind spots, and top three priorities?",
+      ),
+    ).toEqual([
+      {
+        id: "current-state",
+        kind: "CURRENT_STATE",
+        question: "What is the current project state?",
+        requiresCitation: true,
+      },
+      {
+        id: "features",
+        kind: "FEATURES",
+        question: "What features or capabilities currently exist?",
+        requiresCitation: true,
+      },
+      {
+        id: "gaps",
+        kind: "GAPS",
+        question: "What verified gaps or missing capabilities exist?",
+        requiresCitation: true,
+      },
+      {
+        id: "priorities",
+        kind: "PRIORITIES",
+        question: "What should be prioritized based on the verified project state?",
+        requiredCount: 3,
+        requiresCitation: true,
+      },
+    ]);
+  });
+
+  it("supports Arabic gap phrases and respects a priority-first question order", async () => {
+    const { inferCompoundParts } = await import("../agents/query-planner.js");
+
+    expect(
+      inferCompoundParts("ما هي أعلى ثلاث أولويات، وما القيود ونقاط العمى وأين يفشل الوكيل؟"),
+    ).toEqual([
+      {
+        id: "priorities",
+        kind: "PRIORITIES",
+        question: "What should be prioritized based on the verified project state?",
+        requiredCount: 3,
+        requiresCitation: true,
+      },
+      {
+        id: "gaps",
+        kind: "GAPS",
+        question: "What verified gaps or missing capabilities exist?",
+        requiresCitation: true,
+      },
+    ]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
