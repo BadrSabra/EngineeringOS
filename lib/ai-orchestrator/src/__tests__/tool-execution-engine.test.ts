@@ -1082,6 +1082,85 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("recovers a bounded window after a later required full read is truncated", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/large-project-query.ts";
+    const sourceLines = Array.from({ length: 5_000 }, (_, index) => `const line${index + 1} = ${index + 1};`);
+    sourceLines[399] = "const loopResult = await executeToolLoop(context);";
+    sourceLines[430] = "return synthesize(loopResult);";
+    const retainedSource = sourceLines.join("\n");
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("provider-read", "read_file", { path: requiredPath })]),
+      makeResponse("The provider stopped before the bounded evidence read was recovered."),
+      makeResponse("The agent enters executeToolLoop and retains its tool results before synthesis."),
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: {
+      path?: string;
+      startLine?: string;
+      endLine?: string;
+    }) => {
+      if (name === "read_file") {
+        return `File: ${requiredPath}\n\`\`\`\nconst preview = true;\n[... forensic read exceeded the maximum safe evidence window ...]\n\`\`\``;
+      }
+      if (name === "read_file_range") {
+        const start = Number(args.startLine);
+        const end = Number(args.endLine);
+        return `File: ${requiredPath}\n\`\`\`\n${sourceLines.slice(start - 1, end).join("\n")}\n\`\`\``;
+      }
+      return `unexpected ${name} for ${args.path ?? "unknown"}`;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 3,
+      initialReadStatuses: new Map([[requiredPath, "READ_TRUNCATED"]]),
+      retainedReadStatuses: new Map([[requiredPath, "READ_TRUNCATED"]]),
+      objectiveEvidenceSources: new Map([[requiredPath, retainedSource]]),
+      objective: {
+        goal: "trace the embedded AI layer",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [{
+          claimId: "tool-loop",
+          text: "The agent enters executeToolLoop and retains its tool results before synthesis.",
+          requiredEvidencePaths: [requiredPath],
+          evidenceNeedles: ["executeToolLoop", "loopResult"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.evidenceWindows).toEqual([
+      expect.objectContaining({
+        file: requiredPath,
+        startLine: 380,
+        endLine: 459,
+        content: expect.stringContaining("executeToolLoop"),
+      }),
+    ]);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "380", endLine: "459" },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "1", endLine: "200" },
+      "/project",
+      [],
+    );
+  });
+
   it("forces the next missing required source after recovering a truncated first read", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([

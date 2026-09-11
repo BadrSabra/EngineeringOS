@@ -4154,6 +4154,26 @@ async function readForensicPrimaryTarget(
 }
 
 /**
+ * Load server-owned locator bodies for every declared objective path.
+ *
+ * These bodies are navigation input only. Callers must keep them separate from
+ * retained/accepted evidence and use them solely to calculate bounded reads.
+ */
+export async function loadObjectiveEvidenceLocators(
+  rootPath: string,
+  requiredPaths: readonly string[],
+  existing = new Map<string, string>(),
+): Promise<Map<string, string>> {
+  for (const requiredPath of requiredPaths) {
+    const locatorPath = canonicalRelativePath(requiredPath);
+    if (!locatorPath || existing.has(locatorPath)) continue;
+    const locator = await readForensicPrimaryTarget(rootPath, locatorPath);
+    if (locator.ok) existing.set(locatorPath, locator.raw);
+  }
+  return existing;
+}
+
+/**
  * A Repair Plan execution is a capability boundary: the model may only queue
  * changes for files named by an executable Phase.  This is enforced after the
  * tool loop as well as in the prompt, so a model that ignores the handoff
@@ -6234,6 +6254,20 @@ export async function chat(opts: {
         }
       }
     }
+  }
+
+  // Objective locators are server-owned navigation data, not accepted
+  // evidence. Load every declared objective path into the locator map before
+  // the provider loop so a later truncated provider read can still be
+  // converted into a bounded read_file_range window. Keep these bodies out of
+  // prefetchFileContents, prefetchReadStatuses, and retainedEvidence: only the
+  // bounded window dispatched by the tool loop may become proof.
+  if (objective && rootPath) {
+    await loadObjectiveEvidenceLocators(
+      rootPath,
+      objective.requiredEvidencePaths ?? [],
+      prefetchTraceContents,
+    );
   }
 
   // Surface that the First-Evidence Gate fired: the explicit primary evidence

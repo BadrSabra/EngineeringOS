@@ -198,6 +198,38 @@ describe("chat agent — ChatOutputSchema validation", () => {
     ).toBeUndefined();
   });
 
+  it("loads every objective path as locator-only data without widening accepted evidence", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "objective-locators-"));
+    try {
+      await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+      await fs.writeFile(
+        path.join(rootPath, "src", "first.ts"),
+        "export const first = true;\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(rootPath, "src", "second.ts"),
+        "export function executeToolLoop() { return true; }\n",
+        "utf8",
+      );
+      const { loadObjectiveEvidenceLocators } = await import("../agents/chat-agent.js");
+      const existing = new Map<string, string>([["src/first.ts", "already retained"]]);
+
+      const locators = await loadObjectiveEvidenceLocators(
+        rootPath,
+        ["./src/first.ts", "src/second.ts", "src/missing.ts"],
+        existing,
+      );
+
+      expect(locators).toBe(existing);
+      expect(locators.get("src/first.ts")).toBe("already retained");
+      expect(locators.get("src/second.ts")).toContain("executeToolLoop");
+      expect(locators.has("src/missing.ts")).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("keeps an Arabic greeting tool-free without promoting it to tool chat", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
     const steps: AgentStep[] = [];
