@@ -109,6 +109,9 @@ async function main(): Promise<void> {
 
     let result: Awaited<ReturnType<typeof reviewCode>> | undefined;
     let error: unknown;
+    const observedModels: string[] = [];
+    let fallbackReason: string | undefined;
+    const startedAt = Date.now();
     try {
       result = await reviewCode(
         {
@@ -127,6 +130,17 @@ async function main(): Promise<void> {
           maxFallbackModels: 3,
           retryTransient: false,
           qualityProfile: "code_review",
+          onModelAttempt: (attempt) => {
+            if (attempt.model) observedModels.push(attempt.model);
+          },
+          onProviderFallback: (event) => {
+            fallbackReason = event.reason;
+            // Record both sides of the transition before the next request is
+            // made. A terminal paid-provider error may not reach onModelAttempt,
+            // but the receipt must still show that the paid lane was actually
+            // attempted.
+            observedModels.push(event.fromModel, event.toModel);
+          },
         },
       );
     } catch (caught) {
@@ -143,9 +157,24 @@ async function main(): Promise<void> {
       result,
       error,
       attemptedModels: [
+        ...observedModels,
         ...(configuredModel ? [configuredModel] : []),
         ...attemptedModelsFrom(error),
       ],
+      modelAttempts: [...new Set([
+        ...observedModels,
+        ...(configuredModel ? [configuredModel] : []),
+        ...attemptedModelsFrom(error),
+      ])].map((model) => ({
+        model,
+        tier: model === process.env.OPENROUTER_PAID_MODEL?.trim()
+          ? "paid" as const
+          : model.endsWith(":free")
+            ? "free" as const
+            : "unknown" as const,
+      })),
+      fallbackReason,
+      latencyMs: Date.now() - startedAt,
     });
 
     await fs.mkdir(path.dirname(path.resolve(campaignOutputPath)), { recursive: true });

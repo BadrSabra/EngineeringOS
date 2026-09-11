@@ -21,6 +21,7 @@ import { GroqClientError, type GroqErrorCode } from "./errors.js";
 import {
   buildFallbackChainFromId,
   isCatalogFreeModelForCapability,
+  resolvePaidFallbackChain,
   resolveFallbackChain,
 } from "./openrouter/model-resolver.js";
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
@@ -1188,6 +1189,15 @@ export type OpenRouterFallbackOptions = Omit<
   capability?: ModelCapability;
   /** Execution-plan tool contract, including calls with tools supplied later. */
   requireTools?: boolean;
+  /** Paid fallback is opt-in through server policy and never part of free resolution. */
+  allowPaidFallback?: boolean;
+  /** Reports the one bounded free-to-paid transition, without provider content. */
+  onProviderFallback?: (event: {
+    fromModel: string;
+    toModel: string;
+    reason: string;
+    tier: "paid";
+  }) => void | Promise<void>;
 };
 
 /**
@@ -1260,7 +1270,7 @@ export async function openrouterCompleteWithFallback(
       .filter(Boolean),
   );
   const eligibleChain = resolvedChain.filter((model) => !excludedModels.has(model));
-  const chain = maxFallbackModels
+  let chain = maxFallbackModels
     ? eligibleChain.slice(0, maxFallbackModels)
     : eligibleChain;
   if (maxFallbackModels && eligibleChain.length > chain.length) {
@@ -1286,6 +1296,53 @@ export async function openrouterCompleteWithFallback(
   }
   let lastError: GroqClientError | undefined;
   const attemptedModels: string[] = [];
+  let paidTransitioned = false;
+  const paidFallbackEnabled =
+    opts.allowPaidFallback ?? process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1";
+  const appendPaidFallback = async (failure: GroqClientError, fromModel: string): Promise<boolean> => {
+    if (paidTransitioned || !paidFallbackEnabled) return false;
+    // OpenRouter uses MODEL_UNAVAILABLE for some 400 request-shape failures.
+    // Those are contract/configuration defects, not a reason to spend on a
+    // different tier. INVALID_TOOL_CALL is likewise a local contract failure.
+    if (
+      failure.code === "INVALID_TOOL_CALL" ||
+      (failure.code === "MODEL_UNAVAILABLE" && failure.providerStatus === 400)
+    ) {
+      return false;
+    }
+    if (!["MODEL_NOT_FOUND", "MODEL_UNAVAILABLE", "PLAN_RESTRICTED", "RATE_LIMITED", "QUOTA", "EMPTY_RESPONSE"].includes(failure.code)) {
+      return false;
+    }
+    // maxFallbackModels bounds free attempts. An explicitly enabled paid
+    // policy gets one additional paid attempt, keeping the total bounded while
+    // preserving the free-first ordering.
+    if (maxFallbackModels && attemptedModels.length >= maxFallbackModels && !paidFallbackEnabled) return false;
+    const paid = resolvePaidFallbackChain({
+      capability,
+      quality: opts.quality ?? "fast",
+      requireTools,
+      requireJson: Boolean(opts.responseFormat),
+    });
+    if (paid.length === 0) return false;
+    const nextModel = paid[0]!.id;
+    chain = [...chain, nextModel];
+    paidTransitioned = true;
+    console.warn(JSON.stringify({
+      scope: "openrouter-fallback",
+      code: "PAID_MODEL_TRANSITION",
+      reason: failure.code,
+      fromModel,
+      toModel: nextModel,
+      tier: "paid",
+    }));
+    await opts.onProviderFallback?.({
+      fromModel,
+      toModel: nextModel,
+      reason: failure.code,
+      tier: "paid",
+    });
+    return true;
+  };
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i] as string;
@@ -1301,6 +1358,10 @@ export async function openrouterCompleteWithFallback(
         err instanceof GroqClientError &&
         (err.code === "RATE_LIMITED" || err.code === "QUOTA");
       if (providerScopedRateLimit) {
+        if (err instanceof GroqClientError && await appendPaidFallback(err, model)) {
+          lastError = err;
+          continue;
+        }
         throw new GroqClientError(err.code, err.message, {
           cause: err,
           context: {
@@ -1334,6 +1395,10 @@ export async function openrouterCompleteWithFallback(
             remaining: chain.length - i - 1,
           }),
         );
+        lastError = err;
+        continue;
+      }
+      if (err instanceof GroqClientError && await appendPaidFallback(err, model)) {
         lastError = err;
         continue;
       }

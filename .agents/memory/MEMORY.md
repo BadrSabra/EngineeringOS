@@ -144,3 +144,4 @@
 - [Evidence failure projection](evidence-failure-projection.md) — terminal provider failures must distinguish no reads, incomplete reads, and retained complete evidence without exposing provider diagnostics.
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — delivery proof can be complete from bound validation evidence without source reads; forensic proof still requires retained reads.
+- [OpenRouter live acceptance](openrouter-live-acceptance.md) — catalog/auth success does not prove structured review acceptance; free-model contract/rate failures must remain incomplete and may trigger only classified paid fallback.

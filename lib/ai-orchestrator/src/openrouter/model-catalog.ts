@@ -34,8 +34,31 @@ export type OpenRouterFreeModel = {
   supportsTools: boolean;
   /** Supports response_format: { type: "json_object" }. */
   supportsJson: boolean;
+  /** OpenRouter supports streaming for this catalog entry. */
+  supportsStreaming?: boolean;
   free: true;
   /** Primary quality tier — fast=lightweight, powerful=high-capability. */
+  quality: "fast" | "powerful";
+};
+
+/**
+ * A paid model is intentionally kept out of FREE_MODELS. Paid candidates are
+ * discovered from the authenticated live catalog only after an explicit
+ * server-owned opt-in, then carry the same capability contract as free models.
+ */
+export type OpenRouterPaidModel = {
+  id: string;
+  label: string;
+  capabilities: ModelCapability[];
+  /** Max context window in tokens. */
+  context: number;
+  /** Supports native OpenAI tool_calls protocol. */
+  supportsTools: boolean;
+  /** Supports response_format: { type: "json_object" }. */
+  supportsJson: boolean;
+  /** OpenRouter supports streaming for this catalog entry. */
+  supportsStreaming: boolean;
+  free: false;
   quality: "fast" | "powerful";
 };
 

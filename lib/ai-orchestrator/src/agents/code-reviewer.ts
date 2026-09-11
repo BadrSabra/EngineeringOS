@@ -55,6 +55,11 @@ export type CodeReviewCampaignReceipt = {
   failureCode?: string;
   recoveryAction: OpenRouterFailureAction | "retry-review";
   attemptedModels: string[];
+  modelAttempts: Array<{ model: string; tier: "free" | "paid" | "unknown" }>;
+  fallbackReason?: string;
+  latencyMs: number;
+  evidenceStatus: "complete" | "incomplete";
+  accepted: boolean;
   evidence: Array<{
     file: string;
     findingHash: string;
@@ -214,6 +219,9 @@ export function buildCodeReviewCampaignReceipt(params: {
   result?: CodeReviewResult;
   error?: unknown;
   attemptedModels?: readonly string[];
+  modelAttempts?: readonly { model: string; tier: "free" | "paid" | "unknown" }[];
+  fallbackReason?: string;
+  latencyMs?: number;
 }): CodeReviewCampaignReceipt {
   const selectedFile = params.selectedFile.trim();
   const safeSelectedFile = SAFE_RELATIVE_FILE_PATTERN.test(selectedFile);
@@ -239,6 +247,16 @@ export function buildCodeReviewCampaignReceipt(params: {
     ...(errorCode ? { failureCode: errorCode } : {}),
     recoveryAction: recoveryActionFor(errorCode),
     attemptedModels: safeModels(params.attemptedModels),
+    modelAttempts: (params.modelAttempts ?? [])
+      .filter((attempt) => SAFE_MODEL_PATTERN.test(attempt.model))
+      .slice(0, 8)
+      .map((attempt) => ({ model: attempt.model, tier: attempt.tier })),
+    ...(params.fallbackReason && PROVIDER_ERROR_CODES.has(params.fallbackReason)
+      ? { fallbackReason: params.fallbackReason }
+      : {}),
+    latencyMs: Number.isFinite(params.latencyMs) ? Math.max(0, Math.round(params.latencyMs ?? 0)) : 0,
+    evidenceStatus: hasAcceptedFinding ? "complete" : "incomplete",
+    accepted: hasAcceptedFinding,
     evidence: hasAcceptedFinding
       ? [{ file: selectedFile, findingHash: findingHash(citedIssue!) }]
       : [],

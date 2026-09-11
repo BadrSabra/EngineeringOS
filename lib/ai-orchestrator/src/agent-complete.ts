@@ -62,6 +62,13 @@ export type AgentCompleteOpts = {
   excludeModels?: string[];
   /** Reports each completed model response after local contract parsing. */
   onModelAttempt?: (attempt: AgentModelAttempt) => void | Promise<void>;
+  /** Reports a bounded transition from exhausted free models to paid policy. */
+  onProviderFallback?: (event: {
+    fromModel: string;
+    toModel: string;
+    reason: string;
+    tier: "paid";
+  }) => void | Promise<void>;
 };
 
 function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
@@ -234,6 +241,8 @@ export async function agentComplete(
         maxFallbackModels: opts.maxFallbackModels,
         excludeModels: opts.excludeModels,
         retryTransient: opts.retryTransient,
+        allowPaidFallback: process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1",
+        onProviderFallback: opts.onProviderFallback,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });

@@ -21,12 +21,17 @@
  *   the chain — a MODEL_NOT_FOUND on model[i] advances to model[i+1] before
  *   giving up.
  */
-import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
-import { getUsableDynamicModelIds } from "./dynamic-catalog.js";
+import {
+  FREE_MODELS,
+  type ModelCapability,
+  type OpenRouterFreeModel,
+  type OpenRouterPaidModel,
+} from "./model-catalog.js";
+import { getUsableDynamicModelIds, getUsablePaidModelCandidates } from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
 import type { TaskType } from "../quality/task-profile.js";
 
-export type { ModelCapability, OpenRouterFreeModel };
+export type { ModelCapability, OpenRouterFreeModel, OpenRouterPaidModel };
 
 export function isCatalogFreeModel(modelId: string): boolean {
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
@@ -40,6 +45,8 @@ export function isCatalogFreeModel(modelId: string): boolean {
 export type FreeModelCapabilityOptions = {
   capability?: ModelCapability;
   requireTools?: boolean;
+  requireJson?: boolean;
+  requireStreaming?: boolean;
 };
 
 export function isCatalogFreeModelForCapability(
@@ -50,7 +57,9 @@ export function isCatalogFreeModelForCapability(
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
   return !!model &&
     (!options.capability || model.capabilities.includes(options.capability)) &&
-    (!options.requireTools || model.supportsTools);
+    (!options.requireTools || model.supportsTools) &&
+    (!options.requireJson || model.supportsJson) &&
+    (!options.requireStreaming || model.supportsStreaming !== false);
 }
 
 export type ResolvedModel = {
@@ -64,6 +73,8 @@ export type ResolveModelOpts = {
   capability: ModelCapability;
   quality?: "fast" | "powerful";
   requireTools?: boolean;
+  requireJson?: boolean;
+  requireStreaming?: boolean;
   /** Apply behavioral demotion only to the task execution fallback chain. */
   taskType?: TaskType;
   /** Always true for this module — reserved for future paid-tier support. */
@@ -121,14 +132,22 @@ function partitionByLiveCatalog(
  * Pure function — no logging. Call resolveModel() when you also want a trace.
  */
 export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
-  const { capability, quality = "fast", requireTools = false } = opts;
+  const {
+    capability,
+    quality = "fast",
+    requireTools = false,
+    requireJson = false,
+    requireStreaming = false,
+  } = opts;
   // Emit resolution trace so stale catalog entries and empty chains are visible.
 
   // Filter: must support the capability; if tools required, must support them.
   const capable = FREE_MODELS.filter(
     (m) =>
       (m.capabilities as readonly string[]).includes(capability) &&
-      (!requireTools || m.supportsTools),
+      (!requireTools || m.supportsTools) &&
+      (!requireJson || m.supportsJson) &&
+      (!requireStreaming || m.supportsStreaming !== false),
   );
 
   // Never silently select a model that does not advertise the requested
@@ -177,6 +196,8 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
       capability,
       quality,
       requireTools,
+      requireJson,
+      requireStreaming,
       preferFreeTier: opts.preferFreeTier ?? true,
       catalogLoaded,
       candidates: chain.map((m) => m.id),
@@ -187,6 +208,42 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   );
 
   return chain;
+}
+
+/**
+ * Resolve the explicitly configured paid fallback. This is never part of the
+ * ordinary resolver chain: callers invoke it only after a free candidate has
+ * produced a classified fallback-eligible failure.
+ */
+export function resolvePaidFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
+  const { capability, quality = "fast", requireTools = false, requireJson = false, requireStreaming = false } = opts;
+  const candidates = getUsablePaidModelCandidates()
+    .filter((model) =>
+      model.capabilities.includes(capability) &&
+      (!requireTools || model.supportsTools) &&
+      (!requireJson || model.supportsJson) &&
+      (!requireStreaming || model.supportsStreaming),
+    )
+    .sort((a, b) => (a.quality === quality ? 0 : 1) - (b.quality === quality ? 0 : 1));
+
+  console.info(JSON.stringify({
+    scope: "model-resolver",
+    action: "resolve_paid_fallback_chain",
+    capability,
+    quality,
+    requireTools,
+    requireJson,
+    requireStreaming,
+    candidates: candidates.map((model) => model.id),
+    chainLength: candidates.length,
+  }));
+
+  return candidates.map((model) => ({
+    id: model.id,
+    label: model.label,
+    free: false,
+    capability,
+  }));
 }
 
 /**
@@ -256,14 +313,18 @@ export function buildFallbackChainFromId(
   // be attempted once so the chain can advance to compatible live peers.
   const initiallyCapable =
     (!capabilityOptions.capability || initial.capabilities.includes(capabilityOptions.capability)) &&
-    (!capabilityOptions.requireTools || initial.supportsTools);
+    (!capabilityOptions.requireTools || initial.supportsTools) &&
+    (!capabilityOptions.requireJson || initial.supportsJson) &&
+    (!capabilityOptions.requireStreaming || initial.supportsStreaming !== false);
   if (!initiallyCapable) return [];
 
   const quality = initial.quality;
 
   const isCapable = (m: OpenRouterFreeModel) =>
     (!capabilityOptions.capability || m.capabilities.includes(capabilityOptions.capability)) &&
-    (!capabilityOptions.requireTools || m.supportsTools);
+    (!capabilityOptions.requireTools || m.supportsTools) &&
+    (!capabilityOptions.requireJson || m.supportsJson) &&
+    (!capabilityOptions.requireStreaming || m.supportsStreaming !== false);
   const sameQualityRaw = FREE_MODELS
     .filter((m) => m.quality === quality && m.id !== initialModelId && isCapable(m));
   const otherQualityRaw = FREE_MODELS

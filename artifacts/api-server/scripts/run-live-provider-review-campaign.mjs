@@ -49,6 +49,40 @@ if (!scenarios.has(scenario)) {
 }
 const missing = required.filter((name) => !name || !process.env[name]?.trim());
 if (missing.length > 0) {
+  const outputPath = process.env.LIVE_REVIEW_OUTPUT_PATH?.trim();
+  if (outputPath) {
+    const blockedReceipt = {
+      kind: "code-review-provider-campaign-receipt",
+      version: 1,
+      scenario: scenario ?? "reasoning-only",
+      provider,
+      operationId: "blocked-preflight",
+      projectId: "blocked-preflight",
+      projectRevision: "blocked-preflight",
+      outcomeClass: "terminal-incomplete",
+      terminalStatus: "INCOMPLETE",
+      failureCode: missing.includes(providerKeys[provider])
+        ? "CREDENTIALS_MISSING"
+        : "CAMPAIGN_CONFIGURATION_MISSING",
+      recoveryAction: "stop-safely",
+      attemptedModels: [],
+      modelAttempts: [],
+      fallbackReason: undefined,
+      latencyMs: 0,
+      evidenceStatus: "incomplete",
+      accepted: false,
+      evidence: [],
+    };
+    try {
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const { dirname, resolve } = await import("node:path");
+      await mkdir(dirname(resolve(outputPath)), { recursive: true });
+      await writeFile(resolve(outputPath), `${JSON.stringify(blockedReceipt, null, 2)}\n`, "utf8");
+    } catch {
+      // The bounded stderr reason remains the only output when the requested
+      // receipt path itself cannot be written.
+    }
+  }
   console.error(`BLOCKED: live review campaign requires ${missing.join(", ")}.`);
   process.exit(2);
 }

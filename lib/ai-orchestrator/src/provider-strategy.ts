@@ -60,6 +60,13 @@ export type StrategyCallOptions = {
    */
   toolChoice?: "auto" | "required";
   responseFormat?: { type: "json_object" };
+  /** Safe transition metadata for an explicitly enabled paid fallback. */
+  onProviderFallback?: (event: {
+    fromModel: string;
+    toModel: string;
+    reason: string;
+    tier: "paid";
+  }) => void | Promise<void>;
 };
 
 /** Options for a streaming (SSE) completion call. No tool support. */

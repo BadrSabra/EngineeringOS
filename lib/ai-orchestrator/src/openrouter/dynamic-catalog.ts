@@ -12,6 +12,7 @@
  *   • The loaded set is consumed by resolveFallbackChain() in model-resolver.ts
  *     to filter out stale or discontinued models before returning candidates.
  */
+import type { ModelCapability, OpenRouterPaidModel } from "./model-catalog.js";
 
 const CATALOG_TTL_MS   = 10 * 60 * 1_000; // 10 minutes
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
@@ -22,14 +23,85 @@ type OpenRouterModelEntry = {
   name?: string;
   context_length?: number;
   pricing?: { prompt: string; completion: string };
+  supported_parameters?: unknown;
 };
 
 let _availableIds: Set<string> | null = null;
+let _availablePaidModels: OpenRouterPaidModel[] | null = null;
 let _lastFetchMs = 0;
 let _inFlight: Promise<void> | null = null;
 let _refreshAttempted = false;
 let _lastRefreshStatus: "never" | "success" | "failed" | "empty" = "never";
+let _paidPolicyFingerprint: string | null = null;
 let _lastRefreshError: string | null = null;
+
+const SAFE_MODEL_ID = /^[a-z0-9][a-z0-9._:/-]{0,199}$/i;
+const ALL_CAPABILITIES: readonly ModelCapability[] = [
+  "chat",
+  "coding",
+  "tool_calling",
+  "reasoning",
+  "json",
+  "long_context",
+];
+
+function configuredPaidModelId(): string | undefined {
+  if (process.env.OPENROUTER_ALLOW_PAID_FALLBACK !== "1") return undefined;
+  const model = process.env.OPENROUTER_PAID_MODEL?.trim();
+  return model && SAFE_MODEL_ID.test(model) ? model : undefined;
+}
+
+function configuredPaidCapabilities(): Set<ModelCapability> {
+  return new Set(
+    (process.env.OPENROUTER_PAID_MODEL_CAPABILITIES ?? "chat")
+      .split(",")
+      .map((value) => value.trim() as ModelCapability)
+      .filter((value): value is ModelCapability => ALL_CAPABILITIES.includes(value)),
+  );
+}
+
+function paidPolicyFingerprint(): string {
+  return [
+    process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1" ? "enabled" : "disabled",
+    process.env.OPENROUTER_PAID_MODEL?.trim() ?? "",
+    process.env.OPENROUTER_PAID_MODEL_CAPABILITIES?.trim() ?? "chat",
+  ].join("|");
+}
+
+function supportsParameter(entry: OpenRouterModelEntry, names: readonly string[]): boolean {
+  const supported = Array.isArray(entry.supported_parameters)
+    ? entry.supported_parameters.filter((value): value is string => typeof value === "string")
+    : [];
+  return names.some((name) => supported.includes(name));
+}
+
+function buildPaidCandidate(entry: OpenRouterModelEntry): OpenRouterPaidModel | null {
+  const configuredId = configuredPaidModelId();
+  if (!configuredId || entry.id !== configuredId) return null;
+  if (entry.pricing?.prompt === "0" && entry.pricing?.completion === "0") return null;
+
+  const configuredCapabilities = configuredPaidCapabilities();
+  const supportsTools = supportsParameter(entry, ["tools", "tool_choice", "parallel_tool_calls"]);
+  const supportsJson = supportsParameter(entry, ["response_format", "structured_outputs"]);
+  const capabilities = new Set<ModelCapability>(["chat"]);
+  for (const capability of configuredCapabilities) capabilities.add(capability);
+  if (!supportsTools) capabilities.delete("tool_calling");
+  if (!supportsJson) capabilities.delete("json");
+
+  return {
+    id: entry.id,
+    label: entry.name?.trim() || entry.id,
+    capabilities: [...capabilities],
+    context: typeof entry.context_length === "number" ? entry.context_length : 0,
+    supportsTools,
+    supportsJson,
+    supportsStreaming: true,
+    free: false,
+    quality: configuredCapabilities.has("reasoning") || configuredCapabilities.has("long_context")
+      ? "powerful"
+      : "fast",
+  };
+}
 
 function classifyRefreshFailure(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") return "timeout";
@@ -66,12 +138,26 @@ export function getUsableDynamicModelIds(): Set<string> | null {
   return _availableIds;
 }
 
+/** Configured paid candidates from the last successful live catalog refresh. */
+export function getUsablePaidModelCandidates(): OpenRouterPaidModel[] {
+  if (
+    !_availablePaidModels ||
+    !_availableIds ||
+    _paidPolicyFingerprint !== paidPolicyFingerprint() ||
+    Date.now() - _lastFetchMs >= CATALOG_TTL_MS
+  ) {
+    return [];
+  }
+  return [..._availablePaidModels];
+}
+
 export type DynamicCatalogStatus = {
   loaded: boolean;
   usable: boolean;
   ageMs: number | null;
   lastRefreshStatus: "never" | "success" | "failed" | "empty";
   lastRefreshError: string | null;
+  paidModelCount: number;
 };
 
 export function getDynamicCatalogStatus(): DynamicCatalogStatus {
@@ -82,6 +168,7 @@ export function getDynamicCatalogStatus(): DynamicCatalogStatus {
     ageMs,
     lastRefreshStatus: _lastRefreshStatus,
     lastRefreshError: _lastRefreshError,
+    paidModelCount: getUsablePaidModelCandidates().length,
   };
 }
 
@@ -152,11 +239,14 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       // so models that moved from free → paid still passed the live-catalog
       // check and were tried — causing chains of 404 "paid version available"
       // errors until every model was exhausted.
-      const freeModels = models.filter(
+       const freeModels = models.filter(
         (m) => m.pricing?.prompt === "0" && m.pricing?.completion === "0",
       );
 
       const ids = new Set(freeModels.map((m) => m.id));
+       const paidModels = models
+         .map(buildPaidCandidate)
+         .filter((model): model is OpenRouterPaidModel => Boolean(model));
 
       if (ids.size === 0) {
         _lastRefreshStatus = "empty";
@@ -175,6 +265,8 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       }
 
       _availableIds = ids;
+       _availablePaidModels = paidModels;
+       _paidPolicyFingerprint = paidPolicyFingerprint();
       _lastFetchMs  = Date.now();
       _lastRefreshStatus = "success";
       _lastRefreshError = null;
@@ -184,6 +276,7 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
           scope: "dynamic-catalog",
           code: "REFRESHED",
           freeModelCount: ids.size,
+          paidModelCount: paidModels.length,
           totalModelCount: models.length,
         }),
       );
@@ -234,6 +327,8 @@ export function auditStaticCatalog(staticModelIds: readonly string[]): string[] 
 /** Force-reset state (test helper only). */
 export function _resetForTest(): void {
   _availableIds = null;
+  _availablePaidModels = null;
+  _paidPolicyFingerprint = null;
   _lastFetchMs  = 0;
   _inFlight     = null;
   _refreshAttempted = false;

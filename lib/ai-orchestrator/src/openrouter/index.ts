@@ -1,10 +1,11 @@
 export { FREE_MODELS } from "./model-catalog.js";
-export type { ModelCapability, OpenRouterFreeModel } from "./model-catalog.js";
+export type { ModelCapability, OpenRouterFreeModel, OpenRouterPaidModel } from "./model-catalog.js";
 
 export {
   resolveModel,
   resolveFallbackChain,
   buildFallbackChainFromId,
+  resolvePaidFallbackChain,
   emitModelDecisionTrace,
 } from "./model-resolver.js";
 export type { ResolvedModel, ResolveModelOpts, ModelDecisionTrace } from "./model-resolver.js";
@@ -16,6 +17,7 @@ export {
   getUsableDynamicModelIds,
   isDynamicCatalogLoaded,
   getDynamicCatalogStatus,
+  getUsablePaidModelCandidates,
   auditStaticCatalog,
 } from "./dynamic-catalog.js";
 export type { DynamicCatalogStatus } from "./dynamic-catalog.js";
