@@ -1720,6 +1720,7 @@ function applyObjectiveCompletionGate(opts: {
     response: opts.response,
     evidence: opts.evidence,
     fileContents: opts.fileContents,
+    requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
   });
   const closedEdges = closeObjectiveClaimsFromEdges({ objective, provenEdges });
   const closedClaims = [
@@ -11361,11 +11362,15 @@ export async function chat(opts: {
   // mislabeled valid answers as NOT PROVEN. Reject only when the answer has
   // ZERO supporting source evidence; a grounded answer is returned as-is even
   // when it carries no Finding.
+  // Targeted PROJECT_QUERY objectives have already merged server-owned
+  // materialized evidence into this validation result above. Keep that merged
+  // projection as the sole evidence authority for the remaining gates.
+  const evidenceForRun = behaviorEvidenceValidation.evidence;
   const behaviorAnswerRejected = shouldRejectBehaviorAnswerForMissingEvidence(
     shouldValidateBehaviorEvidence,
-    behaviorEvidenceValidation.evidence,
+    evidenceForRun,
   );
-  const acceptedBehaviorEvidence = behaviorEvidenceValidation.evidence.filter(
+  const acceptedBehaviorEvidence = evidenceForRun.filter(
     (item) => item.supportsClaim,
   );
   // FEG-011/012: an evidence inventory is NOT an answer. Track the question's
@@ -11379,7 +11384,7 @@ export async function chat(opts: {
   // of the three final return paths.
   const requiredClaimGate = applyRequiredClaimClosureGate({
     message,
-    evidence: behaviorEvidenceValidation.evidence,
+    evidence: evidenceForRun,
     fileContents: forensicFileContents,
     // The probe has seven independently labelled capability claims. The
     // generic behavior-question closure parser would collapse the whole
@@ -11557,8 +11562,9 @@ export async function chat(opts: {
           ...closeObjectiveClaimsFromEvidence({
             objective,
             response: responseBeforeBehaviorEvidence,
-            evidence: behaviorEvidenceValidation.evidence,
+            evidence: evidenceForRun,
             fileContents: forensicFileContents,
+            requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
           })
             .filter((c) => c.status === "CLOSED")
             .map((c) => c.claimId.replace(/^edge:/, "").replace(/^objective:/, "")),
@@ -12119,7 +12125,7 @@ export async function chat(opts: {
       stage: "VERIFIED_RESPONSE",
       responseLength: finalResponse.length,
       sourceCount: mergedSources.length,
-      evidenceCount: behaviorEvidenceValidation.evidence.length,
+      evidenceCount: evidenceForRun.length,
       acceptedEvidenceCount: acceptedBehaviorEvidence.length,
       rejectionReasons: verificationRejectionReasons,
     },
@@ -12168,7 +12174,7 @@ export async function chat(opts: {
       ? buildSemanticBehaviorAnswer(
           message,
            terminalResponse,
-          behaviorEvidenceValidation.evidence,
+          evidenceForRun,
           acceptedBehaviorEvidence.length > 0 ? scopedToolSources : [],
           {
             crossFileTrace:

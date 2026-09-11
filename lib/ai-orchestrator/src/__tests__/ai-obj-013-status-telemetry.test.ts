@@ -285,6 +285,19 @@ describe("validateTelemetry fail-closed on objective telemetry (AI-OBJ-011)", ()
     expect(res.consistent).toBe(false);
   });
 
+  it("fails closed: PROVEN cannot carry zero completed claims and proven edges", () => {
+    const res = validateTelemetry(
+      led({
+        completedClaims: [],
+        missingClaims: [],
+        provenEdges: [],
+        failedEdges: [],
+        completionGateResult: "PROVEN",
+      }),
+    );
+    expect(res.consistent).toBe(false);
+  });
+
   it("fails closed: PARTIALLY_PROVEN recorded with zero proven claims/edges", () => {
     const res = validateTelemetry(
       led({

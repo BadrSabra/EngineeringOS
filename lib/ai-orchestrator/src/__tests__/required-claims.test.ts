@@ -224,4 +224,35 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
     });
     expect(closure.filter((claim) => claim.status === "CLOSED")).toHaveLength(2);
   });
+
+  it("does not close an objective from retained bodies when accepted evidence is absent", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["src/agent.ts"],
+      requiredClaims: [
+        {
+          claimId: "agent-loop",
+          text: "executeToolLoop",
+          requiredEvidencePaths: ["src/agent.ts"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+      scopePolicy: {
+        primaryPaths: ["src/agent.ts"],
+        allowedExpansionPaths: [],
+        forbiddenPaths: ["node_modules"],
+      },
+    };
+    const closure = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: "The agent calls executeToolLoop.",
+      evidence: [],
+      fileContents: new Map([[
+        "src/agent.ts",
+        "export function executeToolLoop() { return; }",
+      ]]),
+      requireAcceptedEvidence: true,
+    });
+    expect(closure[0]?.status).toBe("UNCLOSED");
+  });
 });

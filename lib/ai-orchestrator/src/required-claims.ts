@@ -242,10 +242,13 @@ export function materializeObjectiveClaimEvidence(input: {
     const claimNeedle = claim.text.trim();
     if (!claimNeedle) continue;
     const preferredPaths = (claim.requiredEvidencePaths ?? []).map(normalizePath);
-    const candidates = [
-      ...bodyEntries.filter((entry) => preferredPaths.includes(entry.path)),
-      ...bodyEntries.filter((entry) => !preferredPaths.includes(entry.path)),
-    ];
+    // A claim with an explicit evidence manifest must be grounded in one of
+    // those paths. Falling back to an unrelated retained body lets a matching
+    // symbol close the claim without satisfying the server-owned objective
+    // scope.
+    const candidates = preferredPaths.length > 0
+      ? bodyEntries.filter((entry) => preferredPaths.includes(entry.path))
+      : bodyEntries;
     const match = candidates
       .map((entry) => ({ entry, index: entry.content.indexOf(claimNeedle) }))
       .find((candidate) => candidate.index >= 0);
@@ -292,15 +295,27 @@ export function closeObjectiveClaimsFromEvidence(input: {
   response: string;
   evidence?: readonly EvidenceReference[];
   fileContents?: ReadonlyMap<string, string>;
+  /**
+   * Project-query objectives use a server-owned materialized evidence
+   * projection. Other objective types retain their reachability closure
+   * semantics.
+   */
+  requireAcceptedEvidence?: boolean;
 }): RequiredClaim[] {
-  const { objective, response = "", evidence = [], fileContents = new Map() } = input;
+  const {
+    objective,
+    response = "",
+    evidence = [],
+    fileContents = new Map(),
+    requireAcceptedEvidence = false,
+  } = input;
   const groundedSources = new Set(
     evidence
       .filter((item) => item.source && item.excerpt && item.excerpt.trim().length >= 3)
       .map((item) => sourceOfEvidence(item))
       .filter(Boolean),
   );
-  const requireCited = groundedSources.size > 0;
+  const requireCited = requireAcceptedEvidence || groundedSources.size > 0;
   const normalize = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
   const bodies = new Map<string, string>();
   for (const [path, body] of fileContents) {
@@ -316,9 +331,19 @@ export function closeObjectiveClaimsFromEvidence(input: {
     let closed = false;
     let path = "";
     const needle = normalize(claim.text);
+    const claimSpec = objective.requiredClaims.find(
+      (candidate) => candidate.claimId === claim.claimId,
+    );
+    const preferredPaths = (claimSpec?.requiredEvidencePaths ?? []).map((path: string) =>
+      path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, ""),
+    );
     if (needle.length >= 3 && responseNorm.includes(needle)) {
       for (const [file, body] of bodies) {
-        if (body.includes(needle) && (!requireCited || groundedSources.has(file))) {
+        if (
+          body.includes(needle) &&
+          (!requireCited || groundedSources.has(file)) &&
+          (preferredPaths.length === 0 || preferredPaths.includes(file))
+        ) {
           closed = true;
           path = file;
           break;

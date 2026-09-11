@@ -1188,6 +1188,15 @@ export function validateTelemetry(ledger: RunLedger): TelemetryReconciliation {
       if ((ledger.failedEdges?.length ?? 0) > 0) {
         violations.push("completionGateResult PROVEN but failedEdges is non-empty");
       }
+      const requiredElementCount =
+        (ledger.requiredClaims?.length ?? 0) + (ledger.requiredEdges?.length ?? 0);
+      const provenElementCount =
+        (ledger.completedClaims?.length ?? 0) + (ledger.provenEdges?.length ?? 0);
+      if (requiredElementCount > 0 && provenElementCount === 0) {
+        violations.push(
+          "completionGateResult PROVEN with zero completed claims and proven edges",
+        );
+      }
     } else if (
       ledger.completionGateResult !== undefined &&
       ledger.completionGateResult !== "NOT_PROVEN" &&
@@ -1235,7 +1244,7 @@ export function attachObjectiveTelemetry(
     recoveryTarget: recovery?.target,
     completionGateResult: gate.status,
     finalAnswerType:
-      gate.status === "PROVEN"
+      gate.status === "PROVEN" && objective.objectiveType === "PRODUCTION_REACHABILITY"
         ? "PRODUCTION_REACHABILITY_ANSWER"
         : gate.answerTypeMismatch
           ? "BEHAVIORAL_ANSWER"
