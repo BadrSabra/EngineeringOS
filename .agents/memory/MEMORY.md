@@ -84,6 +84,7 @@
 - [Dashboard process campaign](dashboard-process-campaign.md) — release browser campaigns coordinate real API restarts through a bounded localhost control surface.
 - [Dashboard freshness watermarks](dashboard-freshness-watermarks.md) — aggregated snapshots need server-owned monotonic revisions so delayed reconnect responses cannot roll visible state back.
 - [OpenRouter catalog state](openrouter-catalog-state.md) — only a successful usable live snapshot is authoritative; failed or expired refreshes retain static compatibility candidates.
+- [Live revision identity mismatch](live-revision-identity-mismatch.md) — dashboard git short hashes and scanner file-inventory digests are different identities; correlation must not compare them as equal.
 - [Benchmark behavior gates](benchmark-behavior-gates.md) — release validation must execute every fixture oracle against an isolated passing candidate, not only check registration.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
 - [Project-query semantic acceptance](project-query-semantic-acceptance.md) — complete source reads never prove a proof-required PROJECT_QUERY without accepted claims and a verified objective verdict.
