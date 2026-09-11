@@ -613,9 +613,13 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         message,
         history: [],
         projectContext: makeContext(),
-        rootPath,
+        // Exercise the text-only retained-evidence fallback. The provider
+        // must not take the generic incomplete return once the embedded-AI
+        // claims have been materialized and the deterministic override exists.
+        rootPath: undefined,
         provider: "groq",
         apiKey: "test-key",
+        retainedEvidence: completeFileContents,
         objective,
         turnIntent,
         onStep: (step) => steps.push(step as unknown as Record<string, unknown>),

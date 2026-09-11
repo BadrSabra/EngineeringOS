@@ -7988,7 +7988,25 @@ export async function chat(opts: {
   // A provider fallback can be text-only after the primary provider completed
   // a read. Preserve the retained evidence, but use the same six-section
   // report and typed result as every other incomplete forensic terminal.
-  if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
+  //
+  // A proof-complete project query is different: its deterministic response
+  // and closed claims must continue through the response-binding and objective
+  // acceptance stages below. Returning the generic retained-evidence response
+  // here would discard that server-owned proof and turn a complete objective
+  // into OBJECTIVE_BLOCKED.
+  const projectQueryHasCompleteEvidenceOverride =
+    objective?.objectiveType === "PROJECT_QUERY_EMBEDDED-AI"
+    && projectQueryEvidenceResponseOverride !== undefined
+    && objective?.requiredClaims.length !== undefined
+    && objective.requiredClaims.length > 0
+    && materializedProjectQueryEvidence.length === objective.requiredClaims.length;
+  if (
+    retainedEvidence
+    && retainedEvidence.size > 0
+    && !modelHasTools
+    && turnIntent.requiresEvidence
+    && !projectQueryHasCompleteEvidenceOverride
+  ) {
     const retainedEvidenceReport = collectForensicEvidence(
       messages,
       toolSources,
