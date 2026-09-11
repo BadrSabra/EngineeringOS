@@ -153,3 +153,4 @@
 - [Gap-analysis baseline](gap-analysis-baseline.md) — gap-analysis symbol-only recovery failure predates the embedded-AI locator fix and must be triaged separately.
 - [Objective locator recovery](objective-locator-recovery.md) — bounded objective recovery needs a server-owned locator for every required path; first-path prefetch alone cannot recover later truncated reads.
 - [Objective claim closure](objective-claim-closure.md) — complete retained windows still need a surviving response-bound claim projection before PROJECT_QUERY can be accepted.
+- [Project-query stream parity](project-query-stream-parity.md) — targeted objective evidence handoff must run before every SSE terminal return, not only the shared non-streaming gate.
