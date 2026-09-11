@@ -3083,9 +3083,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
 
     // ── Model call (with transient-error fallback to powerModel) ────────────
-    let result: RawGroqResponse;
+    let result: RawGroqResponse = {
+      content: "",
+      toolCalls: null,
+      model,
+      usage: { promptTokens: 0, completionTokens: 0 },
+    };
     let attemptCount = 1;
     let fallbackReason: string | undefined;
+    let recoveredInvalidToolCall = false;
+    let recoveredInvalidFallback = false;
     const t0 = Date.now();
 
     const synthesisOnly =
@@ -3171,6 +3178,61 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         : iterationTools && iterationTools.length > 0
           ? "auto"
           : undefined;
+
+    const buildServerOwnedEvidenceRecovery = (
+      reason: string,
+    ): RawGroqResponse | undefined => {
+      if (
+        synthesisOnly ||
+        !objective ||
+        !requiresEvidence ||
+        !readToolConfigured ||
+        totalToolCalls >= maxToolCalls
+      ) {
+        return undefined;
+      }
+      const serverOwnedEvidencePath = nextMissingObjectiveEvidencePath();
+      if (!serverOwnedEvidencePath) return undefined;
+
+      const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
+        ? "read_file_range"
+        : "read_file";
+      const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
+        ? {
+            path: serverOwnedEvidencePath,
+            // The locator body is never accepted as evidence. Only this
+            // server-dispatched targeted read enters the evidence ledger.
+            ...(objectiveTargetedReadRange(serverOwnedEvidencePath) ?? {
+              startLine: "1",
+              endLine: "200",
+            }),
+          }
+        : { path: serverOwnedEvidencePath };
+
+      try {
+        onStep?.({
+          kind: "diagnostic",
+          code: "FORCE_PRIMARY_EVIDENCE_ACTION",
+          details: [
+            `provider action was unavailable (${reason}); server dispatched ${serverOwnedToolName} for "${serverOwnedEvidencePath}"`,
+          ],
+        });
+      } catch { /* observers must not change recovery semantics */ }
+
+      return {
+        content: "",
+        toolCalls: [{
+          id: `server-evidence-${iter}`,
+          type: "function",
+          function: {
+            name: serverOwnedToolName,
+            arguments: JSON.stringify(serverOwnedToolArgs),
+          },
+        }],
+        model,
+        usage: { promptTokens: 0, completionTokens: 0 },
+      };
+    };
 
     // Keep the complete messages in memory for provenance/evidence validation,
     // but never resend unbounded tool bodies to a provider. This applies to
@@ -3271,7 +3333,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               : "empty_response",
           };
         }
-        return terminalInvalidToolCall(err, iter);
+        const recovery = buildServerOwnedEvidenceRecovery("invalid tool call");
+        if (recovery) {
+          result = recovery;
+          recoveredInvalidToolCall = true;
+        } else {
+          return terminalInvalidToolCall(err, iter);
+        }
       }
       // OR-004: only fall back to powerModel on transient infrastructure errors,
       // not on user/validation errors like NON_200 or AUTH_ERROR.
@@ -3327,12 +3395,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             ]);
           }
           if (fallbackErr instanceof GroqClientError && fallbackErr.code === "INVALID_TOOL_CALL") {
-            return terminalInvalidToolCall(fallbackErr, iter);
+            const recovery = buildServerOwnedEvidenceRecovery("invalid fallback tool call");
+            if (recovery) {
+              result = recovery;
+              recoveredInvalidFallback = true;
+            } else {
+              return terminalInvalidToolCall(fallbackErr, iter);
+            }
           }
           // TIMEOUT after both primary and fallback: degrade gracefully when
           // evidence has already been collected so the caller can surface a
           // partial report rather than a generic error message.
           if (
+            !recoveredInvalidFallback &&
             fallbackErr instanceof GroqClientError &&
             fallbackErr.code === "TIMEOUT" &&
             (lastTextSeen !== undefined ||
@@ -3384,9 +3459,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               reason: "provider_timeout",
             };
           }
-          throw fallbackErr;
+          if (!recoveredInvalidFallback) throw fallbackErr;
         }
-      } else {
+      } else if (!recoveredInvalidToolCall) {
         if (err instanceof GroqClientError) {
           emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", [`provider failure code: ${err.code}`]);
         }

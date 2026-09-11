@@ -2001,6 +2001,86 @@ describe("executeToolLoop", () => {
     )).toBe(false);
   });
 
+  it("recovers a truncated objective after an invalid provider tool call", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "artifacts/api-server/src/routes/ai/chat.ts";
+    const locatorLines = Array.from({ length: 400 }, (_, index) =>
+      index === 339 ? "executeToolLoop();" : `line ${index + 1}`,
+    );
+    const locatorBody = [
+      `File: ${requiredPath}`,
+      "```",
+      ...locatorLines,
+      "```",
+    ].join("\n");
+    const targetedBody = [
+      `File: ${requiredPath}`,
+      "```",
+      ...locatorLines.slice(319, 399),
+      "```",
+    ].join("\n");
+    FILE_TOOL_MOCK.mockResolvedValue(targetedBody);
+
+    const strategy = makeStrategy([makeResponse(
+      "The tool loop is entered after the route selects the execution path.",
+    )]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new GroqClientError(
+        "INVALID_TOOL_CALL",
+        'Provider returned invalid tool-call output: tool "query_knowledge_graph" is not in request manifest.',
+      ),
+    );
+    const steps: AgentStep[] = [];
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: new Map([[requiredPath, "READ_TRUNCATED"]]),
+      retainedReadStatuses: new Map([[requiredPath, "READ_TRUNCATED"]]),
+      objectiveEvidenceSources: new Map([[requiredPath, locatorBody]]),
+      maxIterations: 3,
+      onStep: (step) => steps.push(step),
+      objective: {
+        goal: "explain the tool loop",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [{
+          claimId: "tool-loop",
+          text: "The tool loop is entered after the route selects the execution path.",
+          requiredEvidencePaths: [requiredPath],
+          evidenceNeedles: ["executeToolLoop"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.sourceRetrieval?.targetedReads).toBe(1);
+    expect(result.fileContents?.get(requiredPath)).toContain("executeToolLoop");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "320", endLine: "399" },
+      "/project",
+      [],
+    );
+    expect(strategy.call).toHaveBeenCalledTimes(2);
+    expect(steps.some((step) =>
+      step.kind === "tool_result" &&
+      step.tool === "read_file_range" &&
+      step.readStatus === "READ_TARGETED",
+    )).toBe(true);
+    expect(steps.some((step) =>
+      step.kind === "tool_result" &&
+      step.diagnosticCode === "TOOL_UNAVAILABLE",
+    )).toBe(false);
+  });
+
   it("keeps an invalid tool call during no-tools synthesis recoverable", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);
