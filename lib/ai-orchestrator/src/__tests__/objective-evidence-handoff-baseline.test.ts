@@ -14,6 +14,7 @@ import { classifyRequest } from "../prompts/profile-classifier.js";
 import { buildProjectQueryObjective, resolveProjectQueryTarget } from "../project-query-target.js";
 import { resolveTurnIntent } from "../turn-intent.js";
 import type { ObjectiveContract } from "../schemas/chat.schema.js";
+import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
 
 const originalGroqApiKey = process.env.GROQ_API_KEY;
 
@@ -485,5 +486,123 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(response).toContain("أولاً");
     expect(response).toContain("ثم");
     expect(response).toContain("بعد ذلك");
+  });
+
+  it("keeps an Arabic embedded-AI run incomplete when the provider emits no usable evidence action", async () => {
+    const message = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+    const correlation: AnalysisCorrelation = {
+      operationId: "operation-arabic-embedded-ai",
+      projectId: "project-arabic-embedded-ai",
+      projectRevision: "revision-arabic-embedded-ai",
+      rootAvailable: true,
+      evidenceProvenance: "project-analysis",
+    };
+    let capturedCorrelation: AnalysisCorrelation | undefined;
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      const executeToolLoop = vi.fn(async (...args: Parameters<typeof actual.executeToolLoop>) => {
+        capturedCorrelation = args[0].analysisCorrelation;
+        return actual.executeToolLoop(...args);
+      });
+      return { ...actual, executeToolLoop };
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              // This fixture deliberately emits a response without a usable
+              // read action. It must not be treated as evidence, especially
+              // not as a server-generated 1..200 head window.
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    response: "لا أستطيع إكمال التحليل من دون أدلة مصدر قابلة للتحقق.",
+                    sources: [],
+                  }),
+                },
+              }],
+              model: "arabic-objective-model",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-embedded-arabic-incomplete-"));
+    try {
+      const requiredEvidencePaths = objective.requiredEvidencePaths ?? [];
+      for (const requiredPath of requiredEvidencePaths) {
+        const absolutePath = path.join(rootPath, requiredPath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(
+          absolutePath,
+          Array.from({ length: 240 }, (_, index) => `export const fixtureLine${index + 1} = ${index + 1};`).join("\n"),
+          "utf8",
+        );
+      }
+
+      const classification = classifyRequest(message);
+      const turnIntent = resolveTurnIntent(message, {
+        classification,
+        resumed: false,
+      });
+      const steps: Array<Record<string, unknown>> = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "groq",
+        apiKey: "test-key",
+        objective,
+        turnIntent,
+        analysisCorrelation: correlation,
+        onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+      });
+
+      expect(result.response).toMatch(/ANALYSIS_INCOMPLETE|محظور/);
+      expect(result.response).toMatch(/لم تكتمل|غير مكتملة/);
+      expect(steps.some((step) =>
+        step.kind === "tool_call" &&
+        step.tool === "read_file_range" &&
+        step.args &&
+        (step.args as Record<string, string>).startLine === "1" &&
+        (step.args as Record<string, string>).endLine === "200",
+      )).toBe(false);
+
+      const integrity = [...steps]
+        .reverse()
+        .find((step) => step.kind === "evidence_integrity");
+      expect(integrity).toMatchObject({
+        objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+        acceptedEvidenceCount: 0,
+        acceptedClaimCount: 0,
+        completionGateResult: expect.not.stringMatching(/^PROVEN$/),
+        finalAnswerType: "NO_ANSWER",
+        missingClaims: expect.arrayContaining(objective.requiredClaims.map((claim) => claim.claimId)),
+      });
+
+      const decision = [...steps]
+        .reverse()
+        .find((step) => step.kind === "decision_trace");
+      expect(decision).toMatchObject({
+        trace: {
+          finalState: expect.not.stringMatching(/^VERIFIED$/),
+          objectiveVerdict: expect.not.stringMatching(/^ANSWER_COMPLETE$/),
+        },
+      });
+      expect(capturedCorrelation).toEqual(correlation);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
   });
 });
