@@ -152,3 +152,4 @@
 - [Objective evidence range ownership](objective-evidence-range-ownership.md) — server-computed claim windows must override provider-selected ranges when proving behavioral objectives.
 - [Gap-analysis baseline](gap-analysis-baseline.md) — gap-analysis symbol-only recovery failure predates the embedded-AI locator fix and must be triaged separately.
 - [Objective locator recovery](objective-locator-recovery.md) — bounded objective recovery needs a server-owned locator for every required path; first-path prefetch alone cannot recover later truncated reads.
+- [Objective claim closure](objective-claim-closure.md) — complete retained windows still need a surviving response-bound claim projection before PROJECT_QUERY can be accepted.
