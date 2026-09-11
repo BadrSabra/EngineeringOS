@@ -11675,6 +11675,40 @@ export async function chat(opts: {
   // Targeted PROJECT_QUERY objectives have already merged server-owned
   // materialized evidence into this validation result above. Keep that merged
   // projection as the sole evidence authority for the remaining gates.
+  // A targeted project query has a server-owned response projection once every
+  // declared claim has a materialized source window. Keep that projection
+  // authoritative through the final evidence/claim gates: generic behavioral
+  // recovery may produce a useful citation response, but it must not replace
+  // the claim-bearing objective answer and make complete evidence look unclosed.
+  if (
+    isTargetedProjectQueryObjective &&
+    projectQueryEvidenceResponseOverride &&
+    materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
+    projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride)
+  ) {
+    responseBeforeBehaviorEvidence = projectQueryEvidenceResponseOverride;
+    const materializedEvidence: EvidenceReference[] = materializedProjectQueryEvidence.map((item) => ({
+      source: item.source,
+      excerpt: item.excerpt,
+      sourceSpan: item.sourceSpan,
+      supportsClaim: true,
+      relevance: 1,
+      directness: "DIRECT",
+      sourceType: "IMPLEMENTATION",
+      productionReachability: "NOT_PROVEN",
+      evidenceClass: "BEHAVIOR_PROVEN",
+    }));
+    behaviorEvidenceValidation = {
+      valid: true,
+      violations: [],
+      evidence: [
+        ...materializedEvidence,
+        ...behaviorEvidenceValidation.evidence.filter(
+          (item) => !materializedEvidence.some((owned) => owned.source === item.source),
+        ),
+      ],
+    };
+  }
   const evidenceForRun = behaviorEvidenceValidation.evidence;
   const behaviorAnswerRejected = shouldRejectBehaviorAnswerForMissingEvidence(
     shouldValidateBehaviorEvidence,
