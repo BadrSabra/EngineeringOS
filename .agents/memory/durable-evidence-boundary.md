@@ -32,3 +32,9 @@ Persisted evidence-progress fields must be accepted by the checkpoint parser as 
 **Why:** Checkpoint parsing is a validation boundary, not a transparent JSON round-trip. A newly written progress field that is absent from the parser's projected return value disappears before resume can use it.
 
 **How to apply:** Add a bounded parser/validator for every new evidence-progress field and cover both terminal persistence and parsed reconnect state in the same regression test.
+
+Server-owned locator bodies may select a bounded `read_file_range` recovery window, but only the returned targeted read is accepted evidence; preserve the window's absolute source span when materializing claims.
+
+**Why:** A truncated prefetch can contain the needed symbol outside its visible head. Treating the locator body as proof would bypass the read ledger, while treating the returned window as lines 1..N would produce misleading provenance.
+
+**How to apply:** Carry needles and locator bodies into the tool loop as server-owned inputs, record targeted reads through the normal status ledger, and keep absolute start/end lines alongside the returned window through claim materialization.

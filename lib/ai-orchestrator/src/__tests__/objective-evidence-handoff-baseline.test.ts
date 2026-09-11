@@ -170,6 +170,10 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       expect(capturedOptions?.initialReadStatuses).toEqual(
         new Map([[REQUIRED_PATHS[0], "READ_TRUNCATED"]]),
       );
+      expect(capturedOptions?.objectiveEvidenceSources).toBeInstanceOf(Map);
+      expect(
+        [...(capturedOptions?.objectiveEvidenceSources as Map<string, string>).keys()],
+      ).toContain(REQUIRED_PATHS[0]);
 
       expect(capturedOptions?.objective).toMatchObject({
         goal: message,

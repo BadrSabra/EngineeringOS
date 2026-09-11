@@ -768,6 +768,84 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("targets a server-owned claim window instead of the fixed head of a truncated file", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/large-project-query.ts";
+    const sourceLines = Array.from({ length: 520 }, (_, index) =>
+      index === 359
+        ? "export function executeToolLoop() { return true; }"
+        : `const line${index + 1} = ${index + 1};`,
+    );
+    const retainedSource = sourceLines.join("\n");
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">([
+      [requiredPath, "READ_TRUNCATED"],
+    ]);
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("search-1", "search_code", { query: "executeToolLoop" })]),
+      makeResponse("The tool loop is entered after the route selects the execution path."),
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) => {
+      if (name === "read_file_range") {
+        return `File: ${requiredPath}\n\`\`\`\n${sourceLines
+          .slice(339, 419)
+          .join("\n")}\n\`\`\``;
+      }
+      return `unexpected ${name} for ${args.path ?? "unknown"}`;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+        { type: "function", function: { name: "search_code", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      objectiveEvidenceSources: new Map([[requiredPath, retainedSource]]),
+      maxIterations: 2,
+      objective: {
+        goal: "explain the tool loop",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [{
+          claimId: "tool-loop",
+          text: "The tool loop is entered after the route selects the execution path.",
+          requiredEvidencePaths: [requiredPath],
+          evidenceNeedles: ["executeToolLoop"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(result.evidenceWindows).toEqual([
+      expect.objectContaining({
+        file: requiredPath,
+        startLine: 340,
+        endLine: 419,
+        content: expect.stringContaining("executeToolLoop"),
+      }),
+    ]);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "340", endLine: "419" },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "1", endLine: "200" },
+      "/project",
+      [],
+    );
+  });
+
   it("forces the next missing required source after recovering a truncated first read", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([

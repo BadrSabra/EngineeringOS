@@ -39,7 +39,11 @@ import {
   type ObjectiveScopePolicy,
   type ScopeExpansion,
 } from "./objective-scope.js";
-import { FILE_TOOL_DEFINITIONS, executeFileTool } from "./tools/file-tools.js";
+import {
+  FILE_TOOL_DEFINITIONS,
+  executeFileTool,
+  stripReadFileWrapper,
+} from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
@@ -1005,7 +1009,9 @@ export type AgentLoopObjective = {
   requiredEvidencePaths?: string[];
   requiredClaims: Array<{
     claimId: string;
+    text?: string;
     requiredEvidencePaths?: string[];
+    evidenceNeedles?: string[];
   }>;
 };
 
@@ -1033,6 +1039,13 @@ export type AgentLoopState = {
     | "no_progress"
     | "validation_incomplete"
     | "cancelled";
+};
+
+export type SourceEvidenceWindow = {
+  file: string;
+  content: string;
+  startLine: number;
+  endLine: number;
 };
 
 export type ToolLoopOpts = {
@@ -1127,6 +1140,12 @@ export type ToolLoopOpts = {
    * is only successful after its required evidence/claims are complete.
    */
   objective?: AgentLoopObjective;
+  /**
+   * Server-owned source bodies used only to locate evidenceNeedles in a
+   * truncated required file. These bodies are locator input, not accepted
+   * evidence; the bounded read_file_range result must still enter fileContents.
+   */
+  objectiveEvidenceSources?: ReadonlyMap<string, string>;
   /** Previously server-verified claim state, restored on resumable execution. */
   claimState?: AgentLoopClaimState[];
 
@@ -1321,6 +1340,8 @@ export type ToolLoopResult =
       toolSources: string[];
       /** Completed read_file bodies keyed by project-relative path. */
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
        objectiveState?: AgentLoopState;
@@ -1337,6 +1358,8 @@ export type ToolLoopResult =
       toolSources: string[];
       /** Completed read_file bodies keyed by project-relative path. */
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
       reason?: "soft_limit" | "empty_response" | "provider_timeout";
@@ -1348,6 +1371,8 @@ export type ToolLoopResult =
       toolSources: string[];
       /** Completed read_file bodies keyed by project-relative path. */
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
       /** Why the loop could not produce a final response. */
@@ -1359,6 +1384,8 @@ export type ToolLoopResult =
       kind: "failed";
       toolSources: string[];
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       sourceRetrieval?: SourceRetrievalTelemetry;
       tool: string;
       failureKind: "execution" | "unavailable" | "cancelled";
@@ -1375,6 +1402,8 @@ export type ToolLoopResult =
       toolSources: string[];
       /** Completed read_file bodies keyed by project-relative path. */
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
       reason: "repeated_tool_call";
@@ -1387,6 +1416,8 @@ export type ToolLoopResult =
       kind: "cancelled";
       toolSources: string[];
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       sourceRetrieval?: SourceRetrievalTelemetry;
        objectiveState?: AgentLoopState;
      }
@@ -1401,6 +1432,8 @@ export type ToolLoopResult =
       result?: RawGroqResponse;
       toolSources: string[];
       fileContents?: Map<string, string>;
+      /** Absolute provenance for bounded read_file_range evidence windows. */
+      evidenceWindows?: SourceEvidenceWindow[];
       sourceRetrieval?: SourceRetrievalTelemetry;
       objectiveState?: AgentLoopState;
     };
@@ -1768,6 +1801,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     compoundWriteMode = false,
     executionTargetPaths = [],
     objective,
+    objectiveEvidenceSources,
     claimState,
     allowExecutionTools = false,
     validationRunner,
@@ -1863,6 +1897,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const toolCallCache = opts.cache ?? new Map<string, string>();
   const toolSources: string[] = [];
   const fileContents = new Map<string, string>(opts.initialFileContents ?? []);
+  const sourceEvidenceWindows: SourceEvidenceWindow[] = [];
   // A partial prefetched body may already occupy the shared cache. In a
   // complete-read run, allow exactly one server-owned cache upgrade per path
   // before the normal repeated-truncated-read guard takes over.
@@ -1872,6 +1907,59 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // prefetched bodies then every successful read this run.
   const canonicalRel = (value: string): string =>
     value.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+  const objectiveTargetedReadRange = (
+    path: string,
+  ): { startLine: string; endLine: string } | undefined => {
+    if (!objective || !objectiveEvidenceSources) return undefined;
+    const normalizedPath = canonicalRel(path);
+    const sourceEntry = [...objectiveEvidenceSources.entries()]
+      .find(([candidatePath]) => canonicalRel(candidatePath) === normalizedPath);
+    if (!sourceEntry) return undefined;
+
+    const rawBody = sourceEntry[1];
+    const rawLines = rawBody.split("\n");
+    const sourceLines =
+      rawLines.length >= 4 &&
+      /^File: [^\n]*$/.test(rawLines[0] ?? "") &&
+      rawLines[1]?.trim() === "```" &&
+      /^```[ \t]*$/.test(rawLines[rawLines.length - 1] ?? "")
+        ? rawLines.slice(2, -1)
+        : rawLines;
+    const sourceBody = sourceLines.join("\n");
+    const needles = objective.requiredClaims
+      .filter((claim) =>
+        (claim.requiredEvidencePaths ?? []).some(
+          (requiredPath) => canonicalRel(requiredPath) === normalizedPath,
+        ),
+      )
+      .flatMap((claim) => claim.evidenceNeedles ?? [])
+      .map((needle) => needle.trim())
+      .filter(Boolean);
+    if (needles.length === 0) return undefined;
+
+    const matchingLineNumbers = needles
+      .map((needle) => {
+        const index = sourceBody.indexOf(needle);
+        return index >= 0
+          ? (sourceBody.slice(0, index).match(/\n/g)?.length ?? 0) + 1
+          : undefined;
+      })
+      .filter((line): line is number => line !== undefined);
+    if (matchingLineNumbers.length === 0) return undefined;
+
+    const contextLines = 20;
+    const windowLines = 80;
+    const startLine = Math.max(1, Math.min(...matchingLineNumbers) - contextLines);
+    const endLine = Math.min(
+      sourceLines.length,
+      Math.max(startLine + windowLines - 1, Math.max(...matchingLineNumbers) + contextLines),
+    );
+    // read_file_range has its own 4,000-line cap. If the server-owned claims
+    // are too far apart, do not guess or silently widen past that cap; the
+    // existing head-window fallback remains fail-closed for this run.
+    if (endLine - startLine + 1 > 4_000) return undefined;
+    return { startLine: String(startLine), endLine: String(endLine) };
+  };
   const sourceEvidenceByCanonical = new Map<string, string>();
   for (const [path, body] of opts.initialFileContents ?? []) {
     sourceEvidenceByCanonical.set(canonicalRel(path), body);
@@ -1890,6 +1978,39 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       sourceEvidenceByCanonical.set(canonicalRel(path), output);
       opts.retainedFileContents?.set(path, output);
     }
+  };
+  const recordSourceEvidenceWindow = (
+    toolName: string,
+    path: string | undefined,
+    args: Record<string, string>,
+    output: string,
+  ): void => {
+    if (
+      toolName !== "read_file_range" ||
+      typeof path !== "string" ||
+      !path.trim() ||
+      classifyReadStatus(toolName, output) !== "READ_TARGETED"
+    ) {
+      return;
+    }
+    const startLine = Number(args.startLine);
+    const requestedEndLine = Number(args.endLine);
+    if (
+      !Number.isInteger(startLine) ||
+      !Number.isInteger(requestedEndLine) ||
+      startLine < 1 ||
+      requestedEndLine < startLine
+    ) {
+      return;
+    }
+    const content = stripReadFileWrapper(output);
+    const returnedLineCount = content.split("\n").length;
+    sourceEvidenceWindows.push({
+      file: path,
+      content,
+      startLine,
+      endLine: Math.min(requestedEndLine, startLine + returnedLineCount - 1),
+    });
   };
   // Fresh-execution budget counter; only fresh calls consume budget while the
   // persisted trace counts cached/prefetched logical calls too.
@@ -2787,6 +2908,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       ...(result ? { result } : {}),
       toolSources,
       fileContents,
+      evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
       ...(state ? { objectiveState: state } : {}),
     };
@@ -2817,6 +2939,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       kind: "cancelled",
       toolSources,
       fileContents,
+      evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
       ...(buildObjectiveState("cancelled")
         ? { objectiveState: buildObjectiveState("cancelled") }
@@ -2857,6 +2980,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       kind: "failed",
       toolSources,
       fileContents,
+      evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
       tool,
       failureKind,
@@ -2931,6 +3055,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           toolSources,
           sourceRetrieval,
           fileContents,
+          evidenceWindows: sourceEvidenceWindows,
           reason: "soft_limit",
         };
       }
@@ -3139,6 +3264,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             result: terminalResult,
             toolSources,
             fileContents,
+            evidenceWindows: sourceEvidenceWindows,
             sourceRetrieval,
             reason: terminalResult.content?.trim()
               ? "soft_limit"
@@ -3254,6 +3380,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               },
               toolSources,
               fileContents,
+              evidenceWindows: sourceEvidenceWindows,
               reason: "provider_timeout",
             };
           }
@@ -3326,6 +3453,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               },
               toolSources,
               fileContents,
+              evidenceWindows: sourceEvidenceWindows,
               reason: "provider_timeout",
             };
           }
@@ -3355,7 +3483,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 sourceRetrieval,
               });
             } catch { /* ignore */ }
-            return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+            return {
+              kind: "partial",
+              result: lastTextSeen,
+              toolSources,
+              fileContents,
+              evidenceWindows: sourceEvidenceWindows,
+              sourceRetrieval,
+              reason: "empty_response",
+            };
           }
           // A provider can return EMPTY_RESPONSE on the turn immediately
           // after evidence collection, before the loop has emitted its
@@ -3391,6 +3527,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               },
               toolSources,
               fileContents,
+              evidenceWindows: sourceEvidenceWindows,
               sourceRetrieval,
               reason: "empty_response",
             };
@@ -3408,7 +3545,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               sourceRetrieval,
             });
           } catch { /* ignore */ }
-          return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "empty_response" };
+          return {
+            kind: "exhausted",
+            toolSources,
+            fileContents,
+            evidenceWindows: sourceEvidenceWindows,
+            sourceRetrieval,
+            reason: "empty_response",
+          };
         }
 
         throw err;
@@ -3549,11 +3693,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
           ? {
               path: serverOwnedEvidencePath,
-              // A truncated full read has no reliable symbol span. Use a
-              // bounded source window rather than reissuing the capped read;
-              // later provider-directed ranges can refine the evidence.
-              startLine: "1",
-              endLine: "200",
+              // Prefer a bounded server-owned window around the declared
+              // evidence needles. The locator body is never accepted as
+              // evidence; only this read_file_range result enters the ledger.
+              ...(objectiveTargetedReadRange(serverOwnedEvidencePath) ?? {
+                // A truncated full read has no reliable symbol span when no
+                // server-owned needle is available. Preserve the old bounded
+                // fallback and its fail-closed semantics.
+                startLine: "1",
+                endLine: "200",
+              }),
             }
           : { path: serverOwnedEvidencePath };
         result = {
@@ -3741,6 +3890,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         result,
         toolSources,
         fileContents,
+        evidenceWindows: sourceEvidenceWindows,
         sourceRetrieval,
         ...(buildObjectiveState(objective ? "goal_met" : undefined)
           ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
@@ -3789,6 +3939,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           result: terminalResult,
           toolSources,
           fileContents,
+          evidenceWindows: sourceEvidenceWindows,
           sourceRetrieval,
           ...(buildObjectiveState(objective ? "goal_met" : undefined)
             ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
@@ -3805,6 +3956,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         },
         toolSources,
         fileContents,
+        evidenceWindows: sourceEvidenceWindows,
         sourceRetrieval,
         reason: "empty_response",
       };
@@ -4549,6 +4701,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             kind: "stopped",
             toolSources,
             fileContents,
+            evidenceWindows: sourceEvidenceWindows,
             sourceRetrieval,
             reason: "repeated_tool_call",
             tool: tc.function.name,
@@ -4604,6 +4757,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             }
           }
           recordRead(tc.function.name, args.path, cached);
+          recordSourceEvidenceWindow(tc.function.name, args.path, args, cached);
           recordSourceEvidence(args.path, cached, tc.function.name);
           if (clearingActiveForce) {
             rearmNextObjectiveEvidencePath();
@@ -5061,6 +5215,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
       if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
         recordRead(tc.function.name, args.path, toolResult.output);
+        recordSourceEvidenceWindow(tc.function.name, args.path, args, toolResult.output);
         // Retain the body as source evidence so a later dependency proof may
         // cite `from_file` and reference text grounded in what was actually read.
         recordSourceEvidence(args.path, toolResult.output, tc.function.name);
@@ -5259,7 +5414,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         sourceRetrieval,
       });
     } catch { /* ignore */ }
-    return { kind: "partial", result: lastTextSeen, toolSources, fileContents, sourceRetrieval, reason: "soft_limit" };
+    return {
+      kind: "partial",
+      result: lastTextSeen,
+      toolSources,
+      fileContents,
+      evidenceWindows: sourceEvidenceWindows,
+      sourceRetrieval,
+      reason: "soft_limit",
+    };
   }
 
   currentIteration = maxIterations;
@@ -5283,5 +5446,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       sourceRetrieval,
     });
   } catch { /* ignore */ }
-  return { kind: "exhausted", toolSources, fileContents, sourceRetrieval, reason: "iteration_budget" };
+  return {
+    kind: "exhausted",
+    toolSources,
+    fileContents,
+    evidenceWindows: sourceEvidenceWindows,
+    sourceRetrieval,
+    reason: "iteration_budget",
+  };
 }

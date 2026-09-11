@@ -72,6 +72,13 @@ export type MaterializedObjectiveClaimEvidence = {
   };
 };
 
+export type ObjectiveEvidenceWindow = {
+  file: string;
+  content: string;
+  startLine: number;
+  endLine: number;
+};
+
 // Closure MUST evaluate every explicit source the question names — a question
 // that names N files requires each of the N to be grounded before finalization.
 // Only outward payloads (diagnostic details/reasons/evidence paths) are capped.
@@ -227,16 +234,30 @@ export function decomposeObjectiveClaims(objective: ObjectiveContract): Required
 export function materializeObjectiveClaimEvidence(input: {
   objective: ObjectiveContract;
   fileContents: ReadonlyMap<string, string>;
+  sourceWindows?: readonly ObjectiveEvidenceWindow[];
 }): MaterializedObjectiveClaimEvidence[] {
   const normalizePath = (value: string): string =>
     value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
   const lineOf = (content: string, index: number): number =>
     (content.slice(0, index).match(/\n/g)?.length ?? 0) + 1;
-  const bodyEntries = [...input.fileContents.entries()].map(([path, content]) => ({
-    path: normalizePath(path),
-    content,
-    lines: content.split("\n"),
+  const windowEntries = (input.sourceWindows ?? []).map((window) => ({
+    path: normalizePath(window.file),
+    content: window.content,
+    lines: window.content.split("\n"),
+    baseLine: window.startLine,
   }));
+  const windowPaths = new Set(windowEntries.map((entry) => entry.path));
+  const bodyEntries = [
+    ...windowEntries,
+    ...[...input.fileContents.entries()]
+      .filter(([path]) => !windowPaths.has(normalizePath(path)))
+      .map(([path, content]) => ({
+        path: normalizePath(path),
+        content,
+        lines: content.split("\n"),
+        baseLine: 1,
+      })),
+  ];
   const results: MaterializedObjectiveClaimEvidence[] = [];
 
   for (const claim of input.objective.requiredClaims) {
@@ -262,9 +283,14 @@ export function materializeObjectiveClaimEvidence(input: {
       .find((candidate) => candidate.index >= 0);
     if (!match) continue;
 
-    const startLine = Math.max(1, lineOf(match.entry.content, match.index) - 2);
-    const endLine = Math.min(match.entry.lines.length, startLine + 6);
-    const excerpt = match.entry.lines.slice(startLine - 1, endLine).join("\n").trim();
+    const localStartLine = Math.max(1, lineOf(match.entry.content, match.index) - 2);
+    const localEndLine = Math.min(match.entry.lines.length, localStartLine + 6);
+    const startLine = match.entry.baseLine + localStartLine - 1;
+    const endLine = match.entry.baseLine + localEndLine - 1;
+    const excerpt = match.entry.lines
+      .slice(localStartLine - 1, localEndLine)
+      .join("\n")
+      .trim();
     if (!excerpt || !excerpt.includes(match.needle)) continue;
     results.push({
       claimId: claim.claimId,

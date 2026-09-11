@@ -325,4 +325,44 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
     });
     expect(closure[0]?.status).toBe("UNCLOSED");
   });
+
+  it("preserves absolute line spans for targeted source windows", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["src/agent.ts"],
+      requiredClaims: [
+        {
+          claimId: "loop",
+          text: "The agent enters the tool loop before synthesis.",
+          evidenceNeedles: ["executeToolLoop"],
+          requiredEvidencePaths: ["src/agent.ts"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+      scopePolicy: {
+        primaryPaths: ["src/agent.ts"],
+        allowedExpansionPaths: [],
+        forbiddenPaths: ["node_modules"],
+      },
+    };
+
+    const materialized = materializeObjectiveClaimEvidence({
+      objective,
+      fileContents: new Map([
+        ["src/agent.ts", "const loopResult = await executeToolLoop(context);"],
+      ]),
+      sourceWindows: [
+        {
+          file: "src/agent.ts",
+          content: "before\nconst loopResult = await executeToolLoop(context);\nafter",
+          startLine: 340,
+          endLine: 342,
+        },
+      ],
+    });
+
+    expect(materialized).toHaveLength(1);
+    expect(materialized[0]?.sourceSpan).toEqual({ startLine: 340, endLine: 342 });
+    expect(materialized[0]?.excerpt).toContain("executeToolLoop");
+  });
 });

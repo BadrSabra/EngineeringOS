@@ -7491,6 +7491,10 @@ export async function chat(opts: {
     rootPath: rootPath ?? "",
     pendingChanges,
     initialFileContents: prefetchFileContents,
+    // Truncated prefetch bodies are locator input only. The tool loop uses
+    // objective evidence needles to choose a bounded read_file_range window;
+    // the targeted result, not this map, becomes accepted evidence.
+    objectiveEvidenceSources: prefetchTraceContents,
     initialReadStatuses: prefetchReadStatuses,
     retainedReadStatuses: prefetchReadStatuses,
     retainedFileContents: retainedEvidence,
@@ -7638,6 +7642,7 @@ export async function chat(opts: {
       ? materializeObjectiveClaimEvidence({
           objective,
           fileContents: forensicFileContents,
+          sourceWindows: loopResult.evidenceWindows,
         })
       : [];
   if (
@@ -7736,6 +7741,7 @@ export async function chat(opts: {
       },
       toolSources: priorLoopResult.toolSources,
       fileContents: priorLoopResult.fileContents,
+      evidenceWindows: priorLoopResult.evidenceWindows,
       sourceRetrieval: "sourceRetrieval" in priorLoopResult
         ? priorLoopResult.sourceRetrieval
         : undefined,
