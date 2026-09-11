@@ -1,20 +1,21 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 2,
-  "generatedAt": "2026-09-11T17:58:23.208Z",
+  "generatedAt": "2026-09-11T18:23:05.792Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
   "summary": {
     "totalCases": 15,
-    "passedCases": 13,
-    "failedCases": 1,
+    "passedCases": 12,
+    "failedCases": 2,
     "skippedCases": 1,
-    "blockingFailures": 1,
+    "blockingFailures": 2,
     "informationalFailures": 0
   },
   "blockers": [
-    "AI_CONTRACT_AND_JSON_FAILED_1"
+    "AI_CONTRACT_AND_JSON_FAILED_1",
+    "AI_SSE_AND_REDACTION_FAILED_1"
   ],
   "checks": [
     {
@@ -27,7 +28,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 34900
+      "durationMs": 41557
     },
     {
       "id": "dashboard-typecheck",
@@ -39,7 +40,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 18843
+      "durationMs": 20536
     },
     {
       "id": "openapi-client-parity",
@@ -52,7 +53,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7139
+      "durationMs": 7985
     },
     {
       "id": "truth-flow-parity",
@@ -64,7 +65,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1570
+      "durationMs": 1761
     },
     {
       "id": "ai-contract-and-json",
@@ -89,7 +90,7 @@
         ],
         "testIds": []
       },
-      "durationMs": 81477
+      "durationMs": 74712
     },
     {
       "id": "ai-structured-review-fallback",
@@ -105,7 +106,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1936
+      "durationMs": 1893
     },
     {
       "id": "ai-capability-probe-provider-matrix",
@@ -121,7 +122,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 4704
+      "durationMs": 4849
     },
     {
       "id": "ai-sse-and-redaction",
@@ -135,8 +136,18 @@
         "resume"
       ],
       "enabled": true,
-      "status": "passed",
-      "durationMs": 35626
+      "status": "failed",
+      "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
+      "diagnostic": {
+        "classification": "harness_failure",
+        "code": "HARNESS_EXECUTION_FAILED",
+        "testFiles": [
+          "src/routes/ai-stream-integration.test.ts",
+          "src/routes/ai/chat-sse.test.ts"
+        ],
+        "testIds": []
+      },
+      "durationMs": 30512
     },
     {
       "id": "ai-stream-release-smoke",
@@ -155,7 +166,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 9430
+      "durationMs": 11182
     },
     {
       "id": "ai-long-run-ownership",
@@ -175,7 +186,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 9000
+      "durationMs": 11833
     },
     {
       "id": "ai-operational-safety",
@@ -191,7 +202,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 94846
+      "durationMs": 112059
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -206,7 +217,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 767
+      "durationMs": 1282
     },
     {
       "id": "benchmark-baseline-regression",
@@ -219,7 +230,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1027
+      "durationMs": 1225
     },
     {
       "id": "benchmark-runtime-oracle-preflight",
@@ -232,7 +243,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 8395
+      "durationMs": 9776
     },
     {
       "id": "dashboard-preview-contract",

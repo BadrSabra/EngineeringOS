@@ -5981,24 +5981,23 @@ export async function chat(opts: {
   // The shared intent is authoritative. Do not infer tool use again from the
   // augmented model message or from rootPath availability.
   const toolExecutionRequested = turnIntent.requiresTools;
-  // Keep ordinary CHAT lightweight and non-evidence-gated while allowing the
-  // model to request a bounded source read when it needs current project
-  // details. This capability is intentionally separate from requiresTools so
-  // optional reads do not promote a greeting into a tool-chat execution plan.
+  // Keep ordinary CHAT lightweight and non-evidence-gated. Project reads are
+  // enabled only when the resolved intent explicitly requires tools, so a
+  // conversational turn cannot unexpectedly receive the provider tool
+  // manifest and invoke a file tool.
   const optionalProjectReadCapability =
     !!rootPath &&
-    (turnIntent.kind === "CHAT" || turnIntent.kind === "PROJECT_QUERY") &&
+    turnIntent.kind === "PROJECT_QUERY" &&
     !turnIntent.requiresEvidence;
   const immediateExecution = rootPath !== undefined && immediateIntent;
   const agentScope = rootPath && toolExecutionRequested
     ? turnIntent.executionTaskType
     : "chat";
-  const modelHasTools = !!rootPath && (toolExecutionRequested || optionalProjectReadCapability);
+  const modelHasTools = !!rootPath && toolExecutionRequested;
 
   const executionPlan = suppliedExecutionPlan ?? resolveExecutionDecision(agentScope, {
-    // Optional CHAT reads expose tools without changing ordinary-chat model
-    // selection. PROJECT_QUERY and delivery turns still require tools through
-    // the canonical intent contract.
+    // PROJECT_QUERY and delivery turns require tools through the canonical
+    // intent contract; ordinary CHAT stays on the no-tools chat profile.
     hasTools: toolExecutionRequested,
     requireTools: toolExecutionRequested,
     ...(capabilityProbeRequest
