@@ -1016,6 +1016,72 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("does not treat the file head as objective evidence when no bounded locator cluster exists", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/large-project-query.ts";
+    const sourceLines = Array.from({ length: 5_000 }, (_, index) => `const line${index + 1} = ${index + 1};`);
+    sourceLines[399] = "const routingStep = resolveTurnIntent(message);";
+    sourceLines[4_899] = "const dispatchStep = dispatchToProvider(request);";
+    const retainedSource = sourceLines.join("\n");
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">([
+      [requiredPath, "READ_TRUNCATED"],
+    ]);
+    const strategy = makeStrategy([
+      makeResponse("", []),
+      makeResponse("The claim remains incomplete because its required implementation steps are outside one bounded source window."),
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: {
+      path?: string;
+      startLine?: string;
+      endLine?: string;
+    }) => {
+      if (name === "read_file_range") {
+        const start = Number(args.startLine);
+        const end = Number(args.endLine);
+        return `File: ${requiredPath}\n\`\`\`\n${sourceLines
+          .slice(start - 1, end)
+          .join("\n")}\n\`\`\``;
+      }
+      return `unexpected ${name} for ${args.path ?? "unknown"}`;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      objectiveEvidenceSources: new Map([[requiredPath, retainedSource]]),
+      maxIterations: 2,
+      objective: {
+        goal: "explain the complete provider flow",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [{
+          claimId: "provider-flow",
+          text: "The route resolves routing before dispatching the provider.",
+          requiredEvidencePaths: [requiredPath],
+          evidenceNeedles: ["resolveTurnIntent", "dispatchToProvider"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("incomplete");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
+      "read_file_range",
+      { path: requiredPath, startLine: "1", endLine: "200" },
+      "/project",
+      [],
+    );
+  });
+
   it("forces the next missing required source after recovering a truncated first read", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([

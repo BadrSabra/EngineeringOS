@@ -1505,6 +1505,9 @@ export type AgentDiagnosticCode =
   // Objective traversal: a completed source was replayed while a required
   // manifest path remained unread, so the provider was redirected.
   | "REQUIRED_EVIDENCE_PATH_ADVANCE"
+  // Objective recovery could not derive a bounded server-owned window from
+  // the retained locator body, so no provider-selected range is accepted.
+  | "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE"
   // Budget rebalancing (FEG-009/010): the run ended with ZERO source reads ever
   // acquired. This is classified as incomplete-before-evidence - it is NOT a
   // normal terminal - and, within the recovery allocation, the loop forces a
@@ -1907,14 +1910,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // prefetched bodies then every successful read this run.
   const canonicalRel = (value: string): string =>
     value.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+  type ObjectiveTargetedReadRange =
+    | { startLine: string; endLine: string }
+    | { unavailable: true; reason: string };
   const objectiveTargetedReadRange = (
     path: string,
-  ): { startLine: string; endLine: string } | undefined => {
+  ): ObjectiveTargetedReadRange | undefined => {
     if (!objective || !objectiveEvidenceSources) return undefined;
     const normalizedPath = canonicalRel(path);
     const sourceEntry = [...objectiveEvidenceSources.entries()]
       .find(([candidatePath]) => canonicalRel(candidatePath) === normalizedPath);
-    if (!sourceEntry) return undefined;
+    if (!sourceEntry) {
+      return {
+        unavailable: true,
+        reason: "the server-owned locator body is unavailable",
+      };
+    }
 
     const rawBody = sourceEntry[1];
     const rawLines = rawBody.split("\n");
@@ -1968,7 +1979,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       return candidates;
     };
     const candidatesByNeedle = needles.map(candidatesForNeedle);
-    if (candidatesByNeedle.some((candidates) => candidates.length === 0)) return undefined;
+    if (candidatesByNeedle.some((candidates) => candidates.length === 0)) {
+      return {
+        unavailable: true,
+        reason: "one or more required evidence needles were not found",
+      };
+    }
 
     // Generic locators often have a later, high-scoring occurrence that is
     // unrelated to the behavior being proven. Choosing each needle's winner
@@ -2000,7 +2016,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         bestCluster = { candidates: selected, score, span };
       }
     }
-    if (!bestCluster) return undefined;
+    if (!bestCluster) {
+      return {
+        unavailable: true,
+        reason: "required evidence needles do not share a bounded executable cluster",
+      };
+    }
 
     const matchingLineNumbers = bestCluster.candidates.map((candidate) => candidate.line);
 
@@ -2014,7 +2035,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // read_file_range has its own 4,000-line cap. If the server-owned claims
     // are too far apart, do not guess or silently widen past that cap; the
     // existing head-window fallback remains fail-closed for this run.
-    if (endLine - startLine + 1 > 4_000) return undefined;
+    if (endLine - startLine + 1 > 4_000) {
+      return {
+        unavailable: true,
+        reason: "the server-owned evidence window exceeds the read range limit",
+      };
+    }
     return { startLine: String(startLine), endLine: String(endLine) };
   };
   const sourceEvidenceByCanonical = new Map<string, string>();
@@ -3254,12 +3280,27 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
         ? "read_file_range"
         : "read_file";
+      const targetedRange = serverOwnedToolName === "read_file_range"
+        ? objectiveTargetedReadRange(serverOwnedEvidencePath)
+        : undefined;
+      if (targetedRange && "unavailable" in targetedRange) {
+        try {
+          onStep?.({
+            kind: "diagnostic",
+            code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
+            details: [
+              `server-owned recovery did not dispatch "${serverOwnedEvidencePath}": ${targetedRange.reason}`,
+            ],
+          });
+        } catch { /* observers must not change recovery semantics */ }
+        return undefined;
+      }
       const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
         ? {
             path: serverOwnedEvidencePath,
             // The locator body is never accepted as evidence. Only this
             // server-dispatched targeted read enters the evidence ledger.
-            ...(objectiveTargetedReadRange(serverOwnedEvidencePath) ?? {
+            ...(targetedRange ?? {
               startLine: "1",
               endLine: "200",
             }),
@@ -3822,41 +3863,57 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
           ? "read_file_range"
           : "read_file";
-        const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
-          ? {
-              path: serverOwnedEvidencePath,
-              // Prefer a bounded server-owned window around the declared
-              // evidence needles. The locator body is never accepted as
-              // evidence; only this read_file_range result enters the ledger.
-              ...(objectiveTargetedReadRange(serverOwnedEvidencePath) ?? {
-                // A truncated full read has no reliable symbol span when no
-                // server-owned needle is available. Preserve the old bounded
-                // fallback and its fail-closed semantics.
-                startLine: "1",
-                endLine: "200",
-              }),
-            }
-          : { path: serverOwnedEvidencePath };
-        result = {
-          ...result,
-          toolCalls: [{
-            id: serverOwnedToolCallId,
-            type: "function",
-            function: {
-              name: serverOwnedToolName,
-              arguments: JSON.stringify(serverOwnedToolArgs),
-            },
-          }],
-        };
-        try {
-          onStep?.({
-            kind: "diagnostic",
-            code: "FORCE_PRIMARY_EVIDENCE_ACTION",
-            details: [
-              `provider returned no usable evidence action; server dispatched ${serverOwnedToolName} for "${serverOwnedEvidencePath}"`,
-            ],
-          });
-        } catch { /* ignore */ }
+        const targetedRange = serverOwnedToolName === "read_file_range"
+          ? objectiveTargetedReadRange(serverOwnedEvidencePath)
+          : undefined;
+        if (targetedRange && "unavailable" in targetedRange) {
+          result = { ...result, toolCalls: [] };
+          try {
+            onStep?.({
+              kind: "diagnostic",
+              code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
+              details: [
+                `provider returned no usable evidence action for "${serverOwnedEvidencePath}": ${targetedRange.reason}`,
+              ],
+            });
+          } catch { /* ignore */ }
+        } else {
+          const serverOwnedToolArgs = serverOwnedToolName === "read_file_range"
+            ? {
+                path: serverOwnedEvidencePath,
+                // Prefer a bounded server-owned window around the declared
+                // evidence needles. The locator body is never accepted as
+                // evidence; only this read_file_range result enters the ledger.
+                ...(targetedRange ?? {
+                  // A truncated full read has no reliable symbol span when no
+                  // server-owned needle is available. Preserve the old bounded
+                  // fallback and its fail-closed semantics.
+                  startLine: "1",
+                  endLine: "200",
+                }),
+              }
+            : { path: serverOwnedEvidencePath };
+          result = {
+            ...result,
+            toolCalls: [{
+              id: serverOwnedToolCallId,
+              type: "function",
+              function: {
+                name: serverOwnedToolName,
+                arguments: JSON.stringify(serverOwnedToolArgs),
+              },
+            }],
+          };
+          try {
+            onStep?.({
+              kind: "diagnostic",
+              code: "FORCE_PRIMARY_EVIDENCE_ACTION",
+              details: [
+                `provider returned no usable evidence action; server dispatched ${serverOwnedToolName} for "${serverOwnedEvidencePath}"`,
+              ],
+            });
+          } catch { /* ignore */ }
+        }
       }
     }
 
@@ -4151,6 +4208,25 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         isObjectiveRequiredEvidencePath(args.path)
       ) {
         const targetedRange = objectiveTargetedReadRange(args.path);
+        if (targetedRange && "unavailable" in targetedRange) {
+          try {
+            onStep?.({
+              kind: "diagnostic",
+              code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
+              details: [
+                `provider range for "${args.path}" was not dispatched: ${targetedRange.reason}`,
+              ],
+            });
+          } catch { /* ignore */ }
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content:
+              `OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE: "${args.path}" cannot be used as objective evidence ` +
+              `because ${targetedRange.reason}. Do not treat the provider-selected range as proof.`,
+          });
+          continue;
+        }
         if (targetedRange) {
           args = { ...args, ...targetedRange };
         }
