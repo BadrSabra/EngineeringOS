@@ -34,17 +34,25 @@ const context = {
 };
 
 describe("chat analysis tool wiring", () => {
-  it("forwards the server-owned correlation into the tool loop", async () => {
+  it.each([
+    "Run a forensic audit of src/server.ts and identify the root causes.",
+    "Review the API routes in artifacts/api-server for root causes and provide a forensic report.",
+  ])("forwards the server-owned correlation into the tool loop: %s", async (message) => {
     const { chat } = await import("../agents/chat-agent.js");
     const { classifyRequest } = await import("../prompts/profile-classifier.js");
     const { resolveTurnIntent } = await import("../turn-intent.js");
-    const message = "Run a forensic audit of the project.";
     const turnIntent = resolveTurnIntent(message, {
       classification: classifyRequest(message),
       resumed: false,
     });
 
-    expect(turnIntent.requiresTools).toBe(true);
+    expect(turnIntent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      executionTaskType: "analysis",
+      requiresTools: true,
+      requiresEvidence: true,
+    });
+    executeToolLoopMock.mockClear();
     executeToolLoopMock.mockImplementationOnce(async (opts: { analysisCorrelation?: AnalysisCorrelation }) => {
       expect(opts.analysisCorrelation).toEqual(correlation);
       throw new Error("analysis wiring sentinel");
@@ -66,5 +74,28 @@ describe("chat analysis tool wiring", () => {
       }),
       analysisCorrelation: correlation,
     })).rejects.toThrow("analysis wiring sentinel");
+    expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ["hello", "CHAT", "chat"],
+    ["Open src/server.ts and explain the route.", "PROJECT_QUERY", "tool_chat"],
+  ] as const)(
+    "keeps ordinary chat and project queries out of the forensic wiring path: %s",
+    async (message, kind, executionTaskType) => {
+      const { classifyRequest } = await import("../prompts/profile-classifier.js");
+      const { resolveTurnIntent } = await import("../turn-intent.js");
+      const turnIntent = resolveTurnIntent(message, {
+        classification: classifyRequest(message),
+        resumed: false,
+      });
+
+      expect(turnIntent).toMatchObject({
+        kind,
+        executionTaskType,
+        requiresEvidence: false,
+      });
+      expect(turnIntent.kind).not.toBe("FORENSIC_AUDIT");
+    },
+  );
 });
