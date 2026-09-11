@@ -7691,6 +7691,14 @@ export async function chat(opts: {
     isTargetedProjectQueryObjective &&
     (objective?.requiredClaims.length ?? 0) > 0 &&
     objective!.requiredClaims.every((claim) => claim.text.trim().split(/\s+/u).length >= 5);
+  // Gap analysis keeps its older symbol-backed project-query contract. Unlike
+  // embedded-AI, it does not require a prose behavioral-flow assertion before
+  // the retained-read synthesis fallback can run. Keep this exception explicit
+  // so arbitrary symbol-only objectives remain fail-closed.
+  const isGapAnalysisProjectQueryObjective =
+    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS";
+  const canSynthesizeProjectQuery =
+    hasBehavioralProjectQueryContract || isGapAnalysisProjectQueryObjective;
   const materializedProjectQueryEvidence =
     isTargetedProjectQueryObjective &&
     objectiveManifestIsComplete(objective, forensicFileContents)
@@ -7715,7 +7723,7 @@ export async function chat(opts: {
         : "";
     let recoveredText = initialText;
     if (
-      hasBehavioralProjectQueryContract &&
+      canSynthesizeProjectQuery &&
       (
         !objectiveClaimsAreMentioned(objective, recoveredText)
         || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
@@ -7776,7 +7784,7 @@ export async function chat(opts: {
       }
     }
     if (
-      hasBehavioralProjectQueryContract &&
+      canSynthesizeProjectQuery &&
       (
         !objectiveClaimsAreMentioned(objective, recoveredText)
         || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
