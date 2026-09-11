@@ -46,3 +46,17 @@ evidence or encouraged symbol inventory to masquerade as a behavioral answer.
 **How to apply:** Materialize evidence from bounded `evidenceNeedles`, close a
 claim only when its behavioral assertion is present in the response and the
 needle is in accepted evidence, and keep generic gap-analysis claims unchanged.
+
+The behavioral-flow predicate must count explicit sequencing markers in the
+answer, not generic verbs that may appear inside cited source excerpts. For
+`PROJECT_QUERY`, the objective verdict must use the project-query completion
+gate rather than the reachability-only final-answer validator.
+
+**Why:** A source-inventory fallback could satisfy a loose verb scan, while a
+valid project answer could be downgraded because the reachability validator
+requires claim validations that normal project queries do not produce.
+
+**How to apply:** Require multiple same-language sequence markers such as
+`first/then/finally` or their Arabic equivalents, and keep source grounding,
+accepted claims, and the objective gate authoritative for project-query
+completion.

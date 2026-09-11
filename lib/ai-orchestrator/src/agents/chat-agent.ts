@@ -4968,10 +4968,17 @@ function projectQueryAnswerHasBehavioralFlow(
     return false;
   }
   const flowSignals = [
-    /\b(?:first|then|after|before|finally|through|because|calls?|reads?|routes?|resolves?|enters?|dispatches?|retains?|selects?|persists?|accepts?|validates?|fallback)\b/iu,
-    /(?:أولًا|أولا|ثم|بعد ذلك|أخيرًا|أخيرا|عبر|يقرأ|يستدعي|يحدد|يوجه|يحفظ|يقبل|يتحقق|ينتقل)/u,
+    /\b(?:first|then|after|before|finally|through|because)\b/giu,
+    /(?:أولًا|أولا|ثم|بعد ذلك|أخيرًا|أخيرا|عبر|لأن)/gu,
   ];
-  return flowSignals.filter((pattern) => pattern.test(normalized)).length >= 2;
+  const flowSignalCount = flowSignals.reduce(
+    (count, pattern) => {
+      const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+      return count + (normalized.match(new RegExp(pattern.source, flags))?.length ?? 0);
+    },
+    0,
+  );
+  return flowSignalCount >= 2;
 }
 
 /**
@@ -7666,7 +7673,10 @@ export async function chat(opts: {
         ? normalizeRecoveryAssistantText(loopResult.result.content ?? "")
         : "";
     let recoveredText = initialText;
-    if (!objectiveClaimsAreMentioned(objective, recoveredText)) {
+    if (
+      !objectiveClaimsAreMentioned(objective, recoveredText)
+      || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+    ) {
       recoveryAttemptsUsed += 1;
       const evidenceContext = materializedProjectQueryEvidence
         .map((item) => `Claim ${item.claimId} (${item.source}):\n${item.excerpt}`)
@@ -7721,7 +7731,10 @@ export async function chat(opts: {
         recoveredText = "";
       }
     }
-    if (!objectiveClaimsAreMentioned(objective, recoveredText)) {
+    if (
+      !objectiveClaimsAreMentioned(objective, recoveredText)
+      || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+    ) {
       recoveredText = buildProjectQueryEvidenceSynthesis(
         objective,
         materializedProjectQueryEvidence,
@@ -10929,6 +10942,13 @@ export async function chat(opts: {
         responseLanguage,
       )
     : parsed.data.response);
+  const serverOwnedProjectQueryCandidate =
+    isTargetedProjectQueryObjective
+    && projectQueryEvidenceResponseOverride
+    && validateResponseLanguage(projectQueryEvidenceResponseOverride, responseLanguage).valid
+    && projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride)
+      ? projectQueryEvidenceResponseOverride
+      : undefined;
   let responseBeforeBehaviorEvidence = validateResponseForTask(
     finalizeTaskResponse(
       repairPlanExecution
@@ -10956,6 +10976,14 @@ export async function chat(opts: {
             ),
     ),
   );
+  // The generic BEHAVIOR_QUERY contract predates the objective evidence
+  // handoff and can reject a valid server-owned project answer before the
+  // materialized evidence and objective gate see it. Keep the candidate only
+  // when its language and behavioral shape are already valid; source grounding,
+  // claim closure, and the objective gate remain authoritative below.
+  if (serverOwnedProjectQueryCandidate) {
+    responseBeforeBehaviorEvidence = serverOwnedProjectQueryCandidate;
+  }
   let capabilityProbeFinalReport: CapabilityProbeFinalReport | null = null;
   if (capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(forensicFileContents)) {
     responseBeforeBehaviorEvidence = applyCapabilityProbeRuntimeClaims(
@@ -12271,6 +12299,13 @@ export async function chat(opts: {
     });
   }
   // AI-OBJ-012: compute the objective verdict kind for the decision trace.
+  const projectQueryObjectiveComplete =
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
+    && objectiveGate?.status === "PROVEN"
+    && !anyRequiredClaimUnclosed
+    && !behaviorAnswerRejected
+    && !projectQueryAnswerRejected
+    && !telemetryBlocksVerdict;
   const objectiveVerdict: ObjectiveVerdictKind = classifyObjectiveVerdict({
     primaryClaimClosed:
       !anyRequiredClaimUnclosed
@@ -12278,9 +12313,14 @@ export async function chat(opts: {
       && !projectQueryAnswerRejected
       && !telemetryBlocksVerdict,
     allClaimsProven:
-      !projectQueryAnswerRejected
-      && finalAnswerValidation.verdict === "ANSWER_COMPLETE",
-    anyClaimProven: runtimeLedger.validations.some((v) => v.result === "PROVEN"),
+      projectQueryObjectiveComplete
+      || (
+        !projectQueryAnswerRejected
+        && finalAnswerValidation.verdict === "ANSWER_COMPLETE"
+      ),
+    anyClaimProven:
+      projectQueryObjectiveComplete
+      || runtimeLedger.validations.some((v) => v.result === "PROVEN"),
     evidenceCollected: runtimeLedger.evidenceFileCount > 0 || acceptedBehaviorEvidence.length > 0,
     recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
   });
