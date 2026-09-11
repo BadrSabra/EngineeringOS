@@ -257,6 +257,7 @@ export function resolveTurnIntent(
     !classification.singleFileForensicMode &&
     classification.orderedForensicRoots.length === 0 &&
     isLowRiskChatQuestion(message) &&
+    !isGapAnalysisRequest(message) &&
     !implementationDelivery &&
     !classification.implementationTaskMode &&
     !classification.implementationPlanMode;

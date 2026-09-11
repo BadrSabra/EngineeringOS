@@ -528,7 +528,7 @@ export type AnalysisEvidenceCompletion = {
 
 export type AnalysisEvidenceRead = {
   path: string;
-  status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+  status: "READ_COMPLETE" | "READ_TARGETED" | "READ_TRUNCATED" | "READ_FAILED";
   operationId: string;
   sourceRevision: string;
   contentHash: string;
@@ -567,7 +567,7 @@ export function validateAnalysisEvidenceCompletion(
   );
   const manifestCompleted = new Set(
     [...manifest.entries()]
-      .filter(([, read]) => read.status === "READ_COMPLETE")
+      .filter(([, read]) => read.status === "READ_COMPLETE" || read.status === "READ_TARGETED")
       .map(([path]) => path),
   );
   if (evidence.operationId !== expected.operationId) {

@@ -551,4 +551,31 @@ describe("autonomous operation contract", () => {
     });
     expect(reviewReady).toEqual({ allowed: true, reasons: [] });
   });
+
+  it("accepts a targeted retained read as complete analysis evidence", () => {
+    const result = validateAnalysisEvidenceCompletion({
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+      requiredPaths: ["src/chat.ts"],
+      completedReadFiles: ["src/chat.ts"],
+      acceptedEvidenceFiles: ["src/chat.ts"],
+      readManifest: [{
+        path: "src/chat.ts",
+        status: "READ_TARGETED" as const,
+        operationId: "analysis-operation",
+        sourceRevision: "revision-current",
+        contentHash: "a".repeat(64),
+        byteLength: 12,
+      }],
+      acceptedClaimCount: 1,
+      evidenceConsistent: true,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+    }, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    });
+    expect(result).toEqual({ allowed: true, reasons: [] });
+  });
 });

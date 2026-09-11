@@ -309,7 +309,7 @@ function deriveProjectQueryAnalysisEvidence(params: {
   const completedReadFiles = [
     ...(integrity.completedReadFiles ?? []),
     ...(forensicStatus?.readStatuses ?? [])
-      .filter((entry) => entry.status === "READ_COMPLETE")
+      .filter((entry) => entry.status === "READ_COMPLETE" || entry.status === "READ_TARGETED")
       .map((entry) => entry.path),
   ].filter((path) => readStatuses.get(path) !== "READ_TRUNCATED"
     && readStatuses.get(path) !== "READ_FAILED");
@@ -440,10 +440,10 @@ function deriveEvidenceProgressCheckpoint(params: {
     status: statusByPath.get(path) ?? "missing",
   }));
   const completedPaths = pathStatuses
-    .filter((entry) => entry.status === "complete")
+    .filter((entry) => entry.status === "complete" || entry.status === "targeted")
     .map((entry) => entry.path);
   const missingPaths = pathStatuses
-    .filter((entry) => entry.status !== "complete")
+    .filter((entry) => entry.status !== "complete" && entry.status !== "targeted")
     .map((entry) => entry.path);
   const nextRequiredPath = pathStatuses.find((entry) =>
     entry.status === "missing" || entry.status === "truncated" || entry.status === "failed"
@@ -2792,7 +2792,7 @@ type PersistedToolTraceEntry = {
   };
   readStatuses?: Array<{
     path: string;
-    status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+    status: "READ_COMPLETE" | "READ_TARGETED" | "READ_TRUNCATED" | "READ_FAILED";
   }>;
   synthesisLifecycle?: {
     started: boolean;

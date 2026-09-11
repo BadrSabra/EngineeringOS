@@ -158,6 +158,8 @@ import {
   decomposeObjectiveClaims,
   closeObjectiveClaimsFromEdges,
   closeObjectiveClaimsFromEvidence,
+  materializeObjectiveClaimEvidence,
+  type MaterializedObjectiveClaimEvidence,
   type RequiredClaim,
   type RequiredClaimClosure,
 } from "../required-claims.js";
@@ -4845,6 +4847,69 @@ export function buildProjectQueryIncompleteResponse(
   ].join("\n");
 }
 
+function objectiveManifestIsComplete(
+  objective: ObjectiveContract | undefined,
+  fileContents: ReadonlyMap<string, string>,
+): boolean {
+  if (!objective) return false;
+  const normalize = (value: string): string =>
+    value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
+  const retained = new Set([...fileContents.keys()].map(normalize));
+  return (objective.requiredEvidencePaths ?? []).every((file) => retained.has(normalize(file)));
+}
+
+function objectiveClaimsAreMentioned(
+  objective: ObjectiveContract | undefined,
+  response: string,
+): boolean {
+  if (!objective) return false;
+  const normalized = response.toLowerCase();
+  return objective.requiredClaims.every((claim) =>
+    normalized.includes(claim.text.trim().toLowerCase()),
+  );
+}
+
+/**
+ * Server-owned fallback synthesis for targeted project objectives.
+ *
+ * The provider gets one no-tools opportunity first. If it returns an empty or
+ * incomplete answer, this deterministic response still advances the durable
+ * run from `claims_pending` to a source-bound candidate without rereading
+ * anything or inventing paths. The final objective/evidence gates remain
+ * authoritative.
+ */
+export function buildProjectQueryEvidenceSynthesis(
+  objective: ObjectiveContract,
+  evidence: readonly MaterializedObjectiveClaimEvidence[],
+  responseLanguage: "ar" | "en",
+): string {
+  const isArabic = responseLanguage === "ar";
+  const lines = isArabic
+    ? [
+        "تحليل مشروع مثبت بالأدلة المحتفظ بها.",
+        "",
+        "### الادعاءات المغلقة",
+      ]
+    : [
+        "Verified project analysis from the retained source evidence.",
+        "",
+        "### Closed claims",
+      ];
+  for (const item of evidence) {
+    lines.push(
+      `- \`${objective.requiredClaims.find((claim) => claim.claimId === item.claimId)?.text ?? item.claimId}\` — \`${item.source}\``,
+      `  Evidence: \`${item.excerpt}\``,
+    );
+  }
+  lines.push(
+    "",
+    isArabic
+      ? "تقتصر النتيجة على الادعاءات التي ظهرت حرفيًا في المصادر المحتفظ بها؛ لم تُجرَ أي قراءة إضافية ولم تُعدّل ملفات."
+      : "The result is limited to claims found verbatim in the retained sources; no additional reads were performed and no files were modified.",
+  );
+  return lines.join("\n");
+}
+
 /**
  * Every forensic terminal must have the same six-section shape, including a
  * terminal reached before synthesis. This builder deliberately accepts only
@@ -5756,6 +5821,7 @@ export async function chat(opts: {
     repairPlanExecution || forensicOutputMode || capabilityProbeRequest
       ? undefined
       : onDelta;
+  let recoveryAttemptsUsed = 0;
 
   // Deep-analysis gate: forensic/audit prompts (structuredOutputMode) and
   // deep_analysis category are handled purely through prompt behavioural rules
@@ -7304,7 +7370,7 @@ export async function chat(opts: {
         })),
       }
     : undefined;
-  const loopResult = await executeToolLoop({
+  let loopResult = await executeToolLoop({
     messages,
     strategy,
     model,
@@ -7449,6 +7515,122 @@ export async function chat(opts: {
   }
   for (const [filePath, content] of loopResult.fileContents ?? []) {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
+  }
+
+  // PROJECT_QUERY objectives have a stronger recovery contract than ordinary
+  // chat: once the server-owned manifest is complete, a provider empty/partial
+  // result must not restart source collection. Give the provider one bounded
+  // no-tools synthesis pass over retained evidence, then use the same
+  // server-owned claim materialization as the deterministic fallback.
+  const materializedProjectQueryEvidence =
+    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS" &&
+    objectiveManifestIsComplete(objective, forensicFileContents)
+      ? materializeObjectiveClaimEvidence({
+          objective,
+          fileContents: forensicFileContents,
+        })
+      : [];
+  if (
+    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS" &&
+    materializedProjectQueryEvidence.length === objective.requiredClaims.length
+  ) {
+    const initialCandidate =
+      loopResult.kind === "response" || loopResult.kind === "partial"
+        ? parseAgentResponse(loopResult.result.content ?? "", ChatResponseSchema, fallbackChatOutput)
+        : null;
+    const initialText = initialCandidate?.ok
+      ? initialCandidate.data.response
+      : loopResult.kind === "response" || loopResult.kind === "partial"
+        ? normalizeRecoveryAssistantText(loopResult.result.content ?? "")
+        : "";
+    let recoveredText = initialText;
+    if (!objectiveClaimsAreMentioned(objective, recoveredText)) {
+      recoveryAttemptsUsed += 1;
+      const evidenceContext = materializedProjectQueryEvidence
+        .map((item) => `Claim ${item.claimId} (${item.source}):\n${item.excerpt}`)
+        .join("\n\n");
+      try {
+        const recovery = await strategy.call(
+          [
+            {
+              role: "system",
+              content:
+                "Synthesize a scoped project answer from the retained evidence below. " +
+                "Do not call tools, do not request more files, and mention every claim symbol exactly.",
+            },
+            {
+              role: "user",
+              content: `${message}\n\nServer-owned retained evidence:\n${evidenceContext}`,
+            },
+          ],
+          {
+            model: providerId === "openrouter" ? undefined : (modelDecision.model || model),
+            maxTokens: 2400,
+            timeoutMs: 30_000,
+            retryTransient: false,
+            maxFallbackModels: 1,
+            circuitFailurePolicy: "suppress",
+            apiKey,
+            signal,
+            executionLedger,
+          },
+        );
+        const recoveredCandidate = parseAgentResponse(
+          recovery.content ?? "",
+          ChatResponseSchema,
+          fallbackChatOutput,
+        );
+        recoveredText = recoveredCandidate.ok
+          ? recoveredCandidate.data.response
+          : normalizeRecoveryAssistantText(recovery.content ?? "");
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+          details: [
+            `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
+            objectiveClaimsAreMentioned(objective, recoveredText)
+              ? "provider synthesis mentioned every required claim"
+              : "provider synthesis was incomplete; deterministic claim assembly was used",
+          ],
+        });
+      } catch {
+        recoveredText = "";
+      }
+    }
+    if (!objectiveClaimsAreMentioned(objective, recoveredText)) {
+      recoveredText = buildProjectQueryEvidenceSynthesis(
+        objective,
+        materializedProjectQueryEvidence,
+        responseLanguage,
+      );
+    }
+    const priorLoopResult = loopResult;
+    loopResult = {
+      kind: "response",
+      result: {
+        ...(priorLoopResult.kind === "response" || priorLoopResult.kind === "partial"
+          ? priorLoopResult.result
+          : {}),
+        content: JSON.stringify({
+          response: recoveredText,
+          sources: materializedProjectQueryEvidence.map((item) => item.source),
+        }),
+        toolCalls: [],
+        model:
+          priorLoopResult.kind === "response" || priorLoopResult.kind === "partial"
+            ? priorLoopResult.result.model
+            : modelDecision.model || model,
+        usage: { promptTokens: 0, completionTokens: 0 },
+      },
+      toolSources: priorLoopResult.toolSources,
+      fileContents: priorLoopResult.fileContents,
+      sourceRetrieval: "sourceRetrieval" in priorLoopResult
+        ? priorLoopResult.sourceRetrieval
+        : undefined,
+      objectiveState: "objectiveState" in priorLoopResult
+        ? priorLoopResult.objectiveState
+        : undefined,
+    };
   }
 
   // ── Explicit file-scope forensic coverage ──────────────────────────────────
@@ -8824,7 +9006,6 @@ export async function chat(opts: {
   // it is still safe to show to the no-tools recovery prompt, while skipping
   // recovery would turn a recoverable plain-text synthesis into an immediate
   // forensic fallback.
-  let recoveryAttemptsUsed = 0;
   let recoveryFailureKind: RecoveryFailureKind | undefined;
   // A server-owned deterministic Finding/no-Finding fallback can close the
   // forensic contract after provider Recovery fails. Keep that resolution
@@ -10635,6 +10816,36 @@ export async function chat(opts: {
   let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
     ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
     : { valid: true, violations: [], evidence: [] };
+  if (
+    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS" &&
+    materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
+    objectiveClaimsAreMentioned(objective, responseBeforeBehaviorEvidence)
+  ) {
+    const materializedEvidence: EvidenceReference[] = materializedProjectQueryEvidence.map((item) => ({
+      source: item.source,
+      excerpt: item.excerpt,
+      sourceSpan: item.sourceSpan,
+      supportsClaim: true,
+      relevance: 1,
+      directness: "DIRECT",
+      sourceType: "IMPLEMENTATION",
+      productionReachability: "NOT_PROVEN",
+      evidenceClass: "BEHAVIOR_PROVEN",
+    }));
+    // Gap-analysis evidence is server-owned: it is materialized from complete
+    // retained bodies, not inferred from provider citations. Preserve any
+    // provider evidence too, but never let it replace a required claim window.
+    behaviorEvidenceValidation = {
+      valid: true,
+      violations: [],
+      evidence: [
+        ...materializedEvidence,
+        ...behaviorEvidenceValidation.evidence.filter(
+          (item) => !materializedEvidence.some((owned) => owned.source === item.source),
+        ),
+      ],
+    };
+  }
   /**
    * Normal behavior questions need one bounded citation correction when the
    * provider answered without an exact executable excerpt. This is deliberately

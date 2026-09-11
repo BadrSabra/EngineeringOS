@@ -26,6 +26,9 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import type { ObjectiveContract } from "../schemas/chat.schema.js";
+import { classifyRequest } from "../prompts/profile-classifier.js";
+import { resolveTurnIntent } from "../turn-intent.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -143,6 +146,51 @@ const PLAN = {
 };
 
 const MESSAGE = "Does the loop run at most 20 iterations?";
+
+const GAP_OBJECTIVE: ObjectiveContract = {
+  objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+  requiredEvidencePaths: [
+    "lib/ai-orchestrator/src/turn-intent.ts",
+    "lib/ai-orchestrator/src/agents/query-planner.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+    "artifacts/api-server/src/lib/ai-execution-state.ts",
+  ],
+  requiredClaims: [
+    {
+      claimId: "gap-routing",
+      text: "resolveTurnIntent",
+      requiredEvidencePaths: ["lib/ai-orchestrator/src/turn-intent.ts"],
+    },
+    {
+      claimId: "gap-planning",
+      text: "inferCompoundParts",
+      requiredEvidencePaths: ["lib/ai-orchestrator/src/agents/query-planner.ts"],
+    },
+    {
+      claimId: "gap-acceptance",
+      text: "validateAnalysisEvidenceCompletion",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/routes/ai/chat.ts",
+        "artifacts/api-server/src/lib/ai-execution-state.ts",
+      ],
+    },
+  ],
+  requiredEvidenceEdges: [],
+  scopePolicy: {
+    primaryPaths: [
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/query-planner.ts",
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "artifacts/api-server/src/lib/ai-execution-state.ts",
+    ],
+    allowedExpansionPaths: [
+      "lib/ai-orchestrator/src",
+      "artifacts/api-server/src/routes/ai",
+      "artifacts/api-server/src/lib",
+    ],
+    forbiddenPaths: ["node_modules", "dist", "build"],
+  },
+};
 
 describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => {
   beforeEach(() => {
@@ -293,6 +341,84 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
           evidenceClass: "BEHAVIOR_PROVEN",
           sourceSpan: { startLine: 3, endLine: 5 },
         }]);
+      }
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers gap analysis from retained reads when every provider synthesis is empty", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-gap-analysis-"));
+    const files = new Map([
+      [
+        "lib/ai-orchestrator/src/turn-intent.ts",
+        "export function resolveTurnIntent(message: string) {\n  if (!message) return undefined;\n  return message;\n}\n",
+      ],
+      [
+        "lib/ai-orchestrator/src/agents/query-planner.ts",
+        "export function inferCompoundParts(query: string) {\n  return query.split(' and ');\n}\n",
+      ],
+      [
+        "artifacts/api-server/src/routes/ai/chat.ts",
+        "export function chatWithFallback(input: unknown) {\n  return input;\n}\n",
+      ],
+      [
+        "artifacts/api-server/src/lib/ai-execution-state.ts",
+        "export function validateAnalysisEvidenceCompletion(input: unknown) {\n  if (!input) return false;\n  return true;\n}\n",
+      ],
+    ]);
+    for (const [file, content] of files) {
+      const absolutePath = path.join(rootPath, file);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, content, "utf8");
+    }
+    const calls = { count: 0 };
+    const emptyStrategy = fakeStrategyFor("", calls);
+    const plan = {
+      targetFiles: [...files.keys()],
+      targetEntities: [],
+      scopeEstimate: "medium",
+      suggestedIterations: 12,
+      requiresToolUse: true,
+      subQueries: [],
+    };
+    await mockChatProviders(emptyStrategy, plan);
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const gapMessage = "What are the agent's weaknesses?";
+      const classification = classifyRequest(gapMessage);
+      const turnIntent = resolveTurnIntent(gapMessage, {
+        classification,
+        resumed: false,
+      });
+      expect(turnIntent.kind).toBe("PROJECT_QUERY");
+      expect(turnIntent.requiresEvidence).toBe(true);
+      const result = await chat({
+        message: gapMessage,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        objective: GAP_OBJECTIVE,
+        turnIntent,
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("resolveTurnIntent");
+      expect(result.response).toContain("inferCompoundParts");
+      expect(result.response).toContain("validateAnalysisEvidenceCompletion");
+      expect(calls.count).toBeGreaterThan(1);
+
+      const integrity = [...steps].reverse().find((step) => step.kind === "evidence_integrity");
+      expect(integrity?.kind).toBe("evidence_integrity");
+      if (integrity?.kind === "evidence_integrity") {
+        expect(integrity.acceptedClaimCount).toBe(3);
+        expect(integrity.acceptedEvidenceCount).toBeGreaterThanOrEqual(3);
+        expect(integrity.completionGateResult).toBe("PROVEN");
       }
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });

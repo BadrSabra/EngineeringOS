@@ -646,6 +646,7 @@ const BEHAVIOR_QUERY_PATTERNS = [
 
 const GAP_ANALYSIS_PATTERNS = [
   /\b(?:gap|gaps|missing|weakness|deficien)\b/i,
+  /\b(?:weaknesses|deficiencies)\b/i,
   /(?:ثغر|فجوات|نواقص|نقاط الضعف)/iu,
 ];
 

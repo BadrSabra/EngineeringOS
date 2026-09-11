@@ -17,8 +17,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { evaluateBehaviorRequiredClaims } from "../required-claims.js";
+import {
+  closeObjectiveClaimsFromEvidence,
+  evaluateBehaviorRequiredClaims,
+  materializeObjectiveClaimEvidence,
+} from "../required-claims.js";
 import type { EvidenceReference } from "../task-contracts.js";
+import type { ObjectiveContract } from "../schemas/chat.schema.js";
 
 const QUESTION = "Does the loop run at most 20 iterations?";
 // A question that explicitly names ONE source file.
@@ -144,5 +149,79 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
     // No evidence inventory → not the "evidence available but unclosed" shape,
     // so the diagnostics layer must not label it EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED.
     expect(closure.claimClosureBlocked).toBe(true);
+  });
+
+  it("materializes every objective claim from retained bodies without provider paths", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+      requiredEvidencePaths: ["src/turn-intent.ts", "src/planner.ts"],
+      requiredClaims: [
+        {
+          claimId: "routing",
+          text: "resolveTurnIntent",
+          requiredEvidencePaths: ["src/turn-intent.ts"],
+        },
+        {
+          claimId: "planning",
+          text: "inferCompoundParts",
+          requiredEvidencePaths: ["src/planner.ts"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+      scopePolicy: {
+        primaryPaths: ["src/turn-intent.ts", "src/planner.ts"],
+        allowedExpansionPaths: [],
+        forbiddenPaths: ["node_modules"],
+      },
+    };
+    const retained = new Map([
+      [
+        "src/turn-intent.ts",
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  if (message.length === 0) return undefined;",
+          "  return classify(message);",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        "src/planner.ts",
+        [
+          "export function inferCompoundParts(query: string) {",
+          "  return query.split(' and ');",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+
+    const materialized = materializeObjectiveClaimEvidence({
+      objective,
+      fileContents: retained,
+    });
+    expect(materialized).toHaveLength(2);
+    expect(materialized.map((item) => item.source)).toEqual([
+      "src/turn-intent.ts",
+      "src/planner.ts",
+    ]);
+    expect(materialized.every((item) => item.excerpt.length > 0)).toBe(true);
+
+    const response = materialized.map((item) => item.excerpt).join("\n");
+    const closure = closeObjectiveClaimsFromEvidence({
+      objective,
+      response,
+      evidence: materialized.map((item) => ({
+        source: item.source,
+        excerpt: item.excerpt,
+        sourceSpan: item.sourceSpan,
+        supportsClaim: true,
+        relevance: 1,
+        directness: "DIRECT",
+        sourceType: "IMPLEMENTATION",
+        productionReachability: "NOT_PROVEN",
+        evidenceClass: "BEHAVIOR_PROVEN",
+      })),
+      fileContents: retained,
+    });
+    expect(closure.filter((claim) => claim.status === "CLOSED")).toHaveLength(2);
   });
 });

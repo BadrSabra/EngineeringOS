@@ -62,6 +62,16 @@ export type RequiredClaimClosure = {
   claimClosureBlocked: boolean;
 };
 
+export type MaterializedObjectiveClaimEvidence = {
+  claimId: string;
+  source: string;
+  excerpt: string;
+  sourceSpan: {
+    startLine: number;
+    endLine: number;
+  };
+};
+
 // Closure MUST evaluate every explicit source the question names — a question
 // that names N files requires each of the N to be grounded before finalization.
 // Only outward payloads (diagnostic details/reasons/evidence paths) are capped.
@@ -202,6 +212,57 @@ export function decomposeObjectiveClaims(objective: ObjectiveContract): Required
     });
   }
   return claims;
+}
+
+/**
+ * Build claim evidence from the server-owned retained source bodies.
+ *
+ * This is intentionally independent of provider prose. It is used only after
+ * the objective manifest is complete, and it never searches the filesystem or
+ * accepts a path supplied by the model. Each returned excerpt contains the
+ * exact claim symbol plus a small surrounding source window so the normal
+ * evidence ledger can retain a verifiable span.
+ */
+export function materializeObjectiveClaimEvidence(input: {
+  objective: ObjectiveContract;
+  fileContents: ReadonlyMap<string, string>;
+}): MaterializedObjectiveClaimEvidence[] {
+  const normalizePath = (value: string): string =>
+    value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
+  const lineOf = (content: string, index: number): number =>
+    (content.slice(0, index).match(/\n/g)?.length ?? 0) + 1;
+  const bodyEntries = [...input.fileContents.entries()].map(([path, content]) => ({
+    path: normalizePath(path),
+    content,
+    lines: content.split("\n"),
+  }));
+  const results: MaterializedObjectiveClaimEvidence[] = [];
+
+  for (const claim of input.objective.requiredClaims) {
+    const claimNeedle = claim.text.trim();
+    if (!claimNeedle) continue;
+    const preferredPaths = (claim.requiredEvidencePaths ?? []).map(normalizePath);
+    const candidates = [
+      ...bodyEntries.filter((entry) => preferredPaths.includes(entry.path)),
+      ...bodyEntries.filter((entry) => !preferredPaths.includes(entry.path)),
+    ];
+    const match = candidates
+      .map((entry) => ({ entry, index: entry.content.indexOf(claimNeedle) }))
+      .find((candidate) => candidate.index >= 0);
+    if (!match) continue;
+
+    const startLine = Math.max(1, lineOf(match.entry.content, match.index) - 2);
+    const endLine = Math.min(match.entry.lines.length, startLine + 6);
+    const excerpt = match.entry.lines.slice(startLine - 1, endLine).join("\n").trim();
+    if (!excerpt || !excerpt.includes(claimNeedle)) continue;
+    results.push({
+      claimId: claim.claimId,
+      source: match.entry.path,
+      excerpt,
+      sourceSpan: { startLine, endLine },
+    });
+  }
+  return results;
 }
 
 /**

@@ -714,8 +714,10 @@ export {
   decomposeObjectiveClaims,
   closeObjectiveClaimsFromEdges,
   closeObjectiveClaimsFromEvidence,
+  materializeObjectiveClaimEvidence,
 } from "./required-claims.js";
 export type {
+  MaterializedObjectiveClaimEvidence,
   RequiredClaim,
   RequiredClaimClosure,
   RequiredClaimStatus,

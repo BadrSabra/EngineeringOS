@@ -1419,6 +1419,7 @@ export type AgentDiagnosticCode =
   | "CAPABILITY_PROBE_CLAIM_UNCLOSED"
   | "CAPABILITY_PROBE_RECOVERY_SKIPPED_INCOMPLETE"
   | "CAPABILITY_PROBE_DETERMINISTIC_ASSEMBLY"
+  | "PROJECT_QUERY_NO_TOOLS_SYNTHESIS"
   | "FORENSIC_CONTRACT_RECOVERY_REJECTED"
   | "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED"
   | "FORENSIC_CONTRACT_RECOVERY_FAILED"
@@ -1615,7 +1616,7 @@ export type AgentStep =
       };
       readStatuses?: Array<{
         path: string;
-        status: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED";
+        status: "READ_COMPLETE" | "READ_TARGETED" | "READ_TRUNCATED" | "READ_FAILED";
       }>;
       synthesisLifecycle?: {
         started: boolean;
