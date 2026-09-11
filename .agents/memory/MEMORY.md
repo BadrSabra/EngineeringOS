@@ -150,3 +150,4 @@
 - [Project-query direct-stream acceptance](project-query-direct-stream-acceptance.md) — direct streaming must emit decision trace and accepted-claim evidence before project-query acceptance can finalize.
 - [Project-query terminal parity](project-query-terminal-parity.md) — accepted project queries must not lose objective verdicts in public projections or emit generic forensic incompleteness.
 - [Objective evidence range ownership](objective-evidence-range-ownership.md) — server-computed claim windows must override provider-selected ranges when proving behavioral objectives.
+- [Gap-analysis baseline](gap-analysis-baseline.md) — gap-analysis symbol-only recovery failure predates the embedded-AI locator fix and must be triaged separately.
