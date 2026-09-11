@@ -3708,7 +3708,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           : objective && requiresEvidence && evidenceRouteAvailable && firstSourceReadIter === null
           ? "evidence_incomplete" as const
           : objectiveIncompleteReason());
-      if (incompleteReason) {
+      // A structured forensic response with retained reads still needs to pass
+      // through chat-agent's contract/recovery path. Returning `incomplete`
+      // here would bypass bounded recovery entirely, so malformed-but-readable
+      // reports could never issue their required targeted reread.
+      const deferForensicObjectiveRecovery =
+        executionMode === "forensic" && Boolean(result.content?.trim());
+      if (incompleteReason && !deferForensicObjectiveRecovery) {
         return incompleteResult(incompleteReason, result);
       }
       try {
@@ -3760,7 +3766,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           : objective && requiresEvidence && evidenceRouteAvailable && firstSourceReadIter === null
           ? "evidence_incomplete" as const
           : objectiveIncompleteReason());
-      if (incompleteReason) {
+      const deferForensicObjectiveRecovery =
+        executionMode === "forensic" && Boolean(terminalResult.content?.trim());
+      if (incompleteReason && !deferForensicObjectiveRecovery) {
         return incompleteResult(incompleteReason, terminalResult);
       }
       try {

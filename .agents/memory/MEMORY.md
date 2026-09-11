@@ -146,3 +146,4 @@
 - [Artifact-only acceptance](artifact-only-acceptance.md) — delivery proof can be complete from bound validation evidence without source reads; forensic proof still requires retained reads.
 - [OpenRouter live acceptance](openrouter-live-acceptance.md) — catalog/auth success does not prove structured review acceptance; free-model contract/rate failures must remain incomplete and may trigger only classified paid fallback.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
+- [Forensic recovery deferral](forensic-recovery-deferral.md) — retained structured forensic candidates must reach bounded recovery before objective incompleteness becomes terminal.

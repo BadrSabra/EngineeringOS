@@ -664,6 +664,7 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
     // gate must downgrade the run to RECOVERY_SCOPE_FAILURE. Nothing is injected.
     // ───────────────────────────────────────────────────────────────────────────
     let callCount = 0;
+    let recoveryReadIssued = false;
     const fakeStrategy = {
       providerId: "openrouter",
       supportsNativeStream: false,
@@ -729,6 +730,32 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
             usage: {},
           };
         }
+        if (!recoveryReadIssued) {
+          // The recovery contract allows the rejected candidate to request a
+          // bounded source reread before returning its next envelope. This read
+          // intentionally targets the retained EXTRA file so the objective
+          // scope violation is observed by the real recovery loop.
+          recoveryReadIssued = true;
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: "recovery-read-extra",
+                type: "function" as const,
+                function: {
+                  name: "read_file_range",
+                  arguments: JSON.stringify({
+                    path: EXTRA,
+                    startLine: "1",
+                    endLine: "20",
+                  }),
+                },
+              },
+            ],
+            model: "recovery-model",
+            usage: {},
+          };
+        }
         // Recovery attempts: a REJECTED FINDING_PROVEN structured envelope whose
         // finding points at EXTRA (retained, but out of the bounded scope). The
         // empty repairPlan violates the "FINDING_PROVEN requires a linked Repair
@@ -789,7 +816,6 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
         objective: boundedObjective,
         onStep: (step) => void steps.push(step),
       });
-
       // 0. Recovery genuinely ran and issued a targeted read on the out-of-scope
       //    retained file — otherwise this test would just be asserting absence.
       const targetedDiag = steps.some(

@@ -1729,40 +1729,41 @@ function applyObjectiveCompletionGate(opts: {
   ];
   const closedClaimIds = closedClaims
     .map((c) => c.claimId.replace(/^(edge|objective):/, ""));
-  // Minimal ledger on the streaming seams: retained reads become evidence; no
-  // JSON/proven claim unless the required claim is supplied as closed. The cast
-  // is safe — objectiveCompletionGate reads only claims/evidenceRecords (and
-  // their lengths), which we populate with exactly the fields it inspects.
-  const gate = objectiveCompletionGate({
-    ledger: {
-      claims: closedClaims
-        .filter((c) => c.status === "CLOSED")
-        .map((c) => ({ claimId: c.claimId, text: c.text, taskType: "objective", evidenceIds: [], status: "SUPPORTED" })),
-      evidenceRecords: [...opts.fileContents.keys()].map((file) => ({
-        evidenceId: `ev-${file}`,
-        runId: "run-objective-gate",
-        file,
-        readType: "COMPLETE" as const,
-        phase: "EVIDENCE_ACCEPTED" as const,
-        sourceType: "IMPLEMENTATION" as const,
-        sourceScope: "PRODUCTION" as const,
-        strength: "DIRECT" as const,
-        timestamp: 0,
+  // Use the shared runtime ledger even on early/degraded seams. This keeps
+  // retained reads, objective telemetry, and acceptance diagnostics observable
+  // instead of allowing an incomplete loop to bypass the normal ledger path.
+  const runtimeLedger = buildRuntimeLedger({
+    runId: "run-objective-gate",
+    fileContents: opts.fileContents,
+    acceptedFiles: [...opts.fileContents.keys()],
+    claims: closedClaims
+      .filter((c) => c.status === "CLOSED")
+      .map((c) => ({
+        claimId: c.claimId,
+        text: c.text,
+        taskType: "objective",
+        evidenceIds: [],
+        status: "SUPPORTED" as const,
       })),
-      uniqueFilesRead: opts.fileContents.size,
-      evidenceFileCount: opts.fileContents.size,
-      acceptedEvidenceCount: opts.fileContents.size,
-      provenClaims: 0,
+    sourceRetrieval: {
       readAttempts: opts.fileContents.size,
-      runId: "run-objective-gate",
-    } as unknown as import("../evidence-integrity.js").RunLedger,
+      uniqueReads: opts.fileContents.size,
+      readPaths: [...opts.fileContents.keys()],
+    },
+    prefetchReads: opts.fileContents.size,
+    prefetchPaths: [...opts.fileContents.keys()],
+  });
+  const gate = objectiveCompletionGate({
+    ledger: runtimeLedger,
     objective,
     provenEdges,
     closedClaimIds,
     answerTypeMismatch,
     recoveryScopeViolated,
   });
-  const blocked = gate.blocked;
+  const telemetryLedger = attachObjectiveTelemetry(runtimeLedger, gate, objective);
+  const telemetryReconciliation = validateTelemetry(telemetryLedger);
+  const blocked = gate.blocked || !telemetryReconciliation.consistent;
   const rejectionReason = blocked
     ? `objective:${objective.objectiveType}:${gate.status}:${(
         gate.missingEdges[0] ?? gate.missingClaims[0] ?? "INCOMPLETE"
@@ -8025,10 +8026,39 @@ export async function chat(opts: {
     const incompleteResponse = isArabic
       ? `ANALYSIS_INCOMPLETE — لم تكتمل متطلبات الهدف (${loopResult.reason}). تم الاحتفاظ بالأدلة المتاحة، لكن لا يمكنني اعتبار النتيجة مكتملة.`
       : `ANALYSIS_INCOMPLETE — the agent stopped before completing the required objective (${loopResult.reason}). Available evidence was retained, but the result is not complete.`;
+    const incompleteFinalized = finalizeObjectiveAndStream({
+      objective,
+      fileContents: forensicFileContents,
+      message,
+      response: incompleteResponse,
+      provenEdges: objectiveRuntimeProvenEdges,
+      relayAgentStep,
+      streamCallback,
+    });
+    const gatedIncompleteResponse = incompleteFinalized.gatedResponse;
+    if (isForensicOrEvidenceRun) {
+      relayForensicTerminal({
+        onStep,
+        loopResult,
+        fileContents: forensicFileContents,
+        claimsUnclosedButEvidenceAvailable: forensicFileContents.size > 0,
+        report: gatedIncompleteResponse,
+        objectiveBlocked: incompleteFinalized.blocked,
+      });
+    }
+    const incompleteTaskResult = buildTaskResult({
+      forensicTaskType,
+      finalResponse: gatedIncompleteResponse,
+      mergedSources: toolSources,
+      semanticBehaviorAnswer: undefined,
+      structuredRepairPlan: undefined,
+      acceptedBehaviorEvidence: [],
+    });
     return {
-      response: finalizeTaskResponse(incompleteResponse),
+      response: finalizeTaskResponse(gatedIncompleteResponse),
       sources: toolSources,
       pendingChanges: getExecutionPendingChanges(),
+      ...(incompleteTaskResult ? { taskResult: incompleteTaskResult } : {}),
     };
   }
 
@@ -11672,13 +11702,13 @@ export async function chat(opts: {
       ? "ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven."
       : capabilityProbeClaimUnclosed
       ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
-      : providerReturnedEmptyEvidenceResponse
+      : providerReturnedEmptyEvidenceResponse && !objectiveBlocksVerdict
           ? buildBehaviorEvidenceIncompleteResponse(
               message,
               forensicFileContents,
               responseLanguage,
             )
-      : insufficientAcceptedBehaviorEvidence
+      : insufficientAcceptedBehaviorEvidence && !objectiveBlocksVerdict
       ? buildBehaviorEvidenceIncompleteResponse(
           message,
           forensicFileContents,
