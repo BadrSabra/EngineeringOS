@@ -298,6 +298,12 @@ function deriveProjectQueryAnalysisEvidence(params: {
       step.kind === "decision_trace",
     );
   if (!integrity || !decision) return undefined;
+  const forensicTerminal = [...params.traceSteps]
+    .reverse()
+    .find((step): step is Extract<AgentStep, { kind: "forensic_terminal" }> =>
+      step.kind === "forensic_terminal",
+    );
+  const forensicDiagnostic = deriveForensicDiagnostic(params.traceSteps);
   const forensicStatus = [...params.traceSteps]
     .reverse()
     .find((step): step is Extract<AgentStep, { kind: "forensic_status" }> =>
@@ -361,6 +367,11 @@ function deriveProjectQueryAnalysisEvidence(params: {
       : {}),
     ...(objectiveVerdict ? { objectiveVerdict } : {}),
     finalState: decision.trace.finalState,
+    finalAnswerType: integrity.finalAnswerType,
+    ...(forensicTerminal ? { forensicTerminalKind: forensicTerminal.terminalKind } : {}),
+    ...(forensicTerminal && forensicDiagnostic
+      ? { forensicDiagnosticVerdict: forensicDiagnostic.verdict }
+      : {}),
   };
 }
 
@@ -2894,6 +2905,7 @@ function serializeToolTrace(
   includeDiagnosticDetails = true,
   scopeDescription?: string,
   capabilityProbeResult?: unknown,
+  projectQuery = false,
 ): string | null {
   if (steps.length === 0 && !scopeDescription) return null;
   const diagnosticCodes = steps
@@ -3056,6 +3068,7 @@ function serializeToolTrace(
           recoveryAttempt: step.trace.recoveryAttempt,
           recoveryFailureKind: step.trace.recoveryFailureKind,
           finalState: step.trace.finalState,
+          ...(step.trace.objectiveVerdict ? { objectiveVerdict: step.trace.objectiveVerdict } : {}),
           // Task #46: persist the verdict's proof scope for later reconciliation.
           ...(step.trace.verdictScope ? { verdictScope: step.trace.verdictScope } : {}),
           ...(step.trace.scopedFindingStatus
@@ -3161,7 +3174,14 @@ function serializeToolTrace(
         }
     }
   });
-  const forensicDiagnostic = deriveForensicDiagnostic(steps, { capabilityProbeResult });
+  const isProjectQueryTrace = projectQuery || steps.some((step) =>
+    step.kind === "evidence_integrity"
+      && typeof step.objectiveType === "string"
+      && step.objectiveType.startsWith("PROJECT_QUERY"),
+  );
+  const forensicDiagnostic = isProjectQueryTrace
+    ? undefined
+    : deriveForensicDiagnostic(steps, { capabilityProbeResult });
   if (forensicDiagnostic) {
     entries.push({ kind: "forensic_diagnostic", forensicDiagnostic });
   }
@@ -4710,7 +4730,7 @@ router.post("/ai/chat", async (req, res) => {
       }
     }
 
-    const forensicDiagnostic = turnIntent.requiresEvidence
+    const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
       ? deriveForensicDiagnostic(traceSteps)
       : undefined;
     return res.json({
@@ -6795,6 +6815,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           recoveryFailureKind: step.trace.recoveryFailureKind,
           finalState: step.trace.finalState,
           rejectionReason: step.trace.rejectionReason,
+          ...(step.trace.objectiveVerdict ? { objectiveVerdict: step.trace.objectiveVerdict } : {}),
           // Task #58: surface the verdict's proof scope live on the audit panel.
           ...(step.trace.verdictScope ? { verdictScope: step.trace.verdictScope } : {}),
           ...(step.trace.scopedFindingStatus
@@ -8588,7 +8609,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionLedgerSnapshot,
           )
       : assistantMsg.toolTrace;
-    const forensicDiagnostic = streamTurnIntent.requiresEvidence
+    const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
       ? deriveForensicDiagnostic(traceSteps, { capabilityProbeResult: result.taskResult })
       : undefined;
     // The database row is intentionally retained with full diagnostics, but

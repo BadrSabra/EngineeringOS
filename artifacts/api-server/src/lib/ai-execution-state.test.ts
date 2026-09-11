@@ -209,6 +209,7 @@ describe("autonomous operation contract", () => {
       completionGateResult: "PROVEN",
       objectiveVerdict: "ANSWER_COMPLETE",
       finalState: "VERIFIED",
+      finalAnswerType: "BEHAVIORAL_ANSWER" as const,
     };
 
     expect(validateAnalysisEvidenceCompletion(evidence, {
@@ -225,6 +226,75 @@ describe("autonomous operation contract", () => {
     })).toMatchObject({
       allowed: false,
       reasons: expect.arrayContaining(["no analysis claim has been accepted"]),
+    });
+  });
+
+  it("rejects a symbol inventory that is projected as NO_ANSWER", () => {
+    const evidence = {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+      requiredPaths: ["src/chat.ts"],
+      completedReadFiles: ["src/chat.ts"],
+      acceptedEvidenceFiles: ["src/chat.ts"],
+      readManifest: [{
+        path: "src/chat.ts",
+        status: "READ_COMPLETE" as const,
+        operationId: "analysis-operation",
+        sourceRevision: "revision-current",
+        contentHash: "a".repeat(64),
+        byteLength: 1,
+      }],
+      acceptedClaimCount: 1,
+      evidenceConsistent: true,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+      finalAnswerType: "NO_ANSWER" as const,
+    };
+
+    expect(validateAnalysisEvidenceCompletion(evidence, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    })).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining([
+        "analysis final answer type is NO_ANSWER",
+      ]),
+    });
+  });
+
+  it("rejects accepted project analysis with a conflicting forensic terminal", () => {
+    const evidence = {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+      requiredPaths: ["src/chat.ts"],
+      completedReadFiles: ["src/chat.ts"],
+      acceptedEvidenceFiles: ["src/chat.ts"],
+      readManifest: [{
+        path: "src/chat.ts",
+        status: "READ_COMPLETE" as const,
+        operationId: "analysis-operation",
+        sourceRevision: "revision-current",
+        contentHash: "a".repeat(64),
+        byteLength: 1,
+      }],
+      acceptedClaimCount: 1,
+      evidenceConsistent: true,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+      finalAnswerType: "BEHAVIORAL_ANSWER" as const,
+      forensicTerminalKind: "NO_EVIDENCE_FOUND",
+    };
+
+    expect(validateAnalysisEvidenceCompletion(evidence, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    })).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining([
+        "project analysis has a conflicting forensic terminal: NO_EVIDENCE_FOUND",
+      ]),
     });
   });
 
@@ -248,6 +318,7 @@ describe("autonomous operation contract", () => {
       completionGateResult: "PROVEN",
       objectiveVerdict: "ANSWER_COMPLETE",
       finalState: "VERIFIED",
+      finalAnswerType: "BEHAVIORAL_ANSWER" as const,
     }, {
       operationId: "analysis-operation",
       sourceRevision: "revision-current",
@@ -271,6 +342,7 @@ describe("autonomous operation contract", () => {
       completionGateResult: "PROVEN",
       objectiveVerdict: "ANSWER_COMPLETE",
       finalState: "VERIFIED",
+      finalAnswerType: "BEHAVIORAL_ANSWER" as const,
     }, {
       operationId: "analysis-operation",
       sourceRevision: "revision-current",
@@ -572,6 +644,7 @@ describe("autonomous operation contract", () => {
       completionGateResult: "PROVEN",
       objectiveVerdict: "ANSWER_COMPLETE",
       finalState: "VERIFIED",
+      finalAnswerType: "BEHAVIORAL_ANSWER" as const,
     }, {
       operationId: "analysis-operation",
       sourceRevision: "revision-current",

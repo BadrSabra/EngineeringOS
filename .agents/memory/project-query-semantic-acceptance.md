@@ -19,3 +19,17 @@ left generic gap questions unable to produce a valid successful analysis.
 **How to apply:** Preserve the target/objective binding through session state,
 SSE, history, and acceptance; broad audit wording must still require explicit
 scope rather than silently becoming a targeted gap query.
+
+For embedded-AI project queries, accepted claims and a PROVEN objective are
+still insufficient when the response is only a symbol inventory. The final
+answer must contain a bounded behavioral flow explanation; otherwise classify
+it as `NO_ANSWER`/incomplete and keep the objective verdict blocked.
+
+**Why:** A complete-read run could name every relevant function and cite exact
+excerpts while never explaining routing, tool-loop, provider, or acceptance
+behavior. Treating that inventory as an answer recreated the original false
+success at a different layer.
+
+**How to apply:** Keep the behavioral-flow check before telemetry finalization,
+carry `OBJECTIVE_BLOCKED`/`NO_ANSWER` through SSE and history, and keep
+forensic terminal diagnostics out of project-query projections.

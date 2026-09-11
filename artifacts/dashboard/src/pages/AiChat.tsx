@@ -1517,6 +1517,7 @@ type ToolTraceEntry = {
   provenEdges?: string[];
   completionGateResult?: string;
   finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+  objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
   evidenceSourceCoverage?: {
     status: 'COMPLETE' | 'PARTIAL' | 'NONE';
     requestedFiles?: string[];
@@ -1976,6 +1977,7 @@ type ForensicEvidenceSummary = {
     provenEdges: string[];
     completionGateResult?: string;
     finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
     completedReadFiles: string[];
     retainedBodyFiles: string[];
     acceptedEvidenceFiles: string[];
@@ -2218,6 +2220,13 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
         entry.finalAnswerType === 'BEHAVIORAL_ANSWER' ||
         entry.finalAnswerType === 'NO_ANSWER'
           ? entry.finalAnswerType
+          : undefined,
+      objectiveVerdict:
+        entry.objectiveVerdict === 'ANSWER_COMPLETE' ||
+        entry.objectiveVerdict === 'ANSWER_PARTIAL' ||
+        entry.objectiveVerdict === 'RECOVERY_REQUIRED' ||
+        entry.objectiveVerdict === 'OBJECTIVE_BLOCKED'
+          ? entry.objectiveVerdict
           : undefined,
       completedReadFiles: Array.isArray(entry.completedReadFiles)
         ? entry.completedReadFiles.filter((path): path is string => typeof path === 'string')
@@ -6520,6 +6529,7 @@ function LiveAgentActivity({
   verdictScope?: {
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
+    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
   };
   auditScopeDescription?: string;
 }) {
@@ -6588,6 +6598,15 @@ function LiveAgentActivity({
                   : 'border-violet-500/50 bg-violet-500/15 text-violet-200'
               }`}>
                 {String(verdictScope.scope).replace(/_/g, ' ')}
+              </span>
+            )}
+            {verdictScope?.objectiveVerdict && (
+              <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${
+                verdictScope.objectiveVerdict === 'ANSWER_COMPLETE'
+                  ? 'border-green-500/50 bg-green-500/15 text-green-200'
+                  : 'border-amber-500/50 bg-amber-500/15 text-amber-200'
+              }`}>
+                {String(verdictScope.objectiveVerdict).replace(/_/g, ' ')}
               </span>
             )}
             <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
@@ -7765,6 +7784,7 @@ function AgentExecutionProofPanel({
     provenEdges?: string[];
     completionGateResult?: string;
     finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
   } | null;
   persistedEvidenceFiles?: string[];
   isFixtureLocal: boolean;
@@ -8444,6 +8464,7 @@ export default function AiChat() {
   const [liveVerdictScope, setLiveVerdictScope] = useState<{
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
+    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
   } | null>(null);
   const [liveAuditScopeDescription, setLiveAuditScopeDescription] = useState<string | null>(null);
   const [liveBehaviorProgress, setLiveBehaviorProgress] = useState<AiStreamBehaviorProgressEvent | null>(null);
@@ -8457,6 +8478,7 @@ export default function AiChat() {
     provenEdges: string[];
     completionGateResult?: string;
     finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+    objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
   } | null>(null);
 
   // Keep the opaque resume token across tab refreshes. The server stores only
@@ -10585,6 +10607,7 @@ export default function AiChat() {
             provenEdges: event.provenEdges ?? [],
             completionGateResult: event.completionGateResult,
             finalAnswerType: event.finalAnswerType,
+            objectiveVerdict: event.objectiveVerdict,
           });
         },
         // Task #58: surface the verdict's proof scope live in the audit panel
@@ -10594,6 +10617,7 @@ export default function AiChat() {
           setLiveVerdictScope({
             scope: event.verdictScope,
             findingStatus: event.scopedFindingStatus,
+            objectiveVerdict: event.objectiveVerdict,
           });
         },
         onDone: (data) => {

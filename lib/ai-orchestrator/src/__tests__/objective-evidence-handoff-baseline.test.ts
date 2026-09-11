@@ -184,7 +184,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     }
   });
 
-  it("materializes embedded-AI claims from complete retained reads", async () => {
+  it("does not accept a symbol inventory as an embedded-AI explanation", async () => {
     const completeFileContents = new Map<string, string>([
       [
         REQUIRED_PATHS[0],
@@ -296,19 +296,19 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
       });
 
-      expect(result.response).toContain("resolveTurnIntent");
-      expect(result.response).toContain("executeToolLoop");
-      expect(result.response).toContain("chatWithFallback");
-      expect(result.response).not.toMatch(/BLOCKED|محظور/);
+      // Complete reads and exact symbol mentions are not enough for a
+      // PROJECT_QUERY answer. The response must explain the behavioral flow.
+      expect(result.response).toMatch(/BLOCKED|محظور/);
 
       const integrity = [...steps]
         .reverse()
         .find((step) => step.kind === "evidence_integrity");
       expect(integrity).toMatchObject({
         acceptedClaimCount: 3,
-        completionGateResult: "PROVEN",
+        finalAnswerType: "NO_ANSWER",
       });
       expect(integrity?.acceptedEvidenceCount).toBeGreaterThan(0);
+      expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

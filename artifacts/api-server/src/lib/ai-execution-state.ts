@@ -524,6 +524,17 @@ export type AnalysisEvidenceCompletion = {
   completionGateResult?: string;
   objectiveVerdict?: string;
   finalState?: string;
+  /**
+   * Project-query answers must be behaviorally complete, not merely an
+   * inventory of symbols found in source files.
+   */
+  finalAnswerType?: "PRODUCTION_REACHABILITY_ANSWER" | "BEHAVIORAL_ANSWER" | "NO_ANSWER";
+  /**
+   * These are copied from the same terminal trace used for acceptance. A
+   * successful project query must not carry a generic forensic failure.
+   */
+  forensicTerminalKind?: string;
+  forensicDiagnosticVerdict?: "FINDING_PROVEN" | "NO_VERIFIED_FINDING" | "ANALYSIS_INCOMPLETE";
 };
 
 export type AnalysisEvidenceRead = {
@@ -618,6 +629,15 @@ export function validateAnalysisEvidenceCompletion(
     reasons.push(`analysis objective verdict is ${evidence.objectiveVerdict ?? "NOT_RECORDED"}`);
   }
   if (evidence.finalState !== "VERIFIED") reasons.push("analysis decision was not verified");
+  if (evidence.finalAnswerType !== "BEHAVIORAL_ANSWER") {
+    reasons.push(`analysis final answer type is ${evidence.finalAnswerType ?? "NOT_RECORDED"}`);
+  }
+  if (evidence.forensicTerminalKind) {
+    reasons.push(`project analysis has a conflicting forensic terminal: ${evidence.forensicTerminalKind}`);
+  }
+  if (evidence.forensicDiagnosticVerdict === "ANALYSIS_INCOMPLETE") {
+    reasons.push("project analysis has an incomplete forensic diagnostic");
+  }
   return { allowed: reasons.length === 0, reasons };
 }
 

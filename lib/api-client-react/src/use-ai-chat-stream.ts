@@ -682,6 +682,8 @@ export type AiStreamDecisionTraceEvent = {
   /** Task #46: the verdict's proof scope, computed by the final runtime ledger. */
   verdictScope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
   scopedFindingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
+  /** Objective-specific verdict kept separate from forensic finding scope. */
+  objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
 };
 
 export type AiStreamTaskStartedEvent = {
@@ -847,6 +849,7 @@ export type AiStreamEvidenceIntegrityEvent = {
   provenEdges?: string[];
   completionGateResult?: string;
   finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+  objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
   evidenceSourceCoverage?: {
     status: 'COMPLETE' | 'PARTIAL' | 'NONE';
     requestedFiles?: string[];

@@ -1246,6 +1246,8 @@ export function attachObjectiveTelemetry(
     finalAnswerType:
       gate.status === "PROVEN" && objective.objectiveType === "PRODUCTION_REACHABILITY"
         ? "PRODUCTION_REACHABILITY_ANSWER"
+        : gate.status === "PROVEN" && objective.objectiveType.startsWith("PROJECT_QUERY_")
+          ? "BEHAVIORAL_ANSWER"
         : gate.answerTypeMismatch
           ? "BEHAVIORAL_ANSWER"
           : "NO_ANSWER",

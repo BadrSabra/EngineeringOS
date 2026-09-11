@@ -4953,6 +4953,28 @@ function objectiveClaimsAreMentioned(
 }
 
 /**
+ * A project-query objective asks for behavior, not a source inventory. Symbol
+ * mentions are still useful for grounding, but they cannot close the answer
+ * on their own. Require a bounded explanation with at least two explicit flow
+ * relations so a list of function names and excerpts remains incomplete.
+ */
+function projectQueryAnswerHasBehavioralFlow(
+  objective: ObjectiveContract | undefined,
+  response: string,
+): boolean {
+  if (!objective?.objectiveType.startsWith("PROJECT_QUERY_")) return true;
+  const normalized = response.trim();
+  if (normalized.length < 240 || !objectiveClaimsAreMentioned(objective, normalized)) {
+    return false;
+  }
+  const flowSignals = [
+    /\b(?:first|then|after|finally|through|because|calls?|reads?|routes?|resolves?|persists?|accepts?|fallback)\b/iu,
+    /(?:أولًا|أولا|ثم|بعد ذلك|أخيرًا|أخيرا|عبر|يقرأ|يستدعي|يحدد|يوجه|يحفظ|يقبل|يتحقق|ينتقل)/u,
+  ];
+  return flowSignals.filter((pattern) => pattern.test(normalized)).length >= 2;
+}
+
+/**
  * Server-owned fallback synthesis for targeted project objectives.
  *
  * The provider gets one no-tools opportunity first. If it returns an empty or
@@ -11730,13 +11752,21 @@ export async function chat(opts: {
         ],
       })
     : null;
+  const projectQueryAnswerRejected =
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
+    && !projectQueryAnswerHasBehavioralFlow(objective, responseBeforeBehaviorEvidence);
   const objectiveBlocksVerdict =
-    objective !== undefined && objectiveGate !== null ? objectiveGate.blocked : false;
+    (objective !== undefined && objectiveGate !== null ? objectiveGate.blocked : false)
+    || projectQueryAnswerRejected;
   const objectiveRejectionReason =
-    objectiveBlocksVerdict && objective !== undefined && objectiveGate
-      ? `objective:${objective.objectiveType}:${objectiveGate.status}:${(
-          objectiveGate.missingEdges[0] ?? objectiveGate.missingClaims[0] ?? "INCOMPLETE"
-        ).slice(0, 60)}`
+    objectiveBlocksVerdict && objective !== undefined
+      ? projectQueryAnswerRejected
+        ? `objective:${objective.objectiveType}:ANSWER_INCOMPLETE:behavioral explanation required`
+        : objectiveGate
+          ? `objective:${objective.objectiveType}:${objectiveGate.status}:${(
+              objectiveGate.missingEdges[0] ?? objectiveGate.missingClaims[0] ?? "INCOMPLETE"
+            ).slice(0, 60)}`
+          : undefined
       : undefined;
   if (objectiveBlocksVerdict && objective !== undefined && objectiveGate) {
     relayAgentStep({
@@ -11758,13 +11788,20 @@ export async function chat(opts: {
   // AI-OBJ-011: fold the objective completion telemetry onto the ledger so
   // validateTelemetry (below) fail-closes when it is inconsistent with the gate
   // verdict, the evidence, or the final answer type.
-  const telemetryLedger = attachObjectiveTelemetry(runtimeLedger, objectiveGate, objective, {
+  const telemetryLedgerBase = attachObjectiveTelemetry(runtimeLedger, objectiveGate, objective, {
     triggered: recoveryAttemptsUsed > 0,
     target:
       recoveryAttemptsUsed > 0 && objective !== undefined
         ? objective.requiredClaims?.[0]?.claimId
         : undefined,
   });
+  const telemetryLedger = projectQueryAnswerRejected
+    ? {
+        ...telemetryLedgerBase,
+        completionGateResult: "OBJECTIVE_MISMATCH" as const,
+        finalAnswerType: "NO_ANSWER" as const,
+      }
+    : telemetryLedgerBase;
   const telemetryReconciliation = validateTelemetry(telemetryLedger);
   // Task #46: persist the verdict's proof scope onto the structured Repair Plan
   // so a follow-up execution command (and a later audit) reconciles against the
@@ -12195,7 +12232,11 @@ export async function chat(opts: {
       if (chunk) onDelta(chunk);
     }
   }
-  if (isForensicOrEvidenceRun) {
+  // PROJECT_QUERY has a source-backed analysis contract, not a forensic
+  // Finding contract. The generic forensic terminal would turn a complete
+  // project explanation into NO_EVIDENCE_FOUND before the objective verdict
+  // is projected, creating a contradictory success/incomplete trace.
+  if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
     relayForensicTerminal({
       onStep,
       loopResult,
@@ -12212,8 +12253,14 @@ export async function chat(opts: {
   }
   // AI-OBJ-012: compute the objective verdict kind for the decision trace.
   const objectiveVerdict: ObjectiveVerdictKind = classifyObjectiveVerdict({
-    primaryClaimClosed: !anyRequiredClaimUnclosed && !behaviorAnswerRejected && !telemetryBlocksVerdict,
-    allClaimsProven: finalAnswerValidation.verdict === "ANSWER_COMPLETE",
+    primaryClaimClosed:
+      !anyRequiredClaimUnclosed
+      && !behaviorAnswerRejected
+      && !projectQueryAnswerRejected
+      && !telemetryBlocksVerdict,
+    allClaimsProven:
+      !projectQueryAnswerRejected
+      && finalAnswerValidation.verdict === "ANSWER_COMPLETE",
     anyClaimProven: runtimeLedger.validations.some((v) => v.result === "PROVEN"),
     evidenceCollected: runtimeLedger.evidenceFileCount > 0 || acceptedBehaviorEvidence.length > 0,
     recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
