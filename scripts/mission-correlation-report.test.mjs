@@ -21,6 +21,7 @@ function representativeCapture(terminalState) {
     sessionId: "session",
     operationId: "operation",
     workspaceRevision: "abc1234",
+    projectRevision: "abc1234",
     terminalState,
     execution: {
       id: "execution",
@@ -33,7 +34,7 @@ function representativeCapture(terminalState) {
     sseEvents: [{ type: success ? "done" : "error" }],
     checkpoints: [{ sequence: 1 }],
     evidenceCount: success ? 2 : 0,
-    validation: success ? [{ status: "passed" }] : [],
+    validation: success ? [{ status: "passed", projectRevision: "abc1234" }] : [],
     dashboard: {
       executions: [{
         id: "execution",
@@ -223,6 +224,78 @@ test("correlates every mission surface by operation and workspace revision", () 
   assert.equal(report.workspaceRevision, "abc1234");
   assert.equal(report.outcomeClass, "success");
   assert.ok(Object.values(report.agreement).every(Boolean));
+});
+
+test("keeps Git workspace and scanner project revisions separate", () => {
+  const report = buildMissionCorrelationReport(
+    {
+      projectId: "project",
+      sessionId: "session",
+      operationId: "operation",
+      workspaceRevision: "git-short-hash",
+      projectRevision: "scanner-content-digest",
+      candidateIdentity: "candidate-1",
+      candidateRevision: "scanner-content-digest",
+      terminalState: "COMPLETED",
+      execution: {
+        id: "execution",
+        projectId: "project",
+        sessionId: "session",
+        operationId: "operation",
+        status: "completed",
+        flightState: "COMPLETED",
+      },
+      messages: [{ executionId: "execution" }],
+      sseEvents: [{ type: "done" }],
+      checkpoints: [{ sequence: 1 }],
+      evidenceCount: 1,
+      validation: [{ status: "passed", projectRevision: "scanner-content-digest" }],
+      dashboard: {
+        executions: [{
+          id: "execution",
+          projectId: "project",
+          executionStatus: "completed",
+        }],
+      },
+    },
+    { requireEvidence: true, requireCandidateCorrelation: true },
+  );
+
+  assert.equal(report.workspaceRevision, "git-short-hash");
+  assert.equal(report.projectRevision, "scanner-content-digest");
+  assert.equal(report.candidateRevision, "scanner-content-digest");
+});
+
+test("rejects validation evidence from another scanner project revision", () => {
+  assert.throws(
+    () => buildMissionCorrelationReport(
+      {
+        projectId: "project",
+        sessionId: "session",
+        operationId: "operation",
+        workspaceRevision: "git-short-hash",
+        projectRevision: "scanner-content-digest",
+        candidateIdentity: "candidate-1",
+        candidateRevision: "scanner-content-digest",
+        terminalState: "COMPLETED",
+        execution: {
+          id: "execution",
+          projectId: "project",
+          sessionId: "session",
+          operationId: "operation",
+          status: "completed",
+        },
+        messages: [{ executionId: "execution" }],
+        sseEvents: [{ type: "done" }],
+        checkpoints: [{ sequence: 1 }],
+        evidenceCount: 1,
+        validation: [{ status: "passed", projectRevision: "different-digest" }],
+        dashboard: { executions: [{ id: "execution" }] },
+      },
+      { requireEvidence: true, requireCandidateCorrelation: true },
+    ),
+    /validation\.projectRevision/,
+  );
 });
 
 test("rejects a successful terminal without accepted evidence or validation", () => {
@@ -506,6 +579,7 @@ test("strict live validation requires a matching candidate revision", () => {
     ...capture,
     candidateIdentity: "candidate-1",
     candidateRevision: "abc1234",
+    projectRevision: "abc1234",
   }, {
     requireEvidence: true,
     requireCandidateCorrelation: true,

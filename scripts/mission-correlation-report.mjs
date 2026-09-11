@@ -89,6 +89,7 @@ export function buildMissionCorrelationReport(input, options = {}) {
     "operationId",
   );
   const workspaceRevision = requireValue(input.workspaceRevision, "workspaceRevision");
+  const projectRevision = text(input.projectRevision);
   const projectId = requireValue(input.projectId ?? execution.projectId, "projectId");
   const sessionId = requireValue(input.sessionId ?? execution.sessionId, "sessionId");
   const terminalState = requireValue(
@@ -160,12 +161,30 @@ export function buildMissionCorrelationReport(input, options = {}) {
     if (!candidateRevision) {
       throw new Error("Correlation report is missing candidateRevision.");
     }
-    same(candidateRevision, workspaceRevision, "candidateRevision");
-    if (success && validation.some((step) =>
-      step?.projectRevision !== undefined &&
-      step.projectRevision !== workspaceRevision
-    )) {
-      throw new Error("Correlation report contains validation from another project revision.");
+    if (!projectRevision) {
+      throw new Error("Correlation report is missing projectRevision.");
+    }
+    // Candidate and scanner identities are both project-owned. The Git
+    // workspace revision is a separate identity and must not be compared to
+    // the scanner's content-inventory digest.
+    same(candidateRevision, projectRevision, "candidateRevision");
+    if (success) {
+      for (const step of validation) {
+        const validationProjectRevision = text(
+          step?.projectRevision ??
+          step?.validation?.projectRevision ??
+          step?.validation?.evidence?.projectRevision ??
+          step?.evidence?.projectRevision,
+        );
+        if (!validationProjectRevision) {
+          throw new Error("Correlation report contains validation without a project revision.");
+        }
+        same(
+          validationProjectRevision,
+          projectRevision,
+          "validation.projectRevision",
+        );
+      }
     }
   }
   return {
@@ -176,6 +195,7 @@ export function buildMissionCorrelationReport(input, options = {}) {
     projectId,
     sessionId,
     workspaceRevision,
+    ...(projectRevision ? { projectRevision } : {}),
     ...(candidateIdentity ? { candidateIdentity } : {}),
     ...(candidateRevision ? { candidateRevision } : {}),
     terminalState,

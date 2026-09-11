@@ -3674,6 +3674,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       validation: validation.map((step) => ({
         status: step.validation?.status ?? step.status,
         profile: step.validation?.profile ?? step.validationProfile,
+        projectRevision:
+          step.validation?.projectRevision ??
+          step.validation?.evidence?.projectRevision ??
+          step.projectRevision ??
+          step.evidence?.projectRevision,
       })),
       events: events.map(({ type, severity, correlationId }) => ({
         type,
