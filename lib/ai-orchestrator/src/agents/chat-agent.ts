@@ -5015,9 +5015,42 @@ export function buildProjectQueryEvidenceSynthesis(
   }
   lines.push(
     "",
+    isArabic ? "### تسلسل التنفيذ" : "### Execution flow",
+  );
+  const flowByClaimId: Record<string, { ar: string; en: string }> = {
+    "ai-routing": {
+      ar: "أولاً، يحدد مسار المحادثة نية الطلب قبل اختيار مسار التنفيذ.",
+      en: "First, the chat route resolves the request intent before selecting the execution path.",
+    },
+    "ai-tool-loop": {
+      ar: "ثم تدخل المحادثة المفعلة بالأدوات حلقة الأدوات وتحتفظ بنتائج القراءة قبل التوليف.",
+      en: "Then, tool-enabled chat enters the tool loop and retains read results before synthesis.",
+    },
+    "ai-provider-dispatch": {
+      ar: "بعد ذلك، يرسل المسار طلب provider عبر fallback قبل التحقق من الإجابة النهائية.",
+      en: "After that, the route dispatches the provider request through fallback before final response validation.",
+    },
+  };
+  const genericFlow = isArabic
+    ? [
+        "أولاً، يبدأ المسار من الادعاء السلوكي المرتبط بالقراءة المحتفظ بها.",
+        "ثم تُستخدم الأدلة المرتبطة لترتيب مراحل التنفيذ قبل التوليف.",
+        "وأخيراً، تمر الإجابة عبر التحقق النهائي قبل قبولها.",
+      ]
+    : [
+        "First, the flow starts from the behavioral claim bound to the retained read.",
+        "Then, the bound evidence establishes the execution sequence before synthesis.",
+        "Finally, the answer passes final validation before acceptance.",
+      ];
+  const flow = evidence.map((item) =>
+    flowByClaimId[item.claimId]?.[isArabic ? "ar" : "en"],
+  ).filter((sentence): sentence is string => Boolean(sentence));
+  lines.push(...(flow.length > 0 ? flow : genericFlow));
+  lines.push(
+    "",
     isArabic
-      ? "تقتصر النتيجة على الادعاءات التي ظهرت حرفيًا في المصادر المحتفظ بها؛ لم تُجرَ أي قراءة إضافية ولم تُعدّل ملفات."
-      : "The result is limited to claims found verbatim in the retained sources; no additional reads were performed and no files were modified.",
+      ? "تقتصر النتيجة على الادعاءات المرتبطة حرفياً بالمصادر المحتفظ بها؛ لم تُجرَ أي قراءة إضافية ولم تُعدّل ملفات."
+      : "The result is limited to claims bound to the retained source evidence; no additional reads were performed and no files were modified.",
   );
   return lines.join("\n");
 }
