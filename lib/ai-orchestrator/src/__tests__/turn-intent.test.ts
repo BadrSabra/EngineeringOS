@@ -323,6 +323,43 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it.each([
+    "تدقيق شامل للمشروع",
+    "مراجعة كاملة للمستودع",
+    "فحص واسع لقاعدة الكود",
+    "دقق في المشروع وابحث عن المشاكل المهمة.",
+    "راجع في المستودع وحدد المشاكل.",
+    "افحص الريبو بالكامل.",
+    "حلل قاعدة الشفرة بالكامل.",
+  ])("keeps Arabic whole-project audit wording tool-enabled: %s", (message) => {
+    const intent = resolveTurnIntent(message);
+
+    expect(intent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      executionTaskType: "analysis",
+      requiresTools: true,
+      requiresEvidence: true,
+      scopeClarificationRequired: false,
+      operationMode: "FORENSIC_AUDIT",
+    });
+  });
+
+  it.each([
+    "راجع مشروعي وأخبرني إن كانت هناك مشاكل مهمة.",
+    "دقق مشروعي بحثًا عن مشاكل مهمة.",
+  ])("keeps unscoped Arabic broad reviews on scope consent: %s", (message) => {
+    const intent = resolveTurnIntent(message);
+
+    expect(intent).toMatchObject({
+      kind: "CHAT",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
+      scopeClarificationRequired: true,
+      operationMode: "CHAT",
+    });
+  });
+
   it("resumes the verified prior classification for a real continuation", () => {
     const prior = classifyRequest(
       "Audit the entire repository and identify the root causes.",
