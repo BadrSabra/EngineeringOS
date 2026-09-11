@@ -7683,6 +7683,14 @@ export async function chat(opts: {
   // same server-owned claim materialization as the deterministic fallback.
   const isTargetedProjectQueryObjective =
     objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
+  // Deterministic synthesis may only promote a contract that already declares
+  // behavioral assertions. A symbol-only objective must remain fail-closed:
+  // source needles can materialize evidence, but they cannot authorize the
+  // server to invent a behavioral explanation from function names alone.
+  const hasBehavioralProjectQueryContract =
+    isTargetedProjectQueryObjective &&
+    (objective?.requiredClaims.length ?? 0) > 0 &&
+    objective!.requiredClaims.every((claim) => claim.text.trim().split(/\s+/u).length >= 5);
   const materializedProjectQueryEvidence =
     isTargetedProjectQueryObjective &&
     objectiveManifestIsComplete(objective, forensicFileContents)
@@ -7707,8 +7715,11 @@ export async function chat(opts: {
         : "";
     let recoveredText = initialText;
     if (
-      !objectiveClaimsAreMentioned(objective, recoveredText)
-      || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+      hasBehavioralProjectQueryContract &&
+      (
+        !objectiveClaimsAreMentioned(objective, recoveredText)
+        || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+      )
     ) {
       recoveryAttemptsUsed += 1;
       const evidenceContext = materializedProjectQueryEvidence
@@ -7765,8 +7776,11 @@ export async function chat(opts: {
       }
     }
     if (
-      !objectiveClaimsAreMentioned(objective, recoveredText)
-      || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+      hasBehavioralProjectQueryContract &&
+      (
+        !objectiveClaimsAreMentioned(objective, recoveredText)
+        || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+      )
     ) {
       recoveredText = buildProjectQueryEvidenceSynthesis(
         objective,
