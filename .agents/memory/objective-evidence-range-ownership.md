@@ -7,4 +7,4 @@ For an objective-scoped `read_file_range`, the server owns the effective line wi
 
 **Why:** A provider can correctly choose the required file but request its first 200 lines, producing accepted-looking source evidence that contains imports or symbols while omitting the implementation that proves the claim.
 
-**How to apply:** Compute and enforce the objective needle window before read caching and dispatch; keep a regression test where the provider requests `1..200` but the claim is later in the file.
+**How to apply:** Compute and enforce the objective needle window before read caching and dispatch, including server-forced recovery reads when the provider returns no usable evidence action; keep regressions for both provider-selected and forced `1..200` ranges.
