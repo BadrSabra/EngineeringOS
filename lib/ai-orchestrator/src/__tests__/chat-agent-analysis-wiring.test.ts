@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
-import { buildActiveTaskState } from "../task-session-state.js";
+import {
+  buildActiveTaskExecutionPlan,
+  buildActiveTaskState,
+} from "../task-session-state.js";
 
 const { executeToolLoopMock } = vi.hoisted(() => ({
   executeToolLoopMock: vi.fn(),
@@ -135,6 +138,58 @@ describe("chat analysis tool wiring", () => {
       analysisCorrelation: correlation,
     })).rejects.toThrow("resumed analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the parent correlation on a nested execution-node tool loop", async () => {
+    const { chat } = await import("../agents/chat-agent.js");
+    const repairPlan = [{
+      findingId: "F-01",
+      files: ["src/server.ts"],
+      steps: ["Apply the verified repair"],
+      validationProfile: "workspace-typecheck" as const,
+      verdictScope: "PRODUCTION" as const,
+      scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+    }];
+    const executionPlan = buildActiveTaskExecutionPlan({
+      repairPlan,
+      projectId: correlation.projectId,
+      rootPath: process.cwd(),
+    });
+    expect(executionPlan?.nodes).toHaveLength(1);
+
+    executeToolLoopMock.mockClear();
+    executeToolLoopMock.mockImplementationOnce(async (opts: {
+      analysisCorrelation?: AnalysisCorrelation;
+      executionMode?: string;
+    }) => {
+      expect(opts.executionMode).toBe("repair_plan");
+      expect(opts.analysisCorrelation).toEqual(correlation);
+      throw new Error("nested analysis wiring sentinel");
+    });
+
+    const result = await chat({
+      message: "Execute Repair Plan",
+      history: [{ role: "user", content: "Run the verified forensic repair." }],
+      projectContext: context,
+      rootPath: process.cwd(),
+      projectId: correlation.projectId,
+      provider: "openrouter",
+      apiKey: "test-key",
+      allowValidationTools: true,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/server.ts"],
+      approvedValidationProfiles: ["workspace-typecheck"],
+      validationRunner: async () => ({
+        status: "passed" as const,
+        profile: "workspace-typecheck",
+        command: "pnpm typecheck",
+        exitCode: 0,
+      }),
+      executionPlanOverride: executionPlan!,
+      analysisCorrelation: correlation,
+    });
+    expect(result.response).toContain("nested analysis wiring sentinel");
+    expect(executeToolLoopMock).toHaveBeenCalled();
   });
 
   it.each([

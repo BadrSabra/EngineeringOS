@@ -7240,6 +7240,11 @@ export async function chat(opts: {
         approvedValidationProfiles,
           validationRunner,
           validationTargetPaths: allowedPaths,
+          // Nested execution-node analysis is still part of the parent
+          // forensic evidence run. Keep the server-owned operation,
+          // revision, and provenance envelope unchanged across the child
+          // tool loop boundary.
+          analysisCorrelation,
           // The coordinator owns the durable three-attempt budget. A child
           // loop may spend the remaining budget on in-loop repair, and the
           // consumed count is returned on the node outcome for the next retry.
