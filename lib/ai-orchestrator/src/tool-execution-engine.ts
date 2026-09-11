@@ -1941,7 +1941,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       sourceLines[lineNumber - 1] ?? "";
     const lineNumberAt = (index: number): number =>
       (sourceBody.slice(0, index).match(/\n/g)?.length ?? 0) + 1;
-    const candidateLineForNeedle = (needle: string): number | undefined => {
+    type LocatorCandidate = { line: number; score: number };
+    const candidatesForNeedle = (needle: string): LocatorCandidate[] => {
       const candidates: Array<{ line: number; score: number }> = [];
       let searchFrom = 0;
       while (searchFrom < sourceBody.length) {
@@ -1964,12 +1965,44 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         candidates.push({ line, score });
         searchFrom = index + Math.max(needle.length, 1);
       }
-      return candidates.sort((a, b) => b.score - a.score || a.line - b.line)[0]?.line;
+      return candidates;
     };
-    const matchingLineNumbers = needles
-      .map(candidateLineForNeedle)
-      .filter((line): line is number => line !== undefined);
-    if (matchingLineNumbers.length === 0) return undefined;
+    const candidatesByNeedle = needles.map(candidatesForNeedle);
+    if (candidatesByNeedle.some((candidates) => candidates.length === 0)) return undefined;
+
+    // Generic locators often have a later, high-scoring occurrence that is
+    // unrelated to the behavior being proven. Choosing each needle's winner
+    // independently can therefore span thousands of lines and fall back to
+    // the file head. Prefer the strongest bounded cluster containing every
+    // needle so the resulting window stays close to one executable path.
+    const maxLocatorSpan = 320;
+    const anchorLines = [...new Set(candidatesByNeedle.flat().map((candidate) => candidate.line))];
+    let bestCluster:
+      | { candidates: LocatorCandidate[]; score: number; span: number }
+      | undefined;
+    for (const anchorLine of anchorLines) {
+      const clusterCandidates = candidatesByNeedle.map((candidates) =>
+        candidates
+          .filter((candidate) => candidate.line >= anchorLine && candidate.line <= anchorLine + maxLocatorSpan)
+          .sort((a, b) => b.score - a.score || a.line - b.line)[0],
+      );
+      if (clusterCandidates.some((candidate) => candidate === undefined)) continue;
+      const selected = clusterCandidates as LocatorCandidate[];
+      const minLine = Math.min(...selected.map((candidate) => candidate.line));
+      const maxLine = Math.max(...selected.map((candidate) => candidate.line));
+      const span = maxLine - minLine;
+      const score = selected.reduce((total, candidate) => total + candidate.score, 0);
+      if (
+        !bestCluster
+        || score > bestCluster.score
+        || (score === bestCluster.score && span < bestCluster.span)
+      ) {
+        bestCluster = { candidates: selected, score, span };
+      }
+    }
+    if (!bestCluster) return undefined;
+
+    const matchingLineNumbers = bestCluster.candidates.map((candidate) => candidate.line);
 
     const contextLines = 20;
     const windowLines = 80;
