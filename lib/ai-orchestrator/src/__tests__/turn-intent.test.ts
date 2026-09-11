@@ -331,6 +331,10 @@ describe("resolveTurnIntent", () => {
     "راجع في المستودع وحدد المشاكل.",
     "افحص الريبو بالكامل.",
     "حلل قاعدة الشفرة بالكامل.",
+    "تَدْقِيقٌ شَامِلٌ لِلْمَشْرُوعِ",
+    "مـراجـعـةٌ كـامـلـةٌ لِلـمُسـتـودَعِ",
+    "فَحْصٌ وَاسِعٌ لِقَاعِدَةِ الْكُودِ",
+    "دَقِّقْ فِي الْمَشْرُوعِ بِالْكَامِلِ",
   ])("keeps Arabic whole-project audit wording tool-enabled: %s", (message) => {
     const intent = resolveTurnIntent(message);
 
@@ -347,6 +351,8 @@ describe("resolveTurnIntent", () => {
   it.each([
     "راجع مشروعي وأخبرني إن كانت هناك مشاكل مهمة.",
     "دقق مشروعي بحثًا عن مشاكل مهمة.",
+    "رَاجِعْ مَشْرُوعِي وَأَخْبِرْنِي إِنْ كَانَتْ هُنَاكَ مُشْكِلَاتٌ مُهِمَّةٌ.",
+    "دقّقْ مـشْرُوعِي بَحْثًا عَنْ مَشَاكِلَ مُهِمَّةٍ.",
   ])("keeps unscoped Arabic broad reviews on scope consent: %s", (message) => {
     const intent = resolveTurnIntent(message);
 

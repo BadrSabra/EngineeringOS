@@ -548,7 +548,7 @@ const FULL_AUDIT_PATTERNS = [
   /(?:أعد|اعد)\s+(?:المحاولة|توليد|إنتاج|انشاء|إنشاء|صياغة|بناء|إعادة\s+توليد)[\s\S]{0,60}(?:التقرير|الخطة|التدقيق|المراجعة|التحقيق)/u,
   /^(?:أعد|اعد)\s+المحاولة$/u,
   /\b(?:continue|resume)\s+(?:the\s+)?(?:investigation|analysis|audit)\b/i,
-  /(?:أكمل|استكمل|تابع)\s+(?:التحقيق|التحليل|التدقيق)/u,
+  /(?:أكمل|اكمل|استكمل|تابع)\s+(?:التحقيق|التحليل|التدقيق)/u,
   /\b(?:why|how)\b[\s\S]{0,160}\b(?:model|agent|assistant)\b[\s\S]{0,160}\b(?:follow|obey|comply|ignore|refuse|fail)\w*[\s\S]{0,80}\b(?:instruction|directive|prompt)\w*\b/i,
   /\b(?:model|agent|assistant)\b[\s\S]{0,120}\b(?:ignore|refuse|fail)\w*[\s\S]{0,80}\b(?:follow|obey|comply|instruction|directive|prompt)\w*\b/i,
   /(?:لماذا|كيف)\s+(?:لا|لم)\s+(?:يلتزم|يستجيب|ينفذ|يتبع|يطيع)[\s\S]{0,120}(?:التعليمات|التوجيهات|الأوامر|اوامر|طلبات\s+المستخدم|أوامر\s+المستخدم)/u,
@@ -1226,7 +1226,7 @@ export function classifyForensicTask(
   message: string,
   options: { implementationTaskMode?: boolean } = {},
 ): ForensicTaskType {
-  const normalized = message.normalize("NFKC").trim();
+  const normalized = normalizeIntentText(message);
   if (options.implementationTaskMode) return "BEHAVIOR_QUERY";
   if (matchesAny(normalized, CODE_EXTRACTION_PATTERNS)) return "CODE_EXTRACTION";
   if (matchesAny(normalized, WORKSPACE_REVIEW_PATTERNS)) return "WORKSPACE_REVIEW";
@@ -1234,7 +1234,7 @@ export function classifyForensicTask(
   // Production reachability is a proof request, not an ordinary behavioral
   // question. Keep it on the finding/R-PROOF contract even without a caller-
   // supplied structured objective.
-  if (isProductionReachabilityRequest(normalized)) return "FINDING_ANALYSIS";
+  if (isProductionReachabilityRequest(message)) return "FINDING_ANALYSIS";
   // REPAIR / FINDING intent requires a POSITIVE occurrence of the keyword.
   // A prompt that only *denies* ("do not include a repair plan", "do NOT invent
   // a defect finding") is a behavioral / capability probe — route it to the

@@ -9,6 +9,7 @@ import {
   isExplicitBehaviorQueryRequest,
   isGapAnalysisRequest,
   isProductionReachabilityRequest,
+  normalizeIntentText,
   routeTask,
   type AnalysisMode,
   type ForensicTaskType,
@@ -203,6 +204,7 @@ export function resolveTurnIntent(
   } = {},
 ): TurnIntent {
   const baseClassification = options.classification ?? classifyRequest(message);
+  const normalizedMessage = normalizeIntentText(message);
   const serverAction = isRunProjectScanRequest(message) ? "RUN_PROJECT_SCAN" as const : undefined;
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
@@ -277,18 +279,18 @@ export function resolveTurnIntent(
     isGapAnalysisRequest(message);
   const broadAuditIntent =
     !broadForensicTask ||
-    BROAD_AUDIT_REQUEST_RE.test(message) ||
-    EXPLICIT_STRUCTURED_AUDIT_RE.test(message) ||
-    hasExplicitAuditScope(message, classification);
+    BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) ||
+    EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) ||
+    hasExplicitAuditScope(normalizedMessage, classification);
   const scopeClarificationRequired =
     !buildHandoff &&
     !options.resumed &&
     !planDelivery &&
     !implementationDelivery &&
     broadForensicTask &&
-    BROAD_AUDIT_REQUEST_RE.test(message) &&
-    !EXPLICIT_STRUCTURED_AUDIT_RE.test(message) &&
-    !hasExplicitAuditScope(message, classification);
+    BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) &&
+    !EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) &&
+    !hasExplicitAuditScope(normalizedMessage, classification);
   // A short approval/continuation inherits the already-approved forensic
   // contract. Its raw text ("ابدأ", "continue") does not repeat the audit
   // keywords, but it must still reach the read-only evidence path.
@@ -322,7 +324,7 @@ export function resolveTurnIntent(
         isExplicitBehaviorQueryRequest(message)
       ) ||
       isProductionReachabilityRequest(message) ||
-      FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
+      FORENSIC_EVIDENCE_SIGNAL_RE.test(normalizedMessage)
      ) ||
      gapAnalysisProjectQuery ||
      targetedProjectQuery ||
@@ -410,7 +412,7 @@ export function resolveTurnIntent(
     ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
     ...(serverAction ? { serverAction } : {}),
     ...(explicitEvidenceIntent && !scopeClarificationRequired
-      ? { auditScopeDescription: describeAuditScope(classification, message) }
+      ? { auditScopeDescription: describeAuditScope(classification, normalizedMessage) }
       : {}),
     operationMode,
     contextMode,
