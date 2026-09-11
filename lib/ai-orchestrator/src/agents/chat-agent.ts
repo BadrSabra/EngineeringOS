@@ -5076,6 +5076,60 @@ export function buildProjectQueryEvidenceSynthesis(
   return lines.join("\n");
 }
 
+function toProjectQueryEvidenceReferences(
+  evidence: readonly MaterializedObjectiveClaimEvidence[],
+): EvidenceReference[] {
+  return evidence.map((item) => ({
+    source: item.source,
+    excerpt: item.excerpt,
+    sourceSpan: item.sourceSpan,
+    supportsClaim: true,
+    relevance: 1,
+    directness: "DIRECT" as const,
+    sourceType: "IMPLEMENTATION" as const,
+    productionReachability: "NOT_PROVEN" as const,
+    evidenceClass: "BEHAVIOR_PROVEN" as const,
+  }));
+}
+
+function relayProjectQueryStreamAcceptance(
+  relayAgentStep: (step: AgentStep) => void,
+  input: {
+    objective: ObjectiveContract;
+    override: string;
+    response: string;
+    materializedEvidence: readonly MaterializedObjectiveClaimEvidence[];
+    evidence: readonly EvidenceReference[];
+    gate: ObjectiveCompletionGateResult | null;
+  },
+): void {
+  if (!input.gate) return;
+  const responseClaimMatches = input.objective.requiredClaims.map((claim) =>
+    `${claim.claimId}:${input.response.toLowerCase().includes(claim.text.trim().toLowerCase()) ? "true" : "false"}`,
+  );
+  relayAgentStep({
+    kind: "diagnostic",
+    code: "PROJECT_QUERY_RESPONSE_BINDING",
+    details: [
+      "overridePresent=true",
+      `overrideLength=${input.override.length}`,
+      `finalResponseLength=${input.response.length}`,
+      `responseUsesOverride=${input.response === input.override ? "true" : "false"}`,
+      `responseClaims=${responseClaimMatches.join(",")}`,
+      `materializedClaims=${input.materializedEvidence.length}`,
+    ],
+  });
+  relayAgentStep({
+    kind: "diagnostic",
+    code: "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+    details: [
+      `closedClaims=${input.gate.completedClaims.join(",") || "none"}`,
+      `acceptedEvidenceCount=${input.evidence.filter((item) => item.supportsClaim).length}`,
+      `gateStatus=${input.gate.status}`,
+    ],
+  });
+}
+
 /**
  * Every forensic terminal must have the same six-section shape, including a
  * terminal reached before synthesis. This builder deliberately accepts only
@@ -8000,6 +8054,15 @@ export async function chat(opts: {
     && objective?.requiredClaims.length !== undefined
     && objective.requiredClaims.length > 0
     && materializedProjectQueryEvidence.length === objective.requiredClaims.length;
+  const projectQueryEvidenceReferences = toProjectQueryEvidenceReferences(
+    materializedProjectQueryEvidence,
+  );
+  const hasProjectQueryAcceptanceProjection =
+    projectQueryHasCompleteEvidenceOverride
+    && objective !== undefined
+    && projectQueryEvidenceResponseOverride !== undefined
+    && validateResponseLanguage(projectQueryEvidenceResponseOverride, responseLanguage).valid
+    && projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride);
   if (
     retainedEvidence
     && retainedEvidence.size > 0
@@ -8666,18 +8729,31 @@ export async function chat(opts: {
       // non-native direct-content streaming path BEFORE emitting, so an
       // inconsistent run surfaces NOT PROVEN both in the emitted deltas and in
       // the returned response — never the model's claimed PROVEN/PASS verdict.
-      const streamingBehaviorGated = validateBehaviorEvidence(
-        message,
-        gatedResponseText,
-        forensicFileContents,
-      );
-      const streamingAcceptedFiles = !forensicOutputMode &&
-        forensicTaskType === "BEHAVIOR_QUERY" &&
-        explicitBehaviorQueryRequested
-        ? streamingBehaviorGated.evidence.filter((item) => item.supportsClaim).map((item) => item.source)
-        : [];
+      const streamingResponseCandidate = hasProjectQueryAcceptanceProjection
+        ? projectQueryEvidenceResponseOverride!
+        : gatedResponseText;
+      const streamingBehaviorGated = hasProjectQueryAcceptanceProjection
+        ? {
+            valid: true as const,
+            violations: [] as string[],
+            evidence: projectQueryEvidenceReferences,
+          }
+        : validateBehaviorEvidence(
+            message,
+            gatedResponseText,
+            forensicFileContents,
+          );
+      const streamingAcceptedFiles = hasProjectQueryAcceptanceProjection
+        ? projectQueryEvidenceReferences
+            .filter((item) => item.supportsClaim)
+            .map((item) => item.source)
+        : !forensicOutputMode &&
+            forensicTaskType === "BEHAVIOR_QUERY" &&
+            explicitBehaviorQueryRequested
+          ? streamingBehaviorGated.evidence.filter((item) => item.supportsClaim).map((item) => item.source)
+          : [];
       const streamingGateResult = reconcileAndGateVerdict({
-        candidateResponse: gatedResponseText,
+        candidateResponse: streamingResponseCandidate,
         acceptedFiles: streamingAcceptedFiles,
         sourceRetrieval: "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
         prefetchPaths: [...prefetchFileContents.keys()],
@@ -8685,8 +8761,9 @@ export async function chat(opts: {
         recoveryAttempts: 0,
         additionalRecoveryRecords: [],
         behaviorRequested:
-          !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
-        behaviorSupported: streamingAcceptedFiles.length > 0,
+          hasProjectQueryAcceptanceProjection
+          || (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested),
+        behaviorSupported: hasProjectQueryAcceptanceProjection || streamingAcceptedFiles.length > 0,
       });
       // FEG-011/012: apply the SHARED required-claim gate on this direct-stream
       // path too — an evidence inventory alone is never a completed answer.
@@ -8732,6 +8809,16 @@ export async function chat(opts: {
         objectiveTelemetryLedger,
         objectiveTelemetryReconciliation,
       );
+      if (hasProjectQueryAcceptanceProjection && objective) {
+        relayProjectQueryStreamAcceptance(relayAgentStep, {
+          objective,
+          override: projectQueryEvidenceResponseOverride!,
+          response: emittedGatedResponse,
+          materializedEvidence: materializedProjectQueryEvidence,
+          evidence: streamingBehaviorGated.evidence,
+          gate: streamingObjectiveGate.gate,
+        });
+      }
 
       if (isForensicOrEvidenceRun) {
         relayForensicTerminal({
@@ -8912,8 +8999,9 @@ export async function chat(opts: {
           forensicSourceCoverage,
         );
       }
-      let nativeSseResponse = validateResponseForTask(finalizeTaskResponse(
-        repairPlanExecution
+      const nativeSseResponseCandidate = hasProjectQueryAcceptanceProjection
+        ? projectQueryEvidenceResponseOverride!
+        : repairPlanExecution
           ? buildRepairPlanExecutionResponse(
               getExecutionPendingChanges(),
               /[\u0600-\u06FF]/.test(message),
@@ -8929,8 +9017,8 @@ export async function chat(opts: {
               forensicSourceCoverage,
               requireCompleteReadEvidence,
               responseLanguage,
-            ),
-      ));
+            );
+      let nativeSseResponse = validateResponseForTask(nativeSseResponseCandidate);
 
       // EI-012: reconcile + gate the native SSE response before anything is
       // emitted, so an inconsistent run surfaces NOT PROVEN in both emitted
@@ -8943,18 +9031,28 @@ export async function chat(opts: {
       // reason overwritten. We validate the ORIGINAL response, keep the
       // telemetry-gated text, and only override to required-claim NOT PROVEN when
       // the ORIGINAL closure is genuinely unclosed.
-      const nativeSseBehaviorValidation = validateBehaviorEvidence(
-        message,
-        nativeSseResponse,
-        forensicFileContents,
-      );
-      const nativeSseAcceptedFiles = !forensicOutputMode &&
-        forensicTaskType === "BEHAVIOR_QUERY" &&
-        explicitBehaviorQueryRequested
-        ? nativeSseBehaviorValidation.evidence
+      const nativeSseBehaviorValidation = hasProjectQueryAcceptanceProjection
+        ? {
+            valid: true as const,
+            violations: [] as string[],
+            evidence: projectQueryEvidenceReferences,
+          }
+        : validateBehaviorEvidence(
+            message,
+            nativeSseResponse,
+            forensicFileContents,
+          );
+      const nativeSseAcceptedFiles = hasProjectQueryAcceptanceProjection
+        ? projectQueryEvidenceReferences
             .filter((item) => item.supportsClaim)
             .map((item) => item.source)
-        : [];
+        : !forensicOutputMode &&
+            forensicTaskType === "BEHAVIOR_QUERY" &&
+            explicitBehaviorQueryRequested
+          ? nativeSseBehaviorValidation.evidence
+              .filter((item) => item.supportsClaim)
+              .map((item) => item.source)
+          : [];
       const nativeSseGateResult = reconcileAndGateVerdict({
         candidateResponse: nativeSseResponse,
         acceptedFiles: nativeSseAcceptedFiles,
@@ -8964,8 +9062,9 @@ export async function chat(opts: {
         recoveryAttempts: 0,
         additionalRecoveryRecords: [],
         behaviorRequested:
-          !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
-        behaviorSupported: nativeSseAcceptedFiles.length > 0,
+          hasProjectQueryAcceptanceProjection
+          || (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested),
+        behaviorSupported: hasProjectQueryAcceptanceProjection || nativeSseAcceptedFiles.length > 0,
       });
       nativeSseResponse = nativeSseGateResult.gatedResponse;
       // FEG-011/012: apply the SHARED required-claim gate on this native-SSE
@@ -9015,6 +9114,16 @@ export async function chat(opts: {
         nativeObjectiveTelemetryLedger,
         nativeObjectiveTelemetryReconciliation,
       );
+      if (hasProjectQueryAcceptanceProjection && objective) {
+        relayProjectQueryStreamAcceptance(relayAgentStep, {
+          objective,
+          override: projectQueryEvidenceResponseOverride!,
+          response: nativeSseResponse,
+          materializedEvidence: materializedProjectQueryEvidence,
+          evidence: nativeSseBehaviorValidation.evidence,
+          gate: nativeSseObjectiveGate.gate,
+        });
+      }
       // AI-OBJ-010: native SSE reaches this seam before the non-streaming
       // final-answer validator below. An explicit production-reachability
       // request backed only by the transport trace must therefore be blocked
@@ -11228,17 +11337,7 @@ export async function chat(opts: {
     materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
     objectiveClaimsAreMentioned(objective, responseBeforeBehaviorEvidence)
   ) {
-    const materializedEvidence: EvidenceReference[] = materializedProjectQueryEvidence.map((item) => ({
-      source: item.source,
-      excerpt: item.excerpt,
-      sourceSpan: item.sourceSpan,
-      supportsClaim: true,
-      relevance: 1,
-      directness: "DIRECT",
-      sourceType: "IMPLEMENTATION",
-      productionReachability: "NOT_PROVEN",
-      evidenceClass: "BEHAVIOR_PROVEN",
-    }));
+    const materializedEvidence = projectQueryEvidenceReferences;
     // Targeted project-query evidence is server-owned: it is materialized from
     // complete retained bodies, not inferred from provider citations. Preserve
     // any provider evidence too, but never let it replace a required claim
@@ -11802,17 +11901,7 @@ export async function chat(opts: {
     projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride)
   ) {
     responseBeforeBehaviorEvidence = projectQueryEvidenceResponseOverride;
-    const materializedEvidence: EvidenceReference[] = materializedProjectQueryEvidence.map((item) => ({
-      source: item.source,
-      excerpt: item.excerpt,
-      sourceSpan: item.sourceSpan,
-      supportsClaim: true,
-      relevance: 1,
-      directness: "DIRECT",
-      sourceType: "IMPLEMENTATION",
-      productionReachability: "NOT_PROVEN",
-      evidenceClass: "BEHAVIOR_PROVEN",
-    }));
+    const materializedEvidence = projectQueryEvidenceReferences;
     behaviorEvidenceValidation = {
       valid: true,
       violations: [],

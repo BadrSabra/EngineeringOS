@@ -476,6 +476,278 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     }
   });
 
+  it("keeps the complete embedded-AI objective accepted on the OpenRouter direct SSE path", async () => {
+    const message = "Explain how the embedded AI agent works.";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+    const requiredPaths = objective.requiredEvidencePaths ?? [];
+    const completeFileContents = new Map<string, string>(
+      requiredPaths.map((file) => [
+        file,
+        file.endsWith("/chat.ts")
+          ? "resolveTurnIntent turnIntent chatWithFallback provider"
+          : file.endsWith("/turn-intent.ts")
+            ? "resolveTurnIntent turnIntent"
+            : "executeToolLoop loopResult",
+      ]),
+    );
+    const providerResponse = [
+      ...objective.requiredClaims.map((claim) => claim.text),
+      "First, routing selects the project-query path; then the tool loop retains source results; finally, provider dispatch validates the response.",
+    ].join(" ");
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "response" as const,
+          result: {
+            content: JSON.stringify({ response: providerResponse, sources: requiredPaths }),
+            toolCalls: [],
+            model: "direct-stream-objective-model",
+            usage: {},
+          },
+          toolSources: requiredPaths,
+          fileContents: completeFileContents,
+          sourceRetrieval: {
+            readAttempts: requiredPaths.length,
+            readPaths: requiredPaths,
+            uniqueReads: requiredPaths.length,
+            truncatedReads: 0,
+            targetedReads: 0,
+            redundantReads: 0,
+            cachedReads: 0,
+            evidenceWindows: requiredPaths.length,
+            prefetchReads: requiredPaths.length,
+            dependencyReads: 0,
+            duplicateReads: 0,
+            firstEvidenceAcquired: true,
+            iterationsUntilFirstRead: 0,
+            iterationsWithoutEvidence: 0,
+            planningIterations: 0,
+            evidenceIterations: requiredPaths.length,
+            crossFileQueriesBeforeFirstRead: 0,
+            prefetchBeforeFirstRead: true,
+            iterationsUntilFirstSourceRead: 0,
+            progressForced: false,
+            budgetAllocation: { planning: 1, evidence: requiredPaths.length, reasoning: 1 },
+          },
+        })),
+      };
+    });
+
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-embedded-direct-stream-"));
+    try {
+      for (const [requiredPath, content] of completeFileContents) {
+        const absolutePath = path.join(rootPath, requiredPath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, content, "utf8");
+      }
+
+      const classification = classifyRequest(message);
+      const turnIntent = resolveTurnIntent(message, {
+        classification,
+        resumed: false,
+      });
+      const deltas: string[] = [];
+      const steps: Array<Record<string, unknown>> = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-key",
+        objective,
+        turnIntent,
+        onDelta: (chunk) => deltas.push(chunk),
+        onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+      });
+
+      expect(deltas.join("")).toContain(objective.requiredClaims[0].text);
+      expect(result.response).toContain(objective.requiredClaims[0].text);
+      expect(result.response).not.toMatch(/BLOCKED|محظور/);
+
+      const binding = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+      );
+      expect(binding?.details).toEqual(
+        expect.arrayContaining([
+          "overridePresent=true",
+          "responseUsesOverride=true",
+          "materializedClaims=3",
+          "responseClaims=ai-routing:true,ai-tool-loop:true,ai-provider-dispatch:true",
+        ]),
+      );
+
+      const closure = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+      );
+      expect(closure?.details).toEqual(
+        expect.arrayContaining([
+          "closedClaims=ai-routing,ai-tool-loop,ai-provider-dispatch",
+          "acceptedEvidenceCount=3",
+          "gateStatus=PROVEN",
+        ]),
+      );
+
+      const integrity = [...steps]
+        .reverse()
+        .find((step) => step.kind === "evidence_integrity");
+      expect(integrity).toMatchObject({
+        objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+        acceptedClaimCount: 3,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+      });
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the same objective projection on the native SSE path", async () => {
+    const message = "Explain how the embedded AI agent works.";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+    const requiredPaths = objective.requiredEvidencePaths ?? [];
+    const completeFileContents = new Map<string, string>(
+      requiredPaths.map((file) => [
+        file,
+        file.endsWith("/chat.ts")
+          ? "resolveTurnIntent turnIntent chatWithFallback provider"
+          : file.endsWith("/turn-intent.ts")
+            ? "resolveTurnIntent turnIntent"
+            : "executeToolLoop loopResult",
+      ]),
+    );
+    const providerResponse = [
+      ...objective.requiredClaims.map((claim) => claim.text),
+      "First, routing selects the project-query path; then the tool loop retains source results; finally, provider dispatch validates the response.",
+    ].join(" ");
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-embedded-native-stream-"));
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "response" as const,
+          result: {
+            content: JSON.stringify({ response: providerResponse, sources: requiredPaths }),
+            toolCalls: [],
+            model: "native-stream-objective-model",
+            usage: {},
+          },
+          toolSources: requiredPaths,
+          fileContents: completeFileContents,
+          sourceRetrieval: {
+            readAttempts: requiredPaths.length,
+            readPaths: requiredPaths,
+            uniqueReads: requiredPaths.length,
+            truncatedReads: 0,
+            targetedReads: 0,
+            redundantReads: 0,
+            cachedReads: 0,
+            evidenceWindows: requiredPaths.length,
+            prefetchReads: requiredPaths.length,
+            dependencyReads: 0,
+            duplicateReads: 0,
+            firstEvidenceAcquired: true,
+            iterationsUntilFirstRead: 0,
+            iterationsWithoutEvidence: 0,
+            planningIterations: 0,
+            evidenceIterations: requiredPaths.length,
+            crossFileQueriesBeforeFirstRead: 0,
+            prefetchBeforeFirstRead: true,
+            iterationsUntilFirstSourceRead: 0,
+            progressForced: false,
+            budgetAllocation: { planning: 1, evidence: requiredPaths.length, reasoning: 1 },
+          },
+        })),
+      };
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockImplementation(async (options: { stream?: boolean }) => {
+              if (options.stream) {
+                return {
+                  [Symbol.asyncIterator]: async function* () {
+                    yield { choices: [{ delta: { content: "native stream" } }] };
+                  },
+                };
+              }
+              return {
+                choices: [{ message: { content: JSON.stringify({ response: providerResponse, sources: requiredPaths }) } }],
+                model: "native-stream-objective-model",
+                usage: {},
+              };
+            }),
+          },
+        };
+      },
+    }));
+
+    try {
+      for (const [requiredPath, content] of completeFileContents) {
+        const absolutePath = path.join(rootPath, requiredPath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, content, "utf8");
+      }
+
+      const classification = classifyRequest(message);
+      const turnIntent = resolveTurnIntent(message, {
+        classification,
+        resumed: false,
+      });
+      const deltas: string[] = [];
+      const steps: Array<Record<string, unknown>> = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "groq",
+        apiKey: "test-key",
+        objective,
+        turnIntent,
+        onDelta: (chunk) => deltas.push(chunk),
+        onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+      });
+
+      expect(deltas.join("")).toContain(objective.requiredClaims[0].text);
+      expect(result.response).toContain(objective.requiredClaims[0].text);
+      expect(result.response).not.toMatch(/BLOCKED|محظور/);
+      expect(steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+      )?.details).toEqual(
+        expect.arrayContaining(["responseUsesOverride=true", "materializedClaims=3"]),
+      );
+      expect(steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+      )?.details).toEqual(
+        expect.arrayContaining(["acceptedEvidenceCount=3", "gateStatus=PROVEN"]),
+      );
+      expect([...steps].reverse().find((step) => step.kind === "evidence_integrity")).toMatchObject({
+        acceptedClaimCount: 3,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+      });
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("builds a complete Arabic fallback for the real embedded-AI behavioral contract", async () => {
     const { buildProjectQueryEvidenceSynthesis } = await import("../agents/chat-agent.js");
     const target = resolveProjectQueryTarget("اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع");
