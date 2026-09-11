@@ -5056,6 +5056,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         outcome: aiExecutionAcceptancesTable.outcome,
         evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
       })
       .from(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
@@ -5064,6 +5065,38 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       outcome: "SUCCEEDED",
       evidenceRequired: 1,
       evidenceComplete: 1,
+      evidenceSnapshotId: expect.any(String),
+    });
+
+    const [snapshot] = await db
+      .select({
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(snapshot).toMatchObject({
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: sources.length,
+    });
+
+    const [assistant] = await db
+      .select({
+        outcome: aiChatMessagesTable.outcome,
+        executionId: aiChatMessagesTable.executionId,
+      })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.executionId, execution!.id),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ))
+      .limit(1);
+    expect(assistant).toMatchObject({
+      executionId: execution!.id,
+      outcome: "SUCCEEDED",
     });
   });
 

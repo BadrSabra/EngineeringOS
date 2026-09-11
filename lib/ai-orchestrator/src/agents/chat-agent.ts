@@ -8233,7 +8233,7 @@ export async function chat(opts: {
       relayAgentStep,
     });
     const gatedStoppedResponse = stoppedFinalized.gatedResponse;
-    if (isForensicOrEvidenceRun) {
+    if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
       relayForensicTerminal({
         onStep,
         loopResult,
@@ -8363,7 +8363,7 @@ export async function chat(opts: {
       relayAgentStep,
     });
     const gatedExhaustionResponse = exhaustionFinalized.gatedResponse;
-    if (isForensicOrEvidenceRun) {
+    if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
       relayForensicTerminal({
         onStep,
         loopResult,
@@ -8416,7 +8416,7 @@ export async function chat(opts: {
       streamCallback,
     });
     const gatedIncompleteResponse = incompleteFinalized.gatedResponse;
-    if (isForensicOrEvidenceRun) {
+    if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
       relayForensicTerminal({
         onStep,
         loopResult,
@@ -8820,7 +8820,7 @@ export async function chat(opts: {
         });
       }
 
-      if (isForensicOrEvidenceRun) {
+      if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
         relayForensicTerminal({
           onStep,
           loopResult,
@@ -9144,7 +9144,7 @@ export async function chat(opts: {
           "NOT PROVEN — production reachability could not be verified. " +
           "The available trace only proves transport into the chat orchestrator.";
       }
-      if (isForensicOrEvidenceRun) {
+      if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
         relayForensicTerminal({
           onStep,
           loopResult,

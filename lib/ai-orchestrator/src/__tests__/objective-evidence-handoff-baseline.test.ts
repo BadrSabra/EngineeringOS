@@ -605,6 +605,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
+      expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
@@ -743,6 +744,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
+      expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
