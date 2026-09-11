@@ -34,6 +34,20 @@ gates before accepting a provider.
 preserve provider-neutral lifecycle projections even when an unchecked provider is
 shown as degraded/not verified.
 
+The standalone live structured-review campaign is an isolated direct `reviewCode`
+call, not the embedded API/session path; it must not be treated as proof of
+dashboard persistence, SSE recovery, or durable execution behavior.
+
+**Why:** The campaign creates its own disposable fixture and operation receipt,
+while the production review route applies project rate limiting, provider
+lifecycle selection, telemetry, and structured-failure persistence before
+calling the agent. A passing or failing campaign can otherwise be attributed to
+the wrong execution boundary.
+
+**How to apply:** Trace the embedded route separately, or make the campaign use
+the same execution adapter and preflight boundary before drawing conclusions
+about user-facing agent behavior.
+
 The release quality gate must remove the controlled marker from provider-free
 contract-test children and add it only to preview or explicitly live-provider
 checks. Concurrency fixtures that assert submission order must establish a
