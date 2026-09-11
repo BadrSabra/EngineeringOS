@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
+import { buildActiveTaskState } from "../task-session-state.js";
 
 const { executeToolLoopMock } = vi.hoisted(() => ({
   executeToolLoopMock: vi.fn(),
@@ -75,6 +76,110 @@ describe("chat analysis tool wiring", () => {
       analysisCorrelation: correlation,
     })).rejects.toThrow("analysis wiring sentinel");
     expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards the exact persisted correlation for a resumed scoped forensic audit", async () => {
+    const { chat } = await import("../agents/chat-agent.js");
+    const { classifyRequest } = await import("../prompts/profile-classifier.js");
+    const { resolveTurnIntent } = await import("../turn-intent.js");
+    const persistedState = buildActiveTaskState({
+      classification: classifyRequest("Run a forensic audit of src/server.ts and identify the root causes."),
+      projectId: correlation.projectId,
+      rootPath: process.cwd(),
+      linkedTaskId: undefined,
+      revision: correlation.projectRevision,
+      operationId: correlation.operationId,
+    });
+    const message = "Continue";
+    const turnIntent = resolveTurnIntent(message, {
+      classification: classifyRequest(message),
+      resumed: true,
+    });
+
+    expect(persistedState).toMatchObject({
+      taskType: "FULL_FORENSIC_AUDIT",
+      operationId: correlation.operationId,
+      scope: {
+        projectId: correlation.projectId,
+        revision: correlation.projectRevision,
+      },
+    });
+    expect(turnIntent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      resumed: true,
+      requiresTools: true,
+      requiresEvidence: true,
+    });
+
+    executeToolLoopMock.mockClear();
+    executeToolLoopMock.mockImplementationOnce(async (opts: { analysisCorrelation?: AnalysisCorrelation }) => {
+      expect(opts.analysisCorrelation).toEqual(correlation);
+      throw new Error("resumed analysis wiring sentinel");
+    });
+
+    await expect(chat({
+      message,
+      history: [],
+      projectContext: context,
+      rootPath: process.cwd(),
+      provider: "openrouter",
+      apiKey: "test-key",
+      activeTaskState: persistedState,
+      turnIntent,
+      allowAnalysisTools: true,
+      analysisToolRunner: async () => ({
+        status: "complete",
+        output: '{"status":"complete","entities":[]}',
+        correlation,
+      }),
+      analysisCorrelation: correlation,
+    })).rejects.toThrow("resumed analysis wiring sentinel");
+    expect(executeToolLoopMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["mismatched", { ...correlation, operationId: "operation-other" }],
+  ] as const)("rejects a %s resumed correlation before evidence collection", async (_label, suppliedCorrelation) => {
+    const { chat } = await import("../agents/chat-agent.js");
+    const { classifyRequest } = await import("../prompts/profile-classifier.js");
+    const { resolveTurnIntent } = await import("../turn-intent.js");
+    const persistedState = buildActiveTaskState({
+      classification: classifyRequest("Run a forensic audit of src/server.ts and identify the root causes."),
+      projectId: correlation.projectId,
+      rootPath: process.cwd(),
+      linkedTaskId: undefined,
+      revision: correlation.projectRevision,
+      operationId: correlation.operationId,
+    });
+    const turnIntent = resolveTurnIntent("Continue", {
+      classification: classifyRequest("Continue"),
+      resumed: true,
+    });
+
+    executeToolLoopMock.mockClear();
+    const result = await chat({
+      message: "Continue",
+      history: [],
+      projectContext: context,
+      rootPath: process.cwd(),
+      provider: "openrouter",
+      apiKey: "test-key",
+      activeTaskState: persistedState,
+      turnIntent,
+      allowAnalysisTools: true,
+      analysisToolRunner: async () => ({
+        status: "complete",
+        output: '{"status":"complete","entities":[]}',
+        correlation,
+      }),
+      ...(suppliedCorrelation ? { analysisCorrelation: suppliedCorrelation } : {}),
+    });
+
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.response).toContain("no new evidence was accepted");
+    expect(result.sources).toEqual([]);
+    expect(executeToolLoopMock).not.toHaveBeenCalled();
   });
 
   it.each([

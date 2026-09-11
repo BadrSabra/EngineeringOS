@@ -413,6 +413,7 @@ export function buildResumedEvidenceLedger(
   );
 }
 
+const FORENSIC_ANALYSIS_EVIDENCE_PROVENANCE = "project-analysis";
 function buildStoredExecutionPlanContext(plan: ActiveTaskExecutionPlan): string {
   return (
     "Structured execution plan (authoritative; do not reconstruct it from report prose):\n" +
@@ -5356,6 +5357,25 @@ export async function chat(opts: {
     resumed: resumedTask,
     buildHandoff,
   });
+
+  if (turnIntent.kind === "FORENSIC_AUDIT" && turnIntent.resumed && activeTaskState) {
+    const correlationFailure = resumedForensicCorrelationFailure(
+      activeTaskState,
+      analysisCorrelation,
+      rootPath,
+    );
+    if (correlationFailure) {
+      const response = /[\u0600-\u06FF]/.test(message)
+        ? `ANALYSIS_INCOMPLETE — تعذر استئناف التدقيق الجنائي بأمان. ${correlationFailure}`
+        : `ANALYSIS_INCOMPLETE — the forensic audit could not resume safely. ${correlationFailure}`;
+      onDelta?.(response);
+      return {
+        response,
+        sources: [],
+        pendingChanges: [],
+      };
+    }
+  }
 
   // A broad audit without a declared scope is expensive and surprising for
   // ordinary users. Keep this deterministic and provider-free so neither the
@@ -12654,4 +12674,38 @@ export async function chat(opts: {
     };
   }
   return parseError ? { ...check.data, _parseError: parseError } : check.data;
+}
+
+/**
+ * A resumed forensic turn must stay bound to the durable session contract.
+ * Do not let a reconnect silently create a new operation or move evidence to
+ * another revision before the tool loop has had a chance to collect reads.
+ */
+function resumedForensicCorrelationFailure(
+  state: ActiveTaskState | null | undefined,
+  correlation: AnalysisCorrelation | undefined,
+  rootPath: string | undefined,
+): string | undefined {
+  const expectedOperationId = state?.operationId?.trim();
+  const expectedRevision = state?.scope.revision?.trim();
+  if (
+    !state
+    || !expectedOperationId
+    || !expectedRevision
+    || !correlation
+  ) {
+    return "The resumed forensic audit is missing its server-owned evidence correlation; no new evidence was accepted.";
+  }
+
+  if (
+    correlation.operationId !== expectedOperationId
+    || correlation.projectId !== state.scope.projectId
+    || correlation.projectRevision !== expectedRevision
+    || correlation.rootAvailable !== Boolean(rootPath)
+    || correlation.evidenceProvenance !== FORENSIC_ANALYSIS_EVIDENCE_PROVENANCE
+  ) {
+    return "The resumed forensic audit correlation does not match its persisted evidence contract; no new evidence was accepted.";
+  }
+
+  return undefined;
 }
