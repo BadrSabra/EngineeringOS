@@ -603,6 +603,32 @@ async function listeningProcessIds(port: number): Promise<number[]> {
   }
 }
 
+async function waitForProjectScanJobsToSettle(projectId: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  let activeJobs: string[] = [];
+  do {
+    const jobs = await db
+      .select({ id: scanJobsTable.id, status: scanJobsTable.status })
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.projectId, projectId));
+    activeJobs = jobs
+      .filter((job) => job.status === "queued" || job.status === "running")
+      .map((job) => job.id);
+    if (activeJobs.length === 0) {
+      // Let the terminal worker transaction fully release its row locks before
+      // cleanup deletes the scan_jobs row and triggers ON DELETE SET NULL on
+      // graph_entities.scan_job_id.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } while (Date.now() < deadline);
+
+  throw new Error(
+    `Timed out waiting for fixture scan jobs to settle: ${activeJobs.join(", ")}`,
+  );
+}
+
 async function cleanupProjectFixture(projectId: string): Promise<void> {
   const sessions = await db
     .select({ id: aiChatSessionsTable.id })
@@ -631,6 +657,7 @@ async function cleanupProjectFixture(projectId: string): Promise<void> {
   await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
   await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+  await waitForProjectScanJobsToSettle(projectId);
   await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, projectId));
 
   for (const sessionId of sessionIds) {
