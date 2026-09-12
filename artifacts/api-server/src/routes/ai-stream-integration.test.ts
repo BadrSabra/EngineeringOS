@@ -5782,6 +5782,14 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .limit(1);
     expect(sessionAfterFirst?.activeTaskState).toContain('"projectQuery"');
 
+    // Exercise the recovery path used when a previous terminal write left the
+    // session column empty. A bounded project-query follow-up may recover only
+    // the server-owned contract from a failed proof-required execution.
+    await db
+      .update(aiChatSessionsTable)
+      .set({ activeTaskState: null })
+      .where(eq(aiChatSessionsTable.id, sessionId!));
+
     const englishFollowUp = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")

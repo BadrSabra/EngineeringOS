@@ -536,6 +536,17 @@ function normalizeContinuationMessage(message: string): string {
     .trim();
 }
 
+/**
+ * Recognize bounded, project-query-specific follow-ups without granting them
+ * any project scope. The route uses this signal only to attempt recovery from
+ * a server-owned execution when the session column is unexpectedly empty.
+ */
+export function isProjectQueryFollowUpRequest(message: string): boolean {
+  const normalized = normalizeContinuationMessage(message);
+  return normalized.length <= 120
+    && PROJECT_QUERY_FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 export function parseActiveTaskState(value: string | null | undefined): ActiveTaskState | null {
   if (!value) return null;
   try {
@@ -563,7 +574,7 @@ export function isTaskContinuationRequest(
   if (CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
   return Boolean(
     state?.projectQuery
-    && PROJECT_QUERY_FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(normalized)),
+    && isProjectQueryFollowUpRequest(normalized),
   );
 }
 

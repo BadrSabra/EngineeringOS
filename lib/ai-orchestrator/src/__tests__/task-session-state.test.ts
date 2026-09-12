@@ -9,6 +9,7 @@ import {
   advanceImplementationPlan,
   isImplementationPlanContinuation,
   getRunnableExecutionNodes,
+  isProjectQueryFollowUpRequest,
   isTaskContinuationRequest,
   mergeActiveTaskEvidence,
   parseActiveTaskState,
@@ -150,6 +151,8 @@ describe("active task session state", () => {
     expect(isTaskContinuationRequest("وماذا يحدث بعد ذلك؟", state)).toBe(true);
     expect(isTaskContinuationRequest("what happens next?", state)).toBe(true);
     expect(isTaskContinuationRequest("تفاصيل اكثر")).toBe(false);
+    expect(isProjectQueryFollowUpRequest("تفاصيل اكثر")).toBe(true);
+    expect(isProjectQueryFollowUpRequest("ما الذي يحدث عند انتهاء المهلة؟")).toBe(false);
     expect(isTaskContinuationRequest("تفاصيل اكثر", state)).toBe(true);
     expect(isTaskContinuationRequest("تفاصيل عميقة أكثر", state)).toBe(true);
     expect(isTaskContinuationRequest("تفاصيل عميقة اكثر", state)).toBe(true);

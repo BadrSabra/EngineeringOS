@@ -58,6 +58,7 @@ import {
   buildIncompleteForensicReport,
   collectForensicEvidence,
   isTaskContinuationRequest,
+  isProjectQueryFollowUpRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
   buildActiveTaskExecutionPlan,
@@ -3852,7 +3853,9 @@ router.post("/ai/chat", async (req, res) => {
   // messages reuse the verified contract stored on the session.
   const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
   const rawTurnClassification = classifyRequest(message);
-  const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
+  const continuationCandidate = isTaskContinuationRequest(message)
+    || isProjectQueryFollowUpRequest(message);
+  const recoveredActiveTaskState = !persistedActiveTaskState && continuationCandidate
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
         projectId,
@@ -3880,6 +3883,22 @@ router.post("/ai/chat", async (req, res) => {
     resumed: classificationResolution.resumed,
     implementationPlanResume,
   });
+  logger.info({
+    scope: "chat-route",
+    action: "continuation_decision",
+    persistedStateLoaded: Boolean(persistedActiveTaskState),
+    recoveryAttempted: !persistedActiveTaskState && continuationCandidate,
+    recoveredStateLoaded: Boolean(recoveredActiveTaskState),
+    continuationCandidate,
+    stateContinuationMatched: Boolean(
+      resumableStateCandidate && isTaskContinuationRequest(message, resumableStateCandidate),
+    ),
+    resumed: classificationResolution.resumed,
+    rawTaskType: rawTurnClassification.taskType,
+    rawCategory: rawTurnClassification.category,
+    resolvedTurnIntent: turnIntent.kind,
+    projectTargetId: turnIntent.projectTarget?.id ?? null,
+  }, "chat: continuation decision");
   const effectiveObjective =
     objective ??
     (turnIntent.projectTarget
@@ -5042,7 +5061,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     existingSession?.activeTaskState,
     projectId,
   );
-  const recoveredActiveTaskState = !persistedActiveTaskState && isTaskContinuationRequest(message)
+  const continuationCandidate = isTaskContinuationRequest(message)
+    || isProjectQueryFollowUpRequest(message);
+  const recoveredActiveTaskState = !persistedActiveTaskState && continuationCandidate
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
         projectId,
@@ -5080,6 +5101,24 @@ router.post("/ai/chat/stream", async (req, res) => {
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
+  logger.info({
+    scope: "chat-route",
+    action: "continuation_decision",
+    stream: true,
+    persistedStateLoaded: Boolean(persistedActiveTaskState),
+    recoveryAttempted: !persistedActiveTaskState && continuationCandidate,
+    recoveredStateLoaded: Boolean(recoveredActiveTaskState),
+    continuationCandidate,
+    stateContinuationMatched: Boolean(
+      streamResumableStateCandidate
+      && isTaskContinuationRequest(message, streamResumableStateCandidate),
+    ),
+    resumed: streamClassificationResolution.resumed,
+    rawTaskType: rawTurnClassification.taskType,
+    rawCategory: rawTurnClassification.category,
+    resolvedTurnIntent: streamTurnIntent.kind,
+    projectTargetId: streamTurnIntent.projectTarget?.id ?? null,
+  }, "chat/stream: continuation decision");
   const streamObjective =
     objective ??
     (streamTurnIntent.projectTarget
