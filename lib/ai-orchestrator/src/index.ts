@@ -445,6 +445,7 @@ export {
   buildExecutionNodes,
   getRunnableExecutionNodes,
   transitionExecutionNode,
+  mergeProjectQueryObjective,
   mergeActiveTaskEvidence,
   isImplementationPlanContinuation,
   advanceImplementationPlan,

@@ -61,6 +61,7 @@ import {
   isProjectQueryFollowUpRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
+  mergeProjectQueryObjective,
   buildActiveTaskExecutionPlan,
   isResumableTaskType,
   parseActiveTaskState,
@@ -3385,6 +3386,9 @@ async function recoverSessionTaskStateFromExecution(params: {
       request.turnIntent === "PROJECT_QUERY" && request.proofRequired === true
         ? classification.projectTarget
         : undefined;
+    const projectQueryObjective = projectQueryTarget
+      ? buildProjectQueryObjective(projectQueryTarget, request.message)
+      : undefined;
     if (!isResumableTaskType(classification.taskType) && !request.capabilityProbe && !projectQueryTarget) continue;
     const state = buildActiveTaskState({
       classification,
@@ -3396,6 +3400,7 @@ async function recoverSessionTaskStateFromExecution(params: {
       executionId: execution.id,
       capabilityProbe: Boolean(request.capabilityProbe),
       projectQuery: projectQueryTarget,
+      projectQueryObjective,
     });
     if (state) return state;
   }
@@ -3627,6 +3632,7 @@ function nextSessionTaskState(args: {
   now: Date;
   readFiles: string[];
   executionPlan: ActiveTaskExecutionPlan | null;
+  projectQueryObjective?: z.infer<typeof ObjectiveContractSchema>;
 }): string | null {
   // The resolved turn intent is authoritative. A raw classifier task type can
   // match a forensic pattern (for example, a bare retry phrase) while the
@@ -3638,7 +3644,11 @@ function nextSessionTaskState(args: {
     && !args.executionPlan
   ) return null;
 
-  if (args.persisted && (args.resumed || args.executionPlan || args.projectQuery)) {
+  const projectQuery = args.projectQuery
+    ? mergeProjectQueryObjective(args.projectQuery, args.projectQueryObjective)
+    : undefined;
+
+  if (args.persisted && (args.resumed || args.executionPlan || projectQuery)) {
     const touched = touchActiveTaskState(args.persisted, args.now);
     const revised = args.revision && !touched.scope.revision
       ? {
@@ -3669,10 +3679,10 @@ function nextSessionTaskState(args: {
             : undefined,
         }
       : identityBound;
-    const withProjectQuery = args.projectQuery
+    const withProjectQuery = projectQuery
       ? {
           ...canonicalized,
-          projectQuery: args.projectQuery,
+          projectQuery,
         }
       : canonicalized;
     const existingPlan = withProjectQuery.executionPlan;
@@ -3716,7 +3726,7 @@ function nextSessionTaskState(args: {
       operationId: args.operationId,
       executionId: args.executionId,
       capabilityProbe: args.capabilityProbe,
-      projectQuery: args.projectQuery,
+      projectQuery,
       now: args.now,
     });
     return serializeActiveTaskState(state
@@ -3940,6 +3950,7 @@ router.post("/ai/chat", async (req, res) => {
     revision: project.updatedAt.toISOString(),
     capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
     projectQuery: turnIntent.projectTarget,
+    projectQueryObjective: effectiveObjective,
     forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
     now: msgNow,
     readFiles: [],
@@ -4633,6 +4644,7 @@ router.post("/ai/chat", async (req, res) => {
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
       projectQuery: turnIntent.projectTarget,
+      projectQueryObjective: effectiveObjective,
       forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
@@ -6147,6 +6159,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
       projectQuery: streamTurnIntent.projectTarget,
+      projectQueryObjective: streamObjective,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
@@ -6302,6 +6315,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       executionId: aiExecution?.id,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
       projectQuery: streamTurnIntent.projectTarget,
+      projectQueryObjective: streamObjective,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
@@ -8073,6 +8087,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
       projectQuery: streamTurnIntent.projectTarget,
+      projectQueryObjective: streamObjective,
     });
 
     const aiExecutionId = aiExecution.id;

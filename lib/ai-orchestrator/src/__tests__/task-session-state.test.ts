@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
+import { buildProjectQueryObjective } from "../project-query-target.js";
 import {
   buildActiveTaskExecutionPlan,
   buildActiveTaskState,
@@ -93,6 +94,35 @@ describe("active task session state", () => {
     expect(resumed.resumed).toBe(true);
     expect(resumed.classification.taskType).toBe("BEHAVIOR_QUERY");
     expect(resumed.classification.projectTarget?.id).toBe("embedded-ai");
+  });
+
+  it("persists dynamically requested project-query claims for resume", () => {
+    const message = "أشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع وحدد نقاط الضعف";
+    const classification = classifyRequest(message);
+    const target = classification.projectTarget;
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      projectQuery: target,
+      projectQueryObjective: objective,
+    });
+
+    expect(state?.projectQuery?.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "ai-routing",
+      "ai-tool-loop",
+      "ai-provider-dispatch",
+      "ai-weakness-analysis",
+    ]);
+    expect(state?.projectQuery?.requiredEvidencePaths).toEqual(expect.arrayContaining(
+      objective.requiredEvidencePaths ?? [],
+    ));
+    expect(parseActiveTaskState(serializeActiveTaskState(state))?.projectQuery?.requiredClaims)
+      .toEqual(state?.projectQuery?.requiredClaims);
   });
 
   it("round-trips a validated resumable task state", () => {

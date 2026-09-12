@@ -565,6 +565,44 @@ export function serializeActiveTaskState(value: ActiveTaskState | null | undefin
   return JSON.stringify(value);
 }
 
+/**
+ * Keep the resumable target contract aligned with the server-owned objective
+ * used by the current execution. Dynamic claims (for example, a requested
+ * weakness analysis) must survive reconnects and resumes instead of falling
+ * back to the target's static baseline claims.
+ */
+export function mergeProjectQueryObjective(
+  target: ProjectQueryTarget,
+  objective?: ObjectiveContract,
+): ProjectQueryTarget {
+  if (
+    !objective
+    || objective.objectiveType !== `PROJECT_QUERY_${target.id.toUpperCase()}`
+  ) {
+    return target;
+  }
+
+  const requiredClaims = objective.requiredClaims.map((claim) => ({
+    claimId: claim.claimId,
+    text: claim.text,
+    requiredEvidencePaths: [...(claim.requiredEvidencePaths ?? [])],
+    ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+  }));
+  const requiredEvidencePaths = [
+    ...new Set([
+      ...target.requiredEvidencePaths,
+      ...(objective.requiredEvidencePaths ?? []),
+      ...requiredClaims.flatMap((claim) => claim.requiredEvidencePaths),
+    ]),
+  ];
+
+  return {
+    ...target,
+    requiredEvidencePaths,
+    requiredClaims,
+  };
+}
+
 export function isTaskContinuationRequest(
   message: string,
   state?: ActiveTaskState | null,
@@ -592,11 +630,15 @@ export function buildActiveTaskState(args: {
   executionId?: string;
   capabilityProbe?: boolean;
   projectQuery?: ProjectQueryTarget;
+  projectQueryObjective?: ObjectiveContract;
   now?: Date;
 }): ActiveTaskState | null {
   if (!isResumableTaskType(args.classification.taskType) && !args.capabilityProbe && !args.projectQuery) return null;
   const now = (args.now ?? new Date()).toISOString();
   const route = routeTask(args.classification.taskType);
+  const projectQuery = args.projectQuery
+    ? mergeProjectQueryObjective(args.projectQuery, args.projectQueryObjective)
+    : undefined;
   return {
     version: 1,
     taskType: args.classification.taskType,
@@ -622,15 +664,15 @@ export function buildActiveTaskState(args: {
           },
         }
       : {}),
-    ...(args.projectQuery
+    ...(projectQuery
       ? {
           projectQuery: {
-            ...args.projectQuery,
-            primaryPaths: [...args.projectQuery.primaryPaths],
-            allowedExpansionPaths: [...args.projectQuery.allowedExpansionPaths],
-            forbiddenPaths: [...args.projectQuery.forbiddenPaths],
-            requiredEvidencePaths: [...args.projectQuery.requiredEvidencePaths],
-            requiredClaims: args.projectQuery.requiredClaims.map((claim) => ({
+            ...projectQuery,
+            primaryPaths: [...projectQuery.primaryPaths],
+            allowedExpansionPaths: [...projectQuery.allowedExpansionPaths],
+            forbiddenPaths: [...projectQuery.forbiddenPaths],
+            requiredEvidencePaths: [...projectQuery.requiredEvidencePaths],
+            requiredClaims: projectQuery.requiredClaims.map((claim) => ({
               ...claim,
               requiredEvidencePaths: [...claim.requiredEvidencePaths],
               ...(claim.evidenceNeedles
