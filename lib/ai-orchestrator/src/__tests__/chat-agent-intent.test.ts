@@ -29,6 +29,7 @@ import {
   finalizeCapabilityProbeReport,
   type ChatMessage,
 } from "../agents/chat-agent.js";
+import { resolveTurnIntent } from "../turn-intent.js";
 
 describe("buildBehaviorEvidenceIncompleteResponse", () => {
   it("renders retained reads and an incomplete verdict after an empty provider response", () => {
@@ -99,12 +100,10 @@ describe("resolveBehaviorAnswerLanguage", () => {
 describe("isImmediateExecutionRequest", () => {
   it.each([
     "نفذ الإصلاحات",
+    "نفذها",
+    "طبّقها",
     "نفّذ التعديلات الآن",
     "طبّق الإصلاحات",
-    "أصلحها",
-    "اكتب ملفات الاختبار المطلوبة وقم بتنفيذها",
-    "أنشئ الملف الجديد",
-    "إنشاء ملف tasks.json في جذر المشروع",
     "ابدأ",
     "ابدأ الآن في تنفيذ الخطة",
     "implement the fix",
@@ -120,13 +119,22 @@ describe("isImmediateExecutionRequest", () => {
     "هل يمكنك شرح التعديل؟",
     "قم بشرح بنية وكيل الذكاء الاصطناعي",
     "قم بتحليل طبقة الذكاء الاصطناعي داخل المشروع",
+    "قم بمراجعة مسار الطلب",
+    "قم بفحص الملف",
+    "من فضلك قم بتحليل الملف",
+    "لو سمحت قم بشرح المسار",
+    "أصلحها",
+    "اكتب ملفات الاختبار المطلوبة",
+    "أنشئ الملف الجديد",
+    "إنشاء ملف tasks.json في جذر المشروع",
+    "قم بإصلاح الخلل",
+    "قم بتعديل الملف",
+    "قم بإنشاء اختبار جديد",
+    "هل يمكنك إصلاح الخلل",
+    "لو سمحت قم بإصلاح الخلل",
     "what would you change?",
   ])("does not confuse analysis with immediate execution: %s", (message) => {
     expect(isImmediateExecutionRequest(message)).toBe(false);
-  });
-
-  it("keeps an Arabic mutation command in the immediate execution path", () => {
-    expect(isImmediateExecutionRequest("قم بإصلاح الخلل")).toBe(true);
   });
 
   it.each([
@@ -675,6 +683,29 @@ describe("extractExecutionFilePaths", () => {
       "artifacts/api-server/src/routes/ai/chat.ts",
     ]);
   });
+
+describe("shared Arabic action intent parity", () => {
+  it.each([
+    ["من فضلك قم بتحليل الملف", false, "PROJECT_QUERY", "tool_chat"],
+    ["لو سمحت قم بإصلاح الخلل", false, "DELIVERY", "chat"],
+    ["طبّق التعديل", true, "DELIVERY", "task_execution"],
+    ["نفّذ التعديل", true, "DELIVERY", "task_execution"],
+    ["قم بتطبيق الإصلاحات", true, "DELIVERY", "task_execution"],
+    ["قم بتنفيذ الخطة", true, "DELIVERY", "task_execution"],
+    ["قم بتطبيقها", true, "DELIVERY", "task_execution"],
+    ["قم بتنفيذها", true, "DELIVERY", "task_execution"],
+    ["من فضلك قم بتطبيقها", true, "DELIVERY", "task_execution"],
+    ["وقم بتطبيقها", true, "DELIVERY", "task_execution"],
+    ["نفذ Repair Plan", true, "DELIVERY", "task_execution"],
+    ["اكتب ملفات الاختبار المطلوبة وقم بتنفيذها", true, "DELIVERY", "task_execution"],
+  ] as const)(
+    "keeps chat and central routing aligned: %s",
+    (message, immediate, kind, executionTaskType) => {
+      expect(isImmediateExecutionRequest(message)).toBe(immediate);
+      expect(resolveTurnIntent(message)).toMatchObject({ kind, executionTaskType });
+    },
+  );
+});
 
   it("skips generated, dist, and build paths", () => {
     const plan = [

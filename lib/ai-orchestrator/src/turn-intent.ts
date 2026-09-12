@@ -17,6 +17,10 @@ import {
 } from "./task-contracts.js";
 import type { TaskType } from "./quality/task-profile.js";
 import { isRunProjectScanRequest } from "./scan-command.js";
+import {
+  isArabicExplicitExecutionActionRequest,
+  isArabicMutationActionRequest,
+} from "./arabic-action-intent.js";
 
 export { isRunProjectScanRequest } from "./scan-command.js";
 
@@ -120,9 +124,6 @@ const SOURCE_PATH_RE =
 const ENGLISH_EXECUTION_ACTION_RE =
   /^\s*(?:(?:please|kindly)\s+)?(?:(?:(?:can|could|would|will)\s+you|go\s+ahead\s+and|i\s+(?:need|want)\s+you\s+to|i(?:'d|\s+would)\s+like\s+you\s+to)\s+)?(?:(?:please|kindly)\s+)?(?:fix|patch|implement|modify|change|write|edit|apply|execute|build|refactor|delete|remove|create|add)\b/iu;
 
-const ARABIC_EXECUTION_ACTION_RE =
-  /^\s*(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:(?:هل\s+يمكنك|ممكن)\s+)?(?:(?:من\s+فضلك|لو\s+سمحت)\s+)?(?:أن\s+)?(?:أصلح|صحح|عدّل|غير|غيّر|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|تصلح|تصحح|تعدّل|تعدل|تغير|تكتب|تطبّق|تطبق|تنفّذ|تنفذ|تبني|تنشئ|تضيف|تحذف|إصلاح|تصحيح|تعديل|تغيير|كتابة|تطبيق|تنفيذ|بناء|إنشاء|إضافة|حذف)(?:\s|$)/iu;
-
 /**
  * A direct mutation is normally kept in reviewable plan mode. These narrower
  * forms are explicit execution commands, however: they either name the task
@@ -171,7 +172,7 @@ const EXPLICIT_AUDIT_SCOPE_RE =
 function isExecutionActionRequest(message: string): boolean {
   return (
     ENGLISH_EXECUTION_ACTION_RE.test(message) ||
-    ARABIC_EXECUTION_ACTION_RE.test(message)
+    isArabicMutationActionRequest(message)
   );
 }
 
@@ -222,7 +223,10 @@ export function resolveTurnIntent(
     !EXPLICIT_TASK_EXECUTION_RE.test(message) &&
     (
       baseClassification.implementationPlanMode ||
-      isExecutionActionRequest(message)
+      (
+        isExecutionActionRequest(message) &&
+        !isArabicExplicitExecutionActionRequest(message)
+      )
     );
   const classification = directImplementationPlanRequest
     ? {

@@ -66,6 +66,11 @@ import {
   type TurnIntent,
 } from "../turn-intent.js";
 import {
+  isArabicAnalysisActionRequest,
+  isArabicExplicitExecutionActionRequest,
+  isArabicExecutionContinuationRequest,
+} from "../arabic-action-intent.js";
+import {
   buildSemanticBehaviorAnswer,
   buildResponseLanguageFallback,
   buildTaskValidationFallback,
@@ -3986,8 +3991,13 @@ export function isImmediateExecutionRequest(message: string): boolean {
   const normalized = normalizeIntentText(message);
 
   if (isReportRegenerationRequest(normalized)) return false;
+  if (isArabicAnalysisActionRequest(message)) return false;
   if (AUDIT_ANALYSIS_AFTER_ACTION_RE.test(normalized)) return false;
-  return /^(?:نفذ|نفذها|نفذها\s+الان|نفذ\s+الاصلاحات|نفذ\s+التعديلات|طبق|طبقها|طبق\s+الاصلاحات|اصلح|اصلحها|أصلحها|اكتب|كتابة|أنشئ|انشئ|إنشاء|انشاء|أضف|اضف|إضافة|اضافة|عدّل|عدل|تعديل|غيّر|غير|تغيير|شغّل|شغل|قم|ابدأ|ابدا|إبدأ|start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(normalized);
+  return (
+    isArabicExplicitExecutionActionRequest(message) ||
+    isArabicExecutionContinuationRequest(message) ||
+    /^(?:start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(normalized)
+  );
 }
 
 /**

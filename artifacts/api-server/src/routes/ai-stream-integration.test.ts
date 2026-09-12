@@ -4947,16 +4947,25 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     projectIds.push(projectId);
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined as never);
 
-    const explanation = await request(app)
-      .post("/api/ai/chat/stream")
-      .set("Content-Type", "application/json")
-      .send({ projectId, message: "قم بشرح بنية وكيل الذكاء الاصطناعي" });
+    for (const message of [
+      "قم بشرح بنية وكيل الذكاء الاصطناعي",
+      "قم بتحليل طبقة الذكاء الاصطناعي داخل المشروع",
+      "قم بمراجعة مسار الطلب",
+      "من فضلك قم بتحليل الملف",
+    ]) {
+      const explanation = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, message });
 
-    expect(explanation.status).toBe(200);
-    expect(parseSseEvents(explanation.text).find((event) => event.type === "execution_started"))
-      .toMatchObject({
+      expect(explanation.status, message).toBe(200);
+      expect(
+        parseSseEvents(explanation.text).find((event) => event.type === "execution_started"),
+        message,
+      ).toMatchObject({
         turnIntent: "PROJECT_QUERY",
       });
+    }
     const trace = infoSpy.mock.calls
       .map(([payload]) => payload)
       .find(
@@ -4967,13 +4976,48 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       );
     expect((trace?.executionHandoff as Record<string, unknown> | undefined)?.requested).toBe(false);
 
-    const mutation = await request(app)
-      .post("/api/ai/chat/stream")
-      .set("Content-Type", "application/json")
-      .send({ projectId, message: "قم بإصلاح الخلل" });
+    for (const message of [
+      "قم بإصلاح الخلل",
+      "قم بتعديل الملف",
+      "قم بإنشاء اختبار جديد",
+      "لو سمحت قم بإصلاح الخلل",
+    ]) {
+      const mutation = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, message });
 
-    expect(mutation.status).toBe(409);
-    expect(mutation.body.error).toBe("execution_session_required");
+      expect(mutation.status, message).toBe(200);
+      expect(
+        parseSseEvents(mutation.text).find((event) => event.type === "execution_started"),
+        message,
+      ).toMatchObject({
+        turnIntent: "DELIVERY",
+      });
+    }
+
+    for (const message of [
+      "نفّذ الإصلاحات",
+      "نفذها",
+      "طبّقها",
+      "طبّق التعديل",
+      "قم بتطبيق الإصلاحات",
+      "قم بتنفيذ الخطة",
+      "قم بتطبيقها",
+      "قم بتنفيذها",
+      "من فضلك قم بتطبيقها",
+      "وقم بتطبيقها",
+      "نفذ Repair Plan",
+      "اكتب ملفات الاختبار المطلوبة وقم بتنفيذها",
+    ]) {
+      const execution = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, message });
+
+      expect(execution.status, message).toBe(409);
+      expect(execution.body.error, message).toBe("execution_session_required");
+    }
   });
 
   it.each([
