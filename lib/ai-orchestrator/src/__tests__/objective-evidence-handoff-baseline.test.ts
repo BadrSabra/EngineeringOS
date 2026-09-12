@@ -37,6 +37,17 @@ const REQUIRED_PATHS = [
   "lib/ai-orchestrator/src/agents/chat-agent.ts",
 ] as const;
 
+const CHAT_AGENT_CALLER_FIXTURE = [
+  "export async function chat(message: string) {",
+  "  const turnIntent = resolveTurnIntent(message);",
+  "  const loopResult = await executeToolLoop({ message });",
+  "  const providerResponse = await strategy.call([loopResult]);",
+  "  await strategy.stream([providerResponse]);",
+  "  const finalized = finalizeObjectiveAndStream({ response: providerResponse });",
+  "  return validateFinalAnswer(finalized);",
+  "}",
+].join("\n");
+
 const OBJECTIVE: ObjectiveContract = {
   objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
   requiredEvidencePaths: [...REQUIRED_PATHS],
@@ -344,12 +355,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       ],
       [
         REQUIRED_PATHS[2],
-        [
-          "export async function executeToolLoop() {",
-          "  const loopResult = await readSources();",
-          "  return synthesize(loopResult);",
-          "}",
-        ].join("\n"),
+        CHAT_AGENT_CALLER_FIXTURE,
       ],
     ]);
     const response =
@@ -490,7 +496,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
           ? "resolveTurnIntent turnIntent chatWithFallback provider"
           : file.endsWith("/turn-intent.ts")
             ? "resolveTurnIntent turnIntent"
-            : "executeToolLoop loopResult",
+            : CHAT_AGENT_CALLER_FIXTURE,
       ]),
     );
     const providerResponse = [
@@ -602,7 +608,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         .find((step) => step.kind === "evidence_integrity");
       expect(integrity).toMatchObject({
         objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
-        acceptedClaimCount: 3,
+        acceptedClaimCount: 9,
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
@@ -625,7 +631,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
           ? "resolveTurnIntent turnIntent chatWithFallback provider"
           : file.endsWith("/turn-intent.ts")
             ? "resolveTurnIntent turnIntent"
-            : "executeToolLoop loopResult",
+            : CHAT_AGENT_CALLER_FIXTURE,
       ]),
     );
     const providerResponse = [
@@ -741,7 +747,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         expect.arrayContaining(["acceptedEvidenceCount=3", "gateStatus=PROVEN"]),
       );
       expect([...steps].reverse().find((step) => step.kind === "evidence_integrity")).toMatchObject({
-        acceptedClaimCount: 3,
+        acceptedClaimCount: 9,
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
@@ -818,7 +824,16 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       response: `${architectureOnly}\n${weaknessClaim!.text}`,
       fileContents,
     });
-    expect(complete.every((claim) => claim.status === "CLOSED")).toBe(true);
+    expect(
+      complete
+        .filter((claim) => !claim.claimId.startsWith("edge:"))
+        .every((claim) => claim.status === "CLOSED"),
+    ).toBe(true);
+    expect(complete.filter((claim) => claim.claimId.startsWith("edge:"))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "UNCLOSED" }),
+      ]),
+    );
   });
 
   it("closes the real embedded-AI objective from materialized evidence when provider synthesis fails", async () => {
@@ -848,12 +863,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       ],
       [
         REQUIRED_PATHS[2],
-        [
-          "export async function executeToolLoop() {",
-          "  const loopResult = await readSources();",
-          "  return synthesize(loopResult);",
-          "}",
-        ].join("\n"),
+        CHAT_AGENT_CALLER_FIXTURE,
       ],
     ]);
 

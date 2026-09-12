@@ -21,6 +21,45 @@ export type ProjectQueryTarget = {
   promptHint: string;
 };
 
+/**
+ * These are deliberately limited to direct calls made by the production
+ * `chat()` orchestrator. The retained-read edge verifier binds each edge to
+ * that caller's AST body; imports and same-file symbol co-occurrence cannot
+ * close this contract.
+ */
+const EMBEDDED_AI_EXECUTION_EDGES = [
+  {
+    from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+    to: "lib/ai-orchestrator/src/turn-intent.ts#resolveTurnIntent",
+    relationship: "DIRECT_INVOCATION",
+  },
+  {
+    from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+    to: "lib/ai-orchestrator/src/tool-execution-engine.ts#executeToolLoop",
+    relationship: "DIRECT_INVOCATION",
+  },
+  {
+    from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+    to: "lib/ai-orchestrator/src/provider-strategy.ts#call",
+    relationship: "DIRECT_INVOCATION",
+  },
+  {
+    from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+    to: "lib/ai-orchestrator/src/provider-strategy.ts#stream",
+    relationship: "DIRECT_INVOCATION",
+  },
+  {
+    from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+    to: "lib/ai-orchestrator/src/agents/chat-agent.ts#finalizeObjectiveAndStream",
+    relationship: "DIRECT_INVOCATION",
+  },
+  {
+    from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+    to: "lib/ai-orchestrator/src/evidence-integrity.ts#validateFinalAnswer",
+    relationship: "DIRECT_INVOCATION",
+  },
+] as const;
+
 const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
   id: "embedded-ai",
   label: "embedded AI layer",
@@ -78,6 +117,8 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "Targeted project analysis: analyze the embedded AI layer end to end. " +
     "Read and explicitly cover the server-owned behavioral claims for routing, the tool loop, " +
     "provider dispatch, and acceptance with their source paths before synthesizing. " +
+    "Prove the retained production execution edges for intent routing, tool execution, " +
+    "provider dispatch, synthesis/finalization, and final validation before calling the answer proven. " +
     "State each claim assertion verbatim, then explain the sequence in the requested language. " +
     "If the goal asks for weaknesses, also state the verified weakness claim about " +
     "finish_reason=\"error\" and explain why it must be rejected before tool execution. " +
@@ -215,7 +256,7 @@ export function buildProjectQueryObjective(
     objectiveType: `PROJECT_QUERY_${target.id.toUpperCase()}`,
     requiredEvidencePaths: [...requiredEvidencePaths],
     requiredClaims,
-    requiredEvidenceEdges: [],
+    requiredEvidenceEdges: EMBEDDED_AI_EXECUTION_EDGES.map((edge) => ({ ...edge })),
     scopePolicy: {
       primaryPaths: [...target.primaryPaths],
       allowedExpansionPaths: [...target.allowedExpansionPaths],

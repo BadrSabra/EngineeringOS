@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   buildProjectQueryObjective,
   classifyRequest,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
+import { deriveObjectiveRuntimeEdgesFromRetainedReads } from "../evidence-integrity.js";
 
 describe("target-aware project queries", () => {
   it("recognizes the Arabic embedded-AI request and declares bounded evidence", () => {
@@ -39,7 +42,39 @@ describe("target-aware project queries", () => {
       "resolveTurnIntent",
       "turnIntent",
     ]);
+    expect(objective.requiredEvidenceEdges).toHaveLength(6);
+    expect(objective.requiredEvidenceEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+          to: "lib/ai-orchestrator/src/turn-intent.ts#resolveTurnIntent",
+        }),
+        expect.objectContaining({
+          from: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+          to: "lib/ai-orchestrator/src/evidence-integrity.ts#validateFinalAnswer",
+        }),
+      ]),
+    );
     expect(objective.scopePolicy?.forbiddenPaths).toContain("node_modules");
+  });
+
+  it("closes every declared execution edge only from the retained production caller", () => {
+    const target = resolveProjectQueryTarget("analyze the embedded AI layer");
+    const objective = buildProjectQueryObjective(target!, "analyze the embedded AI layer");
+    const callerPath = "lib/ai-orchestrator/src/agents/chat-agent.ts";
+    const callerBody = readFileSync(
+      path.resolve(process.cwd(), "src/agents/chat-agent.ts"),
+      "utf8",
+    );
+    const provenEdges = deriveObjectiveRuntimeEdgesFromRetainedReads({
+      objective,
+      fileContents: new Map([[callerPath, callerBody]]),
+    });
+
+    expect(provenEdges.map((edge) => `${edge.from}->${edge.to}`)).toEqual(
+      objective.requiredEvidenceEdges.map((edge) => `${edge.from}->${edge.to}`),
+    );
+    expect(provenEdges.every((edge) => edge.source === callerPath && edge.evidence)).toBe(true);
   });
 
   it("recognizes Arabic agent-mechanics questions without requiring the word تحليل", () => {
