@@ -5017,6 +5017,9 @@ export function buildProjectQueryEvidenceSynthesis(
   responseLanguage: "ar" | "en",
 ): string {
   const isArabic = responseLanguage === "ar";
+  const claimById = new Map(
+    objective.requiredClaims.map((claim) => [claim.claimId, claim]),
+  );
   const lines = isArabic
     ? [
         "تحليل مشروع مثبت بالأدلة المحتفظ بها.",
@@ -5036,6 +5039,26 @@ export function buildProjectQueryEvidenceSynthesis(
   }
   lines.push(
     "",
+    isArabic ? "### خريطة الأدلة" : "### Evidence map",
+  );
+  for (const item of evidence) {
+    const claim = claimById.get(item.claimId);
+    const span = `${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}`;
+    lines.push(
+      isArabic
+        ? `- \`${claim?.claimId ?? item.claimId}\` ← \`${span}\` (دليل سلوكي مباشر؛ لا يثبت قابلية الوصول الإنتاجية)`
+        : `- \`${claim?.claimId ?? item.claimId}\` ← \`${span}\` (direct behavioral evidence; production reachability not proven)`,
+    );
+  }
+  if (evidence.length === 0) {
+    lines.push(
+      isArabic
+        ? "- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."
+        : "- No completed source window is bound to a claim.",
+    );
+  }
+  lines.push(
+    "",
     isArabic ? "### تسلسل التنفيذ" : "### Execution flow",
   );
   const flowByClaimId: Record<string, { ar: string; en: string }> = {
@@ -5048,8 +5071,8 @@ export function buildProjectQueryEvidenceSynthesis(
       en: "Then, tool-enabled chat enters the tool loop and retains read results before synthesis.",
     },
     "ai-provider-dispatch": {
-      ar: "بعد ذلك، يرسل المسار طلب provider عبر fallback قبل التحقق من الإجابة النهائية.",
-      en: "After that, the route dispatches the provider request through fallback before final response validation.",
+      ar: "بعد ذلك، يظهر استدعاء provider عبر fallback. يثبت هذا وجود نقطة الإرسال، لكن ترتيبها الكامل بالنسبة للتحقق النهائي يحتاج edge تنفيذية صريحة.",
+      en: "After that, the provider dispatch through fallback is present. This proves the dispatch point, while its full ordering relative to final validation requires an explicit execution edge.",
     },
   };
   const genericFlow = isArabic
@@ -5069,9 +5092,14 @@ export function buildProjectQueryEvidenceSynthesis(
   lines.push(...(flow.length > 0 ? flow : genericFlow));
   lines.push(
     "",
+    isArabic ? "### حدود التحليل" : "### Analysis limits",
     isArabic
-      ? "تقتصر النتيجة على الادعاءات المرتبطة حرفياً بالمصادر المحتفظ بها؛ لم تُجرَ أي قراءة إضافية ولم تُعدّل ملفات."
-      : "The result is limited to claims bound to the retained source evidence; no additional reads were performed and no files were modified.",
+      ? "- الأدلة الحالية تثبت claims سلوكية مرتبطة بنوافذ المصدر فقط. لا تُثبت وحدها قابلية الوصول الإنتاجية أو كل ترتيب بين المراحل."
+      : "- The current evidence proves behavioral claims bound to source windows. It does not by itself prove production reachability or every ordering relationship between stages.",
+    "",
+    isArabic
+      ? "اقتصر التحليل على القراءات المحتفظ بها ولم تُعدّل ملفات."
+      : "The analysis was limited to the retained reads and no files were modified.",
   );
   return lines.join("\n");
 }
