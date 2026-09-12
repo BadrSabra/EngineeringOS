@@ -3309,13 +3309,14 @@ async function recoverSessionTaskStateFromExecution(params: {
       request: aiExecutionsTable.request,
       checkpoint: aiExecutionsTable.checkpoint,
       status: aiExecutionsTable.status,
+      attempt: aiExecutionsTable.attempt,
       updatedAt: aiExecutionsTable.updatedAt,
     })
     .from(aiExecutionsTable)
     .where(and(
       eq(aiExecutionsTable.sessionId, params.sessionId),
       eq(aiExecutionsTable.projectId, params.projectId),
-      inArray(aiExecutionsTable.status, ["failed", "paused", "cancelled"]),
+      inArray(aiExecutionsTable.status, ["completed", "failed", "paused", "cancelled"]),
     ))
     .orderBy(desc(aiExecutionsTable.updatedAt))
     .limit(16);
@@ -3328,6 +3329,30 @@ async function recoverSessionTaskStateFromExecution(params: {
       || !request.workspaceRevision
     ) {
       continue;
+    }
+    if (execution.status === "completed") {
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+          evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, execution.id),
+          eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+        ))
+        .limit(1);
+      // A completed execution is reusable only when its public acceptance is
+      // authoritative. Never recover a target from a row that completed
+      // without an accepted terminal contract.
+      if (
+        request.turnIntent !== "PROJECT_QUERY"
+        || acceptance?.outcome !== "SUCCEEDED"
+        || (acceptance.evidenceRequired === 1 && acceptance.evidenceComplete !== 1)
+      ) {
+        continue;
+      }
     }
     if (request.capabilityProbe && execution.status === "failed") {
       const checkpoint = parseJsonRecord(execution.checkpoint);
@@ -4729,7 +4754,7 @@ router.post("/ai/chat", async (req, res) => {
           payload: { messageId: operationId, proposalId: proposalId ?? null },
         });
       }
-      await tx
+      const [sessionStateWrite] = await tx
         .update(aiChatSessionsTable)
         .set({
           activeTaskState,
@@ -4738,7 +4763,39 @@ router.post("/ai/chat", async (req, res) => {
         .where(and(
           eq(aiChatSessionsTable.id, sessionIdToUse),
           sessionTaskStateIsAtOrBefore(msgNow),
-        ));
+        ))
+        .returning({ id: aiChatSessionsTable.id });
+      if (!sessionStateWrite && activeTaskState) {
+        const [currentSession] = await tx
+          .select({
+            activeTaskState: aiChatSessionsTable.activeTaskState,
+            updatedAt: aiChatSessionsTable.updatedAt,
+          })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+          .limit(1);
+        if (
+          currentSession
+          && !currentSession.activeTaskState
+          && currentSession.updatedAt <= msgNow
+        ) {
+          const [repairedStateWrite] = await tx
+            .update(aiChatSessionsTable)
+            .set({
+              activeTaskState,
+              updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+            })
+            .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+            .returning({ id: aiChatSessionsTable.id });
+          logger.warn({
+            scope: "chat-route",
+            action: "terminal_state_repair",
+            sessionId: sessionIdToUse,
+            executionId: null,
+            applied: Boolean(repairedStateWrite),
+          }, "chat stream: repaired missing terminal session task state");
+        }
+      }
       return msg;
     });
     // Evidence-bound and forensic plans are stateless in both directions:
@@ -8015,6 +8072,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
+      projectQuery: streamTurnIntent.projectTarget,
     });
 
     const aiExecutionId = aiExecution.id;
@@ -8263,7 +8321,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           },
         });
       }
-      await tx
+      const [sessionStateWrite] = await tx
         .update(aiChatSessionsTable)
         .set({
           activeTaskState,
@@ -8272,7 +8330,43 @@ router.post("/ai/chat/stream", async (req, res) => {
         .where(and(
           eq(aiChatSessionsTable.id, sessionIdToUse),
           sessionTaskStateIsAtOrBefore(msgNow),
-        ));
+        ))
+        .returning({ id: aiChatSessionsTable.id });
+      if (!sessionStateWrite && activeTaskState) {
+        // The session row is already locked above. Re-read it after the
+        // terminal fence so a no-op conditional update cannot silently lose
+        // a successful project-query continuation. Only repair a genuinely
+        // empty state that is not newer than this turn.
+        const [currentSession] = await tx
+          .select({
+            activeTaskState: aiChatSessionsTable.activeTaskState,
+            updatedAt: aiChatSessionsTable.updatedAt,
+          })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+          .limit(1);
+        if (
+          currentSession
+          && !currentSession.activeTaskState
+          && currentSession.updatedAt <= msgNow
+        ) {
+          const [repairedStateWrite] = await tx
+            .update(aiChatSessionsTable)
+            .set({
+              activeTaskState,
+              updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+            })
+            .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+            .returning({ id: aiChatSessionsTable.id });
+          logger.warn({
+            scope: "chat-route",
+            action: "terminal_state_repair",
+            sessionId: sessionIdToUse,
+            executionId: aiExecutionId,
+            applied: Boolean(repairedStateWrite),
+          }, "chat stream: repaired missing terminal session task state");
+        }
+      }
       return msg;
     });
     if (!assistantMsg) {

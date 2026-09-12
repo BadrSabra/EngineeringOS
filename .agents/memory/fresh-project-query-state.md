@@ -14,3 +14,9 @@ Continuation recognition must cover user-facing language variants, including com
 **Why:** A real Arabic “more details” follow-up used a diacritic form that a narrowly written matcher missed, causing an otherwise valid grounded conversation to fall into provider-only CHAT.
 
 **How to apply:** Test both vocalized and unvocalized forms for each supported short follow-up, and keep the same no-state negative tests so generic short questions cannot inherit stale evidence.
+
+Terminal SSE state construction must carry the resolved project-query target again; the initial state candidate does not survive automatically into the final persistence seam.
+
+**Why:** The stream classified and executed a grounded PROJECT_QUERY correctly, but the terminal state builder omitted the target and silently cleared the session state after acceptance.
+
+**How to apply:** Keep a regression that verifies the accepted SSE turn leaves its project-query scope in session state, then exercises a bounded follow-up after state recovery.

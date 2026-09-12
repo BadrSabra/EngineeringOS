@@ -5040,14 +5040,20 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         outcome: "SUCCEEDED",
       },
     });
+    const done = events.find((event) => event.type === "done");
+    const doneExecutionId = (done?.message as { executionId?: string } | undefined)?.executionId;
+    const doneSessionId = done?.sessionId as string;
+    expect(doneExecutionId).toEqual(expect.any(String));
+    expect(doneSessionId).toEqual(expect.any(String));
 
     const [execution] = await db
       .select({
         id: aiExecutionsTable.id,
         status: aiExecutionsTable.status,
+        sessionId: aiExecutionsTable.sessionId,
       })
       .from(aiExecutionsTable)
-      .where(eq(aiExecutionsTable.projectId, projectId))
+      .where(eq(aiExecutionsTable.id, doneExecutionId!))
       .limit(1);
     expect(execution).toMatchObject({ status: "completed" });
 
@@ -5097,6 +5103,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(assistant).toMatchObject({
       executionId: execution!.id,
       outcome: "SUCCEEDED",
+    });
+
+    const [session] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, doneSessionId))
+      .limit(1);
+    expect(session?.activeTaskState).toContain('"projectQuery"');
+    expect(JSON.parse(session!.activeTaskState!)).toMatchObject({
+      scope: { projectId },
     });
   });
 
@@ -5761,7 +5777,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .send({ projectId, message: "حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
     expect(first.status).toBe(200);
     const [firstExecution] = await db
-      .select({ sessionId: aiExecutionsTable.sessionId })
+      .select({
+        id: aiExecutionsTable.id,
+        sessionId: aiExecutionsTable.sessionId,
+      })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.projectId, projectId))
       .limit(1);
@@ -5783,8 +5802,26 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(sessionAfterFirst?.activeTaskState).toContain('"projectQuery"');
 
     // Exercise the recovery path used when a previous terminal write left the
-    // session column empty. A bounded project-query follow-up may recover only
-    // the server-owned contract from a failed proof-required execution.
+    // session column empty. This execution is now an accepted completed
+    // execution, so the follow-up must recover only its server-owned contract.
+    const [firstAcceptance] = await db
+      .select({ id: aiExecutionAcceptancesTable.id })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, firstExecution!.id!))
+      .limit(1);
+    expect(firstAcceptance).toBeDefined();
+    await db
+      .update(aiExecutionsTable)
+      .set({ status: "completed" })
+      .where(eq(aiExecutionsTable.id, firstExecution!.id!));
+    await db
+      .update(aiExecutionAcceptancesTable)
+      .set({
+        terminalStatus: "completed",
+        outcome: "SUCCEEDED",
+        evidenceComplete: 1,
+      })
+      .where(eq(aiExecutionAcceptancesTable.id, firstAcceptance!.id));
     await db
       .update(aiChatSessionsTable)
       .set({ activeTaskState: null })
