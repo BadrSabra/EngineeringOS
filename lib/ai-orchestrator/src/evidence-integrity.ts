@@ -1699,6 +1699,14 @@ export function deriveObjectiveRuntimeEdgesFromRetainedReads(input: {
     requiredEvidenceEdges?: readonly ObjectiveEvidenceEdgeRef[];
   } | null;
   fileContents: ReadonlyMap<string, string>;
+  /**
+   * Server-owned full source bodies used to bind a retained read to a
+   * caller's complete AST body when the accepted read is only a bounded
+   * window. These bodies are never counted as accepted evidence by
+   * themselves; the caller file must still have a retained read in
+   * fileContents.
+   */
+  objectiveEvidenceSources?: ReadonlyMap<string, string>;
 }): { from: string; to: string; source?: string; evidence?: string }[] {
   const edges = input.objective?.requiredEvidenceEdges ?? [];
   if (edges.length === 0 || input.fileContents.size === 0) return [];
@@ -1716,6 +1724,35 @@ export function deriveObjectiveRuntimeEdgesFromRetainedReads(input: {
         if (f !== fromFile && !f.endsWith(`/${fromFile}`) && !fromFile.endsWith(`/${f}`)) continue;
       }
       // Structurally bind the invocation to the caller's body.
+      const evidence = invocationInsideCaller(body, rawFrom, toSym, file);
+      if (evidence) {
+        out.push({ from: edge.from, to: edge.to, source: file, evidence });
+        break;
+      }
+    }
+    if (out.some((proven) => proven.from === edge.from && proven.to === edge.to)) continue;
+
+    // A bounded retained window can contain the evidence needle without
+    // containing the declaration of a large caller function. Bind the edge
+    // against the server-owned source body in that case, but only when the
+    // same caller file was also retained as accepted run evidence. This keeps
+    // locator bodies out of the evidence ledger while avoiding a false
+    // negative caused by an arbitrary provider-selected window.
+    if (!input.objectiveEvidenceSources) continue;
+    for (const [file, body] of input.objectiveEvidenceSources) {
+      if (classifySourceScope(file) !== "PRODUCTION") continue;
+      if (fromFile) {
+        const f = normalizeScopePath(file);
+        if (f !== fromFile && !f.endsWith(`/${fromFile}`) && !fromFile.endsWith(`/${f}`)) continue;
+      }
+      const retainedCallerRead = [...input.fileContents.keys()].some((retainedFile) => {
+        const retained = normalizeScopePath(retainedFile);
+        const locator = normalizeScopePath(file);
+        return retained === locator
+          || retained.endsWith(`/${locator}`)
+          || locator.endsWith(`/${retained}`);
+      });
+      if (!retainedCallerRead) continue;
       const evidence = invocationInsideCaller(body, rawFrom, toSym, file);
       if (evidence) {
         out.push({ from: edge.from, to: edge.to, source: file, evidence });

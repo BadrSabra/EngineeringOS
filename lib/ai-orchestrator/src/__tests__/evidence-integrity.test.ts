@@ -851,4 +851,50 @@ describe("syntax-aware invocation detection (AI-OBJ-014 review fix)", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.source).toBe("src/a.ts");
   });
+
+  it("uses a server-owned locator for a large caller when the retained read is a bounded window", () => {
+    const fullSource = [
+      "export function getGraphCentrality(input: Graph) {",
+      "  const setup = initializeGraph(input);",
+      "  return computeCentrality(setup);",
+      "}",
+    ].join("\n");
+    const boundedWindow = [
+      "  const setup = initializeGraph(input);",
+      "  return computeCentrality(setup);",
+    ].join("\n");
+    const result = deriveObjectiveRuntimeEdgesFromRetainedReads({
+      objective: {
+        requiredEvidenceEdges: [{
+          from: "src/a.ts#getGraphCentrality",
+          to: "computeCentrality",
+        }],
+      },
+      fileContents: new Map([["src/a.ts", boundedWindow]]),
+      objectiveEvidenceSources: new Map([["src/a.ts", fullSource]]),
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      from: "src/a.ts#getGraphCentrality",
+      to: "computeCentrality",
+      source: "src/a.ts",
+    });
+    expect(result[0]!.evidence).toContain("computeCentrality(setup)");
+  });
+
+  it("does not let a locator-only body prove an edge", () => {
+    const result = deriveObjectiveRuntimeEdgesFromRetainedReads({
+      objective: {
+        requiredEvidenceEdges: [{
+          from: "src/a.ts#getGraphCentrality",
+          to: "computeCentrality",
+        }],
+      },
+      fileContents: new Map(),
+      objectiveEvidenceSources: new Map([
+        ["src/a.ts", "export function getGraphCentrality() { return computeCentrality(); }"],
+      ]),
+    });
+    expect(result).toHaveLength(0);
+  });
 });

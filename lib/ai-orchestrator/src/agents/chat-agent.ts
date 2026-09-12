@@ -1675,6 +1675,7 @@ function applyRequiredClaimClosureGate(opts: {
 function applyObjectiveCompletionGate(opts: {
   objective?: ObjectiveContract;
   fileContents: Map<string, string>;
+  objectiveEvidenceSources?: ReadonlyMap<string, string>;
   response: string;
   message: string;
   evidence?: readonly EvidenceReference[];
@@ -1711,6 +1712,7 @@ function applyObjectiveCompletionGate(opts: {
     ...deriveObjectiveRuntimeEdgesFromRetainedReads({
       objective,
       fileContents: opts.fileContents,
+      objectiveEvidenceSources: opts.objectiveEvidenceSources,
     }),
   ];
   const answerTypeMismatch =
@@ -1886,6 +1888,7 @@ function relayStreamObjectiveFinalization(opts: {
 function finalizeObjectiveAndStream(opts: {
   objective?: ObjectiveContract;
   fileContents: Map<string, string>;
+  objectiveEvidenceSources?: ReadonlyMap<string, string>;
   message: string;
   response: string;
   evidence?: readonly EvidenceReference[];
@@ -1896,6 +1899,7 @@ function finalizeObjectiveAndStream(opts: {
   const gate = applyObjectiveCompletionGate({
     objective: opts.objective,
     fileContents: opts.fileContents,
+    objectiveEvidenceSources: opts.objectiveEvidenceSources,
     response: opts.response,
     message: opts.message,
     evidence: opts.evidence,
@@ -6365,9 +6369,16 @@ export async function chat(opts: {
   // prefetchFileContents, prefetchReadStatuses, and retainedEvidence: only the
   // bounded window dispatched by the tool loop may become proof.
   if (objective && rootPath) {
+    const objectiveSourcePaths = new Set(objective.requiredEvidencePaths ?? []);
+    for (const edge of objective.requiredEvidenceEdges ?? []) {
+      for (const endpoint of [edge.from, edge.to]) {
+        const separator = endpoint.lastIndexOf("#");
+        if (separator > 0) objectiveSourcePaths.add(endpoint.slice(0, separator));
+      }
+    }
     await loadObjectiveEvidenceLocators(
       rootPath,
-      objective.requiredEvidencePaths ?? [],
+      [...objectiveSourcePaths],
       prefetchTraceContents,
     );
   }
@@ -7154,6 +7165,7 @@ export async function chat(opts: {
       const hierarchicalObjectiveFinalized = finalizeObjectiveAndStream({
         objective,
         fileContents: forensicFileContents,
+        objectiveEvidenceSources: prefetchTraceContents,
         message,
         response: hierarchicalCandidate,
         provenEdges: objectiveRuntimeProvenEdges,
@@ -7606,6 +7618,7 @@ export async function chat(opts: {
     const coordinatedFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
+      objectiveEvidenceSources: prefetchTraceContents,
       message,
       response: coordinatedResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8203,6 +8216,7 @@ export async function chat(opts: {
     const partialReportFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
+      objectiveEvidenceSources: prefetchTraceContents,
       message,
       response: partialReport,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8255,6 +8269,7 @@ export async function chat(opts: {
     const stoppedFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
+      objectiveEvidenceSources: prefetchTraceContents,
       message,
       response: stoppedResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8303,6 +8318,7 @@ export async function chat(opts: {
     const repairPartialFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
+      objectiveEvidenceSources: prefetchTraceContents,
       message,
       response: repairPartialResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8385,6 +8401,7 @@ export async function chat(opts: {
     const exhaustionFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
+      objectiveEvidenceSources: prefetchTraceContents,
       message,
       response: exhaustionFinalResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8437,6 +8454,7 @@ export async function chat(opts: {
     const incompleteFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
+      objectiveEvidenceSources: prefetchTraceContents,
       message,
       response: incompleteResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8808,6 +8826,7 @@ export async function chat(opts: {
       const streamingObjectiveGate = applyObjectiveCompletionGate({
         objective,
         fileContents: forensicFileContents,
+        objectiveEvidenceSources: prefetchTraceContents,
         response: streamingRequiredClaimGate.gatedResponse,
         message,
         evidence: streamingBehaviorGated.evidence,
@@ -9113,6 +9132,7 @@ export async function chat(opts: {
       const nativeSseObjectiveGate = applyObjectiveCompletionGate({
         objective,
         fileContents: forensicFileContents,
+        objectiveEvidenceSources: prefetchTraceContents,
         response: nativeSseResponse,
         message,
         evidence: nativeSseBehaviorValidation.evidence,
@@ -12090,6 +12110,7 @@ export async function chat(opts: {
     ? deriveObjectiveRuntimeEdgesFromRetainedReads({
         objective,
         fileContents: forensicFileContents,
+        objectiveEvidenceSources: prefetchTraceContents,
       })
     : [];
   const objectiveProvenEdges = [
