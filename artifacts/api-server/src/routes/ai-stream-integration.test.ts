@@ -4942,14 +4942,17 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
-  it("requires proof for an analytical Arabic gap PROJECT_QUERY", async () => {
+  it.each([
+    "ما هي نقاط الضعف لدى الوكيل",
+    "حدد نقاط ضعف الوكيل الداخلى للمشروع",
+  ])("requires proof for an analytical Arabic gap PROJECT_QUERY: %s", async (message) => {
     const projectId = await insertProject();
     projectIds.push(projectId);
 
     const res = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
-      .send({ projectId, message: "ما هي نقاط الضعف لدى الوكيل" });
+      .send({ projectId, message });
 
     expect(res.status).toBe(200);
     const events = parseSseEvents(res.text);

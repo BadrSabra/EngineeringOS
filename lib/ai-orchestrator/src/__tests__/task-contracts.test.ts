@@ -22,6 +22,7 @@ describe("task-aware contracts", () => {
   it("shares the GAPS signal across routing and query planning", () => {
     for (const message of [
       "ما هي نقاط الضعف لدى الوكيل",
+      "حدد نقاط ضعف الوكيل الداخلى للمشروع",
       "Find the missing capabilities",
       "What are the system's limitations?",
       "Show me the blind spots and risks",

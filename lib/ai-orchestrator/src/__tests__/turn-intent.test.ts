@@ -92,17 +92,22 @@ describe("resolveTurnIntent", () => {
   });
 
   it("keeps an Arabic gap question as an evidence-backed project query", () => {
-    const intent = resolveTurnIntent("ما هي نقاط الضعف لدى الوكيل");
+    for (const message of [
+      "ما هي نقاط الضعف لدى الوكيل",
+      "حدد نقاط ضعف الوكيل الداخلى للمشروع",
+    ]) {
+      const intent = resolveTurnIntent(message);
 
-    expect(intent).toMatchObject({
-      kind: "PROJECT_QUERY",
-      executionTaskType: "tool_chat",
-      requiresTools: true,
-      requiresEvidence: true,
-      outputContract: "BEHAVIOR_ANSWER",
-      operationMode: "CHAT",
-      projectTarget: { id: "gap-analysis" },
-    });
+      expect(intent, message).toMatchObject({
+        kind: "PROJECT_QUERY",
+        executionTaskType: "tool_chat",
+        requiresTools: true,
+        requiresEvidence: true,
+        outputContract: "BEHAVIOR_ANSWER",
+        operationMode: "CHAT",
+        projectTarget: { id: "gap-analysis" },
+      });
+    }
   });
 
   it.each(["ممكن تساعدني؟", "كيف أبدأ؟", "Can you help me?"])(
