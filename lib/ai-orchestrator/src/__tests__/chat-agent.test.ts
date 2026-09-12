@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { ChatOutputSchema } from "../schemas/chat.schema.js";
 import type { ProjectContext } from "../context-builder.js";
 import { GroqClientError } from "../errors.js";
+import { createExecutionLedger } from "../execution-ledger.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import { resolveTurnIntent } from "../turn-intent.js";
 import {
   assertArabicForensicFixture,
   assertArabicFixtureResponse,
@@ -126,6 +128,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
   afterEach(() => {
     vi.doUnmock("groq-sdk");
     vi.doUnmock("../tools/file-tools.js");
+    vi.doUnmock("../agents/query-planner.js");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
   });
@@ -168,6 +171,55 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(Array.isArray(result.pendingChanges)).toBe(true);
     // No pending changes were queued, so the array should be empty.
     expect(result.pendingChanges).toEqual([]);
+  });
+
+  it("skips optional query planning after a provider fallback has used the planner budget", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "planner-fallback-"));
+    const relativePath = "src/example.ts";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, relativePath), "export const value = true;\n", "utf8");
+
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: '{"response":"done","sources":[]}' } }],
+      model: "fallback-model",
+      usage: {},
+    });
+    const planQuery = vi.fn();
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    vi.doMock("../agents/query-planner.js", async () => {
+      const actual = await vi.importActual<typeof import("../agents/query-planner.js")>(
+        "../agents/query-planner.js",
+      );
+      return { ...actual, planQuery };
+    });
+
+    const executionLedger = createExecutionLedger({ budget: { plannerCalls: 1 } });
+    expect(executionLedger.admit("planner", { operation: "query_plan" })).toBe(true);
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const message = `What does ${relativePath} do?`;
+      const result = await chat({
+        message,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        turnIntent: resolveTurnIntent(message),
+        executionLedger,
+      });
+
+      expect(planQuery).not.toHaveBeenCalled();
+      expect(create).toHaveBeenCalled();
+      expect(result.response).toBeDefined();
+      expect(executionLedger.snapshot().terminalReason).not.toBe("model_budget");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
   });
 
   it("advances the objective evidence cursor past retained files", async () => {

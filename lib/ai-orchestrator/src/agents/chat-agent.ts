@@ -6903,6 +6903,11 @@ export async function chat(opts: {
   // A short execution follow-up has already been planned. Do not spend an
   // additional model call re-planning "نفّذ الخطة"; use the concrete paths from
   // the recovered plan and start the execution loop immediately.
+  // Provider fallback shares the same request ledger. Query planning is an
+  // optional one-shot phase, so a later provider attempt must not re-admit it:
+  // the rejected planner admission would terminalize the shared ledger as
+  // model_budget and prevent the fallback provider's actual model call.
+  const plannerAlreadyUsed = executionLedger.snapshot().counts.planner > 0;
   if (
     turnIntent.requiresTools &&
     !singleFileForensicMode &&
@@ -6910,7 +6915,8 @@ export async function chat(opts: {
     tools != null &&
     rootPath &&
     !(immediateIntent && priorRepairPlan) &&
-    !compoundWriteExecution
+    !compoundWriteExecution &&
+    !plannerAlreadyUsed
   ) {
     queryPlan = await planQuery({
       message,
