@@ -1100,7 +1100,7 @@ describe("executeToolLoop", () => {
       endLine?: string;
     }) => {
       if (name === "read_file") {
-        return `File: ${requiredPath}\n\`\`\`\nconst preview = true;\n[... forensic read exceeded the maximum safe evidence window ...]\n\`\`\``;
+        return `File: ${requiredPath}\n\`\`\`\n${retainedSource}\n[... forensic read exceeded the maximum safe evidence window ...]\n\`\`\``;
       }
       if (name === "read_file_range") {
         const start = Number(args.startLine);
@@ -1123,9 +1123,6 @@ describe("executeToolLoop", () => {
       rootPath: "/project",
       pendingChanges: [],
       maxIterations: 3,
-      initialReadStatuses: new Map([[requiredPath, "READ_TRUNCATED"]]),
-      retainedReadStatuses: new Map([[requiredPath, "READ_TRUNCATED"]]),
-      objectiveEvidenceSources: new Map([[requiredPath, retainedSource]]),
       objective: {
         goal: "trace the embedded AI layer",
         requiredEvidencePaths: [requiredPath],
@@ -1133,7 +1130,9 @@ describe("executeToolLoop", () => {
           claimId: "tool-loop",
           text: "The agent enters executeToolLoop and retains its tool results before synthesis.",
           requiredEvidencePaths: [requiredPath],
-          evidenceNeedles: ["executeToolLoop", "loopResult"],
+          evidenceNeedlesByPath: {
+            [requiredPath]: ["executeToolLoop", "loopResult"],
+          },
         }],
       },
     });

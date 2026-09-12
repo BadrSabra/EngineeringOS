@@ -851,9 +851,10 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     for (const claim of objective.requiredClaims) {
       for (const source of claim.requiredEvidencePaths ?? []) {
         const existing = fileContents.get(source) ?? "";
+        const sourceNeedles = claim.evidenceNeedlesByPath?.[source] ?? claim.evidenceNeedles;
         fileContents.set(source, [
           existing,
-          claim.evidenceNeedles?.join("\n") ?? claim.text,
+          sourceNeedles?.join("\n") ?? claim.text,
         ].filter(Boolean).join("\n") + "\nverified source");
       }
     }

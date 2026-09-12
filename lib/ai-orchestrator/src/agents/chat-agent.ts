@@ -7746,6 +7746,9 @@ export async function chat(opts: {
           text: claim.text,
           requiredEvidencePaths: claim.requiredEvidencePaths,
           ...(claim.evidenceNeedles ? { evidenceNeedles: claim.evidenceNeedles } : {}),
+          ...(claim.evidenceNeedlesByPath
+            ? { evidenceNeedlesByPath: claim.evidenceNeedlesByPath }
+            : {}),
         })),
       }
     : undefined;

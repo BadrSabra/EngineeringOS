@@ -266,10 +266,6 @@ export function materializeObjectiveClaimEvidence(input: {
 
   for (const claim of input.objective.requiredClaims) {
     const claimNeedle = claim.text.trim();
-    const evidenceNeedles = (claim.evidenceNeedles ?? [claimNeedle])
-      .map((needle) => needle.trim())
-      .filter(Boolean);
-    if (evidenceNeedles.length === 0) continue;
     const preferredPaths = (claim.requiredEvidencePaths ?? []).map(normalizePath);
     // A claim with an explicit evidence manifest must be grounded in one of
     // those paths. Falling back to an unrelated retained body lets a matching
@@ -279,11 +275,18 @@ export function materializeObjectiveClaimEvidence(input: {
       ? bodyEntries.filter((entry) => preferredPaths.includes(entry.path))
       : bodyEntries;
     const match = candidates
-      .flatMap((entry) => evidenceNeedles.map((needle) => ({
-        entry,
-        needle,
-        index: entry.content.indexOf(needle),
-      })))
+      .flatMap((entry) => {
+        const evidenceNeedles = claim.evidenceNeedlesByPath
+          ? Object.entries(claim.evidenceNeedlesByPath)
+              .find(([path]) => normalizePath(path) === entry.path)?.[1] ?? []
+          : claim.evidenceNeedles ?? [claimNeedle];
+        return evidenceNeedles.map((needle) => ({
+          entry,
+          needle: needle.trim(),
+          index: entry.content.indexOf(needle),
+        }));
+      })
+      .filter((candidate) => candidate.needle.length > 0)
       .find((candidate) => candidate.index >= 0);
     if (!match) continue;
 
@@ -371,17 +374,21 @@ export function closeObjectiveClaimsFromEvidence(input: {
     const claimSpec = objective.requiredClaims.find(
       (candidate) => `objective:${candidate.claimId}` === claim.claimId,
     );
-    const sourceNeedles = (claimSpec?.evidenceNeedles ?? [claim.text])
-      .map((needle: string) => normalize(needle))
-      .filter(Boolean);
     const responseNeedle = normalize(claim.text);
     const preferredPaths = (claimSpec?.requiredEvidencePaths ?? []).map((path: string) =>
       path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, ""),
     );
     if (responseNeedle.length >= 3 && responseNorm.includes(responseNeedle)) {
       for (const [file, body] of bodies) {
+        const sourceNeedles = claimSpec?.evidenceNeedlesByPath
+          ? Object.entries(claimSpec.evidenceNeedlesByPath)
+              .find(([candidatePath]) => normalize(candidatePath) === file)?.[1] ?? []
+          : claimSpec?.evidenceNeedles ?? [claim.text];
+        const normalizedSourceNeedles = sourceNeedles
+          .map((needle: string) => normalize(needle))
+          .filter(Boolean);
         if (
-          sourceNeedles.some((needle) => body.includes(needle)) &&
+          normalizedSourceNeedles.some((needle) => body.includes(needle)) &&
           (!requireCited || groundedSources.has(file)) &&
           (preferredPaths.length === 0 || preferredPaths.includes(file))
         ) {

@@ -17,6 +17,7 @@ export type ProjectQueryTarget = {
     text: string;
     requiredEvidencePaths: string[];
     evidenceNeedles?: string[];
+    evidenceNeedlesByPath?: Record<string, string[]>;
   }>;
   promptHint: string;
 };
@@ -135,7 +136,10 @@ const EMBEDDED_AI_WEAKNESS_CLAIM = {
     "lib/ai-orchestrator/src/openai-compatible-client.ts",
     "lib/ai-orchestrator/src/tool-execution-engine.ts",
   ],
-  evidenceNeedles: ["finishReason", "executeToolLoop"],
+  evidenceNeedlesByPath: {
+    "lib/ai-orchestrator/src/openai-compatible-client.ts": ["finishReason"],
+    "lib/ai-orchestrator/src/tool-execution-engine.ts": ["executeToolLoop"],
+  },
 };
 
 const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
@@ -233,11 +237,20 @@ export function buildProjectQueryObjective(
   target: ProjectQueryTarget,
   goal: string,
 ): ObjectiveContract {
-  const requiredClaims = target.requiredClaims.map((claim) => ({
+  const requiredClaims: ProjectQueryTarget["requiredClaims"] = target.requiredClaims.map((claim) => ({
     claimId: claim.claimId,
     text: claim.text,
     requiredEvidencePaths: [...claim.requiredEvidencePaths],
     ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+    ...(claim.evidenceNeedlesByPath
+      ? {
+          evidenceNeedlesByPath: Object.fromEntries(
+            Object.entries(claim.evidenceNeedlesByPath).map(
+              ([path, needles]) => [path, [...needles]],
+            ),
+          ),
+        }
+      : {}),
   }));
   const weaknessRequested = target.id === "embedded-ai" && isGapAnalysisRequest(goal);
   if (weaknessRequested) {
@@ -245,7 +258,11 @@ export function buildProjectQueryObjective(
       claimId: EMBEDDED_AI_WEAKNESS_CLAIM.claimId,
       text: EMBEDDED_AI_WEAKNESS_CLAIM.text,
       requiredEvidencePaths: [...EMBEDDED_AI_WEAKNESS_CLAIM.requiredEvidencePaths],
-      evidenceNeedles: [...EMBEDDED_AI_WEAKNESS_CLAIM.evidenceNeedles],
+      evidenceNeedlesByPath: Object.fromEntries(
+        Object.entries(EMBEDDED_AI_WEAKNESS_CLAIM.evidenceNeedlesByPath).map(
+          ([path, needles]) => [path, [...needles]],
+        ),
+      ),
     });
   }
   const requiredEvidencePaths = new Set(target.requiredEvidencePaths);

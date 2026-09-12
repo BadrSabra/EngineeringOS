@@ -1012,6 +1012,7 @@ export type AgentLoopObjective = {
     text?: string;
     requiredEvidencePaths?: string[];
     evidenceNeedles?: string[];
+    evidenceNeedlesByPath?: Record<string, string[]>;
   }>;
 };
 
@@ -1920,15 +1921,42 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // prefetched bodies then every successful read this run.
   const canonicalRel = (value: string): string =>
     value.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+  // Locator bodies are deliberately separate from sourceEvidenceByCanonical
+  // and retainedFileContents. A truncated read can help the server find a
+  // bounded evidence window, but it is never accepted as proof itself.
+  const objectiveLocatorSources = new Map<string, string>(
+    objectiveEvidenceSources ?? [],
+  );
   type ObjectiveTargetedReadRange =
     | { startLine: string; endLine: string }
     | { unavailable: true; reason: string };
   const objectiveTargetedReadRange = (
     path: string,
   ): ObjectiveTargetedReadRange | undefined => {
-    if (!objective || !objectiveEvidenceSources) return undefined;
+    if (!objective) return undefined;
     const normalizedPath = canonicalRel(path);
-    const sourceEntry = [...objectiveEvidenceSources.entries()]
+    const needles = objective.requiredClaims
+      .filter((claim) =>
+        (claim.requiredEvidencePaths ?? []).some(
+          (requiredPath) => canonicalRel(requiredPath) === normalizedPath,
+        ),
+      )
+      .flatMap((claim) => {
+        if (claim.evidenceNeedlesByPath) {
+          const pathNeedles = Object.entries(claim.evidenceNeedlesByPath)
+            .find(([requiredPath]) => canonicalRel(requiredPath) === normalizedPath)?.[1];
+          return pathNeedles ?? [];
+        }
+        return claim.evidenceNeedles ?? [];
+      })
+      .map((needle) => needle.trim())
+      .filter(Boolean);
+    // Claims without declared needles retain the legacy bounded fallback. A
+    // claim with needles must use a server-owned locator so an arbitrary
+    // provider-selected head range cannot be accepted as behavioral proof.
+    if (needles.length === 0) return undefined;
+
+    const sourceEntry = [...objectiveLocatorSources.entries()]
       .find(([candidatePath]) => canonicalRel(candidatePath) === normalizedPath);
     if (!sourceEntry) {
       return {
@@ -1947,17 +1975,6 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ? rawLines.slice(2, -1)
         : rawLines;
     const sourceBody = sourceLines.join("\n");
-    const needles = objective.requiredClaims
-      .filter((claim) =>
-        (claim.requiredEvidencePaths ?? []).some(
-          (requiredPath) => canonicalRel(requiredPath) === normalizedPath,
-        ),
-      )
-      .flatMap((claim) => claim.evidenceNeedles ?? [])
-      .map((needle) => needle.trim())
-      .filter(Boolean);
-    if (needles.length === 0) return undefined;
-
     const sourceLineAt = (lineNumber: number): string =>
       sourceLines[lineNumber - 1] ?? "";
     const lineNumberAt = (index: number): number =>
@@ -2166,6 +2183,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     sourceRetrieval.readAttempts += 1;
     const status = classifyReadStatus(toolName, output);
     if (path !== undefined && path.trim()) {
+      if (status === "READ_TRUNCATED" && objective) {
+        objectiveLocatorSources.set(path, output);
+      }
       if (status === "READ_TRUNCATED" && readStatusByPath.get(path) !== "READ_TRUNCATED") {
         sourceRetrieval.truncatedReads += 1;
       }

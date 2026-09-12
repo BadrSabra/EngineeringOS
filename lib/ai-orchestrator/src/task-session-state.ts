@@ -190,6 +190,12 @@ export const ActiveTaskStateSchema = z.object({
       text: z.string().min(1).max(1000),
       requiredEvidencePaths: z.array(z.string().min(1).max(500)).min(1).max(24),
       evidenceNeedles: z.array(z.string().min(1).max(240)).max(8).optional(),
+      evidenceNeedlesByPath: z
+        .record(
+          z.string().min(1).max(500),
+          z.array(z.string().min(1).max(240)).max(8),
+        )
+        .optional(),
     }).strict()).min(1).max(24),
     promptHint: z.string().min(1).max(2000),
   }).strict().optional(),
@@ -587,6 +593,15 @@ export function mergeProjectQueryObjective(
     text: claim.text,
     requiredEvidencePaths: [...(claim.requiredEvidencePaths ?? [])],
     ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+    ...(claim.evidenceNeedlesByPath
+      ? {
+          evidenceNeedlesByPath: Object.fromEntries(
+            Object.entries(claim.evidenceNeedlesByPath).map(
+              ([path, needles]) => [path, [...needles]],
+            ),
+          ),
+        }
+      : {}),
   }));
   const requiredEvidencePaths = [
     ...new Set([
@@ -677,6 +692,15 @@ export function buildActiveTaskState(args: {
               requiredEvidencePaths: [...claim.requiredEvidencePaths],
               ...(claim.evidenceNeedles
                 ? { evidenceNeedles: [...claim.evidenceNeedles] }
+                : {}),
+              ...(claim.evidenceNeedlesByPath
+                ? {
+                    evidenceNeedlesByPath: Object.fromEntries(
+                      Object.entries(claim.evidenceNeedlesByPath).map(
+                        ([path, needles]) => [path, [...needles]],
+                      ),
+                    ),
+                  }
                 : {}),
             })),
           },

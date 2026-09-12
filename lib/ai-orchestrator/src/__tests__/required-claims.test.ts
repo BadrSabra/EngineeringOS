@@ -295,6 +295,40 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
     expect(inventoryOnlyClosure.every((claim) => claim.status === "UNCLOSED")).toBe(true);
   });
 
+  it("uses source-specific needles for a cross-file objective claim", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["src/provider.ts", "src/loop.ts"],
+      requiredClaims: [{
+        claimId: "error-boundary",
+        text: "The provider error boundary is checked before tool execution.",
+        requiredEvidencePaths: ["src/provider.ts", "src/loop.ts"],
+        evidenceNeedlesByPath: {
+          "src/provider.ts": ["finishReason"],
+          "src/loop.ts": ["executeToolLoop"],
+        },
+      }],
+      requiredEvidenceEdges: [],
+      scopePolicy: {
+        primaryPaths: ["src/provider.ts", "src/loop.ts"],
+        allowedExpansionPaths: [],
+        forbiddenPaths: ["node_modules"],
+      },
+    };
+
+    const materialized = materializeObjectiveClaimEvidence({
+      objective,
+      fileContents: new Map([
+        ["src/provider.ts", "const finishReason = choice.finish_reason;"],
+        ["src/loop.ts", "const result = await executeToolLoop(context);"],
+      ]),
+    });
+
+    expect(materialized).toHaveLength(1);
+    expect(materialized[0]?.source).toBe("src/provider.ts");
+    expect(materialized[0]?.excerpt).toContain("finishReason");
+  });
+
   it("does not close an objective from retained bodies when accepted evidence is absent", () => {
     const objective: ObjectiveContract = {
       objectiveType: "PROJECT_QUERY_EMBEDDED-AI",

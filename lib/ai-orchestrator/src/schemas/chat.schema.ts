@@ -42,6 +42,17 @@ export const ObjectiveRequiredClaimSchema = z.object({
    * true of source code without its prose assertion appearing verbatim there.
    */
   evidenceNeedles: z.array(z.string().min(1).max(240)).max(8).optional(),
+  /**
+   * Optional source-specific locators for claims spanning multiple files.
+   * When present, a path uses only its own needles; it must not be forced to
+   * contain symbols that belong to another required evidence path.
+   */
+  evidenceNeedlesByPath: z
+    .record(
+      z.string().min(1).max(500),
+      z.array(z.string().min(1).max(240)).max(8),
+    )
+    .optional(),
 }).strict();
 export type ObjectiveRequiredClaim = z.infer<typeof ObjectiveRequiredClaimSchema>;
 
