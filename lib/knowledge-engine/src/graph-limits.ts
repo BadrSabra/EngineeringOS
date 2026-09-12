@@ -5,7 +5,7 @@
 export const GRAPH_LIMITS = {
   maxEntities: 80,
   maxRelationships: 60,
-  maxTraversalDepth: 4,
+  maxTraversalDepth: 8,
   maxSemanticDepth: 4,
   maxTraversalEntities: 80,
   maxTraversalWork: 480,
