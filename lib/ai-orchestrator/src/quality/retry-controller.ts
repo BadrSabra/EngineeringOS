@@ -20,6 +20,7 @@ const RETRYABLE_GROQ_CODES = new Set<GroqErrorCode>([
   "SERVER_ERROR",
   "RATE_LIMITED",
   "NON_200",
+  "INVALID_PROVIDER_RESPONSE",
 ]);
 
 function isRetryableTransportError(error: unknown): error is GroqClientError {

@@ -326,6 +326,7 @@ function failureCategoryFor(code?: ProviderHealthFailureCode): ProviderHealthFai
       return "request";
     case "TOOL_CALL_UNSUPPORTED":
     case "INVALID_TOOL_CALL":
+    case "INVALID_PROVIDER_RESPONSE":
     case "MALFORMED_TOOL_ARGUMENTS":
     case "UNEXPECTED_TOOL_CALL":
     case "MALFORMED_STRUCTURED_OUTPUT":

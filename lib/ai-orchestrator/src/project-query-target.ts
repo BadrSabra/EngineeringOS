@@ -79,7 +79,22 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "Read and explicitly cover the server-owned behavioral claims for routing, the tool loop, " +
     "provider dispatch, and acceptance with their source paths before synthesizing. " +
     "State each claim assertion verbatim, then explain the sequence in the requested language. " +
-    "Do not stop at a symbol inventory, one provider client, or a generic project-access explanation.",
+    "If the goal asks for weaknesses, also state the verified weakness claim about " +
+    "finish_reason=\"error\" and explain why it must be rejected before tool execution. " +
+    "Separate verified weakness evidence from hypotheses. Do not stop at a symbol inventory, " +
+    "one provider client, or a generic project-access explanation.",
+};
+
+const EMBEDDED_AI_WEAKNESS_CLAIM = {
+  claimId: "ai-weakness-analysis",
+  text:
+    'The provider boundary must reject finish_reason="error" before tool execution; ' +
+    "otherwise content or tool calls can make an error-shaped response look successful.",
+  requiredEvidencePaths: [
+    "lib/ai-orchestrator/src/openai-compatible-client.ts",
+    "lib/ai-orchestrator/src/tool-execution-engine.ts",
+  ],
+  evidenceNeedles: ["finishReason", "executeToolLoop"],
 };
 
 const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
@@ -177,15 +192,29 @@ export function buildProjectQueryObjective(
   target: ProjectQueryTarget,
   goal: string,
 ): ObjectiveContract {
+  const requiredClaims = target.requiredClaims.map((claim) => ({
+    claimId: claim.claimId,
+    text: claim.text,
+    requiredEvidencePaths: [...claim.requiredEvidencePaths],
+    ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+  }));
+  const weaknessRequested = target.id === "embedded-ai" && isGapAnalysisRequest(goal);
+  if (weaknessRequested) {
+    requiredClaims.push({
+      claimId: EMBEDDED_AI_WEAKNESS_CLAIM.claimId,
+      text: EMBEDDED_AI_WEAKNESS_CLAIM.text,
+      requiredEvidencePaths: [...EMBEDDED_AI_WEAKNESS_CLAIM.requiredEvidencePaths],
+      evidenceNeedles: [...EMBEDDED_AI_WEAKNESS_CLAIM.evidenceNeedles],
+    });
+  }
+  const requiredEvidencePaths = new Set(target.requiredEvidencePaths);
+  for (const claim of requiredClaims) {
+    for (const path of claim.requiredEvidencePaths) requiredEvidencePaths.add(path);
+  }
   return {
     objectiveType: `PROJECT_QUERY_${target.id.toUpperCase()}`,
-    requiredEvidencePaths: [...target.requiredEvidencePaths],
-    requiredClaims: target.requiredClaims.map((claim) => ({
-      claimId: claim.claimId,
-      text: claim.text,
-      requiredEvidencePaths: [...claim.requiredEvidencePaths],
-      ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
-    })),
+    requiredEvidencePaths: [...requiredEvidencePaths],
+    requiredClaims,
     requiredEvidenceEdges: [],
     scopePolicy: {
       primaryPaths: [...target.primaryPaths],

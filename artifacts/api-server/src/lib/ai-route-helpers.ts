@@ -451,6 +451,7 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
   "TIMEOUT",
   "NON_200",
   "EMPTY_RESPONSE",
+  "INVALID_PROVIDER_RESPONSE",
   "SERVER_ERROR",
   "MODEL_NOT_FOUND",
   "MODEL_UNAVAILABLE",   // PR-03: 410/422 — model temporarily offline
@@ -873,6 +874,7 @@ export async function chatWithFallback(
             health.failureCode && FALLBACK_TRIGGER_CODES.has(health.failureCode)
               ? health.failureCode as GroqErrorCode
               : health.failureCode === "INVALID_TOOL_CALL" ||
+                  health.failureCode === "INVALID_PROVIDER_RESPONSE" ||
                   health.failureCode === "TOOL_CALL_UNSUPPORTED" ||
                   health.failureCode === "MALFORMED_TOOL_ARGUMENTS" ||
                   health.failureCode === "UNEXPECTED_TOOL_CALL"
@@ -1352,6 +1354,13 @@ export function handleOrchestratorError(
         ...base,
         error: `${providerLabel} returned an empty response.`,
         hint: `This may be a transient ${providerLabel} issue — try again.`,
+      });
+      return true;
+    case "INVALID_PROVIDER_RESPONSE":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} returned an invalid completion response.`,
+        hint: `The model returned an error-shaped completion. Try again or use another ${providerLabel} model.`,
       });
       return true;
     case "INVALID_CONFIG":

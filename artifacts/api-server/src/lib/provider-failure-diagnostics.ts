@@ -91,7 +91,11 @@ export function classifyProviderFailure(
     return "MODEL_REJECTED";
   }
   if (code === "TIMEOUT") return "TIMEOUT";
-  if (code === "EMPTY_RESPONSE" || code === "INVALID_TOOL_CALL") {
+  if (
+    code === "EMPTY_RESPONSE"
+    || code === "INVALID_TOOL_CALL"
+    || code === "INVALID_PROVIDER_RESPONSE"
+  ) {
     return "MALFORMED_RESPONSE";
   }
   if (code === "NETWORK_ERROR" || code === "SERVER_ERROR") {

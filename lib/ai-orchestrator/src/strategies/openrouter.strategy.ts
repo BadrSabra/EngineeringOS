@@ -52,7 +52,8 @@ export function shouldRecordCircuitFailure(error: unknown): boolean {
     // These are model/contract failures. A healthy OpenRouter endpoint can
     // return either when one free-tier candidate cannot honor this request.
     error.code === "EMPTY_RESPONSE" ||
-    error.code === "INVALID_TOOL_CALL"
+     error.code === "INVALID_TOOL_CALL" ||
+     error.code === "INVALID_PROVIDER_RESPONSE"
   );
 }
 

@@ -993,6 +993,45 @@ describe("GroqErrorCode completeness (PR-008)", () => {
     const err = new GroqClientError("QUOTA", "test");
     expect(err.code).toBe("QUOTA");
   });
+
+  it("rejects finish_reason=error before normalized tool calls can be returned", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{
+          finish_reason: "error",
+          message: {
+            content: "provider error details",
+            tool_calls: [{
+              id: "should-not-run",
+              type: "function",
+              function: { name: "read_file", arguments: '{"path":"src/secret.ts"}' },
+            }],
+          },
+        }],
+        model: "test-model",
+      }),
+      text: async () => "",
+    } as Response)));
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: FREE_MODELS[0]!.id,
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerName: "OpenRouter",
+        tools: [{
+          type: "function",
+          function: { name: "read_file", description: "Read a file", parameters: {} },
+        }],
+      }),
+    ).rejects.toSatisfy((err: unknown) =>
+      err instanceof GroqClientError
+      && err.code === "INVALID_PROVIDER_RESPONSE"
+      && err.providerCode === "FINISH_REASON_ERROR"
+    );
+  });
 });
 
 // ── _trimMessagesForOpenRouter / _groupMessages — tool-call-aware trim ────────

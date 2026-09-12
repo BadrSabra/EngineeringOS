@@ -15,6 +15,7 @@ import { buildProjectQueryObjective, resolveProjectQueryTarget } from "../projec
 import { resolveTurnIntent } from "../turn-intent.js";
 import type { ObjectiveContract } from "../schemas/chat.schema.js";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
+import { closeObjectiveClaimsFromEvidence } from "../required-claims.js";
 
 const originalGroqApiKey = process.env.GROQ_API_KEY;
 
@@ -771,6 +772,53 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(response).toContain("أولاً");
     expect(response).toContain("ثم");
     expect(response).toContain("بعد ذلك");
+  });
+
+  it("keeps architecture-only answers incomplete when weaknesses are requested", () => {
+    const message =
+      "Explain how the embedded AI agent works and identify its weaknesses.";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+    const weaknessClaim = objective.requiredClaims.find(
+      (claim) => claim.claimId === "ai-weakness-analysis",
+    );
+    expect(weaknessClaim).toBeDefined();
+    expect(objective.requiredClaims).toHaveLength(4);
+    expect(objective.requiredEvidencePaths).toContain(
+      "lib/ai-orchestrator/src/openai-compatible-client.ts",
+    );
+
+    const fileContents = new Map<string, string>();
+    for (const claim of objective.requiredClaims) {
+      for (const source of claim.requiredEvidencePaths ?? []) {
+        const existing = fileContents.get(source) ?? "";
+        fileContents.set(source, [
+          existing,
+          claim.evidenceNeedles?.join("\n") ?? claim.text,
+        ].filter(Boolean).join("\n") + "\nverified source");
+      }
+    }
+    const architectureOnly = objective.requiredClaims
+      .filter((claim) => claim.claimId !== "ai-weakness-analysis")
+      .map((claim) => claim.text)
+      .join("\n");
+
+    const incomplete = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: architectureOnly,
+      fileContents,
+    });
+    expect(incomplete.filter((claim) => claim.status === "CLOSED")).toHaveLength(3);
+    expect(incomplete.find((claim) => claim.claimId === "objective:ai-weakness-analysis")?.status)
+      .toBe("UNCLOSED");
+
+    const complete = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: `${architectureOnly}\n${weaknessClaim!.text}`,
+      fileContents,
+    });
+    expect(complete.every((claim) => claim.status === "CLOSED")).toBe(true);
   });
 
   it("closes the real embedded-AI objective from materialized evidence when provider synthesis fails", async () => {

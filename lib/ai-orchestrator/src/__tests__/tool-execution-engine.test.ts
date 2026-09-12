@@ -2167,6 +2167,32 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(2);
   });
 
+  it("does not execute tools after an error-shaped provider response", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError(
+        "INVALID_PROVIDER_RESPONSE",
+        'OpenRouter returned finish_reason="error"',
+      ),
+    );
+
+    await expect(executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "openrouter",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 1,
+    })).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+  });
+
   it("retries one empty provider response within the same iteration", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);

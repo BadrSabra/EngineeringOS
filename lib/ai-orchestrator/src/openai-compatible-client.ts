@@ -419,6 +419,7 @@ export function classifyOpenRouterFailure(
     case "PLAN_RESTRICTED":
     case "EMPTY_RESPONSE":
     case "INVALID_TOOL_CALL":
+    case "INVALID_PROVIDER_RESPONSE":
       return {
         action: "choose-alternative",
         terminal: false,
@@ -447,7 +448,8 @@ function isModelUnavailableError(err: unknown): err is GroqClientError {
       err.code === "PLAN_RESTRICTED" ||
       err.code === "MODEL_UNAVAILABLE" ||
       err.code === "EMPTY_RESPONSE" ||
-      err.code === "INVALID_TOOL_CALL")
+      err.code === "INVALID_TOOL_CALL" ||
+      err.code === "INVALID_PROVIDER_RESPONSE")
   );
 }
 
@@ -848,6 +850,20 @@ async function oacCompleteRawUntracked(
   const choice = data.choices[0];
   const msg = choice?.message;
   const outputText = coerceProviderText(data.output_text);
+  const finishReason = choice?.finish_reason?.trim().toLowerCase();
+  if (finishReason === "error") {
+    throw new GroqClientError(
+      "INVALID_PROVIDER_RESPONSE",
+      `${providerName} returned finish_reason="error"`,
+      {
+        context: {
+          providerName,
+          providerModel: model,
+          providerCode: "FINISH_REASON_ERROR",
+        },
+      },
+    );
+  }
   if (!msg && !outputText) {
     throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`, {
       context: { providerName, providerModel: model },
