@@ -20,3 +20,9 @@ Terminal SSE state construction must carry the resolved project-query target aga
 **Why:** The stream classified and executed a grounded PROJECT_QUERY correctly, but the terminal state builder omitted the target and silently cleared the session state after acceptance.
 
 **How to apply:** Keep a regression that verifies the accepted SSE turn leaves its project-query scope in session state, then exercises a bounded follow-up after state recovery.
+
+Structured repair-plan metadata is execution context, not ordinary conversation history. Preserve the assistant's report text for read-only follow-ups, but attach its executable plan only when the current turn is an explicit repair/build handoff.
+
+**Why:** A fresh Arabic explanation request correctly resolved as read-only but still received a prior repair plan through decorated history, allowing mutation-oriented context to cross the turn boundary.
+
+**How to apply:** Gate repair-plan history decoration on the current authoritative turn intent, and verify stored assistant metadata plus reconnect/history projections remain plan-free for fresh read-only questions.

@@ -7429,6 +7429,131 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(handoff.repairPlanCandidateCount).toBe(1);
   });
 
+  it("keeps a same-session Arabic explanation read-only after a repair plan", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const repairPlan = [{
+      findingId: "F-1" as const,
+      files: ["src/verified.ts"],
+      steps: ["Update the verified implementation."],
+      validationProfile: "ai-orchestrator-tests" as const,
+      verdictScope: "PRODUCTION" as const,
+      scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+    }];
+    const auditReport = [
+      "## 4) Repair Plan",
+      "Phase 1 (F-1): Update `src/verified.ts`.",
+    ].join("\n");
+    const sessionId = await insertChatSession(projectId, "Arabic read-only follow-up");
+    const seededAt = new Date(Date.now() - 1_000);
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: "راجع الكود وحدد الإصلاح المطلوب",
+        createdAt: seededAt,
+      },
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "assistant",
+        content: auditReport,
+        sources: JSON.stringify(["src/verified.ts"]),
+        repairPlanMetadata: JSON.stringify(repairPlan),
+        turnIntent: "FORENSIC_AUDIT",
+        createdAt: new Date(seededAt.getTime() + 1),
+      },
+    ]);
+    let explanationInput:
+      | {
+          history: Array<{ role: string; content: string; repairPlan?: unknown }>;
+          activeTaskState?: unknown;
+          turnIntent?: { kind?: string; compoundWrite?: boolean };
+        }
+      | undefined;
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      explanationInput = args[1] as typeof explanationInput;
+      return {
+        result: {
+          response: "هذا شرح للمعمارية فقط.",
+          sources: ["src/verified.ts"],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq",
+      };
+    });
+
+    const explanation = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "اشرح المشروع",
+      });
+    const explanationDone = parseSseEvents(explanation.text)
+      .find((event) => event.type === "done");
+
+    expect(explanation.status).toBe(200);
+    expect(explanationDone).toBeDefined();
+    expect(explanationInput?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      compoundWrite: false,
+    });
+    expect(explanationInput?.activeTaskState).toBeNull();
+    expect(explanationInput?.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: auditReport }),
+    ]));
+    expect(explanationInput?.history.some((entry) => "repairPlan" in entry)).toBe(false);
+
+    const storedAssistants = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        turnIntent: aiChatMessagesTable.turnIntent,
+        repairPlanMetadata: aiChatMessagesTable.repairPlanMetadata,
+      })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.sessionId, String(sessionId)),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ));
+    const storedExplanation = storedAssistants.find(
+      (message) => message.content === "هذا شرح للمعمارية فقط.",
+    );
+    expect(storedExplanation).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      repairPlanMetadata: null,
+    });
+
+    const [storedSession] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, String(sessionId)))
+      .limit(1);
+    const reconnectState = storedSession?.activeTaskState
+      ? JSON.parse(storedSession.activeTaskState) as {
+          taskType?: string;
+          executionPlan?: unknown;
+        }
+      : null;
+    expect(reconnectState?.executionPlan ?? null).toBeNull();
+    expect(reconnectState?.taskType).not.toBe("DELIVERY");
+    expect(reconnectState?.taskType).not.toBe("IMPLEMENTATION_PLAN");
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${String(sessionId)}/messages`);
+    expect(history.status).toBe(200);
+    const projectedExplanation = (history.body as Array<Record<string, unknown>>)
+      .find((message) => message.content === "هذا شرح للمعمارية فقط.");
+    expect(projectedExplanation).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+    });
+    expect(projectedExplanation).not.toHaveProperty("repairPlan");
+  });
+
   it("keeps execution trace separate from the persisted SSE report content", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

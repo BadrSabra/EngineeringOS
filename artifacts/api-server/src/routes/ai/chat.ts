@@ -4016,6 +4016,8 @@ router.post("/ai/chat", async (req, res) => {
     });
   }
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
+  const attachRepairPlanHistory =
+    immediateExecutionRequest || turnIntent.compoundWrite;
   // Fetch a stable bounded history for every ordinary request. chat-agent
   // keeps the latest complete turns verbatim and summarizes older turns,
   // while execution handoffs can still recover an older repair plan from this
@@ -4194,7 +4196,9 @@ router.post("/ai/chat", async (req, res) => {
             .map((m) => ({
               role: m.role as "user" | "assistant",
               content: m.content,
-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+              ...(attachRepairPlanHistory
+                && m.role === "assistant"
+                && parseRepairPlanMetadata(m.repairPlanMetadata)
                 ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
                 : {}),
             })),
@@ -6517,6 +6521,8 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     const streamIsGreetingTurn = isolatedConversationTurn;
     const immediateExecutionRequest = isImmediateExecutionRequest(message);
+    const attachRepairPlanHistory =
+      immediateExecutionRequest || streamTurnIntent.compoundWrite;
     const historyLimit = historyFetchLimitForPlan(streamExecutionPlan);
 
     const historyRows = existingSession
@@ -7248,7 +7254,9 @@ router.post("/ai/chat/stream", async (req, res) => {
             .map((m) => ({
               role: m.role as "user" | "assistant",
               content: m.content,
-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+              ...(attachRepairPlanHistory
+                && m.role === "assistant"
+                && parseRepairPlanMetadata(m.repairPlanMetadata)
                 ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
                 : {}),
             })),
