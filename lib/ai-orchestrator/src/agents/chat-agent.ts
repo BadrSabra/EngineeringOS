@@ -3906,7 +3906,7 @@ const REPORT_REGENERATION_PATTERNS = [
  * approved repair plan requires the original session.
  */
 const AUDIT_ANALYSIS_AFTER_ACTION_RE =
-  /^(?:نفذ|نفذها|طبق|طبقها|قم(?:\s+ب)?|ابدأ|ابدا|إبدأ|run|execute|start|proceed)(?:\s+(?:the|a|an))?(?:\s+(?:code|project|full|complete))?\s*(?:audit|forensic|review|analysis|analyze|analyse|inspect|investigate|verify|scan|تدقيق|جنائي|تحقيق|مراجعة|تحليل|فحص|استكشاف|تحقق|مسح)/iu;
+  /^(?:نفذ|نفذها|طبق|طبقها|قم(?:\s+ب)?|ابدأ|ابدا|إبدأ|run|execute|start|proceed)(?:\s+(?:the|a|an))?(?:\s+(?:code|project|full|complete))?\s*(?:audit|forensic|review|analysis|analyze|analyse|inspect|investigate|verify|scan|explain|شرح|اشرح|تفسير|فسر|تدقيق|جنائي|تحقيق|مراجعة|تحليل|فحص|استكشاف|تحقق|مسح)/iu;
 
 export function isReportRegenerationRequest(message: string): boolean {
   return REPORT_REGENERATION_PATTERNS.some((pattern) =>

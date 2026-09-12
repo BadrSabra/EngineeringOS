@@ -118,9 +118,15 @@ describe("isImmediateExecutionRequest", () => {
     "راجع الإصلاحات المقترحة",
     "كيف يمكن إصلاح المشكلة؟",
     "هل يمكنك شرح التعديل؟",
+    "قم بشرح بنية وكيل الذكاء الاصطناعي",
+    "قم بتحليل طبقة الذكاء الاصطناعي داخل المشروع",
     "what would you change?",
   ])("does not confuse analysis with immediate execution: %s", (message) => {
     expect(isImmediateExecutionRequest(message)).toBe(false);
+  });
+
+  it("keeps an Arabic mutation command in the immediate execution path", () => {
+    expect(isImmediateExecutionRequest("قم بإصلاح الخلل")).toBe(true);
   });
 
   it.each([

@@ -4942,6 +4942,40 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("keeps Arabic explanation out of execution handoff while preserving mutation detection", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined as never);
+
+    const explanation = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "قم بشرح بنية وكيل الذكاء الاصطناعي" });
+
+    expect(explanation.status).toBe(200);
+    expect(parseSseEvents(explanation.text).find((event) => event.type === "execution_started"))
+      .toMatchObject({
+        turnIntent: "PROJECT_QUERY",
+      });
+    const trace = infoSpy.mock.calls
+      .map(([payload]) => payload)
+      .find(
+        (payload): payload is Record<string, unknown> =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload as Record<string, unknown>).action === "pre_stream_trace",
+      );
+    expect((trace?.executionHandoff as Record<string, unknown> | undefined)?.requested).toBe(false);
+
+    const mutation = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "قم بإصلاح الخلل" });
+
+    expect(mutation.status).toBe(409);
+    expect(mutation.body.error).toBe("execution_session_required");
+  });
+
   it.each([
     "ما هي نقاط الضعف لدى الوكيل",
     "حدد نقاط ضعف الوكيل الداخلى للمشروع",
