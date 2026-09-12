@@ -149,11 +149,15 @@ describe("active task session state", () => {
     expect(isTaskContinuationRequest("وماذا يحدث بعد ذلك؟")).toBe(false);
     expect(isTaskContinuationRequest("وماذا يحدث بعد ذلك؟", state)).toBe(true);
     expect(isTaskContinuationRequest("what happens next?", state)).toBe(true);
+    expect(isTaskContinuationRequest("تفاصيل اكثر")).toBe(false);
+    expect(isTaskContinuationRequest("تفاصيل اكثر", state)).toBe(true);
+    expect(isTaskContinuationRequest("أعطني مزيدًا من التفاصيل", state)).toBe(true);
+    expect(isTaskContinuationRequest("more details", state)).toBe(true);
     expect(isTaskContinuationRequest("ما الذي يحدث عند انتهاء المهلة؟", state)).toBe(false);
 
     const resumed = resumeActiveTaskClassification(
-      "وماذا يحدث بعد ذلك؟",
-      classifyRequest("وماذا يحدث بعد ذلك؟"),
+      "تفاصيل اكثر",
+      classifyRequest("تفاصيل اكثر"),
       state,
     );
 
