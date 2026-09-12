@@ -560,6 +560,15 @@ describe('processAiStream — evidence_integrity dispatch', () => {
       uniqueFilesRead: 8,
       evidenceFileCount: 6,
       acceptedEvidenceCount: 4,
+      acceptedBehavioralClaimCount: 3,
+      provenStructuralEdgeCount: 6,
+      provenRuntimeEdgeCount: 0,
+      provenEdgeProofs: [
+        {
+          edge: 'lib/ai-orchestrator/src/agents/chat-agent.ts#chat->lib/ai-orchestrator/src/tool-execution-engine.ts#executeToolLoop',
+          basis: 'SOURCE_AST',
+        },
+      ],
     };
     const wireFrame = `data: ${JSON.stringify(serverOutput)}\n\n`;
     const onEvidenceIntegrity = vi.fn();
@@ -570,6 +579,12 @@ describe('processAiStream — evidence_integrity dispatch', () => {
       code: 'TELEMETRY_CONSISTENT',
       consistent: true,
       violations: [],
+      acceptedBehavioralClaimCount: 3,
+      provenStructuralEdgeCount: 6,
+      provenRuntimeEdgeCount: 0,
+      provenEdgeProofs: [
+        expect.objectContaining({ basis: 'SOURCE_AST' }),
+      ],
     }));
   });
 });

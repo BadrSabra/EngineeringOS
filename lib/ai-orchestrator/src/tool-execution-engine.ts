@@ -1696,6 +1696,13 @@ export type AgentStep =
       missingClaims?: string[];
       requiredEdges?: string[];
       provenEdges?: string[];
+      provenEdgeProofs?: Array<{
+        edge: string;
+        basis: "SOURCE_AST" | "RUNTIME_OBSERVED" | "BOTH";
+      }>;
+      acceptedBehavioralClaimCount?: number;
+      provenStructuralEdgeCount?: number;
+      provenRuntimeEdgeCount?: number;
       failedEdges?: string[];
       recoveryTriggered?: boolean;
       recoveryTarget?: string;

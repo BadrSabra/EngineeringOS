@@ -6422,6 +6422,13 @@ export const getAiChatStreamUrl = () => {
  *      "consistent": true | false, "violations": ["bounded content-free reason"],
  *      "readAttempts"?: 12, "uniqueFilesRead"?: 8, "evidenceFileCount"?: 6,
  *       "acceptedEvidenceCount"?: 4,
+ *        "acceptedBehavioralClaimCount"?: 3,
+ *        "provenStructuralEdgeCount"?: 6,
+ *        "provenRuntimeEdgeCount"?: 1,
+ *        "provenEdgeProofs"?: [
+ *          { "edge": "caller#symbol->target#symbol",
+ *            "basis": "SOURCE_AST" | "RUNTIME_OBSERVED" | "BOTH" }
+ *        ],
  *       "evidenceSourceCoverage"?: {
  *         "status": "COMPLETE" | "PARTIAL" | "NONE",
  *         "requestedFiles"?: ["src/a.ts", "src/b.ts"],
@@ -6432,6 +6439,9 @@ export const getAiChatStreamUrl = () => {
  *         bounded, content-free reason labels (never source contents). For a
  *         file-scoped audit, requestedFiles is the ordered canonical manifest
  *         and must match the forensic_status manifest and per-file root coverage.
+ *         Behavioral-claim and edge counts are separate. SOURCE_AST proves a
+ *         direct invocation in retained production source; RUNTIME_OBSERVED
+ *         requires an execution-bound trace. Older events may omit these fields.
  *
  *    { "type": "decision_trace",
  *      "taskType": "BEHAVIOR_QUERY", "evidenceSelected": 1, "validator": "behavior-answer",

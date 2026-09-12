@@ -609,9 +609,18 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       expect(integrity).toMatchObject({
         objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
         acceptedClaimCount: 9,
+        acceptedBehavioralClaimCount: 3,
+        provenStructuralEdgeCount: 6,
+        provenRuntimeEdgeCount: 0,
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
+      expect(integrity?.provenEdgeProofs).toHaveLength(6);
+      expect(integrity?.provenEdgeProofs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ basis: "SOURCE_AST" }),
+        ]),
+      );
       expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
@@ -729,6 +738,34 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         apiKey: "test-key",
         objective,
         turnIntent,
+        productionTraceLinks: [
+          {
+            from: {
+              id: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat",
+              name: "chat",
+              path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+              stage: "ORCHESTRATOR",
+            },
+            to: {
+              id: "lib/ai-orchestrator/src/tool-execution-engine.ts#executeToolLoop",
+              name: "executeToolLoop",
+              path: "lib/ai-orchestrator/src/tool-execution-engine.ts",
+              stage: "ORCHESTRATOR",
+            },
+            relation: "invokes",
+            source: "execution-trace",
+            evidence: "observed tool-loop dispatch",
+            runtimeObserved: true,
+          },
+          {
+            from: { id: "irrelevant#from", name: "from", stage: "ORCHESTRATOR" },
+            to: { id: "irrelevant#to", name: "to", stage: "ORCHESTRATOR" },
+            relation: "invokes",
+            source: "execution-trace",
+            evidence: "unrelated observed edge",
+            runtimeObserved: true,
+          },
+        ],
         onDelta: (chunk) => deltas.push(chunk),
         onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
       });
@@ -748,9 +785,24 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       );
       expect([...steps].reverse().find((step) => step.kind === "evidence_integrity")).toMatchObject({
         acceptedClaimCount: 9,
+        acceptedBehavioralClaimCount: 3,
+        provenStructuralEdgeCount: 6,
+        provenRuntimeEdgeCount: 1,
+        provenEdgeProofs: expect.arrayContaining([
+          expect.objectContaining({
+            edge: "lib/ai-orchestrator/src/agents/chat-agent.ts#chat->lib/ai-orchestrator/src/tool-execution-engine.ts#executeToolLoop",
+            basis: "BOTH",
+          }),
+        ]),
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
+      expect(
+        ([...steps].reverse().find(
+          (step) => step.kind === "evidence_integrity",
+        )?.provenEdgeProofs as Array<{ edge: string }> | undefined)
+          ?.some((proof) => proof.edge.includes("irrelevant")),
+      ).toBe(false);
       expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });

@@ -2466,6 +2466,7 @@ function relayObjectiveTelemetry(
   gate: ObjectiveCompletionGateResult | null,
   ledger: import("../evidence-integrity.js").RunLedger,
   reconciliation: import("../evidence-integrity.js").TelemetryReconciliation,
+  edgeProof: ReturnType<typeof buildObjectiveEdgeProofProjection>,
 ): void {
   if (!objective || !gate) return;
   relayAgentStep({
@@ -2490,12 +2491,73 @@ function relayObjectiveTelemetry(
     missingClaims: ledger.missingClaims,
     requiredEdges: ledger.requiredEdges,
     provenEdges: ledger.provenEdges,
+    provenEdgeProofs: edgeProof.provenEdgeProofs,
+    acceptedBehavioralClaimCount: ledger.completedClaims?.length ?? 0,
+    provenStructuralEdgeCount: edgeProof.provenStructuralEdgeCount,
+    provenRuntimeEdgeCount: edgeProof.provenRuntimeEdgeCount,
     failedEdges: ledger.failedEdges,
     recoveryTriggered: ledger.recoveryTriggered,
     recoveryTarget: ledger.recoveryTarget,
     completionGateResult: ledger.completionGateResult,
     finalAnswerType: ledger.finalAnswerType,
   });
+}
+
+function buildObjectiveEdgeProofProjection(input: {
+  objective?: ObjectiveContract;
+  fileContents: ReadonlyMap<string, string>;
+  objectiveEvidenceSources?: ReadonlyMap<string, string>;
+  productionTraceLinks?: readonly ProductionTraceLink[];
+}): {
+  provenEdges: Array<{ from: string; to: string }>;
+  provenEdgeProofs: Array<{
+    edge: string;
+    basis: "SOURCE_AST" | "RUNTIME_OBSERVED" | "BOTH";
+  }>;
+  provenStructuralEdgeCount: number;
+  provenRuntimeEdgeCount: number;
+} {
+  const nodeKey = (node: { id?: string; name: string; path?: string }): string =>
+    node.id?.trim() || (node.path ? `${node.path}#${node.name}` : node.name);
+  const structuralEdges = input.objective
+    ? deriveObjectiveRuntimeEdgesFromRetainedReads({
+        objective: input.objective,
+        fileContents: input.fileContents,
+        objectiveEvidenceSources: input.objectiveEvidenceSources,
+      })
+    : [];
+  const requiredEdgeKeys = new Set(
+    (input.objective?.requiredEvidenceEdges ?? [])
+      .map((edge) => `${edge.from}->${edge.to}`),
+  );
+  const runtimeEdges = (input.productionTraceLinks ?? [])
+    .filter((link) => link.runtimeObserved && Boolean(link.evidence))
+    .map((link) => ({ from: nodeKey(link.from), to: nodeKey(link.to) }))
+    .filter((edge) => requiredEdgeKeys.has(`${edge.from}->${edge.to}`));
+  const basisByEdge = new Map<string, "SOURCE_AST" | "RUNTIME_OBSERVED" | "BOTH">();
+  for (const edge of structuralEdges) {
+    basisByEdge.set(`${edge.from}->${edge.to}`, "SOURCE_AST");
+  }
+  for (const edge of runtimeEdges) {
+    const key = `${edge.from}->${edge.to}`;
+    basisByEdge.set(key, basisByEdge.has(key) ? "BOTH" : "RUNTIME_OBSERVED");
+  }
+  return {
+    provenEdges: [...basisByEdge.keys()].map((edge) => {
+      const separator = edge.indexOf("->");
+      return {
+        from: edge.slice(0, separator),
+        to: edge.slice(separator + 2),
+      };
+    }),
+    provenEdgeProofs: [...basisByEdge].map(([edge, basis]) => ({ edge, basis })),
+    provenStructuralEdgeCount: [...basisByEdge.values()]
+      .filter((basis) => basis === "SOURCE_AST" || basis === "BOTH")
+      .length,
+    provenRuntimeEdgeCount: [...basisByEdge.values()]
+      .filter((basis) => basis === "RUNTIME_OBSERVED" || basis === "BOTH")
+      .length,
+  };
 }
 
 function extractCapabilityMicroProbeLines(
@@ -8855,12 +8917,19 @@ export async function chat(opts: {
       const objectiveTelemetryReconciliation =
         streamingObjectiveGate.telemetryReconciliation ??
         validateTelemetry(objectiveTelemetryLedger);
+      const streamingEdgeProof = buildObjectiveEdgeProofProjection({
+        objective,
+        fileContents: forensicFileContents,
+        objectiveEvidenceSources: prefetchTraceContents,
+        productionTraceLinks,
+      });
       relayObjectiveTelemetry(
         relayAgentStep,
         objective,
         streamingObjectiveGate.gate,
         objectiveTelemetryLedger,
         objectiveTelemetryReconciliation,
+        streamingEdgeProof,
       );
       if (hasProjectQueryAcceptanceProjection && objective) {
         relayProjectQueryStreamAcceptance(relayAgentStep, {
@@ -9161,12 +9230,19 @@ export async function chat(opts: {
       const nativeObjectiveTelemetryReconciliation =
         nativeSseObjectiveGate.telemetryReconciliation ??
         validateTelemetry(nativeObjectiveTelemetryLedger);
+      const nativeEdgeProof = buildObjectiveEdgeProofProjection({
+        objective,
+        fileContents: forensicFileContents,
+        objectiveEvidenceSources: prefetchTraceContents,
+        productionTraceLinks,
+      });
       relayObjectiveTelemetry(
         relayAgentStep,
         objective,
         nativeSseObjectiveGate.gate,
         nativeObjectiveTelemetryLedger,
         nativeObjectiveTelemetryReconciliation,
+        nativeEdgeProof,
       );
       if (hasProjectQueryAcceptanceProjection && objective) {
         relayProjectQueryStreamAcceptance(relayAgentStep, {
@@ -12105,26 +12181,18 @@ export async function chat(opts: {
   // any required objective claim or required reachability edge is unproven.
   // Proven edges come only from runtime-observed links WITH evidence — a bare
   // import/static reference can never close a required edge.
-  const nodeKey = (n: { id?: string; name: string; path?: string }): string =>
-    n.id?.trim() || (n.path ? `${n.path}#${n.name}` : n.name);
   // AI-OBJ-014 (review fix 3): proven edges come from the intended
   // runtime-observation paths — the caller-supplied route/orchestrator trace
   // links AND retained reads that show a direct call site. Static lexical
   // matches (bare imports, symbol co-occurrence) never qualify; only a retained
   // read that really invokes the target does. Neither path is fabricated.
-  const objectiveRetainedReadProvenEdges = objective
-    ? deriveObjectiveRuntimeEdgesFromRetainedReads({
-        objective,
-        fileContents: forensicFileContents,
-        objectiveEvidenceSources: prefetchTraceContents,
-      })
-    : [];
-  const objectiveProvenEdges = [
-    ...(productionTraceLinks ?? [])
-      .filter((l) => l.runtimeObserved && Boolean(l.evidence))
-      .map((l) => ({ from: nodeKey(l.from), to: nodeKey(l.to) })),
-    ...objectiveRetainedReadProvenEdges,
-  ];
+  const objectiveEdgeProof = buildObjectiveEdgeProofProjection({
+    objective,
+    fileContents: forensicFileContents,
+    objectiveEvidenceSources: prefetchTraceContents,
+    productionTraceLinks,
+  });
+  const objectiveProvenEdges = objectiveEdgeProof.provenEdges;
   // AI-OBJ-013/014 (review fix 1): derive the two scope flags from the real
   // pre-gate signals instead of only unit-test injection:
   //   - answerTypeMismatch: a PRODUCTION_REACHABILITY objective answered with
@@ -12420,7 +12488,8 @@ export async function chat(opts: {
   // is also an application-level proof. This is the AI-OBJ-014 path for
   // single-file audits, where the caller can be proven without an externally
   // supplied production trace.
-  const hasRetainedReadReachabilityProof = objectiveRetainedReadProvenEdges.length > 0;
+  const hasRetainedReadReachabilityProof =
+    objectiveEdgeProof.provenStructuralEdgeCount > 0;
   const reachabilityProofStatus: "PROVEN" | "NOT_PROVEN" | "NO_EDGES" =
     !hasApplicationReachabilityLink && !hasRetainedReadReachabilityProof
       ? "NO_EDGES"
@@ -12757,6 +12826,10 @@ export async function chat(opts: {
       runtimeLedger.acceptedClaimCount ?? 0,
       acceptedBehaviorEvidence.length,
     ),
+    acceptedBehavioralClaimCount:
+      telemetryLedger.completedClaims?.length ?? acceptedBehaviorEvidence.length,
+    provenStructuralEdgeCount: objectiveEdgeProof.provenStructuralEdgeCount,
+    provenRuntimeEdgeCount: objectiveEdgeProof.provenRuntimeEdgeCount,
     evidenceSourceCoverage: runtimeLedger.sourceCoverage,
     scopeExpansions: runtimeLedger.scopeExpansions,
     unjustifiedReads: runtimeLedger.unjustifiedReads,
@@ -12768,6 +12841,8 @@ export async function chat(opts: {
           missingClaims: telemetryLedger.missingClaims,
           requiredEdges: telemetryLedger.requiredEdges,
           provenEdges: telemetryLedger.provenEdges,
+          provenEdgeProofs: objectiveEdgeProof.provenEdgeProofs
+            .filter((proof) => telemetryLedger.provenEdges?.includes(proof.edge)),
           failedEdges: telemetryLedger.failedEdges,
           recoveryTriggered: telemetryLedger.recoveryTriggered,
           recoveryTarget: telemetryLedger.recoveryTarget,

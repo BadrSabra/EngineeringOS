@@ -847,6 +847,13 @@ export type AiStreamEvidenceIntegrityEvent = {
   objectiveType?: string;
   requiredEdges?: string[];
   provenEdges?: string[];
+  provenEdgeProofs?: Array<{
+    edge: string;
+    basis: 'SOURCE_AST' | 'RUNTIME_OBSERVED' | 'BOTH';
+  }>;
+  acceptedBehavioralClaimCount?: number;
+  provenStructuralEdgeCount?: number;
+  provenRuntimeEdgeCount?: number;
   completionGateResult?: string;
   finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
   objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';

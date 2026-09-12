@@ -293,6 +293,21 @@ export type RunLedger = {
   missingClaims?: string[];
   requiredEdges?: string[];
   provenEdges?: string[];
+  /**
+   * Proof basis for each closed objective edge. SOURCE_AST proves a direct
+   * invocation in retained production source; RUNTIME_OBSERVED additionally
+   * binds the edge to an observed execution trace. BOTH means both were present.
+   */
+  provenEdgeProofs?: Array<{
+    edge: string;
+    basis: "SOURCE_AST" | "RUNTIME_OBSERVED" | "BOTH";
+  }>;
+  /** Objective claims only; unlike acceptedClaimCount this excludes edges. */
+  acceptedBehavioralClaimCount?: number;
+  /** Closed edges supported by retained-source AST invocation evidence. */
+  provenStructuralEdgeCount?: number;
+  /** Closed edges supported by execution-bound runtime trace evidence. */
+  provenRuntimeEdgeCount?: number;
   failedEdges?: string[];
   recoveryTriggered?: boolean;
   recoveryTarget?: string;

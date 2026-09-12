@@ -3133,9 +3133,19 @@ function serializeToolTrace(
           ...(step.retainedBodyFiles ? { retainedBodyFiles: step.retainedBodyFiles } : {}),
           ...(step.acceptedEvidenceFiles ? { acceptedEvidenceFiles: step.acceptedEvidenceFiles } : {}),
           ...(step.acceptedClaimCount !== undefined ? { acceptedClaimCount: step.acceptedClaimCount } : {}),
+          ...(step.acceptedBehavioralClaimCount !== undefined
+            ? { acceptedBehavioralClaimCount: step.acceptedBehavioralClaimCount }
+            : {}),
+          ...(step.provenStructuralEdgeCount !== undefined
+            ? { provenStructuralEdgeCount: step.provenStructuralEdgeCount }
+            : {}),
+          ...(step.provenRuntimeEdgeCount !== undefined
+            ? { provenRuntimeEdgeCount: step.provenRuntimeEdgeCount }
+            : {}),
           ...(step.objectiveType ? { objectiveType: step.objectiveType } : {}),
           ...(step.requiredEdges ? { requiredEdges: step.requiredEdges } : {}),
           ...(step.provenEdges ? { provenEdges: step.provenEdges } : {}),
+          ...(step.provenEdgeProofs ? { provenEdgeProofs: step.provenEdgeProofs } : {}),
           ...(step.completionGateResult ? { completionGateResult: step.completionGateResult } : {}),
           ...(step.finalAnswerType ? { finalAnswerType: step.finalAnswerType } : {}),
           ...(step.evidenceSourceCoverage
@@ -6920,9 +6930,19 @@ router.post("/ai/chat/stream", async (req, res) => {
           ...(step.retainedBodyFiles ? { retainedBodyFiles: step.retainedBodyFiles } : {}),
           ...(step.acceptedEvidenceFiles ? { acceptedEvidenceFiles: step.acceptedEvidenceFiles } : {}),
           ...(step.acceptedClaimCount !== undefined ? { acceptedClaimCount: step.acceptedClaimCount } : {}),
+          ...(step.acceptedBehavioralClaimCount !== undefined
+            ? { acceptedBehavioralClaimCount: step.acceptedBehavioralClaimCount }
+            : {}),
+          ...(step.provenStructuralEdgeCount !== undefined
+            ? { provenStructuralEdgeCount: step.provenStructuralEdgeCount }
+            : {}),
+          ...(step.provenRuntimeEdgeCount !== undefined
+            ? { provenRuntimeEdgeCount: step.provenRuntimeEdgeCount }
+            : {}),
           ...(step.objectiveType ? { objectiveType: step.objectiveType } : {}),
           ...(step.requiredEdges ? { requiredEdges: step.requiredEdges } : {}),
           ...(step.provenEdges ? { provenEdges: step.provenEdges } : {}),
+          ...(step.provenEdgeProofs ? { provenEdgeProofs: step.provenEdgeProofs } : {}),
           ...(step.completionGateResult ? { completionGateResult: step.completionGateResult } : {}),
           ...(step.finalAnswerType ? { finalAnswerType: step.finalAnswerType } : {}),
           ...(step.evidenceSourceCoverage

@@ -1512,9 +1512,16 @@ type ToolTraceEntry = {
   retainedBodyFiles?: string[];
   acceptedEvidenceFiles?: string[];
   acceptedClaimCount?: number;
+  acceptedBehavioralClaimCount?: number;
+  provenStructuralEdgeCount?: number;
+  provenRuntimeEdgeCount?: number;
   objectiveType?: string;
   requiredEdges?: string[];
   provenEdges?: string[];
+  provenEdgeProofs?: Array<{
+    edge: string;
+    basis: 'SOURCE_AST' | 'RUNTIME_OBSERVED' | 'BOTH';
+  }>;
   completionGateResult?: string;
   finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
   objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
@@ -1975,6 +1982,10 @@ type ForensicEvidenceSummary = {
     objectiveType?: string;
     requiredEdges: string[];
     provenEdges: string[];
+    provenEdgeProofs: Array<{
+      edge: string;
+      basis: 'SOURCE_AST' | 'RUNTIME_OBSERVED' | 'BOTH';
+    }>;
     completionGateResult?: string;
     finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
     objectiveVerdict?: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'RECOVERY_REQUIRED' | 'OBJECTIVE_BLOCKED';
@@ -1982,6 +1993,9 @@ type ForensicEvidenceSummary = {
     retainedBodyFiles: string[];
     acceptedEvidenceFiles: string[];
     acceptedClaimCount: number;
+    acceptedBehavioralClaimCount?: number;
+    provenStructuralEdgeCount?: number;
+    provenRuntimeEdgeCount?: number;
     sourceCoverage: ToolTraceEntry['evidenceSourceCoverage'];
     scopeExpansions: Array<{
       kind: 'JUSTIFIED_SCOPE_EXPANSION' | 'UNJUSTIFIED_SCOPE_EXPANSION';
@@ -2214,6 +2228,19 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
       provenEdges: Array.isArray(entry.provenEdges)
         ? entry.provenEdges.filter((edge): edge is string => typeof edge === 'string')
         : [],
+      provenEdgeProofs: Array.isArray(entry.provenEdgeProofs)
+        ? entry.provenEdgeProofs.filter((item): item is {
+            edge: string;
+            basis: 'SOURCE_AST' | 'RUNTIME_OBSERVED' | 'BOTH';
+          } =>
+            item !== null &&
+            typeof item === 'object' &&
+            typeof item.edge === 'string' &&
+            (item.basis === 'SOURCE_AST' ||
+              item.basis === 'RUNTIME_OBSERVED' ||
+              item.basis === 'BOTH'),
+          )
+        : [],
       completionGateResult: typeof entry.completionGateResult === 'string' ? entry.completionGateResult : undefined,
       finalAnswerType:
         entry.finalAnswerType === 'PRODUCTION_REACHABILITY_ANSWER' ||
@@ -2238,6 +2265,18 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
         ? entry.acceptedEvidenceFiles.filter((path): path is string => typeof path === 'string')
         : [],
       acceptedClaimCount: typeof entry.acceptedClaimCount === 'number' ? entry.acceptedClaimCount : 0,
+      acceptedBehavioralClaimCount:
+        typeof entry.acceptedBehavioralClaimCount === 'number'
+          ? entry.acceptedBehavioralClaimCount
+          : undefined,
+      provenStructuralEdgeCount:
+        typeof entry.provenStructuralEdgeCount === 'number'
+          ? entry.provenStructuralEdgeCount
+          : undefined,
+      provenRuntimeEdgeCount:
+        typeof entry.provenRuntimeEdgeCount === 'number'
+          ? entry.provenRuntimeEdgeCount
+          : undefined,
       sourceCoverage,
       scopeExpansions: Array.isArray(entry.scopeExpansions)
         ? entry.scopeExpansions.filter((item): item is {
@@ -2727,9 +2766,14 @@ function ForensicEvidenceCard({
                 </div>
                 <div>
                   <span className="font-semibold text-foreground">
-                    {evidence.evidenceIntegrity.acceptedClaimCount}
+                    {evidence.evidenceIntegrity.acceptedBehavioralClaimCount ??
+                      evidence.evidenceIntegrity.acceptedClaimCount}
                   </span>
-                  <span className="text-[10px] text-muted-foreground"> accepted claims</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {evidence.evidenceIntegrity.acceptedBehavioralClaimCount !== undefined
+                      ? ' behavioral claims'
+                      : ' accepted requirements (legacy)'}
+                  </span>
                 </div>
               </div>
               {(evidence.evidenceIntegrity.objectiveType ||
@@ -2739,7 +2783,7 @@ function ForensicEvidenceCard({
                 evidence.evidenceIntegrity.provenEdges.length > 0) && (
                 <div className="mt-2 rounded border border-primary/20 bg-primary/5 px-2.5 py-2" aria-label="Objective proof details">
                   <div className="text-[10px] font-semibold text-primary">Objective proof</div>
-                  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+                  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-5">
                     <div>
                       <div className="text-[10px] text-muted-foreground">Completion</div>
                       <div className="font-semibold text-foreground">
@@ -2751,8 +2795,16 @@ function ForensicEvidenceCard({
                       <div className="font-semibold text-foreground">{evidence.evidenceIntegrity.requiredEdges.length}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted-foreground">Proven edges</div>
-                      <div className="font-semibold text-green-300">{evidence.evidenceIntegrity.provenEdges.length}</div>
+                      <div className="text-[10px] text-muted-foreground">Source edges</div>
+                      <div className="font-semibold text-blue-300">
+                        {evidence.evidenceIntegrity.provenStructuralEdgeCount ?? 'Unavailable'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Runtime edges</div>
+                      <div className="font-semibold text-green-300">
+                        {evidence.evidenceIntegrity.provenRuntimeEdgeCount ?? 'Unavailable'}
+                      </div>
                     </div>
                     <div>
                       <div className="text-[10px] text-muted-foreground">Final answer</div>
@@ -2771,14 +2823,30 @@ function ForensicEvidenceCard({
                   {evidence.evidenceIntegrity.requiredEdges.length > 0 && (
                     <div className="mt-1.5 space-y-0.5 border-t border-border/40 pt-1.5">
                       <div className="text-[10px] text-muted-foreground">Edge proof ledger</div>
-                      {evidence.evidenceIntegrity.requiredEdges.map((edge) => (
-                        <div key={edge} className="font-mono text-[10px] text-foreground/80">
-                          <span className={evidence.evidenceIntegrity!.provenEdges.includes(edge) ? 'text-green-300' : 'text-amber-200'}>
-                            {evidence.evidenceIntegrity!.provenEdges.includes(edge) ? '✓' : '○'}
-                          </span>{' '}
-                          {edge}
-                        </div>
-                      ))}
+                      {evidence.evidenceIntegrity.requiredEdges.map((edge) => {
+                        const proof = evidence.evidenceIntegrity!.provenEdgeProofs.find(
+                          (item) => item.edge === edge,
+                        );
+                        const isProven = evidence.evidenceIntegrity!.provenEdges.includes(edge);
+                        return (
+                          <div key={edge} className="font-mono text-[10px] text-foreground/80">
+                            <span className={isProven ? 'text-green-300' : 'text-amber-200'}>
+                              {isProven ? '✓' : '○'}
+                            </span>{' '}
+                            {edge}
+                            {isProven && (
+                              <span className="ml-1 font-sans text-muted-foreground">
+                                ({proof
+                                  ? proof.basis
+                                      .replace('SOURCE_AST', 'source AST')
+                                      .replace('RUNTIME_OBSERVED', 'runtime observed')
+                                      .replace('BOTH', 'source AST + runtime')
+                                  : 'proof basis unavailable'})
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
