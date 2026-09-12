@@ -291,7 +291,9 @@ test("keeps release recovery validation before deployment cleanup", async () => 
     assert.fail("deployment:post-build must be defined");
   }
   const deploymentSteps = deploymentCommand.split(" && ");
-  const recoveryIndex = deploymentSteps.indexOf("pnpm run validate:release");
+    const recoveryIndex = deploymentSteps.indexOf(
+      "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs",
+    );
   const cleanupIndex = deploymentSteps.indexOf("pnpm store prune");
 
   assert.notEqual(recoveryIndex, -1);
@@ -325,9 +327,14 @@ test("surfaces recovery gate failures in the deployment post-build result", asyn
 
   const deploymentSteps = deploymentCommand.split(" && ");
   const recoveryStep = deploymentSteps.find(
-    (step) => step === "pnpm run validate:release",
+    (step) =>
+      step ===
+      "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs",
   );
-  assert.equal(recoveryStep, "pnpm run validate:release");
+  assert.equal(
+    recoveryStep,
+    "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 node scripts/run-release-validation.mjs",
+  );
   assert.doesNotMatch(
     deploymentCommand,
     /\|\|/,
