@@ -60,3 +60,15 @@ requires claim validations that normal project queries do not produce.
 `first/then/finally` or their Arabic equivalents, and keep source grounding,
 accepted claims, and the objective gate authoritative for project-query
 completion.
+
+Objective evidence closure does not by itself prove full user-request coverage. A target must model each requested deliverable, including bounded weakness/risk findings, or a response can be accepted while answering only the positive architecture claims.
+
+**Why:** An embedded-AI request explicitly asked for weaknesses, but its server-owned target required only routing, tool-loop, and provider-dispatch claims. The run became `PROVEN/ACCEPTED` even though the assistant returned no weakness analysis.
+
+**How to apply:** Derive bounded deliverable claims from the resolved request contract, preserve them in the objective and resume state, and require each deliverable to be either accepted with evidence or explicitly marked unverified/incomplete before terminal success.
+
+Provider response validity is a separate precondition from HTTP success and tool-call presence. A response with `finish_reason="error"` must never enter the tool loop as a successful assistant turn.
+
+**Why:** OpenRouter returned an error finish reason alongside tool calls; the compatibility client accepted it because it checked only content/tool-call presence, and the strategy logged `call_success`.
+
+**How to apply:** Reject error finish reasons at normalization, classify them into bounded provider failure/fallback paths, and test that no tool result or successful acceptance can follow the malformed response.
