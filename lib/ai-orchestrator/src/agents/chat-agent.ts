@@ -3326,7 +3326,18 @@ function gateForensicResponse(
  * tool-loop cache and also creates synthetic tool messages, but a provider may
  * normalize or truncate those messages before the final contract gate runs.
  */
-function recordPrefetchEvidence(
+export function isUsableObjectiveLocatorBody(body: string): boolean {
+  const trimmed = body.trim();
+  if (!trimmed) return false;
+  if (/^Error\b/i.test(trimmed)) return false;
+  if (/^Contents of\s+/i.test(trimmed)) return false;
+  if (/^Synthesis phase is active\./i.test(trimmed)) return false;
+  if (hasToolAppendedTruncationMarker(trimmed)) return false;
+  if (hasDisplayTruncationMarker(trimmed)) return false;
+  return true;
+}
+
+export function recordPrefetchEvidence(
   entries: Array<{ key: string; content: string }>,
   destination: Map<string, string>,
   retainedEvidence?: Map<string, string>,
@@ -3335,14 +3346,7 @@ function recordPrefetchEvidence(
   for (const entry of entries) {
     if (!entry.key.startsWith("read_file:")) continue;
     const content = entry.content.trim();
-    if (
-      !content ||
-      /^Error\b/i.test(content) ||
-      /^Contents of\s+/i.test(content) ||
-      /^Synthesis phase is active\./i.test(content)
-    ) {
-      continue;
-    }
+    if (!isUsableObjectiveLocatorBody(content)) continue;
     try {
       const args = JSON.parse(entry.key.slice("read_file:".length)) as { path?: unknown };
       if (typeof args.path === "string" && args.path.trim()) {
@@ -4243,7 +4247,9 @@ export async function loadObjectiveEvidenceLocators(
 ): Promise<Map<string, string>> {
   for (const requiredPath of requiredPaths) {
     const locatorPath = canonicalRelativePath(requiredPath);
-    if (!locatorPath || existing.has(locatorPath)) continue;
+    if (!locatorPath) continue;
+    const existingBody = existing.get(locatorPath);
+    if (existingBody !== undefined && isUsableObjectiveLocatorBody(existingBody)) continue;
     const locator = await readForensicPrimaryTarget(rootPath, locatorPath);
     if (locator.ok) existing.set(locatorPath, locator.raw);
   }

@@ -282,6 +282,48 @@ describe("chat agent — ChatOutputSchema validation", () => {
     }
   });
 
+  it("replaces an empty or truncated existing locator with the server-owned source body", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "objective-locator-repair-"));
+    try {
+      await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+      await fs.writeFile(
+        path.join(rootPath, "src", "agent.ts"),
+        "export function executeToolLoop() { return true; }\n",
+        "utf8",
+      );
+      const { loadObjectiveEvidenceLocators } = await import("../agents/chat-agent.js");
+      const existing = new Map<string, string>([
+        ["src/agent.ts", "File: src/agent.ts\n```\n[... output truncated ...]\n```"],
+      ]);
+
+      const locators = await loadObjectiveEvidenceLocators(rootPath, ["src/agent.ts"], existing);
+
+      expect(locators.get("src/agent.ts")).toContain("executeToolLoop");
+      expect(locators.get("src/agent.ts")).not.toContain("output truncated");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not promote truncated prefetch output into retained evidence", async () => {
+    const { recordPrefetchEvidence } = await import("../agents/chat-agent.js");
+    const destination = new Map<string, string>();
+    const retainedEvidence = new Map<string, string>();
+
+    const accepted = recordPrefetchEvidence(
+      [{
+        key: 'read_file:{"path":"src/large.ts"}',
+        content: "File: src/large.ts\n```\nconst partial = true;\n[... output truncated ...]\n```",
+      }],
+      destination,
+      retainedEvidence,
+    );
+
+    expect(accepted).toEqual([]);
+    expect(destination.size).toBe(0);
+    expect(retainedEvidence.size).toBe(0);
+  });
+
   it("keeps an Arabic greeting tool-free without promoting it to tool chat", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
     const steps: AgentStep[] = [];
