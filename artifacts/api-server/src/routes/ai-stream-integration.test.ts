@@ -5824,13 +5824,29 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       scope: { projectId },
     });
 
+    const detailedArabicFollowUp = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "تفاصيل عميقة أكثر" });
+    expect(detailedArabicFollowUp.status).toBe(200);
+    expect(seenInputs[3]?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: true,
+    });
+    expect(seenInputs[3]?.activeTaskState).toMatchObject({
+      projectQuery: { id: "embedded-ai" },
+      scope: { projectId },
+    });
+
     const unrelated = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
       .send({ projectId, sessionId, message: "What is the timeout behavior?" });
     expect(unrelated.status).toBe(200);
-    expect(seenInputs[3]?.activeTaskState).toBeNull();
-    expect(seenInputs[3]?.turnIntent).toMatchObject({
+    expect(seenInputs[4]?.activeTaskState).toBeNull();
+    expect(seenInputs[4]?.turnIntent).toMatchObject({
       kind: "FORENSIC_AUDIT",
       requiresTools: true,
       requiresEvidence: true,
@@ -5842,8 +5858,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .set("Content-Type", "application/json")
       .send({ projectId, message: "and what happens after that?" });
     expect(noTarget.status).toBe(200);
-    expect(seenInputs[4]?.activeTaskState).toBeNull();
-    expect(seenInputs[4]?.turnIntent).toMatchObject({
+    expect(seenInputs[5]?.activeTaskState).toBeNull();
+    expect(seenInputs[5]?.turnIntent).toMatchObject({
       kind: "CHAT",
       requiresTools: false,
       requiresEvidence: false,
