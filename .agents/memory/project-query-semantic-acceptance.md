@@ -72,3 +72,15 @@ Provider response validity is a separate precondition from HTTP success and tool
 **Why:** OpenRouter returned an error finish reason alongside tool calls; the compatibility client accepted it because it checked only content/tool-call presence, and the strategy logged `call_success`.
 
 **How to apply:** Reject error finish reasons at normalization, classify them into bounded provider failure/fallback paths, and test that no tool result or successful acceptance can follow the malformed response.
+
+Objective edge requirements must be target-specific. A gap-analysis target must not inherit embedded-AI reachability edges whose caller files are outside its accepted evidence manifest; locator bodies alone cannot prove those edges.
+
+**Why:** A gap run closed every declared claim and read path, then remained partially proven because the generic embedded-AI edge set required retained `chat-agent` and provider caller evidence that the gap scheduler was never allowed to accept.
+
+**How to apply:** Derive `requiredEvidenceEdges` from the resolved target, keep locator-only source bodies out of acceptance, and add a regression proving gap claims can reach `PROVEN` without unrelated embedded-AI edges.
+
+Analysis evidence projections must not label a read complete when its retained body is absent. Trace status is navigation telemetry; the persisted body/size check is the proof boundary.
+
+**Why:** A large source file can be reported as complete by a bounded read/status projection while snapshot normalization correctly removes its oversized body and records incomplete evidence.
+
+**How to apply:** Make manifest construction and validation require a retained body consistent with the status, while preserving the fail-closed snapshot behavior for oversized or missing bodies.
