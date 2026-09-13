@@ -9526,3 +9526,37 @@ describe("INT-008 — concurrent idempotent stream retries", () => {
     expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("operational command routing", () => {
+  it.each([
+    ["/api/ai/chat", "أعد تشغيل جميع الخدمات"],
+    ["/api/ai/chat/stream", "restart all services"],
+  ])("fails closed before provider resolution for %s", async (endpoint, message) => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    vi.mocked(requireProvider).mockClear();
+    vi.mocked(chatWithFallback).mockClear();
+
+    const response = await request(app)
+      .post(endpoint)
+      .send({ projectId, message });
+
+    expect(response.status).toBe(501);
+    expect(response.body).toMatchObject({
+      error: "unsupported_server_action",
+      code: "UNSUPPORTED_SERVER_ACTION",
+      action: "RESTART_SERVICES",
+      outcome: "FAILED",
+      retryable: false,
+    });
+    expect(response.body.message).toContain("cannot control Replit workflows");
+    expect(vi.mocked(requireProvider)).not.toHaveBeenCalled();
+    expect(vi.mocked(chatWithFallback)).not.toHaveBeenCalled();
+
+    const sessions = await db
+      .select({ id: aiChatSessionsTable.id })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.projectId, projectId));
+    expect(sessions).toHaveLength(0);
+  });
+});

@@ -3830,10 +3830,22 @@ router.post("/ai/chat", async (req, res) => {
     return res.status(400).json({ error });
   }
   const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+  const chatTurnIntent = resolveTurnIntent(message);
   const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  if (chatTurnIntent.serverAction === "RESTART_SERVICES") {
+    return res.status(501).json({
+      error: "unsupported_server_action",
+      code: "UNSUPPORTED_SERVER_ACTION",
+      action: "RESTART_SERVICES",
+      outcome: "FAILED",
+      message: "The embedded agent cannot control Replit workflows. Restart services from the workspace control plane.",
+      retryable: false,
+    });
+  }
 
   // Keep execution handoff fail-closed in the streaming route too. This check
   // happens before provider resolution and before SSE headers are committed.
@@ -4969,6 +4981,17 @@ router.post("/ai/chat/stream", async (req, res) => {
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  if (rawTurnIntent.serverAction === "RESTART_SERVICES") {
+    return res.status(501).json({
+      error: "unsupported_server_action",
+      code: "UNSUPPORTED_SERVER_ACTION",
+      action: "RESTART_SERVICES",
+      outcome: "FAILED",
+      message: "The embedded agent cannot control Replit workflows. Restart services from the workspace control plane.",
+      retryable: false,
+    });
+  }
 
   const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
