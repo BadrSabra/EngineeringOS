@@ -7852,6 +7852,12 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
       const cancelled = Boolean(executionAbortController?.signal.aborted && !executionLeaseLost);
       const providerErrorCode = err instanceof GroqClientError ? err.code : "UNKNOWN";
+      const targetedProjectQueryFailure =
+        streamTurnIntent.kind === "PROJECT_QUERY" && proofRequired;
+      const providerEvidenceVerdict: FlightDeckEvidenceVerdict =
+        cancelled || providerEvidenceSummary.completeSourceReadCount === 0
+          ? "UNAVAILABLE"
+          : "PARTIAL";
       const endedBeforeProviderEvidence =
         streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
       const terminalOutcome = classifyAiTerminalOutcome({
@@ -7942,9 +7948,14 @@ router.post("/ai/chat/stream", async (req, res) => {
             workerId: executionWorkerId!,
             error: executionFailure,
             cancelled,
+            ...(targetedProjectQueryFailure
+              ? { recoveryState: terminalOutcome.recoveryState }
+              : {}),
             nodeStates: executionNodeStates,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-            evidenceVerdict: "UNAVAILABLE",
+            evidenceVerdict: targetedProjectQueryFailure
+              ? providerEvidenceVerdict
+              : "UNAVAILABLE",
             evidenceReason: cancelled
               ? "The execution was cancelled before source evidence could be collected."
               : evidenceFailureReason(evidenceFailureSummary()),

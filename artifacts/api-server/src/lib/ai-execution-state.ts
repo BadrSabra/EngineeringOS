@@ -2310,6 +2310,8 @@ export async function failAiExecution(params: {
   workerId: string;
   error: string;
   cancelled?: boolean;
+  /** Server-owned terminal recovery state from the same run classifier. */
+  recoveryState?: "NONE" | "REQUIRED" | "INCOMPLETE";
   /** Whether this terminal failure still has a valid same-execution resume path. */
   resumable?: boolean;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
@@ -2396,6 +2398,7 @@ export async function failAiExecution(params: {
       : ordinaryChat
         ? "INCOMPLETE"
         : params.acceptanceDisposition?.recoveryState
+          ?? params.recoveryState
           ?? (providerFailure ? "REQUIRED" : undefined)
           ?? "REQUIRED",
     retryAfterMs: params.retryAfterMs,
@@ -2404,7 +2407,12 @@ export async function failAiExecution(params: {
     // retryable provider error may still be retried by the caller, but it must
     // not expose the forensic/task resume path or revive session state.
     resumable: params.resumable
-      ?? (!params.cancelled && !params.acceptanceDisposition && hasAiExecutionResumeContract(request)),
+      ?? (
+        !params.cancelled
+        && !params.acceptanceDisposition
+        && params.recoveryState !== "INCOMPLETE"
+        && hasAiExecutionResumeContract(request)
+      ),
     disposition: params.disposition ?? params.acceptanceDisposition,
     error: params.error,
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)

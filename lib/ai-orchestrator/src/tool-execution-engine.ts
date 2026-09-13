@@ -3585,6 +3585,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               return terminalInvalidToolCall(fallbackErr, iter);
             }
           }
+          // A provider interruption after tool execution has started must
+          // re-enter the existing server-owned objective scheduler instead of
+          // discarding the retained read trace at the route boundary.
+          // Generic orientation turns do not reach this helper because they
+          // have no proof-required objective.
+          if (!recoveredInvalidFallback && (totalToolCalls > 0 || fileContents.size > 0)) {
+            const recovery = buildServerOwnedEvidenceRecovery("fallback provider failure");
+            if (recovery) {
+              result = recovery;
+              recoveredInvalidFallback = true;
+            }
+          }
           // TIMEOUT after both primary and fallback: degrade gracefully when
           // evidence has already been collected so the caller can surface a
           // partial report rather than a generic error message.
@@ -3659,10 +3671,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }),
         );
 
+        // The selected model may be the power model, so there is no fallback
+        // branch to perform this handoff. Reuse the same bounded objective
+        // scheduler whenever a read/tool has already started; this remains a
+        // no-op for generic orientation questions.
+        if (totalToolCalls > 0 || fileContents.size > 0) {
+          const recovery = buildServerOwnedEvidenceRecovery("provider failure");
+          if (recovery) {
+            result = recovery;
+            recoveredInvalidToolCall = true;
+          }
+        }
+
         // TIMEOUT (already on powerModel, or non-retryable transient): degrade
         // gracefully when evidence has already been collected so the caller can
         // surface a partial report rather than a generic error message.
-        if (err instanceof GroqClientError && err.code === "TIMEOUT") {
+        if (!recoveredInvalidToolCall && err instanceof GroqClientError && err.code === "TIMEOUT") {
           if (
             lastTextSeen !== undefined ||
             synthesisStarted ||
@@ -3724,7 +3748,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // synthesis, return a partial empty result instead of exhausted so the
         // chat agent can run its bounded no-tools contract-recovery attempt
         // against the completed evidence already collected.
-        if (err instanceof GroqClientError && err.code === "EMPTY_RESPONSE") {
+        if (!recoveredInvalidToolCall && err instanceof GroqClientError && err.code === "EMPTY_RESPONSE") {
           emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", ["provider failure code: EMPTY_RESPONSE"]);
           if (lastTextSeen !== undefined) {
             classifyZeroReadTerminal("empty_response", iter + 1);
@@ -3812,7 +3836,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           };
         }
 
-        throw err;
+        if (!recoveredInvalidToolCall) throw err;
       }
     }
 
