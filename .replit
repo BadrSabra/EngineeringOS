@@ -28,6 +28,10 @@ args = "artifacts/dashboard: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "workspace-runtime-supervisor"
+
 
 
 [[workflows.workflow]]
@@ -98,6 +102,17 @@ args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "workspace-runtime-supervisor"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/workspace-runtime-supervisor.mjs"
 
 [agent]
 stack = "PNPM_WORKSPACE"

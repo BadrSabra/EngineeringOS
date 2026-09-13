@@ -2,7 +2,8 @@ import http from "node:http";
 import net from "node:net";
 import { spawn } from "node:child_process";
 
-const HOST = "127.0.0.1";
+const BIND_HOST = process.env.WORKSPACE_RUNTIME_SUPERVISOR_HOST ?? "127.0.0.1";
+const LOOPBACK_HOST = "127.0.0.1";
 const PORT = Number(process.env.WORKSPACE_RUNTIME_SUPERVISOR_PORT ?? 8099);
 const PORT_MIN = 3000;
 const PORT_MAX = 3099;
@@ -52,7 +53,7 @@ function runtimeEnv(port) {
 function isPortListening(port) {
   if (!Number.isInteger(port)) return Promise.resolve(false);
   return new Promise((resolve) => {
-    const socket = net.createConnection({ host: HOST, port });
+    const socket = net.createConnection({ host: LOOPBACK_HOST, port });
     socket.once("connect", () => {
       socket.destroy();
       resolve(true);
@@ -69,7 +70,7 @@ async function findPort() {
     const available = await new Promise((resolve) => {
       const server = net.createServer();
       server.once("error", () => resolve(false));
-      server.listen({ host: HOST, port }, () => server.close(() => resolve(true)));
+      server.listen({ host: LOOPBACK_HOST, port }, () => server.close(() => resolve(true)));
     });
     if (available) return port;
   }
@@ -208,6 +209,13 @@ async function adopt(input) {
   if (!isSafeProjectId(input.projectId) || !isSafeProjectId(input.sessionId)) {
     throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
   }
+  const existing = sessions.get(input.projectId);
+  if (existing?.sessionId === input.sessionId && existing.pid === input.pid) {
+    return publicSession(existing);
+  }
+  if (existing && (existing.status === "starting" || existing.status === "running")) {
+    throw Object.assign(new Error("A different runtime session already owns this project."), { status: 409 });
+  }
   if (!isPidAlive(input.pid) || !(await isPortListening(input.port))) {
     throw Object.assign(new Error("Recorded runtime process is not reachable."), { status: 409 });
   }
@@ -241,7 +249,7 @@ async function stop(input) {
 
 async function handle(req, res) {
   try {
-    const url = new URL(req.url, `http://${HOST}:${PORT}`);
+    const url = new URL(req.url, `http://${LOOPBACK_HOST}:${PORT}`);
     if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { status: "ok" });
     if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
     const input = await body(req);
@@ -255,8 +263,8 @@ async function handle(req, res) {
 }
 
 const server = http.createServer((req, res) => { void handle(req, res); });
-server.listen(PORT, HOST, () => {
-  console.log(`Workspace runtime supervisor listening on ${HOST}:${PORT}`);
+server.listen(PORT, BIND_HOST, () => {
+  console.log(`Workspace runtime supervisor listening on ${BIND_HOST}:${PORT}`);
 });
 
 function shutdown() {

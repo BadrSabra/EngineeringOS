@@ -10,6 +10,10 @@ import {
   type RuntimeStorePatch,
   type WorkspaceRuntimeStore,
 } from "./workspace-runtime-store.js";
+import {
+  WorkspaceRuntimeSupervisorClient,
+  WorkspaceRuntimeSupervisorError,
+} from "./workspace-runtime-supervisor-client.js";
 
 const RUNTIME_PORT_MIN = 3000;
 const RUNTIME_PORT_MAX = 3099;
@@ -39,8 +43,9 @@ export type WorkspaceRuntimeSnapshot = {
   logs: string[];
 };
 
-type RuntimeSession = Omit<WorkspaceRuntimeSnapshot, "projectId"> & {
+type RuntimeSession = Omit<WorkspaceRuntimeSnapshot, "projectId" | "sessionId"> & {
   projectId: string;
+  sessionId: string;
   projectRoot: string;
   workerId: string;
   child?: ChildProcess;
@@ -213,14 +218,34 @@ function rowSnapshot(row: WorkspaceRuntime): WorkspaceRuntimeSnapshot {
   };
 }
 
+function sessionFromRow(
+  row: WorkspaceRuntime,
+  workerId: string,
+  logs = row.logs,
+): RuntimeSession {
+  return {
+    ...rowSnapshot(row),
+    sessionId: row.sessionId,
+    projectRoot: row.projectRoot,
+    workerId,
+    logs: [...logs],
+  };
+}
+
 export class WorkspaceRuntimeManager {
   private readonly sessions = new Map<string, RuntimeSession>();
   private readonly store: WorkspaceRuntimeStore;
   private readonly workerId: string;
+  private readonly supervisor?: WorkspaceRuntimeSupervisorClient;
 
-  constructor(options?: { store?: WorkspaceRuntimeStore; workerId?: string }) {
+  constructor(options?: {
+    store?: WorkspaceRuntimeStore;
+    workerId?: string;
+    supervisor?: WorkspaceRuntimeSupervisorClient;
+  }) {
     this.store = options?.store ?? createInMemoryWorkspaceRuntimeStore();
     this.workerId = options?.workerId ?? `runtime-worker:${randomUUID()}`;
+    this.supervisor = options?.supervisor;
   }
 
   async get(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
@@ -240,10 +265,36 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) continue;
-      const processAlive = await isPidAlive(claimed.pid);
-      const portReady = processAlive && await waitForExistingPort(claimed.port, 5_000);
+      let processAlive = await isPidAlive(claimed.pid);
+      let portReady = processAlive && await waitForExistingPort(claimed.port, 5_000);
+      let adoptedLogs: string[] | undefined;
+      if (this.supervisor && processAlive && portReady) {
+        try {
+          const adopted = await this.supervisor.adopt({
+            projectId: claimed.projectId,
+            sessionId: claimed.sessionId,
+            projectRoot: claimed.projectRoot,
+            pid: claimed.pid,
+            port: claimed.port,
+          });
+          adoptedLogs = adopted.logs;
+          processAlive = adopted.pid !== null;
+          portReady = adopted.port !== null;
+        } catch (error) {
+          if (error instanceof WorkspaceRuntimeSupervisorError && error.status === 503) {
+            await this.store.updateOwned(claimed.projectId, this.workerId, {
+              workerId: null,
+              leaseUntil: null,
+              lastHeartbeatAt: null,
+            });
+            continue;
+          }
+          processAlive = false;
+          portReady = false;
+        }
+      }
       if (!processAlive || !portReady) {
-        if (processAlive) await terminateProcessGroup(claimed.pid, undefined);
+        if (await isPidAlive(claimed.pid)) await terminateProcessGroup(claimed.pid, undefined);
         await this.store.updateOwned(claimed.projectId, this.workerId, {
           status: "failed",
           workerId: null,
@@ -254,11 +305,15 @@ export class WorkspaceRuntimeManager {
         });
         continue;
       }
-      const session: RuntimeSession = {
-        ...rowSnapshot(claimed),
-        projectRoot: claimed.projectRoot,
-        workerId: this.workerId,
-      };
+      const existing = this.sessions.get(claimed.projectId);
+      if (existing?.sessionId === claimed.sessionId) {
+        existing.leaseUntil = claimed.leaseUntil?.toISOString() ?? null;
+        existing.lastHeartbeatAt = claimed.lastHeartbeatAt?.toISOString() ?? null;
+        if (adoptedLogs) existing.logs = [...adoptedLogs];
+        this.startHeartbeat(existing);
+        continue;
+      }
+      const session = sessionFromRow(claimed, this.workerId, adoptedLogs ?? claimed.logs);
       this.sessions.set(claimed.projectId, session);
       this.startHeartbeat(session);
     }
@@ -277,7 +332,7 @@ export class WorkspaceRuntimeManager {
     if (current) await this.stop(input.projectId);
 
     const projectRoot = await this.validateProjectRoot(input.projectRoot);
-    const port = await findAvailablePort();
+    const directPort = this.supervisor ? null : await findAvailablePort();
     const now = new Date();
     const sessionId = randomUUID();
     const persisted = await this.store.begin({
@@ -299,13 +354,53 @@ export class WorkspaceRuntimeManager {
       );
     }
 
-    const child = spawn("pnpm", ["run", "dev"], {
-      cwd: projectRoot,
-      env: runtimeEnv(port),
-      detached: true,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let child: ChildProcess | undefined;
+    let supervised: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["start"]>> | undefined;
+    try {
+      if (this.supervisor) {
+        supervised = await this.supervisor.start({
+          projectId: input.projectId,
+          sessionId,
+          projectRoot,
+        });
+      } else {
+        child = spawn("pnpm", ["run", "dev"], {
+          cwd: projectRoot,
+          env: runtimeEnv(directPort!),
+          detached: true,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      }
+    } catch (error) {
+      const message = bounded(error instanceof Error ? error.message : String(error));
+      await this.store.updateOwned(input.projectId, this.workerId, {
+        status: "failed",
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        stoppedAt: new Date(),
+        error: message,
+      });
+      throw new WorkspaceRuntimeError(message, "RUNTIME_START_FAILED", 502);
+    }
+    const port = supervised?.port ?? directPort;
+    const pid = supervised?.pid ?? child?.pid ?? null;
+    if (!port) {
+      await this.store.updateOwned(input.projectId, this.workerId, {
+        status: "failed",
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        stoppedAt: new Date(),
+        error: "Runtime supervisor returned no listening port.",
+      });
+      throw new WorkspaceRuntimeError(
+        "Runtime supervisor returned no listening port.",
+        "RUNTIME_START_FAILED",
+        502,
+      );
+    }
     const session: RuntimeSession = {
       projectId: input.projectId,
       projectRoot,
@@ -317,22 +412,22 @@ export class WorkspaceRuntimeManager {
       revision: input.revision,
       startedAt: now.toISOString(),
       stoppedAt: null,
-      pid: child.pid ?? null,
+      pid,
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS).toISOString(),
       lastHeartbeatAt: now.toISOString(),
       error: null,
-      logs: [],
+      logs: supervised?.logs ?? [],
       child,
     };
     this.sessions.set(input.projectId, session);
     await this.store.updateOwned(input.projectId, this.workerId, {
       port,
-      pid: child.pid ?? null,
-      logs: [],
+      pid,
+      logs: session.logs,
     });
-    this.attachLogs(session);
+    if (child) this.attachLogs(session);
     this.startHeartbeat(session);
-    child.once("exit", (code, signal) => {
+    child?.once("exit", (code, signal) => {
       if (this.sessions.get(input.projectId)?.sessionId !== session.sessionId) return;
       if (session.status === "starting" || session.status === "running") {
         session.status = code === 0 ? "stopped" : "failed";
@@ -355,7 +450,17 @@ export class WorkspaceRuntimeManager {
     });
 
     try {
-      await waitForTcpPort(child, port);
+      if (this.supervisor) {
+        if (supervised?.status !== "running") {
+          throw new WorkspaceRuntimeError(
+            supervised?.error ?? "Runtime supervisor did not reach running state.",
+            "RUNTIME_START_FAILED",
+            502,
+          );
+        }
+      } else {
+        await waitForTcpPort(child!, port);
+      }
       session.status = "running";
       await this.persist(session, { status: "running" });
       return this.snapshot(session);
@@ -379,16 +484,14 @@ export class WorkspaceRuntimeManager {
         leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
       });
       if (!claimed) return rowSnapshot(persisted);
-      session = {
-        ...rowSnapshot(claimed),
-        projectRoot: claimed.projectRoot,
-        workerId: this.workerId,
-      };
-      this.sessions.set(projectId, session);
-      this.startHeartbeat(session);
+      const adopted = sessionFromRow(claimed, this.workerId);
+      this.sessions.set(projectId, adopted);
+      this.startHeartbeat(adopted);
+      session = adopted;
     }
-    await this.stopSession(session);
-    return this.snapshot(session);
+    const activeSession = session;
+    await this.stopSession(activeSession);
+    return this.snapshot(activeSession);
   }
 
   /**
@@ -457,6 +560,30 @@ export class WorkspaceRuntimeManager {
 
   private async heartbeat(session: RuntimeSession): Promise<void> {
     if (!this.sessions.has(session.projectId)) return;
+    if (this.supervisor && session.pid && session.port) {
+      try {
+        await this.supervisor.adopt({
+          projectId: session.projectId,
+          sessionId: session.sessionId,
+          projectRoot: session.projectRoot,
+          pid: session.pid,
+          port: session.port,
+        });
+      } catch (error) {
+        if (error instanceof WorkspaceRuntimeSupervisorError && error.status === 503) return;
+        this.stopHeartbeat(session);
+        await this.store.updateOwned(session.projectId, this.workerId, {
+          status: "failed",
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+          stoppedAt: new Date(),
+          error: "Runtime supervisor could not re-adopt the process.",
+        });
+        this.sessions.delete(session.projectId);
+        return;
+      }
+    }
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + RUNTIME_LEASE_MS);
     const owned = await this.store.updateOwned(session.projectId, this.workerId, {
@@ -487,7 +614,15 @@ export class WorkspaceRuntimeManager {
     if (session.stopPromise) return session.stopPromise;
     session.stopPromise = (async () => {
       this.stopHeartbeat(session);
-      await terminateProcessGroup(session.pid, session.child);
+      if (this.supervisor) {
+        await this.supervisor.stop({
+          projectId: session.projectId,
+          sessionId: session.sessionId,
+          pid: session.pid,
+        });
+      } else {
+        await terminateProcessGroup(session.pid, session.child);
+      }
       session.status = finalStatus;
       session.stoppedAt = new Date().toISOString();
       session.pid = null;
@@ -533,4 +668,5 @@ export class WorkspaceRuntimeManager {
 
 export const workspaceRuntime = new WorkspaceRuntimeManager({
   store: databaseWorkspaceRuntimeStore,
+  supervisor: new WorkspaceRuntimeSupervisorClient(),
 });
