@@ -16,6 +16,10 @@ import {
   type OutputContract,
 } from "./task-contracts.js";
 import type { TaskType } from "./quality/task-profile.js";
+import {
+  resolveOperationalCommand,
+  type OperationalCommand,
+} from "./operational-command.js";
 import { isRunProjectScanRequest } from "./scan-command.js";
 import {
   isArabicExplicitExecutionActionRequest,
@@ -23,6 +27,12 @@ import {
 } from "./arabic-action-intent.js";
 
 export { isRunProjectScanRequest } from "./scan-command.js";
+export {
+  isRestartServicesRequest,
+  normalizeOperationalCommandText,
+  resolveOperationalCommand,
+} from "./operational-command.js";
+export type { OperationalCommand } from "./operational-command.js";
 
 export type TurnIntentKind =
   | "CHAT"
@@ -31,7 +41,7 @@ export type TurnIntentKind =
   | "DELIVERY";
 
 export type TurnOperationMode = "CHAT" | "FORENSIC_AUDIT" | "DELIVERY";
-export type TurnServerAction = "RUN_PROJECT_SCAN";
+export type TurnServerAction = "RUN_PROJECT_SCAN" | "RESTART_SERVICES";
 export type TurnContextMode = "light" | "project";
 
 export type TurnIntentPhase =
@@ -82,6 +92,8 @@ export type TurnIntent = {
   projectTarget?: ClassifiedRequest["projectTarget"];
   /** A deterministic server-owned action that must not be delegated to a provider. */
   serverAction?: TurnServerAction;
+  /** Details for a deterministic operational command, when one was recognized. */
+  operationalCommand?: OperationalCommand;
 };
 
 /**
@@ -206,7 +218,10 @@ export function resolveTurnIntent(
 ): TurnIntent {
   const baseClassification = options.classification ?? classifyRequest(message);
   const normalizedMessage = normalizeIntentText(message);
-  const serverAction = isRunProjectScanRequest(message) ? "RUN_PROJECT_SCAN" as const : undefined;
+  const operationalCommand = resolveOperationalCommand(message);
+  const serverAction = isRunProjectScanRequest(message)
+    ? "RUN_PROJECT_SCAN" as const
+    : operationalCommand?.kind;
   const buildHandoff = options.buildHandoff === true;
   const implementationPlanResume = options.implementationPlanResume === true;
   const compoundExecution = isCompoundExecutionRequest(message);
@@ -415,6 +430,7 @@ export function resolveTurnIntent(
     phases,
     ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
     ...(serverAction ? { serverAction } : {}),
+    ...(operationalCommand ? { operationalCommand } : {}),
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, normalizedMessage) }
       : {}),

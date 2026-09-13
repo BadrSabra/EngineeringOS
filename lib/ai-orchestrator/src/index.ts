@@ -660,12 +660,16 @@ export { collectForensicEvidence } from "./forensic-output-guard.js";
 export { classifyRequest, isSocialGreeting } from "./prompts/profile-classifier.js";
 export type { ClassifiedRequest, RequestCategory } from "./prompts/profile-classifier.js";
 export {
+  isRestartServicesRequest,
   isRunProjectScanRequest,
   isPlanExecutionRequest,
+  normalizeOperationalCommandText,
+  resolveOperationalCommand,
   isWriteCapableTurn,
   resolveTurnIntent,
 } from "./turn-intent.js";
 export type {
+  OperationalCommand,
   TurnIntent,
   TurnIntentKind,
   TurnServerAction,

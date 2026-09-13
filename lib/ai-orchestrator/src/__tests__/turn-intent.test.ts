@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import {
   isCompoundExecutionRequest,
+  isRestartServicesRequest,
   isRunProjectScanRequest,
   isWriteCapableTurn,
+  resolveOperationalCommand,
   resolveTurnIntent,
 } from "../turn-intent.js";
 import { buildProviderTools } from "../agents/chat-agent.js";
@@ -21,6 +23,30 @@ describe("resolveTurnIntent", () => {
   ])("routes a project-scan command to the server-owned action: %s", (message) => {
     expect(isRunProjectScanRequest(message)).toBe(true);
     expect(resolveTurnIntent(message).serverAction).toBe("RUN_PROJECT_SCAN");
+  });
+
+  it.each([
+    "أعد تشغيل جميع الخدمات",
+    "أعد تشغيل الخدمات",
+    "أعد تشغيل الـAPI",
+    "restart all services",
+    "restart the workflows",
+  ])("routes an operational restart command away from provider chat: %s", (message) => {
+    expect(isRestartServicesRequest(message)).toBe(true);
+    expect(resolveOperationalCommand(message)).toEqual({
+      kind: "RESTART_SERVICES",
+      scope: "all",
+    });
+    expect(resolveTurnIntent(message).serverAction).toBe("RESTART_SERVICES");
+  });
+
+  it.each([
+    "هل الخدمات تعمل؟",
+    "اشرح طريقة إعادة تشغيل الخدمات",
+    "what services does this project use?",
+  ])("does not treat an operational question as a restart command: %s", (message) => {
+    expect(isRestartServicesRequest(message)).toBe(false);
+    expect(resolveTurnIntent(message).serverAction).toBeUndefined();
   });
 
   it.each([
