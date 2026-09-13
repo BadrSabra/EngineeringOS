@@ -5105,13 +5105,14 @@ function projectQueryAnswerHasBehavioralFlow(
 }
 
 /**
- * Server-owned fallback synthesis for targeted project objectives.
+ * Server-owned user-facing synthesis for targeted project objectives.
  *
- * The provider gets one no-tools opportunity first. If it returns an empty or
- * incomplete answer, this deterministic response still advances the durable
- * run from `claims_pending` to a source-bound candidate without rereading
- * anything or inventing paths. The final objective/evidence gates remain
- * authoritative.
+ * The provider gets one no-tools opportunity first. Once every required claim
+ * has materialized evidence, this deterministic response is authoritative:
+ * it explains the verified execution flow in the user's language, then keeps
+ * the exact claim text and source spans in a compact technical section so the
+ * response-bound evidence gate can still close the objective without exposing
+ * an internal audit report as the primary answer.
  */
 export function buildProjectQueryEvidenceSynthesis(
   objective: ObjectiveContract,
@@ -5122,87 +5123,83 @@ export function buildProjectQueryEvidenceSynthesis(
   const claimById = new Map(
     objective.requiredClaims.map((claim) => [claim.claimId, claim]),
   );
-  const lines = isArabic
-    ? [
-        "تحليل مشروع مثبت بالأدلة المحتفظ بها.",
-        "",
-        "### الادعاءات المغلقة",
-      ]
-    : [
-        "Verified project analysis from the retained source evidence.",
-        "",
-        "### Closed claims",
-      ];
-  for (const item of evidence) {
-    lines.push(
-      `- \`${objective.requiredClaims.find((claim) => claim.claimId === item.claimId)?.text ?? item.claimId}\` — \`${item.source}\``,
-      `  Evidence: \`${item.excerpt}\``,
-    );
-  }
-  lines.push(
-    "",
-    isArabic ? "### خريطة الأدلة" : "### Evidence map",
-  );
-  for (const item of evidence) {
-    const claim = claimById.get(item.claimId);
-    const span = `${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}`;
-    lines.push(
-      isArabic
-        ? `- \`${claim?.claimId ?? item.claimId}\` ← \`${span}\` (دليل سلوكي مباشر؛ لا يثبت قابلية الوصول الإنتاجية)`
-        : `- \`${claim?.claimId ?? item.claimId}\` ← \`${span}\` (direct behavioral evidence; production reachability not proven)`,
-    );
-  }
-  if (evidence.length === 0) {
-    lines.push(
-      isArabic
-        ? "- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."
-        : "- No completed source window is bound to a claim.",
-    );
-  }
-  lines.push(
-    "",
-    isArabic ? "### تسلسل التنفيذ" : "### Execution flow",
-  );
   const flowByClaimId: Record<string, { ar: string; en: string }> = {
     "ai-routing": {
-      ar: "أولاً، يحدد مسار المحادثة نية الطلب قبل اختيار مسار التنفيذ.",
-      en: "First, the chat route resolves the request intent before selecting the execution path.",
+      ar: "أولاً، يستقبل مسار الدردشة الرسالة ويحدد نيتها قبل أن يختار نوع التنفيذ المناسب. لذلك يُعامل سؤال عن بنية المشروع كسؤال يحتاج قراءة وتحليلاً، لا كرسالة محادثة عامة فقط.",
+      en: "First, the chat route receives the message and resolves its intent before choosing the appropriate execution path. A project-architecture question therefore enters an evidence-backed analysis path rather than being treated as casual chat.",
     },
     "ai-tool-loop": {
-      ar: "ثم تدخل المحادثة المفعلة بالأدوات حلقة الأدوات وتحتفظ بنتائج القراءة قبل التوليف.",
-      en: "Then, tool-enabled chat enters the tool loop and retains read results before synthesis.",
+      ar: "ثم، عندما يحتاج المسار إلى قراءة ملفات أو استخدام أدوات، يدخل الوكيل حلقة الأدوات. تحتفظ الحلقة بنتائج القراءات لكي يعتمد عليها التوليف اللاحق بدلاً من الاعتماد على ذاكرة المزود أو تخمينه.",
+      en: "Then, when the path needs file reads or tools, the agent enters the tool loop. The loop retains the read results so later synthesis is based on the collected source rather than on provider memory or guesswork.",
     },
     "ai-provider-dispatch": {
-      ar: "بعد ذلك، يظهر استدعاء provider عبر fallback. يثبت هذا وجود نقطة الإرسال، لكن ترتيبها الكامل بالنسبة للتحقق النهائي يحتاج edge تنفيذية صريحة.",
-      en: "After that, the provider dispatch through fallback is present. This proves the dispatch point, while its full ordering relative to final validation requires an explicit execution edge.",
+      ar: "بعد ذلك، يرسل مسار الدردشة طلب المزود عبر `chatWithFallback`. هذا يتيح اختيار مزود بديل عند الحاجة، بينما تبقى القراءات المحتفظ بها هي الأساس الذي يجب أن يلتزم به الرد النهائي.",
+      en: "After that, the chat route dispatches the provider request through `chatWithFallback`. This allows a fallback provider when needed, while the retained reads remain the source boundary the final answer must respect.",
     },
   };
   const genericFlow = isArabic
     ? [
-        "أولاً، يبدأ المسار من الادعاء السلوكي المرتبط بالقراءة المحتفظ بها.",
-        "ثم تُستخدم الأدلة المرتبطة لترتيب مراحل التنفيذ قبل التوليف.",
-        "وأخيراً، تمر الإجابة عبر التحقق النهائي قبل قبولها.",
+        "أولاً، يبدأ المسار بفهم السؤال وتحديد نوع التنفيذ المطلوب.",
+        "ثم يجمع الوكيل القراءات اللازمة ويحتفظ بها قبل صياغة الإجابة.",
+        "وأخيراً، تُصاغ الإجابة من السلوك الذي أثبتته القراءات، مع إبقاء ما لم يُقرأ خارج نطاق الاستنتاج.",
       ]
     : [
-        "First, the flow starts from the behavioral claim bound to the retained read.",
-        "Then, the bound evidence establishes the execution sequence before synthesis.",
-        "Finally, the answer passes final validation before acceptance.",
+        "First, the flow interprets the question and selects the required execution path.",
+        "Then, the agent gathers and retains the reads needed before composing the answer.",
+        "Finally, the answer is written from the behavior established by those reads, while anything not read remains outside the conclusion.",
       ];
-  const flow = evidence.map((item) =>
-    flowByClaimId[item.claimId]?.[isArabic ? "ar" : "en"],
-  ).filter((sentence): sentence is string => Boolean(sentence));
-  lines.push(...(flow.length > 0 ? flow : genericFlow));
-  lines.push(
-    "",
-    isArabic ? "### حدود التحليل" : "### Analysis limits",
+  const flow = evidence
+    .map((item) => flowByClaimId[item.claimId]?.[isArabic ? "ar" : "en"])
+    .filter((sentence): sentence is string => Boolean(sentence));
+  const claimLines = evidence.map((item) => {
+    const claim = claimById.get(item.claimId);
+    const span = `${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}`;
+    return isArabic
+      ? `- ${claim?.text ?? item.claimId} — المصدر: \`${item.source}\`، الأسطر ${item.sourceSpan.startLine}-${item.sourceSpan.endLine}`
+      : `- ${claim?.text ?? item.claimId} — source: \`${span}\``;
+  });
+  const sourceLines = evidence.map((item) =>
     isArabic
-      ? "- الأدلة الحالية تثبت claims سلوكية مرتبطة بنوافذ المصدر فقط. لا تُثبت وحدها قابلية الوصول الإنتاجية أو كل ترتيب بين المراحل."
-      : "- The current evidence proves behavioral claims bound to source windows. It does not by itself prove production reachability or every ordering relationship between stages.",
-    "",
-    isArabic
-      ? "اقتصر التحليل على القراءات المحتفظ بها ولم تُعدّل ملفات."
-      : "The analysis was limited to the retained reads and no files were modified.",
+      ? `- \`${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}\``
+      : `- \`${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}\``,
   );
+  const lines = isArabic
+    ? [
+        "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟",
+        "",
+        "باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات.",
+        "",
+        "### الدورة العملية",
+        ...(flow.length > 0 ? flow : genericFlow),
+        "",
+        "### ماذا تم التحقق منه؟",
+        "النقاط التالية هي الأساس التقني للشرح، وقد تم ربط كل نقطة بقراءة مكتملة من المصدر:",
+        ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
+        "",
+        "### المصادر",
+        ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
+        "",
+        "### حدود الشرح",
+        "يثبت هذا التحليل سلوك الكود داخل نوافذ المصدر المقروءة. لا يثبت وحده قابلية الوصول الإنتاجية أو سلوكاً لم يظهر في هذه القراءات.",
+      ]
+    : [
+        "## How the embedded AI agent works",
+        "",
+        "In short, the agent interprets the question, selects an execution path, gathers source evidence, dispatches the provider request, and then writes an answer bounded by what was verified. No files were modified in this analysis.",
+        "",
+        "### The practical flow",
+        ...(flow.length > 0 ? flow : genericFlow),
+        "",
+        "### What was verified",
+        "The following technical points form the basis of the explanation, and each one is bound to a completed source read:",
+        ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
+        "",
+        "### Sources",
+        ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
+        "",
+        "### Scope of the explanation",
+        "This analysis proves code behavior within the retained source windows. It does not by itself prove production reachability or behavior not present in those reads.",
+      ];
   return lines.join("\n");
 }
 

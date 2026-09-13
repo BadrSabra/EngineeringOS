@@ -827,6 +827,10 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       expect(response).toContain(claim.text);
     }
     expect(response.length).toBeGreaterThanOrEqual(240);
+    expect(response).toContain("## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟");
+    expect(response).toContain("### الدورة العملية");
+    expect(response).toContain("### ماذا تم التحقق منه؟");
+    expect(response).not.toContain("### الادعاءات المغلقة");
     expect(response).toContain("أولاً");
     expect(response).toContain("ثم");
     expect(response).toContain("بعد ذلك");
