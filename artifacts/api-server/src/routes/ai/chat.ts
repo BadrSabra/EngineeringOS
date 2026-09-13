@@ -154,6 +154,7 @@ import {
   createAiExecution,
   failAiExecution,
   getAiExecutionForUser,
+  hasAiExecutionResumeContract,
   heartbeatAiExecution,
   ownsAiExecutionLease,
   recoverAiExecutionResumeToken,
@@ -6613,7 +6614,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
     };
 
-     const streamExecutionResumable = streamTurnIntent.kind !== "CHAT";
+    const streamExecutionResumable = hasAiExecutionResumeContract(executionRequest);
      sse({
       type: "execution_started",
       executionId: aiExecution.id,

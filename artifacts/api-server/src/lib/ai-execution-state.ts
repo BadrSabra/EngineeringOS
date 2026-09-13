@@ -711,6 +711,30 @@ export type AiCapabilityProbeContract = {
   outputContract: string;
 };
 
+/**
+ * A durable execution is resumable only when its immutable request carries a
+ * server-owned continuation contract. Tool access or a non-CHAT turn intent
+ * alone is not enough: a generic project question may use read tools without
+ * having reusable evidence or an objective to continue.
+ */
+export function hasAiExecutionResumeContract(
+  request: AiExecutionRequestEnvelope | undefined,
+): boolean {
+  if (!request || request.turnIntent === "CHAT") return false;
+  if (
+    request.resumeContract
+    || request.capabilityProbe
+    || request.buildPlanMessageId
+    || (request.linkedTaskId && request.turnIntent === "DELIVERY")
+  ) {
+    return true;
+  }
+  // Keep legacy proof-required executions resumable even when they predate the
+  // explicit resumeContract field. Generic PROJECT_QUERY requests remain
+  // non-resumable because their proofRequired flag is false.
+  return request.proofRequired === true;
+}
+
 export type AiCapabilityProbeProgress = {
   closedClaims: string[];
   pendingClaims: string[];
@@ -2380,7 +2404,7 @@ export async function failAiExecution(params: {
     // retryable provider error may still be retried by the caller, but it must
     // not expose the forensic/task resume path or revive session state.
     resumable: params.resumable
-      ?? (!params.cancelled && !params.acceptanceDisposition && !ordinaryChat),
+      ?? (!params.cancelled && !params.acceptanceDisposition && hasAiExecutionResumeContract(request)),
     disposition: params.disposition ?? params.acceptanceDisposition,
     error: params.error,
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)
