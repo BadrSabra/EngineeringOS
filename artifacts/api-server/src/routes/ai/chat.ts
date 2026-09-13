@@ -87,6 +87,7 @@ import {
   createExecutionLedger,
   toPublicExecutionLedgerSnapshot,
   deriveForensicDiagnostic,
+  mergeReadStatus,
   projectContextProvenance,
   parseContextProvenance,
 } from "@workspace/ai-orchestrator";
@@ -311,18 +312,24 @@ function deriveProjectQueryAnalysisEvidence(params: {
     .find((step): step is Extract<AgentStep, { kind: "forensic_status" }> =>
       step.kind === "forensic_status",
     );
-  const readStatuses = new Map(
-    (forensicStatus?.readStatuses ?? []).map((entry) => [entry.path, entry.status]),
-  );
+  const normalizePath = (value: string): string =>
+    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  const readStatuses = new Map<string, ReadStatus>();
+  for (const entry of forensicStatus?.readStatuses ?? []) {
+    const path = normalizePath(entry.path);
+    if (!path) continue;
+    readStatuses.set(path, mergeReadStatus(readStatuses.get(path), entry.status));
+  }
   const completedReadFiles = [
     ...(integrity.completedReadFiles ?? []),
     ...(forensicStatus?.readStatuses ?? [])
       .filter((entry) => entry.status === "READ_COMPLETE" || entry.status === "READ_TARGETED")
       .map((entry) => entry.path),
-  ].filter((path) => readStatuses.get(path) !== "READ_TRUNCATED"
-    && readStatuses.get(path) !== "READ_FAILED");
-  const normalizePath = (value: string): string =>
-    value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+  ]
+    .map(normalizePath)
+    .filter((path) => path.length > 0)
+    .filter((path) => readStatuses.get(path) !== "READ_TRUNCATED"
+      && readStatuses.get(path) !== "READ_FAILED");
   const retainedBodies = new Map(
     [...params.retainedEvidence.entries()].map(([filePath, body]) => [
       normalizePath(filePath),
@@ -339,10 +346,13 @@ function deriveProjectQueryAnalysisEvidence(params: {
     .sort()
     .map((filePath) => {
       const body = retainedBodies.get(filePath);
-      const status = readStatuses.get(filePath)
+      const observedStatus = readStatuses.get(filePath)
         ?? (completedReadFiles.some((path) => normalizePath(path) === filePath)
           ? "READ_COMPLETE"
           : "READ_FAILED");
+      const status = observedStatus === "READ_CACHED"
+        ? "READ_COMPLETE"
+        : observedStatus;
       return {
         path: filePath,
         status,
@@ -3564,8 +3574,11 @@ function collectRetainedEvidenceReads(
   const readSpans = new Map<string, { lineStart?: number; lineEnd?: number }>();
   for (const [filePath, status] of retainedReadStatuses ?? []) {
     const normalizedPath = normalizePath(filePath);
-    if (normalizedPath && !readStatuses.has(normalizedPath)) {
-      readStatuses.set(normalizedPath, status);
+    if (normalizedPath) {
+      readStatuses.set(
+        normalizedPath,
+        mergeReadStatus(readStatuses.get(normalizedPath), status),
+      );
     }
   }
   for (const step of traceSteps ?? []) {
@@ -3588,10 +3601,15 @@ function collectRetainedEvidenceReads(
       continue;
     }
     const normalizedPath = normalizePath(step.source);
-    if (!normalizedPath || readStatuses.has(normalizedPath)) continue;
+    if (!normalizedPath) continue;
     const status = step.readStatus
       ?? (step.resultKind === "failed" ? "READ_FAILED" : undefined);
-    if (status) readStatuses.set(normalizedPath, status);
+    if (status) {
+      readStatuses.set(
+        normalizedPath,
+        mergeReadStatus(readStatuses.get(normalizedPath), status),
+      );
+    }
   }
   const paths = [...new Set([...retainedBodies.keys(), ...readStatuses.keys()])];
   const normalized = normalizeEvidenceSnapshot({

@@ -513,6 +513,32 @@ export type ReadStatus =
   | "READ_CACHED"
   | "READ_TARGETED";
 
+const READ_STATUS_STRENGTH: Record<ReadStatus, number> = {
+  READ_FAILED: 0,
+  READ_TRUNCATED: 1,
+  READ_TARGETED: 2,
+  READ_COMPLETE: 3,
+  READ_CACHED: 3,
+};
+
+/**
+ * Preserve the strongest evidence state observed for a path.
+ *
+ * A later locator/full-file replay can be truncated even when a previous
+ * targeted or complete body is still retained. Status projection must not
+ * downgrade that usable evidence; the raw read event remains available in the
+ * trace for telemetry.
+ */
+export function mergeReadStatus(
+  previous: ReadStatus | undefined,
+  next: ReadStatus,
+): ReadStatus {
+  if (!previous) return next;
+  return READ_STATUS_STRENGTH[next] >= READ_STATUS_STRENGTH[previous]
+    ? next
+    : previous;
+}
+
 /**
  * Classify a read tool output into a status. Truncation markers and error /
  * non-source bodies are never treated as a complete source read (SR-001 gate:
@@ -2159,8 +2185,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   for (const [path, status] of opts.initialReadStatuses ?? []) {
     if (!path.trim()) continue;
     initialReadStatusSeen = true;
-    readStatusByPath.set(path, status);
-    readStatusByPath.set(canonicalRel(path), status);
+    readStatusByPath.set(path, mergeReadStatus(readStatusByPath.get(path), status));
+    const canonicalPath = canonicalRel(path);
+    readStatusByPath.set(
+      canonicalPath,
+      mergeReadStatus(readStatusByPath.get(canonicalPath), status),
+    );
   }
   const sourceRetrieval: SourceRetrievalTelemetry = createSourceRetrievalTelemetry();
   const recordScopeExpansion = (path: string | undefined): ScopeExpansion | undefined => {
@@ -2195,9 +2225,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const priorHadEvidence =
         readStatusByPath.get(path) === "READ_COMPLETE" ||
         readStatusByPath.get(path) === "READ_TARGETED";
-      readStatusByPath.set(path, status);
-      opts.retainedReadStatuses?.set(path, status);
-      opts.retainedReadStatuses?.set(canonicalRel(path), status);
+      readStatusByPath.set(path, mergeReadStatus(readStatusByPath.get(path), status));
+      const canonicalPath = canonicalRel(path);
+      readStatusByPath.set(
+        canonicalPath,
+        mergeReadStatus(readStatusByPath.get(canonicalPath), status),
+      );
+      if (opts.retainedReadStatuses) {
+        opts.retainedReadStatuses.set(
+          path,
+          mergeReadStatus(opts.retainedReadStatuses.get(path), status),
+        );
+        opts.retainedReadStatuses.set(
+          canonicalPath,
+          mergeReadStatus(opts.retainedReadStatuses.get(canonicalPath), status),
+        );
+      }
       if (status === "READ_COMPLETE" || status === "READ_TARGETED") {
         if (priorHadEvidence) {
           sourceRetrieval.duplicateReads += 1;
@@ -2855,9 +2898,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     for (const [path, body] of opts.initialFileContents) {
       if (isSuccessfulSourceRead("read_file", path, body)) {
         usablePrefetchSeen = true;
-        if (!readStatusByPath.has(path)) {
-          readStatusByPath.set(path, classifyReadStatus("read_file", body));
-        }
+        readStatusByPath.set(
+          path,
+          mergeReadStatus(
+            readStatusByPath.get(path),
+            classifyReadStatus("read_file", body),
+          ),
+        );
         sourceRetrieval.prefetchReads += 1;
       }
     }

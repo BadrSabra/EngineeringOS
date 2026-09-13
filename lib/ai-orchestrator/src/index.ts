@@ -35,7 +35,12 @@ export type {
   ProjectFileSource,
   ProjectFileSources,
 } from "./filesystem-manifest.js";
-export { classifyReadStatus, EMPTY_SOURCE_RETRIEVAL_TELEMETRY, ReadStatusSchema } from "./tool-execution-engine.js";
+export {
+  classifyReadStatus,
+  mergeReadStatus,
+  EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
+  ReadStatusSchema,
+} from "./tool-execution-engine.js";
 export {
   ContextManifestSchema,
   RepositoryRevisionManifestSchema,

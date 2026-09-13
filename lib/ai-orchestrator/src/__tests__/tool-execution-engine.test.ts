@@ -1971,6 +1971,48 @@ describe("executeToolLoop", () => {
     expect(classifyReadStatus("read_file", 'Error reading "x.ts"')).toBe("READ_FAILED");
   });
 
+  it("keeps the strongest retained read status when a later replay is weaker", async () => {
+    const { mergeReadStatus } = await import("../tool-execution-engine.js");
+
+    expect(mergeReadStatus("READ_TARGETED", "READ_TRUNCATED")).toBe("READ_TARGETED");
+    expect(mergeReadStatus("READ_COMPLETE", "READ_FAILED")).toBe("READ_COMPLETE");
+    expect(mergeReadStatus("READ_TRUNCATED", "READ_TARGETED")).toBe("READ_TARGETED");
+    expect(mergeReadStatus(undefined, "READ_FAILED")).toBe("READ_FAILED");
+  });
+
+  it("does not downgrade retained targeted evidence after a truncated full-file replay", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/retained-window.ts";
+    const truncated =
+      `File: ${requiredPath}\n\`\`\`\nconst partial = true;\n` +
+      "[... output truncated at 128 KB by the read tool ...]\n```";
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_TARGETED">([
+      [requiredPath, "READ_TARGETED"],
+    ]);
+    FILE_TOOL_MOCK.mockResolvedValue(truncated);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("replay", "read_file", { path: requiredPath })]),
+        makeResponse("final"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      maxIterations: 2,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(retainedReadStatuses.get(requiredPath)).toBe("READ_TARGETED");
+    expect(result.sourceRetrieval?.truncatedReads).toBe(1);
+  });
+
   it("restores a prefetched truncated status and forces a targeted recovery window", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const steps: AgentStep[] = [];
