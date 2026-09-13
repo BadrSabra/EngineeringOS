@@ -2,6 +2,14 @@ import { promises as fs } from "node:fs";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { WorkspaceRuntime } from "@workspace/db";
+import {
+  createInMemoryWorkspaceRuntimeStore,
+  databaseWorkspaceRuntimeStore,
+  RUNTIME_LEASE_MS,
+  type RuntimeStorePatch,
+  type WorkspaceRuntimeStore,
+} from "./workspace-runtime-store.js";
 
 const RUNTIME_PORT_MIN = 3000;
 const RUNTIME_PORT_MAX = 3099;
@@ -9,6 +17,7 @@ const STARTUP_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 2_000;
 const MAX_LOG_LINES = 120;
 const MAX_LOG_LINE_CHARS = 600;
+const HEARTBEAT_INTERVAL_MS = 10_000;
 
 const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNPM_HOME|npm_config_[A-Za-z0-9_]+)$/;
 
@@ -24,6 +33,8 @@ export type WorkspaceRuntimeSnapshot = {
   startedAt: string | null;
   stoppedAt: string | null;
   pid: number | null;
+  leaseUntil: string | null;
+  lastHeartbeatAt: string | null;
   error: string | null;
   logs: string[];
 };
@@ -31,8 +42,10 @@ export type WorkspaceRuntimeSnapshot = {
 type RuntimeSession = Omit<WorkspaceRuntimeSnapshot, "projectId"> & {
   projectId: string;
   projectRoot: string;
-  child: ChildProcess;
+  workerId: string;
+  child?: ChildProcess;
   stopPromise?: Promise<void>;
+  heartbeatTimer?: NodeJS.Timeout;
 };
 
 export class WorkspaceRuntimeError extends Error {
@@ -43,7 +56,8 @@ export class WorkspaceRuntimeError extends Error {
       | "DEV_SCRIPT_MISSING"
       | "NO_RUNTIME_PORT"
       | "RUNTIME_START_FAILED"
-      | "RUNTIME_STOP_FAILED",
+      | "RUNTIME_STOP_FAILED"
+      | "RUNTIME_OWNERSHIP_BUSY",
     public readonly status = 422,
   ) {
     super(message);
@@ -92,30 +106,69 @@ async function findAvailablePort(): Promise<number> {
   );
 }
 
+async function isPidAlive(pid: number | null): Promise<boolean> {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+async function isPortListening(port: number | null): Promise<boolean> {
+  if (!port) return false;
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForExistingPort(port: number | null, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isPortListening(port)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return isPortListening(port);
+}
+
 async function waitForTcpPort(child: ChildProcess, port: number): Promise<void> {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  let processError: Error | undefined;
+  const onError = (error: Error) => { processError = error; };
+  child.once("error", onError);
   while (Date.now() < deadline) {
+    if (processError) {
+      child.off("error", onError);
+      throw new WorkspaceRuntimeError(
+        `The development process could not start: ${bounded(processError.message)}.`,
+        "RUNTIME_START_FAILED",
+        502,
+      );
+    }
     if (child.exitCode !== null) {
+      child.off("error", onError);
       throw new WorkspaceRuntimeError(
         `The development process exited before opening port ${port}.`,
         "RUNTIME_START_FAILED",
         502,
       );
     }
-    const connected = await new Promise<boolean>((resolve) => {
-      const socket = net.createConnection({ host: "127.0.0.1", port });
-      socket.once("connect", () => {
-        socket.destroy();
-        resolve(true);
-      });
-      socket.once("error", () => {
-        socket.destroy();
-        resolve(false);
-      });
-    });
-    if (connected) return;
+    if (await isPortListening(port)) {
+      child.off("error", onError);
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  child.off("error", onError);
   throw new WorkspaceRuntimeError(
     `The development process did not open port ${port} within ${STARTUP_TIMEOUT_MS}ms.`,
     "RUNTIME_START_FAILED",
@@ -123,25 +176,92 @@ async function waitForTcpPort(child: ChildProcess, port: number): Promise<void> 
   );
 }
 
-function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.exitCode !== null) return;
+function signalProcessGroup(pid: number | null, child: ChildProcess | undefined, signal: NodeJS.Signals): void {
+  if (!pid && !child) return;
   try {
-    if (child.pid) {
-      process.kill(-child.pid, signal);
-    } else {
-      child.kill(signal);
-    }
+    if (pid) process.kill(-pid, signal);
+    else child?.kill(signal);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
 }
 
+async function terminateProcessGroup(pid: number | null, child: ChildProcess | undefined): Promise<void> {
+  signalProcessGroup(pid, child, "SIGTERM");
+  const deadline = Date.now() + STOP_TIMEOUT_MS;
+  while (Date.now() < deadline && await isPidAlive(pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if (await isPidAlive(pid)) signalProcessGroup(pid, child, "SIGKILL");
+}
+
+function rowSnapshot(row: WorkspaceRuntime): WorkspaceRuntimeSnapshot {
+  return {
+    projectId: row.projectId,
+    sessionId: row.sessionId,
+    status: row.status,
+    port: row.port,
+    command: "pnpm run dev",
+    revision: row.revision,
+    startedAt: row.startedAt?.toISOString() ?? null,
+    stoppedAt: row.stoppedAt?.toISOString() ?? null,
+    pid: row.pid,
+    leaseUntil: row.leaseUntil?.toISOString() ?? null,
+    lastHeartbeatAt: row.lastHeartbeatAt?.toISOString() ?? null,
+    error: row.error,
+    logs: [...row.logs],
+  };
+}
+
 export class WorkspaceRuntimeManager {
   private readonly sessions = new Map<string, RuntimeSession>();
+  private readonly store: WorkspaceRuntimeStore;
+  private readonly workerId: string;
+
+  constructor(options?: { store?: WorkspaceRuntimeStore; workerId?: string }) {
+    this.store = options?.store ?? createInMemoryWorkspaceRuntimeStore();
+    this.workerId = options?.workerId ?? `runtime-worker:${randomUUID()}`;
+  }
 
   async get(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
     const session = this.sessions.get(projectId);
-    return session ? this.snapshot(session) : this.stoppedSnapshot(projectId);
+    if (session) return this.snapshot(session);
+    const persisted = await this.store.get(projectId);
+    return persisted ? rowSnapshot(persisted) : this.stoppedSnapshot(projectId);
+  }
+
+  async recover(): Promise<void> {
+    const rows = await this.store.listRecoverable(new Date());
+    for (const row of rows) {
+      const claimed = await this.store.claimRecovery({
+        id: row.id,
+        workerId: this.workerId,
+        now: new Date(),
+        leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
+      });
+      if (!claimed) continue;
+      const processAlive = await isPidAlive(claimed.pid);
+      const portReady = processAlive && await waitForExistingPort(claimed.port, 5_000);
+      if (!processAlive || !portReady) {
+        if (processAlive) await terminateProcessGroup(claimed.pid, undefined);
+        await this.store.updateOwned(claimed.projectId, this.workerId, {
+          status: "failed",
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+          stoppedAt: new Date(),
+          error: "Runtime process was not reachable during recovery.",
+        });
+        continue;
+      }
+      const session: RuntimeSession = {
+        ...rowSnapshot(claimed),
+        projectRoot: claimed.projectRoot,
+        workerId: this.workerId,
+      };
+      this.sessions.set(claimed.projectId, session);
+      this.startHeartbeat(session);
+    }
   }
 
   async start(input: {
@@ -156,27 +276,29 @@ export class WorkspaceRuntimeManager {
     }
     if (current) await this.stop(input.projectId);
 
-    let projectRoot: string;
-    try {
-      projectRoot = await fs.realpath(input.projectRoot);
-      const packageJson = JSON.parse(await fs.readFile(`${projectRoot}/package.json`, "utf8")) as {
-        scripts?: Record<string, unknown>;
-      };
-      if (typeof packageJson.scripts?.dev !== "string" || !packageJson.scripts.dev.trim()) {
-        throw new WorkspaceRuntimeError(
-          "This project does not define a package.json dev script.",
-          "DEV_SCRIPT_MISSING",
-        );
-      }
-    } catch (error) {
-      if (error instanceof WorkspaceRuntimeError) throw error;
+    const projectRoot = await this.validateProjectRoot(input.projectRoot);
+    const port = await findAvailablePort();
+    const now = new Date();
+    const sessionId = randomUUID();
+    const persisted = await this.store.begin({
+      projectId: input.projectId,
+      projectRoot,
+      sessionId,
+      revision: input.revision,
+      workerId: this.workerId,
+      now,
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
+    });
+    if (!persisted) {
+      const existing = await this.store.get(input.projectId);
+      if (existing) return rowSnapshot(existing);
       throw new WorkspaceRuntimeError(
-        "The project root is unavailable or its package.json cannot be read.",
-        "PROJECT_ROOT_UNAVAILABLE",
+        "Another runtime worker currently owns this project.",
+        "RUNTIME_OWNERSHIP_BUSY",
+        409,
       );
     }
 
-    const port = await findAvailablePort();
     const child = spawn("pnpm", ["run", "dev"], {
       cwd: projectRoot,
       env: runtimeEnv(port),
@@ -187,20 +309,29 @@ export class WorkspaceRuntimeManager {
     const session: RuntimeSession = {
       projectId: input.projectId,
       projectRoot,
-      sessionId: randomUUID(),
+      workerId: this.workerId,
+      sessionId,
       status: "starting",
       port,
       command: "pnpm run dev",
       revision: input.revision,
-      startedAt: new Date().toISOString(),
+      startedAt: now.toISOString(),
       stoppedAt: null,
       pid: child.pid ?? null,
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS).toISOString(),
+      lastHeartbeatAt: now.toISOString(),
       error: null,
       logs: [],
       child,
     };
     this.sessions.set(input.projectId, session);
+    await this.store.updateOwned(input.projectId, this.workerId, {
+      port,
+      pid: child.pid ?? null,
+      logs: [],
+    });
     this.attachLogs(session);
+    this.startHeartbeat(session);
     child.once("exit", (code, signal) => {
       if (this.sessions.get(input.projectId)?.sessionId !== session.sessionId) return;
       if (session.status === "starting" || session.status === "running") {
@@ -209,12 +340,24 @@ export class WorkspaceRuntimeManager {
           ? null
           : `Development process exited with ${signal ?? `code ${code ?? "unknown"}`}.`;
         session.stoppedAt = new Date().toISOString();
+        void this.store.updateOwned(input.projectId, this.workerId, {
+          status: session.status,
+          pid: null,
+          stoppedAt: new Date(),
+          error: session.error,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+          workerId: null,
+          logs: session.logs,
+        });
+        this.stopHeartbeat(session);
       }
     });
 
     try {
       await waitForTcpPort(child, port);
       session.status = "running";
+      await this.persist(session, { status: "running" });
       return this.snapshot(session);
     } catch (error) {
       session.status = "failed";
@@ -225,15 +368,65 @@ export class WorkspaceRuntimeManager {
   }
 
   async stop(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
-    const session = this.sessions.get(projectId);
-    if (!session) return this.stoppedSnapshot(projectId);
+    let session = this.sessions.get(projectId);
+    if (!session) {
+      const persisted = await this.store.get(projectId);
+      if (!persisted) return this.stoppedSnapshot(projectId);
+      const claimed = await this.store.claimRecovery({
+        id: persisted.id,
+        workerId: this.workerId,
+        now: new Date(),
+        leaseUntil: new Date(Date.now() + RUNTIME_LEASE_MS),
+      });
+      if (!claimed) return rowSnapshot(persisted);
+      session = {
+        ...rowSnapshot(claimed),
+        projectRoot: claimed.projectRoot,
+        workerId: this.workerId,
+      };
+      this.sessions.set(projectId, session);
+      this.startHeartbeat(session);
+    }
     await this.stopSession(session);
     return this.snapshot(session);
   }
 
-  async shutdown(): Promise<void> {
+  /**
+   * Graceful API replacement releases durable ownership but intentionally does
+   * not kill the detached project process. The next API worker can adopt it.
+   */
+  async shutdown(options: { preserveProcesses?: boolean } = {}): Promise<void> {
+    for (const session of this.sessions.values()) this.stopHeartbeat(session);
+    if (options.preserveProcesses) {
+      await this.store.releaseWorker(this.workerId);
+      this.sessions.clear();
+      return;
+    }
     await Promise.all([...this.sessions.values()].map((session) => this.stopSession(session)));
+    await this.store.releaseWorker(this.workerId);
     this.sessions.clear();
+  }
+
+  private async validateProjectRoot(candidate: string): Promise<string> {
+    try {
+      const projectRoot = await fs.realpath(candidate);
+      const packageJson = JSON.parse(await fs.readFile(`${projectRoot}/package.json`, "utf8")) as {
+        scripts?: Record<string, unknown>;
+      };
+      if (typeof packageJson.scripts?.dev !== "string" || !packageJson.scripts.dev.trim()) {
+        throw new WorkspaceRuntimeError(
+          "This project does not define a package.json dev script.",
+          "DEV_SCRIPT_MISSING",
+        );
+      }
+      return projectRoot;
+    } catch (error) {
+      if (error instanceof WorkspaceRuntimeError) throw error;
+      throw new WorkspaceRuntimeError(
+        "The project root is unavailable or its package.json cannot be read.",
+        "PROJECT_ROOT_UNAVAILABLE",
+      );
+    }
   }
 
   private attachLogs(session: RuntimeSession): void {
@@ -244,34 +437,72 @@ export class WorkspaceRuntimeManager {
         session.logs.push(safeLine);
         if (session.logs.length > MAX_LOG_LINES) session.logs.splice(0, session.logs.length - MAX_LOG_LINES);
       }
+      void this.persist(session, { logs: session.logs });
     };
-    session.child.stdout?.on("data", append);
-    session.child.stderr?.on("data", append);
+    session.child?.stdout?.on("data", append);
+    session.child?.stderr?.on("data", append);
+  }
+
+  private startHeartbeat(session: RuntimeSession): void {
+    this.stopHeartbeat(session);
+    session.heartbeatTimer = setInterval(() => {
+      void this.heartbeat(session);
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(session: RuntimeSession): void {
+    if (session.heartbeatTimer) clearInterval(session.heartbeatTimer);
+    session.heartbeatTimer = undefined;
+  }
+
+  private async heartbeat(session: RuntimeSession): Promise<void> {
+    if (!this.sessions.has(session.projectId)) return;
+    const now = new Date();
+    const leaseUntil = new Date(now.getTime() + RUNTIME_LEASE_MS);
+    const owned = await this.store.updateOwned(session.projectId, this.workerId, {
+      leaseUntil,
+      lastHeartbeatAt: now,
+    });
+    if (!owned) {
+      this.stopHeartbeat(session);
+      if (session.child || session.pid) await this.stopSession(session);
+    } else {
+      session.leaseUntil = leaseUntil.toISOString();
+      session.lastHeartbeatAt = now.toISOString();
+    }
+  }
+
+  private async persist(session: RuntimeSession, patch: RuntimeStorePatch): Promise<void> {
+    const updated = await this.store.updateOwned(session.projectId, this.workerId, patch);
+    if (!updated) {
+      this.stopHeartbeat(session);
+      return;
+    }
+    if (patch.status) session.status = patch.status;
+    if (patch.error !== undefined) session.error = patch.error;
+    if (patch.logs) session.logs = [...patch.logs];
   }
 
   private async stopSession(session: RuntimeSession, finalStatus: "stopped" | "failed" = "stopped"): Promise<void> {
     if (session.stopPromise) return session.stopPromise;
     session.stopPromise = (async () => {
-      if (session.child.exitCode !== null) {
-        session.status = finalStatus;
-        session.stoppedAt = new Date().toISOString();
-        session.pid = null;
-        return;
-      }
-      signalProcessGroup(session.child, "SIGTERM");
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          signalProcessGroup(session.child, "SIGKILL");
-          resolve();
-        }, STOP_TIMEOUT_MS);
-        session.child.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
+      this.stopHeartbeat(session);
+      await terminateProcessGroup(session.pid, session.child);
       session.status = finalStatus;
       session.stoppedAt = new Date().toISOString();
       session.pid = null;
+      session.leaseUntil = null;
+      session.lastHeartbeatAt = null;
+      await this.store.updateOwned(session.projectId, this.workerId, {
+        status: finalStatus,
+        pid: null,
+        stoppedAt: new Date(),
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        workerId: null,
+        error: session.error,
+        logs: session.logs,
+      });
     })();
     return session.stopPromise;
   }
@@ -287,15 +518,19 @@ export class WorkspaceRuntimeManager {
       startedAt: null,
       stoppedAt: null,
       pid: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
       error: null,
       logs: [],
     };
   }
 
   private snapshot(session: RuntimeSession): WorkspaceRuntimeSnapshot {
-    const { child: _child, projectRoot: _projectRoot, stopPromise: _stopPromise, ...snapshot } = session;
+    const { child: _child, projectRoot: _projectRoot, workerId: _workerId, stopPromise: _stopPromise, heartbeatTimer: _heartbeatTimer, ...snapshot } = session;
     return { ...snapshot, logs: [...snapshot.logs] };
   }
 }
 
-export const workspaceRuntime = new WorkspaceRuntimeManager();
+export const workspaceRuntime = new WorkspaceRuntimeManager({
+  store: databaseWorkspaceRuntimeStore,
+});

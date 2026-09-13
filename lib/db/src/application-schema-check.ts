@@ -60,6 +60,7 @@ type EnumRow = {
  */
 export const APPLICATION_SCHEMA_CONTRACT = {
   tables: {
+    workspace_runtime: [],
     // Provider telemetry is release-critical even though its payload columns
     // are owned by the AI diagnostics contract rather than execution proof.
     ai_usage_events: [],
@@ -659,6 +660,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly ForeignKeyContract[],
   enums: {
+    workspace_runtime_status: ["stopped", "starting", "running", "failed"],
     task_status: [
       "pending",
       "queued",

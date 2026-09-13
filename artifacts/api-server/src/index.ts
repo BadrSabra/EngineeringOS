@@ -66,6 +66,7 @@ const port = getPort();
 let httpServer: Server | undefined;
 let staleJobSweep: NodeJS.Timeout | undefined;
 let durableJobDispatcher: NodeJS.Timeout | undefined;
+let workspaceRuntimeSweep: NodeJS.Timeout | undefined;
 let memorySweep: { stop: () => void } | undefined;
 let shuttingDown = false;
 
@@ -98,8 +99,9 @@ async function shutdown(signal: string): Promise<void> {
   stopCatalogRefresh();
   if (staleJobSweep) clearInterval(staleJobSweep);
   if (durableJobDispatcher) clearInterval(durableJobDispatcher);
+  if (workspaceRuntimeSweep) clearInterval(workspaceRuntimeSweep);
   memorySweep?.stop();
-  await workspaceRuntime.shutdown();
+  await workspaceRuntime.shutdown({ preserveProcesses: true });
   await new Promise<void>((resolve) => {
     if (!httpServer) return resolve();
     httpServer.close(() => resolve());
@@ -186,6 +188,15 @@ try {
 // never throws, so a reconciliation bug can't block startup.
 await reconcileStuckJobs();
 
+// Recover project-owned Preview processes whose previous API worker exited.
+// The durable runtime row owns the lease; the detached process is adopted only
+// when its recorded PID and port are both still reachable.
+try {
+  await workspaceRuntime.recover();
+} catch (err) {
+  logger.warn({ err }, "workspace runtime recovery failed; runtime controls remain available");
+}
+
 // Report (read-only) any projects whose root_path points to a dead temp
 // directory (e.g. a legacy GitHub import clone under /tmp/eos-git-*). Roots
 // are never rewritten — scans of such projects fail with root_unavailable
@@ -234,6 +245,11 @@ httpServer = app.listen(port, (err) => {
   // persisted queue rows frequently so another instance can recover work that
   // was committed just before the original process disappeared.
   durableJobDispatcher = startDurableJobDispatcher();
+  workspaceRuntimeSweep = setInterval(() => {
+    void workspaceRuntime.recover().catch((err) => {
+      logger.warn({ err }, "workspace runtime recovery sweep failed");
+    });
+  }, 10_000);
 
   // Start the session-memory maintenance worker — it recovers durable memory
   // writes and prunes/decays rows. Retention runs every 6 hours, while the
