@@ -1123,6 +1123,7 @@ describe("executeToolLoop", () => {
       rootPath: "/project",
       pendingChanges: [],
       maxIterations: 3,
+      objectiveEvidenceSources: new Map([[requiredPath, retainedSource]]),
       objective: {
         goal: "trace the embedded AI layer",
         requiredEvidencePaths: [requiredPath],
@@ -2069,6 +2070,75 @@ describe("executeToolLoop", () => {
     );
     expect(result.sourceRetrieval?.redundantReads).toBe(1);
     expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
+  });
+
+  it("preserves a usable objective locator when the provider replay is truncated", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const requiredPath = "src/chat-agent.ts";
+    const locator = Array.from({ length: 40 }, (_, index) =>
+      index === 19
+        ? "export function executeToolLoop() { return loopResult; }"
+        : `const line${index + 1} = ${index + 1};`,
+    ).join("\n");
+    const truncated =
+      `File: ${requiredPath}\n\`\`\`\nconst partial = true;\n` +
+      "[... output truncated at 128 KB by the read tool ...]\n```";
+    const targeted = `File: ${requiredPath}\n\`\`\`\n${locator.split("\n").slice(17, 24).join("\n")}\n\`\`\``;
+    const steps: AgentStep[] = [];
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_TARGETED">([
+      [requiredPath, "READ_TRUNCATED"],
+    ]);
+    const rangeCalls: Array<Record<string, string>> = [];
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string; startLine?: string; endLine?: string }) => {
+      if (name === "read_file_range") {
+        rangeCalls.push({ ...args } as Record<string, string>);
+        return targeted;
+      }
+      return truncated;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("full", "read_file", { path: requiredPath })]),
+        makeResponse("verified from the recovered objective window"),
+        makeResponse("verified from the recovered objective window"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      objectiveEvidenceSources: new Map([[requiredPath, locator]]),
+      objective: {
+        goal: "prove the chat agent tool loop",
+        requiredEvidencePaths: [requiredPath],
+        requiredClaims: [{
+          claimId: "ai-tool-loop",
+          requiredEvidencePaths: [requiredPath],
+          evidenceNeedles: ["executeToolLoop", "loopResult"],
+        }],
+      },
+      maxIterations: 4,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(rangeCalls).toHaveLength(1);
+    expect(rangeCalls[0]).toMatchObject({ path: requiredPath });
+    expect(Number(rangeCalls[0].startLine)).toBeGreaterThan(0);
+    expect(Number(rangeCalls[0].endLine)).toBeGreaterThanOrEqual(Number(rangeCalls[0].startLine));
+    expect(steps).not.toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "OBJECTIVE_EVIDENCE_WINDOW_UNAVAILABLE",
+    }));
+    expect(retainedReadStatuses.get(requiredPath)).toBe("READ_TARGETED");
   });
 
   it("runs one no-tools JSON synthesis pass after forensic prefetch", async () => {

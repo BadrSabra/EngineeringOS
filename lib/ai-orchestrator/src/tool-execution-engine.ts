@@ -2213,8 +2213,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     sourceRetrieval.readAttempts += 1;
     const status = classifyReadStatus(toolName, output);
     if (path !== undefined && path.trim()) {
-      if (status === "READ_TRUNCATED" && objective) {
-        objectiveLocatorSources.set(path, output);
+      // Keep server-owned locator data monotonic. A provider-selected
+      // truncated/failed read is useful trace telemetry, but it must not
+      // replace a usable locator body that can still be searched for the
+      // bounded objective evidence window.
+      if (status === "READ_COMPLETE" && objective) {
+        const canonicalPath = canonicalRel(path);
+        const existingLocatorKey = [...objectiveLocatorSources.keys()]
+          .find((candidatePath) => canonicalRel(candidatePath) === canonicalPath);
+        objectiveLocatorSources.set(existingLocatorKey ?? canonicalPath, output);
       }
       if (status === "READ_TRUNCATED" && readStatusByPath.get(path) !== "READ_TRUNCATED") {
         sourceRetrieval.truncatedReads += 1;
