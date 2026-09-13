@@ -395,6 +395,34 @@ paths:
                 items:
                   $ref: "#/components/schemas/TaskLog"
 
+  /api/tasks/{taskId}/logs/stream:
+    get:
+      operationId: streamTaskLogs
+      summary: Replay and stream durable task progress events
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: after
+          in: query
+          required: false
+          description: Resume after this server-owned progress sequence.
+          schema: { type: integer, minimum: 0 }
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: SSE cursor used by reconnecting clients.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Server-sent durable task progress stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
   # ─── Rules ───────────────────────────────────────────────────────────────────
   /api/rules:
     get:
@@ -7275,6 +7303,50 @@ components:
         timestamp:
           type: string
           format: date-time
+        correlationId:
+          type: string
+          nullable: true
+        eventType:
+          type: string
+          enum: [progress, terminal]
+          nullable: true
+        executionId:
+          type: string
+          nullable: true
+        attempt:
+          type: integer
+          nullable: true
+        sequence:
+          type: integer
+          nullable: true
+        progressStage:
+          type: string
+          enum: [acquisition, context, model, attempt, analysis, verification, finalization, result]
+          nullable: true
+        progressStatus:
+          type: string
+          enum: [pending, active, completed, blocked, failed, cancelled]
+          nullable: true
+        progressPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        progressMessage:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        terminalOutcome:
+          type: string
+          enum: [SUCCEEDED, FAILED, INTERRUPTED]
+          nullable: true
 
     VerificationResult:
       type: object

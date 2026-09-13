@@ -36,6 +36,7 @@ import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
 } from "./remediation-plan.js";
+import { createTaskProgressEmitter } from "./task-progress.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -444,7 +445,17 @@ export async function executeTaskLifecycle(params: {
       correlationId,
     }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
   };
+  const progress = createTaskProgressEmitter({
+    taskId: before.id,
+    executionId,
+    attempt: executionAttempt,
+    workerId,
+    correlationId,
+    trigger: params.trigger,
+  });
   await log("info", "AI task execution claimed", { stage: "claim", workerId });
+  await progress.start("acquisition", "Execution acquired.", 8, 1);
+  await progress.finish("acquisition", "completed", "Execution is owned by the active worker.", 12, 1);
   const initialCheckpointed = await checkpointAiExecution({
     executionId, workerId,
     checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
@@ -460,7 +471,7 @@ export async function executeTaskLifecycle(params: {
       stages,
       code: "checkpoint_persistence_failed",
     });
-    await finalizeTaskExecutionAcceptance({
+    const finalized = await finalizeTaskExecutionAcceptance({
       executionId,
       workerId,
       task: before,
@@ -476,6 +487,10 @@ export async function executeTaskLifecycle(params: {
       logMessage: "AI task execution could not persist its initial checkpoint",
       logMetadata: { stage: "claim", code: "checkpoint_persistence_failed" },
     });
+    if (finalized.accepted) {
+      await progress.finish("finalization", "failed", "Saving the execution checkpoint failed.", 92, 7);
+      await progress.terminal("FAILED", "Task execution failed before model work began.");
+    }
     return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
   }
   const heartbeat = setInterval(() => {
@@ -496,16 +511,19 @@ export async function executeTaskLifecycle(params: {
   try {
     stage = "context";
     stages.push("context");
+    await progress.start("context", "Building project context.", 16, 2);
     await log("info", "Building project context", { stage: "context" });
     if (executionAbortController.signal.aborted) throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
     const projectContext = await buildProjectContext(before.projectId, { sections: [...CONTEXT_SECTIONS] });
+    await progress.finish("context", "completed", "Project context is ready.", 24, 2);
     await checkpointAiExecution({
       executionId, workerId,
       checkpoint: { stage: "model_call", sequence: 2, detail: "Project context built.", updatedAt: new Date().toISOString() },
     });
-    const progress = async (message: string) => log("info", message, { stage: "progress" });
+    const progressMessage = async (message: string) => log("info", message, { stage: "progress" });
     stage = "provider_call";
     stages.push("provider_call");
+    await progress.start("model", "Calling the AI model.", 32, 3);
     const { result, effectiveProvider } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
       params.userId,
       params.provider,
@@ -518,9 +536,39 @@ export async function executeTaskLifecycle(params: {
         remediationPlan: before.remediationPlan ?? null,
         projectContext,
         ...opts,
-      }, { onProgress: progress, signal: executionAbortController.signal }),
+      }, {
+        onProgress: progressMessage,
+        signal: executionAbortController.signal,
+        onModelAttempt: async (attempt) => {
+          const isRetry = attempt.outcome !== "success" || attempt.contractOutcome === "malformed_but_recovered";
+          if (isRetry) {
+            await progress.start("attempt", "Retrying the model attempt.", 40, 4);
+          }
+          await progress.finish(
+            "attempt",
+            attempt.outcome === "success" ? "completed" : "failed",
+            attempt.outcome === "success" ? "Model attempt completed." : "Model attempt needs recovery.",
+            44,
+            4,
+          );
+        },
+      }),
       {
         qualityProfile: "task_execution",
+        onProviderAttempt: async (attempt) => {
+          if (attempt.fallbackCount > 0) {
+            await progress.start("attempt", "Trying a server-selected recovery attempt.", 42, 4);
+          }
+          if (attempt.outcome === "failure" || attempt.outcome === "cancelled") {
+            await progress.finish(
+              "attempt",
+              attempt.outcome === "cancelled" ? "cancelled" : "failed",
+              attempt.outcome === "cancelled" ? "Execution was cancelled." : "The model attempt did not complete.",
+              44,
+              4,
+            );
+          }
+        },
         signal: executionAbortController.signal,
         telemetryContext: {
           projectId: before.projectId,
@@ -531,7 +579,11 @@ export async function executeTaskLifecycle(params: {
       },
     );
     executionProvider = effectiveProvider;
-    if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");
+    if (effectiveProvider !== params.provider.provider) {
+      stages.push("provider_fallback");
+      await progress.finish("attempt", "completed", "A recovery attempt completed.", 48, 4);
+    }
+    await progress.finish("model", "completed", "The model response was received.", 56, 3);
     if (executionAbortController.signal.aborted) {
       throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
     }
@@ -539,13 +591,16 @@ export async function executeTaskLifecycle(params: {
     if (result._parseError) {
       stage = "parse";
       stages.push("parse");
+      await progress.start("analysis", "Analyzing the model response.", 64, 5);
+      await progress.finish("analysis", "failed", "The model response could not be accepted.", 68, 5);
+      await progress.start("finalization", "Recording the failed execution.", 84, 7);
       const parseReceipt = failureReceipt({
         executionId, correlationId, revision: params.workspaceRevision,
         provider: effectiveProvider, attempt: executionAttempt,
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
       });
       const error = `model_output_invalid:${result._parseError.code}`;
-      await finalizeTaskExecutionAcceptance({
+      const finalized = await finalizeTaskExecutionAcceptance({
         executionId,
         workerId,
         task: before,
@@ -561,6 +616,10 @@ export async function executeTaskLifecycle(params: {
         logMessage: "AI task output was invalid",
         logMetadata: { stage: "parse", code: result._parseError.code },
       });
+      if (finalized.accepted) {
+        await progress.finish("finalization", "completed", "The failed execution was recorded.", 92, 7);
+        await progress.terminal("FAILED", "Task execution failed validation.");
+      }
       return {
         ok: false,
         status: "failed",
@@ -573,6 +632,11 @@ export async function executeTaskLifecycle(params: {
     if (result._qualityError) {
       stage = "quality";
       stages.push("quality");
+      await progress.start("analysis", "Analyzing the model response.", 64, 5);
+      await progress.finish("analysis", "completed", "The model response was parsed.", 72, 5);
+      await progress.start("verification", "Running the server quality gate.", 76, 6);
+      await progress.finish("verification", "failed", "The result did not pass the quality gate.", 80, 6);
+      await progress.start("finalization", "Recording the failed execution.", 84, 7);
       const quality = result._qualityError;
       const qualityReceipt = failureReceipt({
         executionId,
@@ -584,7 +648,7 @@ export async function executeTaskLifecycle(params: {
         stages,
         code: quality.code,
       });
-      await finalizeTaskExecutionAcceptance({
+      const finalized = await finalizeTaskExecutionAcceptance({
         executionId,
         workerId,
         task: before,
@@ -606,6 +670,10 @@ export async function executeTaskLifecycle(params: {
           reasons: quality.reasons,
         },
       });
+      if (finalized.accepted) {
+        await progress.finish("finalization", "completed", "The failed execution was recorded.", 92, 7);
+        await progress.terminal("FAILED", "Task execution did not pass quality checks.");
+      }
       return {
         ok: false,
         status: "failed",
@@ -622,6 +690,17 @@ export async function executeTaskLifecycle(params: {
     if (finalConflict) throw new Error(finalConflict);
     stage = "finalize";
     stages.push("finalize");
+    await progress.start("analysis", "Analyzing the model response.", 64, 5);
+    await progress.finish("analysis", "completed", "The model response was parsed.", 72, 5);
+    await progress.start("verification", "Running server-owned verification.", 76, 6);
+    await progress.finish(
+      "verification",
+      "completed",
+      finalStatus === "verifying" ? "Operator verification is required." : "Server verification completed.",
+      80,
+      6,
+    );
+    await progress.start("finalization", "Recording the execution outcome.", 84, 7);
     const taskReceipt = buildAiTaskExecutionReceipt({
       executionId, correlationId, revision: params.workspaceRevision,
        provider: executionProvider, attempt: executionAttempt,
@@ -646,6 +725,17 @@ export async function executeTaskLifecycle(params: {
     if (!finalized.accepted) {
       throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });
     }
+    await progress.finish(
+      "finalization",
+      "completed",
+      finalStatus === "verifying" ? "Execution accepted; review remains open." : "Execution accepted.",
+      92,
+      7,
+    );
+    await progress.terminal(
+      "SUCCEEDED",
+      finalStatus === "verifying" ? "Task finished and is awaiting verification." : "Task completed successfully.",
+    );
     const [updated] = await db
       .select()
       .from(tasksTable)
@@ -663,7 +753,14 @@ export async function executeTaskLifecycle(params: {
       durationMs: Date.now() - startedAt, stages, code, cancelled,
     });
     const message = safeText(code, 120);
-    await finalizeTaskExecutionAcceptance({
+    await progress.finish(
+      stage === "context" ? "context" : "finalization",
+      cancelled ? "cancelled" : "failed",
+      cancelled ? "Execution was cancelled." : "Recording the execution failure.",
+      stage === "context" ? 24 : 92,
+      stage === "context" ? 2 : 7,
+    );
+    const finalized = await finalizeTaskExecutionAcceptance({
       executionId,
       workerId,
       task: before,
@@ -683,6 +780,12 @@ export async function executeTaskLifecycle(params: {
         : "AI task execution failed",
       logMetadata: { stage, code: "provider_or_context_failure" },
     });
+    if (finalized.accepted) {
+      await progress.terminal(
+        cancelled ? "INTERRUPTED" : "FAILED",
+        cancelled ? "Task execution was cancelled." : "Task execution failed.",
+      );
+    }
     invalidateContextCache(before.projectId);
     return {
       ok: false,

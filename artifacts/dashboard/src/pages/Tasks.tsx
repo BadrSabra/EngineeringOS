@@ -320,15 +320,83 @@ function groupActivity(logs: TaskLog[]): ActivityItem[] {
   return groups;
 }
 
-function taskPlan(task: TaskView): Array<{ title: string; status: 'done' | 'active' | 'pending' | 'blocked'; detail: string }> {
+type TimelineStep = {
+  title: string;
+  stage: string;
+  status: 'done' | 'active' | 'pending' | 'blocked' | 'failed';
+  detail: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  percent?: number | null;
+};
+
+const TIMELINE_STAGES: Array<{ stage: string; title: string }> = [
+  { stage: 'acquisition', title: 'Wait / acquire' },
+  { stage: 'context', title: 'Build context' },
+  { stage: 'model', title: 'Call model' },
+  { stage: 'attempt', title: 'Attempt / fallback' },
+  { stage: 'analysis', title: 'Analyze response' },
+  { stage: 'verification', title: 'Verify result' },
+  { stage: 'finalization', title: 'Finalize' },
+  { stage: 'result', title: 'Final result' },
+];
+
+function taskPlan(task: TaskView, logs: TaskLog[]): TimelineStep[] {
+  const structured = logs.filter((log) => log.eventType === 'progress' || log.eventType === 'terminal');
+  if (structured.length > 0) {
+    const latestByStage = new Map<string, TaskLog>();
+    for (const log of [...structured].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))) {
+      if (log.progressStage) latestByStage.set(log.progressStage, log);
+    }
+    return TIMELINE_STAGES.map(({ stage, title }) => {
+      const latest = latestByStage.get(stage);
+      const status = latest?.progressStatus;
+      return {
+        stage,
+        title,
+        status: status === 'completed'
+          ? 'done'
+          : status === 'failed'
+            ? 'failed'
+            : status === 'blocked' || status === 'cancelled'
+              ? 'blocked'
+              : status === 'active'
+                ? 'active'
+                : 'pending',
+        detail: latest?.progressMessage ?? 'Waiting for the server to begin this stage.',
+        startedAt: latest?.startedAt,
+        finishedAt: latest?.finishedAt,
+        percent: latest?.progressPercent,
+      };
+    });
+  }
+
   const terminal = ['completed', 'failed', 'cancelled'].includes(task.status);
   const verificationDone = Boolean(task.verificationResult);
   return [
-    { title: 'Understand the task', status: 'done', detail: 'Task goal and project scope recorded.' },
-    { title: 'Execute the approved workflow', status: task.status === 'pending' || task.status === 'queued' ? 'pending' : 'done', detail: 'Only the existing task execution path is used.' },
-    { title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
-    { title: 'Report outcome', status: terminal ? 'done' : 'pending', detail: terminal ? 'Final outcome is preserved below.' : 'The final report will remain available after completion.' },
+    { stage: 'legacy-goal', title: 'Understand the task', status: 'done', detail: 'Task goal and project scope recorded.' },
+    { stage: 'legacy-execute', title: 'Execute the approved workflow', status: task.status === 'pending' || task.status === 'queued' ? 'pending' : 'done', detail: 'Only the existing task execution path is used.' },
+    { stage: 'legacy-verify', title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
+    { stage: 'legacy-result', title: 'Report outcome', status: terminal ? 'done' : 'pending', detail: terminal ? 'Final outcome is preserved below.' : 'The final report will remain available after completion.' },
   ];
+}
+
+function logOrder(a: TaskLog, b: TaskLog): number {
+  if (a.sequence !== null && a.sequence !== undefined && b.sequence !== null && b.sequence !== undefined) {
+    return a.sequence - b.sequence;
+  }
+  if (a.sequence !== null && a.sequence !== undefined) return 1;
+  if (b.sequence !== null && b.sequence !== undefined) return -1;
+  return a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
+}
+
+function stageDuration(step: TimelineStep): string | null {
+  if (!step.startedAt) return null;
+  const end = step.finishedAt ? new Date(step.finishedAt).getTime() : Date.now();
+  const start = new Date(step.startedAt).getTime();
+  if (!Number.isFinite(start) || end < start) return null;
+  const seconds = Math.floor((end - start) / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
 function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
@@ -346,6 +414,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenIds = useRef(new Set<string>());
+  const cursor = useRef(0);
 
   useEffect(() => {
     if (!isRunning) {
@@ -356,7 +425,10 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       return;
     }
 
-    const es = new EventSource(`/api/tasks/${taskId}/logs/stream`);
+    const streamUrl = cursor.current > 0
+      ? `/api/tasks/${taskId}/logs/stream?after=${cursor.current}`
+      : `/api/tasks/${taskId}/logs/stream`;
+    const es = new EventSource(streamUrl);
     setSseActive(true);
     setConnectionState('connected');
 
@@ -365,7 +437,8 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         const log = JSON.parse(e.data) as TaskLog;
         if (seenIds.current.has(log.id)) return;
         seenIds.current.add(log.id);
-        setLiveLogs((prev) => [...prev, log].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)));
+        if (log.sequence !== null && log.sequence !== undefined) cursor.current = Math.max(cursor.current, log.sequence);
+        setLiveLogs((prev) => [...prev, log].sort(logOrder));
       } catch { /* ignore malformed frames */ }
     });
 
@@ -408,18 +481,26 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     },
   });
 
-  // While running show SSE stream (oldest-first); after done show REST result (reversed)
+  // Merge REST snapshots and SSE replay by durable row identity. The server
+  // sequence wins over arrival order, so reconnects cannot reverse the timeline.
   const allLogs = new Map<string, TaskLog>();
-  for (const log of polledLogs ?? []) allLogs.set(log.id, log);
+  for (const log of polledLogs ?? []) {
+    allLogs.set(log.id, log);
+    if (log.sequence !== null && log.sequence !== undefined) cursor.current = Math.max(cursor.current, log.sequence);
+  }
   for (const log of liveLogs) allLogs.set(log.id, log);
   const logs: TaskLog[] = [...allLogs.values()].sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
+    logOrder(a, b));
   const operationId = logs
     .map((log) => log.metadata?.operationId)
     .find((value): value is string => typeof value === 'string');
   const groupedActivity = groupActivity(logs);
-  const plan = taskPlan(task);
+  const plan = taskPlan(task, logs);
   const completedSteps = plan.filter((step) => step.status === 'done').length;
+  const serverPercent = logs
+    .filter((log) => log.progressPercent !== null && log.progressPercent !== undefined)
+    .sort(logOrder)
+    .at(-1)?.progressPercent;
   const elapsedMs = Math.max(0, new Date((task.completedAt ?? task.updatedAt)).getTime() - new Date(task.createdAt).getTime());
   const elapsed = `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
   const final = ['completed', 'failed', 'cancelled'].includes(taskStatus);
@@ -461,7 +542,11 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
           ['Goal', task.title],
           ['Status', taskStatus],
           ['Phase', task.phase || 'Execution'],
-          ['Progress', `${completedSteps}/${plan.length} steps`],
+          ['Progress', serverPercent !== null && serverPercent !== undefined
+            ? `${serverPercent}%`
+            : plan.some((step) => step.status === 'active')
+              ? 'Indeterminate'
+              : `${completedSteps}/${plan.length} steps`],
           ['Elapsed', elapsed],
         ].map(([label, value]) => (
           <div key={label} className="rounded-lg border border-border bg-background p-3 min-w-0">
@@ -516,11 +601,21 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
         <h4 id={`plan-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Execution plan</h4>
         <div className="border border-border rounded-lg divide-y divide-border bg-background">
           {plan.map((step, index) => (
-            <div key={step.title} className="flex items-start gap-3 p-3">
-              <span className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] ${step.status === 'done' ? 'border-emerald-500 text-emerald-500' : step.status === 'active' ? 'border-primary text-primary' : 'border-border text-muted-foreground'}`}>
-                {step.status === 'done' ? '✓' : index + 1}
+            <div key={step.stage} className="flex items-start gap-3 p-3">
+              <span className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] ${step.status === 'done' ? 'border-emerald-500 text-emerald-500' : step.status === 'active' ? 'border-primary text-primary animate-pulse' : step.status === 'failed' || step.status === 'blocked' ? 'border-destructive text-destructive' : 'border-border text-muted-foreground'}`}>
+                {step.status === 'done' ? '✓' : step.status === 'failed' || step.status === 'blocked' ? '!' : index + 1}
               </span>
-              <div className="min-w-0"><div className="text-sm font-medium">{step.title}</div><div className="text-xs text-muted-foreground mt-0.5">{step.detail}</div></div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">{step.title}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{step.detail}</div>
+                {(step.startedAt || step.percent !== null && step.percent !== undefined) && (
+                  <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                    {step.startedAt && <span>Started {new Date(step.startedAt).toLocaleTimeString('en', { hour12: false })}</span>}
+                    {stageDuration(step) && <span>Duration {stageDuration(step)}</span>}
+                    {step.percent !== null && step.percent !== undefined && <span>{step.percent}% server progress</span>}
+                  </div>
+                )}
+              </div>
               <span className="ml-auto text-[10px] uppercase text-muted-foreground">{step.status}</span>
             </div>
           ))}

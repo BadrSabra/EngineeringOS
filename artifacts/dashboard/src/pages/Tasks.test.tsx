@@ -255,6 +255,79 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText(/Internal prompts and provider diagnostics are not shown/i)).toBeInTheDocument();
   });
 
+  it('renders the durable progress timeline from out-of-order logs without duplicates', () => {
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-progress',
+        projectId: 'project-1',
+        title: 'Replay progress timeline',
+        status: 'completed',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:03:00.000Z',
+        completedAt: '2026-08-25T10:03:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    const contextLog = {
+      id: 'progress-2',
+      taskId: 'task-progress',
+      level: 'info' as const,
+      message: 'context ready',
+      timestamp: '2026-08-25T10:01:00.000Z',
+      eventType: 'progress' as const,
+      executionId: 'execution-1',
+      attempt: 1,
+      sequence: 2,
+      progressStage: 'context' as const,
+      progressStatus: 'completed' as const,
+      progressMessage: 'Project context is ready.',
+      startedAt: '2026-08-25T10:00:30.000Z',
+      finishedAt: '2026-08-25T10:01:00.000Z',
+    };
+    vi.mocked(useGetTaskLogs).mockReturnValue({
+      data: [
+        {
+          id: 'progress-3',
+          taskId: 'task-progress',
+          level: 'info',
+          message: 'task complete',
+          timestamp: '2026-08-25T10:03:00.000Z',
+          eventType: 'terminal',
+          executionId: 'execution-1',
+          attempt: 1,
+          sequence: 3,
+          progressStage: 'result',
+          progressStatus: 'completed',
+          progressPercent: 100,
+          progressMessage: 'Task completed successfully.',
+          terminalOutcome: 'SUCCEEDED',
+        },
+        contextLog,
+        contextLog,
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetTaskLogs>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Replay progress timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
+
+    expect(screen.getByText('Build context')).toBeInTheDocument();
+    expect(screen.getByText('Final result')).toBeInTheDocument();
+    expect(screen.getByText('100% server progress')).toBeInTheDocument();
+    expect(screen.getAllByText('Project context is ready.')).toHaveLength(1);
+  });
+
   it('separates the current rule decision from its expandable verification history', () => {
     vi.mocked(useListTasks).mockReturnValue({
       data: [{

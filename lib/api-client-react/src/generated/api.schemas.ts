@@ -3888,6 +3888,49 @@ export const TaskLogLevel = {
 
 export type TaskLogMetadata = { [key: string]: unknown };
 
+export type TaskLogEventType = typeof TaskLogEventType[keyof typeof TaskLogEventType] | null;
+
+
+export const TaskLogEventType = {
+  progress: 'progress',
+  terminal: 'terminal',
+} as const;
+
+export type TaskLogProgressStage = typeof TaskLogProgressStage[keyof typeof TaskLogProgressStage] | null;
+
+
+export const TaskLogProgressStage = {
+  acquisition: 'acquisition',
+  context: 'context',
+  model: 'model',
+  attempt: 'attempt',
+  analysis: 'analysis',
+  verification: 'verification',
+  finalization: 'finalization',
+  result: 'result',
+} as const;
+
+export type TaskLogProgressStatus = typeof TaskLogProgressStatus[keyof typeof TaskLogProgressStatus] | null;
+
+
+export const TaskLogProgressStatus = {
+  pending: 'pending',
+  active: 'active',
+  completed: 'completed',
+  blocked: 'blocked',
+  failed: 'failed',
+  cancelled: 'cancelled',
+} as const;
+
+export type TaskLogTerminalOutcome = typeof TaskLogTerminalOutcome[keyof typeof TaskLogTerminalOutcome] | null;
+
+
+export const TaskLogTerminalOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
 export interface TaskLog {
   id: string;
   taskId: string;
@@ -3895,6 +3938,22 @@ export interface TaskLog {
   message: string;
   metadata?: TaskLogMetadata;
   timestamp: string;
+  correlationId?: string | null;
+  eventType?: TaskLogEventType;
+  executionId?: string | null;
+  attempt?: number | null;
+  sequence?: number | null;
+  progressStage?: TaskLogProgressStage;
+  progressStatus?: TaskLogProgressStatus;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  progressPercent?: number | null;
+  progressMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  terminalOutcome?: TaskLogTerminalOutcome;
 }
 
 export interface RecordTaskVerificationInput {
@@ -4564,6 +4623,14 @@ page?: number;
  * @maximum 200
  */
 pageSize?: number;
+};
+
+export type StreamTaskLogsParams = {
+/**
+ * Resume after this server-owned progress sequence.
+ * @minimum 0
+ */
+after?: number;
 };
 
 export type ListRulesParams = {

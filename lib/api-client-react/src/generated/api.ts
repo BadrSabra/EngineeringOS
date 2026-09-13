@@ -142,6 +142,7 @@ import type {
   SaveOpenRouterKeyInput,
   ScanJob,
   StartDiscoveryInput,
+  StreamTaskLogsParams,
   Task,
   TaskLog,
   UpdateAiProjectBudgetAlert200,
@@ -1652,6 +1653,95 @@ export function useGetTaskLogs<TData = Awaited<ReturnType<typeof getTaskLogs>>, 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTaskLogsQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getStreamTaskLogsUrl = (taskId: string,
+    params?: StreamTaskLogsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/tasks/${taskId}/logs/stream?${stringifiedParams}` : `/api/tasks/${taskId}/logs/stream`
+}
+
+/**
+ * @summary Replay and stream durable task progress events
+ */
+export const streamTaskLogs = async (taskId: string,
+    params?: StreamTaskLogsParams, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getStreamTaskLogsUrl(taskId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getStreamTaskLogsQueryKey = (taskId: string,
+    params?: StreamTaskLogsParams,) => {
+    return [
+    `/api/tasks/${taskId}/logs/stream`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getStreamTaskLogsQueryOptions = <TData = Awaited<ReturnType<typeof streamTaskLogs>>, TError = ErrorType<unknown>>(taskId: string,
+    params?: StreamTaskLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamTaskLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getStreamTaskLogsQueryKey(taskId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof streamTaskLogs>>> = ({ signal }) => streamTaskLogs(taskId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof streamTaskLogs>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type StreamTaskLogsQueryResult = NonNullable<Awaited<ReturnType<typeof streamTaskLogs>>>
+export type StreamTaskLogsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Replay and stream durable task progress events
+ */
+
+export function useStreamTaskLogs<TData = Awaited<ReturnType<typeof streamTaskLogs>>, TError = ErrorType<unknown>>(
+ taskId: string,
+    params?: StreamTaskLogsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof streamTaskLogs>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getStreamTaskLogsQueryOptions(taskId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

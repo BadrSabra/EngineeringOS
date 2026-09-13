@@ -122,6 +122,7 @@ function patchGeneratedTypesIndex(apiPath: string): void {
   const duplicateExports = [
     "export * from './listAiProjectBudgetAlertsParams';",
     "export * from './updateAiProjectBudgetAlertBody';",
+    "export * from './streamTaskLogsParams';",
   ];
   const patched = index
     .split("\n")

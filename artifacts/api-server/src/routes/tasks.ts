@@ -20,7 +20,7 @@ import {
   RecordTaskVerificationBody,
   RecordTaskVerificationParams,
 } from "@workspace/api-zod";
-import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
+import { eq, and, desc, gt, asc, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -46,6 +46,47 @@ const router = Router();
 router.use(requireAuth);
 
 class TaskStateConflictError extends Error {}
+
+const PUBLIC_TASK_LOG_METADATA = new Set([
+  "trigger",
+  "stage",
+  "stepIndex",
+  "stepCount",
+  "code",
+]);
+
+function publicTaskLog(log: typeof taskLogsTable.$inferSelect) {
+  const metadata = log.metadata && typeof log.metadata === "object"
+    ? Object.fromEntries(
+      Object.entries(log.metadata).filter(([key, value]) =>
+        PUBLIC_TASK_LOG_METADATA.has(key)
+        && (typeof value === "string" || typeof value === "number" || value === null),
+      ),
+    )
+    : undefined;
+  return {
+    id: log.id,
+    taskId: log.taskId,
+    level: log.level,
+    message: log.message.replace(/\/(?:home\/runner|workspace|tmp)\/[^\s"'<>),;]+/g, "[project path]").slice(0, 500),
+    ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
+    timestamp: log.timestamp,
+    ...(log.correlationId ? { correlationId: log.correlationId } : {}),
+    ...(log.eventType ? {
+      eventType: log.eventType,
+      executionId: log.executionId,
+      attempt: log.attempt,
+      sequence: log.sequence,
+      progressStage: log.progressStage,
+      progressStatus: log.progressStatus,
+      progressPercent: log.progressPercent,
+      progressMessage: log.progressMessage,
+      startedAt: log.startedAt,
+      finishedAt: log.finishedAt,
+      terminalOutcome: log.terminalOutcome,
+    } : {}),
+  };
+}
 
 function serverOwnedVerificationChecks(
   plan: typeof tasksTable.$inferSelect["remediationPlan"],
@@ -957,8 +998,8 @@ router.get("/tasks/:taskId/logs", async (req, res) => {
     .select()
     .from(taskLogsTable)
     .where(eq(taskLogsTable.taskId, taskId))
-    .orderBy(desc(taskLogsTable.timestamp));
-  return res.json(logs);
+    .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
+  return res.json(logs.map(publicTaskLog));
 });
 
 // SSE: stream task logs in real-time while a task is running
@@ -987,63 +1028,83 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  // Send all existing logs immediately (oldest first)
+  const requestedCursor = Number(req.query.after ?? req.get("Last-Event-ID") ?? 0);
+  let cursor = Number.isSafeInteger(requestedCursor) && requestedCursor > 0 ? requestedCursor : 0;
   const existing = await db
     .select()
     .from(taskLogsTable)
     .where(eq(taskLogsTable.taskId, taskId))
-    .orderBy(asc(taskLogsTable.timestamp));
-  for (const log of existing) send("log", log);
-
-  // Track cursor as the latest timestamp seen
-  let cursor = existing.length > 0
-    ? { timestamp: existing[existing.length - 1].timestamp, id: existing[existing.length - 1].id }
-    : { timestamp: new Date(0), id: "" };
+    .orderBy(asc(taskLogsTable.sequence), asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
+  const structured = existing.filter((log) => log.executionId && log.sequence !== null);
+  const terminalAlreadyKnown = existing.some((log) =>
+    log.eventType === "terminal" && (cursor === 0 || (log.sequence ?? 0) <= cursor),
+  );
+  const hasStructuredExecution = structured.length > 0;
+  let terminalSeen = terminalAlreadyKnown;
+  for (const log of existing) {
+    if (cursor === 0 || (log.sequence !== null && log.sequence > cursor)) {
+      if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
+      send("log", publicTaskLog(log));
+      if (log.eventType === "terminal") terminalSeen = true;
+    }
+  }
 
   let closed = false;
   req.on("close", () => { closed = true; });
 
   // 5-minute max stream lifetime
   const ttl = setTimeout(() => {
-    if (!closed) { send("done", { reason: "timeout" }); res.end(); }
+    if (!closed) { send("done", { reason: "timeout", cursor }); res.end(); }
   }, 5 * 60_000);
 
+  let terminalDeadline: number | null = terminalSeen ? Date.now() : null;
+  let polling = false;
   const interval = setInterval(async () => {
-    if (closed) { clearInterval(interval); clearTimeout(ttl); return; }
+    if (closed || polling) return;
+    polling = true;
     try {
-      // Fetch new log rows since cursor
+      // Sequence is server-owned and never derived from model text. Legacy
+      // rows have no sequence and are delivered only in the initial snapshot.
       const newLogs = await db
         .select()
         .from(taskLogsTable)
         .where(and(
           eq(taskLogsTable.taskId, taskId),
-          or(
-            gt(taskLogsTable.timestamp, cursor.timestamp),
-            and(eq(taskLogsTable.timestamp, cursor.timestamp), gt(taskLogsTable.id, cursor.id)),
-          ),
+          gt(taskLogsTable.sequence, cursor),
         ))
         .orderBy(asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
 
       for (const log of newLogs) {
-        send("log", log);
-        cursor = { timestamp: log.timestamp, id: log.id };
+        send("log", publicTaskLog(log));
+        if (log.sequence !== null) cursor = Math.max(cursor, log.sequence);
+        if (log.eventType === "terminal") terminalSeen = true;
       }
 
-      // Check task status — close stream when no longer running
+      // A terminal task is not enough to close a structured stream: the
+      // terminal progress row must have been persisted and delivered first.
       const [current] = await db
         .select({ status: tasksTable.status })
         .from(tasksTable)
         .where(eq(tasksTable.id, taskId))
         .limit(1);
 
-      if (!current || current.status !== "running") {
+      if (current?.status && ["completed", "failed", "cancelled", "verifying"].includes(current.status)) {
+        terminalDeadline ??= Date.now() + 15_000;
+      }
+      const canClose = !current
+        || !hasStructuredExecution
+        || terminalSeen
+        || (terminalDeadline !== null && Date.now() >= terminalDeadline);
+      if (canClose) {
         clearInterval(interval);
         clearTimeout(ttl);
-        send("done", { status: current?.status ?? "unknown" });
+        send("done", { status: current?.status ?? "unknown", cursor });
         res.end();
       }
     } catch {
       // Swallow transient DB errors — client will reconnect if needed
+    } finally {
+      polling = false;
     }
   }, 500);
   return;

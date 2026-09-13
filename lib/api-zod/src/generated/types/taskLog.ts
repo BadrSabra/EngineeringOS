@@ -5,8 +5,12 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { TaskLogEventType } from './taskLogEventType';
 import type { TaskLogLevel } from './taskLogLevel';
 import type { TaskLogMetadata } from './taskLogMetadata';
+import type { TaskLogProgressStage } from './taskLogProgressStage';
+import type { TaskLogProgressStatus } from './taskLogProgressStatus';
+import type { TaskLogTerminalOutcome } from './taskLogTerminalOutcome';
 
 export interface TaskLog {
   id: string;
@@ -15,4 +19,20 @@ export interface TaskLog {
   message: string;
   metadata?: TaskLogMetadata;
   timestamp: Date;
+  correlationId?: string | null;
+  eventType?: TaskLogEventType;
+  executionId?: string | null;
+  attempt?: number | null;
+  sequence?: number | null;
+  progressStage?: TaskLogProgressStage;
+  progressStatus?: TaskLogProgressStatus;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  progressPercent?: number | null;
+  progressMessage?: string | null;
+  startedAt?: Date | null;
+  finishedAt?: Date | null;
+  terminalOutcome?: TaskLogTerminalOutcome;
 }

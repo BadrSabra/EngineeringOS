@@ -1308,6 +1308,11 @@ export const GetTaskLogsParams = zod.object({
   "taskId": zod.coerce.string()
 })
 
+export const getTaskLogsResponseProgressPercentMin = 0;
+export const getTaskLogsResponseProgressPercentMax = 100;
+
+
+
 export const GetTaskLogsResponseItem = zod.object({
   "id": zod.string(),
   "taskId": zod.string(),
@@ -1316,9 +1321,47 @@ export const GetTaskLogsResponseItem = zod.object({
   "metadata": zod.object({
 
 }).optional(),
-  "timestamp": zod.coerce.date()
+  "timestamp": zod.coerce.date(),
+  "correlationId": zod.string().nullish(),
+  "eventType": zod.enum(['progress', 'terminal']).nullish(),
+  "executionId": zod.string().nullish(),
+  "attempt": zod.number().int().nullish(),
+  "sequence": zod.number().int().nullish(),
+  "progressStage": zod.enum(['acquisition', 'context', 'model', 'attempt', 'analysis', 'verification', 'finalization', 'result']).nullish(),
+  "progressStatus": zod.enum(['pending', 'active', 'completed', 'blocked', 'failed', 'cancelled']).nullish(),
+  "progressPercent": zod.number().int().min(getTaskLogsResponseProgressPercentMin).max(getTaskLogsResponseProgressPercentMax).nullish(),
+  "progressMessage": zod.string().nullish(),
+  "startedAt": zod.coerce.date().nullish(),
+  "finishedAt": zod.coerce.date().nullish(),
+  "terminalOutcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish()
 })
 export const GetTaskLogsResponse = zod.array(GetTaskLogsResponseItem)
+
+
+/**
+ * @summary Replay and stream durable task progress events
+ */
+export const StreamTaskLogsParams = zod.object({
+  "taskId": zod.coerce.string()
+})
+
+export const streamTaskLogsQueryAfterMin = 0;
+
+
+
+export const StreamTaskLogsQueryParams = zod.object({
+  "after": zod.coerce.number().int().min(streamTaskLogsQueryAfterMin).optional().describe('Resume after this server-owned progress sequence.')
+})
+
+export const streamTaskLogsHeaderLastEventIDMin = 0;
+
+
+
+export const StreamTaskLogsHeader = zod.object({
+  "Last-Event-ID": zod.number().int().min(streamTaskLogsHeaderLastEventIDMin).optional().describe('SSE cursor used by reconnecting clients.')
+})
+
+export const StreamTaskLogsResponse = zod.unknown()
 
 
 /**

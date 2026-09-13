@@ -224,6 +224,105 @@ describe("Task lifecycle", () => {
     expect(logs.body.length).toBeGreaterThan(0);
   });
 
+  it("replays structured progress in sequence order and resumes after a cursor", async () => {
+    const { taskId } = await createTask();
+    const executionId = randomUUID();
+    const correlationId = randomUUID();
+    const now = new Date();
+    await db
+      .update(tasksTable)
+      .set({ status: "completed", updatedAt: now, completedAt: now })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(taskLogsTable).values([
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "context ready",
+        timestamp: new Date(now.getTime() + 1),
+        correlationId,
+        eventType: "progress",
+        executionId,
+        attempt: 1,
+        sequence: 2,
+        progressStage: "context",
+        progressStatus: "completed",
+        progressMessage: "Project context is ready.",
+        startedAt: now,
+        finishedAt: new Date(now.getTime() + 1),
+      },
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "execution acquired",
+        timestamp: now,
+        correlationId,
+        eventType: "progress",
+        executionId,
+        attempt: 1,
+        sequence: 1,
+        progressStage: "acquisition",
+        progressStatus: "completed",
+        progressMessage: "Execution is owned by the active worker.",
+        startedAt: now,
+        finishedAt: now,
+      },
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "task complete",
+        timestamp: new Date(now.getTime() + 2),
+        correlationId,
+        eventType: "terminal",
+        executionId,
+        attempt: 1,
+        sequence: 3,
+        progressStage: "result",
+        progressStatus: "completed",
+        progressMessage: "Task completed successfully.",
+        progressPercent: 100,
+        terminalOutcome: "SUCCEEDED",
+      },
+    ]);
+
+    const replay = await request(app).get(`/api/tasks/${taskId}/logs/stream`);
+    expect(replay.status).toBe(200);
+    expect(replay.headers["content-type"]).toContain("text/event-stream");
+    const replayed = [...replay.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
+      .map((match) => JSON.parse(match[1]) as { sequence: number });
+    expect(replayed.map((log) => log.sequence)).toEqual([1, 2, 3]);
+    expect(replay.text).toContain('event: done');
+
+    const resumed = await request(app).get(`/api/tasks/${taskId}/logs/stream?after=2`);
+    const resumedLogs = [...resumed.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
+      .map((match) => JSON.parse(match[1]) as { sequence: number });
+    expect(resumedLogs.map((log) => log.sequence)).toEqual([3]);
+  });
+
+  it("redacts legacy log content and metadata at the public boundary", async () => {
+    const { taskId } = await createTask();
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(),
+      taskId,
+      level: "info",
+      message: "provider returned /home/runner/workspace/private.ts",
+      metadata: {
+        providerKey: "never-public",
+        providerPayload: { raw: "model output" },
+        safe: "retained",
+      },
+    });
+
+    const logs = await request(app).get(`/api/tasks/${taskId}/logs`);
+    expect(logs.status).toBe(200);
+    expect(JSON.stringify(logs.body)).not.toContain("never-public");
+    expect(JSON.stringify(logs.body)).not.toContain("model output");
+    expect(JSON.stringify(logs.body)).not.toContain("/home/runner/workspace/private.ts");
+    expect(logs.body.find((log: { metadata?: unknown }) => log.metadata)?.metadata).toBeUndefined();
+  });
+
   it("requires explicit evidence for every server-owned rule verification check", async () => {
     const { taskId } = await createTask();
     await db.update(tasksTable).set({
