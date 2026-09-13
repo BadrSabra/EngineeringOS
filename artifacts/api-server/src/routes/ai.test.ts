@@ -1437,10 +1437,10 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(400);
   });
 
-  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
-  // DeepSeek (and other providers) may return valid text without strict JSON schema
-  // compliance; the fallback extracts the response and the route should deliver it.
-  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
+  // PR-E: a parse marker is terminal even when a non-empty fallback response
+  // is present. The fallback must not turn malformed provider output into a
+  // successful persisted assistant message.
+  it("returns 422 when chat has _parseError with a non-empty fallback response", async () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockChat).mockResolvedValueOnce({
       response: "fallback text",
@@ -1455,12 +1455,13 @@ describe("POST /api/ai/chat", () => {
     const res = await request(app)
       .post("/api/ai/chat")
       .send({ projectId, message: "trigger parse failure" });
-    // Fallback produced a usable response — expect 200 with the message.
-    expect(res.status).toBe(200);
-    expect(res.body.message).toBeDefined();
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.body.outcome).toBe("FAILED");
   });
 
-  // PR-E: hard-fail (422) only when the model returned an empty/unusable response.
+  // PR-E: empty/unusable parse failures remain terminal (422).
   it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockChat).mockResolvedValueOnce({

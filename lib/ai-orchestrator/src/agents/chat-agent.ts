@@ -8897,6 +8897,40 @@ export async function chat(opts: {
           ]);
         }
       }
+      if (!parsedDirect.ok) {
+        const parseFailure = parsedDirect as {
+          code: AgentErrorCode;
+          message: string;
+          raw: string;
+        };
+        const directParseError = {
+          code: parseFailure.code,
+          message: parseFailure.message,
+          raw: parseFailure.raw,
+        };
+        recordExecutionDiagnostic("EXECUTION_RESPONSE_FORMAT_INVALID", [
+          `direct-stream response format code: ${parseFailure.code}`,
+        ]);
+        console.warn(
+          JSON.stringify({
+            scope: "chat-agent",
+            code: "OPENROUTER_DIRECT_PARSE_TERMINAL",
+            parseCode: parseFailure.code,
+            message: parseFailure.message,
+          }),
+        );
+        // fallbackChatOutput is useful for tolerant extraction, but its raw
+        // text must never become a successful response after parsing failed.
+        // Return before onDelta so the API can persist a terminal parse
+        // failure instead of exposing the malformed envelope.
+        return {
+          response: "",
+          sources: [],
+          pendingChanges: [],
+          resolvedModel: resolvedModelInfo,
+          _parseError: directParseError,
+        };
+      }
       const responseText =
         normalizeAssistantText(parsedDirect.data.response) ||
         normalizeAssistantText(directContent) ||
@@ -9075,17 +9109,6 @@ export async function chat(opts: {
       // pendingChanges are server-produced by file tools. Never trust a model-
       // authored pendingChanges envelope, especially during Repair Plan handoff.
       const finalChanges = getExecutionPendingChanges();
-
-      if (!parsedDirect.ok) {
-        console.warn(
-          JSON.stringify({
-            scope: "chat-agent",
-            code: "OPENROUTER_DIRECT_PARSE_FALLBACK",
-            parseCode: parsedDirect.code,
-            message: parsedDirect.message,
-          }),
-        );
-      }
 
       // AI-008: build typed result for the non-native (OpenRouter) streaming path.
       // Compute BEHAVIOR_QUERY semantic answer here so the streaming path produces

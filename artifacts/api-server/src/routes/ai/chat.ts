@@ -608,7 +608,13 @@ function sanitizeResponseText(raw: string): string {
   if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
   try {
     const extracted = extractJson(trimmed);
-    if (!extracted.ok) return redactUserFacingText(raw);
+    if (!extracted.ok) {
+      logger.warn(
+        { scope: "chat-route", action: "sanitize_invalid_envelope", preview: trimmed.slice(0, 120) },
+        "AI-02: rejected an unparseable JSON-looking response at the storage boundary",
+      );
+      return "The AI response could not be parsed into the expected format. Please try again.";
+    }
     const parsed = extracted.data;
     if (
       parsed !== null &&
@@ -621,9 +627,13 @@ function sanitizeResponseText(raw: string): string {
       return redactUserFacingText(inner || raw);
     }
   } catch {
-    // Not valid JSON — leave as-is.
+    logger.warn(
+      { scope: "chat-route", action: "sanitize_invalid_envelope", preview: trimmed.slice(0, 120) },
+      "AI-02: rejected an unparseable JSON-looking response at the storage boundary",
+    );
+    return "The AI response could not be parsed into the expected format. Please try again.";
   }
-  return redactUserFacingText(raw);
+  return "The AI response could not be parsed into the expected format. Please try again.";
 }
 
 function parseRepairPlanMetadata(value: string | null): RepairPlanMetadata[] | undefined {
@@ -4613,27 +4623,21 @@ router.post("/ai/chat", async (req, res) => {
     }
 
     if (result._parseError) {
-      if (!result.response) {
-        const forensicDiagnostic = turnIntent.requiresEvidence
-          ? deriveForensicDiagnostic(traceSteps)
-          : undefined;
-        return res.status(422).json({
-          error: "model_output_invalid",
-          code: "model_output_invalid",
-          outcome: "FAILED",
-          failureKind: "PROVIDER_FAILURE",
-          retryable: false,
-          recoveryState: "REQUIRED",
-          correlationId: randomUUID(),
-          executionLedger: executionLedgerSnapshot,
-           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
-        });
-      }
-      logger.warn(
-        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
-        "AI parse failure — using fallback response",
-      );
+      const forensicDiagnostic = turnIntent.requiresEvidence
+        ? deriveForensicDiagnostic(traceSteps)
+        : undefined;
+      return res.status(422).json({
+        error: "model_output_invalid",
+        code: "model_output_invalid",
+        outcome: "FAILED",
+        failureKind: "PROVIDER_FAILURE",
+        retryable: false,
+        recoveryState: "REQUIRED",
+        correlationId: randomUUID(),
+        executionLedger: executionLedgerSnapshot,
+         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+      });
     }
 
     let missionCorrelationReport: string | null;
@@ -8140,85 +8144,79 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     if (result._parseError) {
-      if (!result.response) {
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence
-          ? deriveForensicDiagnostic(traceSteps)
-          : undefined;
-        const persistedParseFailure = await persistFailedChatTurn({
+      const forensicDiagnostic = streamTurnIntent.requiresEvidence
+        ? deriveForensicDiagnostic(traceSteps)
+        : undefined;
+      const persistedParseFailure = await persistFailedChatTurn({
+        sessionId: sessionIdToUse,
+        projectId,
+        message,
+        turnIntent: streamTurnIntent.kind,
+         activeTaskState: failureActiveTaskState(),
+        executionId: aiExecution?.id,
+         workerId: executionWorkerId,
+        outcome: "FAILED",
+        errorCode: "MODEL_OUTPUT_INVALID",
+        errorMessage: "The AI model returned an unexpected response.",
+        createdAt: now,
+        assistantAt: msgNow,
+        toolTrace: traceSteps,
+        executionLedgerSnapshot,
+        evidenceSummary: evidenceFailureSummary(),
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+      }).catch((persistError) => {
+        logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
+        return undefined;
+      });
+      let parseTerminalProjection: AiTerminalProjection | undefined;
+      if (aiExecution && persistedParseFailure) {
+        await checkpointChain;
+        await failAiExecution({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId!,
+          finalMessageId: persistedParseFailure.id,
+          error: "The AI model returned an unexpected response.",
+          nodeStates: executionNodeStates,
+          recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+          evidenceVerdict: "UNAVAILABLE",
+          evidenceReason: "The model response could not be parsed into the required result shape.",
+          evidenceReads: evidenceReadsForTerminal(),
+          evidenceProgress: evidenceProgressForTerminal(),
+        });
+        parseTerminalProjection = await loadTerminalProjection({
+          executionId: aiExecution.id,
           sessionId: sessionIdToUse,
-          projectId,
-          message,
-          turnIntent: streamTurnIntent.kind,
-           activeTaskState: failureActiveTaskState(),
-          executionId: aiExecution?.id,
-           workerId: executionWorkerId,
-          outcome: "FAILED",
-          errorCode: "MODEL_OUTPUT_INVALID",
-          errorMessage: "The AI model returned an unexpected response.",
-          createdAt: now,
-          assistantAt: msgNow,
-          toolTrace: traceSteps,
-          executionLedgerSnapshot,
-          evidenceSummary: evidenceFailureSummary(),
-          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-        }).catch((persistError) => {
-          logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
-          return undefined;
+          fallbackMessageId: persistedParseFailure.id,
         });
-        let parseTerminalProjection: AiTerminalProjection | undefined;
-        if (aiExecution && persistedParseFailure) {
-          await checkpointChain;
-          await failAiExecution({
-            executionId: aiExecution.id,
-            workerId: executionWorkerId!,
-            finalMessageId: persistedParseFailure.id,
-            error: "The AI model returned an unexpected response.",
-            nodeStates: executionNodeStates,
-            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-            evidenceVerdict: "UNAVAILABLE",
-            evidenceReason: "The model response could not be parsed into the required result shape.",
-            evidenceReads: evidenceReadsForTerminal(),
-            evidenceProgress: evidenceProgressForTerminal(),
-          });
-          parseTerminalProjection = await loadTerminalProjection({
-            executionId: aiExecution.id,
-            sessionId: sessionIdToUse,
-            fallbackMessageId: persistedParseFailure.id,
-          });
-          executionTerminal = true;
-        }
-        if (aiExecution && (
-          !persistedParseFailure
-          || persistedParseFailure.outcome === "SUCCEEDED"
-        )) {
-          executionTerminal = true;
-          res.end();
-          return;
-        }
-        sse({
-          type: "error",
-          code: "model_output_invalid",
-          message: "The AI request returned an unsupported response and was not completed.",
-          outcome: "FAILED",
-          failureKind: "PROVIDER_FAILURE",
-          retryable: false,
-          recoveryState: "REQUIRED",
-          executionId: parseTerminalProjection?.executionId ?? aiExecution?.id,
-          sessionId: parseTerminalProjection?.sessionId ?? sessionIdToUse,
-          attempt: parseTerminalProjection?.attempt,
-          correlationId: parseTerminalProjection?.correlationId ?? sessionIdToUse,
-          terminalProjection: parseTerminalProjection,
-          executionLedger: executionLedgerSnapshot,
-          contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
-          ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
-        });
+        executionTerminal = true;
+      }
+      if (aiExecution && (
+        !persistedParseFailure
+        || persistedParseFailure.outcome === "SUCCEEDED"
+      )) {
+        executionTerminal = true;
         res.end();
         return;
       }
-      logger.warn(
-        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
-        "AI parse failure — using fallback response",
-      );
+      sse({
+        type: "error",
+        code: "model_output_invalid",
+        message: "The AI request returned an unsupported response and was not completed.",
+        outcome: "FAILED",
+        failureKind: "PROVIDER_FAILURE",
+        retryable: false,
+        recoveryState: "REQUIRED",
+        executionId: parseTerminalProjection?.executionId ?? aiExecution?.id,
+        sessionId: parseTerminalProjection?.sessionId ?? sessionIdToUse,
+        attempt: parseTerminalProjection?.attempt,
+        correlationId: parseTerminalProjection?.correlationId ?? sessionIdToUse,
+        terminalProjection: parseTerminalProjection,
+        executionLedger: executionLedgerSnapshot,
+        contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+        ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+      });
+      res.end();
+      return;
     }
 
     invalidateContextCache(projectId);
