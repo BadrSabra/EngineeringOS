@@ -80,6 +80,7 @@ import {
   unregisterAiExecutionController,
 } from "../lib/ai-execution-state.js";
 import { loadReusableEvidenceReads } from "../lib/ai-execution-acceptance.js";
+import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 import * as aiExecutionState from "../lib/ai-execution-state.js";
 import { tryAdvisoryLock } from "../lib/advisory-lock.js";
 
@@ -436,6 +437,12 @@ async function createReconnectedProofFixture(params: {
     .where(eq(projectsTable.id, params.projectId))
     .limit(1);
   const workspaceRevision = project!.updatedAt.toISOString();
+  const [projectRoot] = await db
+    .select({ rootPath: projectsTable.rootPath })
+    .from(projectsTable)
+    .where(eq(projectsTable.id, params.projectId))
+    .limit(1);
+  const workspaceRoot = projectRoot!.rootPath;
   const candidateIdentity = "candidate-proof-fixture";
   const evidenceRef = "validation-proof-fixture";
   const node = {
@@ -466,6 +473,7 @@ async function createReconnectedProofFixture(params: {
     message: "Execute the durable proof fixture.",
     modelMessage: "Execute the durable proof fixture.",
     workspaceRevision,
+    workspaceRoot,
     validationTargetPaths: ["src/proof-fixture.ts"],
     proofRequired: true,
   };
@@ -475,6 +483,7 @@ async function createReconnectedProofFixture(params: {
     idempotencyKey: randomUUID(),
     projectId: params.projectId,
     sessionId: params.sessionId,
+    workspaceRoot,
   });
   const initialWorkerId = randomUUID();
   expect((await claimAiExecution({
@@ -547,6 +556,7 @@ async function createReconnectedProofFixture(params: {
 
   return {
     created,
+    workspaceRoot,
     workerId,
     request: reloadedRequest,
     checkpoint: reloadedCheckpoint!,
@@ -1321,6 +1331,72 @@ describe("Durable AI completion identity", () => {
       evidenceVerdict: "PROVEN",
       operation: { operationId },
     });
+  });
+
+  it("rejects terminal evidence when the execution root or revision drifts", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Execution provenance");
+    const operationId = `provenance-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+    });
+
+    const rootDrift = await completeAiExecution({
+      executionId: fixture.created.execution.id,
+      workerId: fixture.workerId!,
+      operation: fixture.operation,
+      proofRequired: true,
+      operationId,
+      workspaceRoot: `${fixture.workspaceRoot}/different-root`,
+      evidenceVerdict: "PROVEN",
+      evidenceReads: [{
+        path: "src/proof-fixture.ts",
+        body: PROOF_FIXTURE_BODY,
+        complete: true,
+        truncated: false,
+      }],
+    });
+    expect(rootDrift).toBe(false);
+
+    const revisionDrift = await finalizeExecutionAcceptance({
+      executionId: fixture.created.execution.id,
+      workerId: fixture.workerId,
+      finalizationKey: `provenance-revision-${randomUUID()}`,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      evidence: {
+        required: true,
+        workspaceRoot: fixture.workspaceRoot,
+        sourceRevision: "stale-revision",
+        reads: [],
+      },
+    });
+    expect(revisionDrift.accepted).toBe(false);
+    expect(revisionDrift.reason).toContain("EXECUTION_PROVENANCE_MISMATCH");
+
+    const [stored] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        acceptanceCount: aiExecutionAcceptancesTable.id,
+      })
+      .from(aiExecutionsTable)
+      .leftJoin(
+        aiExecutionAcceptancesTable,
+        and(
+          eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+          eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
+        ),
+      )
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(stored?.status).toBe("running");
+    expect(stored?.acceptanceCount).toBeNull();
   });
 
   it("persists incomplete evidence progress when a provider fails after an oversized read", async () => {

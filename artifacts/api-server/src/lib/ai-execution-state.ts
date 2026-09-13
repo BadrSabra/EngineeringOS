@@ -696,6 +696,8 @@ export type AiExecutionRequestEnvelope = {
   modelMessage: string;
   /** Workspace revision captured when this durable analysis operation began. */
   workspaceRevision?: string;
+  /** Server-owned managed project root used by source reads and validation. */
+  workspaceRoot?: string | null;
   linkedTaskId?: string;
   buildPlanMessageId?: string;
   objective?: unknown;
@@ -1384,6 +1386,8 @@ export async function createAiExecution(params: {
   linkedTaskId?: string;
   buildPlanMessageId?: string;
   recipeBinding?: RecipeOperationBinding;
+  /** Server-owned managed project root used by this execution. */
+  workspaceRoot?: string | null;
 }): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
   if (params.recipeBinding) {
     assertRecipeOperationBinding(params.recipeBinding, {
@@ -1403,7 +1407,20 @@ export async function createAiExecution(params: {
   if (existing[0]) {
     const row = existing[0];
     const storedRequest = parseExecutionRequest(row.request);
-    if (!storedRequest || storedRequest.projectId !== params.projectId || storedRequest.sessionId !== params.sessionId) {
+    if (
+      !storedRequest
+      || storedRequest.projectId !== params.projectId
+      || storedRequest.sessionId !== params.sessionId
+      || (
+        params.workspaceRoot !== undefined
+        && (row.workspaceRoot ?? null) !== (params.workspaceRoot ?? null)
+      )
+      || (
+        params.request.workspaceRevision !== undefined
+        && (row.baseRevision ?? storedRequest.workspaceRevision ?? null)
+          !== (params.request.workspaceRevision ?? null)
+      )
+    ) {
       throw new Error("Execution idempotency key is bound to a different request");
     }
     return { execution: row, created: false };
@@ -1455,6 +1472,7 @@ export async function createAiExecution(params: {
         updatedAt: now.toISOString(),
       } satisfies AiExecutionCheckpoint),
       baseRevision: params.request.workspaceRevision ?? null,
+      workspaceRoot: params.workspaceRoot ?? params.request.workspaceRoot ?? null,
       status: "queued",
       createdAt: now,
       updatedAt: now,
@@ -1480,7 +1498,20 @@ export async function createAiExecution(params: {
     .limit(1);
   if (!racedExecution) throw new Error("Failed to create AI execution");
   const racedRequest = parseExecutionRequest(racedExecution.request);
-  if (!racedRequest || racedRequest.projectId !== params.projectId || racedRequest.sessionId !== params.sessionId) {
+  if (
+    !racedRequest
+    || racedRequest.projectId !== params.projectId
+    || racedRequest.sessionId !== params.sessionId
+    || (
+      params.workspaceRoot !== undefined
+      && (racedExecution.workspaceRoot ?? null) !== (params.workspaceRoot ?? null)
+    )
+    || (
+      params.request.workspaceRevision !== undefined
+      && (racedExecution.baseRevision ?? racedRequest.workspaceRevision ?? null)
+        !== (params.request.workspaceRevision ?? null)
+    )
+  ) {
     throw new Error("Execution idempotency key is bound to a different request");
   }
   return { execution: racedExecution, created: false };
@@ -2070,6 +2101,7 @@ export async function completeAiExecution(params: {
    */
   forensicAccepted?: boolean;
   operationId?: string;
+  workspaceRoot?: string | null;
   candidateIdentity?: string | null;
   recipeBinding?: RecipeOperationBinding;
   recipeReceipt?: RecipeReceipt;
@@ -2079,6 +2111,8 @@ export async function completeAiExecution(params: {
     .select({
       projectId: aiExecutionsTable.projectId,
       operationId: aiExecutionsTable.operationId,
+      workspaceRoot: aiExecutionsTable.workspaceRoot,
+      baseRevision: aiExecutionsTable.baseRevision,
       attempt: aiExecutionsTable.attempt,
       request: aiExecutionsTable.request,
       checkpoint: aiExecutionsTable.checkpoint,
@@ -2094,6 +2128,12 @@ export async function completeAiExecution(params: {
     .limit(1);
   const request = current ? parseExecutionRequest(current.request) : undefined;
   const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+  const hasPersistedWorkspaceRoot =
+    current?.workspaceRoot !== null
+    || request?.workspaceRoot !== undefined;
+  const effectiveWorkspaceRoot = hasPersistedWorkspaceRoot
+    ? params.workspaceRoot ?? current?.workspaceRoot ?? request?.workspaceRoot ?? null
+    : null;
   const nextSequence = current
     ? Math.max(
         current.checkpointVersion,
@@ -2137,6 +2177,11 @@ export async function completeAiExecution(params: {
     if (forensicExecution && params.forensicAccepted !== true) return false;
     if (!operation) return false;
     if (!request?.workspaceRevision) return false;
+    if (
+      params.workspaceRoot !== undefined
+      && hasPersistedWorkspaceRoot
+      && current.workspaceRoot !== params.workspaceRoot
+    ) return false;
     const durableOperationId = current.operationId ?? params.executionId;
     // A proof-required project query has a semantic acceptance contract:
     // complete source reads alone do not prove that the requested claims were
@@ -2216,6 +2261,7 @@ export async function completeAiExecution(params: {
       ? {
           evidence: {
             operationId: params.operationId,
+            workspaceRoot: effectiveWorkspaceRoot,
             sourceRevision: request?.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
               verdict: effectiveEvidenceVerdict,
@@ -2257,6 +2303,7 @@ export async function failAiExecution(params: {
   disposition?: Record<string, unknown>;
   finalMessageId?: string;
   finalMessageErrorCode?: string;
+  workspaceRoot?: string | null;
   evidenceReads?: readonly EvidenceReadInput[];
 }): Promise<boolean> {
   const [current] = await db
@@ -2297,6 +2344,9 @@ export async function failAiExecution(params: {
   }
   if (!current || !terminalCheckpoint) return false;
   const request = parseExecutionRequest(current.request);
+  const hasPersistedWorkspaceRoot =
+    current.workspaceRoot !== null
+    || request?.workspaceRoot !== undefined;
   const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
   const providerFailure = params.providerAttempts !== undefined;
   const reasonCode = params.cancelled
@@ -2336,6 +2386,9 @@ export async function failAiExecution(params: {
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)
       ? {
           operationId: current.operationId,
+            workspaceRoot: hasPersistedWorkspaceRoot
+              ? params.workspaceRoot ?? current.workspaceRoot ?? request?.workspaceRoot ?? null
+              : null,
           sourceRevision: request?.workspaceRevision,
            verdict: params.evidenceVerdict ?? (request?.proofRequired === true ? "NOT_RECORDED" : undefined),
            required: request?.proofRequired === true,

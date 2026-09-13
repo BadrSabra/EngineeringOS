@@ -155,3 +155,4 @@
 - [Objective claim closure](objective-claim-closure.md) — complete retained windows still need a surviving response-bound claim projection before PROJECT_QUERY can be accepted.
 - [Project-query stream parity](project-query-stream-parity.md) — targeted objective evidence handoff must run before every SSE terminal return, not only the shared non-streaming gate.
 - [Session objective parity](session-objective-parity.md) — resumable session state and execution requests must carry the same dynamically derived project-query claims.
+- [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.

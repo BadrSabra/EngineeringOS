@@ -2694,6 +2694,7 @@ describe("executeToolLoop", () => {
       expect(result.sourceRetrieval?.uniqueReads).toBe(1);
     }
     expect(ledger.snapshot().terminalReason).toBe("cancelled");
+    expect(ledger.snapshot().counts.tool).toBe(1);
   });
 
   it("does not record a failed read as a source or file content", async () => {

@@ -5172,6 +5172,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       // Guard 3: Registry check + dispatch via executeSingleTool.
+      if (!executionLedger.admit("tool", { operation: tc.function.name })) {
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: "Tool call budget exhausted for this request. Synthesize your answer from the information already gathered.",
+        });
+        return failedToolResult(
+          tc.function.name,
+          "execution",
+          "TOOL_EXECUTION_FAILED",
+          "Tool call budget exhausted for this request.",
+        );
+      }
       loopToolCalls++;
       try {
         // Include the model's preceding text as reasoning for read/write tool
@@ -5222,30 +5235,42 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         validationAttemptPatches.set(validationProfile ?? "", currentPatch);
       }
       if (assertExecutionOwned) await assertExecutionOwned();
-      const toolResult = await executeSingleTool({
-        name: tc.function.name,
-        args,
-        rootPath,
-        pendingChanges,
-        completeReads: opts.completeReads,
-        allowExecutionTools,
-        validationRunner,
-        browserValidationRunner,
-        browserValidationContext,
-         commandProfiles,
-         commandRunner,
-         commandContext,
-        validationTargetPaths,
-        approvalState,
-        compoundWriteMode,
-        approvedFilePaths,
-        approvedValidationProfiles,
-        allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
-        analysisToolRunner: opts.analysisToolRunner,
-        analysisCorrelation: opts.analysisCorrelation,
-        analysisDeadlineAt: executionLedger?.deadlineAt,
-        signal,
-      });
+      const toolStartedAt = Date.now();
+      let toolCompleted = false;
+      let toolResult: SingleToolResult;
+      try {
+        toolResult = await executeSingleTool({
+          name: tc.function.name,
+          args,
+          rootPath,
+          pendingChanges,
+          completeReads: opts.completeReads,
+          allowExecutionTools,
+          validationRunner,
+          browserValidationRunner,
+          browserValidationContext,
+           commandProfiles,
+           commandRunner,
+           commandContext,
+          validationTargetPaths,
+          approvalState,
+          compoundWriteMode,
+          approvedFilePaths,
+          approvedValidationProfiles,
+          allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+          analysisToolRunner: opts.analysisToolRunner,
+          analysisCorrelation: opts.analysisCorrelation,
+          analysisDeadlineAt: executionLedger?.deadlineAt,
+          signal,
+        });
+        toolCompleted = toolResult.kind === "ok";
+      } finally {
+        executionLedger.complete("tool", {
+          operation: tc.function.name,
+          startedAt: toolStartedAt,
+          status: toolCompleted ? "completed" : "failed",
+        });
+      }
       if (assertExecutionOwned) await assertExecutionOwned();
 
       if (toolResult.kind === "unknown_tool") {

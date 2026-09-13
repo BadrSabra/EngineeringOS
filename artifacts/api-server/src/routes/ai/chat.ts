@@ -5555,6 +5555,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         message,
         modelMessage: message,
         workspaceRevision: project.updatedAt.toISOString(),
+        workspaceRoot: validRootPath ?? null,
         objective: { kind: "RUN_PROJECT_SCAN", scanJobId: jobId },
         validationTargetPaths: [],
         proofRequired: false,
@@ -5568,6 +5569,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         sessionId: sessionIdToUse,
         linkedTaskId: effectiveLinkedTaskId,
         correlationId: jobId,
+        workspaceRoot: validRootPath ?? null,
       });
       aiExecution = createdExecution.execution;
       const claimedExecution = await claimAiExecution({
@@ -5788,6 +5790,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             finalMessageId: assistantMessageId,
             finalMessageContent: content,
             operationId: jobId,
+            workspaceRoot: validRootPath ?? null,
             proofRequired: false,
           })
         : await failAiExecution({
@@ -5897,6 +5900,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       message,
       modelMessage,
       workspaceRevision: analysisCorrelation.projectRevision,
+       workspaceRoot: validRootPath ?? null,
       ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(streamObjective ? { objective: streamObjective } : {}),
@@ -6008,6 +6012,35 @@ router.post("/ai/chat/stream", async (req, res) => {
           type: "error",
           code: "EXECUTION_BINDING_MISMATCH",
           message: "Execution does not match the requested session, plan, or validation scope.",
+        });
+        res.end();
+        return;
+      }
+      const storedWorkspaceRoot = aiExecution.workspaceRoot ?? null;
+      const requestedWorkspaceRoot = validRootPath ?? null;
+      const hasPersistedWorkspaceRoot =
+        aiExecution.workspaceRoot !== null
+        || storedRequest?.workspaceRoot !== undefined;
+      const hasPersistedWorkspaceRevision =
+        aiExecution.baseRevision !== null
+        || storedRequest?.workspaceRevision !== undefined;
+      const storedWorkspaceRevision =
+        aiExecution.baseRevision
+        ?? storedRequest?.workspaceRevision
+        ?? null;
+      if (
+        aiExecution.projectId !== projectId
+        || (hasPersistedWorkspaceRoot && storedWorkspaceRoot !== requestedWorkspaceRoot)
+        || (
+          hasPersistedWorkspaceRevision
+          && storedWorkspaceRevision !== (storedRequest?.workspaceRevision ?? analysisCorrelation.projectRevision)
+        )
+      ) {
+        sse({
+          type: "error",
+          code: "EXECUTION_PROVENANCE_MISMATCH",
+          message: "Execution provenance no longer matches the project root or revision. Start a new execution.",
+          executionId: aiExecution.id,
         });
         res.end();
         return;
@@ -6131,6 +6164,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         linkedTaskId: effectiveLinkedTaskId,
         buildPlanMessageId: effectiveBuildPlanMessageId,
         correlationId: analysisCorrelation.operationId ?? sessionIdToUse,
+        workspaceRoot: validRootPath ?? null,
       });
       aiExecution = created.execution;
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
@@ -8676,6 +8710,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         workerId: executionWorkerId!,
         finalMessageId: assistantMsg.id,
         finalMessageContent: sanitizeResponseText(result.response),
+        workspaceRoot: validRootPath ?? null,
         proposalId,
         operation: operationForCompletion,
         nodeStates: executionNodeStates,

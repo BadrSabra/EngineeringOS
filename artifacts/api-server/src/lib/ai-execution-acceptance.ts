@@ -48,6 +48,8 @@ export type EvidenceReadInput = {
 
 export type EvidenceSnapshotInput = {
   operationId?: string | null;
+  /** Server-owned managed root from which the retained reads were acquired. */
+  workspaceRoot?: string | null;
   sourceRevision?: string | null;
   candidateIdentity?: string | null;
   verdict?: string;
@@ -92,6 +94,8 @@ export type FinalizeExecutionAcceptanceParams = {
   evidence?: EvidenceSnapshotInput;
   resumable?: boolean;
   disposition?: Record<string, unknown>;
+  /** Server-owned managed root used by this terminalization. */
+  workspaceRoot?: string | null;
   sourceRevision?: string | null;
   candidateIdentity?: string | null;
   error?: string | null;
@@ -471,6 +475,39 @@ export async function finalizeExecutionAcceptance(
     const storedRequest = parseStoredExecutionRequest(execution.request);
     const storedProofRequired = storedRequest?.proofRequired === true;
     const evidenceRequired = storedProofRequired || params.evidence?.required === true;
+    const expectedRevision = typeof storedRequest?.workspaceRevision === "string"
+      ? storedRequest.workspaceRevision
+      : execution.baseRevision ?? null;
+    const expectedRoot = execution.workspaceRoot ?? null;
+    const revisionWasSupplied =
+      params.evidence?.sourceRevision !== undefined
+      || params.sourceRevision !== undefined;
+    const rootWasSupplied =
+      params.evidence?.workspaceRoot !== undefined
+      || params.workspaceRoot !== undefined;
+    const suppliedRevision = params.evidence?.sourceRevision
+      ?? params.sourceRevision
+      ?? expectedRevision;
+    const suppliedRoot = params.evidence?.workspaceRoot
+      ?? params.workspaceRoot
+      ?? expectedRoot;
+    if (
+      evidenceRequired
+      && (
+        (revisionWasSupplied && suppliedRevision !== expectedRevision)
+        || (rootWasSupplied && suppliedRoot !== expectedRoot)
+        || (
+          params.outcome === "SUCCEEDED"
+          && (expectedRevision === null || expectedRoot === null)
+        )
+      )
+    ) {
+      return {
+        accepted: false,
+        duplicate: false,
+        reason: "EXECUTION_PROVENANCE_MISMATCH: evidence root or revision does not match the durable execution.",
+      };
+    }
     const sourceEvidenceRequired = params.evidence?.sourceEvidenceRequired
       ?? evidenceRequired;
     const effectiveEvidence = evidenceRequired
@@ -479,10 +516,8 @@ export async function finalizeExecutionAcceptance(
           required: true,
           sourceEvidenceRequired,
           operationId: params.evidence?.operationId ?? execution.operationId,
-          sourceRevision: params.evidence?.sourceRevision
-            ?? (typeof storedRequest?.workspaceRevision === "string"
-              ? storedRequest.workspaceRevision
-              : null),
+           workspaceRoot: suppliedRoot,
+           sourceRevision: suppliedRevision,
           verdict: params.evidence?.verdict ?? "NOT_RECORDED",
           reads: params.evidence?.reads ?? [],
         } satisfies EvidenceSnapshotInput
