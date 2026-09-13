@@ -3341,23 +3341,39 @@ export function recordPrefetchEvidence(
   entries: Array<{ key: string; content: string }>,
   destination: Map<string, string>,
   retainedEvidence?: Map<string, string>,
+  readStatuses?: Map<string, ReadStatus>,
+  incompleteContents?: Map<string, string>,
 ): string[] {
   const accepted: string[] = [];
   for (const entry of entries) {
     if (!entry.key.startsWith("read_file:")) continue;
-    const content = entry.content.trim();
-    if (!isUsableObjectiveLocatorBody(content)) continue;
+    let normalizedPath: string | undefined;
     try {
       const args = JSON.parse(entry.key.slice("read_file:".length)) as { path?: unknown };
       if (typeof args.path === "string" && args.path.trim()) {
-        const normalizedPath = args.path.replace(/^\.\/+/, "").replace(/\\/g, "/");
-        destination.set(normalizedPath, entry.content);
-        retainedEvidence?.set(normalizedPath, entry.content);
-        accepted.push(normalizedPath);
+        normalizedPath = args.path.replace(/^\.\/+/, "").replace(/\\/g, "/");
       }
     } catch {
       // The message-based collector remains authoritative for malformed keys.
     }
+    if (!normalizedPath) continue;
+
+    const content = entry.content.trim();
+    if (!isUsableObjectiveLocatorBody(content)) {
+      if (
+        hasToolAppendedTruncationMarker(content) ||
+        hasDisplayTruncationMarker(content)
+      ) {
+        readStatuses?.set(normalizedPath, "READ_TRUNCATED");
+        incompleteContents?.set(normalizedPath, entry.content);
+      } else {
+        readStatuses?.set(normalizedPath, "READ_FAILED");
+      }
+      continue;
+    }
+    destination.set(normalizedPath, entry.content);
+    retainedEvidence?.set(normalizedPath, entry.content);
+    accepted.push(normalizedPath);
   }
   return accepted;
 }
@@ -5040,8 +5056,12 @@ function objectiveManifestIsComplete(
   if (!objective) return false;
   const normalize = (value: string): string =>
     value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
-  const retained = new Set([...fileContents.keys()].map(normalize));
-  return (objective.requiredEvidencePaths ?? []).every((file) => retained.has(normalize(file)));
+  return (objective.requiredEvidencePaths ?? []).every((file) => {
+    const content = [...fileContents.entries()].find(
+      ([filePath]) => normalize(filePath) === normalize(file),
+    )?.[1];
+    return content !== undefined && isUsableObjectiveLocatorBody(content);
+  });
 }
 
 function objectiveClaimsAreMentioned(
@@ -6309,6 +6329,8 @@ export async function chat(opts: {
   const prefetchSources: string[] = [];
   /** Ground-truth read bodies from speculative/plan prefetch. */
   const prefetchTraceContents = new Map<string, string>(retainedEvidence ?? []);
+  /** Incomplete prefetch bodies used only to report partial source coverage. */
+  const incompletePrefetchContents = new Map<string, string>();
   const prefetchReadStatuses =
     retainedReadStatuses ??
     new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
@@ -6799,6 +6821,8 @@ export async function chat(opts: {
       discovery.cacheEntries,
       prefetchFileContents,
       retainedEvidence,
+      prefetchReadStatuses,
+      incompletePrefetchContents,
     );
     prefetchSources.push(...accepted);
     recordPrefetchTrace(
@@ -6846,6 +6870,8 @@ export async function chat(opts: {
         graphPrefetch.cacheEntries,
         prefetchFileContents,
         retainedEvidence,
+        prefetchReadStatuses,
+        incompletePrefetchContents,
       );
       prefetchSources.push(...accepted);
       recordPrefetchTrace(
@@ -6895,6 +6921,8 @@ export async function chat(opts: {
         prefetch.cacheEntries,
         prefetchFileContents,
         retainedEvidence,
+        prefetchReadStatuses,
+        incompletePrefetchContents,
       );
       prefetchSources.push(...accepted);
       recordPrefetchTrace(
@@ -6954,6 +6982,8 @@ export async function chat(opts: {
           memPrefetch.cacheEntries,
           prefetchFileContents,
           retainedEvidence,
+          prefetchReadStatuses,
+          incompletePrefetchContents,
         );
         prefetchSources.push(...accepted);
         recordPrefetchTrace(
@@ -7041,6 +7071,8 @@ export async function chat(opts: {
           planPrefetch.cacheEntries,
           prefetchFileContents,
           retainedEvidence,
+          prefetchReadStatuses,
+          incompletePrefetchContents,
         );
         prefetchSources.push(...accepted);
         recordPrefetchTrace(
@@ -7077,6 +7109,8 @@ export async function chat(opts: {
         executionPrefetch.cacheEntries,
         prefetchFileContents,
         retainedEvidence,
+        prefetchReadStatuses,
+        incompletePrefetchContents,
       );
       prefetchSources.push(...accepted);
       recordPrefetchTrace(
@@ -7909,6 +7943,9 @@ export async function chat(opts: {
   // forensicFileContents is declared at the top of chat() so every terminal
   // finalization path can route its candidate through the Objective Gate.
   // Populate it here from prefetch + tool-loop reads.
+  for (const [filePath, content] of incompletePrefetchContents) {
+    forensicFileContents.set(filePath, stripReadFileWrapper(content));
+  }
   for (const [filePath, content] of prefetchFileContents) {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
   }
