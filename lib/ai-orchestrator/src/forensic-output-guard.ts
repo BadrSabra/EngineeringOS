@@ -31,6 +31,8 @@ export type ForensicRootCoverage = {
   readFiles: number;
   unreadFiles: number;
   status: "COMPLETE" | "EMPTY" | "PARTIAL" | "BUDGET_EXHAUSTED";
+  /** Whether discovery stopped because the shared forensic budget was spent. */
+  budgetExhausted?: boolean;
   /** Bounded project-relative labels for discovered files that were not read. */
   unreadPaths?: string[];
   /** Bounded project-relative labels for reads whose body was truncated. */

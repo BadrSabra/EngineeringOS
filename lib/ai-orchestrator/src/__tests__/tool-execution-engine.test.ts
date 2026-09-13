@@ -2252,6 +2252,51 @@ describe("executeToolLoop", () => {
     expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
   });
 
+  it("recovers broad forensic truncated paths without an objective contract", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const retainedReadStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">([
+      ["src/big.ts", "READ_TRUNCATED"],
+    ]);
+    FILE_TOOL_MOCK.mockImplementation(async (name: string, args: { path?: string }) => {
+      if (name === "read_file_range") {
+        return "File: src/big.ts\n```\nexport const recovered = true;\n```";
+      }
+      return `unexpected ${name} for ${args.path ?? "unknown"}`;
+    });
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("full", "read_file", { path: "src/big.ts" })]),
+        makeResponse("provider failed after the recovery read"),
+        makeResponse("final"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "read_file", description: "", parameters: {} } },
+        { type: "function", function: { name: "read_file_range", description: "", parameters: {} } },
+      ],
+      rootPath: "/project",
+      pendingChanges: [],
+      initialReadStatuses: retainedReadStatuses,
+      retainedReadStatuses,
+      evidenceRecoveryPaths: ["src/big.ts"],
+      requiresEvidence: true,
+      maxIterations: 3,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file_range",
+      { path: "src/big.ts", startLine: "1", endLine: "200" },
+      "/project",
+      [],
+    );
+    expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
+  });
+
   it("preserves a usable objective locator when the provider replay is truncated", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const requiredPath = "src/chat-agent.ts";

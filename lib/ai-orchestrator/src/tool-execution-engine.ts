@@ -520,6 +520,7 @@ const READ_STATUS_STRENGTH: Record<ReadStatus, number> = {
   READ_COMPLETE: 3,
   READ_CACHED: 3,
 };
+const MAX_PERSISTED_SOURCE_BYTES = 256 * 1024;
 
 /**
  * Preserve the strongest evidence state observed for a path.
@@ -560,6 +561,13 @@ export function classifyReadStatus(toolName: string, output: string): ReadStatus
   if (toolName !== "read_file") return "READ_COMPLETE";
   const trimmed = output.trim();
   if (!trimmed || /^Error\b/i.test(trimmed)) return "READ_FAILED";
+  // Acceptance persistence rejects oversized bodies instead of retaining a
+  // misleading prefix. Keep cached/replayed reads aligned with that boundary
+  // so the trace cannot report READ_COMPLETE for evidence that persistence
+  // will later discard.
+  if (Buffer.byteLength(output, "utf8") > MAX_PERSISTED_SOURCE_BYTES) {
+    return "READ_TRUNCATED";
+  }
   if (hasReadTruncationMarker(output)) return "READ_TRUNCATED";
   if (!isUsableReadOutput(output)) return "READ_FAILED";
   return "READ_COMPLETE";
@@ -1199,6 +1207,14 @@ export type ToolLoopOpts = {
    * initialFileContents.
    */
   initialReadStatuses?: ReadonlyMap<string, ReadStatus>;
+
+  /**
+   * Additional server-owned source paths that must be recovered before
+   * synthesis. Unlike objective paths, these come from broad forensic
+   * coverage (for example, truncated or unread prefetch entries) and do not
+   * participate in objective claim closure.
+   */
+  evidenceRecoveryPaths?: readonly string[];
 
   /** Mutable read-status handoff updated after every loop read. */
   retainedReadStatuses?: Map<string, ReadStatus>;
@@ -2454,6 +2470,23 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
       ].map((value) => canonicalRel(value))
     : [];
+  const evidenceRecoveryPaths = [...new Set(
+    (opts.evidenceRecoveryPaths ?? [])
+      .map((value) => canonicalRel(value))
+      .filter(Boolean),
+  )];
+  const serverOwnedEvidencePaths = [...new Set([
+    ...objectiveRequiredEvidencePaths,
+    ...evidenceRecoveryPaths,
+  ])];
+  const nextMissingServerOwnedEvidencePath = (): string | null => {
+    const verified = new Set(
+      [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
+        .map((value) => canonicalRel(value)),
+    );
+    return serverOwnedEvidencePaths
+      .find((value) => value.length > 0 && !verified.has(value)) ?? null;
+  };
   const isObjectiveRequiredEvidencePath = (path: string): boolean =>
     objectiveRequiredEvidencePaths.includes(canonicalRel(path));
   const maybeForceObjectiveSynthesis = (): void => {
@@ -2865,14 +2898,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
    * neither means that the complete objective manifest is satisfied.
    */
   const rearmNextObjectiveEvidencePath = (): string | null => {
-    if (!objective || objectiveRequiredEvidencePaths.length === 0) return null;
+    if (serverOwnedEvidencePaths.length === 0) return null;
 
-    const nextRequiredPath = nextMissingObjectiveEvidencePath();
+    const nextRequiredPath = nextMissingServerOwnedEvidencePath();
     forcedEvidenceTarget = nextRequiredPath;
     if (!nextRequiredPath) {
       forcedEvidenceActive = false;
       forcedPrimaryEvidence = false;
-      maybeForceObjectiveSynthesis();
+      if (objective) maybeForceObjectiveSynthesis();
       return null;
     }
 
@@ -2896,7 +2929,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // evidence. The negative sentinel PREFETCH_FIRST_READ_ITER is unambiguous
   // versus real 0-based loop iterations.
   let objectiveEvidenceRearmedFromPrefetch = false;
-  if (initialReadStatusSeen && objective) {
+  if (initialReadStatusSeen && serverOwnedEvidencePaths.length > 0) {
     rearmNextObjectiveEvidencePath();
     objectiveEvidenceRearmedFromPrefetch = true;
   }
@@ -3351,14 +3384,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     ): RawGroqResponse | undefined => {
       if (
         synthesisOnly ||
-        !objective ||
         !requiresEvidence ||
         !readToolConfigured ||
         totalToolCalls >= maxToolCalls
       ) {
         return undefined;
       }
-      const serverOwnedEvidencePath = nextMissingObjectiveEvidencePath();
+      const serverOwnedEvidencePath = nextMissingServerOwnedEvidencePath();
       if (!serverOwnedEvidencePath) return undefined;
 
       const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
@@ -3960,12 +3992,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         (forcedEvidenceActive && !hasForcedTargetRead)
       ) &&
       !synthesisOnly &&
-      objective &&
       requiresEvidence &&
       readToolConfigured &&
       totalToolCalls < maxToolCalls
     ) {
-      const serverOwnedEvidencePath = nextMissingObjectiveEvidencePath();
+      const serverOwnedEvidencePath = nextMissingServerOwnedEvidencePath();
       if (serverOwnedEvidencePath) {
         const serverOwnedToolCallId = `server-evidence-${iter}`;
         const serverOwnedToolName = isTruncatedPath(serverOwnedEvidencePath)
@@ -4907,15 +4938,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // required path; otherwise a cached read can make an evidence loop look
       // productive without increasing coverage.
       if (
-        objective &&
+        serverOwnedEvidencePaths.length > 0 &&
         firstSourceReadIter !== null &&
         (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
         typeof args.path === "string" &&
         isCompletedPath(args.path) &&
-        nextMissingObjectiveEvidencePath() !== null &&
-        canonicalRel(args.path) !== nextMissingObjectiveEvidencePath()
+        nextMissingServerOwnedEvidencePath() !== null &&
+        canonicalRel(args.path) !== nextMissingServerOwnedEvidencePath()
       ) {
-        const nextRequiredPath = nextMissingObjectiveEvidencePath()!;
+        const nextRequiredPath = nextMissingServerOwnedEvidencePath()!;
         sourceRetrieval.redundantReads += 1;
         forcedEvidenceTarget = nextRequiredPath;
         forcedEvidenceActive = true;
@@ -5672,7 +5703,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               code: "FORCE_PRIMARY_EVIDENCE_ACTION",
               details: [
                 `${noProgressStreak} consecutive planning iterations without new evidence` +
-                  ((forcedEvidenceTarget = nextMissingObjectiveEvidencePath() ?? fegTarget)
+                  ((forcedEvidenceTarget = nextMissingServerOwnedEvidencePath() ?? fegTarget)
                     ? `; forcing read of primary evidence target "${forcedEvidenceTarget}"`
                     : "; forcing a source read"),
               ],
@@ -5721,7 +5752,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             code: "FORCE_PRIMARY_EVIDENCE_ACTION",
             details: [
               `planning budget exhausted (${planningIterations} planning iters >= ${runBudget.planning} allocation) before the first source read` +
-                  ((forcedEvidenceTarget = nextMissingObjectiveEvidencePath() ?? fegTarget)
+                  ((forcedEvidenceTarget = nextMissingServerOwnedEvidencePath() ?? fegTarget)
                     ? `; forcing read of primary evidence target "${forcedEvidenceTarget}"`
                   : "; forcing a source read"),
             ],

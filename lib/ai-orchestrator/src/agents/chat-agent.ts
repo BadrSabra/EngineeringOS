@@ -3359,6 +3359,11 @@ export function recordPrefetchEvidence(
     if (!normalizedPath) continue;
 
     const content = entry.content.trim();
+    if (Buffer.byteLength(entry.content, "utf8") > MAX_COMPLETE_EVIDENCE_BYTES) {
+      readStatuses?.set(normalizedPath, "READ_TRUNCATED");
+      incompleteContents?.set(normalizedPath, entry.content);
+      continue;
+    }
     if (!isUsableObjectiveLocatorBody(content)) {
       if (
         hasToolAppendedTruncationMarker(content) ||
@@ -7769,6 +7774,14 @@ export async function chat(opts: {
     objective,
     prefetchFileContents.keys(),
   );
+  const evidenceRecoveryPaths = !objective
+    ? [...new Set(
+        (forensicSourceCoverage?.roots ?? []).flatMap((root) => [
+          ...(root.truncatedPaths ?? []),
+          ...(root.budgetExhausted ? [] : (root.unreadPaths ?? [])),
+        ]),
+      )]
+    : [];
   const loopEvidenceTargetPath = objective
     ? nextObjectiveEvidenceTargetPath
     : firstEvidenceTargetPath;
@@ -7808,6 +7821,7 @@ export async function chat(opts: {
     objectiveEvidenceSources: prefetchTraceContents,
     initialReadStatuses: prefetchReadStatuses,
     retainedReadStatuses: prefetchReadStatuses,
+    evidenceRecoveryPaths,
     retainedFileContents: retainedEvidence,
     cache: toolCallCache,
     toolChoice:

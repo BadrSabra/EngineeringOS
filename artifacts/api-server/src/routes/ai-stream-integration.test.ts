@@ -915,7 +915,7 @@ describe("AI execution resume-capability recovery", () => {
     // This scenario exercises the resumable execution contract, not ordinary
     // CHAT. Keep the request explicitly proof-bearing so provider failure may
     // be resumed without weakening the non-resumable CHAT contract.
-    const message = "Run a forensic audit and continue.";
+    const message = "Run a forensic audit of the project and continue.";
     const resumedReport = [
       "## 1) Executive Verdict",
       "The resumed audit verified the retained source evidence.",
@@ -931,9 +931,55 @@ describe("AI execution resume-capability recovery", () => {
       "FINDING PROVEN",
     ].join("\n");
     const { GroqClientError } = await import("@workspace/ai-orchestrator");
+    const prefetchedCompleteReads = Array.from({ length: 256 }, (_, index) => [
+      `src/prefetch-${index}.ts`,
+      `export const prefetched${index} = ${index};\n`,
+    ] as const);
+    const truncatedPrefetchPath = "src/prefetch-truncated.ts";
 
     vi.mocked(chatWithFallback)
-      .mockImplementationOnce(async () => {
+      .mockImplementationOnce(async (...args) => {
+        const options = args[1] as {
+          retainedEvidence?: Map<string, string>;
+          retainedReadStatuses?: Map<string, string>;
+          onProviderAttempt?: (attempt: {
+            provider: string;
+            outcome: "failure";
+            attemptNumber: number;
+            fallbackCount: number;
+            providerFailureKind: string;
+            latencyMs: number;
+          }) => void | Promise<void>;
+        };
+        await options.onProviderAttempt?.({
+          provider: "groq",
+          outcome: "failure",
+          attemptNumber: 1,
+          fallbackCount: 0,
+          providerFailureKind: "MODEL_NOT_FOUND",
+          latencyMs: 4,
+        });
+        await options.onProviderAttempt?.({
+          provider: "gemini",
+          outcome: "failure",
+          attemptNumber: 2,
+          fallbackCount: 1,
+          providerFailureKind: "MODEL_NOT_FOUND",
+          latencyMs: 5,
+        });
+        for (const [path, body] of prefetchedCompleteReads) {
+          options.retainedEvidence?.set(path, body);
+          options.retainedReadStatuses?.set(path, "READ_COMPLETE");
+        }
+        options.retainedReadStatuses?.set(truncatedPrefetchPath, "READ_TRUNCATED");
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source: truncatedPrefetchPath,
+          cached: true,
+          outputLength: 256 * 1024 + 1,
+          readStatus: "READ_TRUNCATED",
+        } as never);
         throw new GroqClientError(
           "MODEL_NOT_FOUND",
           "fixture provider failure",
@@ -1024,6 +1070,7 @@ describe("AI execution resume-capability recovery", () => {
         finalMessageId: aiExecutionsTable.finalMessageId,
         completedAt: aiExecutionsTable.completedAt,
         status: aiExecutionsTable.status,
+        checkpoint: aiExecutionsTable.checkpoint,
       })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.id, executionId))
@@ -1034,6 +1081,57 @@ describe("AI execution resume-capability recovery", () => {
       status: "failed",
     });
     expect(beforeClaim[0]?.completedAt).toBeInstanceOf(Date);
+    expect(JSON.parse(beforeClaim[0]?.checkpoint ?? "{}")).toMatchObject({
+      evidenceVerdict: "PARTIAL",
+    });
+
+    const firstEvidenceSnapshot = await db
+      .select({
+        id: aiExecutionEvidenceSnapshotsTable.id,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, executionId))
+      .limit(1);
+    expect(firstEvidenceSnapshot[0]).toMatchObject({
+      complete: 0,
+      verdict: "PARTIAL",
+    });
+    const [firstAcceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+      .limit(1);
+    expect(firstAcceptance).toMatchObject({
+      outcome: "FAILED",
+      evidenceComplete: 0,
+    });
+    expect(firstEvidenceSnapshot[0]?.readCount).toBe(257);
+    const firstEvidenceReads = await db
+      .select({
+        path: aiExecutionEvidenceReadsTable.path,
+        complete: aiExecutionEvidenceReadsTable.complete,
+        truncated: aiExecutionEvidenceReadsTable.truncated,
+        body: aiExecutionEvidenceReadsTable.body,
+      })
+      .from(aiExecutionEvidenceReadsTable)
+      .where(eq(
+        aiExecutionEvidenceReadsTable.snapshotId,
+        String(firstEvidenceSnapshot[0]?.id ?? ""),
+      ));
+    expect(firstEvidenceReads).toHaveLength(257);
+    expect(firstEvidenceReads.filter((read) => read.complete === 1 && read.truncated === 0))
+      .toHaveLength(256);
+    expect(firstEvidenceReads.find((read) => read.path === truncatedPrefetchPath)).toMatchObject({
+      complete: 0,
+      truncated: 1,
+      body: "",
+    });
 
     const failedHistory = await request(app)
       .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`)

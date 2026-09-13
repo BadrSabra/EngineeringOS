@@ -7876,6 +7876,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         cancelled || providerEvidenceSummary.completeSourceReadCount === 0
           ? "UNAVAILABLE"
           : "PARTIAL";
+      const preserveProviderEvidenceProgress =
+        targetedProjectQueryFailure || streamTurnIntent.kind === "FORENSIC_AUDIT";
       const endedBeforeProviderEvidence =
         streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
       const classifiedTerminalOutcome = classifyAiTerminalOutcome({
@@ -7990,7 +7992,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               : {}),
             nodeStates: executionNodeStates,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-            evidenceVerdict: targetedProjectQueryFailure
+            evidenceVerdict: preserveProviderEvidenceProgress
               ? providerEvidenceVerdict
               : "UNAVAILABLE",
             evidenceReason: cancelled

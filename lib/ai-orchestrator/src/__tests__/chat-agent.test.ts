@@ -309,19 +309,31 @@ describe("chat agent — ChatOutputSchema validation", () => {
     const { recordPrefetchEvidence } = await import("../agents/chat-agent.js");
     const destination = new Map<string, string>();
     const retainedEvidence = new Map<string, string>();
+    const readStatuses = new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
+    const incompleteContents = new Map<string, string>();
 
     const accepted = recordPrefetchEvidence(
       [{
         key: 'read_file:{"path":"src/large.ts"}',
         content: "File: src/large.ts\n```\nconst partial = true;\n[... output truncated ...]\n```",
+      }, {
+        key: 'read_file:{"path":"src/oversized.ts"}',
+        content: "x".repeat(256 * 1024 + 1),
       }],
       destination,
       retainedEvidence,
+      readStatuses,
+      incompleteContents,
     );
 
     expect(accepted).toEqual([]);
     expect(destination.size).toBe(0);
     expect(retainedEvidence.size).toBe(0);
+    expect(readStatuses).toEqual(new Map([
+      ["src/large.ts", "READ_TRUNCATED"],
+      ["src/oversized.ts", "READ_TRUNCATED"],
+    ]));
+    expect(incompleteContents.get("src/oversized.ts")).toHaveLength(256 * 1024 + 1);
   });
 
   it("keeps an Arabic greeting tool-free without promoting it to tool chat", async () => {

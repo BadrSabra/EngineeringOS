@@ -582,6 +582,7 @@ export async function prefetchForensicRoots(opts: {
               ? "BUDGET_EXHAUSTED"
               : "PARTIAL"
             : "COMPLETE",
+        ...(rootBudgetExhausted ? { budgetExhausted: true } : {}),
           unreadPaths: [
             ...(result.failedFiles ?? []),
             ...candidates.slice(remaining),
