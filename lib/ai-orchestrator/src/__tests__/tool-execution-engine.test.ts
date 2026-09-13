@@ -743,6 +743,115 @@ describe("executeToolLoop", () => {
     ]));
   });
 
+  it("recovers the next objective path after both primary and power-model failures", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const providerFailure = new GroqClientError("SERVER_ERROR", "fixture provider interruption");
+    let callCount = 0;
+    const models: string[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "test",
+      supportsNativeStream: false,
+      call: vi.fn(async (_messages, options) => {
+        callCount += 1;
+        models.push(options.model);
+        if (callCount === 1) {
+          return makeResponse("", [makeToolCall("first-read", "read_file", { path: "src/first.ts" })]);
+        }
+        if (callCount === 2 || callCount === 3) throw providerFailure;
+        return makeResponse("The requested objective is complete.");
+      }),
+      stream: async function* () { yield ""; },
+    };
+    FILE_TOOL_MOCK.mockImplementation(async (_name: string, args: { path?: string }) =>
+      `File: ${args.path ?? "unknown"}\nexport const retained = true;`,
+    );
+    const steps: AgentStep[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "primary-model",
+      powerModel: "power-model",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 4,
+      onStep: (step) => steps.push(step),
+      objective: {
+        goal: "verify both objective source paths",
+        requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+        requiredClaims: [{
+          claimId: "claim-1",
+          requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("response");
+    expect(models).toEqual(["primary-model", "primary-model", "power-model", "primary-model"]);
+    expect(strategy.call).toHaveBeenCalledTimes(4);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      1,
+      "read_file",
+      { path: "src/first.ts" },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      2,
+      "read_file",
+      { path: "src/second.ts" },
+      "/project",
+      [],
+    );
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "diagnostic",
+        code: "FORCE_PRIMARY_EVIDENCE_ACTION",
+      }),
+      expect.objectContaining({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: "src/second.ts" },
+      }),
+      expect.objectContaining({
+        kind: "done",
+        iterations: 3,
+        maxIterations: 4,
+      }),
+    ]));
+  });
+
+  it("does not recover a generic orientation question after both provider models fail", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const providerFailure = new GroqClientError("SERVER_ERROR", "fixture provider interruption");
+    const strategy: ProviderStrategy = {
+      providerId: "test",
+      supportsNativeStream: false,
+      call: vi.fn()
+        .mockRejectedValueOnce(providerFailure)
+        .mockRejectedValueOnce(providerFailure),
+      stream: async function* () { yield ""; },
+    };
+
+    await expect(executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "primary-model",
+      powerModel: "power-model",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 4,
+    })).rejects.toBe(providerFailure);
+
+    expect(strategy.call).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+  });
+
   it("replaces an unrelated provider tool with the server-owned evidence read", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockResolvedValue("File: src/proof.ts\nexport const verified = true;");
