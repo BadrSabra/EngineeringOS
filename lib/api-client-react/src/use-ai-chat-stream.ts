@@ -30,6 +30,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
+import { parseAiSseDataLine } from '@workspace/api-zod';
 import type { BrowserValidationBlockReason, PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
 import type { ExecutionLedgerPublicSnapshot, ForensicDiagnostic } from '@workspace/ai-orchestrator';
 
@@ -1057,13 +1058,9 @@ export async function processAiStream(
     for (const chunk of chunks) {
       const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
       if (!dataLine) continue;
-
-      let event: AiStreamEvent;
-      try {
-        event = JSON.parse(dataLine.slice('data: '.length)) as AiStreamEvent;
-      } catch {
-        continue; // malformed event — skip
-      }
+      const parsedEvent = parseAiSseDataLine(dataLine);
+      if (!parsedEvent) continue;
+      const event = parsedEvent as AiStreamEvent;
 
       if (event.type === 'execution_started') executionStarted = true;
       if (event.type === 'task_started') taskStarted = true;

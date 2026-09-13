@@ -8,7 +8,8 @@
  *  1. "project"        — always ADMIT; it is the baseline non-negotiable context.
  *  2. "graphSummary"   — graphMode="off" → DROP; uses graphBudgetTokens cap:
  *                         index:    fits within graphBudgetTokens → ADMIT, else REFERENCE.
- *                         expanded: always ADMIT (full graph requested).
+ *                         expanded: full graph is admitted only when both the
+ *                         graph and overall context budgets can contain it.
  *  3. Lite intensity   — "workflows" and "recentEvents" → DEFER.
  *  4. Missing + low importance (score < 6) → DROP.
  *  5. Budget overflow  — slices processed in descending importance order;
@@ -57,7 +58,15 @@ function decideSlice(
       }
       return "REFERENCE";
     }
-    // graphMode === "expanded": always admit the full graph
+    // Expanded is a request for full graph detail, not permission to exceed the
+    // declared budgets. Fall back to a bounded reference when the graph or
+    // overall context budget cannot contain the full slice.
+    if (
+      slice.estimatedTokens > plan.graphBudget
+      || slice.estimatedTokens > budget.remaining
+    ) {
+      return "REFERENCE";
+    }
     budget.remaining = Math.max(0, budget.remaining - slice.estimatedTokens);
     return "ADMIT";
   }

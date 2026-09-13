@@ -2766,6 +2766,7 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       .where(eq(eventsTable.projectId, projectId));
     const ev = events.find((e) => e.type === "AiScanAnalysisCompleted");
     expect(ev).toBeDefined();
+    expect(ev?.correlationId).toEqual(expect.any(String));
   });
 
   // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
@@ -3345,6 +3346,7 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     const ev = events.find((e) => e.type === "AiCodeReviewCompleted");
     expect(ev).toBeDefined();
     expect(ev?.severity).toBe("success"); // verdict === "approved"
+    expect(ev?.correlationId).toEqual(expect.any(String));
   });
 
   // PR-E: parse failure surfaced as 422 instead of silent degraded 200.

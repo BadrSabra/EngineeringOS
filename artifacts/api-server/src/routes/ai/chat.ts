@@ -180,6 +180,7 @@ import {
   type AiTerminalProjection,
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
+import { serializeAiSseEvent } from "@workspace/api-zod";
 import {
   isProviderFailureCategory,
   type ProviderFailureCategory,
@@ -5462,7 +5463,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     function sse(data: Record<string, unknown>): void {
       if (sseConnectionClosed || res.writableEnded || res.destroyed) return;
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      res.write(serializeAiSseEvent(data));
     }
 
     // AI-TASK-003 & 009: Resolve the effective linked task.
@@ -9068,7 +9069,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     if (res.headersSent) {
       if (!res.writableEnded) {
         try {
-          res.write(`data: ${JSON.stringify({
+          res.write(serializeAiSseEvent({
             type: "error",
             code: unexpectedErrorCode,
             message: executionLeaseLost
@@ -9078,7 +9079,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             retryable: true,
             ...(executionLeaseLost ? { failureKind: "INCOMPLETE", recoveryState: "REQUIRED" } : {}),
             ...(aiExecution?.id ? { executionId: aiExecution.id } : {}),
-          })}\n\n`);
+          }));
         } catch (writeError) {
           logger.warn(
             { writeError, executionId: aiExecution?.id ?? null },

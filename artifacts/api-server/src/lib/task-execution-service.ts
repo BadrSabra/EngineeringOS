@@ -13,6 +13,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import {
   createAiExecution,
+  getAiExecutionForUser,
   checkpointAiExecution,
   claimAiExecution,
   failAiExecution,
@@ -325,7 +326,7 @@ export async function executeTaskLifecycle(params: {
   const allowed = params.expectedStatuses ?? ["pending", "queued", "verifying"];
   const initialStatus = before.status as TaskStatus;
   const rollbackStatus = before.status === "running" ? "verifying" : before.status;
-  const correlationId = randomUUID();
+  const initialCorrelationId = randomUUID();
   const workerId = `task-worker:${randomUUID()}`;
   const idempotencyKey = `${before.id}:attempt:${before.retryCount}`;
   const request = {
@@ -334,7 +335,7 @@ export async function executeTaskLifecycle(params: {
     modelMessage: before.prompt ?? before.title,
     workspaceRevision: params.workspaceRevision,
     linkedTaskId: before.id,
-    correlationId,
+    correlationId: initialCorrelationId,
     attempt: before.retryCount,
     validationTargetPaths: Array.isArray(before.relatedFiles) ? before.relatedFiles : [],
   };
@@ -343,15 +344,39 @@ export async function executeTaskLifecycle(params: {
   const stages: string[] = ["claim"];
   let executionProvider = params.provider.provider;
 
-  const durable = await createAiExecution({
-    userId: params.userId,
-    request,
-    idempotencyKey,
-    correlationId,
-    attempt: before.retryCount,
-    projectId: before.projectId,
-    linkedTaskId: before.id,
-  });
+  // A resume continues the existing durable execution. It must not re-enter
+  // createAiExecution with the original task idempotency key: that key belongs
+  // to the original user turn, while resumeToken authorizes a new auditable
+  // assistant attempt on the same execution.
+  const durable = params.resumeExecutionId
+    ? await (async () => {
+        if (!params.resumeToken) return undefined;
+        const existing = await getAiExecutionForUser(params.resumeExecutionId!, params.userId);
+        if (
+          !existing
+          || existing.linkedTaskId !== before.id
+          || existing.projectId !== before.projectId
+        ) {
+          return undefined;
+        }
+        return { execution: existing, created: false as const };
+      })()
+    : await createAiExecution({
+        userId: params.userId,
+        request,
+        idempotencyKey,
+        correlationId: initialCorrelationId,
+        attempt: before.retryCount,
+        projectId: before.projectId,
+        linkedTaskId: before.id,
+      });
+  if (!durable) {
+    return {
+      ok: false,
+      status: "conflict",
+      errorCode: "execution_identity_changed",
+    };
+  }
   const executionId = durable.execution.id;
   if (params.resumeExecutionId && executionId !== params.resumeExecutionId) {
     return {
@@ -361,6 +386,7 @@ export async function executeTaskLifecycle(params: {
       errorCode: "execution_identity_changed",
     };
   }
+  const correlationId = durable.execution.correlationId ?? initialCorrelationId;
   const claimedExecution = durable.created
     ? await claimAiExecution({
         executionId,

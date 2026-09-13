@@ -48,6 +48,7 @@ import {
   type StructuredRetryAfterSource,
 } from "../../lib/structured-task-execution.js";
 import type { AiTerminalProjection } from "../../lib/ai-terminal-outcome.js";
+import { serializeAiSseEvent } from "@workspace/api-zod";
 
 const router = Router();
 const STRUCTURED_MAX_MODEL_FALLBACKS = 3;
@@ -336,7 +337,7 @@ function beginTaskStream(
 
   const emit = (event: StructuredTaskEvent) => {
     if (!closed && !res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ ...event, ...auditEnvelope(metadata) })}\n\n`);
+      res.write(serializeAiSseEvent({ ...event, ...auditEnvelope(metadata) }));
     }
   };
 
@@ -668,6 +669,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
       actor: req.userId,
       stateBefore: {},
       stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
+      correlationId: metadata.operationId,
     });
     await tx.insert(eventsTable).values({
       id: randomUUID(),
@@ -675,6 +677,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
       projectId,
       severity: "info",
       message: `AI scan analysis completed: ${result.summary}`,
+      correlationId: metadata.operationId,
     });
   });
 
@@ -818,6 +821,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
         overallScore: result.overallScore,
         reviewScope: result.reviewScope,
       },
+      correlationId: metadata.operationId,
     });
     await tx.insert(eventsTable).values({
       id: randomUUID(),
@@ -825,6 +829,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
       projectId,
       severity: result.verdict === "approved" ? "success" : "warning",
       message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+      correlationId: metadata.operationId,
     });
   });
 
@@ -1257,6 +1262,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
           overallScore: result.overallScore,
           reviewScope: result.reviewScope,
         },
+        correlationId: metadata.operationId,
       });
       await tx.insert(eventsTable).values({
         id: randomUUID(),
@@ -1264,6 +1270,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         projectId,
         severity: result.verdict === "approved" ? "success" : "warning",
         message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+        correlationId: metadata.operationId,
       });
     });
 

@@ -1,4 +1,11 @@
 export * from "./truth-flow-matrix.schema";
+export {
+  AI_STREAM_EVENT_TYPES,
+  parseAiSseDataLine,
+  parseAiSseEvent,
+  serializeAiSseEvent,
+} from "./ai-stream-contract";
+export type { AiStreamEventType } from "./ai-stream-contract";
 export * from './generated/api';
 // These two operation-level runtime schemas are also emitted by generated/api.ts.
 // Keep the TypeScript response/request types available without re-exporting the
