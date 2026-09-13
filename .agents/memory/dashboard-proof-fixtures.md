@@ -8,3 +8,9 @@ Proof-bearing resumable dashboard fixtures must keep `proofRequired` true in the
 **Why:** The dashboard decides whether to render the persisted proof panel from the durable execution status after reload. If a fixture mutates only status/evidence and silently clears `proofRequired`, the product behavior is internally consistent but the browser contract loses the proof panel and masks the lifecycle being tested.
 
 **How to apply:** When building or changing Capability Probe, forensic, or other proof-bearing resume fixtures, assert the terminal status, evidence verdict, and proof-required flag together in both the API fixture and the post-reload dashboard journey.
+
+Targeted `PROJECT_QUERY` turns can use the normal `CHAT` operation mode; `proofRequired` is the authoritative dashboard signal for retaining their terminal proof panel.
+
+**Why:** Filtering terminal retention by operation mode drops targeted analysis proof even though the API has preserved an incomplete, non-resumable acceptance state.
+
+**How to apply:** In targeted-analysis fixtures, keep `turnIntent: PROJECT_QUERY`, `proofRequired: true`, and `resumable: false` together, then assert the panel remains visible without a resume action after failure and reload.

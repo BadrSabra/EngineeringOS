@@ -2316,6 +2316,261 @@ function installAcceptanceIncompleteFixture(): ArabicAiFixture {
   };
 }
 
+function installIncompleteProjectQueryFixture() {
+  const projectId = "e2e-project";
+  const sessionId = "e2e-project-query-incomplete-session";
+  const executionId = "e2e-project-query-incomplete-execution";
+  const messageId = "e2e-project-query-incomplete-message";
+  const source = "artifacts/api-server/src/routes/ai/chat.ts";
+  const targetPaths = [
+    source,
+    "lib/ai-orchestrator/src/turn-intent.ts",
+  ];
+  const question = "Identify the weakest AI routing path in this project.";
+  const answer =
+    `ANALYSIS_INCOMPLETE — a complete read of ${source} was retained, but no accepted objective claim was produced.`;
+  const acceptance = createAcceptanceSnapshot({
+    terminalStatus: "failed",
+    outcome: "FAILED",
+    reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+    nextActionCode: "START_NEW_PROBE",
+    evidenceComplete: false,
+    evidenceRequired: true,
+    resumable: false,
+  });
+  const acceptanceDisposition = {
+    reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+    outcome: "FAILED",
+    failureKind: "INCOMPLETE",
+    recoveryState: "INCOMPLETE",
+    nextActionCode: "START_NEW_PROBE",
+    operatorAction: "Start a new scoped run before relying on this result.",
+  } as const;
+  const toolTrace = [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: true,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+      readStatus: "READ_COMPLETE",
+      resultKind: "success",
+      resultSummary: "The complete source body was retained for the targeted query.",
+    },
+    {
+      kind: "evidence_integrity",
+      code: "TELEMETRY_CONSISTENT",
+      consistent: true,
+      violations: [],
+      readAttempts: 1,
+      uniqueFilesRead: 1,
+      evidenceFileCount: 1,
+      acceptedEvidenceCount: 0,
+      acceptedClaimCount: 0,
+      completedReadFiles: [source],
+      retainedBodyFiles: [source],
+      acceptedEvidenceFiles: [],
+      completionGateResult: "OBJECTIVE_BLOCKED",
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+    },
+    {
+      kind: "decision_trace",
+      trace: {
+        taskType: "PROJECT_QUERY",
+        allowedFiles: targetPaths,
+        requiredEvidencePaths: targetPaths,
+        filesRead: [source],
+        evidenceSelected: 0,
+        claim: "verified AI routing weakness",
+        validator: "project-query",
+        rejectionReason: ["no accepted claims"],
+        objectiveVerdict: "RECOVERY_REQUIRED",
+        finalState: "RECOVERY_REQUIRED",
+      },
+    },
+    {
+      kind: "forensic_status",
+      auditScope: "PRODUCTION",
+      sourceCoverage: "COMPLETE",
+      behavioralAssessment: "INCOMPLETE",
+      findingStatus: "NOT_PROVEN",
+      repairReadiness: "BLOCKED",
+      requestedFiles: targetPaths,
+      effectiveRoot: "PROJECT_ROOT",
+      projectRevision: "e2e-project-query-revision-1",
+      completeReads: true,
+      reason: "The source read completed, but the required objective claim was not accepted.",
+    },
+    {
+      kind: "forensic_terminal",
+      terminalKind: "EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED",
+    },
+    {
+      kind: "done",
+      stopReason: "response",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 1,
+      prefetchToolCalls: 1,
+      loopToolCalls: 0,
+      synthesisStarted: true,
+      diagnosticCodes: ["OBJECTIVE_BLOCKED"],
+    },
+  ];
+  const terminalProjection = {
+    executionId,
+    sessionId,
+    attempt: 1,
+    messageId,
+    acceptanceId: `${executionId}-acceptance`,
+    operationId: `${executionId}-operation`,
+    correlationId: `${executionId}-correlation`,
+    status: "failed",
+    outcome: "FAILED",
+    resumable: false,
+    terminalStatus: "failed",
+  };
+  const message = {
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: answer,
+    turnIntent: "PROJECT_QUERY",
+    operationMode: "CHAT",
+    executionId,
+    outcome: "FAILED",
+    errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+    errorMessage: "The required objective claim was not accepted.",
+    failureKind: "INCOMPLETE",
+    retryable: true,
+    recoveryState: "INCOMPLETE",
+    acceptance,
+    acceptanceDisposition,
+    terminalProjection,
+    toolTrace: JSON.stringify(toolTrace),
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const execution = {
+    id: executionId,
+    projectId,
+    sessionId,
+    operationId: terminalProjection.operationId,
+    correlationId: terminalProjection.correlationId,
+    status: "failed",
+    flightState: "FAILED",
+    attempt: 1,
+    proofRequired: true,
+    resumable: false,
+    evidenceVerdict: "PARTIAL",
+    evidenceReason: "A complete source read was retained, but the required objective claim was not accepted.",
+    acceptance,
+    acceptanceDisposition,
+    terminalProjection,
+    objective: {
+      objective: question,
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+      requiredEvidencePaths: targetPaths,
+    },
+    checkpointVersion: 1,
+    checkpoint: {
+      stage: "finalizing",
+      detail: "The targeted analysis ended without an accepted claim.",
+    },
+    projectRevision: "e2e-project-query-revision-1",
+    error: "The required objective claim was not accepted.",
+    startedAt: "2026-01-01T00:01:00.000Z",
+    createdAt: "2026-01-01T00:01:00.000Z",
+    updatedAt: "2026-01-01T00:02:00.000Z",
+    completedAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      sessionId,
+      status: "running",
+      resumable: false,
+      proofRequired: true,
+      turnIntent: "PROJECT_QUERY",
+      operationMode: "CHAT",
+    }),
+    sse({ type: "stage", stage: "building-context" }),
+    sse({
+      type: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: true,
+    }),
+    sse({
+      type: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+      readStatus: "READ_COMPLETE",
+      resultKind: "success",
+    }),
+    sse({
+      type: "evidence_integrity",
+      code: "TELEMETRY_CONSISTENT",
+      consistent: true,
+      violations: [],
+      completedReadFiles: [source],
+      retainedBodyFiles: [source],
+      acceptedEvidenceFiles: [],
+      acceptedEvidenceCount: 0,
+      completionGateResult: "OBJECTIVE_BLOCKED",
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+    }),
+    sse({
+      type: "decision_trace",
+      taskType: "PROJECT_QUERY",
+      allowedFiles: targetPaths,
+      requiredEvidencePaths: targetPaths,
+      filesRead: [source],
+      evidenceSelected: 0,
+      objectiveVerdict: "RECOVERY_REQUIRED",
+      finalState: "RECOVERY_REQUIRED",
+    }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      operationMode: "CHAT",
+      turnIntent: "PROJECT_QUERY",
+      sources: [source],
+      toolTrace: JSON.stringify(toolTrace),
+      terminalProjection,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    projectId,
+    sessionId,
+    executionId,
+    question,
+    source,
+    targetPaths,
+    streamBody,
+    message,
+    execution,
+  };
+}
+
 function installCancelledForensicFixture(): ArabicAiFixture {
   const sessionId = "e2e-cancelled-forensic-session";
   const executionId = "e2e-cancelled-forensic-execution";
@@ -5766,6 +6021,156 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
     expect(await reloadedNotice.textContent()).toBe(beforeReload);
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
+  });
+
+  test("keeps incomplete targeted project analysis non-resumable across history, reload, and retry", async ({
+    page,
+  }) => {
+    const fixture = installIncompleteProjectQueryFixture();
+    const audit = {
+      ...fixture.execution,
+      objective: fixture.question,
+      disposition: "NEW_RUN_RECOMMENDED",
+    };
+    const streamRequests: Array<Record<string, unknown>> = [];
+    page.on("request", (request) => {
+      if (
+        request.url().endsWith("/api/ai/chat/stream") &&
+        request.method() === "POST"
+      ) {
+        try {
+          streamRequests.push(request.postDataJSON() as Record<string, unknown>);
+        } catch {
+          // The deterministic fixture response handles malformed requests.
+        }
+      }
+    });
+    await installApiFixtures(page, {
+      arabicAi: fixture as ArabicAiFixture,
+      historicalAudits: {
+        audits: [audit],
+        executions: { [fixture.executionId]: fixture.execution },
+      },
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const proof = page.getByLabel("Agent execution proof");
+    await expect(proof).toBeVisible();
+    await expect(proof).toContainText("Evidence: PARTIAL");
+    await expect(proof).toContainText("not resumable");
+    await expect(proof.getByRole("button", { name: "Resume", exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Retry project analysis", exact: true }),
+    ).toBeVisible();
+
+    const evidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await evidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await evidenceToggle.click();
+    }
+    await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText("ANALYSIS_INCOMPLETE").last()).toBeVisible();
+
+    const browserJson = async (path: string) =>
+      page.evaluate(async (requestPath) => {
+        const response = await fetch(requestPath, { credentials: "include" });
+        return { status: response.status, body: await response.json() as unknown };
+      }, path);
+    const assertDurableIncompleteState = async () => {
+      const historyResponse = await browserJson(
+        `/api/ai/executions/history?projectId=${fixture.projectId}`,
+      );
+      expect(historyResponse.status).toBe(200);
+      expect(historyResponse.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: fixture.executionId,
+            disposition: "NEW_RUN_RECOMMENDED",
+            proofRequired: true,
+            resumable: false,
+            acceptance: fixture.execution.acceptance,
+            objective: fixture.question,
+          }),
+        ]),
+      );
+
+      const detailResponse = await browserJson(
+        `/api/ai/executions/${fixture.executionId}`,
+      );
+      expect(detailResponse.status).toBe(200);
+      expect(detailResponse.body).toEqual(
+        expect.objectContaining({
+          status: "failed",
+          proofRequired: true,
+          resumable: false,
+          evidenceVerdict: "PARTIAL",
+          objective: expect.objectContaining({
+            requiredEvidencePaths: fixture.targetPaths,
+          }),
+          acceptance: fixture.execution.acceptance,
+          acceptanceDisposition: fixture.execution.acceptanceDisposition,
+        }),
+      );
+    };
+    await assertDurableIncompleteState();
+
+    await page.reload();
+    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await expect(page.getByLabel("Agent execution proof")).toContainText("not resumable");
+    await expect(
+      page.getByRole("button", { name: "Resume", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Retry project analysis", exact: true }),
+    ).toBeVisible();
+    const reloadedEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ });
+    if (await reloadedEvidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await reloadedEvidenceToggle.click();
+    }
+    await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
+    await assertDurableIncompleteState();
+
+    const reviewAudit = page.getByRole("button", {
+      name: `Review audit ${fixture.question}`,
+    });
+    await expect(reviewAudit).toBeVisible();
+
+    await page.getByRole("button", { name: "Retry project analysis", exact: true }).click();
+    await expect
+      .poll(() => streamRequests.length, {
+        message: "retry should create a fresh non-resume stream",
+      })
+      .toBe(2);
+    expect(streamRequests[0]).toEqual(
+      expect.objectContaining({
+        projectId: fixture.projectId,
+        message: fixture.question,
+      }),
+    );
+    expect(streamRequests[1]).toEqual(
+      expect.objectContaining({
+        projectId: fixture.projectId,
+        sessionId: fixture.sessionId,
+        message: "retry",
+      }),
+    );
+    expect(streamRequests[1]).not.toHaveProperty("executionId");
+    expect(streamRequests[1]).not.toHaveProperty("resumeToken");
+    await expect(page.getByLabel("Agent execution proof")).toBeVisible();
+    await expect(page.getByLabel("Agent execution proof")).toContainText("not resumable");
+    await expect(
+      page.getByRole("button", { name: "Resume", exact: true }),
+    ).toHaveCount(0);
+    const retryEvidenceToggle = page.getByRole("button", { name: /Forensic evidence/ }).last();
+    if (await retryEvidenceToggle.getAttribute("aria-expanded") !== "true") {
+      await retryEvidenceToggle.click();
+    }
+    await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
+    await assertDurableIncompleteState();
   });
 
   test("keeps evidence-incomplete acceptance visible after reopening and switching projects", async ({

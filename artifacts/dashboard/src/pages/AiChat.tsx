@@ -10721,10 +10721,14 @@ export default function AiChat() {
           const retainTerminalExecution = Boolean(
             terminalFailure
             && currentExecution
-            && data.operationMode !== 'CHAT'
-            && operationMode !== 'CHAT'
             && currentExecution.proofRequired !== false
-            && terminalProjection?.resumable === true,
+            && (
+              terminalProjection?.resumable === true
+              || (
+                currentExecution.proofRequired === true
+                && currentExecution.operationMode === 'CHAT'
+              )
+            ),
           );
           if (retainTerminalExecution && currentExecution) {
              const retainedExecution = {
@@ -10801,11 +10805,14 @@ export default function AiChat() {
           const currentExecution = activeExecutionRef.current;
           const preserveTerminalExecution = Boolean(
             currentExecution
-            && operationMode !== 'CHAT'
             && currentExecution.proofRequired !== false
             && (
               err.terminalProjection?.resumable === true
               || currentExecution.resumable === true
+              || (
+                currentExecution.proofRequired === true
+                && currentExecution.operationMode === 'CHAT'
+              )
             ),
           );
           const resumableDisconnect = (
