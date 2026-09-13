@@ -84,6 +84,7 @@ describe("resolveTurnIntent", () => {
     "ما هذا المشروع؟",
     "ممكن تساعدني أفهم المشروع؟",
     "هل المشروع شغال حاليًا؟",
+    "أشرح المشروع بصورة مبسطة",
     "What is this project?",
   ])("requests project capability for orientation question without evidence mode: %s", (message) => {
     const classification = classifyRequest(message);

@@ -90,6 +90,7 @@ import {
   mergeReadStatus,
   projectContextProvenance,
   parseContextProvenance,
+  extractJson,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -606,7 +607,9 @@ function sanitizeResponseText(raw: string): string {
   // wraps a string `response` field — not for ordinary markdown/text.
   if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
   try {
-    const parsed = JSON.parse(trimmed);
+    const extracted = extractJson(trimmed);
+    if (!extracted.ok) return redactUserFacingText(raw);
+    const parsed = extracted.data;
     if (
       parsed !== null &&
       typeof parsed === "object" &&

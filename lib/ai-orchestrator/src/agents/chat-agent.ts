@@ -8837,7 +8837,7 @@ export async function chat(opts: {
       // envelope parsing when the response is shaped like a JSON object;
       // otherwise a normal Arabic/English answer should not be reported as a
       // malformed JSON response or trigger the structured correction path.
-      const parsedDirect =
+      let parsedDirect =
         !structuredOutputMode
         && !deterministicTaskExecution
          && !repairPlanExecution
@@ -8846,6 +8846,57 @@ export async function chat(opts: {
          && !directContent.trimStart().startsWith("{")
         ? { ok: true as const, data: fallbackChatOutput(directContent) }
         : parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+      if (
+        !parsedDirect.ok
+        && !structuredOutputMode
+        && !deterministicTaskExecution
+        && !repairPlanExecution
+        && taskType !== "task_execution"
+        && !classification.implementationTaskMode
+        && directContent.trimStart().startsWith("{")
+      ) {
+        const correctionPrompt =
+          "Your previous response was not valid JSON. " +
+          "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
+          "nothing before or after it:\n" +
+          '{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}';
+        try {
+          const correction = await strategy.call(
+            [
+              ...messages,
+              { role: "assistant", content: directContent },
+              { role: "user", content: correctionPrompt },
+            ],
+            {
+              ...buildJsonCorrectionOptions(
+                provider,
+                provider === "openrouter" ? undefined : result.model || model,
+                apiKey,
+                signal,
+              ),
+              executionLedger,
+            },
+          );
+          const corrected = parseAgentResponse(
+            correction.content ?? "",
+            ChatOutputSchema,
+            fallbackChatOutput,
+          );
+          if (corrected.ok) {
+            parsedDirect = corrected;
+          } else {
+            recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_FAILED", [
+              `direct-stream correction parse code: ${corrected.code}`,
+            ]);
+          }
+        } catch (error) {
+          recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_RETRY_FAILED", [
+            `direct-stream correction provider failure: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ]);
+        }
+      }
       const responseText =
         normalizeAssistantText(parsedDirect.data.response) ||
         normalizeAssistantText(directContent) ||

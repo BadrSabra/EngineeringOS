@@ -22,6 +22,7 @@ describe("classifyRequest — ordinary orientation questions", () => {
     "ما هذا المشروع؟",
     "ممكن تساعدني أفهم المشروع؟",
     "هل المشروع شغال حاليًا؟",
+    "أشرح المشروع بصورة مبسطة",
     "What is this project?",
   ])("keeps %s on the fast chat profile", (message) => {
     const result = classifyRequest(message);

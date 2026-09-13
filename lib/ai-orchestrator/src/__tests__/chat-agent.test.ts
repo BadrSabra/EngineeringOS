@@ -818,6 +818,44 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(Array.isArray(result.sources)).toBe(true);
   });
 
+  it("corrects a malformed duplicated JSON envelope before direct streaming", async () => {
+    const responses = [
+      '{"response":"The answer starts here, then the provider duplicated an inner envelope {\n "response":"still malformed","sources":[]}',
+      '{"response":"Corrected answer","sources":[]}',
+    ];
+    const nextResponse = vi.fn(async () => ({
+      content: responses.shift() ?? responses[responses.length - 1] ?? '{"response":"Corrected answer","sources":[]}',
+      toolCalls: [],
+      model: "m",
+      usage: {},
+    }));
+
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: nextResponse,
+      openrouterCompleteWithFallback: nextResponse,
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+      onDelta: (chunk) => deltas.push(chunk),
+    });
+
+    expect(nextResponse).toHaveBeenCalledTimes(2);
+    expect(result.response).toBe("Corrected answer");
+    expect(result.response).not.toContain('"response"');
+    expect(deltas.join("")).toBe("Corrected answer");
+  });
+
   it("passes plain prose through onDelta without modification", async () => {
     const plainProse = "This is a plain text answer with no JSON wrapper.";
 
