@@ -35,6 +35,7 @@ import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { useQuery } from '@tanstack/react-query';
 import { useMonotonicData } from '@/lib/freshness';
+import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
 
 type BrowserValidationProfile = {
   id: string;
@@ -232,6 +233,8 @@ export default function ProjectDetail() {
           </button>
         </div>
       </div>
+
+      <WorkspaceRuntimePanel projectId={projectId} />
 
       {/* Project info panel */}
       {showProjectInfo && (

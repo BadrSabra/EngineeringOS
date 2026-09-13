@@ -33,6 +33,7 @@ import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
 import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
 import { pruneExpiredAiUsage } from "./lib/ai-telemetry";
 import { assertDatabaseApplicationSchema } from "./lib/database-schema-preflight";
+import { workspaceRuntime } from "./lib/workspace-runtime";
 import {
   recordGroqModelCatalogDrift,
   recordGroqModelCatalogUnavailable,
@@ -98,6 +99,7 @@ async function shutdown(signal: string): Promise<void> {
   if (staleJobSweep) clearInterval(staleJobSweep);
   if (durableJobDispatcher) clearInterval(durableJobDispatcher);
   memorySweep?.stop();
+  await workspaceRuntime.shutdown();
   await new Promise<void>((resolve) => {
     if (!httpServer) return resolve();
     httpServer.close(() => resolve());
