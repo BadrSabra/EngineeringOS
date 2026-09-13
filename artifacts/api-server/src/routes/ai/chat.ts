@@ -7854,13 +7854,24 @@ router.post("/ai/chat/stream", async (req, res) => {
       const providerErrorCode = err instanceof GroqClientError ? err.code : "UNKNOWN";
       const targetedProjectQueryFailure =
         streamTurnIntent.kind === "PROJECT_QUERY" && proofRequired;
+      const terminalErrorCode = targetedProjectQueryFailure
+        ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+        : providerErrorCode;
+      const targetedAcceptanceDisposition = targetedProjectQueryFailure && !cancelled
+        ? publicAcceptanceDisposition({
+            code: terminalErrorCode,
+            outcome: "FAILED",
+            failureKind: "INCOMPLETE",
+            recoveryState: "INCOMPLETE",
+          })
+        : undefined;
       const providerEvidenceVerdict: FlightDeckEvidenceVerdict =
         cancelled || providerEvidenceSummary.completeSourceReadCount === 0
           ? "UNAVAILABLE"
           : "PARTIAL";
       const endedBeforeProviderEvidence =
         streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
-      const terminalOutcome = classifyAiTerminalOutcome({
+      const classifiedTerminalOutcome = classifyAiTerminalOutcome({
         trace: traceSteps,
         requiresEvidence: streamTurnIntent.requiresEvidence,
         forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
@@ -7892,6 +7903,22 @@ router.post("/ai/chat/stream", async (req, res) => {
             }
           : {}),
       });
+      // A proof-required targeted query is not resumable merely because the
+      // provider failure itself is retryable. Its retained reads still need
+      // objective closure, so the durable acceptance row and every public
+      // projection must use the incomplete-acceptance disposition.
+      const terminalOutcome = targetedProjectQueryFailure && !cancelled
+        ? {
+            ...classifiedTerminalOutcome,
+            outcome: "FAILED" as const,
+            failureKind: "INCOMPLETE" as const,
+            retryable: true,
+            code: terminalErrorCode,
+            message: "The targeted project analysis remains incomplete because its required acceptance evidence was not proven.",
+            recoveryState: "INCOMPLETE" as const,
+            evidenceAccepted: false,
+          }
+        : classifiedTerminalOutcome;
       if (err instanceof GroqClientError) {
         if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
           recordInvalidModel(provider);
@@ -7914,7 +7941,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionId: aiExecution?.id,
          workerId: executionWorkerId,
         outcome: cancelled ? "INTERRUPTED" : "FAILED",
-        errorCode: providerErrorCode,
+        errorCode: terminalErrorCode,
         errorMessage: cancelled
           ? "The AI request was cancelled before completion."
           : "The AI provider could not complete the request.",
@@ -7951,6 +7978,9 @@ router.post("/ai/chat/stream", async (req, res) => {
             ...(targetedProjectQueryFailure
               ? { recoveryState: terminalOutcome.recoveryState }
               : {}),
+            ...(targetedAcceptanceDisposition
+              ? { acceptanceDisposition: targetedAcceptanceDisposition }
+              : {}),
             nodeStates: executionNodeStates,
             recentSteps: serializeExecutionCheckpointSteps(traceSteps),
             evidenceVerdict: targetedProjectQueryFailure
@@ -7963,7 +7993,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             evidenceProgress: evidenceProgressForTerminal(),
             providerAttempts: providerAttemptSummary,
             finalMessageId: persistedProviderFailure?.id,
-            finalMessageErrorCode: providerErrorCode,
+            finalMessageErrorCode: terminalErrorCode,
           }).catch((terminalError) => {
             logger.warn(
               { terminalError, executionId: aiExecution!.id, providerErrorCode },
@@ -7981,7 +8011,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         // Provider messages, model identifiers, paths, and upstream diagnostics
         // stay in the structured server log above. The stream exposes only the
         // bounded public error contract, after durable terminal persistence.
-        const publicErrorCode = err instanceof GroqClientError ? err.code : "unknown";
+        const publicErrorCode = targetedProjectQueryFailure
+          ? terminalErrorCode
+          : err instanceof GroqClientError ? err.code : "unknown";
         const retryable = terminalOutcome.retryable;
         sse({
           type: "error",
@@ -7995,6 +8027,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           failureKind: terminalOutcome.failureKind,
           retryable,
           recoveryState: terminalOutcome.recoveryState,
+          ...(targetedAcceptanceDisposition
+            ? { acceptanceDisposition: targetedAcceptanceDisposition }
+            : {}),
           ...(terminalOutcome.nextRequiredPath
             ? { nextRequiredPath: terminalOutcome.nextRequiredPath }
             : {}),

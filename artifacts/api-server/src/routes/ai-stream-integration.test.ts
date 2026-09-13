@@ -5813,6 +5813,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       scope?: { projectId?: string; revision?: string };
       evidence?: { readFiles?: string[] };
     } | null } | undefined;
+    let reconnectInput: typeof retryInput;
 
     vi.mocked(chatWithFallback)
       .mockImplementationOnce(async (...args) => {
@@ -5837,6 +5838,19 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           },
           effectiveProvider: "groq" as const,
         } as Awaited<ReturnType<typeof chatWithFallback>>;
+      })
+      .mockImplementationOnce(async (...args) => {
+        reconnectInput = args[1] as typeof reconnectInput;
+        const input = args[1] as { retainedEvidence?: Map<string, string> };
+        input.retainedEvidence?.set(source, "export const reconnectFixture = true;\n");
+        args[6]?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: true,
+          readStatus: "READ_COMPLETE",
+        } as never);
+        throw new Error("reconnected project query provider failed");
       });
 
     const first = await request(app)
@@ -5850,6 +5864,24 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       turnIntent: "PROJECT_QUERY",
       proofRequired: true,
     });
+    const firstError = firstEvents.find((event) => event.type === "error");
+    expect(firstError).toMatchObject({
+      type: "error",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      retryable: true,
+      terminalProjection: {
+        executionId: expect.any(String),
+        sessionId: expect.any(String),
+        attempt: 0,
+        status: "failed",
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        resumable: false,
+      },
+    });
+    expect(firstEvents.find((event) => event.type === "done")).toBeUndefined();
 
     const [firstExecution] = await db
       .select({
@@ -5857,12 +5889,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         sessionId: aiExecutionsTable.sessionId,
         status: aiExecutionsTable.status,
         request: aiExecutionsTable.request,
+        operationId: aiExecutionsTable.operationId,
       })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.projectId, projectId))
       .limit(1);
     expect(firstExecution).toMatchObject({ status: "failed" });
     expect(firstExecution?.sessionId).toEqual(expect.any(String));
+    const firstProjection = firstError?.terminalProjection as Record<string, unknown>;
+    expect(firstProjection.executionId).toBe(firstExecution!.id);
+    expect(firstProjection.sessionId).toBe(firstExecution!.sessionId);
 
     const [sessionAfterFailure] = await db
       .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
@@ -5879,6 +5915,80 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       },
       evidence: { readFiles: [source] },
     });
+    const firstRequest = JSON.parse(firstExecution!.request!) as {
+      workspaceRevision?: string;
+    };
+    const operationId = firstExecution!.operationId;
+    expect(operationId).toEqual(expect.any(String));
+    expect(firstRequest.workspaceRevision).toEqual(expect.any(String));
+
+    const detail = await request(app)
+      .get(`/api/ai/executions/${firstExecution!.id}`)
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      id: firstExecution!.id,
+      sessionId: firstExecution!.sessionId,
+      status: "failed",
+      attempt: 0,
+      projectRevision: firstRequest.workspaceRevision,
+      proofRequired: true,
+      evidenceVerdict: "PARTIAL",
+      resumable: false,
+      terminalProjection: firstProjection,
+      recovery: {
+        operationId,
+        revision: firstRequest.workspaceRevision,
+      },
+      checkpoint: {
+        evidenceProgress: expect.objectContaining({
+          operationId: expect.any(String),
+          sourceRevision: firstRequest.workspaceRevision,
+          requiredPaths: expect.arrayContaining([source]),
+          completedPaths: expect.arrayContaining([source]),
+        }),
+      },
+    });
+    expect(detail.body.acceptance).toMatchObject({
+      attempt: 0,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      evidenceRequired: true,
+      evidenceComplete: false,
+      resumable: false,
+    });
+
+    const executionHistory = await request(app)
+      .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`)
+      .expect(200);
+    expect(executionHistory.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: firstExecution!.id,
+        sessionId: firstExecution!.sessionId,
+        status: "failed",
+        proofRequired: true,
+        evidenceVerdict: "PARTIAL",
+        resumable: false,
+        terminalProjection: firstProjection,
+        acceptance: expect.objectContaining({
+          attempt: 0,
+          outcome: "FAILED",
+          evidenceRequired: true,
+          evidenceComplete: false,
+          resumable: false,
+        }),
+      }),
+    ]));
+
+    const failedHistory = await request(app)
+      .get(`/api/ai/chat/${firstExecution!.sessionId}/messages`)
+      .expect(200);
+    expect(failedHistory.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        executionId: firstExecution!.id,
+        outcome: "FAILED",
+        terminalProjection: firstProjection,
+      }),
+    ]));
 
     const retry = await request(app)
       .post("/api/ai/chat/stream")
@@ -5890,11 +6000,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       });
     expect(retry.status).toBe(200);
     const retryEvents = parseSseEvents(retry.text);
-    expect(retryEvents.find((event) => event.type === "execution_started")).toMatchObject({
+    const retryStarted = retryEvents.find((event) => event.type === "execution_started");
+    expect(retryStarted).toMatchObject({
       turnIntent: "PROJECT_QUERY",
       proofRequired: true,
     });
-    expect(retryEvents.find((event) => event.type === "execution_started")?.executionId)
+    const retryExecutionId = retryStarted?.executionId;
+    expect(retryExecutionId)
       .not.toBe(firstExecution!.id);
     expect(retryInput?.message).toBe("أعد المحاولة");
     expect(retryInput?.turnIntent?.kind).toBe("PROJECT_QUERY");
@@ -5910,6 +6022,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       },
       evidence: { readFiles: [source] },
     });
+    expect(retryInput?.activeTaskState?.projectQuery?.requiredEvidencePaths)
+      .toEqual(expect.arrayContaining([source]));
+    expect(retryInput?.activeTaskState?.projectQuery?.requiredEvidencePaths)
+      .toHaveLength(savedState.projectQuery.requiredEvidencePaths.length);
 
     const executions = await db
       .select({ id: aiExecutionsTable.id, status: aiExecutionsTable.status })
@@ -5917,6 +6033,57 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .where(eq(aiExecutionsTable.projectId, projectId));
     expect(executions).toHaveLength(2);
     expect(new Set(executions.map((execution) => execution.id)).size).toBe(2);
+    expect(executions.find((execution) => execution.id === firstExecution!.id)?.status).toBe("failed");
+
+    const reconnect = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId: firstExecution!.sessionId,
+        message: "أكمل التحليل",
+      });
+    expect(reconnect.status).toBe(200);
+    const reconnectEvents = parseSseEvents(reconnect.text);
+    const reconnectStarted = reconnectEvents.find((event) => event.type === "execution_started");
+    expect(reconnectStarted).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+    const reconnectExecutionId = reconnectStarted?.executionId;
+    expect(reconnectExecutionId).toEqual(expect.any(String));
+    expect(reconnectExecutionId).not.toBe(firstExecution!.id);
+    expect(reconnectExecutionId).not.toBe(retryExecutionId);
+    const reconnectError = reconnectEvents.find((event) => event.type === "error");
+    expect(reconnectError).toMatchObject({
+      type: "error",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      retryable: true,
+      terminalProjection: {
+        executionId: reconnectExecutionId,
+        sessionId: firstExecution!.sessionId,
+        status: "failed",
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        resumable: false,
+      },
+    });
+    expect(reconnectInput?.turnIntent?.kind).toBe("PROJECT_QUERY");
+    expect(reconnectInput?.activeTaskState).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      projectQuery: {
+        id: "embedded-ai",
+        requiredEvidencePaths: expect.arrayContaining([source]),
+      },
+      scope: {
+        projectId,
+        revision: savedState.scope.revision,
+      },
+      evidence: { readFiles: [source] },
+    });
+    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(3);
   });
 
   it("keeps natural project-query follow-ups scoped, but does not resume without a target", async () => {

@@ -349,6 +349,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   });
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
   const required = input?.sourceEvidenceRequired ?? input?.required === true;
+  const sourceEvidenceRequired = input?.sourceEvidenceRequired ?? required;
   const readsComplete = (
     reads.length > 0
     && totalBytes <= MAX_SNAPSHOT_BYTES
@@ -358,7 +359,9 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     ? input.verdict.slice(0, 40)
     : undefined;
   const verdict = suppliedVerdict ?? (readsComplete ? "PROVEN" : "NOT_RECORDED");
-  const verdictBlocksCompletion = verdict === "UNAVAILABLE";
+  const verdictBlocksCompletion =
+    verdict === "UNAVAILABLE"
+    || (sourceEvidenceRequired && verdict !== "PROVEN");
   const complete = Boolean(!verdictBlocksCompletion && (!required || (
     readsComplete
     && verdict !== "NOT_RECORDED"
