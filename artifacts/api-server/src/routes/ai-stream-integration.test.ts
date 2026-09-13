@@ -9531,7 +9531,7 @@ describe("operational command routing", () => {
   it.each([
     ["/api/ai/chat", "أعد تشغيل جميع الخدمات"],
     ["/api/ai/chat/stream", "restart all services"],
-  ])("fails closed before provider resolution for %s", async (endpoint, message) => {
+  ])("records an internal EngineeringOS workflow without calling a provider for %s", async (endpoint, message) => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     vi.mocked(requireProvider).mockClear();
@@ -9541,17 +9541,99 @@ describe("operational command routing", () => {
       .post(endpoint)
       .send({ projectId, message });
 
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(202);
     expect(response.body).toMatchObject({
-      error: "unsupported_server_action",
-      code: "UNSUPPORTED_SERVER_ACTION",
+      error: "server_action_workflow_recorded",
+      code: "SERVER_ACTION_WORKFLOW_RECORDED",
       action: "RESTART_SERVICES",
-      outcome: "FAILED",
+      outcome: "SUCCEEDED",
+      workflowStatus: "completed",
+      phaseStatus: "completed",
+      serviceControl: "NOT_PERFORMED",
       retryable: false,
     });
-    expect(response.body.message).toContain("cannot control Replit workflows");
+    expect(response.body.message).toContain("Replit services were not restarted");
+    expect(response.body.workflowId).toEqual(expect.any(String));
+    expect(response.body.executionId).toEqual(expect.any(String));
+    expect(response.body.operationId).toEqual(expect.any(String));
+    expect(response.body.statusUrl).toBe(`/api/workflows/${response.body.workflowId}`);
+    expect(response.body.executionsUrl).toBe(`/api/workflows/${response.body.workflowId}/executions`);
     expect(vi.mocked(requireProvider)).not.toHaveBeenCalled();
     expect(vi.mocked(chatWithFallback)).not.toHaveBeenCalled();
+
+    const workflows = await db
+      .select()
+      .from(workflowsTable)
+      .where(eq(workflowsTable.id, response.body.workflowId));
+    expect(workflows).toHaveLength(1);
+    expect(workflows[0]).toMatchObject({
+      projectId,
+      name: "Restart services (internal workflow)",
+      status: "completed",
+      currentPhase: "record_restart_request",
+      phases: [{
+        name: "record_restart_request",
+        steps: ["Record the requested service restart in the EngineeringOS workflow ledger."],
+      }],
+    });
+
+    const executions = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.id, response.body.executionId));
+    expect(executions).toHaveLength(1);
+    expect(executions[0]).toMatchObject({
+      workflowId: response.body.workflowId,
+      status: "completed",
+      currentPhase: "record_restart_request",
+      completedPhases: ["record_restart_request"],
+    });
+
+    const events = await db
+      .select({
+        type: eventsTable.type,
+        correlationId: eventsTable.correlationId,
+      })
+      .from(eventsTable)
+      .where(eq(eventsTable.workflowId, response.body.workflowId));
+    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
+      "WorkflowCreated",
+      "WorkflowStarted",
+      "WorkflowCompleted",
+    ]));
+    expect(new Set(events.map((event) => event.correlationId)).size).toBe(1);
+
+    const auditLogs = await db
+      .select({
+        action: auditLogsTable.action,
+        correlationId: auditLogsTable.correlationId,
+      })
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.entityId, response.body.workflowId));
+    expect(auditLogs.map((audit) => audit.action)).toEqual(expect.arrayContaining([
+      "created",
+      "completed",
+    ]));
+    expect(new Set(auditLogs.map((audit) => audit.correlationId)).size).toBe(1);
+
+    const aiExecutions = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        operationId: aiExecutionsTable.operationId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.operationId, response.body.operationId));
+    expect(aiExecutions).toHaveLength(1);
+    expect(aiExecutions[0]).toMatchObject({
+      status: "completed",
+      operationId: response.body.operationId,
+    });
+    const acceptances = await db
+      .select({ executionId: aiExecutionAcceptancesTable.executionId })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, aiExecutions[0].id));
+    expect(acceptances).toHaveLength(1);
 
     const sessions = await db
       .select({ id: aiChatSessionsTable.id })

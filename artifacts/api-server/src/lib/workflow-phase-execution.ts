@@ -53,6 +53,7 @@ export async function executeWorkflowPhase(params: {
     message: objective,
     modelMessage: "Execute the server-owned workflow phase boundary.",
     workspaceRevision: params.revision,
+    workspaceRoot: params.rootPath ?? undefined,
     objective,
     validationTargetPaths: [],
     proofRequired: true,
@@ -63,6 +64,7 @@ export async function executeWorkflowPhase(params: {
     projectId: params.projectId,
     request: operationRequest,
     idempotencyKey: phaseKey,
+    workspaceRoot: params.rootPath ?? undefined,
   });
   const existingCheckpoint = parseAiExecutionCheckpoint(durable.execution.checkpoint);
   if (!durable.created && durable.execution.status === "completed") {
@@ -100,14 +102,20 @@ export async function executeWorkflowPhase(params: {
     evidenceRefs: [evidenceRef],
   }));
   let operation: AutonomousOperationContract = existingCheckpoint?.operation
-    ?? createAutonomousOperationContract({
-      operationId: durable.execution.operationId ?? durable.execution.id,
-      objective,
-      revisionManifest: params.revision,
-      policyRevision: "server-policy-v1",
-      nodes,
-      candidateIdentity: phaseKey,
-    });
+    ? {
+        ...existingCheckpoint.operation,
+        nodes: existingCheckpoint.operation.nodes.length > 0
+          ? existingCheckpoint.operation.nodes
+          : nodes,
+      }
+    : createAutonomousOperationContract({
+        operationId: durable.execution.operationId ?? durable.execution.id,
+        objective,
+        revisionManifest: params.revision,
+        policyRevision: "server-policy-v1",
+        nodes,
+        candidateIdentity: phaseKey,
+      });
 
   const claimed = await claimAiExecution({
     executionId: durable.execution.id,

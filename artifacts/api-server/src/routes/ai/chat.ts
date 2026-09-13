@@ -117,6 +117,7 @@ import type {
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
+import { startInternalRestartServicesWorkflow } from "../../lib/server-action-workflows.js";
 import {
   RepairPlanMetadataSchema,
   type RepairPlanMetadata,
@@ -3837,14 +3838,42 @@ router.post("/ai/chat", async (req, res) => {
   if (!project) return;
 
   if (chatTurnIntent.serverAction === "RESTART_SERVICES") {
-    return res.status(501).json({
-      error: "unsupported_server_action",
-      code: "UNSUPPORTED_SERVER_ACTION",
-      action: "RESTART_SERVICES",
-      outcome: "FAILED",
-      message: "The embedded agent cannot control Replit workflows. Restart services from the workspace control plane.",
-      retryable: false,
-    });
+    try {
+      const workflow = await startInternalRestartServicesWorkflow({
+        userId: req.userId,
+        projectId,
+        rootPath: project.rootPath,
+        revision: project.updatedAt.toISOString(),
+      });
+      const outcome = workflow.workflowStatus === "completed" ? "SUCCEEDED" : "FAILED";
+      return res.status(202).json({
+        error: "server_action_workflow_recorded",
+        code: "SERVER_ACTION_WORKFLOW_RECORDED",
+        action: "RESTART_SERVICES",
+        outcome,
+        workflowId: workflow.workflowId,
+        executionId: workflow.executionId,
+        operationId: workflow.operationId,
+        workflowStatus: workflow.workflowStatus,
+        phaseStatus: workflow.phaseStatus,
+        serviceControl: workflow.serviceControl,
+        message: workflow.message,
+        statusUrl: `/api/workflows/${workflow.workflowId}`,
+        executionsUrl: `/api/workflows/${workflow.workflowId}/executions`,
+        retryable: workflow.workflowStatus === "failed",
+      });
+    } catch (error) {
+      req.log?.error?.({ error }, "failed to record internal restart workflow");
+      return res.status(500).json({
+        error: "server_action_workflow_failed",
+        code: "SERVER_ACTION_WORKFLOW_FAILED",
+        action: "RESTART_SERVICES",
+        outcome: "FAILED",
+        serviceControl: "NOT_PERFORMED",
+        message: "The internal EngineeringOS restart workflow could not be recorded.",
+        retryable: true,
+      });
+    }
   }
 
   // Keep execution handoff fail-closed in the streaming route too. This check
@@ -4983,14 +5012,42 @@ router.post("/ai/chat/stream", async (req, res) => {
   if (!project) return;
 
   if (rawTurnIntent.serverAction === "RESTART_SERVICES") {
-    return res.status(501).json({
-      error: "unsupported_server_action",
-      code: "UNSUPPORTED_SERVER_ACTION",
-      action: "RESTART_SERVICES",
-      outcome: "FAILED",
-      message: "The embedded agent cannot control Replit workflows. Restart services from the workspace control plane.",
-      retryable: false,
-    });
+    try {
+      const workflow = await startInternalRestartServicesWorkflow({
+        userId: req.userId,
+        projectId,
+        rootPath: project.rootPath,
+        revision: project.updatedAt.toISOString(),
+      });
+      const outcome = workflow.workflowStatus === "completed" ? "SUCCEEDED" : "FAILED";
+      return res.status(202).json({
+        error: "server_action_workflow_recorded",
+        code: "SERVER_ACTION_WORKFLOW_RECORDED",
+        action: "RESTART_SERVICES",
+        outcome,
+        workflowId: workflow.workflowId,
+        executionId: workflow.executionId,
+        operationId: workflow.operationId,
+        workflowStatus: workflow.workflowStatus,
+        phaseStatus: workflow.phaseStatus,
+        serviceControl: workflow.serviceControl,
+        message: workflow.message,
+        statusUrl: `/api/workflows/${workflow.workflowId}`,
+        executionsUrl: `/api/workflows/${workflow.workflowId}/executions`,
+        retryable: workflow.workflowStatus === "failed",
+      });
+    } catch (error) {
+      req.log?.error?.({ error }, "failed to record internal restart workflow");
+      return res.status(500).json({
+        error: "server_action_workflow_failed",
+        code: "SERVER_ACTION_WORKFLOW_FAILED",
+        action: "RESTART_SERVICES",
+        outcome: "FAILED",
+        serviceControl: "NOT_PERFORMED",
+        message: "The internal EngineeringOS restart workflow could not be recorded.",
+        retryable: true,
+      });
+    }
   }
 
   const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
