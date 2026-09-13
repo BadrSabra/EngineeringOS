@@ -14,3 +14,9 @@ Durable provider-attempt telemetry must be awaited before a fallback or successf
 **Why:** A restart-oriented fallback campaign exposed that the response boundary could complete before primary/fallback attempt rows were durable, making correlation and summary history unreliable after reconnect.
 
 **How to apply:** Await both callback-based and telemetry-context attempt recording in provider fallback helpers, while keeping the recorder best-effort so telemetry failure cannot turn a valid AI response into a user-visible failure.
+
+Provider-attempt history should project completed `provider_request` ledger events, not only the outer provider-call summary; this is what keeps persisted attempt totals aligned with the execution budget when one provider advances across models or retries.
+
+**Why:** The outer chat fallback callback observed one successful provider while the request ledger had multiple model requests, so history undercounted the actual work.
+
+**How to apply:** Use the ledger completion events as the canonical per-request source, attach contract telemetry only to the terminal logical response, and keep capability-recovery telemetry separate from ordinary provider attempts.

@@ -500,6 +500,100 @@ export function providerAttemptModels(error: GroqClientError): Array<string | nu
     : [error.providerModel ?? null];
 }
 
+const PROVIDER_IDS: readonly ProviderId[] = ["groq", "deepseek", "openrouter", "gemini"];
+
+function ledgerProviderId(value: string | undefined): ProviderId | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return PROVIDER_IDS.find((provider) =>
+    normalized === provider || normalized?.startsWith(`${provider}-`) ||
+    normalized?.startsWith(`${provider} `),
+  );
+}
+
+function completedProviderEvents(snapshot: ExecutionLedgerSnapshot) {
+  return snapshot.events.filter((event) =>
+    event.kind === "provider_attempt" &&
+    (event.status === "completed" || event.status === "failed"),
+  );
+}
+
+/**
+ * Project the provider-request events from the request ledger into the same
+ * attempt contract used by durable usage history. The ledger is the only
+ * layer that sees provider-owned retries and model fallback requests, so the
+ * outer provider summary must not be used when these events are available.
+ */
+export async function emitLedgerProviderAttempts(
+  before: ExecutionLedgerSnapshot,
+  after: ExecutionLedgerSnapshot,
+  state: {
+    completedEventCount: number;
+    attemptNumber: number;
+    fallbackCount: number;
+    previousProvider?: ProviderId;
+    previousModel?: string;
+  },
+  onProviderAttempt?: (attempt: {
+    provider: ProviderId;
+    model?: string | null;
+    outcome: "success" | "failure" | "cancelled";
+    latencyMs: number;
+    attemptNumber: number;
+    fallbackCount: number;
+    providerFailureKind?: string | null;
+  } & Partial<AiContractTelemetry> & {
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    usageStatus?: "known" | "partial" | "unknown";
+  }) => void | Promise<void>,
+  metadata?: Partial<{
+    promptTokens: number | null;
+    completionTokens: number | null;
+    usageStatus: "known" | "partial" | "unknown";
+  } & AiContractTelemetry>,
+): Promise<{ emitted: number; failed: number }> {
+  // The before snapshot is part of the contract even though the cursor is
+  // carried across provider fallbacks. It protects this helper when a caller
+  // supplies a fresh ledger snapshot after other work has already completed.
+  const beforeCount = completedProviderEvents(before).length;
+  const currentEvents = completedProviderEvents(after);
+  const cursor = Math.max(state.completedEventCount, beforeCount);
+  const newEvents = currentEvents.slice(cursor);
+  state.completedEventCount = currentEvents.length;
+
+  let emitted = 0;
+  let failed = 0;
+  for (const event of newEvents) {
+    const provider = ledgerProviderId(event.provider);
+    if (!provider) continue;
+
+    const model = event.model ?? null;
+    if (
+      state.previousProvider !== undefined &&
+      (state.previousProvider !== provider || state.previousModel !== (model ?? undefined))
+    ) {
+      state.fallbackCount += 1;
+    }
+    state.attemptNumber += 1;
+    const outcome = event.status === "failed" ? "failure" : "success";
+    if (outcome === "failure") failed += 1;
+    await onProviderAttempt?.({
+      provider,
+      model,
+      outcome,
+      latencyMs: event.durationMs ?? 0,
+      attemptNumber: state.attemptNumber,
+      fallbackCount: state.fallbackCount,
+      providerFailureKind: outcome === "failure" ? event.reason ?? "PROVIDER_REQUEST_FAILED" : null,
+      ...(newEvents.at(-1) === event && metadata ? metadata : {}),
+    });
+    state.previousProvider = provider;
+    state.previousModel = model ?? undefined;
+    emitted += 1;
+  }
+  return { emitted, failed };
+}
+
 /**
  * Run any single-shot agent function with automatic provider fallback.
  *
@@ -550,6 +644,8 @@ export async function runAgentWithFallback<T>(
   }
 
   let lastErr: GroqClientError | undefined;
+  let logicalAttemptNumber = 0;
+  let logicalFallbackCount = 0;
 
   for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (options?.signal?.aborted) {
@@ -578,11 +674,13 @@ export async function runAgentWithFallback<T>(
           };
           await options?.onModelAttempt?.(modelAttempt);
           if (options?.telemetryContext) {
+            logicalAttemptNumber += 1;
+            logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelAttemptCount - 1);
             await recordAiUsageAttempt(options.telemetryContext, {
               ...modelAttempt,
               attemptId: `${attemptId ?? options.telemetryContext.correlationId}:model:${modelAttemptCount}`,
-              attemptNumber: providerIndex + 1,
-              fallbackCount: providerIndex + modelAttemptCount - 1,
+              attemptNumber: logicalAttemptNumber,
+              fallbackCount: logicalFallbackCount,
               usageStatus: "unknown",
             });
           }
@@ -592,8 +690,8 @@ export async function runAgentWithFallback<T>(
         provider: providerEntry.provider,
         outcome: "success",
         latencyMs: Date.now() - providerStartedAt,
-        attemptNumber: providerIndex + 1,
-        fallbackCount: providerIndex,
+        attemptNumber: ++logicalAttemptNumber,
+        fallbackCount: logicalFallbackCount,
       } as const;
       await options?.onProviderAttempt?.(telemetryAttempt);
       if (options?.telemetryContext && modelAttemptCount === 0) {
@@ -608,13 +706,15 @@ export async function runAgentWithFallback<T>(
       const providerError = normalizeProviderFailure(err);
       const attemptedModels = providerAttemptModels(providerError);
       for (const [modelIndex, model] of attemptedModels.entries()) {
+        logicalAttemptNumber += 1;
+        logicalFallbackCount = Math.max(logicalFallbackCount, providerIndex + modelIndex);
         const telemetryAttempt = {
           provider: providerEntry.provider,
           model,
           outcome: options?.signal?.aborted ? "cancelled" : "failure",
           latencyMs: Date.now() - providerStartedAt,
-          attemptNumber: providerIndex + 1,
-          fallbackCount: providerIndex + modelIndex,
+          attemptNumber: logicalAttemptNumber,
+          fallbackCount: logicalFallbackCount,
           providerFailureKind: providerError.code,
         } as const;
         await options?.onProviderAttempt?.(telemetryAttempt);
@@ -805,6 +905,13 @@ export async function chatWithFallback(
   const retainedEvidence = baseParams.retainedEvidence ?? new Map<string, string>();
   const retainedReadStatuses =
     baseParams.retainedReadStatuses ?? new Map<string, ReadStatus>();
+  const providerAttemptProjectionState = {
+    completedEventCount: completedProviderEvents(executionLedger.snapshot()).length,
+    attemptNumber: 0,
+    fallbackCount: 0,
+    previousProvider: undefined as ProviderId | undefined,
+    previousModel: undefined as string | undefined,
+  };
 
   for (const [providerIndex, providerEntry] of orderedProviders.entries()) {
     if (providerIndex > 0 && !executionLedger.admit("provider_change", { provider: providerEntry.provider })) {
@@ -820,6 +927,7 @@ export async function chatWithFallback(
       );
     }
     const providerStartedAt = Date.now();
+    const providerLedgerBefore = executionLedger.snapshot();
     let recoveryStartedAt: number | undefined;
     let recoveryAccepted = false;
     const relayStep = (step: AgentStep) => {
@@ -979,7 +1087,31 @@ export async function chatWithFallback(
          executionLedger,
          capabilityRegistry: baseParams.capabilityRegistry,
       } as Parameters<typeof chat>[0]);
-      await baseParams.onProviderAttempt?.({
+      const contractTelemetry = deriveAiContractTelemetry({
+        message: baseParams.message,
+        response: result.response,
+        recoveryAttempted: recoveryStartedAt !== undefined,
+        recoveryAccepted,
+        recoveryLatencyMs: recoveryStartedAt === undefined
+          ? null
+          : Date.now() - recoveryStartedAt,
+      });
+      const projectedAttempts = capabilityProbeTurn
+        ? { emitted: 0, failed: 0 }
+        : await emitLedgerProviderAttempts(
+            providerLedgerBefore,
+            executionLedger.snapshot(),
+            providerAttemptProjectionState,
+            baseParams.onProviderAttempt,
+            {
+              promptTokens: result.usage?.promptTokens ?? null,
+              completionTokens: result.usage?.completionTokens ?? null,
+              usageStatus: result.usage ? "known" : "unknown",
+              ...contractTelemetry,
+            },
+          );
+      if (capabilityProbeTurn || projectedAttempts.emitted === 0) {
+        await baseParams.onProviderAttempt?.({
         provider: providerEntry.provider,
         model: result.resolvedModel?.id ?? null,
         outcome: "success",
@@ -989,20 +1121,35 @@ export async function chatWithFallback(
         promptTokens: result.usage?.promptTokens,
         completionTokens: result.usage?.completionTokens,
         usageStatus: result.usage ? "known" : "unknown",
-        ...deriveAiContractTelemetry({
-          message: baseParams.message,
-          response: result.response,
-          recoveryAttempted: recoveryStartedAt !== undefined,
-          recoveryAccepted,
-          recoveryLatencyMs: recoveryStartedAt === undefined
-            ? null
-            : Date.now() - recoveryStartedAt,
-        }),
-      });
+        ...contractTelemetry,
+        });
+      }
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
-      await baseParams.onProviderAttempt?.({
+      const providerLedgerAfter = executionLedger.snapshot();
+      const projectedAttempts = capabilityProbeTurn
+        ? { emitted: 0, failed: 0 }
+        : await emitLedgerProviderAttempts(
+            providerLedgerBefore,
+            providerLedgerAfter,
+            providerAttemptProjectionState,
+            baseParams.onProviderAttempt,
+          );
+      if (capabilityProbeTurn || projectedAttempts.emitted === 0 || projectedAttempts.failed === 0) {
+        // A completed transport event can still lead to a contract-level
+        // failure (for example an unrecoverable malformed response). Keep the
+        // outer failure row for that semantic outcome, but advance the ledger
+        // cursor so a later provider fallback cannot replay the same request.
+        if (!capabilityProbeTurn && projectedAttempts.failed === 0) {
+          await emitLedgerProviderAttempts(
+            providerLedgerBefore,
+            providerLedgerAfter,
+            providerAttemptProjectionState,
+            undefined,
+          );
+        }
+        await baseParams.onProviderAttempt?.({
         provider: providerEntry.provider,
         model: providerError.providerModel ?? null,
         outcome: baseParams.signal?.aborted ? "cancelled" : "failure",
@@ -1010,7 +1157,8 @@ export async function chatWithFallback(
         attemptNumber: providerIndex + 1,
         fallbackCount: providerIndex,
         providerFailureKind: providerError.code,
-      });
+        });
+      }
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,
         source: providerEntry.source,

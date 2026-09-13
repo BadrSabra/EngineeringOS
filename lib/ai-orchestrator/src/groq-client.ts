@@ -134,7 +134,13 @@ function completeProviderAttempt(
     operation: "provider_request",
     startedAt,
     status: error ? "failed" : "completed",
-    ...(error instanceof Error ? { reason: error.message } : {}),
+    ...(error
+      ? {
+          reason: error instanceof GroqClientError
+            ? error.code
+            : "PROVIDER_REQUEST_FAILED",
+        }
+      : {}),
   });
 }
 

@@ -14,7 +14,9 @@ import {
   requestLooksToolBound,
   normalizeProviderFailure,
   providerAttemptModels,
+  emitLedgerProviderAttempts,
 } from "./ai-route-helpers.js";
+import type { ExecutionLedgerSnapshot } from "@workspace/ai-orchestrator";
 
 describe("requestLooksToolBound", () => {
   it("flags code-analysis style messages as tool-bound", () => {
@@ -57,6 +59,142 @@ describe("provider fallback error normalization", () => {
 
     expect(providerAttemptModels(error)).toEqual(["model-a", "model-b", "model-c"]);
     expect(providerAttemptModels(new GroqClientError("TIMEOUT", "temporary"))).toEqual([null]);
+  });
+});
+
+describe("ledger provider-attempt projection", () => {
+  const snapshot = (
+    events: ExecutionLedgerSnapshot["events"],
+  ): ExecutionLedgerSnapshot => ({
+    id: "ledger-test",
+    mode: "tool_chat",
+    startedAt: 0,
+    deadlineAt: 10_000,
+    elapsedMs: 10,
+    remainingMs: 9_990,
+    budget: {
+      deadlineMs: 10_000,
+      modelCalls: 10,
+      providerAttempts: 10,
+      toolCalls: 10,
+      providerChanges: 10,
+      synthesisAttempts: 10,
+      recoveryAttempts: 10,
+      plannerCalls: 10,
+      hierarchicalTasks: 10,
+    },
+    counts: {
+      model: 0,
+      provider_attempt: events.filter((event) => event.kind === "provider_attempt").length,
+      tool: 0,
+      planner: 0,
+      provider_change: 0,
+      synthesis: 0,
+      recovery: 0,
+      hierarchical_task: 0,
+    },
+    providers: ["OpenRouter"],
+    models: ["model-a", "model-b"],
+    events,
+  });
+
+  it("uses one history row per provider request across a model fallback chain", async () => {
+    const attempts: Array<Record<string, unknown>> = [];
+    const before = snapshot([]);
+    const after = snapshot([
+      {
+        kind: "provider_attempt",
+        status: "failed",
+        at: 10,
+        provider: "OpenRouter",
+        model: "model-a",
+        operation: "provider_request",
+        durationMs: 12,
+        reason: "MODEL_NOT_FOUND",
+      },
+      {
+        kind: "provider_attempt",
+        status: "completed",
+        at: 20,
+        provider: "OpenRouter",
+        model: "model-b",
+        operation: "provider_request",
+        durationMs: 18,
+      },
+    ]);
+
+    await emitLedgerProviderAttempts(
+      before,
+      after,
+      {
+        completedEventCount: 0,
+        attemptNumber: 0,
+        fallbackCount: 0,
+      },
+      (attempt) => {
+        attempts.push(attempt);
+      },
+    );
+
+    expect(attempts).toMatchObject([
+      {
+        provider: "openrouter",
+        model: "model-a",
+        outcome: "failure",
+        attemptNumber: 1,
+        fallbackCount: 0,
+        providerFailureKind: "MODEL_NOT_FOUND",
+      },
+      {
+        provider: "openrouter",
+        model: "model-b",
+        outcome: "success",
+        attemptNumber: 2,
+        fallbackCount: 1,
+      },
+    ]);
+  });
+
+  it("keeps same-model contract correction on one provider attempt", async () => {
+    const attempts: Array<Record<string, unknown>> = [];
+
+    await emitLedgerProviderAttempts(
+      snapshot([]),
+      snapshot([{
+        kind: "provider_attempt",
+        status: "completed",
+        at: 10,
+        provider: "OpenRouter",
+        model: "model-a",
+        operation: "provider_request",
+        durationMs: 20,
+      }]),
+      {
+        completedEventCount: 0,
+        attemptNumber: 0,
+        fallbackCount: 0,
+      },
+      (attempt) => {
+        attempts.push(attempt);
+      },
+      {
+        contractOutcome: "malformed_but_recovered",
+        recoveryOutcome: "accepted",
+        contractRecoveryLatencyMs: 20,
+      },
+    );
+
+    expect(attempts).toEqual([
+      expect.objectContaining({
+        provider: "openrouter",
+        model: "model-a",
+        outcome: "success",
+        attemptNumber: 1,
+        fallbackCount: 0,
+        contractOutcome: "malformed_but_recovered",
+        recoveryOutcome: "accepted",
+      }),
+    ]);
   });
 });
 
