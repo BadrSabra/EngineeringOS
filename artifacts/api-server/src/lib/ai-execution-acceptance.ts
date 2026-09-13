@@ -358,10 +358,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     ? input.verdict.slice(0, 40)
     : undefined;
   const verdict = suppliedVerdict ?? (readsComplete ? "PROVEN" : "NOT_RECORDED");
-  const verdictBlocksCompletion = verdict === "UNAVAILABLE"
-    || verdict === "NOT_RECORDED"
-    || verdict === "BLOCKED"
-    || verdict === "CLAIM_UNCLOSED";
+  const verdictBlocksCompletion = verdict === "UNAVAILABLE";
   const complete = Boolean(!verdictBlocksCompletion && (!required || (
     readsComplete
     && verdict !== "NOT_RECORDED"

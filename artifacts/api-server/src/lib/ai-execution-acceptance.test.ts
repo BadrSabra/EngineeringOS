@@ -30,6 +30,20 @@ describe("server-owned execution acceptance", () => {
     expect(snapshot.verdict).toBe("NOT_RECORDED");
   });
 
+  it("does not treat an unavailable provider result as complete when evidence was not required", () => {
+    const snapshot = normalizeEvidenceSnapshot({
+      required: false,
+      verdict: "UNAVAILABLE",
+      reads: [],
+    });
+
+    expect(snapshot).toMatchObject({
+      complete: false,
+      verdict: "UNAVAILABLE",
+      reads: [],
+    });
+  });
+
   it("accepts an artifact-only validation snapshot without source reads", () => {
     const snapshot = normalizeEvidenceSnapshot({
       required: true,

@@ -1113,6 +1113,48 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(JSON.stringify(dbFixture.execution.checkpoint)).not.toContain("evidence-bound");
   });
 
+  it("keeps a generic project query non-resumable when the provider fails before source evidence", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
+      .mockRejectedValueOnce(new Error("upstream provider failure"));
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "ما هذا المشروع؟" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text).filter((frame): frame is Record<string, unknown> =>
+      Boolean(frame) && typeof frame === "object",
+    );
+    expect(frames.find((frame) => frame.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      operationMode: "CHAT",
+      proofRequired: false,
+      resumable: false,
+    });
+    expect(frames.find((frame) => frame.type === "execution_started")).not.toHaveProperty("resumeToken");
+
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        execution: Record<string, unknown>;
+      };
+      __chatTestAcceptances: Array<Record<string, unknown>>;
+    });
+    expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
+      evidenceRequired: 0,
+      evidenceComplete: 0,
+      resumable: 0,
+      nextActionCode: "RETRY_AFTER_TIMEOUT",
+    });
+    const checkpoint = JSON.parse(String(dbModule.__chatTestFixture.execution.checkpoint)) as {
+      proofRequired?: boolean;
+      evidenceVerdict?: string;
+    };
+    expect(checkpoint).toMatchObject({
+      proofRequired: false,
+      evidenceVerdict: "UNAVAILABLE",
+    });
+  });
+
   it("creates the initial checkpoint before provider execution and avoids terminal double-send errors", async () => {
     const dbFixture = (await import("@workspace/db") as unknown as {
       __chatTestFixture: {

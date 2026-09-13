@@ -103,6 +103,7 @@ import {
   createAutonomousOperationContract,
   createRecipeOperationBinding,
   checkRecipeOperationBinding,
+  hasAiExecutionResumeContract,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
   transitionAutonomousOperation,
@@ -136,6 +137,35 @@ describe("createAiExecution", () => {
       "execution-1",
     ]);
     expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
+  });
+});
+
+describe("hasAiExecutionResumeContract", () => {
+  it("does not make a generic project query resumable without a server-owned contract", () => {
+    expect(hasAiExecutionResumeContract({
+      projectId: "project-1",
+      sessionId: "session-1",
+      turnIntent: "PROJECT_QUERY",
+      message: "What is this project?",
+      modelMessage: "What is this project?",
+      validationTargetPaths: [],
+      proofRequired: false,
+    })).toBe(false);
+  });
+
+  it("keeps targeted proof-required queries resumable", () => {
+    expect(hasAiExecutionResumeContract({
+      projectId: "project-1",
+      sessionId: "session-1",
+      turnIntent: "PROJECT_QUERY",
+      message: "Explain the embedded AI layer.",
+      modelMessage: "Explain the embedded AI layer.",
+      validationTargetPaths: [],
+      objective: {
+        objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      },
+      proofRequired: true,
+    })).toBe(true);
   });
 });
 

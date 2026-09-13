@@ -24,13 +24,11 @@
 - [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
 - [Shared package type lag](shared-package-type-lag.md) — workspace consumers can briefly retain older shared declarations; isolate additive compatibility casts at the boundary.
 - [Composite declaration freshness](composite-declaration-freshness.md) — stale TypeScript build metadata can skip missing ignored declarations; force referenced builds before API typechecks.
-- [Optional process recovery tests](optional-process-recovery-tests.md) — resolve API build entrypoints relative to the package working directory when spawning real child servers.
 - [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
 - [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
 - [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
 - [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
 - [Live campaign isolation](live-campaign-isolation.md) — provider campaigns require explicit opt-in, disposable output/workspaces, bounded duration, and review-only artifacts.
-- [Release browser runtime](release-browser-runtime.md) — Playwright release jobs need Chromium plus native Nix libraries before Clerk setup can run.
 - [Dashboard evidence assertions](dashboard-evidence-assertions.md) — E2E assertions for completed AI runs must open collapsed activity/proof panels and disambiguate repeated evidence text.
 - [Concurrent test barriers](concurrent-test-barriers.md) — concurrent request fixtures should dispatch by request identity and use bounded readiness barriers, not queued mock order or unbounded polling.
 - [Session state concurrency](session-state-concurrency.md) — qualify resumable state writes by turn timestamp; a conditional value expression can still lose after row-lock waits.
@@ -51,11 +49,9 @@
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
 - [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
 - [Forensic resume contract](forensic-resume-contract.md) — persist task intent, scope, revision, and identities before provider work; legacy recovery must remain proof- and revision-bound.
-- [GitHub PR file filtering](github-pr-file-filter.md) — pull_request.changed_files is a count; use an API-backed changed-path filter for conditional jobs.
 - [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
 - [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
 - [Graph project boundaries](graph-project-boundaries.md) — traversal must validate both endpoint entities; legacy null edge ownership is safe only with project-scoped endpoints.
-- [Browser paging assertions](browser-paging-assertions.md) — page transitions can be served from query cache; assert visible state, not a repeated request.
 - [Browser stream abort fixtures](browser-stream-abort-fixtures.md) — route EOF is clean completion; reject a browser ReadableStream after the durable identity frame to test network recovery.
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
 - [Nested release lock ownership](nested-release-lock.md) — focused release checks inside the quality gate must reuse the parent campaign lock; standalone runners still acquire one.
@@ -74,7 +70,6 @@
 - [Release CORS harness](release-cors-harness.md) — provider-free listener checks use Node's tsx loader without the inherited input-type flag and probe the API directly.
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
 - [Historical acceptance journeys](historical-acceptance-journeys.md) — after reopening an audit, assert public acceptance snapshots from history/detail routes because same-session reselection can clear cached chat messages.
-- [Operator alert campaign baselines](operator-alert-campaign-baselines.md) — resolved alerts retain occurrence history; recovery baselines must read historical rows, not only active alerts.
 - [Browser validation block reasons](browser-validation-block-reasons.md) — preserve only allowlisted preflight reasons and translate them into safe operator actions.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable terminal writes and follow-on mutations must verify the current worker owns the live row.
@@ -119,6 +114,7 @@
 - [Runtime restart validation](runtime-restart-validation.md) — API sessions use compiled output; restart the managed workflow before drawing conclusions about source fixes.
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
 - [Durable evidence boundary](durable-evidence-boundary.md) — tool traces retain read metadata only; acceptance-proof snapshots must capture verifier-owned complete bodies before runtime state is discarded.
+- [Evidence snapshot semantics](evidence-snapshot-semantics.md) — explicit UNAVAILABLE provider evidence is incomplete even when proof was not required; ordinary no-evidence success remains complete.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
 - [Heartbeat test timing](heartbeat-test-timing.md) — fake-clock stream tests must await async heartbeat writes without draining unrelated execution deadlines.
 - [Durable provisional messages](durable-acceptance-provisional.md) — execution-backed assistant rows stay non-terminal until the acceptance finalizer commits outcome and final content.
