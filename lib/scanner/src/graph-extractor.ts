@@ -1,6 +1,7 @@
 import ts from "typescript";
 import type { ScannedFile } from "./file-walker.js";
 import { extractPythonBatch, type PythonImportInfo, type PythonFileResult } from "./python-extractor.js";
+import { extractGoBatch, type GoFileResult } from "./go-extractor.js";
 
 export type EntityType =
   | "file"
@@ -41,6 +42,8 @@ export type GraphEvidence = {
     | "import-statement"
     | "call-site"
     | "class-definition"
+     | "package-definition"
+     | "type-definition"
     | "function-definition"
     | "interface-definition"
     | "jsdoc"
@@ -55,6 +58,9 @@ export type GraphEvidence = {
 export type ExtractionMethod =
   | "ts-compiler-api"       // TypeScript compiler API (real AST, structural certainty)
   | "python-ast-subprocess" // Python `ast` module via batched subprocess (real AST)
+  | "go-parser"              // Go standard-library parser (real AST)
+  | "go-parser-failed"       // Go parser rejected a file; no structural proof emitted
+  | "go-parser-unavailable"  // Go toolchain/helper was unavailable
   | "regex-heuristic"       // Regex line scan — approximate, may miss edge cases
   | "manual-import";        // Hand-authored seed/provenance data
 
@@ -155,6 +161,14 @@ export interface ExtractedRelationship {
 export interface GraphExtractionResult {
   entities: ExtractedEntity[];
   relationships: ExtractedRelationship[];
+  languageSupport?: GraphLanguageSupport[];
+}
+
+export interface GraphLanguageSupport {
+  language: string;
+  parserStatus: "available" | "unavailable";
+  parsedFiles: number;
+  failedFiles: number;
 }
 
 type PartialResult = { entities: ExtractedEntity[]; relationships: ExtractedRelationship[] };
@@ -393,6 +407,10 @@ function scoreExtractionConfidence(sourceType: string | undefined): number {
   switch (sourceType) {
     case "typescript-ast": return 1.0;
     case "python-ast":     return 0.95;
+    case "go-ast":         return 0.98;
+    case "go-parser-failed":
+    case "go-parser-unavailable":
+      return 0.2;
     case "regex-fallback": return 0.5;
     case "manual":         return 1.0;
     default:               return 0.7;
@@ -407,6 +425,9 @@ function methodForSourceType(sourceType: string): ExtractionMethod {
   switch (sourceType) {
     case "typescript-ast": return "ts-compiler-api";
     case "python-ast":     return "python-ast-subprocess";
+    case "go-ast":         return "go-parser";
+    case "go-parser-failed": return "go-parser-failed";
+    case "go-parser-unavailable": return "go-parser-unavailable";
     case "regex-fallback": return "regex-heuristic";
     case "manual":         return "manual-import";
     default:               return "ts-compiler-api";
@@ -421,6 +442,7 @@ function methodForSourceType(sourceType: string): ExtractionMethod {
 function entityEvidenceKind(entityType: EntityType, sourceType: string): GraphEvidence["kind"] {
   if (sourceType === "regex-fallback") return "heuristic";
   switch (entityType) {
+    case "module":   return "package-definition";
     case "class":    return "class-definition";
     case "function": return "function-definition";
     case "api":      return "call-site";
@@ -1069,6 +1091,194 @@ async function extractPythonEntities(pythonFiles: ScannedFile[], knownPaths: Set
   });
 }
 
+// ─── Go extractor ───────────────────────────────────────────────────────────
+
+function sourceLine(content: string, line: number): string | undefined {
+  return content.split(/\r?\n/)[line - 1]?.trim() || undefined;
+}
+
+function goModulePath(files: ScannedFile[]): string | null {
+  const goMod = files.find((file) => file.path === "go.mod" && file.content);
+  return goMod?.content.match(/^\s*module\s+(\S+)\s*$/m)?.[1] ?? null;
+}
+
+function matchGoImportToEntity(
+  importPath: string,
+  modulePath: string | null,
+  goFiles: ScannedFile[],
+): string | null {
+  if (!modulePath || (!importPath.startsWith(`${modulePath}/`) && importPath !== modulePath)) {
+    return null;
+  }
+  const packagePath = importPath === modulePath ? "" : importPath.slice(modulePath.length + 1);
+  return goFiles
+    .filter((file) => {
+      const directory = file.path.includes("/")
+        ? file.path.slice(0, file.path.lastIndexOf("/"))
+        : "";
+      return directory === packagePath;
+    })
+    .sort((left, right) => {
+      const leftTest = left.path.endsWith("_test.go") ? 1 : 0;
+      const rightTest = right.path.endsWith("_test.go") ? 1 : 0;
+      return leftTest - rightTest || left.path.localeCompare(right.path);
+    })[0]?.path ?? null;
+}
+
+function goEntity(
+  file: ScannedFile,
+  entity: GoFileResult["entities"][number],
+  sourceType: "go-ast" | "go-parser-failed" | "go-parser-unavailable",
+): ExtractedEntity {
+  const evidenceKind: GraphEvidence["kind"] =
+    sourceType !== "go-ast"
+      ? "heuristic"
+      : entity.type === "module"
+        ? "package-definition"
+        : entity.type === "class"
+          ? "type-definition"
+          : "function-definition";
+  const snippet = sourceLine(file.content, entity.line);
+  return {
+    type: entity.type,
+    name: entity.name,
+    path: file.path,
+    metadata: {
+      language: "go",
+      extractionMethod: sourceType,
+      ...(entity.kind ? { kind: entity.kind } : {}),
+      ...(entity.typeKind ? { typeKind: entity.typeKind } : {}),
+      ...(entity.package ? { package: entity.package } : {}),
+    },
+    sourceType,
+    provenance: {
+      sourceType,
+      method: methodForSourceType(sourceType),
+      evidence: [{
+        file: file.path,
+        line: entity.line,
+        kind: evidenceKind,
+        ...(snippet ? { snippet } : {}),
+      }],
+    },
+  };
+}
+
+function goFileEntity(
+  file: ScannedFile,
+  sourceType: "go-parser-failed" | "go-parser-unavailable",
+  parseError?: string,
+): ExtractedEntity {
+  return {
+    type: "file",
+    name: file.path,
+    path: file.path,
+    metadata: {
+      language: "go",
+      extractionMethod: sourceType,
+      ...(parseError ? { parseError: parseError.slice(0, 500) } : {}),
+    },
+    sourceType,
+    provenance: {
+      sourceType,
+      method: methodForSourceType(sourceType),
+      evidence: [{
+        file: file.path,
+        kind: "heuristic",
+        ...(parseError ? { snippet: parseError.slice(0, 500) } : {}),
+      }],
+    },
+  };
+}
+
+function toGoPartialResult(
+  file: ScannedFile,
+  parsed: GoFileResult,
+  goFiles: ScannedFile[],
+  modulePath: string | null,
+): PartialResult {
+  if (parsed.error) {
+    return {
+      entities: [goFileEntity(file, "go-parser-failed", parsed.error)],
+      relationships: [],
+    };
+  }
+
+  const entities = parsed.entities.map((entity) => goEntity(file, entity, "go-ast"));
+  const relationships: ExtractedRelationship[] = [];
+  for (const imp of parsed.imports) {
+    const targetName = matchGoImportToEntity(imp.path, modulePath, goFiles);
+    if (!targetName) continue;
+    const snippet = sourceLine(file.content, imp.line);
+    relationships.push({
+      sourceName: file.path,
+      targetName,
+      relation: "imports",
+      relationType: "imports",
+      relationSubtype: "go-import",
+      sourceType: "go-ast",
+      evidence: [{
+        file: file.path,
+        line: imp.line,
+        kind: "import-statement",
+        ...(snippet ? { snippet } : {}),
+      }],
+      provenance: {
+        sourceType: "go-ast",
+        method: "go-parser",
+        evidence: [{
+          file: file.path,
+          line: imp.line,
+          kind: "import-statement",
+          ...(snippet ? { snippet } : {}),
+        }],
+      },
+    });
+  }
+  return { entities, relationships };
+}
+
+async function extractGoEntities(
+  goFiles: ScannedFile[],
+  allFiles: ScannedFile[],
+): Promise<{ results: PartialResult[]; support: GraphLanguageSupport }> {
+  try {
+    const parsed = await extractGoBatch(goFiles.map((file) => ({ path: file.path, content: file.content })));
+    const byPath = new Map(parsed.map((result) => [result.path, result]));
+    const results = goFiles.map((file) => {
+      const result = byPath.get(file.path);
+      return result
+        ? toGoPartialResult(file, result, goFiles, goModulePath(allFiles))
+        : {
+            entities: [goFileEntity(file, "go-parser-failed", "Go parser returned no result for this file.")],
+            relationships: [],
+          };
+    });
+    return {
+      results,
+      support: {
+        language: "go",
+        parserStatus: "available",
+        parsedFiles: parsed.filter((result) => !result.error).length,
+        failedFiles: parsed.filter((result) => Boolean(result.error)).length + Math.max(0, goFiles.length - parsed.length),
+      },
+    };
+  } catch {
+    return {
+      results: goFiles.map((file) => ({
+        entities: [goFileEntity(file, "go-parser-unavailable", "Go parser is unavailable in this runtime.")],
+        relationships: [],
+      })),
+      support: {
+        language: "go",
+        parserStatus: "unavailable",
+        parsedFiles: 0,
+        failedFiles: 0,
+      },
+    };
+  }
+}
+
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 /**
@@ -1112,6 +1322,9 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
         const sourceType: string = entity.sourceType ?? (
           metaMethod === "ast" ? "python-ast" :
           metaMethod === "regex-fallback" ? "regex-fallback" :
+          metaMethod === "go-ast" ? "go-ast" :
+          metaMethod === "go-parser-failed" ? "go-parser-failed" :
+          metaMethod === "go-parser-unavailable" ? "go-parser-unavailable" :
           "typescript-ast"
         );
         allEntities.push({
@@ -1146,9 +1359,11 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
   }
 
   const pythonFiles: ScannedFile[] = [];
+  const goFiles: ScannedFile[] = [];
 
   for (const file of files) {
     if (file.oversized || !file.content) {
+      if (file.language === "go") goFiles.push(file);
       mergeResult({
         entities: [
           { type: "file", name: file.path, path: file.path, metadata: { oversized: true, language: file.language } },
@@ -1163,6 +1378,8 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
     } else if (file.language === "python") {
       // Batched below, once, after this loop finishes collecting them.
       pythonFiles.push(file);
+    } else if (file.language === "go") {
+      goFiles.push(file);
     } else {
       mergeResult({
         entities: [{ type: "file", name: file.path, path: file.path, metadata: { language: file.language } }],
@@ -1176,5 +1393,16 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
     for (const result of pythonResults) mergeResult(result);
   }
 
-  return { entities: allEntities, relationships: allRelationships };
+  let languageSupport: GraphLanguageSupport[] | undefined;
+  if (goFiles.length > 0) {
+    const goResult = await extractGoEntities(goFiles, files);
+    for (const result of goResult.results) mergeResult(result);
+    languageSupport = [goResult.support];
+  }
+
+  return {
+    entities: allEntities,
+    relationships: allRelationships,
+    ...(languageSupport ? { languageSupport } : {}),
+  };
 }

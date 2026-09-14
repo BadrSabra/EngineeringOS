@@ -19,6 +19,12 @@ export type ProjectSupportMatrix = {
   frameworks: SupportTarget[];
 };
 
+export type SupportMatrixEvidence = {
+  parserStatuses?: Record<string, "available" | "unavailable">;
+  parserFailures?: Record<string, number>;
+  validationProfiles?: readonly string[];
+};
+
 const LANGUAGE_PROFILES: Record<string, Omit<SupportTarget, "id" | "label" | "kind">> = {
   typescript: {
     level: "deep",
@@ -46,11 +52,11 @@ const LANGUAGE_PROFILES: Record<string, Omit<SupportTarget, "id" | "label" | "ki
   },
   go: {
     level: "partial",
-    parser: "File inventory; no Go AST extractor registered",
-    graph: "File-level only",
-    validation: "No Go-specific registered profile",
-    changeReadiness: "Not proven for Go-specific changes",
-    limitations: ["Package, type, and call relationships are not structurally extracted."],
+    parser: "Go standard-library parser is registered",
+    graph: "AST support is available when the Go parser completes",
+    validation: "Registered go-tests profile",
+    changeReadiness: "Requires a successful bounded Go validation run",
+    limitations: ["Discovery keeps Go partial until parser completion and validation registration are both available."],
   },
   rust: {
     level: "partial",
@@ -174,10 +180,45 @@ export function getLanguageSupportProfile(language: string): SupportTarget {
 export function buildProjectSupportMatrix(
   languages: readonly string[],
   detectedFramework: string | null,
+  evidence: SupportMatrixEvidence = {},
 ): ProjectSupportMatrix {
   const uniqueLanguages = [...new Set(languages.filter(Boolean))];
+  const languageProfiles = uniqueLanguages.map((language) => {
+    const profile = getLanguageSupportProfile(language);
+    if (language.toLowerCase() !== "go") return profile;
+
+    const parserReady = evidence.parserStatuses?.go === "available";
+    const parserFailures = evidence.parserFailures?.go ?? 0;
+    const validationReady = evidence.validationProfiles?.includes("go-tests") ?? false;
+    if (parserReady && parserFailures === 0 && validationReady) {
+      return {
+        ...profile,
+        level: "deep" as const,
+        parser: "Go standard-library go/parser",
+        graph: "Package, type, function, and internal import relationships",
+        validation: "Registered go-tests profile: go test ./...",
+        changeReadiness: "Source-grounded planning plus bounded Go validation",
+        limitations: ["A successful validation run is still required before promotion."],
+      };
+    }
+    if (parserReady && parserFailures > 0) {
+      return {
+        ...profile,
+        parser: "Go standard-library go/parser",
+        graph: "AST relationships for successfully parsed files",
+        limitations: ["One or more Go files failed parsing; structural proof is incomplete for those files."],
+      };
+    }
+    if (!validationReady) {
+      return {
+        ...profile,
+        limitations: ["The Go parser is registered, but no approved Go validation profile is available."],
+      };
+    }
+    return profile;
+  });
   return {
-    languages: uniqueLanguages.map(getLanguageSupportProfile),
+    languages: languageProfiles,
     frameworks: detectedFramework ? [frameworkProfile(detectedFramework)] : [],
   };
 }

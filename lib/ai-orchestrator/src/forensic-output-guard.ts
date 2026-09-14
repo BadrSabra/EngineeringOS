@@ -930,7 +930,7 @@ function repairPlanContractViolations(response: string): string[] {
       violations.push(`Repair Plan phase ${findingId} must use project-relative files`);
     }
     if (
-      !/Validation profile:\s*(?:ai-orchestrator-tests|knowledge-engine-tests|api-ai-tests)\b/i.test(
+      !/Validation profile:\s*(?:ai-orchestrator-tests|knowledge-engine-tests|api-ai-tests|go-tests)\b/i.test(
         phaseBlock,
       )
     ) {
@@ -1173,6 +1173,9 @@ function registeredValidationProfileForPath(file: string): string | null {
     /(?:^|\/)(?:routes|ai)(?:\/|$)/i.test(file)
   ) {
     return "api-ai-tests";
+  }
+  if (/(?:^|\/)(?:go\.mod|go\.sum|[^/]+\.go)$/.test(file)) {
+    return "go-tests";
   }
   return null;
 }

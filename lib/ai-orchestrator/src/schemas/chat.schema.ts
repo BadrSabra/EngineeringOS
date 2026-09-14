@@ -17,6 +17,7 @@ export const ValidationProfileSchema = z.enum([
   "knowledge-engine-tests",
   "api-ai-tests",
   "workspace-typecheck",
+  "go-tests",
 ]);
 
 export type ValidationProfile = z.infer<typeof ValidationProfileSchema>;

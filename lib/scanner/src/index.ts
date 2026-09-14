@@ -26,6 +26,7 @@ export {
 } from "./support-matrix.js";
 export type {
   ProjectSupportMatrix,
+  SupportMatrixEvidence,
   SupportLevel,
   SupportTarget,
   SupportTargetKind,

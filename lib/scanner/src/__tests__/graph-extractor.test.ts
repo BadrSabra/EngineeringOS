@@ -355,6 +355,84 @@ describe("extractGraph", () => {
     });
   });
 
+  describe("provenance — go-parser (Go standard-library AST)", () => {
+    const makeGoFile = (p: string, content: string, language = p === "go.mod" ? "toml" : "go"): ScannedFile => ({
+      path: p,
+      absPath: `/project/${p}`,
+      language,
+      content,
+      size: content.length,
+      lines: content.split("\n").length,
+      oversized: false,
+    });
+
+    it("extracts packages, types, functions, and internal imports with source-owned evidence", async () => {
+      const files = [
+        makeGoFile("go.mod", "module example.com/demo\n\ngo 1.22\n"),
+        makeGoFile(
+          "cmd/app/main.go",
+          'package main\n\nimport "example.com/demo/internal/mathx"\n\nfunc main() { mathx.Add(1, 2) }\n',
+        ),
+        makeGoFile(
+          "internal/mathx/math.go",
+          "package mathx\n\ntype Calculator struct{}\n\nfunc Add(left int, right int) int { return left + right }\n",
+        ),
+      ];
+
+      const result = await extractGraph(files);
+
+      expect(result.languageSupport).toEqual([{
+        language: "go",
+        parserStatus: "available",
+        parsedFiles: 2,
+        failedFiles: 0,
+      }]);
+      expect(result.entities.some((entity) => entity.type === "module" && entity.name === "package mathx")).toBe(true);
+      expect(result.entities.some((entity) => entity.type === "class" && entity.name === "Calculator")).toBe(true);
+      expect(result.entities.some((entity) => entity.type === "function" && entity.name === "Add")).toBe(true);
+
+      const importRelationship = result.relationships.find(
+        (relationship) => relationship.sourceName === "cmd/app/main.go",
+      );
+      expect(importRelationship).toMatchObject({
+        targetName: "internal/mathx/math.go",
+        relation: "imports",
+        sourceType: "go-ast",
+        relationSubtype: "go-import",
+      });
+      expect(importRelationship?.provenance).toMatchObject({
+        sourceType: "go-ast",
+        method: "go-parser",
+      });
+      expect(importRelationship?.provenance?.evidence[0]).toMatchObject({
+        file: "cmd/app/main.go",
+        line: 3,
+        kind: "import-statement",
+      });
+    }, 30_000);
+
+    it("keeps malformed Go files explicit and emits no structural entities", async () => {
+      const files = [makeGoFile("broken.go", "package broken\n\nfunc Broken( {\n")];
+
+      const result = await extractGraph(files);
+
+      expect(result.languageSupport?.[0]).toMatchObject({
+        parserStatus: "available",
+        parsedFiles: 0,
+        failedFiles: 1,
+      });
+      expect(result.entities.filter((entity) => entity.type !== "file")).toHaveLength(0);
+      expect(result.entities[0]).toMatchObject({
+        type: "file",
+        sourceType: "go-parser-failed",
+        provenance: { method: "go-parser-failed" },
+      });
+      expect(result.entities[0]?.metadata).toMatchObject({
+        extractionMethod: "go-parser-failed",
+      });
+    });
+  });
+
   describe("provenance — python-ast (subprocess)", () => {
     const makePyFile = (p: string, content: string): ScannedFile => ({
       path: p,

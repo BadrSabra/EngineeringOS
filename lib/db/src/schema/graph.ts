@@ -80,6 +80,8 @@ export type GraphEvidenceRecord = {
     | "import-statement"
     | "call-site"
     | "class-definition"
+    | "package-definition"
+    | "type-definition"
     | "function-definition"
     | "interface-definition"
     | "jsdoc"

@@ -344,6 +344,9 @@ function validationProfileForFiles(
   ) {
     return "api-ai-tests";
   }
+  if (files.some((file) => /(?:^|\/)(?:go\.mod|go\.sum|[^/]+\.go)$/.test(file))) {
+    return "go-tests";
+  }
   return null;
 }
 
@@ -386,6 +389,7 @@ function validationChecklistViolations(
     "knowledge-engine-tests": /\b(?:knowledge|graph|path|centrality|cluster|query|neighbourhood|neighborhood)\b/i,
     "api-ai-tests": /\b(?:api|route|endpoint|chat|stream|request|response|auth)\b/i,
     "workspace-typecheck": /\b(?:typecheck|typescript|compile|compilation|tsc|type error)\b/i,
+    "go-tests": /\b(?:go|golang|package|module|goroutine|struct|interface|import|test|regression)\b/i,
   };
   const joined = meaningfulItems.join(" ");
   return [...new Set(plans.map((plan) => plan.validationProfile))]

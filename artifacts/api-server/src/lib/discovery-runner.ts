@@ -41,6 +41,7 @@ import {
   DISCOVERY_HEARTBEAT_INTERVAL_MS,
 } from "./job-lease.js";
 import { buildRemediationPlan } from "./remediation-plan.js";
+import { getRepairValidationProfile } from "./ai-repair-validation.js";
 
 // ─── Step names ────────────────────────────────────────────────────────────────
 
@@ -554,7 +555,19 @@ export async function runDiscovery(
         entitiesByType: countBy(graphResult.entities, (e) => e.type),
         filesByLanguage: countBy(files, (f) => f.language),
       },
-      supportMatrix: buildProjectSupportMatrix(detectedLanguages, detectedFramework),
+      supportMatrix: buildProjectSupportMatrix(
+        detectedLanguages,
+        detectedFramework,
+        {
+          parserStatuses: Object.fromEntries(
+            (graphResult.languageSupport ?? []).map((support) => [support.language, support.parserStatus]),
+          ),
+          parserFailures: Object.fromEntries(
+            (graphResult.languageSupport ?? []).map((support) => [support.language, support.failedFiles]),
+          ),
+          validationProfiles: getRepairValidationProfile("go-tests") ? ["go-tests"] : [],
+        },
+      ),
       ruleViolations,
       sourceRevision: walkResult.revision,
       sourceProvenance: "discovery",

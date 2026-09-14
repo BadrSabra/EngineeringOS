@@ -56,6 +56,7 @@ type ValidationProfileDefinition = {
   allowedPath: (relativePath: string) => boolean;
   command: string;
   args: string[];
+  requiredFiles: string[];
   timeoutMs: number;
   maxBuffer: number;
 };
@@ -66,6 +67,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file === "lib/ai-orchestrator" || file.startsWith("lib/ai-orchestrator/"),
     command: "pnpm",
     args: ["--filter", "@workspace/ai-orchestrator", "exec", "vitest", "run"],
+    requiredFiles: ["package.json"],
     timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
@@ -74,6 +76,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file === "lib/knowledge-engine" || file.startsWith("lib/knowledge-engine/"),
     command: "pnpm",
     args: ["--filter", "@workspace/knowledge-engine", "exec", "vitest", "run"],
+    requiredFiles: ["package.json"],
     timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
@@ -84,6 +87,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
       file.startsWith("artifacts/api-server/src/routes/ai/"),
     command: "pnpm",
     args: ["--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai.test.ts"],
+    requiredFiles: ["package.json"],
     timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
@@ -92,6 +96,19 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file.length > 0 && !file.startsWith("../"),
     command: "pnpm",
     args: ["run", "typecheck"],
+    requiredFiles: ["package.json"],
+    timeoutMs: config.validationProcessTimeoutMs,
+    maxBuffer: 2_000_000,
+  },
+  "go-tests": {
+    scenario: "Run the bounded Go module test suite.",
+    allowedPath: (file) =>
+      file === "go.mod" ||
+      file === "go.sum" ||
+      file.endsWith(".go"),
+    command: "go",
+    args: ["test", "./..."],
+    requiredFiles: ["go.mod"],
     timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
@@ -168,22 +185,30 @@ export async function createValidationWorkspace(
 
     const originalModules = path.join(sourceRoot, "node_modules");
     const overlayModules = path.join(workspaceRoot, "node_modules");
-    await fs.mkdir(overlayModules, { recursive: true });
-    for (const entry of await fs.readdir(originalModules, { withFileTypes: true })) {
-      const originalEntry = path.join(originalModules, entry.name);
-      const overlayEntry = path.join(overlayModules, entry.name);
-      if (entry.name !== "@workspace") {
-        await fs.symlink(originalEntry, overlayEntry);
-        continue;
-      }
-      await fs.mkdir(overlayEntry, { recursive: true });
-      for (const workspacePackage of await fs.readdir(originalEntry, { withFileTypes: true })) {
-        const packagePath = workspacePackage.name === "api-server"
-          ? path.join(workspaceRoot, "artifacts/api-server")
-          : workspacePackage.name === "dashboard"
-            ? path.join(workspaceRoot, "artifacts/dashboard")
-            : path.join(workspaceRoot, "lib", workspacePackage.name);
-        await fs.symlink(packagePath, path.join(overlayEntry, workspacePackage.name));
+    let hasOriginalModules = true;
+    try {
+      await fs.access(originalModules);
+    } catch {
+      hasOriginalModules = false;
+    }
+    if (hasOriginalModules) {
+      await fs.mkdir(overlayModules, { recursive: true });
+      for (const entry of await fs.readdir(originalModules, { withFileTypes: true })) {
+        const originalEntry = path.join(originalModules, entry.name);
+        const overlayEntry = path.join(overlayModules, entry.name);
+        if (entry.name !== "@workspace") {
+          await fs.symlink(originalEntry, overlayEntry);
+          continue;
+        }
+        await fs.mkdir(overlayEntry, { recursive: true });
+        for (const workspacePackage of await fs.readdir(originalEntry, { withFileTypes: true })) {
+          const packagePath = workspacePackage.name === "api-server"
+            ? path.join(workspaceRoot, "artifacts/api-server")
+            : workspacePackage.name === "dashboard"
+              ? path.join(workspaceRoot, "artifacts/dashboard")
+              : path.join(workspaceRoot, "lib", workspacePackage.name);
+          await fs.symlink(packagePath, path.join(overlayEntry, workspacePackage.name));
+        }
       }
     }
 
@@ -293,7 +318,7 @@ function attachValidationEvidence(
 
 function extractAffectedFiles(output: string): string[] {
   const paths = output.match(
-    /(?:^|[\s("'`])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json))(?:[:)\s"'`]|$)/g,
+    /(?:^|[\s("'`])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|go|mod|sum))(?:[:)\s"'`]|$)/g,
   ) ?? [];
   return paths
     .map((match) => match.trim().replace(/^[\s("'`]+|[:)\s"'`]+$/g, ""))
@@ -343,7 +368,9 @@ async function runRepairValidationCore(
   let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   try {
     validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
-    await fs.access(path.resolve(validationWorkspace.rootPath, "package.json"));
+    for (const requiredFile of definition.requiredFiles) {
+      await fs.access(path.resolve(validationWorkspace.rootPath, requiredFile));
+    }
   } catch {
     await validationWorkspace?.cleanup();
     return emptyValidationDraft(
@@ -352,7 +379,7 @@ async function runRepairValidationCore(
       definition.scenario,
       pendingChanges.length > 0
         ? "The pending changes could not be materialized into an isolated validation workspace."
-        : "The project root does not contain a package.json for the registered validation.",
+        : `The project root does not contain ${definition.requiredFiles.join(" or ")} for the registered validation.`,
     );
   }
 
@@ -365,7 +392,7 @@ async function runRepairValidationCore(
       cwd: validationRootPath,
       timeoutMs: definition.timeoutMs,
       maxOutputBytes: definition.maxBuffer,
-      allowedCommands: new Set(["pnpm"]),
+      allowedCommands: new Set(["pnpm", "go"]),
       signal,
     });
     const output = execution.combinedOutput.trim();

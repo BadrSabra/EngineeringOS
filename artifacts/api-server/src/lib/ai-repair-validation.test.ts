@@ -44,6 +44,21 @@ describe("AI repair validation registry", () => {
     ).toMatch(/does not cover changed file/i);
   });
 
+  it("registers a fixed Go module test profile without exposing shell input", () => {
+    const profile = getRepairValidationProfile("go-tests");
+    expect(profile.command).toBe("go");
+    expect(profile.args).toEqual(["test", "./..."]);
+    expect(profile.requiredFiles).toEqual(["go.mod"]);
+    expect(validateRepairValidationScope("go-tests", ["internal/math/math.go"])).toBeNull();
+    expect(validateRepairValidationScope("go-tests", ["package.json"])).toMatch(/does not cover changed file/i);
+  });
+
+  it("returns unavailable for Go validation when the module manifest is missing", async () => {
+    const result = await runRepairValidation("/tmp", "go-tests", ["main.go"]);
+    expect(result.status).toBe("unavailable");
+    expect(result.detail).toMatch(/go\.mod/i);
+  });
+
   it("returns unavailable scope errors instead of executing an unrelated suite", () => {
     expect(
       validateRepairValidationScope("ai-orchestrator-tests", [

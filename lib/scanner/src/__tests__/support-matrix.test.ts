@@ -31,4 +31,31 @@ describe("project support matrix", () => {
       validation: "No registered validation profile",
     });
   });
+
+  it("upgrades Go only when parsing completed and the bounded profile is registered", () => {
+    const ready = buildProjectSupportMatrix(["go"], null, {
+      parserStatuses: { go: "available" },
+      parserFailures: { go: 0 },
+      validationProfiles: ["go-tests"],
+    });
+    expect(ready.languages[0]).toMatchObject({
+      level: "deep",
+      graph: "Package, type, function, and internal import relationships",
+      validation: "Registered go-tests profile: go test ./...",
+    });
+
+    const incomplete = buildProjectSupportMatrix(["go"], null, {
+      parserStatuses: { go: "available" },
+      parserFailures: { go: 1 },
+      validationProfiles: ["go-tests"],
+    });
+    expect(incomplete.languages[0]?.level).toBe("partial");
+
+    const unregistered = buildProjectSupportMatrix(["go"], null, {
+      parserStatuses: { go: "available" },
+      parserFailures: { go: 0 },
+      validationProfiles: [],
+    });
+    expect(unregistered.languages[0]?.level).toBe("partial");
+  });
 });
