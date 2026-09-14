@@ -460,7 +460,7 @@ export function isLowRiskChatQuestion(message: string): boolean {
  * capability just because it happens to share the same simple classification.
  */
 export function isProjectOrientationQuestion(message: string): boolean {
-  return /^(?:ما(?:\s+هو)?\s+(?:هذا\s+)?المشروع|ماذا\s+(?:يفعل|يقدم|يحتوي)\s+(?:هذا\s+)?المشروع|عن\s+ماذا\s+يدور\s+(?:هذا\s+)?المشروع|[اأ]شرح(?:\s+لي)?\s+(?:هذا\s+)?المشروع(?:\s+(?:بصورة\s+)?(?:مبسطة|ببساطة))?|ساعدني(?:\s+في)?\s+(?:فهم|أفهم)(?:\s+هذا)?\s+المشروع|ممكن\s+تساعدني(?:\s+أن)?\s+(?:أفهم\s+)?المشروع|هل\s+(?:هذا\s+)?المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+(?:the\s+)?(?:this\s+)?project(?:\s+status)?|what\s+does\s+(?:this\s+)?project\s+do|(?:explain|describe)\s+(?:this\s+)?project|help\s+me\s+understand\s+(?:this\s+)?project|is\s+(?:this\s+)?project\s+running|(?:ما|ماذا)\s+(?:هي|هو)?\s*(?:حالة|وضع)\s+(?:هذا\s+)?المشروع)[؟?!.\s]*$/iu.test(
+  return /^(?:ما(?:\s+هو)?\s+(?:اسم\s+)?(?:هذا\s+)?المشروع|ماذا\s+(?:يفعل|يقدم|يحتوي)\s+(?:هذا\s+)?المشروع|عن\s+ماذا\s+يدور\s+(?:هذا\s+)?المشروع|[اأ]شرح(?:\s+لي)?\s+(?:هذا\s+)?المشروع(?:\s+(?:بصورة\s+)?(?:مبسطة|ببساطة))?|ساعدني(?:\s+في)?\s+(?:فهم|أفهم)(?:\s+هذا)?\s+المشروع|ممكن\s+تساعدني(?:\s+أن)?\s+(?:أفهم\s+)?المشروع|هل\s+(?:هذا\s+)?المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+(?:the\s+)?(?:this\s+)?project(?:'s\s+name|\s+status)?|what\s+does\s+(?:this\s+)?project\s+do|(?:explain|describe)\s+(?:this\s+)?project|help\s+me\s+understand\s+(?:this\s+)?project|is\s+(?:this\s+)?project\s+running|(?:ما|ماذا)\s+(?:هي|هو)?\s*(?:حالة|وضع)\s+(?:هذا\s+)?المشروع)[؟?!.\s]*$/iu.test(
     message.trim(),
   );
 }

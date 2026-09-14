@@ -1849,7 +1849,7 @@ function installCapabilityProbeFixture(): ArabicAiFixture {
     sessionId,
     role: "assistant",
     content: answer,
-    operationMode: "CHAT",
+    operationMode: "FORENSIC_AUDIT",
     sources,
     toolTrace: JSON.stringify(toolTrace),
     behaviorEvidence: evidence,
@@ -2565,6 +2565,346 @@ function installIncompleteProjectQueryFixture() {
     question,
     source,
     targetPaths,
+    streamBody,
+    message,
+    execution,
+  };
+}
+
+function installProjectQueryTargetFixture(
+  resolution: "resolved" | "unresolved",
+) {
+  const projectId = "e2e-project";
+  const sessionId = `e2e-project-query-${resolution}-session`;
+  const executionId = `e2e-project-query-${resolution}-execution`;
+  const messageId = `e2e-project-query-${resolution}-message`;
+  const targetPaths =
+    resolution === "resolved"
+      ? [
+          "lib/ai-orchestrator/src/turn-intent.ts",
+          "lib/ai-orchestrator/src/project-query-target.ts",
+        ]
+      : [];
+  const discoveryPaths =
+    resolution === "resolved"
+      ? targetPaths
+      : [
+          "artifacts/api-server/src/routes/ai/chat.ts",
+          "lib/ai-orchestrator/src/agents/query-planner.ts",
+        ];
+  const question =
+    resolution === "resolved"
+      ? "How does the AI project-query router resolve its target subsystem?"
+      : "Analyze my project architecture.";
+  const answer =
+    resolution === "resolved"
+      ? "The project-query router resolves the target subsystem before retaining the focused source evidence."
+      : "The architecture question is kept source-first: the repository is discovered before any subsystem target is assumed.";
+  const behaviorEvidence = discoveryPaths.map((source) => ({
+    source,
+    excerpt:
+      resolution === "resolved"
+        ? "targeted source evidence is retained"
+        : "source-first discovery is retained",
+    supportsClaim: true,
+    evidenceClass: "BEHAVIOR_PROVEN",
+    citationStatus: "ACCEPTED",
+    citationReason: "ACCEPTED_SOURCE_SPAN",
+  }));
+  const taskResult = {
+    kind: "BEHAVIOR_ANSWER_RESULT",
+    answer: {
+      answer,
+      evidence: behaviorEvidence,
+      confidence: 1,
+      sourceScope: discoveryPaths,
+      coverage: {
+        requestedFields: ["architecture target resolution"],
+        answeredFields: ["architecture target resolution"],
+        missingFields: [],
+        complete: true,
+      },
+    },
+  };
+  const readEntries = discoveryPaths.flatMap((source) => [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: false,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: false,
+      readStatus: "READ_COMPLETE",
+      resultKind: "success",
+      resultSummary:
+        resolution === "resolved"
+          ? "Targeted source evidence was retained."
+          : "Source-first discovery retained the complete source body.",
+    },
+  ]);
+  const toolTrace = [
+    ...(resolution === "unresolved"
+      ? [
+          {
+            kind: "tool_call",
+            tool: "list_files",
+            args: { path: "." },
+            cached: false,
+            prefetched: true,
+          },
+          {
+            kind: "tool_result",
+            tool: "list_files",
+            source: ".",
+            cached: false,
+            prefetched: true,
+            resultKind: "success",
+            resultSummary: "Repository discovery completed before target selection.",
+          },
+        ]
+      : []),
+    ...readEntries,
+    {
+      kind: "evidence_integrity",
+      code: "TELEMETRY_CONSISTENT",
+      consistent: true,
+      violations: [],
+      readAttempts: discoveryPaths.length,
+      uniqueFilesRead: discoveryPaths.length,
+      evidenceFileCount: discoveryPaths.length,
+      acceptedEvidenceCount: resolution === "resolved" ? discoveryPaths.length : 1,
+      acceptedClaimCount: 1,
+      completedReadFiles: discoveryPaths,
+      retainedBodyFiles: discoveryPaths,
+      acceptedEvidenceFiles:
+        resolution === "resolved" ? discoveryPaths : [discoveryPaths[0]],
+      completionGateResult: "ANSWER_COMPLETE",
+      objectiveType: "PROJECT_QUERY_ARCHITECTURE",
+      requiredEdges: [],
+      provenEdges: [],
+      sourceCoverage: {
+        status: "COMPLETE",
+        requestedFiles: targetPaths,
+        roots: resolution === "unresolved" ? ["PROJECT_ROOT"] : [],
+      },
+    },
+    {
+      kind: "decision_trace",
+      trace: {
+        taskType: "PROJECT_QUERY",
+        projectTargetResolution: resolution,
+        allowedFiles: targetPaths,
+        requiredEvidencePaths: targetPaths,
+        filesRead: discoveryPaths,
+        evidenceSelected: resolution === "resolved" ? discoveryPaths.length : 1,
+        validator: "project-query",
+        rejectionReason: [],
+        objectiveVerdict: "ANSWER_COMPLETE",
+        finalState: "VERIFIED",
+      },
+    },
+    {
+      kind: "forensic_status",
+      auditScope: "PRODUCTION",
+      sourceCoverage: "COMPLETE",
+      behavioralAssessment: "COMPLETE",
+      findingStatus: "NOT_PROVEN",
+      repairReadiness: "BLOCKED",
+      requestedFiles: targetPaths,
+      effectiveRoot: "PROJECT_ROOT",
+      projectRevision: `e2e-project-query-${resolution}-revision-1`,
+      completeReads: true,
+      readStatuses: discoveryPaths.map((path) => ({
+        path,
+        status: "READ_COMPLETE",
+      })),
+      rootCoverage:
+        resolution === "unresolved"
+          ? [
+              {
+                root: "PROJECT_ROOT",
+                status: "COMPLETE",
+                discoveredFiles: discoveryPaths.length,
+                readFiles: discoveryPaths.length,
+                unreadPaths: [],
+                truncatedPaths: [],
+              },
+            ]
+          : [],
+      reason:
+        resolution === "unresolved"
+          ? "No subsystem target was resolved; source-first discovery remained active."
+          : "The resolved subsystem target retained only its bounded source evidence.",
+    },
+    {
+      kind: "done",
+      stopReason: "response",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: discoveryPaths.length + (resolution === "unresolved" ? 1 : 0),
+      prefetchToolCalls: resolution === "unresolved" ? 1 : 0,
+      loopToolCalls: discoveryPaths.length,
+      synthesisStarted: true,
+    },
+  ];
+  const terminalProjection = {
+    executionId,
+    sessionId,
+    attempt: 1,
+    messageId,
+    acceptanceId: `${executionId}-acceptance`,
+    operationId: `${executionId}-operation`,
+    correlationId: `${executionId}-correlation`,
+    status: "completed",
+    outcome: "SUCCEEDED",
+    resumable: false,
+    terminalStatus: "completed",
+  };
+  const message = {
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: answer,
+    turnIntent: "PROJECT_QUERY",
+    projectTargetResolution: resolution,
+    operationMode: "FORENSIC_AUDIT",
+    executionId,
+    outcome: "SUCCEEDED",
+    terminalProjection,
+    sources: discoveryPaths,
+    toolTrace: JSON.stringify(toolTrace),
+    behaviorEvidence,
+    taskResult,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const execution = {
+    id: executionId,
+    projectId,
+    sessionId,
+    operationId: terminalProjection.operationId,
+    correlationId: terminalProjection.correlationId,
+    status: "completed",
+    flightState: "COMPLETED",
+    evidenceVerdict: "PROVEN",
+    evidenceReason:
+      resolution === "resolved"
+        ? "The bounded target evidence was retained."
+        : "The source-first discovery evidence was retained.",
+    proofRequired: true,
+    resumable: false,
+    terminalProjection,
+    objective: {
+      objective: question,
+      objectiveType: "PROJECT_QUERY_ARCHITECTURE",
+      projectTargetResolution: resolution,
+      requiredEvidencePaths: targetPaths,
+    },
+    checkpointVersion: 1,
+    checkpoint: {
+      stage: "complete",
+      detail: "The project-query evidence was retained.",
+    },
+    projectRevision: `e2e-project-query-${resolution}-revision-1`,
+    startedAt: "2026-01-01T00:01:00.000Z",
+    createdAt: "2026-01-01T00:01:00.000Z",
+    updatedAt: "2026-01-01T00:02:00.000Z",
+    completedAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      sessionId,
+      status: "running",
+      resumable: false,
+      proofRequired: true,
+      turnIntent: "PROJECT_QUERY",
+      projectTargetResolution: resolution,
+      operationMode: "FORENSIC_AUDIT",
+    }),
+    sse({ type: "stage", stage: "building-context" }),
+    ...(resolution === "unresolved"
+      ? [
+          sse({
+            type: "tool_call",
+            tool: "list_files",
+            args: { path: "." },
+            cached: false,
+            prefetched: true,
+          }),
+          sse({
+            type: "tool_result",
+            tool: "list_files",
+            source: ".",
+            cached: false,
+            prefetched: true,
+            resultKind: "success",
+          }),
+        ]
+      : []),
+    ...readEntries.map(sse),
+    sse({
+      type: "evidence_integrity",
+      code: "TELEMETRY_CONSISTENT",
+      consistent: true,
+      violations: [],
+      completedReadFiles: discoveryPaths,
+      retainedBodyFiles: discoveryPaths,
+      acceptedEvidenceFiles:
+        resolution === "resolved" ? discoveryPaths : [discoveryPaths[0]],
+      acceptedEvidenceCount: resolution === "resolved" ? discoveryPaths.length : 1,
+      completionGateResult: "ANSWER_COMPLETE",
+      objectiveType: "PROJECT_QUERY_ARCHITECTURE",
+    }),
+    sse({
+      type: "decision_trace",
+      taskType: "PROJECT_QUERY",
+      projectTargetResolution: resolution,
+      allowedFiles: targetPaths,
+      requiredEvidencePaths: targetPaths,
+      filesRead: discoveryPaths,
+      evidenceSelected: resolution === "resolved" ? discoveryPaths.length : 1,
+      validator: "project-query",
+      rejectionReason: [],
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+    }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      operationMode: "CHAT",
+      turnIntent: "PROJECT_QUERY",
+      projectTargetResolution: resolution,
+      sources: discoveryPaths,
+      toolTrace: JSON.stringify(toolTrace),
+      behaviorEvidence,
+      taskResult,
+      terminalProjection,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    projectId,
+    sessionId,
+    executionId,
+    question,
+    answer,
+    source: discoveryPaths[0],
+    targetPaths,
+    discoveryPaths,
     streamBody,
     message,
     execution,
@@ -6021,6 +6361,142 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reloadedNotice = page.getByRole("region", { name: "Acceptance disposition" });
     expect(await reloadedNotice.textContent()).toBe(beforeReload);
     expect(await page.locator("body").innerText()).not.toContain("FINDING PROVEN");
+  });
+
+  test("retains resolved project-query target evidence after reload", async ({
+    page,
+  }) => {
+    const fixture = installProjectQueryTargetFixture("resolved");
+    await installApiFixtures(page, {
+      arabicAi: fixture as ArabicAiFixture,
+      historicalAudits: {
+        audits: [{ ...fixture.execution, objective: fixture.question }],
+        executions: { [fixture.executionId]: fixture.execution },
+      },
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const proof = page.getByText("Persisted execution proof", { exact: true });
+    await expect(proof).toBeVisible();
+    const proofDetails = page.locator("details").filter({ hasText: "Persisted execution proof" });
+    await proofDetails.locator("summary").click();
+    await expect(proofDetails).toContainText("2 source reads");
+    await expect(proofDetails).toContainText("claim-bound evidence excerpts retained");
+    for (const targetPath of fixture.targetPaths) {
+      await expect(page.getByText(targetPath, { exact: true }).last()).toBeVisible();
+    }
+    await expect(page.getByText("Behavior evidence · 2 excerpts").first()).toBeVisible();
+
+    const messagesResponse = await page.evaluate(async (sessionId) => {
+      const response = await fetch(`/api/ai/chat/${sessionId}/messages`, {
+        credentials: "include",
+      });
+      return { status: response.status, body: await response.json() as unknown[] };
+    }, fixture.sessionId);
+    expect(messagesResponse.status).toBe(200);
+    expect(messagesResponse.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          projectTargetResolution: "resolved",
+          turnIntent: "PROJECT_QUERY",
+        }),
+      ]),
+    );
+
+    await page.reload();
+    await expect(page.getByText("Persisted execution proof", { exact: true })).toBeVisible();
+    const reloadedProofDetails = page.locator("details").filter({ hasText: "Persisted execution proof" });
+    if (await reloadedProofDetails.locator("summary").getAttribute("open") === null) {
+      await reloadedProofDetails.locator("summary").click();
+    }
+    await expect(reloadedProofDetails).toContainText("2 source reads");
+    await expect(reloadedProofDetails).toContainText("claim-bound evidence excerpts retained");
+    for (const targetPath of fixture.targetPaths) {
+      await expect(page.getByText(targetPath, { exact: true }).last()).toBeVisible();
+    }
+    await expect(page.getByText("Behavior evidence · 2 excerpts").first()).toBeVisible();
+  });
+
+  test("keeps ambiguous architecture queries source-first after reload", async ({
+    page,
+  }) => {
+    const fixture = installProjectQueryTargetFixture("unresolved");
+    await installApiFixtures(page, {
+      arabicAi: fixture as ArabicAiFixture,
+      historicalAudits: {
+        audits: [{ ...fixture.execution, objective: fixture.question }],
+        executions: { [fixture.executionId]: fixture.execution },
+      },
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const proofDetails = page.locator("details").filter({ hasText: "Persisted execution proof" });
+    await expect(proofDetails).toBeVisible();
+    await proofDetails.locator("summary").click();
+    await expect(proofDetails).toContainText("2 source reads");
+    await expect(proofDetails).toContainText("claim-bound evidence excerpts retained");
+    const activity = page.locator("summary").filter({ hasText: "Agent activity" });
+    await expect(activity).toBeVisible();
+    await activity.click();
+    await expect(page.getByText(/Mapping project files/)).toBeVisible();
+    for (const sourcePath of fixture.discoveryPaths) {
+      await expect(page.getByText(sourcePath, { exact: true }).last()).toBeVisible();
+    }
+    await expect(page.getByText("Behavior evidence · 2 excerpts").first()).toBeVisible();
+
+    const messagesResponse = await page.evaluate(async (sessionId) => {
+      const response = await fetch(`/api/ai/chat/${sessionId}/messages`, {
+        credentials: "include",
+      });
+      return { status: response.status, body: await response.json() as unknown[] };
+    }, fixture.sessionId);
+    expect(messagesResponse.status).toBe(200);
+    const assistantMessage = messagesResponse.body.find(
+      (message) =>
+        (message as Record<string, unknown>).role === "assistant",
+    ) as Record<string, unknown> | undefined;
+    expect(assistantMessage).toEqual(
+      expect.objectContaining({
+        projectTargetResolution: "unresolved",
+        turnIntent: "PROJECT_QUERY",
+      }),
+    );
+    const persistedTrace = JSON.parse(String(assistantMessage?.toolTrace)) as Array<Record<string, unknown>>;
+    const decisionTrace = persistedTrace.find(
+      (entry) => entry.kind === "decision_trace",
+    ) as Record<string, unknown> | undefined;
+    expect(decisionTrace?.trace).toEqual(
+      expect.objectContaining({
+        projectTargetResolution: "unresolved",
+        allowedFiles: [],
+        requiredEvidencePaths: [],
+      }),
+    );
+
+    await page.reload();
+    const reloadedProofDetails = page.locator("details").filter({ hasText: "Persisted execution proof" });
+    await expect(reloadedProofDetails).toBeVisible();
+    await reloadedProofDetails.locator("summary").click();
+    await expect(reloadedProofDetails).toContainText("2 source reads");
+    await expect(reloadedProofDetails).toContainText("claim-bound evidence excerpts retained");
+    const reloadedActivity = page.locator("summary").filter({ hasText: "Agent activity" });
+    await expect(reloadedActivity).toBeVisible();
+    await reloadedActivity.click();
+    await expect(page.getByText(/Mapping project files/)).toBeVisible();
+    for (const sourcePath of fixture.discoveryPaths) {
+      await expect(page.getByText(sourcePath, { exact: true }).last()).toBeVisible();
+    }
+    await expect(page.getByText("Behavior evidence · 2 excerpts").first()).toBeVisible();
   });
 
   test("keeps incomplete targeted project analysis non-resumable across history, reload, and retry", async ({
