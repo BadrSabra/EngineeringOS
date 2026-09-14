@@ -9070,7 +9070,11 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
       }
     }
-    const analysisEvidence = streamTurnIntent.kind === "PROJECT_QUERY" && proofRequired
+    const parsedAnalysisObjective = ObjectiveContractSchema.safeParse(executionRequest.objective);
+    const isProjectQueryObjective =
+      parsedAnalysisObjective.success
+      && parsedAnalysisObjective.data.objectiveType.startsWith("PROJECT_QUERY_");
+    const analysisEvidence = isProjectQueryObjective && proofRequired
       ? deriveProjectQueryAnalysisEvidence({
           traceSteps,
           objective: executionRequest.objective,
@@ -9079,11 +9083,13 @@ router.post("/ai/chat/stream", async (req, res) => {
           retainedEvidence,
         })
       : undefined;
+    let analysisEvidenceAccepted = false;
     if (analysisEvidence) {
       const analysisCheck = validateAnalysisEvidenceCompletion(analysisEvidence, {
         operationId: aiExecution.operationId ?? aiExecution.id,
         sourceRevision: analysisCorrelation.projectRevision,
       });
+      analysisEvidenceAccepted = analysisCheck.allowed;
       if (analysisCheck.allowed) {
         executionEvidenceVerdict = "PROVEN";
         executionEvidenceReason = "Project analysis claims were accepted from source evidence bound to this revision.";
@@ -9152,6 +9158,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           requiresEvidence: streamTurnIntent.requiresEvidence,
           forensic: true,
           endedBeforeEvidence,
+          analysisEvidenceAccepted,
           ...terminalEvidenceStateForRun(),
         });
         finalForensicAccepted =

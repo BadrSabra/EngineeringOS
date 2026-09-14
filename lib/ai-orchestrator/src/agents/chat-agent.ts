@@ -8446,7 +8446,7 @@ export async function chat(opts: {
       relayAgentStep,
     });
     const gatedStoppedResponse = stoppedFinalized.gatedResponse;
-    if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
+    if (isForensicOrEvidenceRun && !isTargetedProjectQueryObjective) {
       relayForensicTerminal({
         onStep,
         loopResult,
@@ -8578,7 +8578,7 @@ export async function chat(opts: {
       relayAgentStep,
     });
     const gatedExhaustionResponse = exhaustionFinalized.gatedResponse;
-    if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
+    if (isForensicOrEvidenceRun && !isTargetedProjectQueryObjective) {
       relayForensicTerminal({
         onStep,
         loopResult,
@@ -8632,7 +8632,7 @@ export async function chat(opts: {
       streamCallback,
     });
     const gatedIncompleteResponse = incompleteFinalized.gatedResponse;
-    if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
+    if (isForensicOrEvidenceRun && !isTargetedProjectQueryObjective) {
       relayForensicTerminal({
         onStep,
         loopResult,
@@ -9015,7 +9015,7 @@ export async function chat(opts: {
               responseLanguage,
             ),
       ));
-      if (structuredOutputMode) {
+      if (structuredOutputMode && !isTargetedProjectQueryObjective) {
         emitForensicStatus(
           onStep,
           forensicFileContents,
@@ -9131,7 +9131,7 @@ export async function chat(opts: {
         });
       }
 
-      if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
+      if (isForensicOrEvidenceRun && !isTargetedProjectQueryObjective) {
         relayForensicTerminal({
           onStep,
           loopResult,
@@ -9287,7 +9287,7 @@ export async function chat(opts: {
       // use only ground-truth toolSources (already clean); never fall back
       // to a generic label.
       const mergedSources = scopeForensicSources(toolSources, forensicScope);
-      if (structuredOutputMode) {
+      if (structuredOutputMode && !isTargetedProjectQueryObjective) {
         emitForensicStatus(
           onStep,
           forensicFileContents,
@@ -9452,7 +9452,7 @@ export async function chat(opts: {
           "NOT PROVEN — production reachability could not be verified. " +
           "The available trace only proves transport into the chat orchestrator.";
       }
-      if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
+      if (isForensicOrEvidenceRun && !isTargetedProjectQueryObjective) {
         relayForensicTerminal({
           onStep,
           loopResult,
@@ -11483,7 +11483,7 @@ export async function chat(opts: {
       rejectionReasons: parseError ? [`parse:${parseError.code}`] : [],
     },
   });
-  if (structuredOutputMode) {
+  if (structuredOutputMode && !isTargetedProjectQueryObjective) {
     emitForensicStatus(
       onStep,
       forensicFileContents,
@@ -12937,7 +12937,7 @@ export async function chat(opts: {
   // Finding contract. The generic forensic terminal would turn a complete
   // project explanation into NO_EVIDENCE_FOUND before the objective verdict
   // is projected, creating a contradictory success/incomplete trace.
-  if (isForensicOrEvidenceRun && turnIntent.kind !== "PROJECT_QUERY") {
+  if (isForensicOrEvidenceRun && !isTargetedProjectQueryObjective) {
     relayForensicTerminal({
       onStep,
       loopResult,

@@ -338,6 +338,42 @@ describe("classifyAiTerminalOutcome", () => {
     });
   });
 
+  it("lets accepted project-query evidence supersede provisional recovery failure", () => {
+    expect(classify([
+      { kind: "diagnostic", code: "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED" },
+      {
+        kind: "decision_trace",
+        trace: {
+          finalState: "VERIFIED",
+          objectiveVerdict: "ANSWER_COMPLETE",
+          recoveryFailureKind: "PROVIDER_FAILURE",
+        },
+      },
+    ], {
+      analysisEvidenceAccepted: true,
+    })).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceAccepted: true,
+      recoveryState: "NONE",
+    });
+  });
+
+  it("does not let semantic acceptance bypass a required tool failure", () => {
+    expect(classify([
+      {
+        kind: "tool_result",
+        resultKind: "failed",
+        diagnosticCode: "TOOL_EXECUTION_FAILED",
+      },
+    ], {
+      analysisEvidenceAccepted: true,
+    })).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "TOOL_FAILURE",
+      evidenceAccepted: false,
+    });
+  });
+
   it("does not apply forensic prose gates to ordinary delivery turns", () => {
     expect(classify([
       { kind: "decision_trace", trace: { finalState: "NOT_PROVEN" } },

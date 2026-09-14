@@ -201,6 +201,12 @@ type TerminalClassifierInput = {
   requiresEvidence?: boolean;
   /** Route intent, rather than response prose, determines forensic gates. */
   forensic?: boolean;
+  /**
+   * A server-owned project-query evidence contract already passed its
+   * operation/revision/claim/closure checks. Provider recovery failures that
+   * remain in the trace are provisional in this case, not terminal blockers.
+   */
+  analysisEvidenceAccepted?: boolean;
   /** At least one source read was attempted, including failed/truncated reads. */
   evidenceAttempted?: boolean;
   /** At least one complete, server-owned source body is available. */
@@ -365,6 +371,19 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
         : safeToolMessage(toolResult),
       recoveryState: "INCOMPLETE",
       evidenceAccepted: false,
+    };
+  }
+
+  if (
+    input.forensic === true
+    && input.requiresEvidence === true
+    && input.analysisEvidenceAccepted === true
+  ) {
+    return {
+      outcome: "SUCCEEDED",
+      retryable: false,
+      recoveryState: "NONE",
+      evidenceAccepted: true,
     };
   }
 
