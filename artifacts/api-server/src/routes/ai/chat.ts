@@ -114,6 +114,7 @@ import type {
   ForensicDiagnostic,
   ExecutionPlan,
   ReadStatus,
+  ProjectFileSource,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
@@ -1548,6 +1549,7 @@ async function buildPlanningFilesystemContext(
   baseProjectContext: Awaited<ReturnType<typeof buildProjectContext>>,
   rootPath: string | undefined,
   message: string,
+  previouslyAcceptedEvidence: ProjectFileSource[] = [],
 ): Promise<Awaited<ReturnType<typeof buildProjectContext>>> {
   const unavailable = (reason: string) => ({
     status: "UNAVAILABLE" as const,
@@ -1630,11 +1632,124 @@ async function buildPlanningFilesystemContext(
       ),
     };
   }
+  const currentSources = await buildProjectFileSources(rootResult.canonicalPath, filesystemManifest, message);
+  const manifestPaths = new Set(filesystemManifest.files);
+  const acceptedByPath = new Map<string, ProjectFileSource>();
+  for (const source of previouslyAcceptedEvidence) {
+    if (!manifestPaths.has(source.path)) continue;
+    const existing = acceptedByPath.get(source.path);
+    acceptedByPath.set(source.path, existing
+      ? {
+          ...existing,
+          content: `${existing.content}\n\n[Additional previously accepted excerpt]\n${source.content}`.slice(0, 12_000),
+        }
+      : source);
+  }
+  const currentByPath = new Map(currentSources.files.map((source) => [source.path, source]));
+  const mergedSources = [
+    ...[...acceptedByPath.entries()].map(([sourcePath, accepted]) => {
+      const current = currentByPath.get(sourcePath);
+      return current
+        ? {
+            ...current,
+            acceptedEvidence: true,
+            content: `${current.content}\n\n[Previously accepted evidence]\n${accepted.content}`.slice(0, 12_000),
+          }
+        : accepted;
+    }),
+    ...currentSources.files.filter((source) => !acceptedByPath.has(source.path)),
+  ].slice(0, 24);
   return {
     ...baseProjectContext,
     filesystemManifest,
-    filesystemSources: await buildProjectFileSources(rootResult.canonicalPath, filesystemManifest, message),
+    filesystemSources: {
+      ...currentSources,
+      files: mergedSources,
+      truncated: currentSources.truncated,
+    },
   };
+}
+
+function historicalEvidenceRevision(toolTrace: string | null | undefined): string | undefined {
+  const parsed = parseStoredJson(toolTrace);
+  if (!Array.isArray(parsed)) return undefined;
+  for (const entry of [...parsed].reverse()) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as Record<string, unknown>;
+    if (
+      (candidate.kind === "context_provenance" && typeof candidate.revisionLabel === "string")
+      || (candidate.kind === "forensic_status" && typeof candidate.projectRevision === "string")
+    ) {
+      const revision = candidate.kind === "context_provenance"
+        ? candidate.revisionLabel
+        : candidate.projectRevision;
+      if (typeof revision === "string" && revision.length > 0 && revision !== "unavailable") {
+        return revision;
+      }
+    }
+  }
+  return undefined;
+}
+
+function parseStoredEvidenceReferences(value: unknown): EvidenceReference[] {
+  const parsed = parseStoredJson(value);
+  const candidates: unknown[] = [];
+  if (Array.isArray(parsed)) {
+    candidates.push(...parsed);
+  } else if (parsed && typeof parsed === "object") {
+    const record = parsed as Record<string, unknown>;
+    if (Array.isArray(record.evidence)) candidates.push(...record.evidence);
+    if (record.answer && typeof record.answer === "object") {
+      const answerEvidence = (record.answer as Record<string, unknown>).evidence;
+      if (Array.isArray(answerEvidence)) candidates.push(...answerEvidence);
+    }
+  }
+  return candidates.flatMap((candidate) => {
+    const result = EvidenceReferenceSchema.safeParse(candidate);
+    return result.success ? [result.data] : [];
+  });
+}
+
+export function collectPreviouslyAcceptedPlanningEvidence(
+  rows: Array<{
+    behaviorEvidence: string | null;
+    taskResult: string | null;
+    toolTrace: string | null;
+  }>,
+  currentRevision: string | undefined,
+): ProjectFileSource[] {
+  if (!currentRevision) return [];
+  const byPath = new Map<string, ProjectFileSource>();
+  for (const row of rows) {
+    if (historicalEvidenceRevision(row.toolTrace) !== currentRevision) continue;
+    const references = [
+      ...parseStoredEvidenceReferences(row.behaviorEvidence),
+      ...parseStoredEvidenceReferences(row.taskResult),
+    ];
+    for (const reference of references) {
+      if (
+        !reference.supportsClaim
+        || (reference.evidenceClass !== "BEHAVIOR_PROVEN" && reference.evidenceClass !== "FINDING_PROVEN")
+        || !reference.source
+        || !reference.excerpt
+        || reference.source.startsWith("/")
+        || reference.source.includes("..")
+      ) continue;
+      const source = reference.source.replaceAll("\\", "/").trim().slice(0, 256);
+      const excerpt = reference.excerpt.trim().slice(0, 7_000);
+      if (!source || !excerpt) continue;
+      const existing = byPath.get(source);
+      byPath.set(source, {
+        path: source,
+        content: existing
+          ? `${existing.content}\n\n[Additional accepted evidence]\n${excerpt}`.slice(0, 12_000)
+          : excerpt,
+        truncated: false,
+        acceptedEvidence: true,
+      });
+    }
+  }
+  return [...byPath.values()].slice(0, 12);
 }
 
 async function validateBrowserProfileForDelivery(
@@ -4182,8 +4297,19 @@ router.post("/ai/chat", async (req, res) => {
         compoundWrite: turnIntent.compoundWrite,
       },
     });
+    const previouslyAcceptedEvidence = turnIntent.classification.implementationPlanMode
+      ? collectPreviouslyAcceptedPlanningEvidence(
+          historyRows,
+          baseProjectContext.workspaceRevision ?? project.updatedAt.toISOString(),
+        )
+      : [];
     const projectContext = turnIntent.classification.implementationPlanMode
-      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+      ? await buildPlanningFilesystemContext(
+          baseProjectContext,
+          validRootPath,
+          message,
+          previouslyAcceptedEvidence,
+        )
       : baseProjectContext;
     analysisCorrelation.projectRevision =
       projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
@@ -5967,6 +6093,19 @@ router.post("/ai/chat/stream", async (req, res) => {
       });
     }
 
+    const immediateExecutionRequest = isImmediateExecutionRequest(message);
+    const attachRepairPlanHistory =
+      immediateExecutionRequest || streamTurnIntent.compoundWrite;
+    const historyLimit = historyFetchLimitForPlan(streamExecutionPlan);
+    const historyRows = existingSession
+      ? await db
+          .select()
+          .from(aiChatMessagesTable)
+          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+          .orderBy(desc(aiChatMessagesTable.createdAt))
+          .limit(historyLimit)
+      : [];
+
     // Build the project context before creating the durable execution. The
     // context manifest is the canonical workspace revision for evidence. If
     // execution creation happens first, the request can capture
@@ -5988,8 +6127,19 @@ router.post("/ai/chat/stream", async (req, res) => {
         compoundWrite: streamTurnIntent.compoundWrite,
       },
     });
+    const previouslyAcceptedEvidence = streamTurnIntent.classification.implementationPlanMode
+      ? collectPreviouslyAcceptedPlanningEvidence(
+          historyRows,
+          baseProjectContext.workspaceRevision ?? project.updatedAt.toISOString(),
+        )
+      : [];
     const projectContext = streamTurnIntent.classification.implementationPlanMode
-      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+      ? await buildPlanningFilesystemContext(
+          baseProjectContext,
+          validRootPath,
+          message,
+          previouslyAcceptedEvidence,
+        )
       : baseProjectContext;
     analysisCorrelation.projectRevision =
       projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
@@ -6661,19 +6811,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
 
     const streamIsGreetingTurn = isolatedConversationTurn;
-    const immediateExecutionRequest = isImmediateExecutionRequest(message);
-    const attachRepairPlanHistory =
-      immediateExecutionRequest || streamTurnIntent.compoundWrite;
-    const historyLimit = historyFetchLimitForPlan(streamExecutionPlan);
-
-    const historyRows = existingSession
-      ? await db
-          .select()
-          .from(aiChatMessagesTable)
-          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
-          .orderBy(desc(aiChatMessagesTable.createdAt))
-          .limit(historyLimit)
-      : [];
 
     // Enrich with cross-session memories (outside cache; always fresh).
     await enrichContextWithMemories(projectContext, projectId, streamExecutionPlan, {

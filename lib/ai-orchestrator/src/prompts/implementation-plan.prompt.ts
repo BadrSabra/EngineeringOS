@@ -43,6 +43,12 @@ Produce ONLY valid JSON matching the requested schema. This is PLAN MODE:
 - A plan is considered source-grounded only when the verified source excerpts
   below contain relevant implementation evidence. If source excerpts are
   unavailable, return one inspect step with empty files.
+- Some excerpts may be marked [previously accepted evidence]. These are
+  server-verified findings from an earlier turn on the same project revision.
+  Reuse their file paths and explain how each accepted excerpt informs the
+  step; do not replace them with a generic "inspect the requested area" plan.
+- When previously accepted evidence is present, at least one step must cite
+  each relevant accepted file before proposing any new file or change.
 - The plan must be safe to review and approve before any write access is granted.`,
     },
     {
@@ -65,6 +71,12 @@ ${filesystemManifest}
 
 VERIFIED SOURCE EXCERPTS:
 ${filesystemSources}
+
+PLANNING EVIDENCE RULE:
+Treat excerpts marked [previously accepted evidence] as verified inputs to this
+plan. Keep their paths in the relevant steps and connect the proposed action
+and validation to the accepted behavior or finding. Do not discard them in
+favor of a generic discovery step.
 
 Return exactly this JSON shape:
 {

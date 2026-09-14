@@ -37,6 +37,8 @@ export const ProjectFileSourceSchema = z.object({
   path: z.string().min(1),
   content: z.string(),
   truncated: z.boolean(),
+  /** True when this excerpt was accepted as evidence by an earlier turn. */
+  acceptedEvidence: z.boolean().optional(),
 }).strict();
 
 export const ProjectFileSourcesSchema = z.object({
@@ -287,7 +289,7 @@ export function formatProjectFileSources(sources?: ProjectFileSources): string {
     `TRUNCATED: ${sources.truncated ? "yes — excerpts are bounded" : "no"}`,
     "",
     ...sources.files.flatMap((file) => [
-      `FILE: ${file.path}${file.truncated ? " [excerpt truncated]" : ""}`,
+      `FILE: ${file.path}${file.truncated ? " [excerpt truncated]" : ""}${file.acceptedEvidence ? " [previously accepted evidence]" : ""}`,
       "```source",
       file.content,
       "```",

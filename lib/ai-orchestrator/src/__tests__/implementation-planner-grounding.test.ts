@@ -162,4 +162,45 @@ describe("implementation-plan filesystem grounding", () => {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it("keeps previously accepted evidence in a contextual fallback plan", async () => {
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: providerPlan(["src/missing.ts"]) } }],
+      model: "grounding-test-model",
+      usage: {},
+    });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      }
+    }));
+
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-plan-evidence-"));
+    try {
+      await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+      await fs.writeFile(path.join(rootPath, "src", "routes.ts"), "export {};\n", "utf8");
+      const manifest = await buildProjectFileManifest(rootPath);
+      const { createImplementationPlan } = await import("../agents/implementation-planner.js");
+      const result = await createImplementationPlan({
+        message: "ضع خطة تنفيذية لمعالجة السلوك المثبت",
+        projectContext: makeContext(manifest, {
+          status: "VERIFIED",
+          files: [{
+            path: "src/routes.ts",
+            content: "if (response.error) return incomplete;",
+            truncated: false,
+            acceptedEvidence: true,
+          }],
+          truncated: false,
+        }),
+      }, { provider: "groq", apiKey: "test-key" });
+
+      expect(result.steps.length).toBeGreaterThan(0);
+      expect(result.steps[0]?.files).toEqual(["src/routes.ts"]);
+      expect(result.steps[0]?.description).toContain("if (response.error)");
+      expect(result.steps[0]?.description).not.toContain("Identify the relevant source files");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });

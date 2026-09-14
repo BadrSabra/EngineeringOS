@@ -41,6 +41,7 @@ import {
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import {
   canCreateProposal,
+  collectPreviouslyAcceptedPlanningEvidence,
   projectMissionCorrelationReportForExport,
   serializeMissionCorrelationReport,
 } from "./ai/chat.js";
@@ -57,6 +58,32 @@ import {
   deliveryWorkspaceExists,
   DELIVERY_TREE_DIGEST_VERSION,
 } from "../lib/delivery-workspace.js";
+
+describe("implementation planning evidence continuity", () => {
+  it("reuses accepted evidence only when its source revision matches", () => {
+    const row = {
+      toolTrace: JSON.stringify([{
+        kind: "context_provenance",
+        revisionLabel: "revision-current",
+      }]),
+      behaviorEvidence: JSON.stringify([{
+        source: "src/routes.ts",
+        excerpt: "if (response.error) return incomplete;",
+        supportsClaim: true,
+        evidenceClass: "BEHAVIOR_PROVEN",
+      }]),
+      taskResult: null,
+    };
+
+    expect(collectPreviouslyAcceptedPlanningEvidence([row], "revision-current")).toEqual([{
+      path: "src/routes.ts",
+      content: "if (response.error) return incomplete;",
+      truncated: false,
+      acceptedEvidence: true,
+    }]);
+    expect(collectPreviouslyAcceptedPlanningEvidence([row], "revision-next")).toEqual([]);
+  });
+});
 
 describe("verified repair proposal gate", () => {
   const change = {

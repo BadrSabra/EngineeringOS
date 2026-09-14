@@ -40,6 +40,37 @@ function fallbackPlan(message: string, reason = "The available project context w
   };
 }
 
+function contextualFallbackPlan(
+  message: string,
+  reason: string,
+  projectContext: ProjectContext,
+): ImplementationPlan {
+  const acceptedSources = (projectContext.filesystemSources?.files ?? [])
+    .filter((source) => source.acceptedEvidence)
+    .slice(0, 8);
+  if (acceptedSources.length === 0) return fallbackPlan(message, reason);
+
+  return {
+    kind: "IMPLEMENTATION_PLAN_RESULT",
+    objective: message.trim().slice(0, 500) || "Continue from the accepted project evidence",
+    summary: "The plan is grounded in the previously accepted evidence below and keeps each file scoped for review.",
+    assumptions: [reason],
+    steps: acceptedSources.map((source, index) => ({
+      id: `step-${index + 1}`,
+      title: `Revalidate accepted evidence in ${source.path}`,
+      description: `Re-read the verified source excerpt for ${source.path} before proposing a change. Accepted evidence: ${source.content.slice(0, 700).replace(/\s+/g, " ")}`,
+      action: "inspect" as const,
+      files: [source.path],
+      dependsOn: index === 0 ? [] : [`step-${index}`],
+      validation: ["Confirm the accepted behavior still matches the current source revision."],
+    })),
+    validationCommands: [],
+    risks: ["A write plan is not authorized until the accepted evidence is revalidated against the current source revision."],
+    approvalStatus: "PENDING_APPROVAL",
+    writeAccess: "NOT_AUTHORIZED",
+  };
+}
+
 function normalizePlanPath(value: string): string {
   return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "");
 }
@@ -91,7 +122,7 @@ export async function createImplementationPlan(
   opts?: AgentCompleteOpts,
 ): Promise<ImplementationPlanResult> {
   const guardedFallback = (reason: string): ImplementationPlanResult => ({
-    ...fallbackPlan(input.message, reason),
+    ...contextualFallbackPlan(input.message, reason, input.projectContext),
     contextManifest: input.projectContext.contextManifest,
   });
   const manifest = input.projectContext.filesystemManifest;
@@ -110,10 +141,24 @@ export async function createImplementationPlan(
   const result = await implementationPlanner.run(input, opts);
   const { _parseError, ...plan } = result;
   const ungroundedPaths = guardPlanPaths(plan, manifest);
-  if (ungroundedPaths.length === 0) return { ...result, contextManifest: input.projectContext.contextManifest };
+  const acceptedEvidencePaths = new Set(
+    (sources.files ?? [])
+      .filter((source) => source.acceptedEvidence)
+      .map((source) => normalizePlanPath(source.path)),
+  );
+  const usesAcceptedEvidence =
+    acceptedEvidencePaths.size === 0
+    || plan.steps.some((step) =>
+      step.files.some((file) => acceptedEvidencePaths.has(normalizePlanPath(file))),
+    );
+  if (ungroundedPaths.length === 0 && usesAcceptedEvidence) {
+    return { ...result, contextManifest: input.projectContext.contextManifest };
+  }
 
   const guarded = guardedFallback(
-    `The provider referenced unverified project paths: ${ungroundedPaths.slice(0, 8).join(", ")}.`,
+    ungroundedPaths.length > 0
+      ? `The provider referenced unverified project paths: ${ungroundedPaths.slice(0, 8).join(", ")}.`
+      : "The provider did not bind the plan to previously accepted evidence; the plan was rebuilt from those verified files.",
   );
   return _parseError ? { ...guarded, _parseError } : guarded;
 }
