@@ -47,7 +47,7 @@ const MAX_SUMMARY_CHARS = 400;
 const RELEVANCE_DECAY = 0.9;
 /** Rows below this relevance threshold are deleted on sweep. */
 const RELEVANCE_PRUNE_THRESHOLD = 0.1;
-/** Memories below this score are not admitted into a model prompt. */
+/** Rows below this composite score are omitted from the prompt at retrieval time. */
 const MIN_PROMPT_RELEVANCE = 0.25;
 const MEMORY_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const OUTBOX_POLL_INTERVAL_MS = 30 * 1000;
@@ -424,28 +424,28 @@ export async function fetchSessionMemories(
       ...withFreshness.map((row) => row.createdAt.getTime()),
     );
     const scoreMap = new Map<string, number>();
-    const scoreFor = (row: MemoryRow): number => {
+    const scoreForRow = (row: MemoryRow): number => {
       const age = Math.max(0, maxCreatedAt - row.createdAt.getTime());
       const recency = 1 / (1 + age / (7 * 24 * 60 * 60 * 1000));
       const scope = row.semanticKind && taskScope && row.scope === `task:${taskScope}` ? 0.12 : 0;
-      const confirmation = row.confirmationStatus === "user_confirmed"
-        || row.confirmationStatus === "server_validated"
+      const confirmation = row.confirmationStatus === "user_confirmed" || row.confirmationStatus === "server_validated"
         ? 0.05
         : 0;
       const freshness = row.freshnessStatus === "stale" ? -0.25 : 0;
-      const score = row.relevance * 0.58 + recency * 0.25 + scope + confirmation + freshness;
-      scoreMap.set(row.id, score);
-      return score;
+      return row.relevance * 0.58 + recency * 0.25 + scope + confirmation + freshness;
     };
+    for (const row of withFreshness) {
+      scoreMap.set(row.id, scoreForRow(row));
+    }
     return withFreshness
       .sort((a, b) => {
-        const scoreA = scoreFor(a);
-        const scoreB = scoreFor(b);
+        const scoreA = scoreMap.get(a.id)!;
+        const scoreB = scoreMap.get(b.id)!;
         return scoreB - scoreA
           || b.createdAt.getTime() - a.createdAt.getTime()
           || a.id.localeCompare(b.id);
       })
-      .filter((row) => (scoreMap.get(row.id) ?? scoreFor(row)) >= MIN_PROMPT_RELEVANCE)
+      .filter((row) => scoreMap.get(row.id)! >= MIN_PROMPT_RELEVANCE)
       .slice(0, effectiveLimit);
   } catch (err) {
     console.warn(JSON.stringify({

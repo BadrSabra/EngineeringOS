@@ -336,13 +336,12 @@ function buildGraphSummary(
   const notices = [entityState, relationshipState]
     .filter((notice): notice is string => typeof notice === "string")
     .join("\n");
-  const revisionNotice =
-    scanRevision && entities.length > 0
-      ? `Graph index from scan revision: ${scanRevision} — treat as a navigation hint; verify current state with read_file.\n`
-      : "";
+  const revisionAnnotation = scanRevision
+    ? `Graph index from scan revision: ${scanRevision} — treat as a navigation hint; verify current state with read_file.\n`
+    : "";
   return `${notices ? `${notices}\n` : ""}${entities.length > 0
-    ? `${revisionNotice}${provenanceHeader}${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
-    : relationshipState ?? "Knowledge graph empty — the graph query returned no rows."}`;
+    ? `${revisionAnnotation}${provenanceHeader}${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
+    : `${revisionAnnotation}${relationshipState ?? "Knowledge graph empty — the graph query returned no rows."}`}`;
 }
 
 function buildEventSummary(loaded: LoadedProjectContext): string {

@@ -30,6 +30,7 @@ export type ActiveTask = {
 function buildChatToolSection(
   hasTools: boolean,
   toolMode: "workspace" | "project-read-only" = "workspace",
+  targetDetectionMissed = false,
 ): string {
   if (!hasTools) {
     return `**File-system tools: NOT active in this session.**
@@ -50,7 +51,9 @@ If a question requires file-level detail that is absent from the context, state 
 Use them only when the user's question or a server-provided project target needs current project or file details; do not scan broadly just because the tools are present.
 - Reads are bounded to the authenticated project root and may be refused for traversal, symlink, or sensitive-file violations.
 - Results are evidence from the server-observed read only; do not invent paths or citations.
-- This session has no write, validation, terminal, git, analysis, or delivery tools. Never claim that a change was made.`,
+- This session has no write, validation, terminal, git, analysis, or delivery tools. Never claim that a change was made.${targetDetectionMissed
+          ? "\n- No specific subsystem target was auto-detected for this request. Do not treat the knowledge graph as complete evidence; use read_file to reach the relevant source before synthesizing any claim."
+          : ""}`,
       ),
     );
   }
@@ -84,7 +87,9 @@ Use them to:
 2. For an existing file, prefer replace_text. Include enough exact surrounding text to make old_text unique. Use write_file only for a new file or a small existing file whose complete current content was read. Never reconstruct a large file from a truncated read.
 3. NEVER propose changes to auto-generated files. Generated files are identified by paths containing: /generated/, /dist/, /build/, .generated.ts, .generated.js, or files with a header comment containing "DO NOT EDIT" or "auto-generated". Editing them is pointless — they are overwritten on the next code-generation run. Explain to the user this and point them to the source instead.
 4. A result containing "[... output truncated ...]" or "[... prefetch output truncated ...]" is a bounded tool preview, NOT evidence that the file is truncated, corrupted, or incomplete. Never create a Finding from that marker. Use git_diff, git_status, search_code, or additional targeted reads to establish the actual file state.
-5. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.`,
+5. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.${targetDetectionMissed
+          ? "\n\nNo specific subsystem target was auto-detected for this request. Do not treat the knowledge graph as complete evidence; use read_file to reach the relevant source before synthesizing any claim."
+          : ""}`,
     ),
   );
 }
@@ -350,6 +355,7 @@ export function buildChatSystemPrompt({
   executionPlan,
   activeTask,
   taskChecklist = [],
+  targetDetectionMissed = false,
 }: {
   context: ProjectContext;
   hasTools?: boolean;
@@ -401,6 +407,8 @@ export function buildChatSystemPrompt({
   executionPlan?: Readonly<ExecutionPlan>;
   activeTask?: ActiveTask;
   taskChecklist?: TaskChecklistItem[];
+  /** True when evidence is required but target detection produced no subsystem target. */
+  targetDetectionMissed?: boolean;
 }): string {
   const promptContext = suppressSessionMemory
     ? {
@@ -459,7 +467,7 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // Must appear AFTER context and BEFORE rules so the model sees the
     // correct reasoning pattern before it encounters the output constraints.
     structuredOutputMode ? buildStructuredOutputFewShot() : null,
-    buildChatToolSection(hasTools, toolMode),
+    buildChatToolSection(hasTools, toolMode, targetDetectionMissed),
     buildChatRulesBlock(
       streamingMode,
       immediateExecution,
