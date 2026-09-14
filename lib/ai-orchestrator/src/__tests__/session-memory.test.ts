@@ -137,6 +137,78 @@ describe("session memory policy", () => {
     expect(result).toContain("UNTRUSTED_CONTENT source=session_memory");
   });
 
+  it("omits memories below the composite relevance floor while retaining an eligible memory", async () => {
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "session-memory-relevance-test",
+      name: "session-memory-relevance-test",
+      rootPath: `/tmp/session-memory-relevance-test-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "session-memory-relevance-test",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const belowFloorId = randomUUID();
+    const aboveFloorId = randomUUID();
+    await db.insert(aiSessionMemoriesTable).values([
+      {
+        id: belowFloorId,
+        projectId,
+        sessionId,
+        memoryType: "key_finding",
+        semanticKind: "key_finding",
+        scope: "project",
+        content: "This stale memory should be omitted by the relevance floor.",
+        sourceRevision: "old-revision",
+        relevance: 0.1,
+        createdAt: now,
+        expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+        lastDecayAt: null,
+      },
+      {
+        id: aboveFloorId,
+        projectId,
+        sessionId,
+        memoryType: "session_summary",
+        content: "This recent memory remains eligible for prompt retrieval.",
+        relevance: 0.85,
+        createdAt: now,
+        expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+        lastDecayAt: null,
+      },
+    ]);
+
+    try {
+      const retrieved = await fetchSessionMemories(
+        projectId,
+        10,
+        { mode: "episodic", limit: 10 },
+        { projectRevision: "current-revision" },
+      );
+
+      expect(retrieved.map((memory) => memory.id)).toContain(aboveFloorId);
+      expect(retrieved.map((memory) => memory.id)).not.toContain(belowFloorId);
+    } finally {
+      await db.delete(aiSessionMemoriesTable).where(eq(
+        aiSessionMemoriesTable.projectId,
+        projectId,
+      ));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("does not retrieve memory when the active plan disables it", async () => {
     const context = {
       project: "Project A",

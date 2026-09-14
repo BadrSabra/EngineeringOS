@@ -90,6 +90,35 @@ describe("forensic prompt safety", () => {
     expect(prompt).toContain("Do not invent percentages");
   });
 
+  it("adds target-miss guidance only to evidence turns without a detected target", () => {
+    const missingTargetEvidencePrompt = buildChatSystemPrompt({
+      context: makeContext(),
+      requiresEvidence: true,
+      projectTargetDetected: false,
+    });
+    expect(missingTargetEvidencePrompt).toContain(
+      "No specific subsystem target was auto-detected for this request.",
+    );
+
+    const targetedEvidencePrompt = buildChatSystemPrompt({
+      context: makeContext(),
+      requiresEvidence: true,
+      projectTargetDetected: true,
+    });
+    expect(targetedEvidencePrompt).not.toContain(
+      "No specific subsystem target was auto-detected for this request.",
+    );
+
+    const nonEvidencePrompt = buildChatSystemPrompt({
+      context: makeContext(),
+      requiresEvidence: false,
+      projectTargetDetected: false,
+    });
+    expect(nonEvidencePrompt).not.toContain(
+      "No specific subsystem target was auto-detected for this request.",
+    );
+  });
+
   it("keeps fixture capability findings separate from production reachability", () => {
     const prompt = buildChatSystemPrompt({
       context: makeContext(),

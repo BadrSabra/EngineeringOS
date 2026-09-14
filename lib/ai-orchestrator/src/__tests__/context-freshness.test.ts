@@ -5,6 +5,8 @@ import { buildSlice, type ContextObject } from "../context-runtime/context-objec
 import { runAdmission } from "../context-runtime/context-admission.js";
 import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 import type { ProjectContext } from "../context-builder.js";
+import { buildProjectContextFromLoadedContext } from "../context-serializer.js";
+import type { LoadedProjectContext } from "../context-loader.js";
 import { promptContextOverview } from "../prompts/prompt-composer.js";
 
 function makeObject(loadedAt: number): ContextObject {
@@ -51,6 +53,120 @@ function makeContext(overrides: Partial<ProjectContext> = {}): ProjectContext {
   };
 }
 
+function makeLoadedContext(
+  overrides: Partial<LoadedProjectContext> = {},
+): LoadedProjectContext {
+  const loadedAt = Date.now();
+  const sliceMetadata = new Map<"graphEntities" | "graphRelationships", {
+    source: string;
+    status: "not_requested" | "empty" | "loaded" | "load_failed";
+    freshness: "fresh" | "stale" | "missing";
+    loadedAt: number;
+    rowCount: number;
+    dependencyHints: [];
+    collection: {
+      page: number;
+      pageSize: number;
+      returnedCount: number;
+      totalKnown: boolean;
+      hasMore: boolean;
+      truncated: boolean;
+    };
+  }>([
+    ["graphEntities", {
+      source: "db:graph_entities",
+      status: "loaded",
+      freshness: "fresh",
+      loadedAt,
+      rowCount: 1,
+      dependencyHints: [],
+      collection: {
+        page: 1,
+        pageSize: 80,
+        returnedCount: 1,
+        totalKnown: false,
+        hasMore: false,
+        truncated: false,
+      },
+    }],
+    ["graphRelationships", {
+      source: "db:graph_relationships",
+      status: "empty",
+      freshness: "missing",
+      loadedAt,
+      rowCount: 0,
+      dependencyHints: [],
+      collection: {
+        page: 1,
+        pageSize: 60,
+        returnedCount: 0,
+        totalKnown: false,
+        hasMore: false,
+        truncated: false,
+      },
+    }],
+  ]);
+
+  return {
+    project: {
+      id: "freshness-test",
+      name: "Freshness Test",
+      language: "TypeScript",
+      framework: null,
+      status: "active",
+      qualityScore: 90,
+      rootPath: "/project",
+      description: null,
+      lastScanAt: new Date("2026-09-01"),
+      gitRemoteUrl: null,
+      gitDefaultBranch: null,
+      ownerId: "test-owner",
+      createdAt: new Date("2026-01-01"),
+      updatedAt: new Date("2026-09-01"),
+    },
+    rawTasks: [],
+    latestMetric: undefined,
+    entities: [{
+      id: "entity-1",
+      projectId: "freshness-test",
+      scanJobId: null,
+      name: "FreshService",
+      type: "module",
+      path: "src/fresh.ts",
+      metadata: {},
+      kind: null,
+      isDocumented: false,
+      semanticTags: [],
+      confidence: 0.95,
+      domain: null,
+      description: null,
+      lifecycle: null,
+      sourceType: "typescript-ast",
+      provenance: null,
+      createdAt: new Date("2026-09-01"),
+    }],
+    relationships: [],
+    recentEvents: [],
+    rawWorkflows: [],
+    latestScanJob: undefined,
+    scanVerified: true,
+    contextManifest: {
+      projectId: "freshness-test",
+      projectRevision: "scan-revision-1",
+      scanCompleteness: "COMPLETE",
+      sourceProvenance: "test",
+      capturedAt: "2026-09-01T00:00:00.000Z",
+    },
+    wants: () => true,
+    requestedSections: new Set([
+      "graphEntities",
+      "graphRelationships",
+    ]),
+    sliceMetadata,
+    ...overrides,
+  };
+}
+
 describe("context freshness and structural size controls", () => {
   it("drops every slice when admission identity is unavailable", () => {
     const object = makeObject(0);
@@ -92,6 +208,25 @@ describe("context freshness and structural size controls", () => {
     expect(compacted.length).toBeLessThanOrEqual(500);
     expect(compacted).toContain("Relationships");
     expect(compacted).toContain("Entity0 → depends_on → Entity1");
+  });
+
+  it("annotates non-empty graph output with the scan revision but not empty output", () => {
+    const populated = buildProjectContextFromLoadedContext(makeLoadedContext());
+    expect(populated.graphSummary).toContain("Graph index from scan revision: scan-revision-1");
+
+    const emptyMetadata = new Map(makeLoadedContext().sliceMetadata);
+    emptyMetadata.set("graphEntities", {
+      ...emptyMetadata.get("graphEntities")!,
+      status: "empty",
+      freshness: "missing",
+      rowCount: 0,
+    });
+    const empty = buildProjectContextFromLoadedContext(makeLoadedContext({
+      entities: [],
+      sliceMetadata: emptyMetadata,
+    }));
+    expect(empty.graphSummary).not.toContain("Graph index from scan revision:");
+    expect(empty.graphSummary).not.toContain("pre-extracted index");
   });
 
   it("retains workflow phases before generic truncation", () => {
