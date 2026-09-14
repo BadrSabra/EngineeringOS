@@ -12867,13 +12867,20 @@ export async function chat(opts: {
     || terminalLoopKind === "incomplete"
     || terminalLoopKind === "exhausted"
     || (terminalLoopKind === "partial" && terminalLoopReason !== "response");
+  const projectQueryObjectiveComplete =
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
+    && objectiveGate?.status === "PROVEN"
+    && !anyRequiredClaimUnclosed
+    && !behaviorAnswerRejected
+    && !projectQueryAnswerRejected
+    && !telemetryBlocksVerdict;
   const capabilityProbeTerminalAccepted =
     capabilityProbeFinalReport !== null &&
     !capabilityProbeClaimUnclosed &&
     !telemetryBlocksVerdict &&
     !objectiveBlocksVerdict;
   const terminalResponse =
-    capabilityProbeTerminalAccepted
+    capabilityProbeTerminalAccepted || projectQueryObjectiveComplete
       ? gateFinalResponse
       : forensicOutputMode &&
     (
@@ -12953,13 +12960,6 @@ export async function chat(opts: {
     });
   }
   // AI-OBJ-012: compute the objective verdict kind for the decision trace.
-  const projectQueryObjectiveComplete =
-    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
-    && objectiveGate?.status === "PROVEN"
-    && !anyRequiredClaimUnclosed
-    && !behaviorAnswerRejected
-    && !projectQueryAnswerRejected
-    && !telemetryBlocksVerdict;
   const objectiveVerdict: ObjectiveVerdictKind = classifyObjectiveVerdict({
     primaryClaimClosed:
       !anyRequiredClaimUnclosed

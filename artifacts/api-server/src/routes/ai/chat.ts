@@ -296,6 +296,8 @@ function deriveProjectQueryAnalysisEvidence(params: {
 }): AnalysisEvidenceCompletion | undefined {
   const objective = ObjectiveContractSchema.safeParse(params.objective);
   if (!objective.success) return undefined;
+  const isProjectQueryObjective =
+    objective.data.objectiveType.startsWith("PROJECT_QUERY_");
   const integrity = [...params.traceSteps]
     .reverse()
     .find((step): step is Extract<AgentStep, { kind: "evidence_integrity" }> =>
@@ -312,7 +314,15 @@ function deriveProjectQueryAnalysisEvidence(params: {
     .find((step): step is Extract<AgentStep, { kind: "forensic_terminal" }> =>
       step.kind === "forensic_terminal",
     );
-  const forensicDiagnostic = deriveForensicDiagnostic(params.traceSteps);
+  // PROJECT_QUERY has its own objective/evidence contract. A trace may still
+  // contain recovery diagnostics from an outer forensic turn, but those
+  // diagnostics must not be projected as a generic forensic verdict. In
+  // particular, deriveForensicDiagnostic() treats an evidence_integrity row
+  // without a real forensic status/terminal as ANALYSIS_INCOMPLETE, which
+  // would reject an otherwise PROVEN project-query closure.
+  const forensicDiagnostic = isProjectQueryObjective
+    ? null
+    : deriveForensicDiagnostic(params.traceSteps);
   const forensicStatus = [...params.traceSteps]
     .reverse()
     .find((step): step is Extract<AgentStep, { kind: "forensic_status" }> =>
