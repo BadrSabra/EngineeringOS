@@ -2112,6 +2112,168 @@ describe("POST /api/ai/chat", () => {
     expect(projectedExplanation).not.toHaveProperty("repairPlan");
   });
 
+  it("keeps a same-session English project question read-only after an approved implementation plan", async () => {
+    const {
+      chat: mockChat,
+      classifyRequest: mockClassifyRequest,
+    } = await import("@workspace/ai-orchestrator");
+    const actual = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+      "@workspace/ai-orchestrator",
+    );
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const planMessageId = randomUUID();
+    const seededAt = new Date(Date.now() - 1_000);
+    const planNarrative = "Implementation plan ready for review.";
+    const approvedPlan = {
+      kind: "IMPLEMENTATION_PLAN_RESULT" as const,
+      objective: "Add a safe feature",
+      summary: "Inspect, implement, and validate the requested feature.",
+      assumptions: [],
+      steps: [{
+        id: "step-1",
+        title: "Inspect the target",
+        description: "Confirm the current implementation before editing.",
+        action: "inspect" as const,
+        files: ["src/feature.ts"],
+        dependsOn: [],
+        validation: ["Run the focused test"],
+      }],
+      validationCommands: ["pnpm test"],
+      risks: [],
+      approvalStatus: "APPROVED" as const,
+      writeAccess: "APPROVED_FOR_BUILD" as const,
+    };
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Approved implementation plan",
+      createdAt: seededAt,
+      updatedAt: new Date(seededAt.getTime() + 1),
+    });
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: "Create an implementation plan for the safe feature",
+        createdAt: seededAt,
+      },
+      {
+        id: planMessageId,
+        sessionId,
+        role: "assistant",
+        content: planNarrative,
+        taskResult: JSON.stringify(approvedPlan),
+        turnIntent: "PROJECT_QUERY",
+        createdAt: new Date(seededAt.getTime() + 1),
+      },
+    ]);
+
+    let questionInput:
+      | {
+          history: Array<{
+            role: string;
+            content: string;
+            repairPlan?: unknown;
+            implementationPlan?: unknown;
+            taskResult?: unknown;
+          }>;
+          activeTaskState?: unknown;
+          turnIntent?: { kind?: string; compoundWrite?: boolean };
+        }
+      | undefined;
+    vi.mocked(mockClassifyRequest).mockImplementationOnce(actual.classifyRequest);
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      questionInput = input as typeof questionInput;
+      return {
+        response: "The project uses a server-owned implementation workflow.",
+        sources: [],
+        pendingChanges: [],
+        taskResult: approvedPlan,
+      };
+    });
+
+    const question = await request(app)
+      .post("/api/ai/chat")
+      .send({
+        projectId,
+        sessionId,
+        message: "What is this project?",
+      });
+
+    expect(question.status).toBe(200);
+    expect(question.body).toMatchObject({
+      sessionId,
+      turnIntent: "PROJECT_QUERY",
+      outcome: "SUCCEEDED",
+      message: {
+        content: "The project uses a server-owned implementation workflow.",
+        turnIntent: "PROJECT_QUERY",
+      },
+    });
+    expect(question.body.taskResult).toBeUndefined();
+    expect(questionInput?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      compoundWrite: false,
+    });
+    expect(questionInput?.activeTaskState).toBeNull();
+    const priorPlanHistory = questionInput?.history.find(
+      (entry) => entry.content === planNarrative,
+    );
+    expect(priorPlanHistory).toEqual({
+      role: "assistant",
+      content: planNarrative,
+    });
+    expect(questionInput?.history.some((entry) =>
+      "implementationPlan" in entry || "taskResult" in entry || "repairPlan" in entry,
+    )).toBe(false);
+
+    const persistedRows = await db
+      .select({
+        id: aiChatMessagesTable.id,
+        role: aiChatMessagesTable.role,
+        content: aiChatMessagesTable.content,
+        taskResult: aiChatMessagesTable.taskResult,
+        turnIntent: aiChatMessagesTable.turnIntent,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+    expect(persistedRows).toHaveLength(4);
+    const persistedPlan = persistedRows.find((message) => message.id === planMessageId);
+    expect(persistedPlan?.taskResult).toBe(JSON.stringify(approvedPlan));
+    const storedQuestion = persistedRows.find(
+      (message) => message.content === "The project uses a server-owned implementation workflow.",
+    );
+    expect(storedQuestion).toMatchObject({
+      role: "assistant",
+      turnIntent: "PROJECT_QUERY",
+      taskResult: null,
+    });
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`);
+    expect(history.status).toBe(200);
+    const projectedPlan = history.body.find(
+      (message: { id: string }) => message.id === planMessageId,
+    );
+    expect(projectedPlan).toMatchObject({
+      content: planNarrative,
+      taskResult: approvedPlan,
+    });
+    const projectedQuestion = history.body.find(
+      (message: { content?: string }) =>
+        message.content === "The project uses a server-owned implementation workflow.",
+    );
+    expect(projectedQuestion).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+    });
+    expect(projectedQuestion).not.toHaveProperty("implementationPlan");
+    expect(projectedQuestion).not.toHaveProperty("taskResult");
+  });
+
   it("keeps the newer resumable contract when concurrent JSON turns finish out of order", async () => {
     const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const forensicClassification = {

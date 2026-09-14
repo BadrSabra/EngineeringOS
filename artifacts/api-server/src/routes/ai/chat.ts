@@ -3435,7 +3435,7 @@ function historyFetchLimitForPlan(plan: Readonly<ExecutionPlan>): number {
 
 type ProviderHistoryRow = Pick<
   typeof aiChatMessagesTable.$inferSelect,
-  "id" | "role" | "content" | "executionId" | "repairPlanMetadata"
+  "id" | "role" | "content" | "executionId" | "repairPlanMetadata" | "taskResult"
 >;
 
 type ProviderHistoryPolicy = {
@@ -3474,8 +3474,10 @@ function resolveProviderHistoryPolicy(params: {
  * receive the conversation oldest-first. The current user turn is excluded
  * only by its server-owned message/execution identity; content is deliberately
  * not used because an earlier user message may legitimately repeat the same
- * text. Repair-plan metadata is executable context, so it is attached only
- * for an explicitly authorized handoff policy.
+ * text. Repair-plan and implementation-plan metadata are executable context,
+ * so neither is copied into history unless a separate, explicit handoff
+ * boundary authorizes it. The implementation-plan handoff uses the validated
+ * server-owned execution plan rather than taskResult history metadata.
  */
 function projectProviderHistory(
   rows: readonly ProviderHistoryRow[],
@@ -3750,6 +3752,12 @@ function normalizeTaskResultForTurn(
   turnKind: string,
   taskResult: ChatTaskResult | undefined,
 ): ChatTaskResult | undefined {
+  // An implementation plan is executable handoff metadata. A provider must
+  // not be able to attach it to a read-only project question merely because a
+  // previous approved plan appeared in the session history.
+  if (taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT" && turnKind !== "DELIVERY") {
+    return undefined;
+  }
   if (turnKind !== "CHAT") return taskResult;
   // A grounded behavior answer is the only typed result that can remain on
   // the ordinary chat contract. Reports, findings, repair results, and
