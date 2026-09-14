@@ -1829,7 +1829,29 @@ describe("Durable AI completion identity", () => {
       includeNodeState: false,
       reclaimAfterReconciliation: false,
     });
+    const currentTurnCreatedAt = new Date();
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: fixture.request.message,
+        executionId: null,
+        createdAt: new Date(currentTurnCreatedAt.getTime() - 1_000),
+      },
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: fixture.request.message,
+        executionId: fixture.created.execution.id,
+        createdAt: currentTurnCreatedAt,
+      },
+    ]);
+    const providerHistories: Array<Array<{ role: string; content: string }>> = [];
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as { history?: Array<{ role: string; content: string }> };
+      providerHistories.push(input.history ?? []);
       retainProofFixtureEvidence(args, fixture);
       args[6]?.({
         kind: "validation",
@@ -1882,6 +1904,9 @@ describe("Durable AI completion identity", () => {
       },
     });
     expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+    expect(providerHistories).toEqual([[
+      { role: "user", content: fixture.request.message },
+    ]]);
 
     const [execution] = await db
       .select({
@@ -1911,11 +1936,17 @@ describe("Durable AI completion identity", () => {
     });
 
     const messages = await db
-      .select({ role: aiChatMessagesTable.role, executionId: aiChatMessagesTable.executionId })
+      .select({
+        role: aiChatMessagesTable.role,
+        executionId: aiChatMessagesTable.executionId,
+        outcome: aiChatMessagesTable.outcome,
+      })
       .from(aiChatMessagesTable)
       .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
     expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
-    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(messages.filter((message) => message.role === "assistant")).toMatchObject([{
+      outcome: "SUCCEEDED",
+    }]);
   });
 
   it("keeps a valid resumed proposal review-ready instead of marking it proven", async () => {

@@ -6312,19 +6312,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     const immediateExecutionRequest = isImmediateExecutionRequest(message);
-    const providerHistoryPolicy = resolveProviderHistoryPolicy({
-      turnIntent: streamTurnIntent,
-      message,
-      immediateExecutionRequest,
-      buildHandoff: Boolean(
-        streamTurnIntent.allowsBuildHandoff
-        && approvedImplementationPlan
-        && effectiveBuildPlanMessageId,
-      ),
-      currentTurn: {
-        executionId: aiExecution?.id,
-      },
-    });
     const historyLimit = historyFetchLimitForPlan(streamExecutionPlan);
     const historyRows = existingSession
       ? await db
@@ -6678,6 +6665,20 @@ router.post("/ai/chat/stream", async (req, res) => {
       aiExecution = claimed;
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
+
+    const providerHistoryPolicy = resolveProviderHistoryPolicy({
+      turnIntent: streamTurnIntent,
+      message,
+      immediateExecutionRequest,
+      buildHandoff: Boolean(
+        streamTurnIntent.allowsBuildHandoff
+        && approvedImplementationPlan
+        && effectiveBuildPlanMessageId,
+      ),
+      currentTurn: {
+        executionId: aiExecution.id,
+      },
+    });
 
     await persistPendingUserTurn({
       sessionId: sessionIdToUse,

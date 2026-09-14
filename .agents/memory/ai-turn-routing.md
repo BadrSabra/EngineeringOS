@@ -22,3 +22,9 @@ Public `sources` are an acceptance projection, not a copy of provider output. Fo
 **Why:** A provider can report plausible file paths after a zero-tool retry, and a completed read can still have zero accepted behavioral evidence. Publishing either as a current source makes history, memory, and the next retry claim more than the server verified.
 
 **How to apply:** Derive source projections from read/tool and evidence-integrity traces in both JSON and SSE success/failure paths. Keep the final turn intent as the gate for typed task results and resumable state, and preserve redaction at every user-facing boundary.
+
+For resumed stream turns, build the provider-history exclusion policy only after the server has validated and claimed the execution. Exclude the current user row by its execution identity, never by matching content, so an older repeated prompt remains in oldest-first history.
+
+**Why:** Constructing the policy before resume claim left the current execution identity unset and replayed both the persisted current prompt and an older identical prompt to the provider.
+
+**How to apply:** It is safe to fetch bounded history before claiming, but delay history projection/policy construction until the claimed execution ID is available. Keep this rule specific to resumed execution identity; do not broaden content-based filtering.
