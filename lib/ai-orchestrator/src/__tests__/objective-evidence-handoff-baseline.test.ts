@@ -1077,6 +1077,137 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     }
   });
 
+  it("does not replace a proven project query with the outer forensic fallback", async () => {
+    const message = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع وحدد نقاط الضعف";
+    const objectiveMessage = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع";
+    const target = resolveProjectQueryTarget(objectiveMessage);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, objectiveMessage);
+    const requiredPaths = objective.requiredEvidencePaths ?? [];
+    const fileContents = new Map<string, string>([
+      [
+        REQUIRED_PATHS[0],
+        [
+          "import { resolveTurnIntent } from './turn-intent';",
+          "export async function chatWithFallback(provider: string) {",
+          "  const turnIntent = resolveTurnIntent(provider);",
+          "  return { provider, turnIntent };",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        REQUIRED_PATHS[1],
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  const turnIntent = message ? { kind: 'PROJECT_QUERY' } : { kind: 'CHAT' };",
+          "  return turnIntent;",
+          "}",
+        ].join("\n"),
+      ],
+      [REQUIRED_PATHS[2], CHAT_AGENT_CALLER_FIXTURE],
+    ]);
+    for (const source of requiredPaths) {
+      if (!fileContents.has(source)) {
+        fileContents.set(source, `verified source body for ${source}`);
+      }
+    }
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "partial" as const,
+          reason: "provider_failure" as const,
+          result: {
+            content: JSON.stringify({ response: "", sources: [] }),
+            toolCalls: null,
+            model: "outer-forensic-provider-failure",
+            usage: {},
+          },
+          toolSources: requiredPaths,
+          fileContents,
+          evidenceWindows: [],
+          sourceRetrieval: {
+            readAttempts: requiredPaths.length,
+            readPaths: requiredPaths,
+            uniqueReads: requiredPaths.length,
+            truncatedReads: 0,
+            targetedReads: 0,
+            redundantReads: 0,
+            cachedReads: 0,
+            evidenceWindows: 0,
+            prefetchReads: requiredPaths.length,
+            dependencyReads: 0,
+            duplicateReads: 0,
+            firstEvidenceAcquired: true,
+            iterationsUntilFirstRead: 0,
+            iterationsWithoutEvidence: 0,
+            planningIterations: 0,
+            evidenceIterations: requiredPaths.length,
+            crossFileQueriesBeforeFirstRead: 0,
+            prefetchBeforeFirstRead: true,
+            budgetAllocation: { planning: 1, evidence: requiredPaths.length, reasoning: 1 },
+          },
+        })),
+      };
+    });
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockRejectedValue(
+              Object.assign(new Error("outer forensic recovery failed"), {
+                code: "FIXTURE_PROVIDER_FAILURE",
+                status: 401,
+                response: { status: 401 },
+              }),
+            ),
+          },
+        };
+      },
+    }));
+
+    const classification = classifyRequest(message);
+    const turnIntent = resolveTurnIntent(message, {
+      classification,
+      resumed: false,
+    });
+    expect(turnIntent.kind).toBe("FORENSIC_AUDIT");
+
+    const steps: Array<Record<string, unknown>> = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message,
+      history: [],
+      projectContext: makeContext(),
+      rootPath: undefined,
+      provider: "groq",
+      apiKey: "test-key",
+      retainedEvidence: fileContents,
+      objective,
+      turnIntent,
+      onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+    });
+
+    expect(result.response).toContain(objective.requiredClaims[0].text);
+    expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+    expect(
+      steps.some((step) =>
+        step.kind === "diagnostic" && step.code === "FORENSIC_REPORT_FALLBACK_EMITTED",
+      ),
+    ).toBe(false);
+    expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
+    expect(
+      steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+      )?.details,
+    ).toEqual(expect.arrayContaining(["gateStatus=PROVEN"]));
+  }, 15000);
+
   it("keeps an Arabic embedded-AI run incomplete when the provider emits no usable evidence action", async () => {
     const message = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع";
     const target = resolveProjectQueryTarget(message);

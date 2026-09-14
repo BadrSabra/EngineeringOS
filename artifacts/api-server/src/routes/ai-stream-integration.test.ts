@@ -5458,6 +5458,14 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       providerInput = args[1] as typeof providerInput;
+      // This is the outer forensic recovery residue from the production
+      // failure: generic forensic projection must not downgrade the
+      // independently proven Project Query objective.
+      args[6]?.({
+        kind: "terminal_outcome",
+        failureKind: "RECOVERY_FAILURE",
+        outcome: "FAILED",
+      } as never);
       for (const source of sources) {
         providerInput?.retainedEvidence?.set(source, `source body for ${source}\n`);
         args[6]?.({
