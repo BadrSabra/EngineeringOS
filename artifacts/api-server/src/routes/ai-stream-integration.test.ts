@@ -3254,6 +3254,139 @@ describe("Implementation Plan Build handoff", () => {
     expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBefore);
   });
 
+  it("passes only approved Build history context to the provider", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-build-history-");
+    rootPaths.push(rootPath);
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const plan = await insertApprovedPlan(projectId);
+    const auditReport = "Historical audit narrative";
+    const approvedRepairPlan = [{
+      findingId: "F-7",
+      files: ["src/audit.ts"],
+      steps: ["Update the verified audit path."],
+      validationProfile: "api-ai-tests",
+      verdictScope: "PRODUCTION",
+      scopedFindingStatus: "PRODUCTION_PROVEN",
+    }];
+    const historicalAt = new Date("2026-01-01T00:00:00.000Z");
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId: plan.sessionId,
+        role: "user",
+        content: "Review the project and identify the verified repair.",
+        createdAt: historicalAt,
+      },
+      {
+        id: randomUUID(),
+        sessionId: plan.sessionId,
+        role: "assistant",
+        content: auditReport,
+        repairPlanMetadata: JSON.stringify(approvedRepairPlan),
+        turnIntent: "FORENSIC_AUDIT",
+        createdAt: new Date(historicalAt.getTime() + 1),
+      },
+      {
+        id: randomUUID(),
+        sessionId: plan.sessionId,
+        role: "assistant",
+        content: "Malformed historical audit metadata",
+        repairPlanMetadata: JSON.stringify({ findingId: "not-a-valid-plan" }),
+        turnIntent: "FORENSIC_AUDIT",
+        createdAt: new Date(historicalAt.getTime() + 2),
+      },
+    ]);
+
+    let capturedInput:
+      | {
+          history: Array<{ role: string; content: string; repairPlan?: unknown }>;
+          buildHandoff?: boolean;
+          turnIntent?: { kind?: string };
+          approvalState?: string;
+          approvedFilePaths?: string[];
+          executionPlanOverride?: {
+            readiness?: string;
+            nodes?: Array<{
+              id?: string;
+              allowedFiles?: string[];
+              validationProfile?: string;
+            }>;
+          };
+        }
+      | undefined;
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (_userId, input) => {
+      capturedInput = input as typeof capturedInput;
+      return {
+        result: {
+          response: "Prepared changes.",
+          sources: [],
+          pendingChanges: [{
+            path: "src/approved.ts",
+            absolutePath: path.join(rootPath, "src/approved.ts"),
+            newContent: "export const approved = true;",
+            originalContent: null,
+            reason: "Implement the approved plan step",
+          }],
+        },
+        effectiveProvider: "groq",
+      };
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId: plan.sessionId,
+        buildPlanMessageId: plan.messageId,
+        message: "Build the approved implementation plan.",
+      });
+
+    expect(res.status).toBe(200);
+    expect(parseSseEvents(res.text).find((event) => event["type"] === "error"))
+      .toMatchObject({
+        code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+      });
+    expect(capturedInput?.buildHandoff).toBe(true);
+    expect(capturedInput?.turnIntent).toMatchObject({ kind: "DELIVERY" });
+    expect(capturedInput?.approvalState).toBe("APPROVED");
+    expect(capturedInput?.approvedFilePaths).toEqual(["src/approved.ts"]);
+    expect(capturedInput?.executionPlanOverride).toMatchObject({
+      readiness: "READY",
+      nodes: [expect.objectContaining({
+        id: "step:step-1",
+        allowedFiles: ["src/approved.ts"],
+        validationProfile: "workspace-typecheck",
+      })],
+    });
+
+    expect(capturedInput?.history).toEqual([
+      {
+        role: "user",
+        content: "Review the project and identify the verified repair.",
+      },
+      {
+        role: "assistant",
+        content: auditReport,
+        repairPlan: approvedRepairPlan,
+      },
+      {
+        role: "assistant",
+        content: "Malformed historical audit metadata",
+      },
+      {
+        role: "assistant",
+        content: "Implementation plan",
+      },
+    ]);
+    expect(capturedInput?.history[2]).not.toHaveProperty("repairPlan");
+    expect(capturedInput?.history[3]).not.toHaveProperty("repairPlan");
+    expect(JSON.stringify(capturedInput?.history)).not.toContain("Build the approved feature");
+  });
+
   it("blocks a proposed file outside the approved plan scope", async () => {
     const rootPath = await fs.mkdtemp("/tmp/stream-build-scope-");
     rootPaths.push(rootPath);
