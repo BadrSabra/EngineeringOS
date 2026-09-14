@@ -1943,6 +1943,175 @@ describe("POST /api/ai/chat", () => {
     });
   });
 
+  it("keeps a same-session Arabic explanation read-only after a forensic repair plan", async () => {
+    const {
+      chat: mockChat,
+      classifyRequest: mockClassifyRequest,
+    } = await import("@workspace/ai-orchestrator");
+    const actual = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+      "@workspace/ai-orchestrator",
+    );
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const reportMessageId = randomUUID();
+    const userMessageId = randomUUID();
+    const seededAt = new Date(Date.now() - 1_000);
+    const auditReport = [
+      "## 4) Repair Plan",
+      "Phase 1 (F-1): Update `src/verified.ts`.",
+    ].join("\n");
+    const repairPlan = [{
+      findingId: "F-1",
+      files: ["src/verified.ts"],
+      steps: ["Update the verified implementation."],
+      validationProfile: "ai-orchestrator-tests" as const,
+      verdictScope: "PRODUCTION" as const,
+      scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+    }];
+    const repairPlanMetadata = JSON.stringify(repairPlan);
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Arabic read-only follow-up",
+      createdAt: seededAt,
+      updatedAt: new Date(seededAt.getTime() + 1),
+    });
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: userMessageId,
+        sessionId,
+        role: "user",
+        content: "راجع الكود وحدد الإصلاح المطلوب",
+        createdAt: seededAt,
+      },
+      {
+        id: reportMessageId,
+        sessionId,
+        role: "assistant",
+        content: auditReport,
+        sources: JSON.stringify(["src/verified.ts"]),
+        repairPlanMetadata,
+        turnIntent: "FORENSIC_AUDIT",
+        createdAt: new Date(seededAt.getTime() + 1),
+      },
+    ]);
+
+    const originalRows = await db
+      .select({
+        id: aiChatMessagesTable.id,
+        role: aiChatMessagesTable.role,
+        content: aiChatMessagesTable.content,
+        repairPlanMetadata: aiChatMessagesTable.repairPlanMetadata,
+        turnIntent: aiChatMessagesTable.turnIntent,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+
+    let explanationInput:
+      | {
+          history: Array<{ role: string; content: string; repairPlan?: unknown }>;
+          activeTaskState?: unknown;
+          turnIntent?: { kind?: string; compoundWrite?: boolean };
+        }
+      | undefined;
+    vi.mocked(mockClassifyRequest).mockImplementationOnce(actual.classifyRequest);
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      explanationInput = input as typeof explanationInput;
+      return {
+        response: "هذا شرح للمعمارية فقط.",
+        sources: ["src/verified.ts"],
+        pendingChanges: [],
+      };
+    });
+
+    const explanation = await request(app)
+      .post("/api/ai/chat")
+      .send({
+        projectId,
+        sessionId,
+        message: "اشرح المشروع",
+      });
+
+    expect(explanation.status).toBe(200);
+    expect(explanation.body).toMatchObject({
+      sessionId,
+      turnIntent: "PROJECT_QUERY",
+      outcome: "SUCCEEDED",
+      message: {
+        content: "هذا شرح للمعمارية فقط.",
+        turnIntent: "PROJECT_QUERY",
+        repairPlanMetadata: null,
+      },
+    });
+    expect(explanation.body.repairPlan).toBeUndefined();
+    expect(explanationInput?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      compoundWrite: false,
+    });
+    expect(explanationInput?.activeTaskState).toBeNull();
+    expect(explanationInput?.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: auditReport }),
+    ]));
+    expect(explanationInput?.history.some((entry) => "repairPlan" in entry)).toBe(false);
+
+    const persistedRows = await db
+      .select({
+        id: aiChatMessagesTable.id,
+        role: aiChatMessagesTable.role,
+        content: aiChatMessagesTable.content,
+        repairPlanMetadata: aiChatMessagesTable.repairPlanMetadata,
+        turnIntent: aiChatMessagesTable.turnIntent,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, sessionId));
+    expect(persistedRows).toEqual(expect.arrayContaining(originalRows));
+    expect(persistedRows).toHaveLength(originalRows.length + 2);
+    const storedExplanation = persistedRows.find(
+      (message) => message.content === "هذا شرح للمعمارية فقط.",
+    );
+    expect(storedExplanation).toMatchObject({
+      role: "assistant",
+      turnIntent: "PROJECT_QUERY",
+      repairPlanMetadata: null,
+    });
+
+    const [storedSession] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId))
+      .limit(1);
+    const reconnectState = storedSession?.activeTaskState
+      ? JSON.parse(storedSession.activeTaskState) as {
+          taskType?: string;
+          executionPlan?: unknown;
+        }
+      : null;
+    expect(reconnectState?.executionPlan ?? null).toBeNull();
+    expect(reconnectState?.taskType).not.toBe("DELIVERY");
+    expect(reconnectState?.taskType).not.toBe("IMPLEMENTATION_PLAN");
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`);
+    expect(history.status).toBe(200);
+    const projectedReport = history.body.find(
+      (message: { id: string }) => message.id === reportMessageId,
+    );
+    expect(projectedReport).toMatchObject({
+      content: auditReport,
+      turnIntent: "FORENSIC_AUDIT",
+      repairPlan,
+    });
+    const projectedExplanation = history.body.find(
+      (message: { content?: string }) => message.content === "هذا شرح للمعمارية فقط.",
+    );
+    expect(projectedExplanation).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+    });
+    expect(projectedExplanation).not.toHaveProperty("repairPlan");
+  });
+
   it("keeps the newer resumable contract when concurrent JSON turns finish out of order", async () => {
     const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const forensicClassification = {
