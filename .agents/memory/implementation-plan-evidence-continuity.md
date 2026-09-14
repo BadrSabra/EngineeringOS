@@ -7,4 +7,4 @@ Implementation planning should reuse previously accepted evidence only when the 
 
 **Why:** A plan that starts with a generic discovery step discards the proof already collected and can cause the model to propose unrelated or duplicated work. Revision and manifest checks prevent stale findings from steering a plan.
 
-**How to apply:** Keep accepted excerpts separate from ordinary source snapshots, carry their file paths and bounded excerpts into both JSON and SSE planning requests, and use a contextual fallback when the provider fails or omits the accepted files. Never grant write authorization from this continuity alone.
+**How to apply:** Keep accepted excerpts separate from ordinary source snapshots, require both revision and current repository-manifest path membership before reuse, carry bounded excerpts into JSON and SSE project-query continuations and planning requests, and use a contextual fallback when the provider fails or omits the accepted files. Never grant write authorization from this continuity alone.

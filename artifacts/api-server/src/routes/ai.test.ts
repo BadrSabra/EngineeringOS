@@ -42,6 +42,7 @@ import * as repairValidation from "../lib/ai-repair-validation.js";
 import {
   canCreateProposal,
   collectPreviouslyAcceptedPlanningEvidence,
+  filterAcceptedEvidenceToCurrentManifest,
   projectMissionCorrelationReportForExport,
   serializeMissionCorrelationReport,
 } from "./ai/chat.js";
@@ -82,6 +83,37 @@ describe("implementation planning evidence continuity", () => {
       acceptedEvidence: true,
     }]);
     expect(collectPreviouslyAcceptedPlanningEvidence([row], "revision-next")).toEqual([]);
+  });
+
+  it("does not reuse an accepted excerpt whose path is absent from the current manifest", () => {
+    const accepted = [{
+      path: "src/current.ts",
+      content: "current evidence",
+      truncated: false,
+      acceptedEvidence: true,
+    }, {
+      path: "src/removed.ts",
+      content: "stale path evidence",
+      truncated: false,
+      acceptedEvidence: true,
+    }];
+    const context = {
+      workspaceRevision: "revision-current",
+      contextManifest: {
+        repositoryManifest: {
+          revision: "revision-current",
+          completeness: "COMPLETE",
+          files: [{
+            path: "src/current.ts",
+            size: 16,
+            contentHash: "hash-current",
+            oversized: false,
+          }],
+        },
+      },
+    } as never;
+
+    expect(filterAcceptedEvidenceToCurrentManifest(accepted, context)).toEqual([accepted[0]]);
   });
 });
 

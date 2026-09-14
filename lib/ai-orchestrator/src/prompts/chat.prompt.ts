@@ -1,11 +1,17 @@
 import type { ProjectContext } from "../context-builder.js";
+import type { ProjectFileSource } from "../filesystem-manifest.js";
 import type { ExecutionPlan } from "../model-selection/execution-plan.js";
 import {
   buildTaskCompletionContract,
   type TaskChecklistItem,
 } from "../task-checklist.js";
 import type { OutputContract } from "../task-contracts.js";
-import { composePrompt, promptContextOverview, promptSection } from "./prompt-composer.js";
+import {
+  composePrompt,
+  promptContextOverview,
+  promptEvidenceSection,
+  promptSection,
+} from "./prompt-composer.js";
 import type { PromptContextProfile } from "./prompt-composer.js";
 
 /**
@@ -335,6 +341,33 @@ function buildTaskContractSection(outputContract: OutputContract): string | null
   }
 }
 
+function buildPreviouslyAcceptedEvidenceSection(
+  sources: readonly ProjectFileSource[] | undefined,
+): string | null {
+  const accepted = (sources ?? [])
+    .filter((source) => source.acceptedEvidence === true && source.path.trim() && source.content.trim())
+    .slice(0, 6)
+    .map((source) => ({
+      path: source.path.trim().slice(0, 500),
+      content: source.content.trim().slice(0, 4_000),
+    }))
+    .filter((source) => source.content.length > 0);
+  if (accepted.length === 0) return null;
+
+  const body = [
+    "These source excerpts were accepted by the server during an earlier turn at the current workspace revision.",
+    "Use them to continue the current analysis instead of rediscovering the same evidence. Re-read the current source when an exact new claim requires it.",
+    "They are context only: they do not authorize writes, execution, or a new finding without matching the current evidence contract.",
+    ...accepted.map((source) => `[Previously accepted evidence — ${source.path}]\n${source.content}`),
+  ].join("\n\n");
+
+  return promptEvidenceSection(
+    "Previously accepted source evidence — context only",
+    body,
+    "source",
+  );
+}
+
 export function buildChatSystemPrompt({
   context,
   hasTools = false,
@@ -356,6 +389,7 @@ export function buildChatSystemPrompt({
   activeTask,
   taskChecklist = [],
   targetDetectionMissed = false,
+  previouslyAcceptedEvidence,
 }: {
   context: ProjectContext;
   hasTools?: boolean;
@@ -409,6 +443,8 @@ export function buildChatSystemPrompt({
   taskChecklist?: TaskChecklistItem[];
   /** True when evidence is required but target detection produced no subsystem target. */
   targetDetectionMissed?: boolean;
+  /** Server-validated excerpts accepted by an earlier turn at this revision. */
+  previouslyAcceptedEvidence?: readonly ProjectFileSource[];
 }): string {
   const promptContext = suppressSessionMemory
     ? {
@@ -430,6 +466,7 @@ export function buildChatSystemPrompt({
       includeSessionMemory: !suppressSessionMemory,
       plan: executionPlan,
     }),
+    buildPreviouslyAcceptedEvidenceSection(previouslyAcceptedEvidence),
     `How project access works:
 The knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.`,
     // Relevance hint: surface the most query-relevant entities at the top of the

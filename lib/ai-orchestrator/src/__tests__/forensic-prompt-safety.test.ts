@@ -178,4 +178,32 @@ describe("forensic prompt safety", () => {
     expect(prompt).toContain("Task contract — BEHAVIOR_QUERY");
     expect(prompt).not.toContain("Task contract — FORENSIC_REPORT");
   });
+
+  it("injects only server-marked accepted excerpts as project-query context", () => {
+    const prompt = buildChatSystemPrompt({
+      context: makeContext(),
+      hasTools: true,
+      toolMode: "project-read-only",
+      previouslyAcceptedEvidence: [
+        {
+          path: "src/embedded-ai.ts",
+          content: "const acceptedClaim = true;",
+          truncated: false,
+          acceptedEvidence: true,
+        },
+        {
+          path: "src/unaccepted.ts",
+          content: "const ignored = true;",
+          truncated: false,
+          acceptedEvidence: false,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("Previously accepted source evidence — context only");
+    expect(prompt).toContain("[Previously accepted evidence — src/embedded-ai.ts]");
+    expect(prompt).toContain("const acceptedClaim = true;");
+    expect(prompt).not.toContain("const ignored = true;");
+    expect(prompt).toContain("no write, validation, terminal, git, analysis, or delivery tools");
+  });
 });

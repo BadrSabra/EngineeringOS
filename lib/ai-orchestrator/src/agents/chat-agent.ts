@@ -54,6 +54,7 @@ import type { ModelCapability } from "../openrouter/model-catalog.js";
 import { GroqClientError, type AgentErrorCode, type QualityFailure } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
+import type { ProjectFileSource } from "../filesystem-manifest.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
 import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
 import {
@@ -5443,6 +5444,8 @@ export async function chat(opts: {
    * provider. This map is request-scoped and contains read bodies only.
    */
   retainedEvidence?: Map<string, string>;
+  /** Server-validated excerpts accepted by an earlier turn at this revision. */
+  previouslyAcceptedEvidence?: readonly ProjectFileSource[];
   /** Read outcomes retained across provider attempts, including truncation. */
   retainedReadStatuses?: Map<string, ReadStatus>;
    /**
@@ -5500,6 +5503,7 @@ export async function chat(opts: {
     turnIntent: suppliedTurnIntent,
     executionPlan: suppliedExecutionPlan,
     retainedEvidence,
+    previouslyAcceptedEvidence,
     retainedReadStatuses,
     capabilityRegistry,
     capabilityCatalogRequest,
@@ -6753,6 +6757,7 @@ export async function chat(opts: {
         immediateExecution,
         capabilityProbeMode: capabilityProbeRequest,
          capabilityCatalog: capabilityCatalogPrompt,
+         previouslyAcceptedEvidence,
         targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget,
       }) + implementationResumeInstruction +
         (singleFileForensicMode
@@ -8663,6 +8668,7 @@ export async function chat(opts: {
                   suppressSessionMemory: effectiveSuppressSessionMemory,
                    capabilityProbeMode: capabilityProbeRequest,
                   capabilityCatalog: capabilityCatalogPrompt,
+                  previouslyAcceptedEvidence,
                    targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget,
                 }) + buildResumedEvidenceLedger(activeTaskState, resumedTask),
             }
@@ -9215,7 +9221,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt, targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt, previouslyAcceptedEvidence, targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 

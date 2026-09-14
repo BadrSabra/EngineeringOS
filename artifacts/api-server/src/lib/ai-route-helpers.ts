@@ -788,6 +788,8 @@ export async function chatWithFallback(
     turnIntent?: TurnIntent;
     /** Immutable route-owned context and execution policy. */
     executionPlan?: import("@workspace/ai-orchestrator").ExecutionPlan;
+     /** Server-validated excerpts accepted by an earlier turn at this revision. */
+     previouslyAcceptedEvidence?: readonly import("@workspace/ai-orchestrator").ProjectFileSource[];
   /** Request-scoped read evidence shared across provider retries. */
   retainedEvidence?: Map<string, string>;
    /** Request-scoped read outcomes shared across provider retries. */

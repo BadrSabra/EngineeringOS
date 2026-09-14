@@ -1752,6 +1752,22 @@ export function collectPreviouslyAcceptedPlanningEvidence(
   return [...byPath.values()].slice(0, 12);
 }
 
+export function filterAcceptedEvidenceToCurrentManifest(
+  sources: readonly ProjectFileSource[],
+  context: Awaited<ReturnType<typeof buildProjectContext>>,
+): ProjectFileSource[] {
+  const repositoryManifest = context.contextManifest?.repositoryManifest;
+  if (
+    !repositoryManifest
+    || repositoryManifest.completeness !== "COMPLETE"
+    || repositoryManifest.revision !== context.workspaceRevision
+  ) {
+    return [];
+  }
+  const manifestPaths = new Set(repositoryManifest.files.map((file) => file.path));
+  return sources.filter((source) => manifestPaths.has(source.path));
+}
+
 async function validateBrowserProfileForDelivery(
   projectId: string,
   projectRevision: string,
@@ -4297,11 +4313,16 @@ router.post("/ai/chat", async (req, res) => {
         compoundWrite: turnIntent.compoundWrite,
       },
     });
-    const previouslyAcceptedEvidence = turnIntent.classification.implementationPlanMode
+    const shouldReusePreviouslyAcceptedEvidence =
+      turnIntent.kind === "PROJECT_QUERY" || turnIntent.classification.implementationPlanMode;
+    const previouslyAcceptedEvidence = shouldReusePreviouslyAcceptedEvidence
       ? collectPreviouslyAcceptedPlanningEvidence(
           historyRows,
           baseProjectContext.workspaceRevision ?? project.updatedAt.toISOString(),
         )
+      : [];
+    const projectQueryPreviouslyAcceptedEvidence = turnIntent.kind === "PROJECT_QUERY"
+      ? filterAcceptedEvidenceToCurrentManifest(previouslyAcceptedEvidence, baseProjectContext)
       : [];
     const projectContext = turnIntent.classification.implementationPlanMode
       ? await buildPlanningFilesystemContext(
@@ -4406,6 +4427,7 @@ router.post("/ai/chat", async (req, res) => {
           executionPlan: contextExecutionPlan,
           rootPath: validRootPath,
           projectId,
+           previouslyAcceptedEvidence: projectQueryPreviouslyAcceptedEvidence,
           activeTaskState: resumableStateForTurn,
           activeTask,
           telemetryContext: {
@@ -6127,11 +6149,16 @@ router.post("/ai/chat/stream", async (req, res) => {
         compoundWrite: streamTurnIntent.compoundWrite,
       },
     });
-    const previouslyAcceptedEvidence = streamTurnIntent.classification.implementationPlanMode
+    const shouldReusePreviouslyAcceptedEvidence =
+      streamTurnIntent.kind === "PROJECT_QUERY" || streamTurnIntent.classification.implementationPlanMode;
+    const previouslyAcceptedEvidence = shouldReusePreviouslyAcceptedEvidence
       ? collectPreviouslyAcceptedPlanningEvidence(
           historyRows,
           baseProjectContext.workspaceRevision ?? project.updatedAt.toISOString(),
         )
+      : [];
+    const projectQueryPreviouslyAcceptedEvidence = streamTurnIntent.kind === "PROJECT_QUERY"
+      ? filterAcceptedEvidenceToCurrentManifest(previouslyAcceptedEvidence, baseProjectContext)
       : [];
     const projectContext = streamTurnIntent.classification.implementationPlanMode
       ? await buildPlanningFilesystemContext(
@@ -7542,6 +7569,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionPlan: streamExecutionPlan,
           rootPath: validRootPath,
           projectId,
+           previouslyAcceptedEvidence: projectQueryPreviouslyAcceptedEvidence,
           activeTaskState: streamResumableStateForTurn,
           executionPlanOverride: executionPlanForRun ?? undefined,
           activeTask,
