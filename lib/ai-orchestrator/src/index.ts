@@ -631,8 +631,10 @@ export type {
 export {
   resolveProjectQueryTarget,
   buildProjectQueryObjective,
+  detectProjectQueryClaimContradictions,
 } from "./project-query-target.js";
 export type {
+  ProjectQueryClaimContradiction,
   ProjectQueryTarget,
   ProjectQueryTargetId,
 } from "./project-query-target.js";

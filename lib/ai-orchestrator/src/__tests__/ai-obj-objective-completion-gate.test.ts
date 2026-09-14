@@ -117,6 +117,34 @@ describe("objectiveCompletionGate (AI-OBJ-005)", () => {
     expect(result.missingEdges).toHaveLength(0);
   });
 
+  it("BLOCKED when accepted evidence contradicts a closed answer claim", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredClaims: [
+        { claimId: "ai-weakness-analysis", text: "the provider guard exists" },
+      ],
+      requiredEvidenceEdges: [],
+    };
+    const ledger = emptyLedger();
+    ledger.claims = [{
+      claimId: "objective:ai-weakness-analysis",
+      status: "SUPPORTED",
+    }];
+    ledger.evidenceRecords = [{ file: "openai-compatible-client.ts", readType: "full" }];
+
+    const result = objectiveCompletionGate({
+      ledger,
+      objective,
+      contradictoryClaimIds: ["ai-weakness-analysis"],
+    });
+
+    expect(result.status).toBe("BLOCKED");
+    expect(result.blocked).toBe(true);
+    expect(result.complete).toBe(false);
+    expect(result.contradictoryClaims).toEqual(["ai-weakness-analysis"]);
+    expect(result.reasons.join(" ")).toContain("contradicts answer conclusions");
+  });
+
   it("an import membership alone can never close a required edge (endpoint mismatch)", () => {
     const ledger = emptyLedger();
     ledger.claims = [{ claimId: "objective:eval-reached", status: "SUPPORTED" }];

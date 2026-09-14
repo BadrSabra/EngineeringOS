@@ -1,5 +1,8 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
-import { isGapAnalysisRequest } from "./task-contracts.js";
+import {
+  isGapAnalysisRequest,
+  type EvidenceReference,
+} from "./task-contracts.js";
 
 export type ProjectQueryTargetId = "embedded-ai" | "gap-analysis";
 
@@ -282,4 +285,85 @@ export function buildProjectQueryObjective(
     // Keep the user goal available to the objective-aware tool loop.
     ...(goal.trim() ? { goal: goal.trim() } : {}),
   } as ObjectiveContract;
+}
+
+export type ProjectQueryClaimContradiction = {
+  claimId: string;
+  reason: string;
+};
+
+function normalizeProjectSourcePath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
+}
+
+/**
+ * This is deliberately structural rather than a keyword-only check. The
+ * source must show the finish-reason extraction, an explicit error comparison,
+ * and the provider-response rejection in that order. A response is
+ * contradictory only when it also makes a scoped negative assertion about
+ * that guard in the same sentence/paragraph.
+ */
+function sourceProvesFinishReasonGuard(source: string): boolean {
+  const binding = source.search(
+    /\b(?:const|let|var)\s+finishReason\s*=[\s\S]{0,160}\bfinish_reason\b/,
+  );
+  const comparison = source.search(
+    /\bif\s*\(\s*finishReason\s*===\s*["']error["']\s*\)/,
+  );
+  const rejection = source.search(
+    /\bthrow\s+new\b[\s\S]{0,180}\bINVALID_PROVIDER_RESPONSE\b/,
+  );
+  return binding >= 0
+    && comparison > binding
+    && rejection > comparison;
+}
+
+function responseDeniesFinishReasonGuard(response: string): boolean {
+  const concept =
+    /\b(?:finish[_\s]?reason|finishReason|error[-\s]?shaped\s+response)\b/iu;
+  const units = response
+    .split(/(?:\r?\n){2,}|(?<=[.!?؟])\s+/u)
+    .map((unit) => unit.trim())
+    .filter(Boolean);
+
+  return units.some((unit) => {
+    if (!concept.test(unit)) return false;
+    const deniesGuard =
+      /(?:does\s+not|doesn't|did\s+not|didn't|fails?\s+to|failed\s+to|never|without|missing|absent|lacks?|lack\s+of|absence\s+of|no)\b[\s\S]{0,120}\b(?:reject|check|handle|process|validate|guard|throw)\b/iu.test(unit)
+      || /\b(?:reject|check|handle|process|validate|guard|throw)\b[\s\S]{0,120}(?:does\s+not|doesn't|did\s+not|didn't|fails?\s+to|failed\s+to|never|without|missing|absent|lacks?|lack\s+of|absence\s+of|no)\b/iu.test(unit)
+      || /(?:لا|لم|ليس|غير|يفتقد|غياب|عدم(?:\s+وجود)?|لا\s+(?:يوجد|توجد|يتم))[\s\S]{0,120}(?:فحص|تحقق|رفض|معالجة|حماية|يتعامل|يتحقق|يرفض)/u.test(unit)
+      || /(?:فحص|تحقق|رفض|معالجة|حماية|يتعامل|يتحقق|يرفض)[\s\S]{0,120}(?:لا|لم|ليس|غير|يفتقد|غياب|عدم(?:\s+وجود)?)/u.test(unit);
+    return deniesGuard;
+  });
+}
+
+export function detectProjectQueryClaimContradictions(input: {
+  objective: ObjectiveContract;
+  response: string;
+  evidence?: readonly EvidenceReference[];
+  fileContents: ReadonlyMap<string, string>;
+}): ProjectQueryClaimContradiction[] {
+  if (!input.objective.objectiveType.startsWith("PROJECT_QUERY_")) return [];
+  const weaknessClaim = input.objective.requiredClaims.find(
+    (claim) => claim.claimId === "ai-weakness-analysis",
+  );
+  if (!weaknessClaim || !responseDeniesFinishReasonGuard(input.response)) return [];
+
+  const providerPath = "lib/ai-orchestrator/src/openai-compatible-client.ts";
+  const acceptedProviderEvidence = (input.evidence ?? []).some(
+    (item) =>
+      item.supportsClaim
+      && normalizeProjectSourcePath(item.source) === providerPath
+      && Boolean(item.excerpt?.trim()),
+  );
+  if (!acceptedProviderEvidence) return [];
+
+  const providerBody = input.fileContents.get(providerPath) ?? "";
+  if (!sourceProvesFinishReasonGuard(providerBody)) return [];
+
+  return [{
+    claimId: weaknessClaim.claimId,
+    reason:
+      'accepted source evidence proves finish_reason="error" is rejected before tool execution, but the answer asserts that this guard is absent',
+  }];
 }

@@ -196,6 +196,7 @@ import {
   type ClaimValidation,
 } from "../evidence-integrity.js";
 import type { ObjectiveContract } from "../schemas/chat.schema.js";
+import { detectProjectQueryClaimContradictions } from "../project-query-target.js";
 import {
   EMPTY_FORENSIC_RECOVERY_ENVELOPE,
   ForensicRecoveryEnvelopeSchema,
@@ -1740,6 +1741,12 @@ function applyObjectiveCompletionGate(opts: {
     requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
   });
   const closedEdges = closeObjectiveClaimsFromEdges({ objective, provenEdges });
+  const contradictoryClaims = detectProjectQueryClaimContradictions({
+    objective,
+    response: opts.response,
+    evidence: opts.evidence,
+    fileContents: opts.fileContents,
+  });
   const closedClaims = [
     ...closedByEvidence.filter((c) => c.status === "CLOSED"),
     ...closedEdges.filter((c) => c.status === "CLOSED"),
@@ -1784,13 +1791,14 @@ function applyObjectiveCompletionGate(opts: {
     closedClaimIds,
     answerTypeMismatch,
     recoveryScopeViolated,
+    contradictoryClaimIds: contradictoryClaims.map((claim) => claim.claimId),
   });
   const telemetryLedger = attachObjectiveTelemetry(runtimeLedger, gate, objective);
   const telemetryReconciliation = validateTelemetry(telemetryLedger);
   const blocked = gate.blocked || !telemetryReconciliation.consistent;
   const rejectionReason = blocked
     ? `objective:${objective.objectiveType}:${gate.status}:${(
-        gate.missingEdges[0] ?? gate.missingClaims[0] ?? "INCOMPLETE"
+        gate.contradictoryClaims[0] ?? gate.missingEdges[0] ?? gate.missingClaims[0] ?? "INCOMPLETE"
       ).slice(0, 60)}`
     : undefined;
   if (blocked) {
@@ -1799,6 +1807,7 @@ function applyObjectiveCompletionGate(opts: {
       code: "OBJECTIVE_BLOCKED",
       details: [
         `status:${gate.status}`,
+        ...gate.contradictoryClaims.slice(0, 3).map((claim) => `contradictory-claim:${claim}`),
         ...gate.missingEdges.slice(0, 3).map((e) => `missing-edge:${e}`),
         ...gate.missingClaims.slice(0, 3).map((c) => `missing-claim:${c}`),
       ],
@@ -12371,6 +12380,14 @@ export async function chat(opts: {
         requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
       })
     : [];
+  const objectiveContradictions = objective
+    ? detectProjectQueryClaimContradictions({
+        objective,
+        response: responseBeforeBehaviorEvidence,
+        evidence: evidenceForRun,
+        fileContents: forensicFileContents,
+      })
+    : [];
   const objectiveGate: ObjectiveCompletionGateResult | null = objective
     ? objectiveCompletionGate({
         ledger: runtimeLedger,
@@ -12378,6 +12395,7 @@ export async function chat(opts: {
         provenEdges: objectiveProvenEdges,
         answerTypeMismatch: objectiveAnswerTypeMismatch,
         recoveryScopeViolated: objectiveRecoveryScopeViolated,
+        contradictoryClaimIds: objectiveContradictions.map((claim) => claim.claimId),
         // AI-OBJ-002 grounded closure: required claims close from grounded
         // evidence (a retained read whose cited exact excerpt asserts them),
         // NOT from bare imports. Edge claims close from runtime-observed links
@@ -12406,6 +12424,7 @@ export async function chat(opts: {
           .map((claim) => claim.claimId.replace(/^objective:/, ""))
           .join(",") || "none"}`,
         `acceptedEvidenceCount=${evidenceForRun.filter((item) => item.supportsClaim).length}`,
+        `contradictoryClaims=${objectiveContradictions.map((claim) => claim.claimId).join(",") || "none"}`,
         `gateStatus=${objectiveGate.status}`,
       ],
     });
@@ -12422,7 +12441,10 @@ export async function chat(opts: {
         ? `objective:${objective.objectiveType}:ANSWER_INCOMPLETE:behavioral explanation required`
         : objectiveGate
           ? `objective:${objective.objectiveType}:${objectiveGate.status}:${(
-              objectiveGate.missingEdges[0] ?? objectiveGate.missingClaims[0] ?? "INCOMPLETE"
+              objectiveGate.contradictoryClaims[0]
+                ?? objectiveGate.missingEdges[0]
+                ?? objectiveGate.missingClaims[0]
+                ?? "INCOMPLETE"
             ).slice(0, 60)}`
           : undefined
       : undefined;
@@ -12432,6 +12454,7 @@ export async function chat(opts: {
       code: "OBJECTIVE_BLOCKED",
       details: [
         `status:${objectiveGate.status}`,
+        ...objectiveGate.contradictoryClaims.slice(0, 3).map((claim) => `contradictory-claim:${claim}`),
         ...objectiveGate.missingEdges.slice(0, 3).map((e) => `missing-edge:${e}`),
         ...objectiveGate.missingClaims.slice(0, 3).map((c) => `missing-claim:${c}`),
       ],

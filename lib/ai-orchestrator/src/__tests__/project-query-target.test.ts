@@ -4,10 +4,12 @@ import path from "node:path";
 import {
   buildProjectQueryObjective,
   classifyRequest,
+  detectProjectQueryClaimContradictions,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
 import { deriveObjectiveRuntimeEdgesFromRetainedReads } from "../evidence-integrity.js";
+import type { EvidenceReference } from "../task-contracts.js";
 
 describe("target-aware project queries", () => {
   it("recognizes the Arabic embedded-AI request and declares bounded evidence", () => {
@@ -56,6 +58,77 @@ describe("target-aware project queries", () => {
       ]),
     );
     expect(objective.scopePolicy?.forbiddenPaths).toContain("node_modules");
+  });
+
+  it("rejects a weakness conclusion that contradicts the accepted finish-reason guard", () => {
+    const message = "Explain how the embedded AI agent works and identify its weaknesses.";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
+    const providerPath = "lib/ai-orchestrator/src/openai-compatible-client.ts";
+    const providerBody = readFileSync(
+      path.resolve(process.cwd(), "src/openai-compatible-client.ts"),
+      "utf8",
+    );
+    const evidence: EvidenceReference[] = [{
+      source: providerPath,
+      excerpt: providerBody.slice(
+        providerBody.indexOf("const finishReason"),
+        providerBody.indexOf("if (!msg"),
+      ),
+      supportsClaim: true,
+      relevance: 1,
+      directness: "DIRECT",
+      sourceType: "IMPLEMENTATION",
+      productionReachability: "PROVEN",
+      evidenceClass: "BEHAVIOR_PROVEN",
+    }];
+
+    const contradictions = detectProjectQueryClaimContradictions({
+      objective,
+      response:
+        'Weakness: the provider does not reject finish_reason="error" before tool execution.',
+      evidence,
+      fileContents: new Map([[providerPath, providerBody]]),
+    });
+
+    expect(contradictions).toEqual([{
+      claimId: "ai-weakness-analysis",
+      reason: expect.stringContaining('finish_reason="error"'),
+    }]);
+  });
+
+  it("does not reject a response that acknowledges the guard and reports another weakness", () => {
+    const message = "Explain how the embedded AI agent works and identify its weaknesses.";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
+    const providerPath = "lib/ai-orchestrator/src/openai-compatible-client.ts";
+    const providerBody = readFileSync(
+      path.resolve(process.cwd(), "src/openai-compatible-client.ts"),
+      "utf8",
+    );
+    const evidence: EvidenceReference[] = [{
+      source: providerPath,
+      excerpt: providerBody.slice(
+        providerBody.indexOf("const finishReason"),
+        providerBody.indexOf("if (!msg"),
+      ),
+      supportsClaim: true,
+      relevance: 1,
+      directness: "DIRECT",
+      sourceType: "IMPLEMENTATION",
+      productionReachability: "PROVEN",
+      evidenceClass: "BEHAVIOR_PROVEN",
+    }];
+
+    const contradictions = detectProjectQueryClaimContradictions({
+      objective,
+      response:
+        'The provider rejects finish_reason="error" before tool execution. A separate weakness is that retry behavior is difficult to observe.',
+      evidence,
+      fileContents: new Map([[providerPath, providerBody]]),
+    });
+
+    expect(contradictions).toEqual([]);
   });
 
   it("closes every declared execution edge only from the retained production caller", () => {

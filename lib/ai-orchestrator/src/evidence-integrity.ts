@@ -1858,6 +1858,8 @@ export type ObjectiveCompletionGateResult = {
   missingEdges: string[];
   /** Required edge keys that ARE directly proven at runtime. */
   provenEdges: string[];
+  /** Objective claims whose answer text contradicts accepted source evidence. */
+  contradictoryClaims: string[];
   /** Whether the candidate answer was a behavioral substitute (object kind) for
    *  a production-reachability objective (AI-OBJ-007/013-T6), when detected. */
   answerTypeMismatch: boolean;
@@ -1906,6 +1908,8 @@ export function objectiveCompletionGate(input: {
    * A behavioral excerpt can never satisfy a reachability claim.
    */
   answerTypeMismatch?: boolean;
+  /** Server-owned contradiction findings; any one blocks finalization. */
+  contradictoryClaimIds?: readonly string[];
 }): ObjectiveCompletionGateResult {
   const { ledger, objective } = input;
   const provenEdgeKeys = new Set(
@@ -1916,6 +1920,8 @@ export function objectiveCompletionGate(input: {
   // Claim closure: prefer explicit closedClaimIds, else use ledger claims that
   // reached SUPPORTED with a matching objective-scoped claimId.
   const suppliedClosed = new Set(input.closedClaimIds ?? []);
+  const contradictoryClaims = [...new Set(input.contradictoryClaimIds ?? [])]
+    .filter((claimId) => objective.requiredClaims.some((claim) => claim.claimId === claimId));
 
   const missingClaims = objective.requiredClaims
     .filter((rc) => {
@@ -1957,6 +1963,8 @@ export function objectiveCompletionGate(input: {
     status = "OBJECTIVE_MISMATCH";
   } else if (input.recoveryScopeViolated) {
     status = "RECOVERY_SCOPE_FAILURE";
+  } else if (contradictoryClaims.length > 0) {
+    status = "BLOCKED";
   } else if (allClosed && !hasEvidence) {
     status = "NOT_PROVEN";
   } else if (allClosed) {
@@ -1977,6 +1985,11 @@ export function objectiveCompletionGate(input: {
       "recovery reads escaped the bounded objective scope; unjustified broad scan (AI-OBJ-009)",
     );
   }
+  if (contradictoryClaims.length) {
+    reasons.push(
+      `accepted evidence contradicts answer conclusions for: ${contradictoryClaims.join(", ")}`,
+    );
+  }
   if (missingClaims.length) reasons.push(`unclosed required claims: ${missingClaims.join(", ")}`);
   if (missingEdges.length) reasons.push(`proved edges missing: ${missingEdges.join(", ")}`);
 
@@ -1990,6 +2003,7 @@ export function objectiveCompletionGate(input: {
     requiredEdges: requiredEdgeKeys,
     missingEdges,
     provenEdges,
+    contradictoryClaims,
     answerTypeMismatch: Boolean(input.answerTypeMismatch),
     recoveryScopeViolated: Boolean(input.recoveryScopeViolated),
     reasons: reasons.slice(0, 6),
