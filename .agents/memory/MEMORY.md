@@ -147,3 +147,4 @@
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
 - [Scoped correlation extensions](scoped-correlation-extensions.md) — new provenance fields must be limited to the request contract that needs them, or exact legacy payload consumers can regress.
+- [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
