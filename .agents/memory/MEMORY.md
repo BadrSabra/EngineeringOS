@@ -28,7 +28,6 @@
 - [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
 - [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
 - [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
-- [Live campaign isolation](live-campaign-isolation.md) — provider campaigns require explicit opt-in, disposable output/workspaces, bounded duration, and review-only artifacts.
 - [Dashboard evidence assertions](dashboard-evidence-assertions.md) — E2E assertions for completed AI runs must open collapsed activity/proof panels and disambiguate repeated evidence text.
 - [Concurrent test barriers](concurrent-test-barriers.md) — concurrent request fixtures should dispatch by request identity and use bounded readiness barriers, not queued mock order or unbounded polling.
 - [Session state concurrency](session-state-concurrency.md) — qualify resumable state writes by turn timestamp; a conditional value expression can still lose after row-lock waits.
@@ -36,14 +35,11 @@
 - [Live recovery provider isolation](live-recovery-provider-isolation.md) — real child-process release checks must not inherit mock-only provider credentials from the surrounding fixture suite.
 - [Capability probe evidence boundary](capability-probe-evidence.md) — C1–C7 completion requires both named source bodies retained without truncation.
 - [Capability probe tool-choice parity](capability-probe-tool-choice.md) — first read call must be required, later tool calls auto, and synthesis must omit tools/tool choice.
-- [Codegen working directory](codegen-working-directory.md) — delegated Zod post-processing paths are resolved from the scripts package, while drift checks use an explicit output root.
-- [OpenAPI codegen discipline](openapi-codegen-discipline.md) — regenerate clients immediately after every spec edit; invalid specs can clean generated outputs before failing.
 - [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.
 - [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
 - [Project query retry contract](project-query-retry-contract.md) — targeted project-query retries create fresh executions while preserving the server-owned evidence scope.
 - [Terminal projection identity](terminal-projection-identity.md) — terminal outcomes must bind execution, attempt, message, and session consistently across DB, SSE, history, and status.
 - [Live mission correlation](live-correlation-release.md) — live-provider acceptance is opt-in, disposable, redacted, and validates all mission surfaces by operation and revision.
-- [Release wrapper teardown](release-wrapper-teardown.md) — release wrappers can pass assertions yet end with SIGTERM/SIGHUP during child-server cleanup; separate test assertions from lifecycle status.
 - [Analysis correlation](analysis-correlation.md) — scanner, graph, and discovery evidence must match the active operation and revision, with cancellation checked before writes.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
@@ -70,7 +66,6 @@
 - [Release CORS harness](release-cors-harness.md) — provider-free listener checks use Node's tsx loader without the inherited input-type flag and probe the API directly.
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
 - [Historical acceptance journeys](historical-acceptance-journeys.md) — after reopening an audit, assert public acceptance snapshots from history/detail routes because same-session reselection can clear cached chat messages.
-- [Browser validation block reasons](browser-validation-block-reasons.md) — preserve only allowlisted preflight reasons and translate them into safe operator actions.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable terminal writes and follow-on mutations must verify the current worker owns the live row.
 - [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
@@ -85,16 +80,12 @@
 - [Project-query semantic acceptance](project-query-semantic-acceptance.md) — complete source reads never prove a proof-required PROJECT_QUERY without accepted claims and a verified objective verdict.
 - [Browser readiness fixture boundary](browser-readiness-fixture-boundary.md) — fixture mode validates a non-empty authenticated project response; live mode validates its explicit disposable project ID.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
-- [Recipe contract schemas](recipe-contract-schemas.md) — required recipe values need explicit guards, and compiled predicates need wider namespaced-ID validation than source recipes.
 - [Groq model lifecycle](groq-model-lifecycle.md) — validate hardcoded Groq defaults against the live model catalog; valid keys can still fail when Groq retires a slug.
 - [Credential bootstrap order](credential-bootstrap-order.md) — initialize the persisted AI encryption key before any background catalog refresh can decrypt stored provider credentials.
 - [Capability preflight freshness](capability-preflight-freshness.md) — a lifecycle check can still return a valid TTL snapshot; live Capability Probe selection must request an explicit force refresh.
-- [Imported project bootstrap](imported-project-bootstrap.md) — fresh imports may need dependency restore, managed Clerk provisioning, and development schema apply before workflows can start.
-- [Gemini model lifecycle](gemini-model-lifecycle.md) — validate actual completions; valid keys can still fail when Google retires or restricts a model slug.
 - [Gemini structured output](gemini-structured-output.md) — Gemini's OpenAI-compatible endpoint accepts response_format; preserve JSON mode while still stripping unsupported tools.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
-- [CI private-key scan safety](ci-private-key-scan.md) — tracked-file security scans must skip non-regular paths and cap content reads.
 - [Dashboard effect fixtures](dashboard-test-effect-fixtures.md) — Strict Mode replay needs fresh network responses and cleanup-safe in-flight markers.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
@@ -108,10 +99,8 @@
 - [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
 - [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal and diagnostic projections must use one final trace snapshot.
 - [Prefetch evidence parity](prefetch-evidence-parity.md) — prefetch telemetry and persisted evidence must share size-aware read status; oversized bodies cannot appear complete in the trace.
-- [Capability probe resume contract](capability-probe-root-causes.md) — only explicit probe metadata makes a BEHAVIOR_QUERY resumable; ordinary behavior queries remain non-resumable.
 - [Provider usage normalization](provider-usage-normalization.md) — partial provider token metadata must be zero-filled at the public chat-output boundary.
-- [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, and failure-kind metrics separately.
-- [Structured model contract fallback](contract-telemetry-separation.md) — exclude models after malformed structured output and record each completed model response separately from transport failures.
+- [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
 - [Vite build/runtime separation](vite-build-runtime-separation.md) — build-only non-secret defaults must be selected by the Vite build command; dev/preview stay fail-fast on workflow configuration.
 - [Runtime restart validation](runtime-restart-validation.md) — API sessions use compiled output; restart the managed workflow before drawing conclusions about source fixes.
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
@@ -157,3 +146,4 @@
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
+- [Scoped correlation extensions](scoped-correlation-extensions.md) — new provenance fields must be limited to the request contract that needs them, or exact legacy payload consumers can regress.

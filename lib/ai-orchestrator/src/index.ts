@@ -632,6 +632,7 @@ export {
   resolveProjectQueryTarget,
   resolveProjectQueryTargetResolution,
   isAmbiguousProjectQuery,
+  isSessionQualityAuditRequest,
   buildProjectQueryObjective,
   detectProjectQueryClaimContradictions,
 } from "./project-query-target.js";

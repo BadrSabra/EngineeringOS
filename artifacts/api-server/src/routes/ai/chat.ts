@@ -64,6 +64,7 @@ import {
   buildActiveTaskExecutionPlan,
   isResumableTaskType,
   isProjectQueryContinuationCandidate,
+  isSessionQualityAuditRequest,
   parseActiveTaskState,
   resumeActiveTaskClassification,
   serializeActiveTaskState,
@@ -3954,6 +3955,61 @@ function runtimeChatTraceLinks(routeName: string): ProductionTraceLink[] {
   }];
 }
 
+async function resolveLatestProjectChatSession(
+  projectId: string,
+): Promise<(typeof aiChatSessionsTable.$inferSelect) | undefined> {
+  const [latest] = await db
+    .select({ session: aiChatSessionsTable })
+    .from(aiChatSessionsTable)
+    .innerJoin(
+      aiChatMessagesTable,
+      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+    )
+    .where(eq(aiChatSessionsTable.projectId, projectId))
+    .orderBy(
+      desc(aiChatSessionsTable.updatedAt),
+      desc(aiChatMessagesTable.createdAt),
+    )
+    .limit(1);
+  return latest?.session;
+}
+
+function latestSessionQualityIncompletePayload(message: string): {
+  sessionId: null;
+  turnIntent: "PROJECT_QUERY";
+  outcome: "ANALYSIS_INCOMPLETE";
+  failureKind: "INCOMPLETE";
+  retryable: false;
+  recoveryState: "INCOMPLETE";
+  code: "LATEST_SESSION_NOT_FOUND";
+  error: string;
+  errorMessage: string;
+  sessionQuality: {
+    requested: true;
+    binding: "UNAVAILABLE";
+  };
+} {
+  const arabic = /[\u0600-\u06FF]/.test(message);
+  const text = arabic
+    ? "ANALYSIS_INCOMPLETE — لا توجد جلسة سابقة غير فارغة ضمن هذا المشروع يمكن ربط تحليل جودة الوكيل بها."
+    : "ANALYSIS_INCOMPLETE — no eligible non-empty chat session exists in this project to bind the agent quality audit to.";
+  return {
+    sessionId: null,
+    turnIntent: "PROJECT_QUERY",
+    outcome: "ANALYSIS_INCOMPLETE",
+    failureKind: "INCOMPLETE",
+    retryable: false,
+    recoveryState: "INCOMPLETE",
+    code: "LATEST_SESSION_NOT_FOUND",
+    error: text,
+    errorMessage: text,
+    sessionQuality: {
+      requested: true,
+      binding: "UNAVAILABLE",
+    },
+  };
+}
+
 // ── POST /api/ai/chat ────────────────────────────────────────────────────────
 
 router.post("/ai/chat", async (req, res) => {
@@ -3976,12 +4032,28 @@ router.post("/ai/chat", async (req, res) => {
     const error = raw === "Required" && field ? `${field} is required` : raw;
     return res.status(400).json({ error });
   }
-  const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+  const {
+    projectId,
+    message,
+    sessionId: requestedSessionId,
+    linkedTaskId,
+    objective,
+  } = chatBody.data;
   const chatTurnIntent = resolveTurnIntent(message);
   const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  const sessionQualityAudit = isSessionQualityAuditRequest(message);
+  let sessionId = requestedSessionId;
+  if (sessionQualityAudit && !sessionId) {
+    const latestSession = await resolveLatestProjectChatSession(projectId);
+    if (!latestSession) {
+      return res.status(200).json(latestSessionQualityIncompletePayload(message));
+    }
+    sessionId = latestSession.id;
+  }
 
   if (chatTurnIntent.serverAction === "RESTART_SERVICES") {
     try {
@@ -4197,12 +4269,16 @@ router.post("/ai/chat", async (req, res) => {
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
+    sessionId?: string;
     projectRevision: string;
     rootAvailable: boolean;
     evidenceProvenance: string;
   } = {
     operationId: randomUUID(),
     projectId,
+    ...(sessionQualityAudit && (existingSession?.id ?? sessionId)
+      ? { sessionId: existingSession?.id ?? sessionId }
+      : {}),
     projectRevision: project.updatedAt.toISOString(),
     rootAvailable: Boolean(validRootPath),
     evidenceProvenance: "project-analysis",
@@ -5146,7 +5222,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const {
     projectId,
     message,
-    sessionId,
+    sessionId: requestedSessionId,
     linkedTaskId,
     objective,
     buildPlanMessageId,
@@ -5167,6 +5243,50 @@ router.post("/ai/chat/stream", async (req, res) => {
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  const sessionQualityAudit = isSessionQualityAuditRequest(message);
+  let sessionId = requestedSessionId;
+  if (sessionQualityAudit && !sessionId) {
+    const latestSession = await resolveLatestProjectChatSession(projectId);
+    if (!latestSession) {
+      const payload = latestSessionQualityIncompletePayload(message);
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders();
+      res.write(serializeAiSseEvent({
+        type: "intent",
+        intent: payload.turnIntent,
+        operationMode: "CHAT",
+        requiresEvidence: true,
+        sessionQuality: payload.sessionQuality,
+      }));
+      res.write(serializeAiSseEvent({
+        type: "done",
+        ...payload,
+        message: {
+          id: randomUUID(),
+          sessionId: null,
+          role: "assistant",
+          content: payload.error,
+          outcome: payload.outcome,
+          errorCode: payload.code,
+          errorMessage: payload.errorMessage,
+          turnIntent: payload.turnIntent,
+          createdAt: new Date().toISOString(),
+        },
+        sources: [],
+        toolTrace: "[]",
+        pendingChanges: [],
+        sessionQuality: payload.sessionQuality,
+      }));
+      res.end();
+      return;
+    }
+    sessionId = latestSession.id;
+  }
 
   if (rawTurnIntent.serverAction === "RESTART_SERVICES") {
     try {
@@ -5485,12 +5605,14 @@ router.post("/ai/chat/stream", async (req, res) => {
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
+    sessionId?: string;
     projectRevision: string;
     rootAvailable: boolean;
     evidenceProvenance: string;
   } = {
     operationId: randomUUID(),
     projectId,
+    ...(sessionQualityAudit && sessionId ? { sessionId } : {}),
     projectRevision: project.updatedAt.toISOString(),
     rootAvailable: Boolean(validRootPath),
     evidenceProvenance: "project-analysis",

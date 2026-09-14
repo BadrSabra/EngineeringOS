@@ -29,6 +29,25 @@ export type ProjectQueryTarget = {
   promptHint: string;
 };
 
+const SESSION_QUALITY_LATEST_RE =
+  /(?:\b(?:latest|most\s+recent)(?:[-\s]+\w+){0,3}\s+session\b|آخر\s+(?:جلسة|جلسه)|الجلسة\s+(?:الأخيرة|الاخيرة))/iu;
+const SESSION_QUALITY_AGENT_RE =
+  /(?:\b(?:internal|embedded)\s+(?:AI\s+)?agent\b|\bproject[-\s]agent\b|\bagent\s+(?:of|inside)\s+the\s+project\b|الوكيل\s+(?:الداخلي|الداخلى)\s+(?:للمشروع|داخل\s+المشروع)|وكيل\s+المشروع)/iu;
+const SESSION_QUALITY_DIMENSIONS_RE =
+  /(?:\b(?:response|answer)\s+quality\b|\bquality\s+of\s+(?:the\s+)?responses?\b|\bconsistency\b|\bconsistent\b|جودة\s+(?:الردود|الإجابات)|مستوى\s+(?:الردود|الإجابات)|اتساق(?:ها|هما|الردود|الإجابات)?)/iu;
+
+/**
+ * This is intentionally narrower than a generic session question. It requires
+ * a latest-session binding, an embedded project-agent reference, and an
+ * explicit quality/consistency deliverable. Generic questions about sessions
+ * remain ordinary project queries or chat.
+ */
+export function isSessionQualityAuditRequest(message: string): boolean {
+  return SESSION_QUALITY_LATEST_RE.test(message)
+    && SESSION_QUALITY_AGENT_RE.test(message)
+    && SESSION_QUALITY_DIMENSIONS_RE.test(message);
+}
+
 /**
  * These are deliberately limited to direct calls made by the production
  * `chat()` orchestrator. The retained-read edge verifier binds each edge to
@@ -81,6 +100,7 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
   ],
   allowedExpansionPaths: [
     "lib/ai-orchestrator/src",
+    "lib/db/src/schema",
     "artifacts/api-server/src/routes/ai",
     "artifacts/api-server/src/lib",
   ],
@@ -148,6 +168,97 @@ const EMBEDDED_AI_WEAKNESS_CLAIM = {
     "lib/ai-orchestrator/src/tool-execution-engine.ts": ["executeToolLoop"],
   },
 };
+
+const SESSION_QUALITY_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
+  {
+    claimId: "ai-session-history-binding",
+    text:
+      "The latest-session quality audit is bound to a non-empty project-scoped chat session before history is loaded and does not fall back to a new blank session.",
+    requiredEvidencePaths: [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+    ],
+    evidenceNeedles: [
+      "resolveLatestProjectChatSession",
+      "historyRows",
+      "sessionIdToUse",
+    ],
+  },
+  {
+    claimId: "ai-session-observed-path",
+    text:
+      "The persisted chat turn retains the observed message, intent, tool/evidence trace, execution identity, and terminal outcome as separate server-owned fields.",
+    requiredEvidencePaths: [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "lib/db/src/schema/ai_chats.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "artifacts/api-server/src/routes/ai/chat.ts": [
+        "toolTrace",
+        "executionId",
+        "outcome",
+      ],
+      "lib/db/src/schema/ai_chats.ts": [
+        "toolTrace",
+        "executionId",
+        "outcome",
+      ],
+    },
+  },
+  {
+    claimId: "ai-response-quality-validation",
+    text:
+      "Response quality and language/contract checks are server-owned and run before the turn is finalized.",
+    requiredEvidencePaths: [
+      "lib/ai-orchestrator/src/task-contracts.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "lib/ai-orchestrator/src/task-contracts.ts": [
+        "validateResponseLanguage",
+        "TaskValidationResult",
+      ],
+      "lib/ai-orchestrator/src/agents/chat-agent.ts": [
+        "_qualityError",
+        "validateFinalAnswer",
+      ],
+    },
+  },
+  {
+    claimId: "ai-terminal-projection-parity",
+    text:
+      "Direct JSON, streamed SSE, persisted messages, and history reloads use the same server-owned session and terminal outcome identity.",
+    requiredEvidencePaths: [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "artifacts/api-server/src/lib/ai-terminal-outcome.ts",
+      "lib/db/src/schema/ai_chats.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "artifacts/api-server/src/routes/ai/chat.ts": [
+        "serializeAiSseEvent",
+        "persistFailedChatTurn",
+        "terminalProjection",
+      ],
+      "artifacts/api-server/src/lib/ai-terminal-outcome.ts": [
+        "AiTerminalProjection",
+        "outcome",
+      ],
+      "lib/db/src/schema/ai_chats.ts": [
+        "sessionId",
+        "outcome",
+        "executionId",
+      ],
+    },
+  },
+];
+
+const SESSION_QUALITY_PROMPT_HINT =
+  "Targeted embedded-agent session-quality analysis: bind the audit to the latest non-empty " +
+  "project-scoped session before reading its history. Explain the observed message, intent, " +
+  "tool/evidence, execution, and terminal sequence separately from response-quality and " +
+  "consistency findings. Compare direct JSON, streamed SSE, persisted message, and history " +
+  "projections only from server-owned evidence. Keep verified observations, limitations, " +
+  "and unverified hypotheses separate, and return ANALYSIS_INCOMPLETE when any required " +
+  "session, quality, or projection claim is not proven. Use the requested language.";
 
 const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
   id: "gap-analysis",
@@ -259,6 +370,16 @@ function materializeTarget(
 }
 
 export function resolveProjectQueryTarget(message: string): ProjectQueryTarget | undefined {
+  if (isSessionQualityAuditRequest(message)) {
+    return materializeTarget(
+      {
+        ...EMBEDDED_AI_TARGET,
+        label: "embedded-agent session quality",
+        promptHint: SESSION_QUALITY_PROMPT_HINT,
+      },
+      0.99,
+    );
+  }
   const aiSignal =
     /(?:الذكاء\s+الاصطناعي|ذكاء\s+اصطناعي|طبقة\s+(?:ال)?الذكاء\s+الاصطناعي|\bAI\b|\bLLM\b|provider|orchestrator|chat\s+agent|نموذج\s+الذكاء)/iu;
   const targetScopeSignal =
@@ -301,6 +422,25 @@ export function buildProjectQueryObjective(
         }
       : {}),
   }));
+  if (isSessionQualityAuditRequest(goal)) {
+    for (const claim of SESSION_QUALITY_CLAIMS) {
+      requiredClaims.push({
+        claimId: claim.claimId,
+        text: claim.text,
+        requiredEvidencePaths: [...claim.requiredEvidencePaths],
+        ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+        ...(claim.evidenceNeedlesByPath
+          ? {
+              evidenceNeedlesByPath: Object.fromEntries(
+                Object.entries(claim.evidenceNeedlesByPath).map(
+                  ([path, needles]) => [path, [...needles]],
+                ),
+              ),
+            }
+          : {}),
+      });
+    }
+  }
   const weaknessRequested = target.id === "embedded-ai" && isGapAnalysisRequest(goal);
   if (weaknessRequested) {
     requiredClaims.push({

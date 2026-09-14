@@ -155,6 +155,51 @@ describe("target-aware project queries", () => {
       .toBe("embedded-ai");
   });
 
+  it("routes the exact Arabic latest-session quality request to the bounded session contract", () => {
+    const message =
+      "تتبع مسار الجلسة الأخيرة وقم بتقييم مستوى الردود واتساقها لدى الوكيل الداخلى للمشروع";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
+
+    expect(target?.id).toBe("embedded-ai");
+    expect(target?.label).toBe("embedded-agent session quality");
+    expect(target?.promptHint).toContain("latest non-empty");
+    expect(resolveTurnIntent(message).kind).toBe("PROJECT_QUERY");
+    expect(objective.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "ai-routing",
+      "ai-tool-loop",
+      "ai-provider-dispatch",
+      "ai-session-history-binding",
+      "ai-session-observed-path",
+      "ai-response-quality-validation",
+      "ai-terminal-projection-parity",
+    ]);
+    expect(objective.requiredEvidencePaths).toEqual(
+      expect.arrayContaining([
+        "lib/db/src/schema/ai_chats.ts",
+        "lib/ai-orchestrator/src/task-contracts.ts",
+        "artifacts/api-server/src/lib/ai-terminal-outcome.ts",
+      ]),
+    );
+  });
+
+  it("routes the English equivalent without broad-audit escalation", () => {
+    const message =
+      "Trace the latest project-agent session and assess response quality and consistency.";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.projectTarget?.label).toBe("embedded-agent session quality");
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.requiresEvidence).toBe(true);
+    expect(intent.classification.taskType).toBe("BEHAVIOR_QUERY");
+  });
+
+  it("does not treat a generic session question as a latest-session quality audit", () => {
+    expect(resolveProjectQueryTarget("What happened in the latest session?")).toBeUndefined();
+    expect(resolveProjectQueryTarget("راجع الجلسة الأخيرة")).toBeUndefined();
+  });
+
   it("creates a bounded target and objective for an otherwise generic gap question", () => {
     const message = "ما هي الفجوات المتبقية بناءً على التقارير السابقة؟";
     const target = resolveProjectQueryTarget(message);

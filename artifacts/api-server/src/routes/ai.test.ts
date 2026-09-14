@@ -1028,6 +1028,185 @@ describe("POST /api/ai/chat", () => {
     },
   );
 
+  it.each(["/api/ai/chat", "/api/ai/chat/stream"])(
+    "does not create a blank session when a latest-session quality audit has no eligible session (%s)",
+    async (endpoint) => {
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const message =
+        "Trace the latest project-agent session and assess response quality and consistency.";
+
+      const res = await request(app)
+        .post(endpoint)
+        .send({ projectId, message });
+
+      expect(res.status).toBe(200);
+      if (endpoint.endsWith("/stream")) {
+        const terminal = lastSseEvent(res.text);
+        expect(terminal).toMatchObject({
+          type: "done",
+          sessionId: null,
+          outcome: "ANALYSIS_INCOMPLETE",
+          code: "LATEST_SESSION_NOT_FOUND",
+          sessionQuality: {
+            requested: true,
+            binding: "UNAVAILABLE",
+          },
+        });
+      } else {
+        expect(res.body).toMatchObject({
+          sessionId: null,
+          turnIntent: "PROJECT_QUERY",
+          outcome: "ANALYSIS_INCOMPLETE",
+          code: "LATEST_SESSION_NOT_FOUND",
+          sessionQuality: {
+            requested: true,
+            binding: "UNAVAILABLE",
+          },
+        });
+      }
+
+      const sessions = await db
+        .select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable)
+        .where(eq(aiChatSessionsTable.projectId, projectId));
+      expect(sessions).toEqual([]);
+    },
+  );
+
+  it.each(["/api/ai/chat", "/api/ai/chat/stream"])(
+    "binds a latest-session quality audit to the newest non-empty project session (%s)",
+    async (endpoint) => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const now = new Date();
+    const olderSessionId = randomUUID();
+    const latestSessionId = randomUUID();
+    await db.insert(aiChatSessionsTable).values([
+      {
+        id: olderSessionId,
+        projectId,
+        title: "Older session",
+        createdAt: new Date(now.getTime() - 20_000),
+        updatedAt: new Date(now.getTime() - 10_000),
+      },
+      {
+        id: latestSessionId,
+        projectId,
+        title: "Latest session",
+        createdAt: new Date(now.getTime() - 9_000),
+        updatedAt: new Date(now.getTime() - 1_000),
+      },
+    ]);
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId: olderSessionId,
+        role: "user",
+        content: "Older user turn",
+        createdAt: new Date(now.getTime() - 9_000),
+      },
+      {
+        id: randomUUID(),
+        sessionId: latestSessionId,
+        role: "user",
+        content: "Latest user turn",
+        createdAt: new Date(now.getTime() - 800),
+      },
+    ]);
+
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "Bounded quality report",
+      sources: [],
+      pendingChanges: [],
+    });
+
+    const res = await request(app)
+      .post(endpoint)
+      .send({
+        projectId,
+        message:
+          "Trace the latest project-agent session and assess response quality and consistency.",
+      });
+
+    expect(res.status).toBe(200);
+    const terminal = endpoint.endsWith("/stream")
+      ? lastSseEvent(res.text)
+      : res.body;
+    expect(terminal.sessionId).toBe(latestSessionId);
+    expect(vi.mocked(mockChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      history: expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: "Latest user turn",
+        }),
+      ]),
+    });
+    expect(vi.mocked(mockChat).mock.calls.at(-1)?.[0]).toMatchObject({
+      analysisCorrelation: {
+        projectId,
+        sessionId: latestSessionId,
+      },
+    });
+    expect(vi.mocked(mockChat).mock.calls.at(-1)?.[0].history).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          content: "Older user turn",
+        }),
+      ]),
+    );
+    const history = await request(app)
+      .get(`/api/ai/chat/${latestSessionId}/messages`);
+    expect(history.status).toBe(200);
+    expect(history.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: latestSessionId,
+          content: "Latest user turn",
+        }),
+      ]),
+    );
+    },
+  );
+
+  it("does not use a non-empty latest session from another project", async () => {
+    const sourceProjectId = await insertProject();
+    const targetProjectId = await insertProject();
+    projectIds.push(sourceProjectId, targetProjectId);
+    const sourceSessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sourceSessionId,
+      projectId: sourceProjectId,
+      title: "Source project session",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: sourceSessionId,
+      role: "user",
+      content: "Only belongs to the source project",
+      createdAt: now,
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({
+        projectId: targetProjectId,
+        message:
+          "Trace the latest project-agent session and assess response quality and consistency.",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      sessionId: null,
+      outcome: "ANALYSIS_INCOMPLETE",
+      code: "LATEST_SESSION_NOT_FOUND",
+    });
+  });
+
   it.each([
     {
       name: "a failed catalog refresh",

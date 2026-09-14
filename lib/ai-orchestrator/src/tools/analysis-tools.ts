@@ -12,6 +12,8 @@ export type AnalysisFailureCategory =
 export type AnalysisCorrelation = {
   operationId: string;
   projectId: string;
+  /** Server-owned chat session identity for session-scoped audits. */
+  sessionId?: string;
   projectRevision: string;
   rootAvailable: boolean;
   evidenceProvenance: string;
