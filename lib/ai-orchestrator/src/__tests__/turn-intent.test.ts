@@ -536,6 +536,8 @@ describe("resolveTurnIntent", () => {
   it.each([
     "inspect src/foo.ts and fix the bug",
     "audit src/foo.ts then apply the approved repair plan",
+    "inspect src/foo.ts then build the change",
+    "inspect src/foo.ts and go ahead and implement the plan",
     "تحقق من src/foo.ts ثم أصلح المشكلة",
     "افحص أولًا الملف artifacts/dashboard/src/App.tsx، وبعد اكتمال قراءة المصدر، انتقل إلى مسار inspect → fix وأنشئ تغييرًا معلّقًا للمراجعة فقط",
   ])("keeps compound inspect-and-change requests write-capable: %s", (message) => {
@@ -550,9 +552,12 @@ describe("resolveTurnIntent", () => {
     });
   });
 
-  it("routes a compound validation request without write semantics", () => {
-    const message = "verify src/foo.ts then run the tests";
-
+  it.each([
+    "verify src/foo.ts then run the tests",
+    "inspect src/foo.ts and validate the change",
+    "inspect src/foo.ts then execute the tests",
+    "inspect src/foo.ts then please validate the change",
+  ])("routes a compound validation request without write semantics: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(true);
     expect(resolveTurnIntent(message)).toMatchObject({
       kind: "DELIVERY",
@@ -598,6 +603,8 @@ describe("resolveTurnIntent", () => {
     "راجع src/foo.ts ثم اذكر السبب الجذري فقط",
     "How do I edit settings?",
     "Inspect src/foo.ts and explain how to fix the bug.",
+    "Inspect src/foo.ts then assess the root cause.",
+    "Inspect src/foo.ts and review the proposed change.",
   ])("does not promote read-only or explanatory requests to compound delivery: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(false);
   });

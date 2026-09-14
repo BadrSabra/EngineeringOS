@@ -29,6 +29,7 @@ import {
 import {
   isEnglishExplicitExecutionActionRequest,
   isEnglishMutationActionRequest,
+  normalizeEnglishActionText,
 } from "./english-action-intent.js";
 
 export { isRunProjectScanRequest } from "./scan-command.js";
@@ -153,11 +154,50 @@ export function isPlanExecutionRequest(message: string): boolean {
   return PLAN_EXECUTION_REQUEST_RE.test(normalized);
 }
 
-const COMPOUND_REQUEST_RE =
-  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|(?:run|execute)\s+(?:the\s+)?tests?\b|run_validation\b|validate\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف|اختبر|شغّل|شغل|تحقق)/iu;
+const ENGLISH_COMPOUND_SEQUENCE_RE =
+  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*)/i;
 
-const COMPOUND_WRITE_REQUEST_RE =
-  /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*|ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:\b(?:fix|patch|implement|modify|change|edit|apply|write|refactor|delete|remove|create|add)\b|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+/**
+ * Validation actions are intentionally limited to the existing compound
+ * validation contract. Mutation and explicit-execution wording comes from
+ * english-action-intent.ts instead of being repeated here.
+ */
+const ENGLISH_COMPOUND_VALIDATION_RE =
+  /^(?:(?:please|kindly)\s+)?(?:(?:run|execute)\s+(?:the\s+)?tests?\b|run\s+validation\b|validate\b)/i;
+
+const ARABIC_COMPOUND_REQUEST_RE =
+  /(?:ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:اختبر|شغّل|شغل|تحقق|أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+
+const ARABIC_COMPOUND_WRITE_REQUEST_RE =
+  /(?:ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
+
+function getEnglishCompoundActionSegment(message: string): string | null {
+  const normalized = normalizeEnglishActionText(message);
+  const marker = ENGLISH_COMPOUND_SEQUENCE_RE.exec(normalized);
+  return marker
+    ? normalized.slice(marker.index + marker[0].length).trim()
+    : null;
+}
+
+function isEnglishCompoundValidationAction(segment: string): boolean {
+  return ENGLISH_COMPOUND_VALIDATION_RE.test(segment);
+}
+
+function isEnglishCompoundActionRequest(message: string): boolean {
+  const segment = getEnglishCompoundActionSegment(message);
+  if (!segment) return false;
+  return (
+    isEnglishMutationActionRequest(segment) ||
+    isEnglishExplicitExecutionActionRequest(segment) ||
+    isEnglishCompoundValidationAction(segment)
+  );
+}
+
+function isEnglishCompoundWriteAction(message: string): boolean {
+  const segment = getEnglishCompoundActionSegment(message);
+  if (!segment || isEnglishCompoundValidationAction(segment)) return false;
+  return isEnglishMutationActionRequest(segment);
+}
 
 /**
  * Arabic users commonly qualify the transition instead of placing the
@@ -191,13 +231,17 @@ function isExecutionActionRequest(message: string): boolean {
 export function isCompoundExecutionRequest(message: string): boolean {
   const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
   if (isExecutionActionRequest(normalized)) return false;
-  return COMPOUND_REQUEST_RE.test(normalized) || ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
+  return isEnglishCompoundActionRequest(normalized) ||
+    ARABIC_COMPOUND_REQUEST_RE.test(normalized) ||
+    ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
 }
 
 export function isCompoundWriteRequest(message: string): boolean {
   const normalized = message.normalize("NFKC").replace(/[\u064B-\u065F\u0670]/g, "");
   if (isExecutionActionRequest(normalized)) return false;
-  return COMPOUND_WRITE_REQUEST_RE.test(normalized) || ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
+  return isEnglishCompoundWriteAction(normalized) ||
+    ARABIC_COMPOUND_WRITE_REQUEST_RE.test(normalized) ||
+    ARABIC_QUALIFIED_COMPOUND_REQUEST_RE.test(normalized);
 }
 
 export function resolveTurnIntent(

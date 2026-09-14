@@ -29,7 +29,7 @@ import {
   finalizeCapabilityProbeReport,
   type ChatMessage,
 } from "../agents/chat-agent.js";
-import { resolveTurnIntent } from "../turn-intent.js";
+import { isCompoundWriteRequest, resolveTurnIntent } from "../turn-intent.js";
 
 describe("buildBehaviorEvidenceIncompleteResponse", () => {
   it("renders retained reads and an incomplete verdict after an empty provider response", () => {
@@ -726,6 +726,21 @@ describe("shared English action intent parity", () => {
       expect(resolveTurnIntent(message)).toMatchObject({ kind, executionTaskType });
     },
   );
+
+  it.each([
+    "Inspect src/foo.ts then build the change",
+    "Inspect src/foo.ts and go ahead and implement the plan",
+  ])("keeps compound write handoffs on the evidence-first path: %s", (message) => {
+    expect(isImmediateExecutionRequest(message)).toBe(false);
+    expect(isCompoundWriteRequest(message)).toBe(true);
+    expect(resolveTurnIntent(message)).toMatchObject({
+      kind: "DELIVERY",
+      executionTaskType: "task_execution",
+      compoundExecution: true,
+      compoundWrite: true,
+      phases: ["evidence", "proposal"],
+    });
+  });
 });
 
   it("skips generated, dist, and build paths", () => {
