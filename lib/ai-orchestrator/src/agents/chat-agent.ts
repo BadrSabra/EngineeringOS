@@ -6345,6 +6345,15 @@ export async function chat(opts: {
   const prefetchReadStatuses =
     retainedReadStatuses ??
     new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
+  // Keep the status keys that existed before this provider attempt. A status
+  // created by the current attempt still allows the normal FIRST_EVIDENCE
+  // recovery below; a status inherited from an earlier provider attempt must
+  // not trigger another full-file recovery read.
+  const inheritedIncompletePrefetchPaths = new Set(
+    [...prefetchReadStatuses.entries()]
+      .filter(([, status]) => status === "READ_TRUNCATED" || status === "READ_FAILED")
+      .map(([filePath]) => filePath),
+  );
   const prefetchFileContents = new Map(
     [...(retainedEvidence ?? [])].filter(([, content]) => {
       const complete = Buffer.byteLength(content, "utf8") <= MAX_COMPLETE_EVIDENCE_BYTES;
@@ -6416,6 +6425,20 @@ export async function chat(opts: {
       for (const relPath of eagerReadTargets) {
         // Null bytes would confuse path APIs — reject immediately.
         if (relPath.includes("\0")) continue;
+        // Provider fallback re-enters chat() with the same request-scoped
+        // read-status map. A truncated or failed eager read is already known
+        // to be unusable as proof; repeating the full read for every provider
+        // cannot improve evidence and can delay the bounded targeted recovery
+        // that the tool loop would perform if a provider becomes available.
+        // Keep the original status/locator and let the next phase decide
+        // whether a bounded read is warranted.
+        const retainedPrefetchStatus = prefetchReadStatuses.get(relPath);
+        if (
+          retainedPrefetchStatus === "READ_TRUNCATED" ||
+          retainedPrefetchStatus === "READ_FAILED"
+        ) {
+          continue;
+        }
         // Phase 1: lexical containment — catches all `..`-based traversal.
         const lexical = path.resolve(resolvedRoot, relPath);
         if (lexical !== resolvedRoot && !lexical.startsWith(resolvedRoot + path.sep)) {
@@ -9843,32 +9866,41 @@ export async function chat(opts: {
       !cancelledForensicAudit()
     ) {
       const primaryPath = firstEvidenceTargetPath;
-      const readResult = await readForensicPrimaryTarget(rootPath, primaryPath);
-      if (readResult.ok) {
-        forensicFileContents.set(primaryPath, readResult.raw);
-        forensicEvidence = collectForensicEvidence(
-          messages,
-          toolSources,
-          forensicFileContents,
-          includeTestSources,
-          forensicScope,
-          forensicSourceCoverage,
-          requireCompleteReadEvidence,
-          queryPlan?.compoundParts,
-          undefined,
-          responseLanguage,
-        );
-        if (forensicEvidence.fileContents.size > 0) {
-          onStep?.({
-            kind: "diagnostic",
-            code: "FIRST_EVIDENCE_RECOVERED",
-            details: [`primary-evidence-target=${primaryPath}`],
-          });
-        } else {
-          firstEvidenceRecoveryError = `${primaryPath} yielded no admissible evidence`;
-        }
+      const primaryPathKey = canonicalRelativePath(primaryPath);
+      if (
+        inheritedIncompletePrefetchPaths.has(primaryPath) ||
+        inheritedIncompletePrefetchPaths.has(primaryPathKey)
+      ) {
+        firstEvidenceRecoveryError =
+          `${primaryPath} was already attempted by an earlier provider attempt`;
       } else {
-        firstEvidenceRecoveryError = readResult.reason;
+        const readResult = await readForensicPrimaryTarget(rootPath, primaryPath);
+        if (readResult.ok) {
+          forensicFileContents.set(primaryPath, readResult.raw);
+          forensicEvidence = collectForensicEvidence(
+            messages,
+            toolSources,
+            forensicFileContents,
+            includeTestSources,
+            forensicScope,
+            forensicSourceCoverage,
+            requireCompleteReadEvidence,
+            queryPlan?.compoundParts,
+            undefined,
+            responseLanguage,
+          );
+          if (forensicEvidence.fileContents.size > 0) {
+            onStep?.({
+              kind: "diagnostic",
+              code: "FIRST_EVIDENCE_RECOVERED",
+              details: [`primary-evidence-target=${primaryPath}`],
+            });
+          } else {
+            firstEvidenceRecoveryError = `${primaryPath} yielded no admissible evidence`;
+          }
+        } else {
+          firstEvidenceRecoveryError = readResult.reason;
+        }
       }
     }
     const deterministicBehavioralEnvelope = behavioralAssessmentRequested && !cancelledForensicAudit()

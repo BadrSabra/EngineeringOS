@@ -336,6 +336,63 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(incompleteContents.get("src/oversized.ts")).toHaveLength(256 * 1024 + 1);
   });
 
+  it("does not repeat a truncated eager read across provider attempts", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "prefetch-fallback-dedup-"));
+    const relativePath = "src/large.ts";
+    const absolutePath = path.join(rootPath, relativePath);
+    const sourceBody = `export const payload = "${"x".repeat(256 * 1024)}";\n`;
+    const retainedEvidence = new Map<string, string>();
+    const retainedReadStatuses = new Map<
+      string,
+      "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED"
+    >();
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: '{"response":"incomplete","sources":[]}' } }],
+      model: "prefetch-fallback-model",
+      usage: {},
+    });
+
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, sourceBody, "utf8");
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const message = `What does ${relativePath} do?`;
+      const turnIntent = resolveTurnIntent(message);
+      const steps: AgentStep[] = [];
+      const run = () =>
+        chat({
+          message,
+          history: [],
+          projectContext: makeContext(),
+          rootPath,
+          turnIntent,
+          retainedEvidence,
+          retainedReadStatuses,
+          onStep: (step) => steps.push(step),
+        });
+
+      await run();
+      expect(retainedReadStatuses.get(relativePath)).toBe("READ_TRUNCATED");
+
+      await run();
+      const prefetchedReads = steps.filter((step) =>
+        step.kind === "tool_call" &&
+        step.tool === "read_file" &&
+        step.prefetched,
+      );
+      expect(prefetchedReads).toHaveLength(1);
+      expect(retainedEvidence.has(relativePath)).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("keeps an Arabic greeting tool-free without promoting it to tool chat", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
     const steps: AgentStep[] = [];
