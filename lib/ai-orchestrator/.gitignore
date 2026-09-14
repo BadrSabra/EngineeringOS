@@ -1,0 +1,4 @@
+# Auto-generated benchmark runtime outputs
+benchmark-results/ai-release-quality-decision.json
+benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-baseline.json
+benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-replay.json
