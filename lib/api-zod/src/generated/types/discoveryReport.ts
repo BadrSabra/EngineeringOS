@@ -7,6 +7,7 @@
  */
 import type { DiscoveryGraphSummaryData } from './discoveryGraphSummaryData';
 import type { DiscoveryRuleViolationItem } from './discoveryRuleViolationItem';
+import type { DiscoverySupportMatrix } from './discoverySupportMatrix';
 
 export interface DiscoveryReport {
   id: string;
@@ -42,6 +43,7 @@ export interface DiscoveryReport {
   qualityScore: number;
   confidenceScore: number;
   graphSummary: DiscoveryGraphSummaryData;
+  supportMatrix?: DiscoverySupportMatrix;
   ruleViolations: DiscoveryRuleViolationItem[];
   sourceRevision?: string;
   sourceProvenance?: string;

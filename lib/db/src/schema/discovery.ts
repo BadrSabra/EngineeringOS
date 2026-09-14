@@ -84,6 +84,23 @@ export interface DiscoveryGraphSummary {
   filesByLanguage: Record<string, number>;
 }
 
+export interface DiscoverySupportTarget {
+  id: string;
+  label: string;
+  kind: "language" | "framework";
+  level: "deep" | "partial" | "metadata-only";
+  parser: string;
+  graph: string;
+  validation: string;
+  changeReadiness: string;
+  limitations: string[];
+}
+
+export interface DiscoverySupportMatrix {
+  languages: DiscoverySupportTarget[];
+  frameworks: DiscoverySupportTarget[];
+}
+
 export interface DiscoveryResultData {
   detectedName: string;
   detectedLanguage: string;
@@ -108,6 +125,8 @@ export interface DiscoveryResultData {
   qualityScore: number;
   confidenceScore: number;
   graphSummary: DiscoveryGraphSummary;
+  /** Server-owned distinction between detection and actual analysis support. */
+  supportMatrix?: DiscoverySupportMatrix;
   ruleViolations: DiscoveryRuleViolation[];
   /** Server-owned source identity for plans created during import. */
   sourceRevision?: string;

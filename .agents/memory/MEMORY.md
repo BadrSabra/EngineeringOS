@@ -150,3 +150,4 @@
  - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
  - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.
 - [Resumed history identity](ai-turn-routing.md) — resumed stream history must exclude the current row only after a validated execution identity is available.
+- [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.

@@ -20,6 +20,17 @@ export type {
 export { computeMetrics } from "./metrics-calc.js";
 export type { ComputedMetrics } from "./metrics-calc.js";
 
+export {
+  buildProjectSupportMatrix,
+  getLanguageSupportProfile,
+} from "./support-matrix.js";
+export type {
+  ProjectSupportMatrix,
+  SupportLevel,
+  SupportTarget,
+  SupportTargetKind,
+} from "./support-matrix.js";
+
 /**
  * GAP-2 fix: Semver of the scanner's extraction logic.
  * Bump this constant (and lib/scanner/package.json) whenever AST extraction

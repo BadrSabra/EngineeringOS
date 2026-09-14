@@ -4520,6 +4520,40 @@ export interface DiscoveryGraphSummaryData {
   filesByLanguage: DiscoveryGraphSummaryDataFilesByLanguage;
 }
 
+export type DiscoverySupportTargetKind = typeof DiscoverySupportTargetKind[keyof typeof DiscoverySupportTargetKind];
+
+
+export const DiscoverySupportTargetKind = {
+  language: 'language',
+  framework: 'framework',
+} as const;
+
+export type DiscoverySupportTargetLevel = typeof DiscoverySupportTargetLevel[keyof typeof DiscoverySupportTargetLevel];
+
+
+export const DiscoverySupportTargetLevel = {
+  deep: 'deep',
+  partial: 'partial',
+  'metadata-only': 'metadata-only',
+} as const;
+
+export interface DiscoverySupportTarget {
+  id: string;
+  label: string;
+  kind: DiscoverySupportTargetKind;
+  level: DiscoverySupportTargetLevel;
+  parser: string;
+  graph: string;
+  validation: string;
+  changeReadiness: string;
+  limitations: string[];
+}
+
+export interface DiscoverySupportMatrix {
+  languages: DiscoverySupportTarget[];
+  frameworks: DiscoverySupportTarget[];
+}
+
 export interface DiscoveryReport {
   id: string;
   detectedName: string;
@@ -4554,6 +4588,7 @@ export interface DiscoveryReport {
   qualityScore: number;
   confidenceScore: number;
   graphSummary: DiscoveryGraphSummaryData;
+  supportMatrix?: DiscoverySupportMatrix;
   ruleViolations: DiscoveryRuleViolationItem[];
   sourceRevision?: string;
   sourceProvenance?: string;

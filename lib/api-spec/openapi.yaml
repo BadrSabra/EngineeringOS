@@ -8414,6 +8414,46 @@ components:
           additionalProperties:
             type: integer
 
+    DiscoverySupportTarget:
+      type: object
+      required: [id, label, kind, level, parser, graph, validation, changeReadiness, limitations]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+          enum: [language, framework]
+        level:
+          type: string
+          enum: [deep, partial, metadata-only]
+        parser:
+          type: string
+        graph:
+          type: string
+        validation:
+          type: string
+        changeReadiness:
+          type: string
+        limitations:
+          type: array
+          items:
+            type: string
+
+    DiscoverySupportMatrix:
+      type: object
+      required: [languages, frameworks]
+      properties:
+        languages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoverySupportTarget"
+        frameworks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoverySupportTarget"
+
     DiscoveryReport:
       type: object
       required:
@@ -8488,6 +8528,8 @@ components:
           type: number
         graphSummary:
           $ref: "#/components/schemas/DiscoveryGraphSummaryData"
+        supportMatrix:
+          $ref: "#/components/schemas/DiscoverySupportMatrix"
         ruleViolations:
           type: array
           items:

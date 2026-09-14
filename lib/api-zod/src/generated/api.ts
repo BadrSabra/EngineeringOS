@@ -3164,6 +3164,30 @@ export const GetDiscoverySummaryResponse = zod.object({
   "entitiesByType": zod.record(zod.string(), zod.number().int()),
   "filesByLanguage": zod.record(zod.string(), zod.number().int())
 }),
+  "supportMatrix": zod.object({
+  "languages": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "kind": zod.enum(['language', 'framework']),
+  "level": zod.enum(['deep', 'partial', 'metadata-only']),
+  "parser": zod.string(),
+  "graph": zod.string(),
+  "validation": zod.string(),
+  "changeReadiness": zod.string(),
+  "limitations": zod.array(zod.string())
+})),
+  "frameworks": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string(),
+  "kind": zod.enum(['language', 'framework']),
+  "level": zod.enum(['deep', 'partial', 'metadata-only']),
+  "parser": zod.string(),
+  "graph": zod.string(),
+  "validation": zod.string(),
+  "changeReadiness": zod.string(),
+  "limitations": zod.array(zod.string())
+}))
+}).optional(),
   "ruleViolations": zod.array(zod.object({
   "ruleId": zod.string().optional(),
   "code": zod.string(),

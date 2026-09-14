@@ -26,6 +26,7 @@ import {
   matchRules,
   extractGraph,
   computeMetrics,
+  buildProjectSupportMatrix,
   type RuleInput,
   type ScannedFile,
 } from "@workspace/scanner";
@@ -553,6 +554,7 @@ export async function runDiscovery(
         entitiesByType: countBy(graphResult.entities, (e) => e.type),
         filesByLanguage: countBy(files, (f) => f.language),
       },
+      supportMatrix: buildProjectSupportMatrix(detectedLanguages, detectedFramework),
       ruleViolations,
       sourceRevision: walkResult.revision,
       sourceProvenance: "discovery",

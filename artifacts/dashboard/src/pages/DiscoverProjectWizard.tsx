@@ -91,6 +91,30 @@ interface DiscoveryReport {
   qualityScore: number;
   confidenceScore: number;
   graphSummary: { entityCount: number; relationshipCount: number };
+  supportMatrix?: {
+    languages: Array<{
+      id: string;
+      label: string;
+      kind: 'language' | 'framework';
+      level: 'deep' | 'partial' | 'metadata-only';
+      parser: string;
+      graph: string;
+      validation: string;
+      changeReadiness: string;
+      limitations: string[];
+    }>;
+    frameworks: Array<{
+      id: string;
+      label: string;
+      kind: 'language' | 'framework';
+      level: 'deep' | 'partial' | 'metadata-only';
+      parser: string;
+      graph: string;
+      validation: string;
+      changeReadiness: string;
+      limitations: string[];
+    }>;
+  };
   sourceRevision?: string;
   sourceProvenance?: string;
   sourceCorrelationId?: string;
@@ -932,6 +956,49 @@ export function DiscoverProjectWizard({ onClose }: Props) {
             </div>
           ))}
         </div>
+
+        {report.supportMatrix && (
+          <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Support coverage
+              </span>
+            </div>
+            <div className="p-4 space-y-3">
+              {[...report.supportMatrix.languages, ...report.supportMatrix.frameworks].map((target) => {
+                const badgeClass =
+                  target.level === 'deep'
+                    ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5'
+                    : target.level === 'partial'
+                      ? 'border-amber-500/30 text-amber-300 bg-amber-500/5'
+                      : 'border-border text-muted-foreground bg-secondary/30';
+                return (
+                  <div key={`${target.kind}-${target.id}`} className="rounded-lg border border-border/50 bg-secondary/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{target.label}</span>
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{target.kind}</span>
+                      </div>
+                      <span className={`rounded border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${badgeClass}`}>
+                        {target.level === 'deep' ? 'Deep analysis' : target.level === 'partial' ? 'Partial support' : 'Metadata only'}
+                      </span>
+                    </div>
+                    <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                      <span><strong className="text-foreground/80">Parser:</strong> {target.parser}</span>
+                      <span><strong className="text-foreground/80">Graph:</strong> {target.graph}</span>
+                      <span><strong className="text-foreground/80">Validation:</strong> {target.validation}</span>
+                    </div>
+                    {target.limitations.length > 0 && (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        {target.limitations[0]}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Flags */}
         <div className="flex flex-wrap gap-2">
