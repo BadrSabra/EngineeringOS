@@ -158,6 +158,19 @@ const ENGLISH_COMPOUND_SEQUENCE_RE =
   /(?:\b(?:then|and|after|once|followed\s+by)\b(?:\s+(?:then|after|once))?\s*)/i;
 
 /**
+ * `then after` and `then once` may introduce one short, source-qualified
+ * evidence clause before the later action, for example:
+ * "then after reading the file, fix the bug".
+ *
+ * Keep this bridge structural rather than adding read/gerund vocabulary to
+ * the shared English action contract. A comma is required, the clause must
+ * mention a source-like target, and its length is bounded so arbitrary prose
+ * cannot become a compound action.
+ */
+const ENGLISH_NESTED_COMPOUND_BRIDGE_RE =
+  /^(?:(?=[^.!?\n,]{1,100},\s*)(?=[^.!?\n,]*\b(?:file|folder|directory|source|codebase|repository|repo|project)\b)|(?=[^!?\n,]{1,100},\s*)(?=[^!?\n,]*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html)\b))[^!?\n,]{1,100},\s*/i;
+
+/**
  * Validation actions are intentionally limited to the existing compound
  * validation contract. Mutation and explicit-execution wording comes from
  * english-action-intent.ts instead of being repeated here.
@@ -172,11 +185,19 @@ const ARABIC_COMPOUND_WRITE_REQUEST_RE =
   /(?:ثم\s*|وبعد(?:ها)?\s*|بعد(?:ها| ذلك)?\s*)(?:please\s+|kindly\s+)?(?:أصلح|صحح|عدّل|عدل|غيّر|غير|اكتب|طبّق|طبق|نفّذ|نفذ|ابنِ|أنشئ|أضف|احذف)/iu;
 
 function getEnglishCompoundActionSegment(message: string): string | null {
-  const normalized = normalizeEnglishActionText(message);
+  const normalized = message.normalize("NFKC").replace(/\s+/g, " ").trim();
   const marker = ENGLISH_COMPOUND_SEQUENCE_RE.exec(normalized);
-  return marker
-    ? normalized.slice(marker.index + marker[0].length).trim()
-    : null;
+  if (!marker) return null;
+
+  const markerText = marker[0].trim();
+  const remainder = normalized.slice(marker.index + marker[0].length).trim();
+  if (/^then\s+(?:after|once)$/i.test(markerText)) {
+    const bridge = ENGLISH_NESTED_COMPOUND_BRIDGE_RE.exec(remainder);
+    if (!bridge) return null;
+    return normalizeEnglishActionText(remainder.slice(bridge[0].length));
+  }
+
+  return normalizeEnglishActionText(remainder);
 }
 
 function isEnglishCompoundValidationAction(segment: string): boolean {

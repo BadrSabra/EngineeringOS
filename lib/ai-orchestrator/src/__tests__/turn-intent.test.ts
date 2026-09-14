@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import {
   isCompoundExecutionRequest,
+  isCompoundWriteRequest,
   isRestartServicesRequest,
   isRunProjectScanRequest,
   isWriteCapableTurn,
@@ -538,18 +539,27 @@ describe("resolveTurnIntent", () => {
     "audit src/foo.ts then apply the approved repair plan",
     "inspect src/foo.ts then build the change",
     "inspect src/foo.ts and go ahead and implement the plan",
+    "Inspect src/foo.ts, then, please fix the bug.",
+    "Inspect src/foo.ts followed by kindly patch the bug.",
+    "Inspect src/foo.ts then after reading the file, fix the bug.",
+    "Inspect src/foo.ts then once reading src/foo.ts, please modify the bug.",
     "تحقق من src/foo.ts ثم أصلح المشكلة",
     "افحص أولًا الملف artifacts/dashboard/src/App.tsx، وبعد اكتمال قراءة المصدر، انتقل إلى مسار inspect → fix وأنشئ تغييرًا معلّقًا للمراجعة فقط",
   ])("keeps compound inspect-and-change requests write-capable: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(true);
+    expect(isCompoundWriteRequest(message)).toBe(true);
     expect(resolveTurnIntent(message)).toMatchObject({
       kind: "DELIVERY",
       executionTaskType: "task_execution",
       requiresTools: true,
       requiresEvidence: false,
       compoundExecution: true,
+      compoundWrite: true,
+      allowsBuildHandoff: false,
       phases: ["evidence", "proposal"],
+      operationMode: "DELIVERY",
     });
+    expect(isWriteCapableTurn(resolveTurnIntent(message))).toBe(true);
   });
 
   it.each([
@@ -557,8 +567,13 @@ describe("resolveTurnIntent", () => {
     "inspect src/foo.ts and validate the change",
     "inspect src/foo.ts then execute the tests",
     "inspect src/foo.ts then please validate the change",
+    "Inspect src/foo.ts, then, please run the tests.",
+    "Inspect src/foo.ts followed by kindly validate the change.",
+    "Inspect src/foo.ts then after reading the file, run the tests.",
+    "Inspect src/foo.ts then once reading src/foo.ts, please validate the change.",
   ])("routes a compound validation request without write semantics: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(true);
+    expect(isCompoundWriteRequest(message)).toBe(false);
     expect(resolveTurnIntent(message)).toMatchObject({
       kind: "DELIVERY",
       executionTaskType: "task_execution",
@@ -567,12 +582,15 @@ describe("resolveTurnIntent", () => {
       compoundExecution: true,
       compoundWrite: false,
       phases: ["evidence", "validation"],
+      operationMode: "DELIVERY",
     });
     expect(isWriteCapableTurn(resolveTurnIntent(message))).toBe(false);
   });
 
   it("keeps the provider manifest write-free for validation-only compounds", () => {
-    const validationIntent = resolveTurnIntent("verify src/foo.ts then run the tests");
+    const validationIntent = resolveTurnIntent(
+      "Inspect src/foo.ts then after reading the file, run the tests.",
+    );
     const writeIntent = resolveTurnIntent("inspect src/foo.ts then fix the bug");
     const buildManifest = (intent: typeof validationIntent) =>
       buildProviderTools(
@@ -605,7 +623,22 @@ describe("resolveTurnIntent", () => {
     "Inspect src/foo.ts and explain how to fix the bug.",
     "Inspect src/foo.ts then assess the root cause.",
     "Inspect src/foo.ts and review the proposed change.",
+    "Inspect src/foo.ts then after reading the file, explain the bug.",
   ])("does not promote read-only or explanatory requests to compound delivery: %s", (message) => {
     expect(isCompoundExecutionRequest(message)).toBe(false);
+  });
+
+  it.each([
+    "Inspect src/foo.ts then after reading the file fix the bug",
+    "Inspect src/foo.ts then once reading the file; fix the bug",
+    "Inspect src/foo.ts then after discussing the architecture, fix the bug",
+    "Inspect src/foo.ts then after reading the file, and fix the bug",
+    "Inspect src/foo.ts then once reading the file, then fix the bug",
+    "Inspect src/foo.ts then after a very long unrelated explanation that does not identify a source target and keeps going beyond the bounded bridge, fix the bug",
+    "Inspect src/foo.ts then after reading the file, review the proposed change",
+  ])("rejects unsupported or malformed nested compound markers: %s", (message) => {
+    expect(isCompoundExecutionRequest(message)).toBe(false);
+    expect(isCompoundWriteRequest(message)).toBe(false);
+    expect(resolveTurnIntent(message).compoundExecution).toBe(false);
   });
 });
