@@ -2359,6 +2359,122 @@ describe("executeToolLoop", () => {
     expect(retainedReadStatuses.get("src/big.ts")).toBe("READ_TARGETED");
   });
 
+  it("bounds overlapping broad forensic windows while retaining the first window", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockImplementation(async (_name: string, args: { path?: string; startLine?: string; endLine?: string }) => {
+      const start = Number(args.startLine);
+      const end = Number(args.endLine);
+      return `File: ${args.path ?? "src/gap.ts"}\n\`\`\`\n${
+        Array.from({ length: end - start + 1 }, (_, index) => `line ${start + index}`).join("\n")
+      }\n\`\`\``;
+    });
+    const ranges = [
+      ["1", "10"],
+      ["2", "9"],
+      ["3", "8"],
+      ["4", "7"],
+      ["5", "6"],
+      ["6", "7"],
+    ];
+    const strategy = makeStrategy([
+      ...ranges.map(([startLine, endLine], index) =>
+        makeResponse("", [makeToolCall(`range-${index}`, "read_file_range", {
+          path: "src/gap.ts",
+          startLine,
+          endLine,
+        })]),
+      ),
+      makeResponse("bounded report from retained source windows"),
+    ]);
+    const steps: AgentStep[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{
+        type: "function",
+        function: { name: "read_file_range", description: "", parameters: {} },
+      }],
+      rootPath: "/project",
+      pendingChanges: [],
+      executionMode: "forensic",
+      maxIterations: 8,
+      maxToolCalls: 20,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(5);
+    expect(result.sourceRetrieval).toMatchObject({
+      readAttempts: 5,
+      targetedReads: 5,
+      evidenceWindows: 5,
+      nonProgressingReadRepeats: 4,
+      readBoundTriggered: true,
+      sourceReadAttemptLimit: 64,
+      nonProgressingReadLimit: 4,
+    });
+    expect(result.evidenceWindows?.[0]).toMatchObject({
+      file: "src/gap.ts",
+      startLine: 1,
+      endLine: 10,
+    });
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "BROAD_SOURCE_READ_BOUND",
+    }));
+  });
+
+  it("allows a new targeted window after a prior read before applying the repeat bound", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockImplementation(async (_name: string, args: { path?: string; startLine?: string; endLine?: string }) =>
+      `File: ${args.path ?? "src/recovery.ts"}\n\`\`\`\nrecovered ${args.startLine}-${args.endLine}\n\`\`\``,
+    );
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("window-1", "read_file_range", {
+        path: "src/recovery.ts",
+        startLine: "1",
+        endLine: "4",
+      })]),
+      makeResponse("", [makeToolCall("window-2", "read_file_range", {
+        path: "src/recovery.ts",
+        startLine: "20",
+        endLine: "24",
+      })]),
+      makeResponse("recovered from both source windows"),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{
+        type: "function",
+        function: { name: "read_file_range", description: "", parameters: {} },
+      }],
+      rootPath: "/project",
+      pendingChanges: [],
+      executionMode: "forensic",
+      maxIterations: 4,
+      maxToolCalls: 8,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(2);
+    expect(result.sourceRetrieval).toMatchObject({
+      readAttempts: 2,
+      targetedReads: 2,
+      evidenceWindows: 2,
+      nonProgressingReadRepeats: 0,
+      readBoundTriggered: false,
+    });
+  });
+
   it("preserves a usable objective locator when the provider replay is truncated", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const requiredPath = "src/chat-agent.ts";

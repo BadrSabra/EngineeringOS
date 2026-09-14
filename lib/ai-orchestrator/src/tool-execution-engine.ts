@@ -96,6 +96,11 @@ export const BUDGET_BY_SCOPE = {
  * Basis: Agent Patterns Catalog — "Soft Limit + Synthesis" pattern.
  */
 const SOFT_LIMIT_RATIO = 0.75;
+// Broad forensic collection has a much larger overall tool budget than a
+// focused read, so keep a separate source-read bound. These limits apply to
+// logical fresh and cached read attempts, not to valid prefetch evidence.
+const BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT = 64;
+const BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT = 4;
 
 function syntheticValidationResult(
   profile: string,
@@ -668,6 +673,14 @@ export type SourceRetrievalTelemetry = {
   incompleteBeforeEvidence?: boolean;
   /** AI-OBJ-008: bounded scope changes observed while retrieving evidence. */
   scopeExpansions: ScopeExpansion[];
+  /** Broad forensic read-loop guard: server-owned maximum logical source reads. */
+  sourceReadAttemptLimit?: number;
+  /** Broad forensic read-loop guard: consecutive reads that add no evidence. */
+  nonProgressingReadRepeats?: number;
+  /** Broad forensic read-loop guard: maximum consecutive non-progressing reads. */
+  nonProgressingReadLimit?: number;
+  /** True when a broad forensic source-read guard forced synthesis. */
+  readBoundTriggered?: boolean;
 };
 
 export const EMPTY_SOURCE_RETRIEVAL_TELEMETRY: SourceRetrievalTelemetry = {
@@ -692,6 +705,8 @@ export const EMPTY_SOURCE_RETRIEVAL_TELEMETRY: SourceRetrievalTelemetry = {
   iterationsUntilFirstSourceRead: null,
   progressForced: false,
   scopeExpansions: [],
+  nonProgressingReadRepeats: 0,
+  readBoundTriggered: false,
 };
 
 /** Final reporting is a bounded phase, not another open-ended tool-loop turn. */
@@ -1572,6 +1587,7 @@ export type AgentDiagnosticCode =
   | "JUSTIFIED_SCOPE_EXPANSION"
    | "UNJUSTIFIED_SCOPE_EXPANSION"
    | "READ_EVIDENCE_LINKED"
+  | "BROAD_SOURCE_READ_BOUND"
    | "REPAIR_ATTEMPT_DIFF";
 
 /**
@@ -2114,23 +2130,31 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     return { startLine: String(startLine), endLine: String(endLine) };
   };
   const sourceEvidenceByCanonical = new Map<string, string>();
+  const sourceEvidenceStrengthByCanonical = new Map<string, ReadStatus>();
   for (const [path, body] of opts.initialFileContents ?? []) {
-    sourceEvidenceByCanonical.set(canonicalRel(path), body);
+    const status = classifyReadStatus("read_file", body);
+    if (status === "READ_COMPLETE" || status === "READ_TARGETED") {
+      sourceEvidenceByCanonical.set(canonicalRel(path), body);
+      sourceEvidenceStrengthByCanonical.set(canonicalRel(path), status);
+    }
   }
   const recordSourceEvidence = (
     path: string | undefined,
     output: string,
     toolName = "read_file",
   ): void => {
-    if (
-      typeof path === "string" &&
-      path.trim() &&
-      (classifyReadStatus(toolName, output) === "READ_COMPLETE" ||
-        classifyReadStatus(toolName, output) === "READ_TARGETED")
-    ) {
-      sourceEvidenceByCanonical.set(canonicalRel(path), output);
-      opts.retainedFileContents?.set(path, output);
-    }
+    if (typeof path !== "string" || !path.trim()) return;
+    const status = classifyReadStatus(toolName, output);
+    if (status !== "READ_COMPLETE" && status !== "READ_TARGETED") return;
+    const canonicalPath = canonicalRel(path);
+    const priorStatus = sourceEvidenceStrengthByCanonical.get(canonicalPath);
+    // A targeted window is additive evidence, but must not replace a complete
+    // source body in the canonical retained-evidence map. All targeted
+    // windows remain available through sourceEvidenceWindows.
+    if (priorStatus === "READ_COMPLETE" && status === "READ_TARGETED") return;
+    sourceEvidenceByCanonical.set(canonicalPath, output);
+    sourceEvidenceStrengthByCanonical.set(canonicalPath, status);
+    opts.retainedFileContents?.set(path, output);
   };
   const recordSourceEvidenceWindow = (
     toolName: string,
@@ -2289,6 +2313,167 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const isCompletedPath = (path: string | undefined): boolean =>
     typeof path === "string" && path.trim() !== "" &&
     (readStatusByPath.get(path) === "READ_COMPLETE" || readStatusByPath.get(path) === "READ_TARGETED");
+  type ReadCoverage = {
+    full: boolean;
+    ranges: Array<{ startLine: number; endLine: number }>;
+  };
+  const readCoverageByPath = new Map<string, ReadCoverage>();
+  for (const [path, body] of opts.initialFileContents ?? []) {
+    if (classifyReadStatus("read_file", body) === "READ_COMPLETE") {
+      readCoverageByPath.set(canonicalRel(path), { full: true, ranges: [] });
+    }
+  }
+  const readAttemptFingerprints = new Set<string>();
+  let nonProgressingReadRepeats = 0;
+  const broadForensicReadBoundEnabled =
+    executionMode === "forensic" && !(allowedReadPaths && allowedReadPaths.length === 1);
+  if (broadForensicReadBoundEnabled) {
+    sourceRetrieval.sourceReadAttemptLimit = BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT;
+    sourceRetrieval.nonProgressingReadLimit = BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT;
+    sourceRetrieval.nonProgressingReadRepeats = 0;
+    sourceRetrieval.readBoundTriggered = false;
+  }
+  const sourceReadFingerprint = (
+    toolName: string,
+    path: string | undefined,
+    args: Record<string, string>,
+  ): string => [
+    toolName,
+    canonicalRel(typeof path === "string" ? path : ""),
+    args.startLine ?? "",
+    args.endLine ?? "",
+  ].join(":");
+  const readRangeFromArgs = (
+    args: Record<string, string>,
+  ): { startLine: number; endLine: number } | undefined => {
+    const startLine = Number(args.startLine);
+    const endLine = Number(args.endLine);
+    if (
+      !Number.isInteger(startLine) ||
+      !Number.isInteger(endLine) ||
+      startLine < 1 ||
+      endLine < startLine
+    ) {
+      return undefined;
+    }
+    return { startLine, endLine };
+  };
+  const rangeAlreadyCovered = (
+    coverage: ReadCoverage | undefined,
+    range: { startLine: number; endLine: number },
+  ): boolean => {
+    if (!coverage) return false;
+    let coveredThrough = range.startLine - 1;
+    for (const existing of coverage.ranges
+      .filter((candidate) => candidate.endLine >= range.startLine && candidate.startLine <= range.endLine)
+      .sort((a, b) => a.startLine - b.startLine)) {
+      if (existing.startLine > coveredThrough + 1) return false;
+      coveredThrough = Math.max(coveredThrough, existing.endLine);
+      if (coveredThrough >= range.endLine) return true;
+    }
+    return coveredThrough >= range.endLine;
+  };
+  const sourceReadWouldAddEvidence = (
+    toolName: string,
+    path: string | undefined,
+    args: Record<string, string>,
+    status?: ReadStatus,
+  ): boolean => {
+    if (toolName !== "read_file" && toolName !== "read_file_range") return false;
+    const normalizedPath = canonicalRel(typeof path === "string" ? path : "");
+    if (!normalizedPath) return false;
+    const fingerprint = sourceReadFingerprint(toolName, path, args);
+    if (readAttemptFingerprints.has(fingerprint)) return false;
+    if (status !== undefined && status !== "READ_COMPLETE" && status !== "READ_TARGETED") {
+      return false;
+    }
+    const coverage = readCoverageByPath.get(normalizedPath);
+    if (toolName === "read_file") return !coverage?.full;
+    const range = readRangeFromArgs(args);
+    // A valid targeted result with no parseable range is still a useful window
+    // on its first occurrence; exact replays are handled by the fingerprint.
+    if (!range) return true;
+    // A range after a complete read is still allowed when it is a new,
+    // explicitly requested window. This preserves targeted recovery semantics
+    // without allowing the same window to reset the bound indefinitely.
+    return !rangeAlreadyCovered(coverage, range);
+  };
+  const recordSourceReadAttempt = (
+    toolName: string,
+    path: string | undefined,
+    args: Record<string, string>,
+    status: ReadStatus,
+  ): void => {
+    if (toolName !== "read_file" && toolName !== "read_file_range") return;
+    const normalizedPath = canonicalRel(typeof path === "string" ? path : "");
+    if (!normalizedPath) return;
+    const addsEvidence = sourceReadWouldAddEvidence(toolName, path, args, status);
+    readAttemptFingerprints.add(sourceReadFingerprint(toolName, path, args));
+    if (status === "READ_COMPLETE" || status === "READ_TARGETED") {
+      const coverage = readCoverageByPath.get(normalizedPath) ?? { full: false, ranges: [] };
+      if (status === "READ_COMPLETE" && toolName === "read_file") {
+        coverage.full = true;
+      } else if (toolName === "read_file_range") {
+        const range = readRangeFromArgs(args);
+        if (range && !coverage.ranges.some(
+          (existing) => existing.startLine === range.startLine && existing.endLine === range.endLine,
+        )) {
+          coverage.ranges.push(range);
+        }
+      }
+      readCoverageByPath.set(normalizedPath, coverage);
+    }
+    nonProgressingReadRepeats = addsEvidence ? 0 : nonProgressingReadRepeats + 1;
+    if (broadForensicReadBoundEnabled) {
+      sourceRetrieval.nonProgressingReadRepeats = nonProgressingReadRepeats;
+    }
+  };
+  const shouldBlockBroadForensicRead = (
+    toolName: string,
+    path: string | undefined,
+    args: Record<string, string>,
+  ): boolean => {
+    if (!broadForensicReadBoundEnabled) return false;
+    if (sourceRetrieval.readBoundTriggered) return true;
+    if (sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT) return true;
+    return nonProgressingReadRepeats >= BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT
+      && !sourceReadWouldAddEvidence(toolName, path, args);
+  };
+  const triggerBroadForensicReadBound = (
+    tool: string,
+    path: string | undefined,
+    iter: number,
+    reason: "attempt_limit" | "non_progressing_repeat",
+  ): void => {
+    sourceRetrieval.readBoundTriggered = true;
+    forceSynthesisNext = true;
+    temporarilyDisabledTools.add("read_file");
+    temporarilyDisabledTools.add("read_file_range");
+    console.warn(JSON.stringify({
+      scope: "tool-execution-engine",
+      code: "BROAD_SOURCE_READ_BOUND",
+      tool,
+      path: path ?? null,
+      iter,
+      reason,
+      readAttempts: sourceRetrieval.readAttempts,
+      readAttemptLimit: BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT,
+      nonProgressingReadRepeats,
+      nonProgressingReadLimit: BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT,
+    }));
+    try {
+      onStep?.({
+        kind: "diagnostic",
+        code: "BROAD_SOURCE_READ_BOUND",
+        details: [
+          reason === "attempt_limit"
+            ? `source-read attempt limit reached (${BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT})`
+            : `non-progressing source-read repeat limit reached (${BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT})`,
+          "synthesis was forced from retained evidence",
+        ],
+      });
+    } catch { /* observers must not change terminal semantics */ }
+  };
   const searchBudgetLimit = Math.max(
     1,
     Math.floor(opts.searchNoveltyBudget ?? DEFAULT_SEARCH_NOVELTY_BUDGET),
@@ -5034,6 +5219,30 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         continue;
       }
 
+      // Broad forensic runs have a source-read-specific bound in addition to
+      // the overall iteration and fresh-tool budgets. A genuinely new range
+      // remains eligible, including a targeted recovery window for a file read
+      // earlier in the run; only known non-progressing requests are blocked.
+      if (
+        (tc.function.name === "read_file" || tc.function.name === "read_file_range") &&
+        shouldBlockBroadForensicRead(tc.function.name, args.path, args)
+      ) {
+        const reason =
+          sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT
+            ? "attempt_limit"
+            : "non_progressing_repeat";
+        triggerBroadForensicReadBound(tc.function.name, args.path, iter, reason);
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "BROAD_SOURCE_READ_BOUND: source collection is bounded for this broad audit. " +
+            "The requested read would not add a new source window. " +
+            "Synthesize from the retained evidence and report ANALYSIS_INCOMPLETE if required coverage is missing.",
+        });
+        continue;
+      }
+
       // Guard 1: Cache hit — identical call, return cached result for free.
       if (cached !== undefined) {
         const duplicateCount = (duplicateCallCounts.get(key) ?? 0) + 1;
@@ -5184,6 +5393,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             }
           }
           recordRead(tc.function.name, args.path, cached);
+          recordSourceReadAttempt(
+            tc.function.name,
+            args.path,
+            args,
+            classifyReadStatus(tc.function.name, cached),
+          );
+          if (
+            broadForensicReadBoundEnabled &&
+            sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT
+          ) {
+            triggerBroadForensicReadBound(tc.function.name, args.path, iter, "attempt_limit");
+          }
           recordSourceEvidenceWindow(tc.function.name, args.path, args, cached);
           recordSourceEvidence(args.path, cached, tc.function.name);
           if (clearingActiveForce) {
@@ -5667,6 +5888,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
       if (tc.function.name === "read_file" || tc.function.name === "read_file_range") {
         recordRead(tc.function.name, args.path, toolResult.output);
+        recordSourceReadAttempt(
+          tc.function.name,
+          args.path,
+          args,
+          classifyReadStatus(tc.function.name, toolResult.output),
+        );
+        if (
+          broadForensicReadBoundEnabled &&
+          sourceRetrieval.readAttempts >= BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT
+        ) {
+          triggerBroadForensicReadBound(tc.function.name, args.path, iter, "attempt_limit");
+        }
         recordSourceEvidenceWindow(tc.function.name, args.path, args, toolResult.output);
         // Retain the body as source evidence so a later dependency proof may
         // cite `from_file` and reference text grounded in what was actually read.

@@ -424,4 +424,86 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it("bounds repeated overlapping reads in a broad forensic chat run", async () => {
+    const rootPath = await makeRoot(Array.from(
+      { length: 24 },
+      (_, index) => `export const line${index + 1} = ${index + 1};`,
+    ).join("\n"));
+    const calls = { count: 0 };
+    const ranges = [
+      ["1", "10"],
+      ["2", "9"],
+      ["3", "8"],
+      ["4", "7"],
+      ["5", "6"],
+      ["6", "7"],
+    ];
+    const strategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn(async () => {
+        const index = calls.count++;
+        if (index < ranges.length) {
+          const [startLine, endLine] = ranges[index];
+          return {
+            content: "",
+            toolCalls: [{
+              id: `range-${index}`,
+              type: "function" as const,
+              function: {
+                name: "read_file_range",
+                arguments: JSON.stringify({ path: FILE, startLine, endLine }),
+              },
+            }],
+            model: "initial-model",
+            usage: {},
+          };
+        }
+        return {
+          content: JSON.stringify({
+            response: "ANALYSIS_INCOMPLETE — repeated reads stopped before broad coverage completed.",
+            sources: [],
+          }),
+          toolCalls: [],
+          model: "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+    await mockChatProviders(strategy, {
+      targetFiles: [],
+      targetEntities: [],
+      scopeEstimate: "broad",
+      suggestedIterations: 12,
+      requiresToolUse: true,
+      subQueries: [],
+    });
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: "Audit the entire project for security weaknesses.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      // The bounded loop may be followed by the existing two-attempt forensic
+      // contract recovery, but it must not continue source collection.
+      expect(calls.count).toBeLessThanOrEqual(8);
+      expect(steps).toContainEqual(expect.objectContaining({
+        kind: "diagnostic",
+        code: "BROAD_SOURCE_READ_BOUND",
+      }));
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });
