@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 import {
   routeTask,
+  isGapAnalysisRequest,
   type ForensicTaskType,
   type OutputContract,
 } from "./task-contracts.js";
@@ -553,6 +554,18 @@ export function isProjectQueryFollowUpRequest(message: string): boolean {
     && PROJECT_QUERY_FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+/**
+ * Gap requests can be a continuation of an embedded-AI analysis even when
+ * they restate the desired finding instead of saying "continue". This signal
+ * is only a recovery candidate; the state-aware check below still requires
+ * the saved target to be the embedded-AI contract before inheriting it.
+ */
+export function isProjectQueryContinuationCandidate(message: string): boolean {
+  const normalized = normalizeContinuationMessage(message);
+  return normalized.length <= 120
+    && (isProjectQueryFollowUpRequest(normalized) || isGapAnalysisRequest(normalized));
+}
+
 export function parseActiveTaskState(value: string | null | undefined): ActiveTaskState | null {
   if (!value) return null;
   try {
@@ -627,7 +640,13 @@ export function isTaskContinuationRequest(
   if (CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
   return Boolean(
     state?.projectQuery
-    && isProjectQueryFollowUpRequest(normalized),
+    && (
+      isProjectQueryFollowUpRequest(normalized)
+      || (
+        state.projectQuery.id === "embedded-ai"
+        && isGapAnalysisRequest(normalized)
+      )
+    ),
   );
 }
 

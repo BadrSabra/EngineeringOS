@@ -456,6 +456,7 @@ export {
   advanceImplementationPlan,
   isResumableTaskType,
   isProjectQueryFollowUpRequest,
+  isProjectQueryContinuationCandidate,
   isTaskContinuationRequest,
   parseActiveTaskState,
   resumeActiveTaskClassification,

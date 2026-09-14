@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
 import { buildProjectQueryObjective } from "../project-query-target.js";
+import { resolveTurnIntent } from "../turn-intent.js";
 import {
   buildActiveTaskExecutionPlan,
   buildActiveTaskState,
@@ -11,6 +12,7 @@ import {
   isImplementationPlanContinuation,
   getRunnableExecutionNodes,
   isProjectQueryFollowUpRequest,
+  isProjectQueryContinuationCandidate,
   isTaskContinuationRequest,
   mergeActiveTaskEvidence,
   parseActiveTaskState,
@@ -94,6 +96,45 @@ describe("active task session state", () => {
     expect(resumed.resumed).toBe(true);
     expect(resumed.classification.taskType).toBe("BEHAVIOR_QUERY");
     expect(resumed.classification.projectTarget?.id).toBe("embedded-ai");
+  });
+
+  it("inherits the embedded-AI evidence contract for a weakness follow-up", () => {
+    const classification = classifyRequest("اشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع");
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      revision: "revision-a",
+      projectQuery: classification.projectTarget,
+    });
+
+    const followUp = "حدد نقاط الضعف لدى الوكيل";
+    expect(isProjectQueryContinuationCandidate(followUp)).toBe(true);
+    expect(isTaskContinuationRequest(followUp)).toBe(false);
+    expect(isTaskContinuationRequest(followUp, state)).toBe(true);
+
+    const resumed = resumeActiveTaskClassification(
+      followUp,
+      classifyRequest(followUp),
+      state,
+    );
+    expect(resumed).toMatchObject({
+      resumed: true,
+      classification: {
+        projectTarget: { id: "embedded-ai" },
+        taskType: "BEHAVIOR_QUERY",
+      },
+    });
+    expect(resolveTurnIntent(followUp, {
+      classification: resumed.classification,
+      resumed: resumed.resumed,
+    })).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresEvidence: true,
+      projectTarget: { id: "embedded-ai" },
+    });
   });
 
   it("persists dynamically requested project-query claims for resume", () => {

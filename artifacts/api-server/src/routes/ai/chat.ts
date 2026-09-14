@@ -58,12 +58,12 @@ import {
   buildIncompleteForensicReport,
   collectForensicEvidence,
   isTaskContinuationRequest,
-  isProjectQueryFollowUpRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
   mergeProjectQueryObjective,
   buildActiveTaskExecutionPlan,
   isResumableTaskType,
+  isProjectQueryContinuationCandidate,
   parseActiveTaskState,
   resumeActiveTaskClassification,
   serializeActiveTaskState,
@@ -3973,7 +3973,7 @@ router.post("/ai/chat", async (req, res) => {
   const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
   const rawTurnClassification = classifyRequest(message);
   const continuationCandidate = isTaskContinuationRequest(message)
-    || isProjectQueryFollowUpRequest(message);
+    || isProjectQueryContinuationCandidate(message);
   const recoveredActiveTaskState = !persistedActiveTaskState && continuationCandidate
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
@@ -5252,7 +5252,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     projectId,
   );
   const continuationCandidate = isTaskContinuationRequest(message)
-    || isProjectQueryFollowUpRequest(message);
+    || isProjectQueryContinuationCandidate(message);
   const recoveredActiveTaskState = !persistedActiveTaskState && continuationCandidate
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
