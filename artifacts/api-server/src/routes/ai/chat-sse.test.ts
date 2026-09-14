@@ -831,6 +831,167 @@ afterEach(() => {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+describe("provider history projection parity", () => {
+  const sessionId = "11111111-1111-4111-8111-111111111111";
+  const repeatedMessage = "What is the current project status?";
+  const repairPlan = [{
+    findingId: "F-1",
+    files: ["src/guard.ts"],
+    steps: ["Apply the approved repair."],
+    validationProfile: "workspace-typecheck",
+  }];
+
+  async function getFixture() {
+    const dbModule = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+        messages: Array<Record<string, unknown>>;
+      };
+    });
+    return dbModule.__chatTestFixture;
+  }
+
+  function seedSession(fixture: {
+    session: Record<string, unknown> | null;
+    messages: Array<Record<string, unknown>>;
+  }, includeHistory: boolean): Array<Record<string, unknown>> {
+    fixture.session = {
+      id: sessionId,
+      projectId: "test-project-id",
+      title: "History parity",
+      linkedTaskId: null,
+      activeTaskState: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    };
+    const rows = includeHistory
+      ? [
+          {
+            id: "prior-user-id",
+            sessionId,
+            role: "user",
+            content: repeatedMessage,
+            executionId: null,
+            repairPlanMetadata: null,
+            createdAt: new Date("2026-01-01T00:00:01.000Z"),
+          },
+          {
+            id: "prior-assistant-id",
+            sessionId,
+            role: "assistant",
+            content: "Prior report text.",
+            executionId: null,
+            repairPlanMetadata: JSON.stringify(repairPlan),
+            createdAt: new Date("2026-01-01T00:00:02.000Z"),
+          },
+        ]
+      : [];
+    // The database query returns newest-first. The lightweight fixture returns
+    // insertion order, so seed it in the same order the real query provides.
+    fixture.messages.push(...rows.reverse());
+    return rows;
+  }
+
+  async function captureHistoryForBothRoutes(params: {
+    message: string;
+    includeHistory: boolean;
+  }): Promise<unknown[][]> {
+    const fixture = await getFixture();
+    const baseline = seedSession(fixture, params.includeHistory);
+    const histories: unknown[][] = [];
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementation(
+      async (...args) => {
+        const input = args[1] as { history?: unknown[] };
+        histories.push(input.history ?? []);
+        return MOCK_CHAT_RESULT as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+      },
+    );
+
+    const json = await request(app)
+      .post("/api/ai/chat")
+      .send({
+        projectId: "test-project-id",
+        sessionId,
+        message: params.message,
+      });
+    expect(json.status, JSON.stringify(json.body)).toBe(200);
+
+    // JSON persists the completed turn. Restore the exact pre-turn rows before
+    // exercising SSE so both endpoints receive the same session state.
+    fixture.messages.length = 0;
+    fixture.messages.push(...baseline.map((row) => ({ ...row })));
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as { history?: unknown[] };
+      histories.push(input.history ?? []);
+      return MOCK_CHAT_RESULT as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId: "test-project-id",
+        sessionId,
+        message: params.message,
+      });
+    expect(stream.status, stream.text).toBe(200);
+    return histories;
+  }
+
+  it("keeps repeated prior prompts, preserves report text, and omits repair metadata for read-only turns", async () => {
+    const histories = await captureHistoryForBothRoutes({
+      message: repeatedMessage,
+      includeHistory: true,
+    });
+
+    expect(histories).toHaveLength(2);
+    expect(histories[0]).toEqual([
+      { role: "user", content: repeatedMessage },
+      { role: "assistant", content: "Prior report text." },
+    ]);
+    expect(histories[1]).toEqual(histories[0]);
+    expect((histories[0] as Array<Record<string, unknown>>)
+      .filter((entry) => entry.content === repeatedMessage)).toHaveLength(1);
+    expect(JSON.stringify(histories[0])).not.toContain("repairPlan");
+  });
+
+  it("omits repair metadata from both provider histories for a project-query follow-up", async () => {
+    const histories = await captureHistoryForBothRoutes({
+      message: "Could you review this file?",
+      includeHistory: true,
+    });
+
+    expect(histories).toHaveLength(2);
+    expect(histories[0]).toEqual([
+      { role: "user", content: repeatedMessage },
+      { role: "assistant", content: "Prior report text." },
+    ]);
+    expect(histories[1]).toEqual(histories[0]);
+  });
+
+  it("attaches the same persisted repair plan for explicit handoffs on JSON and SSE", async () => {
+    const histories = await captureHistoryForBothRoutes({
+      message: "apply the repair plan",
+      includeHistory: true,
+    });
+
+    expect(histories).toHaveLength(2);
+    expect(histories[0]).toEqual([
+      { role: "user", content: repeatedMessage },
+      { role: "assistant", content: "Prior report text.", repairPlan },
+    ]);
+    expect(histories[1]).toEqual(histories[0]);
+  });
+
+  it("passes an identical empty history when the session has no prior messages", async () => {
+    const histories = await captureHistoryForBothRoutes({
+      message: "Give me a brief status update.",
+      includeHistory: false,
+    });
+
+    expect(histories).toEqual([[], []]);
+  });
+});
+
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
   it("keeps forensic diagnostics out of ordinary CHAT history but retains them for project queries", async () => {
     const dbModule = (await import("@workspace/db") as unknown as {

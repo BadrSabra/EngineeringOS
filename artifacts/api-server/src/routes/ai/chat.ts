@@ -3433,6 +3433,84 @@ function historyFetchLimitForPlan(plan: Readonly<ExecutionPlan>): number {
     : plan.historyDepth * 2;
 }
 
+type ProviderHistoryRow = Pick<
+  typeof aiChatMessagesTable.$inferSelect,
+  "id" | "role" | "content" | "executionId" | "repairPlanMetadata"
+>;
+
+type ProviderHistoryPolicy = {
+  allowRepairPlanMetadata: boolean;
+  currentTurn?: {
+    messageId?: string;
+    executionId?: string;
+  };
+};
+
+function resolveProviderHistoryPolicy(params: {
+  turnIntent: ReturnType<typeof resolveTurnIntent>;
+  message: string;
+  immediateExecutionRequest: boolean;
+  buildHandoff?: boolean;
+  currentTurn?: ProviderHistoryPolicy["currentTurn"];
+}): ProviderHistoryPolicy {
+  const allowRepairPlanMetadata =
+    params.turnIntent.kind === "DELIVERY"
+    && (
+      params.immediateExecutionRequest
+      || isRepairPlanExecutionRequest(params.message)
+      || params.turnIntent.compoundWrite
+      || params.buildHandoff === true
+    );
+  return {
+    allowRepairPlanMetadata,
+    currentTurn: params.currentTurn,
+  };
+}
+
+/**
+ * Project persisted chat rows into the provider's history contract.
+ *
+ * Rows are fetched newest-first for the bounded database query, but providers
+ * receive the conversation oldest-first. The current user turn is excluded
+ * only by its server-owned message/execution identity; content is deliberately
+ * not used because an earlier user message may legitimately repeat the same
+ * text. Repair-plan metadata is executable context, so it is attached only
+ * for an explicitly authorized handoff policy.
+ */
+function projectProviderHistory(
+  rows: readonly ProviderHistoryRow[],
+  policy: ProviderHistoryPolicy,
+): Array<{
+  role: "user" | "assistant";
+  content: string;
+  repairPlan?: RepairPlanMetadata[];
+}> {
+  const currentMessageId = policy.currentTurn?.messageId;
+  const currentExecutionId = policy.currentTurn?.executionId;
+  return [...rows]
+    .reverse()
+    .filter((row) =>
+      (row.role === "user" || row.role === "assistant")
+      && !(
+        row.role === "user"
+        && (
+          (currentMessageId && row.id === currentMessageId)
+          || (currentExecutionId && row.executionId === currentExecutionId)
+        )
+      ),
+    )
+    .map((row) => {
+      const repairPlan = policy.allowRepairPlanMetadata && row.role === "assistant"
+        ? parseRepairPlanMetadata(row.repairPlanMetadata)
+        : undefined;
+      return {
+        role: row.role as "user" | "assistant",
+        content: row.content,
+        ...(repairPlan ? { repairPlan } : {}),
+      };
+    });
+}
+
 /**
  * Execution handoff observability.
  *
@@ -4298,8 +4376,11 @@ router.post("/ai/chat", async (req, res) => {
     });
   }
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
-  const attachRepairPlanHistory =
-    immediateExecutionRequest || turnIntent.compoundWrite;
+  const providerHistoryPolicy = resolveProviderHistoryPolicy({
+    turnIntent,
+    message,
+    immediateExecutionRequest,
+  });
   // Fetch a stable bounded history for every ordinary request. chat-agent
   // keeps the latest complete turns verbatim and summarizes older turns,
   // while execution handoffs can still recover an older repair plan from this
@@ -4483,23 +4564,7 @@ router.post("/ai/chat", async (req, res) => {
         req.userId,
         {
           message,
-          history: historyRows
-            .reverse()
-          .filter((m) =>
-            (m.role === "user" || m.role === "assistant")
-            && !(immediateExecutionRequest
-              && m.role === "user"
-              && m.content === message),
-          )
-            .map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              ...(attachRepairPlanHistory
-                && m.role === "assistant"
-                && parseRepairPlanMetadata(m.repairPlanMetadata)
-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
-                : {}),
-            })),
+          history: projectProviderHistory(historyRows, providerHistoryPolicy),
           projectContext,
           executionPlan: contextExecutionPlan,
           rootPath: validRootPath,
@@ -6239,8 +6304,19 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     const immediateExecutionRequest = isImmediateExecutionRequest(message);
-    const attachRepairPlanHistory =
-      immediateExecutionRequest || streamTurnIntent.compoundWrite;
+    const providerHistoryPolicy = resolveProviderHistoryPolicy({
+      turnIntent: streamTurnIntent,
+      message,
+      immediateExecutionRequest,
+      buildHandoff: Boolean(
+        streamTurnIntent.allowsBuildHandoff
+        && approvedImplementationPlan
+        && effectiveBuildPlanMessageId,
+      ),
+      currentTurn: {
+        executionId: aiExecution?.id,
+      },
+    });
     const historyLimit = historyFetchLimitForPlan(streamExecutionPlan);
     const historyRows = existingSession
       ? await db
@@ -7672,23 +7748,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         req.userId,
         {
           message: modelMessage,
-          history: historyRows
-            .reverse()
-            .filter((m) =>
-              (m.role === "user" || m.role === "assistant")
-              && !(immediateExecutionRequest
-                && m.role === "user"
-                && m.executionId === aiExecution?.id),
-            )
-            .map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              ...(attachRepairPlanHistory
-                && m.role === "assistant"
-                && parseRepairPlanMetadata(m.repairPlanMetadata)
-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
-                : {}),
-            })),
+          history: projectProviderHistory(historyRows, providerHistoryPolicy),
           projectContext,
           executionPlan: streamExecutionPlan,
           rootPath: validRootPath,
