@@ -22,6 +22,7 @@ import type { BehaviorEvidence } from './behaviorEvidence';
 import type { ExecutionLedgerSnapshot } from './executionLedgerSnapshot';
 import type { ForensicDiagnostic } from './forensicDiagnostic';
 import type { MissionCorrelationReport } from './missionCorrelationReport';
+import type { ProjectQueryTargetDecision } from './projectQueryTargetDecision';
 import type { ProviderFailureCategory } from './providerFailureCategory';
 
 export interface AiChatMessage {
@@ -35,6 +36,8 @@ export interface AiChatMessage {
   executionLedger?: ExecutionLedgerSnapshot | null;
   /** Server-authoritative intent used to route this turn */
   turnIntent?: string | null;
+  /** Server-owned source-targeting decision for architectural project queries. */
+  projectQueryTarget?: ProjectQueryTargetDecision | null;
   /** Durable execution linked to this conversational turn */
   executionId?: string | null;
   outcome?: AiChatMessageOutcome;

@@ -21,7 +21,10 @@ import {
   type OperationalCommand,
 } from "./operational-command.js";
 import { isRunProjectScanRequest } from "./scan-command.js";
-import type { ProjectQueryTargetResolution } from "./project-query-target.js";
+import type {
+  ProjectQueryTargetMode,
+  ProjectQueryTargetResolution,
+} from "./project-query-target.js";
 import {
   isArabicExplicitExecutionActionRequest,
   isArabicMutationActionRequest,
@@ -98,6 +101,8 @@ export type TurnIntent = {
   projectTarget?: ClassifiedRequest["projectTarget"];
   /** Server-owned target resolution state, including safe ambiguity handling. */
   projectTargetResolution: ProjectQueryTargetResolution;
+  /** Server-owned initial source-targeting mode; planning may refine unresolved queries. */
+  projectQueryTargetMode?: ProjectQueryTargetMode;
   /** A deterministic server-owned action that must not be delegated to a provider. */
   serverAction?: TurnServerAction;
   /** Details for a deterministic operational command, when one was recognized. */
@@ -322,6 +327,12 @@ export function resolveTurnIntent(
   const targetedProjectQuery = Boolean(classification.projectTarget);
   const unresolvedProjectQuery =
     classification.projectTargetResolution === "unresolved";
+  const projectQueryTargetMode: ProjectQueryTargetMode | undefined =
+    classification.projectTargetResolution === "resolved"
+      ? "resolved_target"
+      : classification.projectTargetResolution === "unresolved"
+        ? "source_first_discovery"
+        : undefined;
   const hasProjectToolSignal =
     SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
   // Generic/social questions classified as simple must remain fast, tool-free
@@ -491,6 +502,7 @@ export function resolveTurnIntent(
     ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
     projectTargetResolution:
       classification.projectTargetResolution ?? "not_applicable",
+    ...(projectQueryTargetMode ? { projectQueryTargetMode } : {}),
     ...(serverAction ? { serverAction } : {}),
     ...(operationalCommand ? { operationalCommand } : {}),
     ...(explicitEvidenceIntent && !scopeClarificationRequired

@@ -2194,6 +2194,10 @@ export interface ExecutionLedgerSnapshot {
 }
 
 /**
+ * Allowlisted server-owned source-targeting mode; no planner or provider text is included.
+ */
+export type ProjectQueryTargetDecisionMode = typeof ProjectQueryTargetDecisionMode[keyof typeof ProjectQueryTargetDecisionMode];
+/**
  * Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
  */
 export type ProviderFailureCategory = typeof ProviderFailureCategory[keyof typeof ProviderFailureCategory];
@@ -2543,6 +2547,8 @@ export interface AiChatMessage {
   executionLedger?: ExecutionLedgerSnapshot | null;
   /** Server-authoritative intent used to route this turn */
   turnIntent?: string | null;
+  /** Server-owned source-targeting decision for architectural project queries. */
+  projectQueryTarget?: ProjectQueryTargetDecision | null;
   /** Durable execution linked to this conversational turn */
   executionId?: string | null;
   outcome?: AiChatMessageOutcome;
@@ -5232,3 +5238,14 @@ activeOnly?: boolean;
 limit?: number;
 };
 
+
+export const ProjectQueryTargetDecisionMode = {
+  resolved_target: 'resolved_target',
+  bounded_unresolved_hint: 'bounded_unresolved_hint',
+  source_first_discovery: 'source_first_discovery',
+} as const;
+
+export interface ProjectQueryTargetDecision {
+  /** Allowlisted server-owned source-targeting mode; no planner or provider text is included. */
+  mode: ProjectQueryTargetDecisionMode;
+}

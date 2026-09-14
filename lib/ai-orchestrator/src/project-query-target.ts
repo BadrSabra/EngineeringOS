@@ -10,6 +10,10 @@ export type ProjectQueryTargetResolution =
   | "unresolved"
   | "not_applicable";
 
+export type ProjectQueryTargetMode =
+  | "resolved_target"
+  | "bounded_unresolved_hint"
+  | "source_first_discovery";
 export type ProjectQueryTarget = {
   id: ProjectQueryTargetId;
   label: string;
@@ -624,4 +628,23 @@ export function detectProjectQueryClaimContradictions(input: {
     reason:
       'accepted source evidence proves finish_reason="error" is rejected before tool execution, but the answer asserts that this guard is absent',
   }];
+}
+
+export type ProjectQueryTargetDecision = {
+  mode: ProjectQueryTargetMode;
+};
+
+export function deriveProjectQueryTargetMode(input: {
+  targetResolution?: ProjectQueryTargetResolution;
+  targetFiles?: readonly string[];
+  targetConfidence?: number;
+}): ProjectQueryTargetMode | undefined {
+  if (input.targetResolution === "resolved") return "resolved_target";
+  if (input.targetResolution !== "unresolved") return undefined;
+  return input.targetFiles && input.targetFiles.length > 0
+    && input.targetFiles.length <= 4
+    && typeof input.targetConfidence === "number"
+    && input.targetConfidence >= 0.75
+    ? "bounded_unresolved_hint"
+    : "source_first_discovery";
 }

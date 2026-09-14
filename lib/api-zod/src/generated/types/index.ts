@@ -397,6 +397,8 @@ export * from './pluginProjectRequest';
 export * from './productionReachabilityTrace';
 export * from './productionReachabilityTraceStatus';
 export * from './project';
+export * from './projectQueryTargetDecision';
+export * from './projectQueryTargetDecisionMode';
 export * from './projectStatus';
 export * from './projectSummary';
 export * from './projectSummaryTaskCounts';

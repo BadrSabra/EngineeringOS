@@ -5,6 +5,7 @@ import {
   buildProjectQueryObjective,
   classifyRequest,
   detectProjectQueryClaimContradictions,
+  deriveProjectQueryTargetMode,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
@@ -12,6 +13,23 @@ import { deriveObjectiveRuntimeEdgesFromRetainedReads } from "../evidence-integr
 import type { EvidenceReference } from "../task-contracts.js";
 
 describe("target-aware project queries", () => {
+  it("derives only the allowlisted operator source-targeting modes", () => {
+    expect(deriveProjectQueryTargetMode({ targetResolution: "resolved" }))
+      .toBe("resolved_target");
+    expect(deriveProjectQueryTargetMode({
+      targetResolution: "unresolved",
+      targetFiles: ["src/a.ts"],
+      targetConfidence: 0.9,
+    })).toBe("bounded_unresolved_hint");
+    expect(deriveProjectQueryTargetMode({
+      targetResolution: "unresolved",
+      targetFiles: ["src/a.ts"],
+      targetConfidence: 0.7,
+    })).toBe("source_first_discovery");
+    expect(deriveProjectQueryTargetMode({ targetResolution: "not_applicable" }))
+      .toBeUndefined();
+  });
+
   it("recognizes the Arabic embedded-AI request and declares bounded evidence", () => {
     const message = "قم بتحليل طبقة الذكاء الاصطناعي المدمج داخل المشروع";
     const target = resolveProjectQueryTarget(message);

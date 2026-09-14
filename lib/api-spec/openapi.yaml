@@ -5699,6 +5699,10 @@ components:
           type: string
           nullable: true
           description: Server-authoritative intent used to route this turn
+        projectQueryTarget:
+          nullable: true
+          description: Server-owned source-targeting decision for architectural project queries.
+          $ref: "#/components/schemas/ProjectQueryTargetDecision"
         executionId:
           type: string
           nullable: true
@@ -5780,6 +5784,16 @@ components:
       type: string
       enum: [TIMEOUT, MODEL_REJECTED, MODEL_UNAVAILABLE, RATE_LIMITED, FALLBACK_EXHAUSTED, TRANSPORT_FAILURE, MALFORMED_RESPONSE, UNKNOWN]
       description: Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
+
+    ProjectQueryTargetDecision:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [resolved_target, bounded_unresolved_hint, source_first_discovery]
+          description: Allowlisted server-owned source-targeting mode; no planner or provider text is included.
 
     AiExecutionDiagnostics:
       type: object

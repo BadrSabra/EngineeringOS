@@ -5364,7 +5364,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     projectIds.push(projectId);
 
     for (const [message, turnIntent] of [
-      ["Please explain the request flow", "CHAT"],
+      ["Please explain the request flow", "PROJECT_QUERY"],
       ["Could you review this file?", "PROJECT_QUERY"],
     ] as const) {
       const explanation = await request(app)

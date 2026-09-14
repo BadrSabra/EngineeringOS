@@ -127,6 +127,9 @@ export type AiStreamDoneEvent = {
     sessionId?: string | null;
     attempt?: number;
     terminalProjection?: AiTerminalProjection;
+    projectQueryTarget?: {
+      mode: 'resolved_target' | 'bounded_unresolved_hint' | 'source_first_discovery';
+    } | null;
     outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
     errorCode?: string | null;
     errorMessage?: string | null;

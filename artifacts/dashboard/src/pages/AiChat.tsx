@@ -152,6 +152,9 @@ type ChatMessage = {
   toolTrace?: string | null;
   executionLedger?: ExecutionLedgerPublicSnapshot | null;
   turnIntent?: string | null;
+  projectQueryTarget?: {
+    mode: 'resolved_target' | 'bounded_unresolved_hint' | 'source_first_discovery';
+  } | null;
   executionId?: string | null;
   outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
   errorCode?: string | null;
@@ -215,6 +218,38 @@ type ChatMessage = {
 };
 
 type OperationMode = 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
+
+const projectQueryTargetCopy: Record<
+  NonNullable<ChatMessage['projectQueryTarget']>['mode'],
+  { title: string; detail: string; className: string }
+> = {
+  resolved_target: {
+    title: 'Target resolved',
+    detail: 'Evidence collection used the resolved subsystem target.',
+    className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+  },
+  bounded_unresolved_hint: {
+    title: 'Bounded target hint',
+    detail: 'The subsystem was ambiguous, so collection used only a small set of high-confidence source hints.',
+    className: 'border-sky-500/30 bg-sky-500/10 text-sky-200',
+  },
+  source_first_discovery: {
+    title: 'Source-first discovery',
+    detail: 'No subsystem could be selected safely, so collection started from project sources without broad graph candidates.',
+    className: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+  },
+};
+
+function ProjectQueryTargetCard({ decision }: { decision: NonNullable<ChatMessage['projectQueryTarget']> }) {
+  const copy = projectQueryTargetCopy[decision.mode];
+  if (!copy) return null;
+  return (
+    <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${copy.className}`}>
+      <div className="font-medium">{copy.title}</div>
+      <div className="mt-0.5 opacity-85">{copy.detail}</div>
+    </div>
+  );
+}
 type DeliveryLifecycle =
   | 'proposed' | 'isolated' | 'validated' | 'applied' | 'conflicted'
   | 'committed' | 'cancelled' | 'abandoned' | 'blocked';
@@ -5479,6 +5514,9 @@ function MessageBubble({
         )}
         {!isUser && msg.contextProvenance && (
           <ContextProvenanceCard provenance={msg.contextProvenance} />
+        )}
+        {!isUser && msg.projectQueryTarget && (
+          <ProjectQueryTargetCard decision={msg.projectQueryTarget} />
         )}
         {!isUser && <BehaviorEvidencePanel evidence={parseBehaviorEvidence(msg.behaviorEvidence)} projectId={projectId} />}
         {!isUser && (

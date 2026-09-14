@@ -68,6 +68,7 @@ import type { ForensicRootCoverage } from "./forensic-output-guard.js";
 import type { ValidationResult } from "./validation-result.js";
 import { formatUntrustedContent } from "./untrusted-content.js";
 import { hasToolAppendedTruncationMarker } from "./source-read-status.js";
+import type { ProjectQueryTargetMode } from "./project-query-target.js";
 
 // ── Defaults ────────────────────────
 
@@ -1596,6 +1597,7 @@ export type AgentDiagnosticCode =
  * for streaming live tool-call progress to the UI without polling.
  */
 export type AgentStep =
+  | { kind: "project_query_target"; mode: ProjectQueryTargetMode }
   | {
       kind: "plan_activity";
       stage: "understand" | "scope" | "plan" | "execute" | "validate";

@@ -51,7 +51,11 @@ import {
   findGapAnalysisMatch,
   normalizeIntentText,
 } from "../task-contracts.js";
-import type { ProjectQueryTargetResolution } from "../project-query-target.js";
+import {
+  deriveProjectQueryTargetMode,
+  type ProjectQueryTargetMode,
+  type ProjectQueryTargetResolution,
+} from "../project-query-target.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -97,6 +101,8 @@ export type QueryPlan = {
   planStatus?: QueryPlanStatus;
   /** Whether the caller has a resolved subsystem target for this plan. */
   targetResolution?: ProjectQueryTargetResolution;
+  /** Server-owned explanation of how source targeting was handled. */
+  targetMode?: ProjectQueryTargetMode;
   /** Planner confidence that targetFiles are a safe bounded source set. */
   targetConfidence?: number;
   /** Bounded diagnostics for an invalid or fallback plan. */
@@ -419,6 +425,7 @@ function constrainUnresolvedTargetPlan(
   return {
     ...plan,
     targetResolution,
+    targetMode: safe ? "bounded_unresolved_hint" : "source_first_discovery",
     targetFiles: safe ? plan.targetFiles.slice(0, MAX_UNRESOLVED_TARGET_FILES) : [],
     targetEntities: safe ? plan.targetEntities.slice(0, 4) : [],
     planDiagnostics: [...new Set([...(plan.planDiagnostics ?? []), diagnostic])].slice(0, 4),
@@ -1006,6 +1013,19 @@ export async function planQuery(opts: {
   const normalizedPlan: QueryPlan = {
     ...plan,
     ...(targetResolution ? { targetResolution } : {}),
+    ...(deriveProjectQueryTargetMode({
+      targetResolution,
+      targetFiles: plan.targetFiles,
+      targetConfidence: plan.targetConfidence,
+    })
+      ? {
+          targetMode: deriveProjectQueryTargetMode({
+            targetResolution,
+            targetFiles: plan.targetFiles,
+            targetConfidence: plan.targetConfidence,
+          }),
+        }
+      : {}),
     subQueries:
       plan.subQueries.length >= 2
         ? plan.subQueries
@@ -1026,6 +1046,9 @@ export async function planQuery(opts: {
       originalIntent: message,
       planStatus: "invalid",
       targetResolution,
+      ...(deriveProjectQueryTargetMode({ targetResolution })
+        ? { targetMode: deriveProjectQueryTargetMode({ targetResolution }) }
+        : {}),
       planDiagnostics: ["broad plans require at least two focused subQueries"],
     };
   }

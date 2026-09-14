@@ -263,6 +263,7 @@ describe("query-planner — knowledge-graph enrichment", () => {
       "src/c.ts",
       "src/d.ts",
     ]);
+    expect(result.targetMode).toBe("bounded_unresolved_hint");
     expect(result.planDiagnostics?.join("\n")).toContain("high-confidence");
   });
 
@@ -285,6 +286,7 @@ describe("query-planner — knowledge-graph enrichment", () => {
     expect(result.targetResolution).toBe("unresolved");
     expect(result.targetFiles).toEqual([]);
     expect(result.targetEntities).toEqual([]);
+    expect(result.targetMode).toBe("source_first_discovery");
     expect(result.planDiagnostics?.join("\n")).toContain("source-first");
   });
 

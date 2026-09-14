@@ -116,6 +116,7 @@ import type {
   ExecutionPlan,
   ReadStatus,
   ProjectFileSource,
+  ProjectQueryTargetMode,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
@@ -3065,7 +3066,34 @@ type PersistedToolTraceEntry = {
   validationDetail?: string;
   resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
   diagnosticCode?: string;
+  projectQueryTarget?: {
+    mode: ProjectQueryTargetMode;
+  };
 };
+
+const PROJECT_QUERY_TARGET_MODES = new Set<ProjectQueryTargetMode>([
+  "resolved_target",
+  "bounded_unresolved_hint",
+  "source_first_discovery",
+]);
+
+function projectQueryTargetFromTrace(raw: string | null | undefined): { mode: ProjectQueryTargetMode } | undefined {
+  if (!raw) return undefined;
+  try {
+    const entries = JSON.parse(raw);
+    if (!Array.isArray(entries)) return undefined;
+    const entry = [...entries].reverse().find((candidate) =>
+      candidate
+      && typeof candidate === "object"
+      && (candidate as { kind?: unknown }).kind === "project_query_target",
+    ) as { mode?: unknown } | undefined;
+    return typeof entry?.mode === "string" && PROJECT_QUERY_TARGET_MODES.has(entry.mode as ProjectQueryTargetMode)
+      ? { mode: entry.mode as ProjectQueryTargetMode }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Keep execution observability separate from the assistant report. The trace
@@ -3126,6 +3154,11 @@ function serializeToolTrace(
           ...(step.nextStepTitle ? { nextStepTitle: step.nextStepTitle } : {}),
           ...(step.approvalRequired ? { approvalRequired: true } : {}),
           ...(step.approvalReason ? { approvalReason: step.approvalReason } : {}),
+        };
+      case "project_query_target":
+        return {
+          kind: step.kind,
+          mode: step.mode,
         };
       case "validation":
         {
@@ -4856,6 +4889,9 @@ router.post("/ai/chat", async (req, res) => {
         errorMessage: safeMessage,
         message: {
           ...failedMessage,
+          ...(projectQueryTargetFromTrace(failedMessage.toolTrace)
+            ? { projectQueryTarget: projectQueryTargetFromTrace(failedMessage.toolTrace) }
+            : {}),
           failureKind: terminalOutcome.failureKind,
           retryable: terminalOutcome.retryable,
           recoveryState: terminalOutcome.recoveryState,
@@ -4882,6 +4918,9 @@ router.post("/ai/chat", async (req, res) => {
           ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         },
         executionLedger: executionLedgerSnapshot,
+        ...(projectQueryTargetFromTrace(failedMessage.toolTrace)
+          ? { projectQueryTarget: projectQueryTargetFromTrace(failedMessage.toolTrace) }
+          : {}),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
         ...(report ? { report: sanitizeResponseText(report).slice(0, 12_000) } : {}),
@@ -5228,11 +5267,13 @@ router.post("/ai/chat", async (req, res) => {
     const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
       ? deriveForensicDiagnostic(traceSteps)
       : undefined;
+    const projectQueryTarget = projectQueryTargetFromTrace(assistantMsg.toolTrace);
     return res.json({
       sessionId: sessionIdToUse,
       message: {
         ...assistantMsg,
         taskResult: parseTaskResult(assistantMsg.taskResult),
+        ...(projectQueryTarget ? { projectQueryTarget } : {}),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       },
@@ -5242,6 +5283,7 @@ router.post("/ai/chat", async (req, res) => {
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       sources: parseStoredJson(assistantMsg.sources) ?? [],
       toolTrace: assistantMsg.toolTrace,
+      ...(projectQueryTarget ? { projectQueryTarget } : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       pendingChanges: proposalId
         ? proposalChanges
@@ -7976,6 +8018,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           ),
           executionLedgerSnapshot,
         );
+        const projectQueryTarget = projectQueryTargetFromTrace(publicToolTrace);
         const forensicDiagnostic = streamTurnIntent.requiresEvidence
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
@@ -8131,11 +8174,13 @@ router.post("/ai/chat/stream", async (req, res) => {
                 ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
                 : {}),
               executionLedger: executionLedgerSnapshot,
+              ...(projectQueryTarget ? { projectQueryTarget } : {}),
                contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
               ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
             },
             sources: collectVerifiedTurnSources(result, traceSteps),
             toolTrace: publicToolTrace,
+             ...(projectQueryTarget ? { projectQueryTarget } : {}),
              contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             pendingChanges: redactUserFacingValue(result.pendingChanges),
             operationMode: streamTurnIntent.operationMode,
@@ -8391,6 +8436,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         const publicErrorCode = targetedProjectQueryFailure
           ? terminalErrorCode
           : err instanceof GroqClientError ? err.code : "unknown";
+        const projectQueryTarget = projectQueryTargetFromTrace(
+          persistedProviderFailure?.toolTrace ?? serializeToolTrace(traceSteps, false),
+        );
         const retryable = terminalOutcome.retryable;
         sse({
           type: "error",
@@ -8416,6 +8464,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
           terminalProjection,
           executionLedger: executionLedgerSnapshot,
+          ...(projectQueryTarget ? { projectQueryTarget } : {}),
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
           ...(terminalOutcome.providerFailureCategory
             ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
@@ -9361,6 +9410,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionLedgerSnapshot,
           )
       : assistantMsg.toolTrace;
+    const projectQueryTarget = projectQueryTargetFromTrace(publicToolTrace);
     const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
       ? deriveForensicDiagnostic(traceSteps, { capabilityProbeResult: result.taskResult })
       : undefined;
@@ -9394,6 +9444,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         ? { terminalProjection: completedTerminalProjection }
         : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+      ...(projectQueryTarget ? { projectQueryTarget } : {}),
     };
     sse({
       type: "done",
@@ -9403,6 +9454,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         taskResult: publicAssistantTaskResult,
       },
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+      ...(projectQueryTarget ? { projectQueryTarget } : {}),
       sources: publicAssistantSources,
       toolTrace: publicToolTrace,
       pendingChanges: proposalId
@@ -10389,6 +10441,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         : { missionCorrelationReport: historicalReport.report }),
       taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
       executionLedger: readExecutionLedgerTrace(message.toolTrace),
+      ...(projectQueryTargetFromTrace(message.toolTrace)
+        ? { projectQueryTarget: projectQueryTargetFromTrace(message.toolTrace) }
+        : {}),
       ...(readContextProvenanceTrace(message.toolTrace)
         ? { contextProvenance: readContextProvenanceTrace(message.toolTrace) }
         : {}),

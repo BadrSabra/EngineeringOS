@@ -635,12 +635,15 @@ export {
   isSessionQualityAuditRequest,
   buildProjectQueryObjective,
   detectProjectQueryClaimContradictions,
+  deriveProjectQueryTargetMode,
 } from "./project-query-target.js";
 export type {
   ProjectQueryClaimContradiction,
   ProjectQueryTarget,
   ProjectQueryTargetId,
   ProjectQueryTargetResolution,
+  ProjectQueryTargetMode,
+  ProjectQueryTargetDecision,
 } from "./project-query-target.js";
 
 export {

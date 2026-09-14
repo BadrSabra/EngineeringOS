@@ -7122,6 +7122,16 @@ export async function chat(opts: {
     }
   }
 
+  if (
+    turnIntent.kind === "PROJECT_QUERY"
+    && turnIntent.projectTargetResolution !== "not_applicable"
+  ) {
+    relayAgentStep({
+      kind: "project_query_target",
+      mode: queryPlan?.targetMode ?? turnIntent.projectQueryTargetMode ?? "source_first_discovery",
+    });
+  }
+
   if (tools != null && rootPath && immediateIntent && priorRepairPlan && executionFilePaths.length > 0) {
     const executionPrefetch = await prefetchFileList({
       files: executionFilePaths,
