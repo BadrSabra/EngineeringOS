@@ -4340,7 +4340,7 @@ function buildRepairPlanExecutionResponse(
   changes: PendingChange[],
   isArabic: boolean,
   incomplete = false,
-  stopReason?: "repeated_tool_call" | "iteration_budget" | "soft_limit" | "empty_response" | "provider_timeout",
+      stopReason?: "repeated_tool_call" | "iteration_budget" | "soft_limit" | "empty_response" | "provider_timeout" | "provider_failure",
   stoppedTool?: string,
   diagnosticDetails: string[] = [],
 ): string {

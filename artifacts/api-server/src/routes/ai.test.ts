@@ -1628,6 +1628,78 @@ describe("POST /api/ai/chat", () => {
     });
   });
 
+  it.each(["/api/ai/chat", "/api/ai/chat/stream"])(
+    "keeps a recovered evidence result consistent across JSON/SSE, message history, and terminal acceptance (%s)",
+    async (endpoint) => {
+      const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+      vi.mocked(mockChat).mockResolvedValueOnce({
+        response: "Recovered objective answer from retained source evidence.",
+        sources: ["src/agent.ts"],
+        pendingChanges: [],
+        behaviorEvidence: [{
+          source: "src/agent.ts",
+          excerpt: "return verifiedObjective;",
+          sourceSpan: { startLine: 12, endLine: 14 },
+          supportsClaim: true,
+          relevance: 1,
+          directness: "DIRECT",
+          sourceType: "IMPLEMENTATION",
+          productionReachability: "NOT_PROVEN",
+          evidenceClass: "BEHAVIOR_PROVEN",
+        }],
+      });
+
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const res = await request(app)
+        .post(endpoint)
+        .send({ projectId, message: "Explain the verified objective result." });
+
+      expect(res.status).toBe(200);
+      const terminal = endpoint.endsWith("/stream") ? lastSseEvent(res.text) : res.body;
+      if (endpoint.endsWith("/stream")) {
+        expect(terminal).toMatchObject({
+          type: "done",
+          message: expect.objectContaining({
+            role: "assistant",
+            content: "Recovered objective answer from retained source evidence.",
+            outcome: "SUCCEEDED",
+            executionLedger: expect.objectContaining({ terminalReason: "completed" }),
+          }),
+        });
+      } else {
+        expect(terminal).toMatchObject({
+          outcome: "SUCCEEDED",
+          message: expect.objectContaining({
+            role: "assistant",
+            content: "Recovered objective answer from retained source evidence.",
+            outcome: "SUCCEEDED",
+          }),
+          executionLedger: expect.objectContaining({ terminalReason: "completed" }),
+        });
+      }
+
+      const sessionId = terminal.sessionId as string;
+      expect(sessionId).toEqual(expect.any(String));
+      const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+      expect(history.status).toBe(200);
+      expect(history.body).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          role: "assistant",
+          content: "Recovered objective answer from retained source evidence.",
+          outcome: "SUCCEEDED",
+          behaviorEvidence: expect.arrayContaining([
+            expect.objectContaining({
+              source: "src/agent.ts",
+              sourceSpan: { startLine: 12, endLine: 14 },
+              evidenceClass: "BEHAVIOR_PROVEN",
+            }),
+          ]),
+        }),
+      ]));
+    },
+  );
+
   // Task #63 — Objective Completion Gate production reachability. The gate is
   // implemented inside chat()/chatWithFallback; for it to actually fire on the
   // real entry points, the request body must accept a validated `objective` and

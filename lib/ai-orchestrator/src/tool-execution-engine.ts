@@ -1405,7 +1405,7 @@ export type ToolLoopResult =
       evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
-      reason?: "soft_limit" | "empty_response" | "provider_timeout";
+       reason?: "soft_limit" | "empty_response" | "provider_timeout" | "provider_failure";
        objectiveState?: AgentLoopState;
     }
   | {
@@ -1797,6 +1797,7 @@ export type AgentStep =
         | "repeated_tool_call"
         | "empty_response"
          | "provider_timeout"
+         | "provider_failure"
          | "tool_failure"
          | "claim_unclosed"
          | "evidence_incomplete"
@@ -2486,6 +2487,54 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     );
     return serverOwnedEvidencePaths
       .find((value) => value.length > 0 && !verified.has(value)) ?? null;
+  };
+  const objectiveEvidenceManifestComplete = (): boolean =>
+    objectiveRequiredEvidencePaths.length > 0
+    && nextMissingObjectiveEvidencePath() === null
+    && fileContents.size > 0;
+  const retainedEvidenceProviderFailure = (): ToolLoopResult => {
+    loopPhase = "terminal";
+    currentIteration = Math.max(currentIteration, 0);
+    const retainedResult: RawGroqResponse = lastTextSeen
+      ? { ...lastTextSeen, toolCalls: null }
+      : {
+          content: "",
+          toolCalls: null,
+          model,
+          usage: { promptTokens: 0, completionTokens: 0 },
+        };
+    try {
+      onStep?.({
+        kind: "done",
+        iterations: currentIteration,
+        maxIterations,
+        ...executionCounts(),
+        stopReason: "provider_failure",
+        synthesisStarted,
+        synthesisAttempts,
+        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+          : {}),
+        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
+        diagnosticCodes: [],
+        sourceRetrieval,
+        objectiveState: buildObjectiveState("goal_met"),
+      });
+    } catch { /* observers must not change terminal semantics */ }
+    return {
+      kind: "partial",
+      result: retainedResult,
+      toolSources,
+      fileContents,
+      evidenceWindows: sourceEvidenceWindows,
+      sourceRetrieval,
+      reason: "provider_failure",
+      ...(buildObjectiveState("goal_met")
+        ? { objectiveState: buildObjectiveState("goal_met") }
+        : {}),
+    };
   };
   const isObjectiveRequiredEvidencePath = (path: string): boolean =>
     objectiveRequiredEvidencePaths.includes(canonicalRel(path));
@@ -3685,7 +3734,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               reason: "provider_timeout",
             };
           }
-          if (!recoveredInvalidFallback) throw fallbackErr;
+           if (
+             !recoveredInvalidFallback
+             && objectiveEvidenceManifestComplete()
+           ) {
+             return retainedEvidenceProviderFailure();
+           }
+           if (!recoveredInvalidFallback) throw fallbackErr;
         }
       } else if (!recoveredInvalidToolCall) {
         if (err instanceof GroqClientError) {
@@ -3713,6 +3768,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             result = recovery;
             recoveredInvalidToolCall = true;
           }
+        }
+        if (
+          !recoveredInvalidToolCall
+          && objectiveEvidenceManifestComplete()
+        ) {
+          return retainedEvidenceProviderFailure();
         }
 
         // TIMEOUT (already on powerModel, or non-retryable transient): degrade

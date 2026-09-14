@@ -743,6 +743,68 @@ describe("executeToolLoop", () => {
     ]));
   });
 
+  it("returns retained complete objective evidence for finalization after provider failure", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const providerFailure = new GroqClientError("NON_200", "fixture final synthesis failure");
+    let callCount = 0;
+    const strategy: ProviderStrategy = {
+      providerId: "test",
+      supportsNativeStream: false,
+      call: vi.fn(async () => {
+        callCount += 1;
+        if (callCount === 1) {
+          return makeResponse("", [
+            makeToolCall("first-read", "read_file", { path: "src/first.ts" }),
+          ]);
+        }
+        if (callCount === 2) {
+          return makeResponse("", [
+            makeToolCall("second-read", "read_file", { path: "src/second.ts" }),
+          ]);
+        }
+        throw providerFailure;
+      }),
+      stream: async function* () { yield ""; },
+    };
+    FILE_TOOL_MOCK.mockImplementation(async (_name: string, args: { path?: string }) =>
+      `File: ${args.path ?? "unknown"}\nexport const retained = true;`,
+    );
+    const steps: AgentStep[] = [];
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "same-model",
+      powerModel: "same-model",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 4,
+      onStep: (step) => steps.push(step),
+      objective: {
+        goal: "verify both objective source paths",
+        requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+        requiredClaims: [{
+          claimId: "claim-1",
+          requiredEvidencePaths: ["src/first.ts", "src/second.ts"],
+        }],
+      },
+    });
+
+    expect(result.kind).toBe("partial");
+    if (result.kind !== "partial") throw new Error("expected retained evidence partial result");
+    expect(result.reason).toBe("provider_failure");
+    expect(result.fileContents?.size).toBe(2);
+    expect(result.objectiveState?.claims[0]?.status).toBe("PROVEN");
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "done",
+        stopReason: "provider_failure",
+      }),
+    ]));
+  });
+
   it("recovers the next objective path after both primary and power-model failures", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const providerFailure = new GroqClientError("SERVER_ERROR", "fixture provider interruption");

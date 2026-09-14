@@ -931,10 +931,11 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       return {
         ...actual,
         executeToolLoop: vi.fn(async () => ({
-          kind: "response" as const,
+          kind: "partial" as const,
+          reason: "provider_failure" as const,
           result: {
             content: JSON.stringify({ response: "", sources: [] }),
-            toolCalls: [],
+            toolCalls: null,
             model: "provider-failure-model",
             usage: {},
           },
