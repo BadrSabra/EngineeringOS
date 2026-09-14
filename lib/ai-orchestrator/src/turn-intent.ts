@@ -21,6 +21,7 @@ import {
   type OperationalCommand,
 } from "./operational-command.js";
 import { isRunProjectScanRequest } from "./scan-command.js";
+import type { ProjectQueryTargetResolution } from "./project-query-target.js";
 import {
   isArabicExplicitExecutionActionRequest,
   isArabicMutationActionRequest,
@@ -90,6 +91,8 @@ export type TurnIntent = {
   classification: ClassifiedRequest;
   /** Server-owned subsystem target for a targeted read-only project query. */
   projectTarget?: ClassifiedRequest["projectTarget"];
+  /** Server-owned target resolution state, including safe ambiguity handling. */
+  projectTargetResolution: ProjectQueryTargetResolution;
   /** A deterministic server-owned action that must not be delegated to a provider. */
   serverAction?: TurnServerAction;
   /** Details for a deterministic operational command, when one was recognized. */
@@ -264,6 +267,8 @@ export function resolveTurnIntent(
       )
     );
   const targetedProjectQuery = Boolean(classification.projectTarget);
+  const unresolvedProjectQuery =
+    classification.projectTargetResolution === "unresolved";
   const hasProjectToolSignal =
     SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
   // Generic/social questions classified as simple must remain fast, tool-free
@@ -301,6 +306,9 @@ export function resolveTurnIntent(
     BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) ||
     EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) ||
     hasExplicitAuditScope(normalizedMessage, classification);
+  const projectQueryEvidence =
+    (!broadForensicTask || !broadAuditIntent) &&
+    (targetedProjectQuery || unresolvedProjectQuery || gapAnalysisProjectQuery);
   const scopeClarificationRequired =
     !buildHandoff &&
     !options.resumed &&
@@ -347,6 +355,7 @@ export function resolveTurnIntent(
      ) ||
      gapAnalysisProjectQuery ||
      targetedProjectQuery ||
+      unresolvedProjectQuery ||
      resumedForensicContinuation,
   );
 
@@ -362,8 +371,7 @@ export function resolveTurnIntent(
     ? "DELIVERY"
     : explicitEvidenceIntent &&
         !scopeClarificationRequired &&
-        !targetedProjectQuery &&
-        !gapAnalysisProjectQuery
+        !projectQueryEvidence
       ? "FORENSIC_AUDIT"
       : requiresTools
         ? "PROJECT_QUERY"
@@ -372,8 +380,7 @@ export function resolveTurnIntent(
     ? "task_execution"
      : explicitEvidenceIntent &&
          !scopeClarificationRequired &&
-         !targetedProjectQuery &&
-         !gapAnalysisProjectQuery
+          !projectQueryEvidence
       ? "analysis"
       : requiresTools
         ? "tool_chat"
@@ -429,6 +436,8 @@ export function resolveTurnIntent(
     compoundWrite,
     phases,
     ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
+    projectTargetResolution:
+      classification.projectTargetResolution ?? "not_applicable",
     ...(serverAction ? { serverAction } : {}),
     ...(operationalCommand ? { operationalCommand } : {}),
     ...(explicitEvidenceIntent && !scopeClarificationRequired

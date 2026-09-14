@@ -5,6 +5,10 @@ import {
 } from "./task-contracts.js";
 
 export type ProjectQueryTargetId = "embedded-ai" | "gap-analysis";
+export type ProjectQueryTargetResolution =
+  | "resolved"
+  | "unresolved"
+  | "not_applicable";
 
 export type ProjectQueryTarget = {
   id: ProjectQueryTargetId;
@@ -204,6 +208,38 @@ const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
 const BROAD_GAP_REQUEST_RE =
   /(?:\b(?:full|complete|comprehensive|entire|whole|repository|workspace|codebase|audit|review)\b|(?:تدقيق|دقق|شامل|بالكامل|كل\s+(?:المشروع|الكود)))/iu;
 
+const AMBIGUOUS_PROJECT_SCOPE_RE =
+  /(?:\b(?:project|workspace|repository|repo|codebase|system|architecture|module|service|component|layer|workflow|pipeline|flow|function|class|handler|endpoint|implementation|source|code)\b|مشروع|المشروع|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر)|النظام|المعمارية|الهندسة|الوحدة|الخدمة|المكوّن|المكون|الطبقة|سير\s+العمل|التدفق|الدالة|الفئة|المعالج|النقطة|التنفيذ|المصدر|الكود|الشفرة)/iu;
+
+const AMBIGUOUS_PROJECT_ANALYSIS_RE =
+  /(?:\b(?:analy[sz]e|analysis|review|assess|explain|describe|understand|trace|investigate|how|why|what)\b|تحليل|حلل|حلّل|راجع|مراجعة|قيّم|قيم|اشرح|شرح|صف|افهم|فهم|تتبع|تحقيق|كيف|لماذا|ما(?:ذا)?|أين)/iu;
+
+const PROJECT_ORIENTATION_RE =
+  /^(?:ما(?:\s+هو)?\s+(?:هذا\s+)?المشروع|ماذا\s+(?:يفعل|يقدم|يحتوي)\s+(?:هذا\s+)?المشروع|عن\s+ماذا\s+يدور\s+(?:هذا\s+)?المشروع|[اأ]شرح(?:\s+لي)?\s+(?:هذا\s+)?المشروع(?:\s+(?:بصورة\s+)?(?:مبسطة|ببساطة))?|ساعدني(?:\s+في)?\s+(?:فهم|أفهم)(?:\s+هذا)?\s+المشروع|ممكن\s+تساعدني(?:\s+أن)?\s+(?:أفهم\s+)?المشروع|هل\s+(?:هذا\s+)?المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+(?:the\s+)?(?:this\s+)?project(?:\s+status)?|what\s+does\s+(?:this\s+)?project\s+do|(?:explain|describe)\s+(?:this\s+)?project|help\s+me\s+understand\s+(?:this\s+)?project|is\s+(?:this\s+)?project\s+running|(?:ما|ماذا)\s+(?:هي|هو)?\s*(?:حالة|وضع)\s+(?:هذا\s+)?المشروع)[؟?!.\s]*$/iu;
+
+/**
+ * An evidence-shaped question can still lack a safe subsystem target. Keep
+ * this detector conservative: broad audits retain their separate consent
+ * boundary, while a bounded project/architecture question enters the
+ * source-first evidence path instead of being answered from the graph alone.
+ */
+export function isAmbiguousProjectQuery(message: string): boolean {
+  if (BROAD_GAP_REQUEST_RE.test(message)) return false;
+  if (PROJECT_ORIENTATION_RE.test(message.trim())) return false;
+  if (resolveProjectQueryTarget(message)) return false;
+  if (
+    /(?:^|[\s`"'(])(?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html)\b/iu.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  return (
+    AMBIGUOUS_PROJECT_SCOPE_RE.test(message) &&
+    AMBIGUOUS_PROJECT_ANALYSIS_RE.test(message)
+  );
+}
+
 function materializeTarget(
   target: Omit<ProjectQueryTarget, "confidence">,
   confidence: number,
@@ -234,6 +270,16 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
     return materializeTarget(GAP_ANALYSIS_TARGET, 0.9);
   }
   return materializeTarget(EMBEDDED_AI_TARGET, 0.98);
+}
+
+export function resolveProjectQueryTargetResolution(
+  message: string,
+): ProjectQueryTargetResolution {
+  return resolveProjectQueryTarget(message)
+    ? "resolved"
+    : isAmbiguousProjectQuery(message)
+      ? "unresolved"
+      : "not_applicable";
 }
 
 export function buildProjectQueryObjective(

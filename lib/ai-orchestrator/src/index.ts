@@ -630,6 +630,8 @@ export type {
 } from "./schemas/index.js";
 export {
   resolveProjectQueryTarget,
+  resolveProjectQueryTargetResolution,
+  isAmbiguousProjectQuery,
   buildProjectQueryObjective,
   detectProjectQueryClaimContradictions,
 } from "./project-query-target.js";
@@ -637,6 +639,7 @@ export type {
   ProjectQueryClaimContradiction,
   ProjectQueryTarget,
   ProjectQueryTargetId,
+  ProjectQueryTargetResolution,
 } from "./project-query-target.js";
 
 export {

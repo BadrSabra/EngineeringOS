@@ -790,6 +790,9 @@ export function resumeActiveTaskClassification(
       allowPrefetch: false,
       implementationTaskMode: false,
       implementationPlanMode: Boolean(state.executionPlan?.implementationPlan),
+      projectTargetResolution: state.projectQuery
+        ? "resolved"
+        : classification.projectTargetResolution,
       ...(state.projectQuery ? { projectTarget: state.projectQuery } : {}),
     },
     resumed: true,

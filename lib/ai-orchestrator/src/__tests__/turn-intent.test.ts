@@ -302,7 +302,7 @@ describe("resolveTurnIntent", () => {
   it.each([
     "Analyze my project architecture.",
     "حلل معمارية مشروعي.",
-  ])("keeps an ambiguous architecture question out of broad forensic scanning: %s", (message) => {
+  ])("keeps an ambiguous architecture question source-first without broad scanning: %s", (message) => {
     const classification = classifyRequest(message);
     const intent = resolveTurnIntent(message, { classification });
 
@@ -310,9 +310,10 @@ describe("resolveTurnIntent", () => {
       kind: "PROJECT_QUERY",
       executionTaskType: "tool_chat",
       requiresTools: true,
-      requiresEvidence: false,
+      requiresEvidence: true,
       scopeClarificationRequired: false,
       operationMode: "CHAT",
+      projectTargetResolution: "unresolved",
     });
     expect(classification.orderedForensicRoots).toEqual([]);
   });

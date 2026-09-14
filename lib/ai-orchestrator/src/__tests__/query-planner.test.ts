@@ -237,6 +237,79 @@ describe("query-planner — knowledge-graph enrichment", () => {
     expect(result.targetEntities).toEqual([]);
   });
 
+  it("keeps a high-confidence unresolved plan bounded to four source candidates", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Analyze my project architecture.",
+      projectContext: makeContext(false),
+      model: "mock-model",
+      strategy: makeMockStrategy({
+        targetFiles: [
+          "src/a.ts",
+          "src/b.ts",
+          "src/c.ts",
+          "src/d.ts",
+          "src/e.ts",
+        ],
+        targetConfidence: 0.9,
+      }) as never,
+      targetResolution: "unresolved",
+    });
+
+    expect(result.targetResolution).toBe("unresolved");
+    expect(result.targetFiles).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+      "src/c.ts",
+      "src/d.ts",
+    ]);
+    expect(result.planDiagnostics?.join("\n")).toContain("high-confidence");
+  });
+
+  it("preserves source-first fallback when an unresolved plan is broad or unqualified", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Analyze my project architecture.",
+      projectContext: makeContext(false),
+      model: "mock-model",
+      strategy: makeMockStrategy({
+        targetFiles: ["src/a.ts", "src/b.ts"],
+        targetEntities: ["A", "B"],
+        scopeEstimate: "medium",
+        suggestedIterations: 20,
+        targetConfidence: 0.5,
+      }) as never,
+      targetResolution: "unresolved",
+    });
+
+    expect(result.targetResolution).toBe("unresolved");
+    expect(result.targetFiles).toEqual([]);
+    expect(result.targetEntities).toEqual([]);
+    expect(result.planDiagnostics?.join("\n")).toContain("source-first");
+  });
+
+  it("does not graph-expand an unresolved target after bounded planning", async () => {
+    mockSearchNodes.mockResolvedValue([
+      { id: "entity-1", name: "AuthService", path: "src/auth.ts", projectId: "proj-1" },
+    ]);
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Analyze my project architecture.",
+      projectContext: makeContext(true),
+      model: "mock-model",
+      strategy: makeMockStrategy({
+        targetFiles: ["src/auth.ts"],
+        targetEntities: ["AuthService"],
+        targetConfidence: 0.9,
+      }) as never,
+      projectId: "proj-1",
+      targetResolution: "unresolved",
+    });
+
+    expect(result.targetFiles).toEqual(["src/auth.ts"]);
+    expect(mockSearchNodes).not.toHaveBeenCalled();
+  });
+
   it("caps total targetFiles at 15 even when the graph returns many paths", async () => {
     // LLM already returned 10 files
     const llmFiles = Array.from({ length: 10 }, (_, i) => `src/file-${i}.ts`);

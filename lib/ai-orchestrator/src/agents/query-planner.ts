@@ -51,6 +51,7 @@ import {
   findGapAnalysisMatch,
   normalizeIntentText,
 } from "../task-contracts.js";
+import type { ProjectQueryTargetResolution } from "../project-query-target.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,10 @@ export type QueryPlan = {
   compoundParts: CompoundQueryPart[];
   /** Server-owned interpretation of the planner response. */
   planStatus?: QueryPlanStatus;
+  /** Whether the caller has a resolved subsystem target for this plan. */
+  targetResolution?: ProjectQueryTargetResolution;
+  /** Planner confidence that targetFiles are a safe bounded source set. */
+  targetConfidence?: number;
   /** Bounded diagnostics for an invalid or fallback plan. */
   planDiagnostics?: string[];
 };
@@ -112,6 +117,8 @@ const GRAPH_GUIDANCE_TIMEOUT_MS = 2_000;
 const MAX_GRAPH_GUIDED_FILES = 10;
 const MAX_GRAPH_GUIDED_ROOTS = 4;
 const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
+const MAX_UNRESOLVED_TARGET_FILES = 4;
+const MIN_UNRESOLVED_TARGET_CONFIDENCE = 0.75;
 
 /**
  * Returned whenever planning fails (timeout, parse error, model error).
@@ -132,7 +139,11 @@ const FALLBACK_PLAN: QueryPlan = {
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
-function buildPlannerPrompt(message: string, graphSummary: string): string {
+function buildPlannerPrompt(
+  message: string,
+  graphSummary: string,
+  targetResolution?: ProjectQueryTargetResolution,
+): string {
   const truncated =
     graphSummary.length > MAX_GRAPH_CHARS
       ? graphSummary.slice(0, MAX_GRAPH_CHARS) + "\n…[truncated]"
@@ -151,6 +162,7 @@ Return exactly this JSON shape:
 {
   "targetFiles": [],
   "targetEntities": [],
+   "targetConfidence": 0,
   "scopeEstimate": "narrow",
   "suggestedIterations": 10,
   "requiresToolUse": true,
@@ -164,10 +176,16 @@ Rules:
 - scopeEstimate "broad"   → codebase-wide (e.g. "summarize backlog", "review architecture"), 15+ tool calls
 - targetFiles: file paths visible in the graph above that are relevant — max ${MAX_TARGET_FILES}, empty if none known
 - targetEntities: entity names from the graph — max 10, empty if none relevant
+- targetConfidence: a number from 0 to 1 for how confidently targetFiles identify the
+  relevant source set; use 0 when the target is ambiguous or the graph is insufficient
 - suggestedIterations: integer — narrow 5-16, medium 18-35, broad 40-60
 - subQueries: non-empty only when scopeEstimate is "broad" — decompose into 2-5 focused sub-questions
 - requiresToolUse: false only if the answer is factual and requires no file reading
 - compoundParts: preserve every requested part in order. Use kinds CURRENT_STATE, FEATURES, GAPS, PRIORITIES, or OTHER; set requiredCount to 3 only for an explicit top three request; every part requiresCitation when it makes a project claim
+- target resolution: ${targetResolution ?? "not_applicable"}
+- when target resolution is unresolved, return targetConfidence >= 0.75 only when the
+  targetFiles are a narrow, directly relevant source set; otherwise return 0 and an empty
+  targetFiles array. Never treat the knowledge graph as complete evidence.
 - originalIntent: copy the user query exactly`;
 }
 
@@ -247,6 +265,17 @@ export function validateQueryPlanShape(
   }
   if (typeof value.requiresToolUse !== "boolean") {
     diagnostics.push("requiresToolUse must be a boolean");
+  }
+  if (
+    value.targetConfidence !== undefined &&
+    (
+      typeof value.targetConfidence !== "number" ||
+      !Number.isFinite(value.targetConfidence) ||
+      value.targetConfidence < 0 ||
+      value.targetConfidence > 1
+    )
+  ) {
+    diagnostics.push("targetConfidence must be a number from 0 to 1");
   }
 
   const subQueries = Array.isArray(value.subQueries) ? value.subQueries : [];
@@ -332,6 +361,9 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
       scopeEstimate,
       suggestedIterations,
       requiresToolUse: parsed["requiresToolUse"] as boolean,
+      ...(typeof parsed["targetConfidence"] === "number"
+        ? { targetConfidence: parsed["targetConfidence"] }
+        : {}),
       subQueries: Array.isArray(parsed["subQueries"])
         ? (parsed["subQueries"] as string[]).filter((q) => typeof q === "string").slice(0, MAX_SUBQUERIES)
         : [],
@@ -359,6 +391,38 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * An unresolved project question may use planner candidates as navigation
+ * hints only when the planner is explicit about confidence and keeps the
+ * source set narrow. Broad or unqualified candidates are discarded so the
+ * prompt's source-first fallback remains authoritative.
+ */
+function constrainUnresolvedTargetPlan(
+  plan: QueryPlan,
+  targetResolution: ProjectQueryTargetResolution | undefined,
+): QueryPlan {
+  if (targetResolution !== "unresolved") return plan;
+
+  const safe =
+    plan.requiresToolUse &&
+    plan.scopeEstimate !== "broad" &&
+    plan.targetFiles.length > 0 &&
+    plan.targetFiles.length <= MAX_TARGET_FILES &&
+    typeof plan.targetConfidence === "number" &&
+    plan.targetConfidence >= MIN_UNRESOLVED_TARGET_CONFIDENCE;
+  const diagnostic = safe
+    ? `unresolved target: using ${plan.targetFiles.length} high-confidence planner source candidates`
+    : "unresolved target: planner candidates were not safe to prefetch; use source-first discovery";
+
+  return {
+    ...plan,
+    targetResolution,
+    targetFiles: safe ? plan.targetFiles.slice(0, MAX_UNRESOLVED_TARGET_FILES) : [],
+    targetEntities: safe ? plan.targetEntities.slice(0, 4) : [],
+    planDiagnostics: [...new Set([...(plan.planDiagnostics ?? []), diagnostic])].slice(0, 4),
+  };
 }
 
 export function inferCompoundParts(message: string): CompoundQueryPart[] {
@@ -823,14 +887,35 @@ export async function planQuery(opts: {
   projectId?: string;
   signal?: AbortSignal;
   executionLedger?: ExecutionLedger;
+  /** Server-owned target state used to constrain ambiguous planner output. */
+  targetResolution?: ProjectQueryTargetResolution;
 }): Promise<QueryPlan> {
-  const { message, projectContext, model, strategy, apiKey, projectId, signal, executionLedger } = opts;
+  const {
+    message,
+    projectContext,
+    model,
+    strategy,
+    apiKey,
+    projectId,
+    signal,
+    executionLedger,
+    targetResolution,
+  } = opts;
   const plannerStartedAt = Date.now();
   if (executionLedger && !executionLedger.admit("planner", { model, operation: "query_plan" })) {
-    return { ...FALLBACK_PLAN, originalIntent: message, planDiagnostics: ["request execution budget exhausted before planning"] };
+    return {
+      ...FALLBACK_PLAN,
+      originalIntent: message,
+      targetResolution,
+      planDiagnostics: ["request execution budget exhausted before planning"],
+    };
   }
 
-  const plannerPrompt = buildPlannerPrompt(message, projectContext.graphSummary);
+  const plannerPrompt = buildPlannerPrompt(
+    message,
+    projectContext.graphSummary,
+    targetResolution,
+  );
   const messages: RawMessage[] = [
     { role: "system", content: plannerPrompt },
     { role: "user", content: message },
@@ -874,7 +959,7 @@ export async function planQuery(opts: {
 
   if (!result) {
     console.warn(JSON.stringify({ scope: "query-planner", code: "TIMEOUT_OR_ERROR", model }));
-    return FALLBACK_PLAN;
+    return { ...FALLBACK_PLAN, originalIntent: message, targetResolution };
   }
 
   const parsedPlan = parsePlannerResponse(result.content);
@@ -902,6 +987,8 @@ export async function planQuery(opts: {
     return {
       ...FALLBACK_PLAN,
       planStatus: result.content ? "invalid" : "fallback",
+      originalIntent: message,
+      targetResolution,
       planDiagnostics: invalidDiagnostics.slice(0, 4),
     };
   }
@@ -918,6 +1005,7 @@ export async function planQuery(opts: {
   };
   const normalizedPlan: QueryPlan = {
     ...plan,
+    ...(targetResolution ? { targetResolution } : {}),
     subQueries:
       plan.subQueries.length >= 2
         ? plan.subQueries
@@ -925,22 +1013,27 @@ export async function planQuery(opts: {
           ? plan.compoundParts.map((part) => part.question).slice(0, MAX_SUBQUERIES)
           : plan.subQueries,
   };
+  const constrainedPlan = constrainUnresolvedTargetPlan(
+    normalizedPlan,
+    targetResolution,
+  );
   if (
-    normalizedPlan.scopeEstimate === "broad" &&
-    normalizedPlan.subQueries.length < 2
+    constrainedPlan.scopeEstimate === "broad" &&
+    constrainedPlan.subQueries.length < 2
   ) {
     return {
       ...FALLBACK_PLAN,
       originalIntent: message,
       planStatus: "invalid",
+      targetResolution,
       planDiagnostics: ["broad plans require at least two focused subQueries"],
     };
   }
 
   const enriched =
-    projectId && projectContext.metricsVerified
-      ? await enrichPlanWithGraph(normalizedPlan, projectId)
-      : normalizedPlan;
+    projectId && projectContext.metricsVerified && targetResolution !== "unresolved"
+      ? await enrichPlanWithGraph(constrainedPlan, projectId)
+      : constrainedPlan;
 
   console.info(
     JSON.stringify({
@@ -949,9 +1042,11 @@ export async function planQuery(opts: {
       scopeEstimate: enriched.scopeEstimate,
       suggestedIterations: enriched.suggestedIterations,
       targetFileCount: enriched.targetFiles.length,
-      graphEnriched: enriched.targetFiles.length > plan.targetFiles.length,
+      graphEnriched: enriched.targetFiles.length > constrainedPlan.targetFiles.length,
       subQueryCount: enriched.subQueries.length,
       requiresToolUse: enriched.requiresToolUse,
+      targetResolution: enriched.targetResolution,
+      targetConfidence: enriched.targetConfidence,
     }),
   );
 

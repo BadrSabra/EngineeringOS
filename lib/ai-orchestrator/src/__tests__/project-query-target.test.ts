@@ -177,6 +177,18 @@ describe("target-aware project queries", () => {
     expect(resolveProjectQueryTarget("راجع المشروع بالكامل وابحث عن الفجوات")).toBeUndefined();
   });
 
+  it("marks a bounded architecture question unresolved instead of inventing a subsystem", () => {
+    const message = "Analyze my project architecture.";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.projectTarget).toBeUndefined();
+    expect(classification.projectTargetResolution).toBe("unresolved");
+    expect(intent.projectTargetResolution).toBe("unresolved");
+    expect(intent.requiresEvidence).toBe(true);
+    expect(intent.kind).toBe("PROJECT_QUERY");
+  });
+
   it("leaves a generic project question as a non-evidence project query", () => {
     const message = "ما هذا المشروع؟";
     const classification = classifyRequest(message);

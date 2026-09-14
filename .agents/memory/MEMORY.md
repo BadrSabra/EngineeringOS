@@ -125,6 +125,7 @@
 - [Deterministic command routing](deterministic-command-routing.md) — named local report/build commands need an explicit server dispatcher, not generic AI action classification.
 - [Cancellation content precedence](cancellation-content-precedence.md) — a terminal cancellation must own persisted assistant content; lower-level empty/validation fallbacks must not leak into cancelled turns.
 - [Project-query target binding](project-query-target-binding.md) — architecture/project questions need target-aware read planning; provider success and citations alone cannot accept an unrelated answer.
+- [Ambiguous target planning](ambiguous-target-planning.md) — unresolved project targets may use only high-confidence bounded candidates; otherwise retain source-first discovery and avoid graph expansion.
 - [SSE recovery authority](sse-recovery-authority.md) — transport keepalive is separate from lease ownership; after EOF, durable status and acceptance decide recovery.
 - [Cancellation registration race](cancellation-registration-race.md) — cancel can win before the worker registers its controller; re-read durable state after registration and abort immediately.
 - [Dashboard proof fixture contracts](dashboard-proof-fixtures.md) — proof-bearing resumable fixtures must preserve proofRequired through terminal/reload state or the proof panel correctly disappears.

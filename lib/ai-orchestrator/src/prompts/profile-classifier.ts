@@ -24,7 +24,9 @@ import {
 } from "../task-contracts.js";
 import {
   resolveProjectQueryTarget,
+  resolveProjectQueryTargetResolution,
   type ProjectQueryTarget,
+  type ProjectQueryTargetResolution,
 } from "../project-query-target.js";
 
 export type RequestCategory =
@@ -105,6 +107,13 @@ export type ClassifiedRequest = {
   firstEvidence: FirstEvidenceGate;
   /** Named subsystem target for a read-only project query. */
   projectTarget?: ProjectQueryTarget;
+  /** Whether the project-query target is resolved, unresolved, or irrelevant. */
+  /**
+   * New classifier results always populate this field. It remains optional
+   * for older server-owned fixtures that construct ClassifiedRequest values
+   * directly rather than calling classifyRequest().
+   */
+  projectTargetResolution?: ProjectQueryTargetResolution;
 };
 
 // ─── Structured-output mode detection ────────────────────────────────────────
@@ -409,6 +418,7 @@ const CATEGORY_CONFIG: Record<
     | "analysisMode"
     | "outputContract"
     | "firstEvidence"
+    | "projectTargetResolution"
   >
 > = {
   simple:        { contextProfile: "chat-lite",   historyDepth: 2, allowPrefetch: false },
@@ -529,6 +539,7 @@ const PATTERNS: PatternEntry[] = [
 export function classifyRequest(message: string): ClassifiedRequest {
   const trimmed = message.trim();
   const projectTarget = resolveProjectQueryTarget(trimmed);
+  const projectTargetResolution = resolveProjectQueryTargetResolution(trimmed);
 
   const implementationPlanMode = detectImplementationPlanMode(trimmed);
   const implementationTaskMode =
@@ -619,6 +630,7 @@ export function classifyRequest(message: string): ClassifiedRequest {
       analysisMode: "STANDARD",
       outputContract: "GENERIC_RESPONSE",
       firstEvidence,
+      projectTargetResolution,
       ...(projectTarget ? { projectTarget } : {}),
     };
   }
@@ -641,6 +653,8 @@ export function classifyRequest(message: string): ClassifiedRequest {
        analysisMode: implementationTaskMode || implementationPlanMode ? "STANDARD" : taskRoute.analysisMode,
        outputContract: implementationTaskMode || implementationPlanMode ? "GENERIC_RESPONSE" : taskRoute.outputContract,
       firstEvidence,
+       projectTargetResolution,
+       ...(projectTarget ? { projectTarget } : {}),
     };
   }
 
@@ -693,6 +707,7 @@ export function classifyRequest(message: string): ClassifiedRequest {
     analysisMode: implementationTaskMode || implementationPlanMode ? "STANDARD" : taskRoute.analysisMode,
     outputContract: implementationTaskMode || implementationPlanMode ? "GENERIC_RESPONSE" : taskRoute.outputContract,
     firstEvidence,
+    projectTargetResolution,
     ...(projectTarget ? { projectTarget } : {}),
   };
 }

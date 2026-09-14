@@ -7038,6 +7038,7 @@ export async function chat(opts: {
       projectId,
       signal: executionLedger.signal,
       executionLedger,
+      targetResolution: turnIntent.projectTargetResolution,
     }).catch(() => null);
 
     // The generic planner still supplies scope and iteration estimates, but

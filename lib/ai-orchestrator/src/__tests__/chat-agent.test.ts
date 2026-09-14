@@ -2980,7 +2980,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
 
     const { chat } = await import("../agents/chat-agent.js");
     const result = await chat({
-      message: "Please analyze this project and explain the architecture.",
+      message: "Please list files in this project.",
       history: [],
       projectContext: makeContext(),
       rootPath: "/home/project",
