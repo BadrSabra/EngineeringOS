@@ -6750,6 +6750,8 @@ export async function chat(opts: {
         responseLanguage,
          fixtureAuditMode,
         suppressSessionMemory: effectiveSuppressSessionMemory,
+        projectTargetDetected: Boolean(turnIntent.projectTarget),
+        requiresEvidence: turnIntent.requiresEvidence,
         immediateExecution,
         capabilityProbeMode: capabilityProbeRequest,
          capabilityCatalog: capabilityCatalogPrompt,
@@ -8659,6 +8661,8 @@ export async function chat(opts: {
                   responseLanguage,
                   fixtureAuditMode,
                   suppressSessionMemory: effectiveSuppressSessionMemory,
+                  projectTargetDetected: Boolean(turnIntent.projectTarget),
+                  requiresEvidence: turnIntent.requiresEvidence,
                    capabilityProbeMode: capabilityProbeRequest,
                   capabilityCatalog: capabilityCatalogPrompt,
                 }) + buildResumedEvidenceLedger(activeTaskState, resumedTask),
@@ -9212,7 +9216,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, projectTargetDetected: Boolean(turnIntent.projectTarget), requiresEvidence: turnIntent.requiresEvidence, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 

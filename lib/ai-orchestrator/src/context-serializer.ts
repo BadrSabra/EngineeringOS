@@ -227,7 +227,10 @@ function buildScanEvidenceSummary(loaded: LoadedProjectContext): string {
   return lines.join("\n");
 }
 
-function buildGraphSummary(loaded: LoadedProjectContext): string {
+function buildGraphSummary(
+  loaded: LoadedProjectContext,
+  scanRevision?: string,
+): string {
   const { entities, relationships } = loaded;
   const entityState = buildSliceSummary(
     loaded,
@@ -333,8 +336,12 @@ function buildGraphSummary(loaded: LoadedProjectContext): string {
   const notices = [entityState, relationshipState]
     .filter((notice): notice is string => typeof notice === "string")
     .join("\n");
+  const revisionNotice =
+    scanRevision && entities.length > 0
+      ? `Graph index from scan revision: ${scanRevision} — treat as a navigation hint; verify current state with read_file.\n`
+      : "";
   return `${notices ? `${notices}\n` : ""}${entities.length > 0
-    ? `${provenanceHeader}${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
+    ? `${revisionNotice}${provenanceHeader}${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
     : relationshipState ?? "Knowledge graph empty — the graph query returned no rows."}`;
 }
 
@@ -392,7 +399,7 @@ export function buildProjectContextFromLoadedContext(
     recentTasks: buildTaskSummary(loaded),
     latestMetrics: buildMetricsSummary(loaded),
     latestScanEvidence: buildScanEvidenceSummary(loaded),
-    graphSummary: buildGraphSummary(loaded),
+    graphSummary: buildGraphSummary(loaded, loaded.contextManifest.projectRevision),
     recentEvents: buildEventSummary(loaded),
     metricsVerified: loaded.scanVerified,
     contextHealth: buildContextHealth(loaded),

@@ -47,6 +47,8 @@ const MAX_SUMMARY_CHARS = 400;
 const RELEVANCE_DECAY = 0.9;
 /** Rows below this relevance threshold are deleted on sweep. */
 const RELEVANCE_PRUNE_THRESHOLD = 0.1;
+/** Memories below this score are not admitted into a model prompt. */
+const MIN_PROMPT_RELEVANCE = 0.25;
 const MEMORY_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const OUTBOX_POLL_INTERVAL_MS = 30 * 1000;
 const OUTBOX_BATCH_SIZE = 25;
@@ -421,28 +423,29 @@ export async function fetchSessionMemories(
       now.getTime(),
       ...withFreshness.map((row) => row.createdAt.getTime()),
     );
+    const scoreMap = new Map<string, number>();
+    const scoreFor = (row: MemoryRow): number => {
+      const age = Math.max(0, maxCreatedAt - row.createdAt.getTime());
+      const recency = 1 / (1 + age / (7 * 24 * 60 * 60 * 1000));
+      const scope = row.semanticKind && taskScope && row.scope === `task:${taskScope}` ? 0.12 : 0;
+      const confirmation = row.confirmationStatus === "user_confirmed"
+        || row.confirmationStatus === "server_validated"
+        ? 0.05
+        : 0;
+      const freshness = row.freshnessStatus === "stale" ? -0.25 : 0;
+      const score = row.relevance * 0.58 + recency * 0.25 + scope + confirmation + freshness;
+      scoreMap.set(row.id, score);
+      return score;
+    };
     return withFreshness
       .sort((a, b) => {
-        const ageA = Math.max(0, maxCreatedAt - a.createdAt.getTime());
-        const ageB = Math.max(0, maxCreatedAt - b.createdAt.getTime());
-        const recencyA = 1 / (1 + ageA / (7 * 24 * 60 * 60 * 1000));
-        const recencyB = 1 / (1 + ageB / (7 * 24 * 60 * 60 * 1000));
-        const scopeA = a.semanticKind && taskScope && a.scope === `task:${taskScope}` ? 0.12 : 0;
-        const scopeB = b.semanticKind && taskScope && b.scope === `task:${taskScope}` ? 0.12 : 0;
-        const confirmationA = a.confirmationStatus === "user_confirmed" || a.confirmationStatus === "server_validated"
-          ? 0.05
-          : 0;
-        const confirmationB = b.confirmationStatus === "user_confirmed" || b.confirmationStatus === "server_validated"
-          ? 0.05
-          : 0;
-        const freshnessA = a.freshnessStatus === "stale" ? -0.25 : 0;
-        const freshnessB = b.freshnessStatus === "stale" ? -0.25 : 0;
-        const scoreA = a.relevance * 0.58 + recencyA * 0.25 + scopeA + confirmationA + freshnessA;
-        const scoreB = b.relevance * 0.58 + recencyB * 0.25 + scopeB + confirmationB + freshnessB;
+        const scoreA = scoreFor(a);
+        const scoreB = scoreFor(b);
         return scoreB - scoreA
           || b.createdAt.getTime() - a.createdAt.getTime()
           || a.id.localeCompare(b.id);
       })
+      .filter((row) => (scoreMap.get(row.id) ?? scoreFor(row)) >= MIN_PROMPT_RELEVANCE)
       .slice(0, effectiveLimit);
   } catch (err) {
     console.warn(JSON.stringify({

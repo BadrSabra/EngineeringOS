@@ -345,6 +345,8 @@ export function buildChatSystemPrompt({
   responseLanguage,
   fixtureAuditMode = false,
   suppressSessionMemory = false,
+  projectTargetDetected = true,
+  requiresEvidence = false,
   executionPlan,
   activeTask,
   taskChecklist = [],
@@ -385,6 +387,10 @@ export function buildChatSystemPrompt({
    * must remain NOT PROVEN unless separately evidenced.
    */
   fixtureAuditMode?: boolean;
+  /** Whether the server resolved a specific project subsystem target for this turn. */
+  projectTargetDetected?: boolean;
+  /** Whether the server requires source evidence for this turn. */
+  requiresEvidence?: boolean;
   /**
    * Historical session summaries and previously-read paths are navigation hints,
    * never current evidence. Evidence-bound requests can suppress this section
@@ -442,6 +448,12 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
       : null,
     capabilityCatalog
       ? promptSection("Registered capabilities for planning", capabilityCatalog)
+      : null,
+    requiresEvidence && !projectTargetDetected
+      ? promptSection(
+          "Evidence targeting",
+          "No specific subsystem target was auto-detected for this request. Do not treat the knowledge graph as complete evidence; use read_file to reach the relevant source before synthesizing any claim.",
+        )
       : null,
     // Few-shot behavioral anchor — injected only in structured-output mode.
     // Must appear AFTER context and BEFORE rules so the model sees the
