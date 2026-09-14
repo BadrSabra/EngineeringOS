@@ -26,6 +26,10 @@ import {
   isArabicExplicitExecutionActionRequest,
   isArabicMutationActionRequest,
 } from "./arabic-action-intent.js";
+import {
+  isEnglishExplicitExecutionActionRequest,
+  isEnglishMutationActionRequest,
+} from "./english-action-intent.js";
 
 export { isRunProjectScanRequest } from "./scan-command.js";
 export {
@@ -135,20 +139,6 @@ const PROJECT_TOOL_SIGNAL_RE =
 
 const SOURCE_PATH_RE =
   /(?:^|[\s`"'(])(?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html)\b/iu;
-
-const ENGLISH_EXECUTION_ACTION_RE =
-  /^\s*(?:(?:please|kindly)\s+)?(?:(?:(?:can|could|would|will)\s+you|go\s+ahead\s+and|i\s+(?:need|want)\s+you\s+to|i(?:'d|\s+would)\s+like\s+you\s+to)\s+)?(?:(?:please|kindly)\s+)?(?:fix|patch|implement|modify|change|write|edit|apply|execute|build|refactor|delete|remove|create|add)\b/iu;
-
-/**
- * A direct mutation is normally kept in reviewable plan mode. These narrower
- * forms are explicit execution commands, however: they either name the task
- * that must run or use a continuation verb ("execute it", "نفّذها"). Keeping
- * this distinction here preserves the review boundary for "create a file"
- * while allowing task telemetry and deterministic execution degradation.
- */
-const EXPLICIT_TASK_EXECUTION_RE =
-  /(?:وقم\s+بتنفيذ|نفّذ(?:ها)?\s+(?:الخطة|الإصلاحات|التعديلات|المهمة|الاختبارات|repair\s+plan)|نفذ(?:ها)?\s+(?:الخطة|الإصلاحات|التعديلات|المهمة|الاختبارات|repair\s+plan)|^\s*(?:please\s+)?\bexecute\b|\b(?:execute|run)\b[\s\S]{0,80}\b(?:task|tests?|repair\s+plan)\b)/iu;
-
 const PLAN_EXECUTION_REQUEST_RE =
   /^\s*(?:(?:ابدأ|ابدا|إبدأ|إبدا|start|proceed|go\s+ahead)\s+)?(?:في\s+)?(?:تنفيذ|تطبيق|تعديل|إصلاح|implement|apply|execute)\s+(?:هذه\s+|the\s+|this\s+|approved\s+)?(?:الخطة|التعديلات|الإصلاحات|plan|changes|fixes)(?:\s|$|[.,!?])/iu;
 
@@ -186,7 +176,7 @@ const EXPLICIT_AUDIT_SCOPE_RE =
   /(?:\b(?:src|lib|app|server|client|test|tests|components?|pages?|routes?|api|packages?|artifacts?|files?)\b|[./][\w@.-]+(?:\/[\w@.-]+)*|[\w@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|json|yaml|yml|toml|css|scss|html)\b|specific\s+(?:file|folder|directory|module)|(?:whole|entire|full|all)\s+(?:the\s+)?(?:project|workspace|repository|repo|codebase|code)|(?:of|on|in)\s+the\s+(?:project|workspace|repository|repo|codebase)|مجلد\s+(?:محدد|معين)|ملف(?:ات)?\s+(?:محدد(?:ة)?|معين(?:ة)?)|هذا\s+الملف|الملفات\s+الإنتاجية|الكود\s+الإنتاجي|(?:شامل|شاملة|كامل|كاملة|واسع|واسعة)\s+(?:للمشروع|لمشروعي|للمستودع|لمستودعي|للريبو|لقاعدة\s+(?:الكود|الشفرة|المصدر)|المشروع|مشروعي|المستودع|مستودعي|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))|(?:في|على|ضمن|داخل)\s+(?:المشروع|مشروعي|المستودع|مستودعي|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))|(?:المشروع|مشروعي|المستودع|مستودعي|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))\s+(?:بالكامل|كله|كاملًا|كاملة)|كل\s+(?:المشروع|المستودع|الريبو|الكود|قاعدة\s+(?:الكود|الشفرة|المصدر))|المشروع\s+كله)/iu;
 function isExecutionActionRequest(message: string): boolean {
   return (
-    ENGLISH_EXECUTION_ACTION_RE.test(message) ||
+    isEnglishMutationActionRequest(message) ||
     isArabicMutationActionRequest(message)
   );
 }
@@ -238,13 +228,11 @@ export function resolveTurnIntent(
     !implementationPlanResume &&
     !compoundWrite &&
     !baseClassification.implementationTaskMode &&
-    !EXPLICIT_TASK_EXECUTION_RE.test(message) &&
+    !isArabicExplicitExecutionActionRequest(message) &&
+    !isEnglishExplicitExecutionActionRequest(message) &&
     (
       baseClassification.implementationPlanMode ||
-      (
-        isExecutionActionRequest(message) &&
-        !isArabicExplicitExecutionActionRequest(message)
-      )
+      isExecutionActionRequest(message)
     );
   const classification = directImplementationPlanRequest
     ? {

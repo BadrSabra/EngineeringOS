@@ -106,7 +106,6 @@ describe("isImmediateExecutionRequest", () => {
     "طبّق الإصلاحات",
     "ابدأ",
     "ابدأ الآن في تنفيذ الخطة",
-    "implement the fix",
     "apply the changes",
     "run the tests",
   ])("recognises direct execution command: %s", (message) => {
@@ -132,6 +131,9 @@ describe("isImmediateExecutionRequest", () => {
     "قم بإنشاء اختبار جديد",
     "هل يمكنك إصلاح الخلل",
     "لو سمحت قم بإصلاح الخلل",
+    "implement the fix",
+    "fix the bug",
+    "create a new test",
     "what would you change?",
   ])("does not confuse analysis with immediate execution: %s", (message) => {
     expect(isImmediateExecutionRequest(message)).toBe(false);
@@ -698,6 +700,25 @@ describe("shared Arabic action intent parity", () => {
     ["وقم بتطبيقها", true, "DELIVERY", "task_execution"],
     ["نفذ Repair Plan", true, "DELIVERY", "task_execution"],
     ["اكتب ملفات الاختبار المطلوبة وقم بتنفيذها", true, "DELIVERY", "task_execution"],
+  ] as const)(
+    "keeps chat and central routing aligned: %s",
+    (message, immediate, kind, executionTaskType) => {
+      expect(isImmediateExecutionRequest(message)).toBe(immediate);
+      expect(resolveTurnIntent(message)).toMatchObject({ kind, executionTaskType });
+    },
+  );
+});
+
+describe("shared English action intent parity", () => {
+  it.each([
+    ["Please explain the request flow", false, "CHAT", "chat"],
+    ["Could you review this file?", false, "PROJECT_QUERY", "tool_chat"],
+    ["Fix the request handler", false, "DELIVERY", "chat"],
+    ["Please create a regression test", false, "DELIVERY", "chat"],
+    ["Apply the changes", true, "DELIVERY", "task_execution"],
+    ["Execute the repair plan", true, "DELIVERY", "task_execution"],
+    ["Run the tests", true, "DELIVERY", "task_execution"],
+    ["Go ahead and implement the plan", true, "DELIVERY", "task_execution"],
   ] as const)(
     "keeps chat and central routing aligned: %s",
     (message, immediate, kind, executionTaskType) => {

@@ -72,6 +72,10 @@ import {
   isArabicExecutionContinuationRequest,
 } from "../arabic-action-intent.js";
 import {
+  isEnglishExplanationActionRequest,
+  isEnglishExplicitExecutionActionRequest,
+} from "../english-action-intent.js";
+import {
   buildSemanticBehaviorAnswer,
   buildResponseLanguageFallback,
   buildTaskValidationFallback,
@@ -4018,11 +4022,12 @@ export function isImmediateExecutionRequest(message: string): boolean {
 
   if (isReportRegenerationRequest(normalized)) return false;
   if (isArabicAnalysisActionRequest(message)) return false;
+  if (isEnglishExplanationActionRequest(message)) return false;
   if (AUDIT_ANALYSIS_AFTER_ACTION_RE.test(normalized)) return false;
   return (
     isArabicExplicitExecutionActionRequest(message) ||
     isArabicExecutionContinuationRequest(message) ||
-    /^(?:start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(normalized)
+    isEnglishExplicitExecutionActionRequest(message)
   );
 }
 

@@ -5194,6 +5194,58 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     }
   });
 
+  it("keeps English explanation, mutation, and execution handoffs aligned", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    for (const [message, turnIntent] of [
+      ["Please explain the request flow", "CHAT"],
+      ["Could you review this file?", "PROJECT_QUERY"],
+    ] as const) {
+      const explanation = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, message });
+
+      expect(explanation.status, message).toBe(200);
+      expect(
+        parseSseEvents(explanation.text).find((event) => event.type === "execution_started"),
+        message,
+      ).toMatchObject({ turnIntent });
+    }
+
+    for (const message of [
+      "Fix the request handler",
+      "Please create a regression test",
+    ]) {
+      const mutation = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, message });
+
+      expect(mutation.status, message).toBe(200);
+      expect(
+        parseSseEvents(mutation.text).find((event) => event.type === "execution_started"),
+        message,
+      ).toMatchObject({ turnIntent: "DELIVERY" });
+    }
+
+    for (const message of [
+      "Apply the changes",
+      "Execute the repair plan",
+      "Run the tests",
+      "Go ahead and implement the plan",
+    ]) {
+      const execution = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, message });
+
+      expect(execution.status, message).toBe(409);
+      expect(execution.body.error, message).toBe("execution_session_required");
+    }
+  });
+
   it.each([
     "ما هي نقاط الضعف لدى الوكيل",
     "حدد نقاط ضعف الوكيل الداخلى للمشروع",
