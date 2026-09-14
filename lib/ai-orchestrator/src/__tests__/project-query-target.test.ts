@@ -183,6 +183,24 @@ describe("target-aware project queries", () => {
     );
   });
 
+  it("routes Arabic latest-session divergence tracing to the bounded root-cause contract", () => {
+    const message = "تتبع مسار الجلسة الأخيرة وتتبع السبب الجذري لحدوث الانحراف";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
+
+    expect(target?.label).toBe("embedded-agent session quality");
+    expect(resolveTurnIntent(message).kind).toBe("PROJECT_QUERY");
+    expect(objective.requiredClaims.map((claim) => claim.claimId)).toContain(
+      "ai-session-divergence-root-cause",
+    );
+    expect(objective.requiredEvidencePaths).toEqual(
+      expect.arrayContaining([
+        "lib/db/src/schema/ai_chats.ts",
+        "artifacts/api-server/src/lib/ai-terminal-outcome.ts",
+      ]),
+    );
+  });
+
   it("routes the English equivalent without broad-audit escalation", () => {
     const message =
       "Trace the latest project-agent session and assess response quality and consistency.";

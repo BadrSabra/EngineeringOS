@@ -34,7 +34,11 @@ const SESSION_QUALITY_LATEST_RE =
 const SESSION_QUALITY_AGENT_RE =
   /(?:\b(?:internal|embedded)\s+(?:AI\s+)?agent\b|\bproject[-\s]agent\b|\bagent\s+(?:of|inside)\s+the\s+project\b|الوكيل\s+(?:الداخلي|الداخلى)\s+(?:للمشروع|داخل\s+المشروع)|وكيل\s+المشروع)/iu;
 const SESSION_QUALITY_DIMENSIONS_RE =
-  /(?:\b(?:response|answer)\s+quality\b|\bquality\s+of\s+(?:the\s+)?responses?\b|\bconsistency\b|\bconsistent\b|جودة\s+(?:الردود|الإجابات)|مستوى\s+(?:الردود|الإجابات)|اتساق(?:ها|هما|الردود|الإجابات)?)/iu;
+  /(?:\b(?:response|answer)\s+quality\b|\bquality\s+of\s+(?:the\s+)?responses?\b|\bconsistency\b|\bconsistent\b|\broot\s+cause\b|\bdivergence\b|\bdeviation\b|جودة\s+(?:الردود|الإجابات)|مستوى\s+(?:الردود|الإجابات)|اتساق(?:ها|هما|الردود|الإجابات)?|السبب\s+الجذري|الانحراف|الانحرافات)/iu;
+const SESSION_QUALITY_DIVERGENCE_RE =
+  /(?:\broot\s+cause\b|\bdivergence\b|\bdeviation\b|السبب\s+الجذري|الانحراف|الانحرافات)/iu;
+const SESSION_QUALITY_TRACE_RE =
+  /(?:\b(?:trace|track|follow)\s+(?:the\s+)?(?:path|flow)\b|تتبع\s+مسار|تتبّع\s+مسار)/iu;
 
 /**
  * This is intentionally narrower than a generic session question. It requires
@@ -43,9 +47,14 @@ const SESSION_QUALITY_DIMENSIONS_RE =
  * remain ordinary project queries or chat.
  */
 export function isSessionQualityAuditRequest(message: string): boolean {
-  return SESSION_QUALITY_LATEST_RE.test(message)
-    && SESSION_QUALITY_AGENT_RE.test(message)
+  const latestSession = SESSION_QUALITY_LATEST_RE.test(message);
+  const qualityAudit =
+    SESSION_QUALITY_AGENT_RE.test(message)
     && SESSION_QUALITY_DIMENSIONS_RE.test(message);
+  const divergenceAudit =
+    SESSION_QUALITY_TRACE_RE.test(message)
+    && SESSION_QUALITY_DIVERGENCE_RE.test(message);
+  return latestSession && (qualityAudit || divergenceAudit);
 }
 
 /**
@@ -251,11 +260,52 @@ const SESSION_QUALITY_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
   },
 ];
 
+const SESSION_DIVERGENCE_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
+  {
+    claimId: "ai-session-divergence-root-cause",
+    text:
+      "The first session divergence and its root cause are identified by comparing the server-owned intent, history/tool/evidence trace, execution identity, and terminal outcome; unsupported causal explanations remain hypotheses.",
+    requiredEvidencePaths: [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/agents/chat-agent.ts",
+      "lib/db/src/schema/ai_chats.ts",
+      "artifacts/api-server/src/lib/ai-terminal-outcome.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "artifacts/api-server/src/routes/ai/chat.ts": [
+        "resolvedTurnIntent",
+        "analysisCorrelation",
+        "sessionIdToUse",
+      ],
+      "lib/ai-orchestrator/src/turn-intent.ts": [
+        "resolveTurnIntent",
+        "TurnIntent",
+      ],
+      "lib/ai-orchestrator/src/agents/chat-agent.ts": [
+        "executeToolLoop",
+        "validateFinalAnswer",
+      ],
+      "lib/db/src/schema/ai_chats.ts": [
+        "toolTrace",
+        "executionId",
+        "outcome",
+      ],
+      "artifacts/api-server/src/lib/ai-terminal-outcome.ts": [
+        "AiTerminalProjection",
+        "sessionId",
+        "executionId",
+      ],
+    },
+  },
+];
+
 const SESSION_QUALITY_PROMPT_HINT =
   "Targeted embedded-agent session-quality analysis: bind the audit to the latest non-empty " +
   "project-scoped session before reading its history. Explain the observed message, intent, " +
   "tool/evidence, execution, and terminal sequence separately from response-quality and " +
-  "consistency findings. Compare direct JSON, streamed SSE, persisted message, and history " +
+  "consistency findings. When divergence or root-cause tracing is requested, identify the " +
+  "first server-observed divergence before proposing a cause. Compare direct JSON, streamed SSE, persisted message, and history " +
   "projections only from server-owned evidence. Keep verified observations, limitations, " +
   "and unverified hypotheses separate, and return ANALYSIS_INCOMPLETE when any required " +
   "session, quality, or projection claim is not proven. Use the requested language.";
@@ -439,6 +489,28 @@ export function buildProjectQueryObjective(
             }
           : {}),
       });
+    }
+    if (
+      SESSION_QUALITY_TRACE_RE.test(goal)
+      && SESSION_QUALITY_DIVERGENCE_RE.test(goal)
+    ) {
+      for (const claim of SESSION_DIVERGENCE_CLAIMS) {
+        requiredClaims.push({
+          claimId: claim.claimId,
+          text: claim.text,
+          requiredEvidencePaths: [...claim.requiredEvidencePaths],
+          ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+          ...(claim.evidenceNeedlesByPath
+            ? {
+                evidenceNeedlesByPath: Object.fromEntries(
+                  Object.entries(claim.evidenceNeedlesByPath).map(
+                    ([path, needles]) => [path, [...needles]],
+                  ),
+                ),
+              }
+            : {}),
+        });
+      }
     }
   }
   const weaknessRequested = target.id === "embedded-ai" && isGapAnalysisRequest(goal);
