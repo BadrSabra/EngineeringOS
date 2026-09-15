@@ -210,6 +210,42 @@ describe("context freshness and structural size controls", () => {
     expect(compacted).toContain("Entity0 → depends_on → Entity1");
   });
 
+  it("preserves the revision annotation through description stripping", () => {
+    const annotation = "Graph index from scan revision: scan-revision-1 — treat as a navigation hint; verify current state with read_file.";
+    const graph = [
+      annotation,
+      "Provenance: ast 8",
+      "8 entities total:",
+      ...Array.from({ length: 8 }, (_, index) => `  • Entity${index} [95%] — raw entity description ${index}`),
+      "Relationships (1 shown):",
+      "  • Entity0 → depends_on → Entity1 [95%]",
+    ].join("\n");
+
+    const compacted = compactGraphSummary(graph, 400);
+
+    expect(compacted).toContain(annotation);
+    expect(compacted).toContain("scan-revision-1");
+    expect(compacted).not.toContain("raw entity description");
+  });
+
+  it("preserves the revision and a relationship during aggressive compaction", () => {
+    const graph = [
+      "Graph index from scan revision: scan-revision-aggressive — treat as a navigation hint; verify current state with read_file.",
+      "Provenance: ast 20",
+      "20 entities total:",
+      ...Array.from({ length: 20 }, (_, index) => `  • Entity${index} [95%] — a very long entity description`),
+      "Relationships (2 shown):",
+      "  • Entity0 → depends_on → Entity1 [95%]",
+      "  • Entity1 → calls → Entity2 [90%] [heuristic]",
+    ].join("\n");
+
+    const compacted = compactGraphSummary(graph, 220);
+
+    expect(compacted.length).toBeLessThanOrEqual(220);
+    expect(compacted).toContain("scan-revision-aggressive");
+    expect(compacted).toContain("Entity0 → depends_on → Entity1");
+  });
+
   it("annotates non-empty graph output with the scan revision but not empty output", () => {
     const populated = buildProjectContextFromLoadedContext(makeLoadedContext());
     expect(populated.graphSummary).toContain("Graph index from scan revision: scan-revision-1");
@@ -250,6 +286,24 @@ describe("context freshness and structural size controls", () => {
     expect(estimateContextSize(bounded)).toBeLessThanOrEqual(700);
     expect(estimateContextSize(original)).toBeGreaterThan(700);
     expect(original.graphSummary).toContain("A → depends_on → B");
+  });
+
+  it("keeps the graph revision through repeated context-budget compaction", () => {
+    const original = makeContext({
+      graphSummary: [
+        "Graph index from scan revision: scan-revision-context — treat as a navigation hint; verify current state with read_file.",
+        "Provenance: ast 40",
+        "40 entities total:",
+        ...Array.from({ length: 40 }, (_, index) => `  • Entity${index} [95%] — a very long entity description`),
+        "Relationships (1 shown):",
+        "  • Entity0 → depends_on → Entity1 [95%]",
+      ].join("\n"),
+    });
+
+    const bounded = trimContextToFit("freshness-test", original, 300);
+
+    expect(estimateContextSize(bounded)).toBeLessThanOrEqual(300);
+    expect(bounded.graphSummary).toContain("scan-revision-context");
   });
 
   it("renders health states into the prompt without treating failures as empty facts", () => {

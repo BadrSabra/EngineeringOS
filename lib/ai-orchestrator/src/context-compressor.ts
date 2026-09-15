@@ -40,28 +40,44 @@ function trimAtBoundary(content: string, maxChars: number): string {
  */
 export function compactGraphSummary(content: string, maxChars: number): string {
   if (content.length <= maxChars) return content;
-  const relationshipIndex = content.indexOf("\nRelationships ");
+
+  const annotationMatch = content.match(/^Graph index from scan revision: [^\n]*(?:\n|$)/m);
+  const revisionAnnotation = annotationMatch?.[0].replace(/\n$/, "") ?? "";
+  const contentWithoutAnnotation = annotationMatch?.index === undefined
+    ? content
+    : content.slice(0, annotationMatch.index) +
+      content.slice(annotationMatch.index + annotationMatch[0].length);
+  const annotationCost = revisionAnnotation ? revisionAnnotation.length + 1 : 0;
+  const bodyBudget = Math.max(0, maxChars - annotationCost);
+  const withAnnotation = (body: string): string => {
+    if (!revisionAnnotation) return body;
+    if (body.length === 0) return revisionAnnotation.slice(0, maxChars);
+    return `${revisionAnnotation}\n${body}`;
+  };
+
+  const relationshipIndex = contentWithoutAnnotation.indexOf("\nRelationships ");
   if (relationshipIndex < 0) {
-    return trimAtBoundary(content.replace(/ — [^\n]*/g, ""), maxChars);
+    const compact = contentWithoutAnnotation.replace(/ — [^\n]*/g, "");
+    return withAnnotation(trimAtBoundary(compact, bodyBudget));
   }
 
-  const beforeRelationships = content
+  const beforeRelationships = contentWithoutAnnotation
     .slice(0, relationshipIndex)
     .replace(/ — [^\n]*/g, "")
     .replace(/ \[\d+%\]/g, "");
-  const relationshipBlock = content.slice(relationshipIndex);
+  const relationshipBlock = contentWithoutAnnotation.slice(relationshipIndex);
   const compactRelationships = relationshipBlock
     .split("\n")
     .map((line) => line.replace(/ \[\d+%\]/g, "").replace(/ \[heuristic\]/g, ""))
     .join("\n");
   const combined = `${beforeRelationships}${compactRelationships}`;
-  if (combined.length <= maxChars) return combined;
+  if (combined.length <= bodyBudget) return withAnnotation(combined);
 
   const headingEnd = compactRelationships.indexOf("\n");
   const heading = headingEnd >= 0 ? compactRelationships.slice(0, headingEnd) : compactRelationships;
   const relationLines = headingEnd >= 0 ? compactRelationships.slice(headingEnd + 1).split("\n") : [];
-  const prefix = trimAtBoundary(beforeRelationships, Math.max(1, Math.floor(maxChars * 0.35)));
-  const remaining = Math.max(1, maxChars - prefix.length - heading.length - 2);
+  const prefix = trimAtBoundary(beforeRelationships, Math.max(1, Math.floor(bodyBudget * 0.35)));
+  const remaining = Math.max(0, bodyBudget - prefix.length - heading.length - 2);
   const kept: string[] = [];
   let used = 0;
   for (const line of relationLines) {
@@ -70,7 +86,9 @@ export function compactGraphSummary(content: string, maxChars: number): string {
     used += line.length + 1;
   }
   const topology = `${prefix}\n${heading}${kept.length > 0 ? `\n${kept.join("\n")}` : ""}`;
-  return topology.length <= maxChars ? topology : trimAtBoundary(topology, maxChars);
+  return withAnnotation(topology).length <= maxChars
+    ? withAnnotation(topology)
+    : withAnnotation(trimAtBoundary(topology, bodyBudget));
 }
 
 /** Preserve workflow phase sequences while dropping less useful run metadata. */
