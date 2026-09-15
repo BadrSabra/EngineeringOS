@@ -118,14 +118,14 @@ const TOOL_SURFACE: readonly ToolSurfaceEntry[] = [
     exposedToModel: true,
   },
   ...([
-    ["package_management", ["install_package", "update_dependency"]],
+    ["package_management", ["inspect_dependencies", "install_package", "update_dependency"]],
     ["database", ["inspect_database"]],
     ["object_storage", ["read_object", "write_object"]],
     ["integration", ["query_integration"]],
     ["external_api", ["call_external_api"]],
     ["deployment", ["inspect_deployment", "publish_deployment"]],
     ["logs", ["read_runtime_logs"]],
-    ["binary_read", ["read_image", "read_pdf", "read_binary"]],
+    ["binary_read", ["inspect_binary", "read_image", "read_pdf", "read_binary"]],
   ] as const).map(([family, tools]) => ({
     family,
     tools,

@@ -10,6 +10,8 @@ import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.
 import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
 import { ANALYSIS_TOOL_DEFINITIONS } from "./tools/analysis-tools.js";
 import { CODE_NAVIGATION_TOOL_DEFINITIONS } from "./tools/code-navigation.js";
+import { PACKAGE_TOOL_DEFINITIONS } from "./tools/package-tools.js";
+import { BINARY_TOOL_DEFINITIONS } from "./tools/binary-tools.js";
 import type { AuthorizedToolManifestEntry } from "./context-contract.js";
 
 export type ToolMode = "workspace" | "read-only" | "project-read-only";
@@ -48,6 +50,8 @@ const FILE_READ_TOOL_NAMES = new Set([
   "search_code",
   "symbol_search",
   "ast_navigation",
+  "inspect_dependencies",
+  "inspect_binary",
 ]);
 const FILE_WRITE_TOOL_NAMES = new Set(["write_file", "replace_text"]);
 const GIT_TOOL_NAMES = new Set(["git_status", "git_diff", "git_log"]);
@@ -59,6 +63,8 @@ const ALL_TOOL_DEFINITIONS: ToolDefinitionLike[] = [
   ...GIT_TOOL_DEFINITIONS,
   ...EXECUTION_TOOL_DEFINITIONS,
   ...CODE_NAVIGATION_TOOL_DEFINITIONS,
+  ...PACKAGE_TOOL_DEFINITIONS,
+  ...BINARY_TOOL_DEFINITIONS,
 ];
 
 /** Full manifest is server-owned and is never derived from model output. */

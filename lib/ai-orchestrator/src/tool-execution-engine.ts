@@ -49,6 +49,8 @@ import {
   CODE_NAVIGATION_TOOL_NAMES,
   executeCodeNavigationTool,
 } from "./tools/code-navigation.js";
+import { PACKAGE_TOOL_NAMES, executePackageTool } from "./tools/package-tools.js";
+import { BINARY_TOOL_NAMES, executeBinaryTool } from "./tools/binary-tools.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
   executeCommandTool,
@@ -298,6 +300,8 @@ function buildRepairAttemptDiff(
 // of these sets is an unknown tool and is rejected before touching the budget.
 const GIT_TOOL_NAMES = new Set(GIT_TOOL_DEFINITIONS.map((t) => t.function.name));
 const CODE_NAVIGATION_TOOL_NAMES_SET = new Set(CODE_NAVIGATION_TOOL_NAMES);
+const PACKAGE_TOOL_NAMES_SET = new Set(PACKAGE_TOOL_NAMES);
+const BINARY_TOOL_NAMES_SET = new Set(BINARY_TOOL_NAMES);
 const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
 const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((t) => t.function.name));
 
@@ -306,6 +310,8 @@ function untrustedToolOutput(name: string, output: string, args: Record<string, 
     ? "git" as const
     : name === "read_file" || name === "read_file_range" || name === "list_directory" || name === "search_code"
       || CODE_NAVIGATION_TOOL_NAMES_SET.has(name)
+      || PACKAGE_TOOL_NAMES_SET.has(name)
+      || BINARY_TOOL_NAMES_SET.has(name)
       ? "source" as const
     : name === "run_command" || name === "run_validation" || ANALYSIS_TOOL_NAMES.has(name)
       ? "provider_diagnostic" as const
@@ -752,10 +758,12 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   const isGitTool = GIT_TOOL_NAMES.has(name);
   const isFileTool = FILE_TOOL_NAMES.has(name);
   const isCodeNavigationTool = CODE_NAVIGATION_TOOL_NAMES_SET.has(name);
+  const isPackageTool = PACKAGE_TOOL_NAMES_SET.has(name);
+  const isBinaryTool = BINARY_TOOL_NAMES_SET.has(name);
   const isExecutionTool = EXECUTION_TOOL_NAMES.has(name);
   const isAnalysisTool = ANALYSIS_TOOL_NAMES.has(name);
 
-  if (!isGitTool && !isFileTool && !isCodeNavigationTool && !isExecutionTool && !isAnalysisTool) {
+  if (!isGitTool && !isFileTool && !isCodeNavigationTool && !isPackageTool && !isBinaryTool && !isExecutionTool && !isAnalysisTool) {
     return {
       kind: "unknown_tool",
       errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
@@ -818,6 +826,16 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
         : isCodeNavigationTool
           ? await executeCodeNavigationTool(name, effectiveArgs, rootPath, {
+              operationId: opts.analysisCorrelation?.operationId,
+              revision: opts.analysisCorrelation?.projectRevision,
+            })
+        : isPackageTool
+          ? await executePackageTool(name, effectiveArgs, rootPath, {
+              operationId: opts.analysisCorrelation?.operationId,
+              revision: opts.analysisCorrelation?.projectRevision,
+            })
+        : isBinaryTool
+          ? await executeBinaryTool(name, effectiveArgs, rootPath, {
               operationId: opts.analysisCorrelation?.operationId,
               revision: opts.analysisCorrelation?.projectRevision,
             })
@@ -915,6 +933,12 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         break;
       case "ast_navigation":
         source = `ast:${effectiveArgs.operation ?? "definition"}:${effectiveArgs.symbol ?? ""}`;
+        break;
+      case "inspect_dependencies":
+        source = `dependencies:${effectiveArgs.manifest ?? "package.json"}`;
+        break;
+      case "inspect_binary":
+        if (effectiveArgs.path) source = `binary:${effectiveArgs.path}`;
         break;
       case "git_status":
         source = "git:status";

@@ -7,4 +7,4 @@ The provider-facing tool manifest may expose only capabilities with a concrete s
 
 **Why:** Exposing placeholder tool names would let provider output imply capabilities that the server cannot safely execute or verify.
 
-**How to apply:** Extend the existing tool policy and executeSingleTool seams; do not create a parallel dispatcher or pass credentials and arbitrary commands through model arguments.
+**How to apply:** Extend the existing tool policy and executeSingleTool seams; do not create a parallel dispatcher or pass credentials and arbitrary commands through model arguments. Non-text inspection must read bounded headers and stream hashes rather than loading large files into memory.

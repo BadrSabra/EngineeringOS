@@ -35,6 +35,8 @@ describe("tool policy", () => {
       "git_log",
       "symbol_search",
       "ast_navigation",
+      "inspect_dependencies",
+      "inspect_binary",
     ]);
     expect(toolNames).not.toContain("git_commit");
     expect(toolNames).not.toContain("run_validation");
@@ -69,6 +71,8 @@ describe("tool policy", () => {
       "git_log",
       "symbol_search",
       "ast_navigation",
+      "inspect_dependencies",
+      "inspect_binary",
     ]);
     expect(toolNames).not.toContain("write_file");
     expect(toolNames).not.toContain("run_validation");
@@ -105,6 +109,8 @@ describe("tool policy", () => {
       "search_code",
       "symbol_search",
       "ast_navigation",
+      "inspect_dependencies",
+      "inspect_binary",
     ]);
     expect(policy.allowFileWrite).toBe(false);
     expect(policy.allowGit).toBe(false);
