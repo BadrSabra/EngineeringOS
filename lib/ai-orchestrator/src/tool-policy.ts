@@ -9,6 +9,7 @@ import { FILE_TOOL_DEFINITIONS, type ToolDefinition } from "./tools/file-tools.j
 import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.js";
 import { EXECUTION_TOOL_DEFINITIONS } from "./tools/execution-tools.js";
 import { ANALYSIS_TOOL_DEFINITIONS } from "./tools/analysis-tools.js";
+import { CODE_NAVIGATION_TOOL_DEFINITIONS } from "./tools/code-navigation.js";
 import type { AuthorizedToolManifestEntry } from "./context-contract.js";
 
 export type ToolMode = "workspace" | "read-only" | "project-read-only";
@@ -40,7 +41,14 @@ export type ToolAuthorization = {
     | "approval_required";
 };
 
-const FILE_READ_TOOL_NAMES = new Set(["read_file", "read_file_range", "list_directory", "search_code"]);
+const FILE_READ_TOOL_NAMES = new Set([
+  "read_file",
+  "read_file_range",
+  "list_directory",
+  "search_code",
+  "symbol_search",
+  "ast_navigation",
+]);
 const FILE_WRITE_TOOL_NAMES = new Set(["write_file", "replace_text"]);
 const GIT_TOOL_NAMES = new Set(["git_status", "git_diff", "git_log"]);
 const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((tool) => tool.function.name));
@@ -50,6 +58,7 @@ const ALL_TOOL_DEFINITIONS: ToolDefinitionLike[] = [
   ...FILE_TOOL_DEFINITIONS,
   ...GIT_TOOL_DEFINITIONS,
   ...EXECUTION_TOOL_DEFINITIONS,
+  ...CODE_NAVIGATION_TOOL_DEFINITIONS,
 ];
 
 /** Full manifest is server-owned and is never derived from model output. */

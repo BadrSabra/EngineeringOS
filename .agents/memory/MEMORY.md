@@ -155,3 +155,4 @@
 - [Generic chat parse boundary](generic-chat-parse-boundary.md) — terminalize malformed JSON-looking chat output, but keep plain prose fallback valid.
 - [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
+- [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.

@@ -33,6 +33,8 @@ describe("tool policy", () => {
       "git_status",
       "git_diff",
       "git_log",
+      "symbol_search",
+      "ast_navigation",
     ]);
     expect(toolNames).not.toContain("git_commit");
     expect(toolNames).not.toContain("run_validation");
@@ -65,6 +67,8 @@ describe("tool policy", () => {
       "git_status",
       "git_diff",
       "git_log",
+      "symbol_search",
+      "ast_navigation",
     ]);
     expect(toolNames).not.toContain("write_file");
     expect(toolNames).not.toContain("run_validation");
@@ -99,6 +103,8 @@ describe("tool policy", () => {
       "read_file_range",
       "list_directory",
       "search_code",
+      "symbol_search",
+      "ast_navigation",
     ]);
     expect(policy.allowFileWrite).toBe(false);
     expect(policy.allowGit).toBe(false);

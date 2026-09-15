@@ -355,6 +355,17 @@ export type {
   MutationRepairDecision,
   MutationTaskKind,
 } from "./mutation-lifecycle.js";
+export {
+  getToolSurfaceCatalog,
+  getToolSurfaceEntry,
+  isToolSurfaceReady,
+} from "./tool-surface.js";
+export type {
+  ToolSurfaceAvailability,
+  ToolSurfaceEntry,
+  ToolSurfaceFamily,
+  ToolSurfaceMutation,
+} from "./tool-surface.js";
 
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";
 export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";

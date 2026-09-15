@@ -46,6 +46,10 @@ import {
 } from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
 import {
+  CODE_NAVIGATION_TOOL_NAMES,
+  executeCodeNavigationTool,
+} from "./tools/code-navigation.js";
+import {
   EXECUTION_TOOL_DEFINITIONS,
   executeCommandTool,
   executeBrowserValidationTool,
@@ -293,6 +297,7 @@ function buildRepairAttemptDiff(
 // Built once from the authoritative definition arrays.  Any name not in one
 // of these sets is an unknown tool and is rejected before touching the budget.
 const GIT_TOOL_NAMES = new Set(GIT_TOOL_DEFINITIONS.map((t) => t.function.name));
+const CODE_NAVIGATION_TOOL_NAMES_SET = new Set(CODE_NAVIGATION_TOOL_NAMES);
 const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
 const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((t) => t.function.name));
 
@@ -300,6 +305,7 @@ function untrustedToolOutput(name: string, output: string, args: Record<string, 
   const source = GIT_TOOL_NAMES.has(name)
     ? "git" as const
     : name === "read_file" || name === "read_file_range" || name === "list_directory" || name === "search_code"
+      || CODE_NAVIGATION_TOOL_NAMES_SET.has(name)
       ? "source" as const
     : name === "run_command" || name === "run_validation" || ANALYSIS_TOOL_NAMES.has(name)
       ? "provider_diagnostic" as const
@@ -745,10 +751,11 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
 
   const isGitTool = GIT_TOOL_NAMES.has(name);
   const isFileTool = FILE_TOOL_NAMES.has(name);
+  const isCodeNavigationTool = CODE_NAVIGATION_TOOL_NAMES_SET.has(name);
   const isExecutionTool = EXECUTION_TOOL_NAMES.has(name);
   const isAnalysisTool = ANALYSIS_TOOL_NAMES.has(name);
 
-  if (!isGitTool && !isFileTool && !isExecutionTool && !isAnalysisTool) {
+  if (!isGitTool && !isFileTool && !isCodeNavigationTool && !isExecutionTool && !isAnalysisTool) {
     return {
       kind: "unknown_tool",
       errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
@@ -809,6 +816,11 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
         ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
+        : isCodeNavigationTool
+          ? await executeCodeNavigationTool(name, effectiveArgs, rootPath, {
+              operationId: opts.analysisCorrelation?.operationId,
+              revision: opts.analysisCorrelation?.projectRevision,
+            })
         : name === "run_validation"
         ? await executeValidationTool(
             name,
@@ -897,6 +909,12 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         break;
       case "search_code":
         if (effectiveArgs.pattern) source = `search: ${effectiveArgs.pattern}`;
+        break;
+      case "symbol_search":
+        source = `symbol: ${effectiveArgs.symbol ?? ""}`;
+        break;
+      case "ast_navigation":
+        source = `ast:${effectiveArgs.operation ?? "definition"}:${effectiveArgs.symbol ?? ""}`;
         break;
       case "git_status":
         source = "git:status";
