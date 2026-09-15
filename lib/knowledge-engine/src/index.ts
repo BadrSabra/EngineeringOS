@@ -33,6 +33,8 @@ export type {
   AnnotatedPathStep,
   LayeredProvenanceStats,
   LayeredGraphViewWithProvenance,
+  RuntimeDisagreement,
+  RuntimeDisagreementReport,
 } from "./types.js";
 
 export {
@@ -48,6 +50,7 @@ export {
   getSemanticNeighborhood,
   getHighConfidencePath,
   getObservedRuntimeSubgraph,
+  getRuntimeStaticDisagreements,
   getLayeredGraphView,
   // PR-03: provenance-aware path annotation
   annotatePathSteps,

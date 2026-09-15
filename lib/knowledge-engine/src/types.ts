@@ -89,6 +89,28 @@ export type LayeredGraphView = {
   runtime: { entities: GraphEntity[]; relationships: GraphRelationship[] };
 };
 
+export type RuntimeDisagreement = {
+  kind: "static_not_observed" | "runtime_not_static";
+  sourceId: string;
+  targetId: string;
+  relationType: string;
+  relationSubtype: string | null;
+  runtimeSessionId?: string;
+  runtimeRevision?: string;
+  confidence: number | null;
+  sourceType: string | null;
+  evidenceCount: number;
+};
+
+export type RuntimeDisagreementReport = {
+  staticNotObserved: RuntimeDisagreement[];
+  runtimeNotStatic: RuntimeDisagreement[];
+  counts: {
+    staticNotObserved: number;
+    runtimeNotStatic: number;
+  };
+};
+
 // ─── Provenance-aware extensions (PR-03) ─────────────────────────────────────
 
 /**

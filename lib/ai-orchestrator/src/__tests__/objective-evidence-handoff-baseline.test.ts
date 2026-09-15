@@ -1176,7 +1176,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       classification,
       resumed: false,
     });
-    expect(turnIntent.kind).toBe("FORENSIC_AUDIT");
+    expect(turnIntent.kind).toBe("PROJECT_QUERY");
 
     const steps: Array<Record<string, unknown>> = [];
     const { chat } = await import("../agents/chat-agent.js");

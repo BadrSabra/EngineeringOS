@@ -701,6 +701,70 @@ describe("GET /api/graph/runtime-subgraph/:projectId", () => {
   });
 });
 
+describe("GET /api/graph/runtime-disagreements/:projectId", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns scoped static/runtime disagreement counts", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const a = randomUUID();
+    const b = randomUUID();
+    const c = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "a.ts", createdAt: now },
+      { id: b, projectId, type: "module", name: "b.ts", createdAt: now },
+      { id: c, projectId, type: "module", name: "c.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values([
+      {
+        id: randomUUID(),
+        projectId,
+        sourceId: a,
+        targetId: b,
+        relation: "calls",
+        relationType: "calls",
+        isRuntimeObserved: false,
+        createdAt: now,
+      },
+      {
+        id: randomUUID(),
+        projectId,
+        sourceId: a,
+        targetId: c,
+        relation: "calls",
+        relationType: "calls",
+        isRuntimeObserved: true,
+        metadata: { runtimeSessionId: "session-graph", runtimeRevision: "rev-graph" },
+        createdAt: now,
+      },
+    ]);
+
+    const res = await request(app).get(
+      `/api/graph/runtime-disagreements/${projectId}?runtimeSessionId=session-graph&runtimeRevision=rev-graph`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.counts).toEqual({
+      staticNotObserved: 1,
+      runtimeNotStatic: 1,
+    });
+    expect(res.body.runtimeNotStatic[0]).toMatchObject({
+      sourceId: a,
+      targetId: c,
+      runtimeSessionId: "session-graph",
+    });
+  });
+});
+
 // ─── PR-03: provenance-aware API responses ────────────────────────────────────
 
 describe("GET /api/graph/evidence/:entityId — PR-03 provenance bundles", () => {

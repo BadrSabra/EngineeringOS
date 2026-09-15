@@ -20,6 +20,7 @@ import {
   getSemanticNeighborhood,
   getLayeredGraphView,
   getObservedRuntimeSubgraph,
+  getRuntimeStaticDisagreements,
   annotatePathSteps,
   type GraphQueryFilters,
   type GraphEdgeType,
@@ -597,6 +598,29 @@ router.get("/graph/runtime-subgraph/:projectId", requireProjectAccess, async (re
     ...result,
     meta: {
       entityLimit: GRAPH_LIMITS.maxEntities,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
+  });
+});
+
+/**
+ * GET /graph/runtime-disagreements/:projectId
+ * Compare static edges with one bounded runtime observation snapshot.
+ */
+router.get("/graph/runtime-disagreements/:projectId", requireProjectAccess, async (req, res) => {
+  const project = req.project!;
+  const result = await getRuntimeStaticDisagreements(db, project.id, {
+    runtimeSessionId: typeof req.query.runtimeSessionId === "string"
+      ? req.query.runtimeSessionId
+      : undefined,
+    runtimeRevision: typeof req.query.runtimeRevision === "string"
+      ? req.query.runtimeRevision
+      : undefined,
+  });
+  return sendBoundedGraphResponse(res, {
+    ...result,
+    meta: {
       relationshipLimit: GRAPH_LIMITS.maxRelationships,
       responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
     },

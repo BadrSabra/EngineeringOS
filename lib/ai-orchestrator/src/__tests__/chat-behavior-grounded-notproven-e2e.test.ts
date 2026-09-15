@@ -54,9 +54,13 @@ async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<
   });
   // Non-null plan with targetFiles routes the source through the plan-prefetch
   // path, which records the real file body into forensicFileContents.
-  vi.doMock("../agents/query-planner.js", () => ({
-    planQuery: vi.fn(() => Promise.resolve(plan)),
-  }));
+  vi.doMock("../agents/query-planner.js", async () => {
+    const actual = await vi.importActual<Record<string, unknown>>("../agents/query-planner.js");
+    return {
+      ...actual,
+      planQuery: vi.fn(() => Promise.resolve(plan)),
+    };
+  });
   vi.doMock("../model-selection/decision-engine.js", () => ({
     resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
   }));

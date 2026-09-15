@@ -5698,6 +5698,13 @@ export async function chat(opts: {
   // close — not only what evaluation happens to derive from a question later.
   const objectiveClaims = objective ? decomposeObjectiveClaims(objective) : [];
   const objectiveClaimIds = objectiveClaims.map((c) => c.claimId);
+  const objectiveSourcePaths = new Set<string>(objective?.requiredEvidencePaths ?? []);
+  for (const edge of objective?.requiredEvidenceEdges ?? []) {
+    for (const endpoint of [edge.from, edge.to]) {
+      const separator = endpoint.lastIndexOf("#");
+      if (separator > 0) objectiveSourcePaths.add(endpoint.slice(0, separator));
+    }
+  }
   const singleFilePaths = singleFileForensicMode
     ? capabilityProbeRequest
       ? [...CAPABILITY_PROBE_SOURCE_FILES]
@@ -6546,13 +6553,6 @@ export async function chat(opts: {
   // prefetchFileContents, prefetchReadStatuses, and retainedEvidence: only the
   // bounded window dispatched by the tool loop may become proof.
   if (objective && rootPath) {
-    const objectiveSourcePaths = new Set(objective.requiredEvidencePaths ?? []);
-    for (const edge of objective.requiredEvidenceEdges ?? []) {
-      for (const endpoint of [edge.from, edge.to]) {
-        const separator = endpoint.lastIndexOf("#");
-        if (separator > 0) objectiveSourcePaths.add(endpoint.slice(0, separator));
-      }
-    }
     await loadObjectiveEvidenceLocators(
       rootPath,
       [...objectiveSourcePaths],
@@ -6857,6 +6857,66 @@ export async function chat(opts: {
     ...(repeatedQuestionGuard ? [repeatedQuestionGuard] : []),
     { role: "user", content: message },
   ];
+
+  // Targeted PROJECT_QUERY retrieval is server-owned: the resolved objective
+  // manifest is the bounded read plan, not merely navigation metadata. Read
+  // those paths through the same prefetch/read-evidence pipeline used by the
+  // rest of the agent so complete bodies can participate in claim materialization
+  // and the final acceptance gate. Locator bodies above remain recovery-only.
+  if (
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true &&
+    objectiveSourcePaths.size > 0 &&
+    rootPath &&
+    tools != null &&
+    orderedForensicRoots.length === 0 &&
+    !singleFileForensicMode &&
+    !repairPlanExecution
+  ) {
+    const objectivePrefetch = await prefetchFileList({
+      files: [...objectiveSourcePaths],
+      rootPath,
+      pendingChanges,
+      toolCacheKeyFn: toolCacheKey,
+      complete: true,
+      maxFiles: remainingForensicPrefetchSlots(),
+      excludeFiles: prefetchExcludeFiles(),
+      includeTestSources,
+    }).catch(() => ({
+      injectedMessages: [] as RawMessage[],
+      sources: [] as string[],
+      cacheEntries: [] as Array<{ key: string; content: string }>,
+      failedFiles: [] as string[],
+    }));
+
+    if (objectivePrefetch.injectedMessages.length > 0) {
+      messages.push(...objectivePrefetch.injectedMessages);
+      for (const entry of objectivePrefetch.cacheEntries) {
+        toolCallCache.set(entry.key, entry.content);
+      }
+      const accepted = recordPrefetchEvidence(
+        objectivePrefetch.cacheEntries,
+        prefetchFileContents,
+        retainedEvidence,
+        prefetchReadStatuses,
+        incompletePrefetchContents,
+      );
+      prefetchSources.push(...accepted);
+      recordPrefetchTrace(
+        accepted,
+        prefetchFileContents,
+        true,
+        relayAgentStep,
+        prefetchReadStatuses,
+      );
+      console.info(JSON.stringify({
+        scope: "chat-agent",
+        code: "PROJECT_QUERY_MANIFEST_PREFETCH",
+        requestedPaths: objectiveSourcePaths.size,
+        acceptedPaths: accepted.length,
+        failedPaths: objectivePrefetch.failedFiles?.length ?? 0,
+      }));
+    }
+  }
 
   // ── Deterministic scoped forensic discovery ────────────────────────────────
   // Explicit forensic roots are discovered and read before the model gets a

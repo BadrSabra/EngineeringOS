@@ -18,6 +18,7 @@ import {
   getEdgesByType,
   getSemanticNeighborhood,
   findFileEntities,
+  getRuntimeStaticDisagreements,
 } from "../queries.js";
 
 async function insertProject(): Promise<string> {
@@ -413,6 +414,87 @@ describe("getLayeredGraphView — provenanceStats (PR-03)", () => {
     // Empty runtime layer → all zeros, no keys in breakdown
     expect(view.provenanceStats.runtime.avgConfidence).toBe(0);
     expect(Object.keys(view.provenanceStats.runtime.sourceTypeBreakdown)).toHaveLength(0);
+  });
+});
+
+describe("getRuntimeStaticDisagreements", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("separates static-only and runtime-only edges for the requested snapshot", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const a = randomUUID();
+    const b = randomUUID();
+    const c = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "a.ts", createdAt: now },
+      { id: b, projectId, type: "module", name: "b.ts", createdAt: now },
+      { id: c, projectId, type: "module", name: "c.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values([
+      {
+        id: randomUUID(),
+        projectId,
+        sourceId: a,
+        targetId: b,
+        relation: "calls",
+        relationType: "calls",
+        isRuntimeObserved: false,
+        createdAt: now,
+      },
+      {
+        id: randomUUID(),
+        projectId,
+        sourceId: a,
+        targetId: c,
+        relation: "calls",
+        relationType: "calls",
+        isRuntimeObserved: true,
+        metadata: { runtimeSessionId: "session-1", runtimeRevision: "rev-1" },
+        createdAt: now,
+      },
+      {
+        id: randomUUID(),
+        projectId,
+        sourceId: b,
+        targetId: c,
+        relation: "calls",
+        relationType: "calls",
+        isRuntimeObserved: true,
+        metadata: { runtimeSessionId: "session-2", runtimeRevision: "rev-2" },
+        createdAt: now,
+      },
+    ]);
+
+    const report = await getRuntimeStaticDisagreements(db, projectId, {
+      runtimeSessionId: "session-1",
+      runtimeRevision: "rev-1",
+    });
+
+    expect(report.counts).toEqual({
+      staticNotObserved: 1,
+      runtimeNotStatic: 1,
+    });
+    expect(report.staticNotObserved[0]).toMatchObject({
+      kind: "static_not_observed",
+      sourceId: a,
+      targetId: b,
+    });
+    expect(report.runtimeNotStatic[0]).toMatchObject({
+      kind: "runtime_not_static",
+      sourceId: a,
+      targetId: c,
+      runtimeSessionId: "session-1",
+      runtimeRevision: "rev-1",
+    });
   });
 });
 

@@ -24,6 +24,8 @@ import type {
   ProvenanceSummary,
   EvidenceBundle,
   AnnotatedPathStep,
+  RuntimeDisagreement,
+  RuntimeDisagreementReport,
 } from "./types.js";
 import { GRAPH_LIMITS } from "./graph-limits.js";
 
@@ -896,6 +898,84 @@ export async function getObservedRuntimeSubgraph(
       avgConfidence: stats.avgConfidence,
       sourceTypeBreakdown: stats.sourceTypeBreakdown,
       totalEvidenceCount: stats.totalEvidenceCount,
+    },
+  };
+}
+
+/**
+ * Compare the current static graph with one runtime observation snapshot.
+ *
+ * This is intentionally a read-only projection: it does not claim that a
+ * static-only edge is wrong or that a runtime-only edge is safe. It reports
+ * the disagreement so callers can keep static reachability and observed
+ * behavior separate in evidence and dashboards.
+ */
+export async function getRuntimeStaticDisagreements(
+  db: Db,
+  projectId: string,
+  options: Pick<GraphQueryFilters, "runtimeSessionId" | "runtimeRevision"> = {},
+): Promise<RuntimeDisagreementReport> {
+  const relationships = await db
+    .select()
+    .from(graphRelationshipsTable)
+    .where(eq(graphRelationshipsTable.projectId, projectId))
+    .limit(GRAPH_LIMITS.maxRelationships);
+
+  const matchesSnapshot = (relationship: GraphRelationship): boolean =>
+    relationship.isRuntimeObserved === true &&
+    (!options.runtimeSessionId
+      || (relationship.metadata as Record<string, unknown> | null)?.runtimeSessionId === options.runtimeSessionId) &&
+    (!options.runtimeRevision
+      || (relationship.metadata as Record<string, unknown> | null)?.runtimeRevision === options.runtimeRevision);
+
+  const edgeKey = (relationship: GraphRelationship): string =>
+    [
+      relationship.sourceId,
+      relationship.targetId,
+      relationship.relationType,
+      relationship.relationSubtype ?? "",
+    ].join("\u0000");
+
+  const staticEdges = relationships.filter((relationship) => !relationship.isRuntimeObserved);
+  const runtimeEdges = relationships.filter(matchesSnapshot);
+  const staticKeys = new Set(staticEdges.map(edgeKey));
+  const runtimeKeys = new Set(runtimeEdges.map(edgeKey));
+  const toDisagreement = (
+    kind: RuntimeDisagreement["kind"],
+    relationship: GraphRelationship,
+  ): RuntimeDisagreement => {
+    const metadata = relationship.metadata as Record<string, unknown> | null;
+    return {
+      kind,
+      sourceId: relationship.sourceId,
+      targetId: relationship.targetId,
+      relationType: relationship.relationType ?? relationship.relation ?? "unknown",
+      relationSubtype: relationship.relationSubtype ?? null,
+      ...(typeof metadata?.runtimeSessionId === "string"
+        ? { runtimeSessionId: metadata.runtimeSessionId }
+        : {}),
+      ...(typeof metadata?.runtimeRevision === "string"
+        ? { runtimeRevision: metadata.runtimeRevision }
+        : {}),
+      confidence: relationship.confidence ?? null,
+      sourceType: relationship.sourceType ?? null,
+      evidenceCount: relationship.evidenceCount ?? 0,
+    };
+  };
+
+  const staticNotObserved = staticEdges
+    .filter((relationship) => !runtimeKeys.has(edgeKey(relationship)))
+    .map((relationship) => toDisagreement("static_not_observed", relationship));
+  const runtimeNotStatic = runtimeEdges
+    .filter((relationship) => !staticKeys.has(edgeKey(relationship)))
+    .map((relationship) => toDisagreement("runtime_not_static", relationship));
+
+  return {
+    staticNotObserved,
+    runtimeNotStatic,
+    counts: {
+      staticNotObserved: staticNotObserved.length,
+      runtimeNotStatic: runtimeNotStatic.length,
     },
   };
 }

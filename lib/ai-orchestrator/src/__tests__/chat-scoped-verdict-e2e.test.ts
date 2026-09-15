@@ -48,9 +48,13 @@ async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<
     const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
     return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
   });
-  vi.doMock("../agents/query-planner.js", () => ({
-    planQuery: vi.fn(() => Promise.resolve(plan)),
-  }));
+  vi.doMock("../agents/query-planner.js", async () => {
+    const actual = await vi.importActual<Record<string, unknown>>("../agents/query-planner.js");
+    return {
+      ...actual,
+      planQuery: vi.fn(() => Promise.resolve(plan)),
+    };
+  });
   vi.doMock("../model-selection/decision-engine.js", () => ({
     resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
   }));
