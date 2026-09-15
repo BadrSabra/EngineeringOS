@@ -107,16 +107,24 @@ describe("task objective contracts", () => {
       objectiveValidated: true,
       evidenceVerdict: "PROVEN",
       evidenceComplete: true,
+      operationId: "operation-browser",
+      validatorReceipts: [{
+        validatorId: "browser-preview.v1",
+        status: "PROVEN",
+        operationId: "operation-browser",
+        projectId: base.projectId,
+        workspaceRevision: base.workspaceRevision,
+        artifactRef: "browser-run:checkout",
+      }],
     });
 
     expect(result.allowed).toBe(true);
   });
 
-  it("keeps deployment, integration, and media tasks incomplete until validators exist", () => {
+  it("keeps deployment and integration tasks incomplete until validators exist", () => {
     for (const message of [
       "Deploy the application",
       "Integrate the application with GitHub",
-      "Convert this image to a media artifact",
     ]) {
       const contract = buildTaskObjectiveContract({ ...base, message })!;
       const result = validateTaskObjectiveContract({
@@ -128,6 +136,94 @@ describe("task objective contracts", () => {
       });
       expect(result.allowed).toBe(false);
       expect(result.codes).toContain("validator_unavailable");
+    }
+  });
+
+  it("requires a proven receipt bound to the operation, project, revision, and artifact", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Convert this CSV to JSON",
+    })!;
+
+    const missing = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      projectId: base.projectId,
+      operationId: "operation-file",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+    });
+    expect(missing.allowed).toBe(false);
+    expect(missing.codes).toContain("objective_not_proven");
+
+    const mismatched = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      projectId: base.projectId,
+      operationId: "operation-file",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [{
+        validatorId: "file-conversion.v1",
+        status: "PROVEN",
+        operationId: "other-operation",
+        projectId: "other-project",
+        workspaceRevision: "old-revision",
+        artifactRef: "converted.json",
+      }],
+    });
+    expect(mismatched.allowed).toBe(false);
+    expect(mismatched.codes).toEqual(expect.arrayContaining([
+      "scope_mismatch",
+      "revision_mismatch",
+    ]));
+
+    const accepted = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      projectId: base.projectId,
+      operationId: "operation-file",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [{
+        validatorId: "file-conversion.v1",
+        status: "PROVEN",
+        operationId: "operation-file",
+        projectId: base.projectId,
+        workspaceRevision: base.workspaceRevision,
+        artifactRef: "converted.json",
+      }],
+    });
+    expect(accepted).toEqual({ allowed: true, codes: [], reasons: [] });
+  });
+
+  it("does not accept an unavailable or incomplete receipt as proof", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Generate a media image",
+    })!;
+    for (const status of ["UNAVAILABLE", "INCOMPLETE"] as const) {
+      const result = validateTaskObjectiveContract({
+        contract,
+        workspaceRevision: base.workspaceRevision,
+        projectId: base.projectId,
+        operationId: "operation-media",
+        objectiveValidated: true,
+        evidenceVerdict: "PROVEN",
+        evidenceComplete: true,
+        validatorReceipts: [{
+          validatorId: "media-artifact.v1",
+          status,
+          operationId: "operation-media",
+          projectId: base.projectId,
+          workspaceRevision: base.workspaceRevision,
+          artifactRef: "media-output.png",
+        }],
+      });
+      expect(result.allowed).toBe(false);
     }
   });
 });

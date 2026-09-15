@@ -9497,6 +9497,23 @@ router.post("/ai/chat/stream", async (req, res) => {
                 artifactRef: finalValidation.result.evidence.artifactRef,
               }];
             }
+            if (
+              validatorId === "browser-preview.v1"
+              && finalValidation?.kind === "validation"
+              && finalValidation.status === "passed"
+              && finalValidation.result.command === "browser-preview"
+              && finalValidation.result.evidence.operationId === operationId
+              && finalValidation.result.evidence.projectRevision === workspaceRevision
+            ) {
+              return [{
+                validatorId,
+                status: "PROVEN" as const,
+                operationId,
+                projectId,
+                workspaceRevision,
+                artifactRef: finalValidation.result.evidence.artifactRef,
+              }];
+            }
             return [];
           })
         : [];

@@ -1529,6 +1529,7 @@ export async function createAiExecution(params: {
   const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
   const operation = createAutonomousOperationContract({
     operationId,
+    taskObjective: params.request.taskObjective,
     objective: typeof params.request.objective === "string"
       ? params.request.objective
       : params.request.message,
