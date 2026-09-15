@@ -53,4 +53,34 @@ describe("buildAiExecutionProjection", () => {
     expect(projection.stopped).toEqual({ reason: "EXECUTION_PAUSED", outcome: "FAILED" });
     expect(projection.allowedActions).toEqual(["RESUME_CHECKPOINT", "REVIEW_PROOF"]);
   });
+
+  it("exposes a retry action only when the accepted checkpoint is resumable", () => {
+    const retryable = buildAiExecutionProjection({
+      execution: { id: "exec-3", status: "failed" },
+      request: { message: "Review the project" },
+      checkpoint: { stage: "provider" },
+      acceptance: { nextActionCode: "RETRY_AFTER_RATE_LIMIT", resumable: true, outcome: "FAILED" },
+      evidenceVerdict: "UNAVAILABLE",
+      proofRequired: true,
+      terminalReason: "PROVIDER_RETRYABLE",
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+    const blocked = buildAiExecutionProjection({
+      execution: { id: "exec-4", status: "failed" },
+      request: { message: "Review the project" },
+      checkpoint: { stage: "provider" },
+      acceptance: { nextActionCode: "RETRY_AFTER_RATE_LIMIT", resumable: false, outcome: "FAILED" },
+      evidenceVerdict: "BLOCKED",
+      proofRequired: true,
+      terminalReason: "PROVIDER_NOT_RETRYABLE",
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(retryable.allowedActions).toContain("RETRY_CHECKPOINT");
+    expect(blocked.allowedActions).not.toContain("RETRY_CHECKPOINT");
+  });
 });

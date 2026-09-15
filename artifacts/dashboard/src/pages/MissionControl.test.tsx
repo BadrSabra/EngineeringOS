@@ -130,6 +130,14 @@ vi.mock('@workspace/api-client-react', () => ({
     isFetching: false,
     refetch: refetchMissionControl,
   }),
+  useGetAiExecution: () => ({
+    data: undefined,
+    error: null,
+    isError: false,
+    isLoading: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 function renderPage() {

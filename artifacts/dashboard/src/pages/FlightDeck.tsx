@@ -10,6 +10,7 @@ import {
   useGitPush,
 } from '@workspace/api-client-react';
 import type { OperationEvidenceProjection } from '@workspace/api-client-react';
+import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
 
 type FlightNode = {
   id: string;
@@ -431,6 +432,10 @@ export default function FlightDeck() {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="mt-5">
+          <ExecutionProjectionPanel projection={execution.projection} />
         </div>
 
         <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="Mission control summary">

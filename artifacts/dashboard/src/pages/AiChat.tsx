@@ -51,6 +51,7 @@ import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
 import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
+import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
@@ -75,6 +76,7 @@ import type {
   ProviderLifecycleSnapshot,
   AiProviderMetric,
   AiUsageSummary,
+  AiExecutionProjection,
 } from '@workspace/api-client-react';
 type AcceptanceNextActionCode =
   | 'NONE'
@@ -7639,6 +7641,7 @@ type AgentExecutionProofStatus = {
   checkpointVersion?: number;
   resumable?: boolean;
   error?: string | null;
+  projection?: AiExecutionProjection | null;
 };
 
 function executionCanResume(
@@ -7655,6 +7658,8 @@ function executionCanResume(
     && (
       execution.acceptance?.nextActionCode === undefined
       || execution.acceptance.nextActionCode === 'RESUME_ALLOWED'
+      || execution.acceptance.nextActionCode === 'RETRY_AFTER_TIMEOUT'
+      || execution.acceptance.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
     );
 }
 
@@ -8117,6 +8122,7 @@ function AgentExecutionProofPanel({
           : 'No unresolved patch risk recorded';
   const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
   const canResume = Boolean(onResume && executionCanResume(execution));
+  const retryCheckpoint = execution?.projection?.allowedActions.includes('RETRY_CHECKPOINT');
   const canExport = Boolean(
     executionId
       && onExport
@@ -8244,7 +8250,7 @@ function AgentExecutionProofPanel({
                     className="h-6 px-2 text-[10px]"
                   >
                     <RotateCcw className="mr-1 h-3 w-3" />
-                    Resume
+                    {retryCheckpoint ? 'Retry checkpoint' : 'Resume'}
                   </Button>
                 )}
               </div>
@@ -8294,6 +8300,8 @@ function AgentExecutionProofPanel({
           <AcceptanceDispositionNotice disposition={execution?.acceptanceDisposition} />
         </div>
       </div>
+
+      <ExecutionProjectionPanel projection={execution?.projection} compact />
 
       {(auditPreview || auditPreviewError) && (
         <div className="border-b border-border/40 bg-background/30 px-3 py-3" aria-label="Redacted audit preview">

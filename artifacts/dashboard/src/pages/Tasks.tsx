@@ -6,6 +6,7 @@ import {
   useRollbackTask,
   useGetTaskLogs,
   useGetTask,
+  useGetAiExecution,
   useRecordTaskVerification,
   useAiResumeTask,
   getListTasksQueryKey,
@@ -38,6 +39,7 @@ import {
 } from 'lucide-react';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
+import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -266,6 +268,29 @@ function TaskAcceptancePanel({
       )}
     </section>
   );
+}
+
+function TaskExecutionProjection({ taskId }: { taskId: string }) {
+  const { data: logs } = useGetTaskLogs(taskId, {
+    query: {
+      queryKey: getGetTaskLogsQueryKey(taskId),
+      staleTime: 2_000,
+      refetchInterval: 5_000,
+    },
+  });
+  const executionId = [...(logs ?? [])]
+    .reverse()
+    .find((log) => typeof log.executionId === 'string' && log.executionId.trim())?.executionId ?? '';
+  const { data: execution } = useGetAiExecution(executionId, {
+    query: {
+      queryKey: ['task-execution-projection', taskId, executionId],
+      enabled: Boolean(executionId),
+      refetchInterval: executionId ? 5_000 : false,
+    },
+  });
+
+  if (!executionId || !execution?.projection) return null;
+  return <ExecutionProjectionPanel projection={execution.projection} compact />;
 }
 
 function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {
@@ -1265,6 +1290,7 @@ export default function Tasks() {
                             <div className="text-xs text-muted-foreground mb-1">Execution boundary</div>
                             <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
                           </div>
+                          <TaskExecutionProjection taskId={task.id} />
                           <TaskAcceptancePanel
                             taskId={task.id}
                             onResume={() => handleAction('resume', task.id)}

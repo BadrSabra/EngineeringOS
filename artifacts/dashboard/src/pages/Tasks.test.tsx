@@ -10,6 +10,7 @@ vi.mock('@workspace/api-client-react', () => ({
   useRollbackTask: vi.fn(),
   useGetTaskLogs: vi.fn(),
   useGetTask: vi.fn(),
+  useGetAiExecution: vi.fn(),
   useRecordTaskVerification: vi.fn(),
   useAiResumeTask: vi.fn(),
   getListTasksQueryKey: vi.fn(() => ['tasks']),
@@ -25,6 +26,7 @@ import {
   useExecuteTask,
   useGetTaskLogs,
   useGetTask,
+  useGetAiExecution,
   useListTasks,
   useRetryTask,
   useRollbackTask,
@@ -118,6 +120,12 @@ beforeEach(() => {
     isError: false,
     error: null,
   } as ReturnType<typeof useGetTask>);
+  vi.mocked(useGetAiExecution).mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useGetAiExecution>);
   vi.mocked(useExecuteTask).mockReturnValue(mutation() as ReturnType<typeof useExecuteTask>);
   vi.mocked(useRetryTask).mockReturnValue(mutation() as ReturnType<typeof useRetryTask>);
   vi.mocked(useRollbackTask).mockReturnValue(mutation() as ReturnType<typeof useRollbackTask>);

@@ -26,8 +26,10 @@ import {
 import { Link } from 'wouter';
 import {
   useGetAiMissionControl,
+  useGetAiExecution,
 } from '@workspace/api-client-react';
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
+import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1181,6 +1183,16 @@ export default function MissionControl() {
     historyPage * historyPageSize,
   );
   const selectedExecution = executions.find((execution) => execution.id === selectedId) ?? executions[0];
+  const { data: selectedExecutionDetail } = useGetAiExecution(selectedExecution?.id ?? '', {
+    query: {
+      queryKey: ['ai-mission-control-execution', selectedExecution?.id],
+      enabled: Boolean(selectedExecution?.id),
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        return status === 'queued' || status === 'running' || status === 'cancelling' ? 5_000 : false;
+      },
+    },
+  });
   const comparisonLiveExecution = executions.find((execution) => execution.id === comparisonLiveId) ?? executions[0];
   const historyStates = useMemo(
     () => Array.from(new Set(executions.map((execution) => textValue(execution.state)?.toUpperCase() ?? 'UNKNOWN'))),
@@ -1598,6 +1610,10 @@ export default function MissionControl() {
               )}
             </div>
           </section>
+
+          {selectedExecutionDetail?.projection && (
+            <ExecutionProjectionPanel projection={selectedExecutionDetail.projection} />
+          )}
 
           {acceptanceStatus(selectedExecution) !== 'NOT_RECORDED' && (
             <section className="rounded-xl border border-primary/25 bg-primary/5 p-4" aria-label="Current execution acceptance">

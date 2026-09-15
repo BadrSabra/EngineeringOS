@@ -233,7 +233,11 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
   if (input.acceptance?.resumable && input.acceptance.nextActionCode === "RESUME_ALLOWED") {
     allowedActions.push("RESUME_CHECKPOINT");
   }
-  if (input.acceptance?.nextActionCode === "RETRY_AFTER_TIMEOUT" || input.acceptance?.nextActionCode === "RETRY_AFTER_RATE_LIMIT") {
+  if (
+    input.acceptance?.resumable !== false
+    && (input.acceptance?.nextActionCode === "RETRY_AFTER_TIMEOUT"
+      || input.acceptance?.nextActionCode === "RETRY_AFTER_RATE_LIMIT")
+  ) {
     allowedActions.push("RETRY_CHECKPOINT");
   }
   if (input.execution.status === "failed" || input.execution.status === "cancelled") {
