@@ -34,6 +34,7 @@ export type RequestCategory =
   | "code"           // file read / bug fix / snippet / implementation
   | "architecture"   // system design / dependency map / module structure
   | "workflow"       // task pipeline / CI-CD / automation / phase
+  | "exploration"    // conceptual how/why/overview — bounded reads, no proof required
   | "deep_analysis"; // cross-cutting analysis / audit / refactor plan
 
 export type ClassifiedRequest = {
@@ -425,6 +426,7 @@ const CATEGORY_CONFIG: Record<
   code:          { contextProfile: "chat-normal", historyDepth: 4, allowPrefetch: true  },
   architecture:  { contextProfile: "chat-deep",   historyDepth: 6, allowPrefetch: true  },
   workflow:      { contextProfile: "chat-normal", historyDepth: 4, allowPrefetch: false },
+  exploration:   { contextProfile: "chat-normal", historyDepth: 4, allowPrefetch: false },
   deep_analysis: { contextProfile: "chat-deep",   historyDepth: 6, allowPrefetch: true  },
 };
 
@@ -500,17 +502,58 @@ const PATTERNS: PatternEntry[] = [
     weight: 3,
   },
 
+  // ── exploration ──────────────────────────────────────────────────────────────
+  // Conceptual understanding questions: "explain how X works", "why is Y
+  // designed this way", "give me an overview of Z". These want comprehension,
+  // not proof, so they never enter evidence mode.
+  //
+  // Weight 4 so these patterns beat the architecture "overview/structure" entry
+  // (weight 3) on mixed messages like "give me an overview of the system".
+  //
+  // Arabic patterns are intentionally split into a separate entry without \b
+  // anchors: Arabic characters are \W in JS regex, so \b never fires adjacent
+  // to them. The trimmed-message context provides implicit anchoring.
+  {
+    category: "exploration",
+    re: /\b(?:explain\s+(?:how|why|what)|how\s+does\s+.{0,40}\s+work|why\s+is\s+.{0,30}\s+(?:designed|structured|separated?|used|there|needed)|what\s+is\s+the\s+(?:purpose|point|goal|intent)\s+of|give\s+(?:me\s+)?an?\s+overview\s+of|walk\s+me\s+through)\b/i,
+    weight: 4,
+  },
+  // Arabic exploration — no \b since Arabic chars are non-word in JS regex.
+  {
+    category: "exploration",
+    re: /(?:اشرح(?:\s+(?:كيف|لماذا|ما))?|كيف\s+يعمل|لماذا\s+(?:يوجد|تم|هو\s+مصمم)|ما\s+(?:أهمية|هدف|غرض|الغرض\s+من)|أعطني\s+نظرة\s+عامة|نظرة\s+عامة\s+(?:عن|على|حول))/iu,
+    weight: 4,
+  },
+  // English: "what are the main challenges/problems/differences with X"
+  {
+    category: "exploration",
+    re: /\b(?:what\s+are\s+the\s+(?:main|key|biggest|primary|major)\s+(?:problems?|issues?|concerns?|challenges?|limitations?|differences?))\b/i,
+    weight: 3,
+  },
+  // Arabic: "ما أهم/أبرز التحديات/المشاكل"
+  {
+    category: "exploration",
+    re: /(?:ما\s+(?:أهم|أبرز|أكبر)\s+(?:المشاكل|المشكلات|التحديات|القيود|الفروق))/iu,
+    weight: 3,
+  },
+
   // ── deep_analysis ────────────────────────────────────────────────────────────
+  // Weight 5 so explicit forensic/audit/investigate keywords always beat the
+  // exploration patterns (weight 4) in mixed messages such as
+  // "Audit and explain how X works" or "Investigate and give me an overview of Y".
   {
     category: "deep_analysis",
     re: /\b(?:anal[yz](?:e|is[ei]s)|audit|refactor|deep[\s-]dive|review\s+all|compare|investigate|trace|root[\s-]cause|تحليل|مراجعة|تدقيق|إعادة\s+هيكلة|استقصاء|لماذا\s+يفشل|سبب\s+(?:المشكلة|الخطأ))\b/i,
-    weight: 3,
+    weight: 5,
   },
-  // "explain how … works" / "why does … do" / "what causes"
+  // Failure/defect phrasing implies a concrete defect requiring forensic proof.
+  // Weight 5 so "explain how X fails" beats the exploration "explain how X" at
+  // weight 4. The longer pattern is matched first; the engine won't re-match
+  // the same position for the exploration alternative.
   {
     category: "deep_analysis",
-    re: /\b(?:explain\s+how|why\s+does|how\s+does.{0,30}work|what\s+causes|كيف\s+يعمل|لماذا\s+يحدث|ما\s+سبب)\b/i,
-    weight: 2,
+    re: /\b(?:(?:explain\s+how|how\s+does)\s+.{0,40}\s+(?:fails?|errors?|breaks?|crashes?|throws?|hangs?|leaks?)|why\s+does.{0,40}(?:fail|error|break|crash|throw|hang|leak)|what\s+causes|لماذا\s+يحدث|ما\s+سبب)\b/i,
+    weight: 5,
   },
 
   // ── code ─────────────────────────────────────────────────────────────────────
@@ -660,7 +703,7 @@ export function classifyRequest(message: string): ClassifiedRequest {
 
   // Accumulate weighted score per category
   const scores: Record<RequestCategory, number> = {
-    simple: 0, code: 0, architecture: 0, workflow: 0, deep_analysis: 0,
+    simple: 0, code: 0, architecture: 0, workflow: 0, exploration: 0, deep_analysis: 0,
   };
 
   for (const { category, re, weight } of PATTERNS) {

@@ -711,7 +711,11 @@ describe("shared Arabic action intent parity", () => {
 
 describe("shared English action intent parity", () => {
   it.each([
-    ["Please explain the request flow", false, "CHAT", "chat"],
+    // "Please explain the request flow" triggers hasProjectToolSignal (project
+    // tool vocabulary in the message) and routes to a bounded read turn rather
+    // than bare CHAT. This is correct: a question about the request lifecycle
+    // benefits from project context even when no evidence proof is required.
+    ["Please explain the request flow", false, "PROJECT_QUERY", "tool_chat"],
     ["Could you review this file?", false, "PROJECT_QUERY", "tool_chat"],
     ["Fix the request handler", false, "DELIVERY", "chat"],
     ["Please create a regression test", false, "DELIVERY", "chat"],

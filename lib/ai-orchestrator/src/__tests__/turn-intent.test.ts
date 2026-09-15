@@ -642,3 +642,111 @@ describe("resolveTurnIntent", () => {
     expect(resolveTurnIntent(message).compoundExecution).toBe(false);
   });
 });
+
+// ─── exploration fast path — resolveTurnIntent ────────────────────────────────
+
+describe("resolveTurnIntent — exploration fast path", () => {
+  it.each([
+    "Explain how the auth middleware works",
+    "Explain how the embedded AI agent works.",
+    "Give me an overview of the session memory system",
+    "Why is the evidence gate designed this way?",
+    "What is the purpose of the turn-intent resolver?",
+    "Walk me through the forensic recovery flow",
+  ])("keeps English exploration question out of evidence mode: %s", (message) => {
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).toBe("exploration");
+    expect(intent.requiresEvidence).toBe(false);
+    expect(intent.kind).toBe("PROJECT_QUERY");
+  });
+
+  it.each([
+    "اشرح كيف يعمل نظام الذاكرة",
+    "أعطني نظرة عامة على نظام الاستعادة",
+    "ما أهمية دورة حياة الجلسة؟",
+    "لماذا تم تصميم بوابة الأدلة بهذه الطريقة؟",
+  ])("keeps Arabic exploration question out of evidence mode: %s", (message) => {
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).toBe("exploration");
+    expect(intent.requiresEvidence).toBe(false);
+  });
+
+  it("keeps exploration question that names an embedded-AI target out of evidence mode", () => {
+    // "Explain how the embedded AI agent works" can trigger targetedProjectQuery
+    // because the target resolver recognises "embedded AI agent". The exploration
+    // guard at the outer || level must still suppress evidence mode.
+    const message = "Explain how the embedded AI agent works.";
+    const classification = classifyRequest(message);
+
+    expect(classification.category).toBe("exploration");
+
+    const intent = resolveTurnIntent(message, { classification });
+    expect(intent.requiresEvidence).toBe(false);
+    expect(intent.kind).toBe("PROJECT_QUERY");
+  });
+
+  it("keeps exploration question about session system challenges out of evidence mode", () => {
+    // isGapAnalysisRequest can fire for "challenges" phrasing — the exploration
+    // guard on gapAnalysisProjectQuery must suppress evidence mode here too.
+    const message = "What are the main challenges with the current session system?";
+    const classification = classifyRequest(message);
+
+    expect(classification.category).toBe("exploration");
+
+    const intent = resolveTurnIntent(message, { classification });
+    expect(intent.requiresEvidence).toBe(false);
+  });
+
+  it("keeps forensic override in evidence mode despite exploration-like phrasing", () => {
+    // Explicit forensic keywords must still win over the exploration pattern.
+    const message =
+      "Investigate how the embedded AI agent handles token expiry — audit the actual code and find root causes";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).not.toBe("exploration");
+    expect(intent.requiresEvidence).toBe(true);
+  });
+
+  it.each([
+    "Audit and explain how the auth middleware works",
+    "Investigate and explain how the auth token is validated in production",
+    "Investigate and give me an overview of the recovery system",
+    "Explain how the auth middleware fails in production",
+  ])("keeps mixed forensic+conceptual message in evidence mode: %s", (message) => {
+    // The deep_analysis forensic patterns score 5 and must beat exploration
+    // at weight 4 so mixed messages never bypass the evidence gate.
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).toBe("deep_analysis");
+    expect(intent.requiresEvidence).toBe(true);
+  });
+
+  it.each([
+    "تدقيق: أعطني نظرة عامة على نظام الاستعادة",
+    "استقصاء: اشرح كيف يعمل نظام الذاكرة",
+  ])("keeps mixed Arabic forensic+conceptual message in evidence mode: %s", (message) => {
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).toBe("deep_analysis");
+    expect(intent.requiresEvidence).toBe(true);
+  });
+
+  it("keeps an Arabic gap/weakness question in evidence mode when not exploration", () => {
+    // Weakness/gap questions in Arabic do not match exploration patterns, so
+    // gapAnalysisProjectQuery must still fire for them as before.
+    for (const message of [
+      "ما هي نقاط الضعف لدى الوكيل",
+      "حدد نقاط ضعف الوكيل الداخلى للمشروع",
+    ]) {
+      const intent = resolveTurnIntent(message);
+      expect(intent.requiresEvidence, message).toBe(true);
+    }
+  });
+});

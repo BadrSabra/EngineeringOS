@@ -395,6 +395,13 @@ export function resolveTurnIntent(
 
   const explicitEvidenceIntent = Boolean(
     !isLowRiskChat &&
+    // Exploration turns want conceptual answers via bounded reads, never proof.
+    // The outer gap-analysis and project-target conditions are also guarded
+    // below so that a conceptual message naming a module ("Explain how the
+    // embedded AI agent works") cannot escalate through the target resolver.
+    // Only session resumption stays outside the exploration guard: when the
+    // user is already mid-forensic-investigation the session contract in force.
+    classification.category !== "exploration" &&
     !implementationDelivery &&
     !planDelivery &&
     !implementationPlanResume &&
@@ -417,9 +424,12 @@ export function resolveTurnIntent(
       isProductionReachabilityRequest(message) ||
       FORENSIC_EVIDENCE_SIGNAL_RE.test(normalizedMessage)
      ) ||
-     gapAnalysisProjectQuery ||
-     targetedProjectQuery ||
-      unresolvedProjectQuery ||
+     // Gap-analysis and project-target conditions are blocked for exploration:
+     // conceptual questions that happen to name a known module must not
+     // escalate to evidence mode through the target resolver alone.
+     (gapAnalysisProjectQuery && classification.category !== "exploration") ||
+     (targetedProjectQuery && classification.category !== "exploration") ||
+     (unresolvedProjectQuery && classification.category !== "exploration") ||
      resumedForensicContinuation,
   );
 
@@ -428,6 +438,9 @@ export function resolveTurnIntent(
       ? false
       : implementationDelivery ||
         implementationPlanResume ||
+        // Exploration turns route to PROJECT_QUERY with bounded reads so the
+        // model can cite project context without entering the evidence gate.
+        classification.category === "exploration" ||
         (explicitEvidenceIntent && !scopeClarificationRequired) ||
         (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired);
 

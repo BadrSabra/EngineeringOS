@@ -7214,10 +7214,19 @@ export async function chat(opts: {
   // Implementation and repair execution inherit their dedicated execution
   // budget. Ordinary evidence questions are capped by their output contract,
   // even when the query planner incorrectly estimates a broad scope.
-  const budget =
+  const budgetAfterForensicCap =
     classification.implementationTaskMode || repairPlanExecution
       ? selectedBudget
       : capBudgetForTask(forensicTaskType, selectedBudget);
+  // Exploration turns do not enter the evidence gate; cap tightly so a
+  // conceptual question never runs as long as a full forensic audit pass.
+  const budget =
+    classification.category === "exploration"
+      ? {
+          maxIterations: Math.min(budgetAfterForensicCap.maxIterations, 25),
+          maxToolCalls: Math.min(budgetAfterForensicCap.maxToolCalls, 80),
+        }
+      : budgetAfterForensicCap;
   console.info(JSON.stringify({
     scope: "chat-agent",
     code: "TASK_BUDGET_DECISION",

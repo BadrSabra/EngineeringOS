@@ -442,3 +442,96 @@ describe("classifyRequest — task-aware output contracts", () => {
     }
   });
 });
+
+// ─── classifyRequest — exploration fast path ──────────────────────────────────
+
+describe("classifyRequest — exploration (English)", () => {
+  it.each([
+    "Explain how the auth middleware works",
+    "How does the query planner work?",
+    "Why is the evidence gate designed this way?",
+    "What is the purpose of the turn-intent resolver?",
+    "Give me an overview of the session memory system",
+    "Walk me through the forensic recovery flow",
+  ])("routes %s to exploration", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).toBe("exploration");
+    expect(result.contextProfile).toBe("chat-normal");
+    expect(result.allowPrefetch).toBe(false);
+    expect(result.structuredOutputMode).toBe(false);
+    expect(result.orderedForensicRoots).toEqual([]);
+  });
+
+  it.each([
+    // Note: messages containing the literal word "architecture" score 3 for that
+    // category; use subject-neutral phrasing so exploration (weight 3) can win.
+    "What are the main challenges with the current session system?",
+    "What are the key differences between the two provider clients?",
+  ])("routes coverage/challenge question %s to exploration", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).toBe("exploration");
+  });
+});
+
+describe("classifyRequest — exploration (Arabic)", () => {
+  it.each([
+    "اشرح كيف يعمل نظام الذاكرة",
+    // "كيف يعمل X؟" alone can be caught by the project-orientation early return
+    // (classifyRequest returns 'simple' before scoring). Use a fuller phrasing
+    // that pairs "كيف يعمل" with a clear subject so it bypasses that gate.
+    "أشرح لي كيف يعمل نظام تخزين الجلسات",
+    "لماذا تم تصميم بوابة الأدلة بهذه الطريقة؟",
+    "ما أهمية دورة حياة الجلسة؟",
+    "أعطني نظرة عامة على نظام الاستعادة",
+    "نظرة عامة على بنية المشروع",
+  ])("routes Arabic question %s to exploration", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).toBe("exploration");
+    expect(result.contextProfile).toBe("chat-normal");
+    expect(result.allowPrefetch).toBe(false);
+    expect(result.structuredOutputMode).toBe(false);
+    expect(result.orderedForensicRoots).toEqual([]);
+  });
+});
+
+describe("classifyRequest — forensic/audit signals override exploration", () => {
+  it.each([
+    "Investigate how the auth token is actually validated in production",
+    "Audit the forensic recovery module and find the root causes",
+    "Verify that the evidence gate rejects truncated reads",
+    "تحقق من الكود الفعلي واكتشف الفجوات",
+  ])("keeps pure forensic message %s out of exploration", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).not.toBe("exploration");
+  });
+
+  // Mixed-signal messages: forensic keyword (weight 5) must beat exploration
+  // (weight 4) so mixed prompts like "audit + explain" stay in deep_analysis.
+  it.each([
+    "Audit and explain how the auth middleware works",
+    "Investigate and explain how the auth token is validated in production",
+    "Investigate and give me an overview of the recovery system",
+    "Explain how the auth middleware fails in production",
+    "Explain how the session handler crashes under load",
+  ])("keeps mixed English forensic+conceptual message in deep_analysis: %s", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).toBe("deep_analysis");
+  });
+
+  it.each([
+    // تدقيق = audit (weight 5); must beat Arabic نظرة عامة exploration (weight 4)
+    "تدقيق: أعطني نظرة عامة على نظام الاستعادة",
+    // استقصاء = investigation (weight 5); must beat Arabic اشرح كيف exploration (weight 4)
+    "استقصاء: اشرح كيف يعمل نظام الذاكرة",
+  ])("keeps mixed Arabic forensic+conceptual message in deep_analysis: %s", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).toBe("deep_analysis");
+  });
+});
+
+describe("classifyRequest — greetings remain simple regardless of exploration patterns", () => {
+  it.each(["hello", "hi", "مرحبا", "مرحباً"])("keeps greeting %s as simple", (message) => {
+    const result = classifyRequest(message);
+    expect(result.category).toBe("simple");
+  });
+});
