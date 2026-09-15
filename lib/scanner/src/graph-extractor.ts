@@ -131,6 +131,9 @@ export interface ExtractedEntity {
 export interface ExtractedRelationship {
   sourceName: string;
   targetName: string;
+  /** Optional endpoint paths used to disambiguate same-named symbols. */
+  sourcePath?: string;
+  targetPath?: string;
   /** Raw relation string (preserved for backward compat). */
   relation: string;
   // ── Knowledge Graph 2.0 semantic fields ────────────────────────────────
@@ -608,9 +611,9 @@ function extractFromTsJs(
 
   let sourceFile: ts.SourceFile;
   try {
-    // setParentNodes=false: the walk below never calls node.parent, so we
-    // skip the extra bookkeeping the parser would otherwise do per node.
-    sourceFile = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, false, scriptKindFor(path));
+    // Parent links let call-edge extraction identify the enclosing function
+    // and class without guessing from source order.
+    sourceFile = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, true, scriptKindFor(path));
   } catch {
     // Unparseable content (e.g. binary mistakenly tagged as source) — fall
     // back to just the file entity rather than throwing.
@@ -629,7 +632,201 @@ function extractFromTsJs(
     ts.forEachChild(node, collectExportEquals);
   });
 
+  type ImportedBinding = {
+    targetPath: string;
+    importedName?: string;
+    namespace?: boolean;
+  };
+
+  const importedBindings = new Map<string, ImportedBinding>();
+  const localCallableNames = new Set<string>();
+
+  const addResolvedImport = (
+    localName: string,
+    specifier: string,
+    importedName?: string,
+    namespace = false,
+  ): void => {
+    const targetPath = specifier.startsWith(".")
+      ? (() => {
+          const resolved = resolveRelativeImport(specifier, path);
+          return resolved ? matchImportToEntity(resolved, knownPaths) : null;
+        })()
+      : resolvePackageImport(specifier, aliasMap, knownPaths);
+    if (!targetPath || !localName) return;
+    importedBindings.set(localName, { targetPath, importedName, namespace });
+  };
+
+  // Build the local symbol set before walking call sites so declarations that
+  // appear later in a file are still resolvable.
+  const collectCallableDeclarations = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      localCallableNames.add(node.name.text);
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      for (const member of node.members) {
+        if (
+          ts.isMethodDeclaration(member)
+          && member.name
+          && ts.isIdentifier(member.name)
+          && !ts.getModifiers(member)?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword)
+        ) {
+          localCallableNames.add(`${node.name.text}.${member.name.text}`);
+        }
+      }
+    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) {
+        localCallableNames.add(node.name.text);
+      }
+    }
+    ts.forEachChild(node, collectCallableDeclarations);
+  };
+  collectCallableDeclarations(sourceFile);
+
+  const collectBindings = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
+      const specifier = node.moduleSpecifier.text;
+      const clause = node.importClause;
+      if (clause?.name) addResolvedImport(clause.name.text, specifier, "default");
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        addResolvedImport(clause.namedBindings.name.text, specifier, undefined, true);
+      } else if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          addResolvedImport(
+            element.name.text,
+            specifier,
+            (element.propertyName ?? element.name).text,
+          );
+        }
+      }
+    }
+
+    if (
+      ts.isVariableDeclaration(node)
+      && node.initializer
+      && ts.isCallExpression(node.initializer)
+      && ts.isIdentifier(node.initializer.expression)
+      && node.initializer.expression.text === "require"
+      && node.initializer.arguments.length === 1
+      && ts.isStringLiteralLike(node.initializer.arguments[0])
+    ) {
+      const specifier = node.initializer.arguments[0].text;
+      if (ts.isIdentifier(node.name)) {
+        addResolvedImport(node.name.text, specifier, "default");
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        for (const element of node.name.elements) {
+          if (!ts.isBindingElement(element) || !ts.isIdentifier(element.name)) continue;
+          const importedName = element.propertyName && ts.isIdentifier(element.propertyName)
+            ? element.propertyName.text
+            : element.name.text;
+          addResolvedImport(element.name.text, specifier, importedName);
+        }
+      }
+    }
+    ts.forEachChild(node, collectBindings);
+  };
+  collectBindings(sourceFile);
+
+  const enclosingCallable = (node: ts.Node): string | undefined => {
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (ts.isFunctionDeclaration(current) && current.name) return current.name.text;
+      if (ts.isMethodDeclaration(current) && current.name && ts.isIdentifier(current.name)) {
+        let owner: ts.Node | undefined = current.parent;
+        while (owner && !ts.isClassDeclaration(owner)) owner = owner.parent;
+        if (owner && ts.isClassDeclaration(owner) && owner.name) {
+          return `${owner.name.text}.${current.name.text}`;
+        }
+        return current.name.text;
+      }
+      if (ts.isVariableDeclaration(current) && ts.isIdentifier(current.name)) {
+        return current.name.text;
+      }
+      current = current.parent;
+    }
+    return undefined;
+  };
+
+  const enclosingClass = (node: ts.Node): string | undefined => {
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (ts.isClassDeclaration(current) && current.name) return current.name.text;
+      current = current.parent;
+    }
+    return undefined;
+  };
+
+  const resolveCallTarget = (
+    call: ts.CallExpression,
+  ): { name: string; targetPath: string; relationSubtype: string } | undefined => {
+    if (ts.isIdentifier(call.expression)) {
+      const binding = importedBindings.get(call.expression.text);
+      if (binding?.importedName) {
+        return {
+          name: binding.importedName,
+          targetPath: binding.targetPath,
+          relationSubtype: "imported-call",
+        };
+      }
+      if (localCallableNames.has(call.expression.text)) {
+        return { name: call.expression.text, targetPath: path, relationSubtype: "local-call" };
+      }
+      return undefined;
+    }
+
+    if (!ts.isPropertyAccessExpression(call.expression)) return undefined;
+    const receiver = call.expression.expression;
+    const methodName = call.expression.name.text;
+    if (ts.isIdentifier(receiver)) {
+      const binding = importedBindings.get(receiver.text);
+      if (binding?.namespace) {
+        return {
+          name: methodName,
+          targetPath: binding.targetPath,
+          relationSubtype: "namespace-call",
+        };
+      }
+    }
+    if (receiver.kind === ts.SyntaxKind.ThisKeyword) {
+      const owner = enclosingClass(call);
+      if (owner && localCallableNames.has(`${owner}.${methodName}`)) {
+        return {
+          name: `${owner}.${methodName}`,
+          targetPath: path,
+          relationSubtype: "method-call",
+        };
+      }
+    }
+    if (localCallableNames.has(methodName)) {
+      return { name: methodName, targetPath: path, relationSubtype: "method-call" };
+    }
+    return undefined;
+  };
+
   const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const target = resolveCallTarget(node);
+      if (target) {
+        const sourceName = enclosingCallable(node) ?? path;
+        const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        relationships.push({
+          sourceName,
+          targetName: target.name,
+          sourcePath: path,
+          targetPath: target.targetPath,
+          relation: "calls",
+          relationType: "calls",
+          relationSubtype: target.relationSubtype,
+          evidence: [{
+            file: path,
+            line: position.line + 1,
+            column: position.character + 1,
+            kind: "call-site",
+            snippet: node.getText(sourceFile).slice(0, 240),
+          }],
+        });
+      }
+    }
+
     // export function foo() {}  /  export default function foo() {}  /
     // function foo() {} ... export = foo;
     // Non-exported top-level async/named functions are also captured at lower
@@ -1337,7 +1534,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
       }
     }
     for (const rel of result.relationships) {
-      const key = `${rel.sourceName}→${rel.targetName}::${rel.relation}`;
+      const key = `${rel.sourcePath ?? rel.sourceName}→${rel.targetPath ?? rel.targetName}::${rel.relation}`;
       if (!seenRelationships.has(key)) {
         seenRelationships.add(key);
         const classified = classifyRelationType(rel.relation);

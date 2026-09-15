@@ -52,6 +52,14 @@ export {
   // PR-03: provenance-aware path annotation
   annotatePathSteps,
 } from "./queries.js";
+export {
+  planHierarchicalRetrieval,
+} from "./retrieval.js";
+export type {
+  HierarchicalRetrievalRequest,
+  HierarchicalRetrievalPlan,
+  RetrievalEvidenceReference,
+} from "./retrieval.js";
 export { GRAPH_LIMITS } from "./graph-limits.js";
 
 export {

@@ -56,12 +56,14 @@ export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "query_knowledge_graph",
       description:
-        "Query the persisted dependency/knowledge graph. Use operation search, impact, or neighborhood with a bounded depth and result set.",
+        "Query the persisted dependency/knowledge graph. Use search, impact, neighborhood, or retrieve for a bounded hierarchical source-retrieval plan.",
       parameters: {
         type: "object",
         properties: {
-          operation: { type: "string", enum: ["search", "impact", "neighborhood"] },
+          operation: { type: "string", enum: ["search", "impact", "neighborhood", "retrieve"] },
           entity: { type: "string", description: "Entity name or ID for impact/neighborhood." },
+          query: { type: "string", description: "Question or symbols to use for hierarchical retrieval." },
+          paths: { type: "string", description: "Optional comma-separated project-relative paths to prioritize." },
           depth: { type: "integer", minimum: 1, maximum: 4 },
         },
         required: ["operation"],

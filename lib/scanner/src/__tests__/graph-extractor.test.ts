@@ -66,6 +66,43 @@ describe("extractGraph", () => {
     expect(importRels.length).toBeGreaterThan(0);
   });
 
+  it("extracts local and imported TypeScript call edges with source-owned evidence", async () => {
+    const files = [
+      makeFile(
+        "src/index.ts",
+        'import { parseUser as parse } from "./utils";\n\nexport function handle() {\n  parse();\n  local();\n}\nfunction local() {}\n',
+      ),
+      makeFile("src/utils.ts", "export function parseUser() {}"),
+    ];
+
+    const result = await extractGraph(files);
+    const calls = result.relationships.filter((relationship) => relationship.relation === "calls");
+
+    const importedCall = calls.find(
+      (relationship) => relationship.sourceName === "handle" && relationship.targetName === "parseUser",
+    );
+    expect(importedCall).toMatchObject({
+      sourcePath: "src/index.ts",
+      targetPath: "src/utils.ts",
+      relationType: "calls",
+      relationSubtype: "imported-call",
+    });
+    expect(importedCall?.provenance?.evidence[0]).toMatchObject({
+      file: "src/index.ts",
+      kind: "call-site",
+      line: 4,
+    });
+
+    expect(calls).toContainEqual(expect.objectContaining({
+      sourceName: "handle",
+      targetName: "local",
+      sourcePath: "src/index.ts",
+      targetPath: "src/index.ts",
+      relationType: "calls",
+      relationSubtype: "local-call",
+    }));
+  });
+
   it("does not produce duplicate file entities for the same path", async () => {
     const files = [makeFile("src/foo.ts", "export const a = 1;")];
 

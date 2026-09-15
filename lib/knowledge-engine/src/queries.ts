@@ -312,6 +312,7 @@ export async function getNeighborhood(
   db: Db,
   entityId: string,
   depth = 2,
+  projectId?: string,
 ): Promise<{
   root: GraphEntity | null;
   entities: GraphEntity[];
@@ -320,7 +321,10 @@ export async function getNeighborhood(
   const rootRows = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.id, entityId))
+    .where(and(
+      eq(graphEntitiesTable.id, entityId),
+      ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : []),
+    ))
     .limit(1);
 
   if (!rootRows[0]) return { root: null, entities: [], relationships: [] };
@@ -332,14 +336,19 @@ export async function getNeighborhood(
 
   for (let d = 0; d < Math.min(depth, GRAPH_LIMITS.maxTraversalDepth); d++) {
     // Outgoing
-    const outgoing = await fetchOutgoing(db, frontier);
+    const outgoing = await fetchOutgoing(db, frontier, projectId);
     // Incoming
     const incoming =
       frontier.length > 0
         ? await db
             .select()
             .from(graphRelationshipsTable)
-            .where(inArray(graphRelationshipsTable.targetId, frontier))
+            .where(and(
+              inArray(graphRelationshipsTable.targetId, frontier),
+              ...(projectId
+                ? [or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!]
+                : []),
+            ))
         : [];
 
     const nextIds = new Set<string>();
@@ -352,7 +361,7 @@ export async function getNeighborhood(
     const newIds = [...nextIds].filter((id) => !visited.has(id));
     if (newIds.length === 0) break;
 
-    const entities = await fetchEntitiesByIds(db, newIds);
+    const entities = await fetchEntitiesByIds(db, newIds, projectId);
     allEntities.push(...entities);
     for (const e of entities) visited.add(e.id);
     frontier = newIds;

@@ -3,6 +3,7 @@ import { and, eq, ilike } from "drizzle-orm";
 import {
   getImpactedEntities,
   getNeighborhood,
+  planHierarchicalRetrieval,
   searchNodes,
   type GraphEntity,
 } from "@workspace/knowledge-engine";
@@ -197,6 +198,34 @@ export function createProjectAnalysisToolRunner(
       const operation = args.operation ?? "search";
       const depth = Math.max(1, Math.min(4, Number(args.depth) || 2));
       const entity = (args.entity ?? "").trim();
+      if (operation === "retrieve") {
+        const query = (args.query ?? entity).trim();
+        const paths = (args.paths ?? "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .slice(0, 20);
+        const plan = await planHierarchicalRetrieval(db, projectId, {
+          query,
+          paths,
+          depth: Math.min(depth, 2),
+          operationId: correlationSnapshot.operationId,
+          projectRevision: correlationSnapshot.projectRevision,
+        });
+        check(controller.signal, attemptDeadline);
+        await assertRevision();
+        check(controller.signal, attemptDeadline);
+        return {
+          status: "complete",
+          source: "analysis:hierarchical-retrieval",
+          output: bounded(plan),
+          correlation: {
+            ...(authoritativeCorrelation ?? correlationSnapshot),
+            evidenceProvenance: "persisted-hierarchical-retrieval",
+          },
+          ...(advancedRevision ? { trustedRevisionAdvance: true } : {}),
+        };
+      }
       if (operation === "search") {
         const matches = await searchNodes(db, projectId, entity ? [entity] : []);
         check(controller.signal, attemptDeadline);
@@ -226,7 +255,7 @@ export function createProjectAnalysisToolRunner(
       }
       const result = operation === "impact"
         ? await getImpactedEntities(db, target.id, depth)
-        : await getNeighborhood(db, target.id, depth);
+        : await getNeighborhood(db, target.id, depth, projectId);
       check(controller.signal, attemptDeadline);
       await assertRevision();
       check(controller.signal, attemptDeadline);

@@ -556,7 +556,13 @@ export async function performScan(
   // Resolve a relationship endpoint to a DB entity ID.
   // If multiple entities share the same name (cross-file collision),
   // return the first stable entry rather than an arbitrary one.
-  const findEntityId = (name: string): string | undefined => {
+  const findEntityId = (name: string, endpointPath?: string): string | undefined => {
+    if (endpointPath) {
+      for (const type of ["file", "function", "class", "module"] as const) {
+        const exact = entityKeyToId.get(`${type}::${endpointPath}::${name}`);
+        if (exact) return exact;
+      }
+    }
     for (const type of ["file", "function", "class", "module"] as const) {
       const ids = entityNameToIds.get(`${type}::${name}`);
       if (ids && ids.length > 0) return ids[0];
@@ -566,8 +572,8 @@ export async function performScan(
 
   const relRows = graph.relationships
     .map((rel) => {
-      const sourceId = findEntityId(rel.sourceName);
-      const targetId = findEntityId(rel.targetName);
+      const sourceId = findEntityId(rel.sourceName, rel.sourcePath);
+      const targetId = findEntityId(rel.targetName, rel.targetPath);
       if (!sourceId || !targetId) return null;
       const evArr = rel.evidence ?? [];
       return {
