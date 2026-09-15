@@ -181,6 +181,9 @@ import {
   validateAnalysisEvidenceCompletion,
 } from "../../lib/ai-execution-state.js";
 import {
+  buildTaskObjectiveContract,
+} from "../../lib/task-objective-contract.js";
+import {
   classifyAiTerminalOutcome,
   publicAcceptanceDisposition,
   type AiAcceptanceDisposition,
@@ -840,6 +843,7 @@ async function loadTerminalProjection(params: {
       reasonCode: aiExecutionAcceptancesTable.reasonCode,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
       resumable: aiExecutionAcceptancesTable.resumable,
+      disposition: aiExecutionAcceptancesTable.disposition,
     })
     .from(aiExecutionAcceptancesTable)
     .where(and(
@@ -882,6 +886,25 @@ async function loadTerminalProjection(params: {
       : status === "cancelled"
         ? "INTERRUPTED"
         : "FAILED";
+  const disposition = acceptance?.disposition && typeof acceptance.disposition === "object"
+    ? acceptance.disposition as Record<string, unknown>
+    : undefined;
+  const taskObjective = disposition?.taskObjective && typeof disposition.taskObjective === "object"
+    ? disposition.taskObjective as Record<string, unknown>
+    : undefined;
+  const taskObjectiveKind = typeof taskObjective?.kind === "string"
+    ? taskObjective.kind.slice(0, 80)
+    : undefined;
+  const taskObjectiveValidatorIds = Array.isArray(taskObjective?.validatorIds)
+    ? taskObjective.validatorIds
+      .filter((value): value is string => typeof value === "string")
+      .slice(0, 8)
+    : undefined;
+  const taskObjectiveStatus = taskObjective?.status === "PROVEN"
+    || taskObjective?.status === "INCOMPLETE"
+    || taskObjective?.status === "UNAVAILABLE"
+    ? taskObjective.status
+    : undefined;
 
   return {
     executionId: execution.id,
@@ -902,6 +925,15 @@ async function loadTerminalProjection(params: {
     ),
     nextActionCode: acceptance?.nextActionCode ?? null,
     resumable: Boolean(acceptance?.resumable) || status === "paused",
+    ...(taskObjectiveKind && taskObjectiveValidatorIds && taskObjectiveStatus
+      ? {
+          taskObjective: {
+            kind: taskObjectiveKind,
+            validatorIds: taskObjectiveValidatorIds,
+            status: taskObjectiveStatus,
+          },
+        }
+      : {}),
   };
 }
 
@@ -6522,6 +6554,31 @@ router.post("/ai/chat/stream", async (req, res) => {
     analysisCorrelation.projectRevision =
       projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
 
+    const taskObjectiveProofRequired = Boolean(
+      streamTurnIntent.requiresEvidence
+      || streamTurnIntent.projectTarget
+      || streamObjective
+      || effectiveBuildPlanMessageId
+      || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
+      || (implementationPlanScope && implementationPlanScope.size > 0)
+      || (
+        isImmediateExecutionRequest(message)
+        && (
+          !streamTurnIntent.classification.implementationPlanMode
+          || isRepairPlanExecutionRequest(message)
+        )
+      ),
+    );
+    const taskObjective = buildTaskObjectiveContract({
+      message,
+      projectId,
+      workspaceRevision: analysisCorrelation.projectRevision,
+      targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+      proofRequired: taskObjectiveProofRequired,
+      turnIntent: streamTurnIntent.kind,
+      operationMode: streamTurnIntent.operationMode,
+      implementationTaskMode: streamTurnIntent.classification.implementationTaskMode,
+    });
     let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
        turnIntent: streamTurnIntent.kind,
@@ -6539,6 +6596,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(streamObjective ? { objective: streamObjective } : {}),
+      ...(taskObjective ? { taskObjective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
       ...(capabilityProbeContract ? { capabilityProbe: capabilityProbeContract } : {}),
       // Session task linkage is context, not an autonomous execution request.
@@ -6547,21 +6605,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       // enters the proof-required contract. Evidence-aware turn intent is also
       // server-owned proof authorization; otherwise a forensic request can be
       // downgraded to ordinary chat merely because it has no explicit objective.
-      proofRequired: Boolean(
-        streamTurnIntent.requiresEvidence
-        || streamTurnIntent.projectTarget
-        || streamObjective
-        || effectiveBuildPlanMessageId
-        || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
-        || (implementationPlanScope && implementationPlanScope.size > 0)
-        || (
-          isImmediateExecutionRequest(message) &&
-          (
-            !streamTurnIntent.classification.implementationPlanMode
-            || isRepairPlanExecutionRequest(message)
-          )
-        ),
-      ),
+      proofRequired: taskObjectiveProofRequired,
       ...(isResumableTaskType(streamClassification.taskType)
         || capabilityProbeContract
         || streamTurnIntent.projectTarget
@@ -6609,7 +6653,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         storedValue: unknown,
         requestedValue: unknown,
         requested: boolean,
-      ): boolean => !requested || JSON.stringify(storedValue ?? null) === JSON.stringify(requestedValue ?? null);
+      ): boolean => !requested
+        || storedValue === undefined
+        || JSON.stringify(storedValue ?? null) === JSON.stringify(requestedValue ?? null);
       const bindingMatches = storedRequest &&
         storedRequest.projectId === executionRequest.projectId &&
         storedRequest.sessionId === executionRequest.sessionId &&
@@ -6642,7 +6688,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionRequest.objective,
           streamObjective !== undefined,
         );
-      if (!bindingMatches) {
+      const taskObjectiveBindingMatches =
+        !executionRequest.taskObjective
+        || storedRequest?.taskObjective === undefined
+        || JSON.stringify(storedRequest.taskObjective) === JSON.stringify(executionRequest.taskObjective);
+      if (!bindingMatches || !taskObjectiveBindingMatches) {
         sse({
           type: "error",
           code: "EXECUTION_BINDING_MISMATCH",
@@ -6915,6 +6965,7 @@ router.post("/ai/chat/stream", async (req, res) => {
        ? undefined
        : checkpointOperation ?? createAutonomousOperationContract({
            operationId: aiExecution.operationId ?? aiExecution.id,
+            taskObjective: executionRequest.taskObjective,
            objective: executionRequest.objective
              ? JSON.stringify(executionRequest.objective)
              : executionRequest.message,
@@ -9402,6 +9453,17 @@ router.post("/ai/chat/stream", async (req, res) => {
             updatedAt: new Date().toISOString(),
           }
         : autonomousOperation;
+      const taskObjectiveValidated = Boolean(
+        analysisEvidenceAccepted
+        || finalForensicAccepted === true
+        || capabilityProbeAccepted
+        || (
+          finalValidation?.kind === "validation"
+          && finalValidation.status === "passed"
+          && executionEvidenceVerdict === "PROVEN"
+          && !proposalId
+        ),
+      );
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
@@ -9410,6 +9472,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         workspaceRoot: validRootPath ?? null,
         proposalId,
         operation: operationForCompletion,
+        taskObjective: executionRequest.taskObjective,
+        objectiveValidated: taskObjectiveValidated,
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,

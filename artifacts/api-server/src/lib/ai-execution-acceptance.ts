@@ -12,6 +12,7 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
+import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -34,6 +35,11 @@ export type ExecutionAcceptanceDisposition = {
   retryAfterMs?: number;
   retryAt?: string;
   retryAfterSource?: "provider" | "server_default" | "adaptive_default" | "project_rate_limit";
+  taskObjective?: {
+    kind: string;
+    validatorIds: string[];
+    status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+  };
 };
 
 export type EvidenceReadInput = {
@@ -110,6 +116,8 @@ export type FinalizeExecutionAcceptanceParams = {
    * guarded terminal transaction as the acceptance ledger.
    */
   taskFinalization?: TaskExecutionFinalization;
+  taskObjective?: TaskObjectiveContract;
+  taskObjectiveStatus?: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
 };
 
 export type TaskExecutionFinalization = {
@@ -179,6 +187,23 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
     ? raw.operatorAction.slice(0, 240)
     : undefined;
   if (!outcome || !recoveryState || !nextActionCode || !operatorAction) return undefined;
+  const rawTaskObjective = raw.taskObjective;
+  const taskObjective = rawTaskObjective && typeof rawTaskObjective === "object"
+    ? rawTaskObjective as Record<string, unknown>
+    : undefined;
+  const taskObjectiveKind = typeof taskObjective?.kind === "string"
+    ? taskObjective.kind.slice(0, 80)
+    : undefined;
+  const taskObjectiveValidatorIds = Array.isArray(taskObjective?.validatorIds)
+    ? taskObjective.validatorIds
+      .filter((value): value is string => typeof value === "string")
+      .slice(0, 8)
+    : undefined;
+  const taskObjectiveStatus = taskObjective?.status === "PROVEN"
+    || taskObjective?.status === "INCOMPLETE"
+    || taskObjective?.status === "UNAVAILABLE"
+    ? taskObjective.status
+    : undefined;
   return {
     reasonCodes,
     outcome,
@@ -195,6 +220,15 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
       || raw.retryAfterSource === "adaptive_default"
       || raw.retryAfterSource === "project_rate_limit"
       ? { retryAfterSource: raw.retryAfterSource }
+      : {}),
+    ...(taskObjectiveKind && taskObjectiveValidatorIds && taskObjectiveStatus
+      ? {
+          taskObjective: {
+            kind: taskObjectiveKind,
+            validatorIds: taskObjectiveValidatorIds,
+            status: taskObjectiveStatus,
+          },
+        }
       : {}),
   };
 }
@@ -477,6 +511,8 @@ export async function finalizeExecutionAcceptance(
     if (!execution) return { accepted: false, duplicate: false, reason: "Execution was not found." };
 
     const storedRequest = parseStoredExecutionRequest(execution.request);
+    const taskObjective = params.taskObjective
+      ?? parseTaskObjectiveContract(storedRequest?.taskObjective);
     const storedProofRequired = storedRequest?.proofRequired === true;
     const evidenceRequired = storedProofRequired || params.evidence?.required === true;
     const expectedRevision = typeof storedRequest?.workspaceRevision === "string"
@@ -652,6 +688,16 @@ export async function finalizeExecutionAcceptance(
       nextActionCode,
       operatorAction: nextActionCode,
       ...(params.disposition ?? {}),
+      ...(taskObjective
+        ? {
+            taskObjective: {
+              kind: taskObjective.kind,
+              validatorIds: taskObjective.validatorIds,
+              status: params.taskObjectiveStatus
+                ?? (params.outcome === "SUCCEEDED" ? "PROVEN" : "INCOMPLETE"),
+            },
+          }
+        : {}),
       ...(params.retryAfterMs !== undefined ? { retryAfterMs: params.retryAfterMs } : {}),
       ...(params.retryAt ? { retryAt: params.retryAt } : {}),
     };

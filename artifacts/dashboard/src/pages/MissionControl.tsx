@@ -201,6 +201,19 @@ function acceptanceStatus(execution: MissionExecution | undefined): AcceptanceSt
   return 'NOT_RECORDED';
 }
 
+function taskObjectiveAcceptance(execution: MissionExecution | undefined): JsonRecord | null {
+  const acceptance = asRecord(execution?.acceptance);
+  const disposition = asRecord(acceptance?.disposition);
+  return asRecord(disposition?.taskObjective);
+}
+
+function taskObjectiveValidatorLabel(execution: MissionExecution | undefined): string {
+  const validators = taskObjectiveAcceptance(execution)?.validatorIds;
+  return Array.isArray(validators)
+    ? validators.filter((value): value is string => typeof value === 'string').join(', ')
+    : 'Not recorded';
+}
+
 function acceptanceStatusLabel(status: AcceptanceStatus): string {
   switch (status) {
     case 'PROVEN':
@@ -1612,6 +1625,14 @@ export default function MissionControl() {
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Diagnostic code</div>
                   <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Task kind</div>
+                  <div className="font-mono">{formatValue(taskObjectiveAcceptance(selectedExecution)?.kind)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Validator</div>
+                  <div className="font-mono">{taskObjectiveValidatorLabel(selectedExecution)}</div>
                 </div>
               </div>
               ) : (

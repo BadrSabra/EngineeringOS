@@ -11,6 +11,11 @@ import type {
 import { formatUntrustedContent } from "@workspace/ai-orchestrator";
 import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
 import {
+  parseTaskObjectiveContract,
+  validateTaskObjectiveContract,
+  type TaskObjectiveContract,
+} from "./task-objective-contract.js";
+import {
   finalizeExecutionAcceptance,
   type EvidenceReadInput,
   type EvidenceSnapshotInput,
@@ -319,6 +324,7 @@ export type AutonomousAcceptanceCheck = {
 
 export type AutonomousOperationContract = {
   operationId: string;
+  taskObjective?: TaskObjectiveContract;
   objective: string;
   revisionManifest: string;
   planHash: string;
@@ -406,6 +412,11 @@ export const AUTONOMOUS_ACCEPTANCE_REASON_CODES = [
   "evidence_operation_mismatch",
   "evidence_revision_mismatch",
   "evidence_candidate_mismatch",
+  "task_objective_invalid",
+  "task_objective_not_proven",
+  "task_validator_unavailable",
+  "task_evidence_incomplete",
+  "task_revision_mismatch",
 ] as const;
 export type AutonomousAcceptanceReasonCode =
   (typeof AUTONOMOUS_ACCEPTANCE_REASON_CODES)[number];
@@ -442,6 +453,26 @@ export function validateAutonomousOperationCompletion(
     if (!reasonCodes.includes(code)) reasonCodes.push(code);
     reasons.push(message);
   };
+  if (operation.taskObjective) {
+    const objectiveCheck = validateTaskObjectiveContract({
+      contract: operation.taskObjective,
+      workspaceRevision: params.workspaceRevision ?? operation.revisionManifest,
+      objectiveValidated: params.evidenceVerdict === "PROVEN",
+      evidenceVerdict: params.evidenceVerdict,
+      evidenceComplete: params.evidenceVerdict === "PROVEN",
+      targetPaths: operation.targetPaths,
+    });
+    objectiveCheck.codes.forEach((code, index) => {
+      const mapped = code === "validator_unavailable"
+        ? "task_validator_unavailable"
+        : code === "partial_evidence"
+          ? "task_evidence_incomplete"
+          : code === "revision_mismatch"
+            ? "task_revision_mismatch"
+            : "task_objective_not_proven";
+      addReason(mapped, objectiveCheck.reasons[index] ?? "task objective is not accepted");
+    });
+  }
   if (!operation.objective.trim()) addReason("missing_objective", "objective is missing");
   if (!operation.revisionManifest.trim() || operation.revisionManifest === "unbound") {
     addReason("unbound_revision", "workspace revision is unbound");
@@ -701,6 +732,7 @@ export type AiExecutionRequestEnvelope = {
   linkedTaskId?: string;
   buildPlanMessageId?: string;
   objective?: unknown;
+  taskObjective?: TaskObjectiveContract;
   validationTargetPaths: string[];
   proofRequired?: boolean;
 };
@@ -840,6 +872,7 @@ export function createResumeToken(): string {
 
 export function createAutonomousOperationContract(params: {
   operationId: string;
+  taskObjective?: TaskObjectiveContract;
   objective: string;
   revisionManifest?: string;
   planHash?: string;
@@ -857,6 +890,7 @@ export function createAutonomousOperationContract(params: {
   }
   return {
     operationId: params.operationId,
+    ...(params.taskObjective ? { taskObjective: params.taskObjective } : {}),
     objective,
     revisionManifest: (params.revisionManifest ?? "unbound").slice(0, 2_000),
     planHash: params.planHash ?? createHash("sha256").update(objective).digest("hex"),
@@ -909,7 +943,14 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       && !parseCapabilityProbeContract(value.resumeContract.capabilityProbe)) {
       return undefined;
     }
-    return value;
+    const taskObjective = value.taskObjective === undefined
+      ? undefined
+      : parseTaskObjectiveContract(value.taskObjective);
+    if (value.taskObjective !== undefined && !taskObjective) return undefined;
+    return {
+      ...value,
+      ...(taskObjective ? { taskObjective } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -1265,8 +1306,13 @@ function parseAutonomousOperation(value: unknown): AutonomousOperationContract |
   const binding = candidate.binding === undefined ? undefined : parseRecipeOperationBinding(candidate.binding);
   if (candidate.binding !== undefined && !binding) return undefined;
   if (binding && binding.operationId !== candidate.operationId) return undefined;
+  const taskObjective = candidate.taskObjective === undefined
+    ? undefined
+    : parseTaskObjectiveContract(candidate.taskObjective);
+  if (candidate.taskObjective !== undefined && !taskObjective) return undefined;
   return {
     operationId: candidate.operationId.slice(0, 160),
+    ...(taskObjective ? { taskObjective } : {}),
     objective: candidate.objective.slice(0, 2_000),
     revisionManifest: candidate.revisionManifest.slice(0, 2_000),
     planHash: candidate.planHash.slice(0, 160),
@@ -2101,6 +2147,8 @@ export async function completeAiExecution(params: {
   finalMessageContent?: string;
   proposalId?: string;
   operation?: AutonomousOperationContract;
+  taskObjective?: TaskObjectiveContract;
+  objectiveValidated?: boolean;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
@@ -2185,6 +2233,7 @@ export async function completeAiExecution(params: {
   const projectQueryProofExecution =
     request?.turnIntent === "PROJECT_QUERY" && requiresProof && !forensicExecution;
   const operation = params.operation ?? checkpoint?.operation;
+  const taskObjective = params.taskObjective ?? request?.taskObjective ?? operation?.taskObjective;
   const inferredEvidenceRefs = [
     ...(params.evidenceRefs ?? []),
     ...(params.evidenceReads ?? [])
@@ -2198,6 +2247,18 @@ export async function completeAiExecution(params: {
         ? "PROVEN" as const
         : params.evidenceVerdict;
   if (requiresProof) {
+    if (taskObjective) {
+      const objectiveCheck = validateTaskObjectiveContract({
+        contract: taskObjective,
+        workspaceRevision: request?.workspaceRevision ?? "",
+        projectId: current?.projectId,
+        objectiveValidated: params.objectiveValidated === true,
+        evidenceVerdict: effectiveEvidenceVerdict,
+        evidenceComplete: effectiveEvidenceVerdict === "PROVEN",
+        targetPaths: operation?.targetPaths ?? request?.validationTargetPaths ?? [],
+      });
+      if (!objectiveCheck.allowed) return false;
+    }
     if (forensicExecution && params.forensicAccepted !== true) return false;
     if (!operation) return false;
     if (!request?.workspaceRevision) return false;
@@ -2300,6 +2361,8 @@ export async function completeAiExecution(params: {
     candidateIdentity: params.candidateIdentity,
     proposalId: params.proposalId ?? null,
     recipeReceipt: params.recipeReceipt,
+    taskObjective,
+    taskObjectiveStatus: params.objectiveValidated ? "PROVEN" : "INCOMPLETE",
     checkpoint: JSON.stringify(checkpointEnvelope),
   });
   return result.accepted;

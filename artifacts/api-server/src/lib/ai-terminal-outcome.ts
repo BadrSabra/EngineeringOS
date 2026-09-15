@@ -45,6 +45,11 @@ export type AiTerminalProjection = {
   reasonCode: string | null;
   nextActionCode: string | null;
   resumable: boolean;
+  taskObjective?: {
+    kind: string;
+    validatorIds: string[];
+    status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+  };
 };
 
 /**

@@ -221,4 +221,47 @@ describe("server-owned execution acceptance", () => {
       retryAt: "2026-09-08T18:00:15.000Z",
     });
   });
+
+  it("projects task kind and validator state through the public acceptance boundary", () => {
+    const projected = projectExecutionAcceptance({
+      id: "acceptance",
+      executionId: "execution",
+      projectId: "project",
+      attempt: 1,
+      finalizationKey: "key",
+      operationId: "operation",
+      workerId: "worker",
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+      disposition: {
+        reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
+        outcome: "FAILED",
+        recoveryState: "INCOMPLETE",
+        nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+        operatorAction: "REVIEW_INCOMPLETE_EVIDENCE",
+        taskObjective: {
+          kind: "deployment",
+          validatorIds: ["deployment-receipt.v1"],
+          status: "UNAVAILABLE",
+          providerPayload: "must not cross boundary",
+        },
+      },
+      evidenceSnapshotId: null,
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      resumable: 0,
+      messageId: "message",
+      sourceRevision: "revision",
+      candidateIdentity: null,
+      createdAt: new Date(),
+    });
+
+    expect(projected?.disposition?.taskObjective).toEqual({
+      kind: "deployment",
+      validatorIds: ["deployment-receipt.v1"],
+      status: "UNAVAILABLE",
+    });
+  });
 });
