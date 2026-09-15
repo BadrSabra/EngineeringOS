@@ -4440,11 +4440,15 @@ router.post("/ai/chat", async (req, res) => {
     resolvedTurnIntent: turnIntent.kind,
     projectTargetId: turnIntent.projectTarget?.id ?? null,
   }, "chat: continuation decision");
+  const capabilityProbeTurn =
+    isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe);
   const effectiveObjective =
     objective ??
-    (turnIntent.projectTarget
+    (!capabilityProbeTurn && turnIntent.projectTarget
       ? buildProjectQueryObjective(turnIntent.projectTarget, message)
       : undefined);
+  const effectiveProjectQuery =
+    !capabilityProbeTurn || objective ? turnIntent.projectTarget : undefined;
   const resumableTaskStateAtStart = nextSessionTaskState({
     persisted: resumableStateForTurn,
     classification: chatClassification,
@@ -4455,7 +4459,7 @@ router.post("/ai/chat", async (req, res) => {
     linkedTaskId: effectiveLinkedTaskId,
     revision: project.updatedAt.toISOString(),
     capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
-    projectQuery: turnIntent.projectTarget,
+    projectQuery: effectiveProjectQuery,
     projectQueryObjective: effectiveObjective,
     forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
     now: msgNow,
@@ -5795,11 +5799,15 @@ router.post("/ai/chat/stream", async (req, res) => {
     resolvedTurnIntent: streamTurnIntent.kind,
     projectTargetId: streamTurnIntent.projectTarget?.id ?? null,
   }, "chat/stream: continuation decision");
+  const capabilityProbeTurn =
+    isCapabilityProbeRequest(message) || Boolean(streamResumableStateForTurn?.capabilityProbe);
   const streamObjective =
     objective ??
-    (streamTurnIntent.projectTarget
+    (!capabilityProbeTurn && streamTurnIntent.projectTarget
       ? buildProjectQueryObjective(streamTurnIntent.projectTarget, message)
       : undefined);
+  const streamProjectQuery =
+    !capabilityProbeTurn || objective ? streamTurnIntent.projectTarget : undefined;
   const capabilityProbeContract = isCapabilityProbeRequest(message)
     ? {
         sourceFiles: [...CAPABILITY_PROBE_SOURCE_FILES],
@@ -6842,7 +6850,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
-      projectQuery: streamTurnIntent.projectTarget,
+      projectQuery: streamProjectQuery,
       projectQueryObjective: streamObjective,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       operationId: aiExecution.operationId ?? executionRequest.operationId,
@@ -8169,6 +8177,16 @@ router.post("/ai/chat/stream", async (req, res) => {
         };
         let terminalProjection: AiTerminalProjection | undefined;
         if (aiExecution) {
+          const capabilityProbeAcceptanceDisposition =
+            terminalOutcome.outcome === "FAILED"
+            && hasCapabilityProbeClaimUnclosed(traceSteps, forensicDiagnostic)
+              ? publicAcceptanceDisposition({
+                  code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+                  outcome: terminalOutcome.outcome,
+                  failureKind: terminalOutcome.failureKind,
+                  recoveryState: terminalOutcome.recoveryState,
+                })
+              : undefined;
           // The acceptance row is the durable terminal fence. Commit it before
           // exposing the terminal frame so reconnect/history cannot observe a
           // stream result that the execution detail does not yet own.
@@ -8188,6 +8206,9 @@ router.post("/ai/chat/stream", async (req, res) => {
                   evidenceReason: forensicDiagnostic?.explanation
                     ?? "Source evidence was retained, but the required capability claims were not closed.",
                 }
+              : {}),
+            ...(capabilityProbeAcceptanceDisposition
+              ? { acceptanceDisposition: capabilityProbeAcceptanceDisposition }
               : {}),
             evidenceReads: evidenceReadsForTerminal(),
             evidenceProgress: evidenceProgressForTerminal(),

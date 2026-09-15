@@ -84,6 +84,34 @@ function makeStrategy(responses: RawGroqResponse[]): ProviderStrategy {
   };
 }
 
+describe("objective evidence manifest completeness", () => {
+  it("requires every objective and claim path while accepting normalized retained paths", async () => {
+    const { objectiveEvidenceManifestCompleteForPaths } =
+      await import("../tool-execution-engine.js");
+    const objective = {
+      goal: "verify the objective",
+      requiredEvidencePaths: ["src/first.ts"],
+      requiredClaims: [{
+        claimId: "claim-1",
+        requiredEvidencePaths: ["src/second.ts"],
+      }],
+    };
+
+    expect(objectiveEvidenceManifestCompleteForPaths(
+      objective,
+      ["./src/first.ts"],
+    )).toBe(false);
+    expect(objectiveEvidenceManifestCompleteForPaths(
+      objective,
+      ["./src/first.ts", "src\\second.ts"],
+    )).toBe(true);
+    expect(objectiveEvidenceManifestCompleteForPaths(
+      objective,
+      ["src/first.ts", "src/second.ts", "src/extra.ts"],
+    )).toBe(true);
+  });
+});
+
 function makeMessages(): RawMessage[] {
   return [{ role: "user", content: "hello" }];
 }

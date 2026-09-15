@@ -86,3 +86,9 @@ Terminal classification and durable acceptance must share one capability-specifi
 **Why:** The classifier and resume endpoint enforce the stricter capability outcome, but the acceptance row can still persist the generic default, making history/reconnect state disagree with the streamed terminal result.
 
 **How to apply:** Thread the already-computed acceptance disposition into the failure finalizer and assert recovery state, resumable flag, and next action in the persistence integration test—not only SSE and resume rejection.
+
+The shared objective-manifest predicate must receive every retained evidence source used by the engine, while “no objective” remains not-applicable rather than complete; chat-only callers must handle that case explicitly.
+
+**Why:** A first extraction checked only the retained file-body map and treated an absent objective as complete, changing ordinary provider-timeout and synthesis behavior even though the original engine predicate did neither.
+
+**How to apply:** Keep objective completeness false when no objective exists, pass the union of body and accepted-source maps inside the engine, and let the chat handoff separately treat an absent active objective as unconstrained.

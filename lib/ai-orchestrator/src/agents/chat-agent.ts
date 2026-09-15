@@ -128,6 +128,7 @@ import {
 import {
   toolCacheKey,
   executeToolLoop,
+  objectiveEvidenceManifestCompleteForPaths,
   _compactSynthesisMessages,
   BUDGET_BY_SCOPE,
   type AgentStep,
@@ -7858,6 +7859,11 @@ export async function chat(opts: {
         })),
       }
     : undefined;
+  const completeCapabilityProbeEvidence =
+    capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(prefetchFileContents);
+  const completeActiveObjectiveManifest =
+    !loopObjective
+    || objectiveEvidenceManifestCompleteForPaths(loopObjective, prefetchFileContents.keys());
   let loopResult = await executeToolLoop({
     messages,
     strategy,
@@ -7894,7 +7900,7 @@ export async function chat(opts: {
       ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
       : budget.maxToolCalls,
     toolCallsDisabledAfter:
-      capabilityProbeRequest && hasCompleteCapabilityProbeEvidence(prefetchFileContents)
+      completeCapabilityProbeEvidence && completeActiveObjectiveManifest
         ? 0
         : structuredOutputMode || capabilityProbeRequest
           ? Math.max(0, budget.maxIterations - STRUCTURED_OUTPUT_SYNTHESIS_TURNS)
@@ -7924,7 +7930,7 @@ export async function chat(opts: {
     // only when it contains at least one concrete file.
     allowedToolNames:
       capabilityProbeRequest
-        ? hasCompleteCapabilityProbeEvidence(prefetchFileContents)
+        ? completeCapabilityProbeEvidence && completeActiveObjectiveManifest
           ? []
           : ["read_file", "read_file_range"]
         : singleFileForensicMode && singleFilePaths.length > 0

@@ -798,6 +798,74 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
     }
   });
 
+  it("keeps evidence tools enabled when probe files are complete but a broader objective is missing a path", async () => {
+    const rootPath = await makeProbeRoot();
+    let capturedLoopOptions: {
+      toolCallsDisabledAfter?: number;
+      allowedToolNames?: string[];
+    } | undefined;
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        content: GROUNDED_NEGATIVE_ANSWER,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async (options) => {
+          capturedLoopOptions = {
+            toolCallsDisabledAfter: options.toolCallsDisabledAfter,
+            allowedToolNames: options.allowedToolNames,
+          };
+          return actual.executeToolLoop(options);
+        }),
+      };
+    });
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        objective: {
+          objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+          goal: "verify a broader objective",
+          requiredEvidencePaths: [FILE_A, FILE_B, "src/required-objective-file.ts"],
+          requiredEvidenceEdges: [],
+          requiredClaims: [{
+            claimId: "broader-objective-claim",
+            text: "The broader objective is proven.",
+            requiredEvidencePaths: ["src/required-objective-file.ts"],
+          }],
+        },
+      });
+
+      expect(capturedLoopOptions).toMatchObject({
+        allowedToolNames: ["read_file", "read_file_range"],
+      });
+      expect(capturedLoopOptions?.toolCallsDisabledAfter).not.toBe(0);
+    } finally {
+      vi.doUnmock("../tool-execution-engine.js");
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("uses deterministic source assembly when the first answer omits an exact source excerpt", async () => {
     const rootPath = await makeProbeRoot();
     const firstAnswerWithoutEvidence = JSON.stringify({

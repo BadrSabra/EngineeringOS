@@ -6994,6 +6994,27 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
     expect(terminalCheckpoint?.evidenceReason).toContain("Source evidence was retained");
 
+    const [acceptance] = await db
+      .select({
+        reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+        disposition: aiExecutionAcceptancesTable.disposition,
+        resumable: aiExecutionAcceptancesTable.resumable,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, terminal!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      resumable: 0,
+      disposition: expect.objectContaining({
+        outcome: "FAILED",
+        failureKind: "INCOMPLETE",
+        recoveryState: "INCOMPLETE",
+      }),
+    });
+    expect(acceptance?.nextActionCode).not.toBe("RESUME_ALLOWED");
+
     const attemptedOverwrite = await checkpointAiExecution({
       executionId: terminal!.id,
       workerId: terminal?.workerId ?? "",

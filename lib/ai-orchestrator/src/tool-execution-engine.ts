@@ -1066,6 +1066,33 @@ export type AgentLoopObjective = {
   }>;
 };
 
+/**
+ * A source manifest is complete only when every server-owned objective path has
+ * a retained usable body. Callers may use this before entering synthesis; the
+ * engine uses the same predicate for provider-failure handoff.
+ *
+ * This intentionally answers completeness, not "which path is next". Keeping
+ * those questions separate prevents chat-agent prefetch state from drifting
+ * away from the tool-loop objective state.
+ */
+export function objectiveEvidenceManifestCompleteForPaths(
+  objective: AgentLoopObjective | undefined,
+  retainedPaths: Iterable<string>,
+): boolean {
+  if (!objective) return false;
+  const requiredPaths = [
+    ...(objective.requiredEvidencePaths ?? []),
+    ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
+  ]
+    .map((value) => normalizeObjectivePath(value))
+    .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+  if (requiredPaths.length === 0) return false;
+  const retained = new Set(
+    [...retainedPaths].map((value) => normalizeObjectivePath(value)).filter(Boolean),
+  );
+  return retained.size > 0 && requiredPaths.every((value) => retained.has(value));
+}
+
 export type AgentLoopClaimState = {
   claimId: string;
   status: "PENDING" | "PROVEN" | "BLOCKED";
@@ -2695,9 +2722,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       .find((value) => value.length > 0 && !verified.has(value)) ?? null;
   };
   const objectiveEvidenceManifestComplete = (): boolean =>
-    objectiveRequiredEvidencePaths.length > 0
-    && nextMissingObjectiveEvidencePath() === null
-    && fileContents.size > 0;
+    objectiveEvidenceManifestCompleteForPaths(
+      objective,
+      [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()],
+    );
   const retainedEvidenceProviderFailure = (): ToolLoopResult => {
     loopPhase = "terminal";
     currentIteration = Math.max(currentIteration, 0);
