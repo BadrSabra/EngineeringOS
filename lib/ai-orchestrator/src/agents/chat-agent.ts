@@ -13250,7 +13250,25 @@ export async function chat(opts: {
         : {}),
     };
   }
-  return parseError ? { ...check.data, _parseError: parseError } : check.data;
+  if (parseError) {
+    // Generic non-streaming chat must not return the tolerant raw fallback as
+    // if it were a usable answer. The route already treats `_parseError` as a
+    // terminal model-output failure; keeping the fallback text here allows
+    // storage/SSE callers that inspect response before the terminal branch to
+    // mistake malformed provider output for successful content. Task and
+    // forensic paths retain their structured fallback reports because those
+    // paths use the collected evidence to explain an incomplete run.
+    const terminalResponse =
+      turnIntent.kind === "CHAT" &&
+      !structuredOutputMode &&
+      !repairPlanExecution &&
+      !deterministicTaskExecution &&
+      content.trimStart().startsWith("{")
+        ? ""
+        : check.data.response;
+    return { ...check.data, response: terminalResponse, _parseError: parseError };
+  }
+  return check.data;
 }
 
 /**

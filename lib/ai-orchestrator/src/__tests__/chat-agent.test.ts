@@ -961,6 +961,39 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(deltas.join("")).toBe("");
   });
 
+  it("terminalizes non-streaming parsing when bounded correction also fails", async () => {
+    const malformed =
+      '{"response":"The provider duplicated an inner envelope {"response":"still malformed","sources":[]}';
+    const nextResponse = vi.fn().mockResolvedValue({
+      content: malformed,
+      toolCalls: [],
+      model: "m",
+      usage: {},
+    });
+
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: nextResponse,
+      openrouterCompleteWithFallback: nextResponse,
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+    });
+
+    expect(nextResponse).toHaveBeenCalledTimes(2);
+    expect(result.response).toBe("");
+    expect(result._parseError).toMatchObject({ code: expect.any(String) });
+  });
+
   it("passes plain prose through onDelta without modification", async () => {
     const plainProse = "This is a plain text answer with no JSON wrapper.";
 
