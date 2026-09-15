@@ -81,6 +81,12 @@ Capability Probe and PROJECT_QUERY metadata may coexist in durable state for res
 
 **How to apply:** Preserve both durable fields when required for identity, but resolve an explicit active evidence contract per execution. Reuse the engine’s manifest-completeness logic at the chat handoff; do not add a second map-key-only predicate in `chat-agent`.
 
+When a Capability Probe and PROJECT_QUERY metadata coexist, the First-Evidence Gate must use the probe manifest's first named source, never the generic project target's `firstEvidencePath`.
+
+**Why:** A live execution prefetched both required probe files but also admitted an unrelated project-route read; the extra incomplete read contaminated the durable snapshot and correctly forced acceptance to incomplete.
+
+**How to apply:** Keep ordinary `PROJECT_QUERY` target selection unchanged. Apply the probe-specific source manifest only at the initial evidence-target selection seam, and keep acceptance's all-read completeness rule fail-closed.
+
 Terminal classification and durable acceptance must share one capability-specific disposition. Passing only a claim-unclosed evidence marker to `failAiExecution` allows its default recovery state to advertise `REQUIRED/resumable` even when SSE classified the probe as `INCOMPLETE/non-resumable`.
 
 **Why:** The classifier and resume endpoint enforce the stricter capability outcome, but the acceptance row can still persist the generic default, making history/reconnect state disagree with the streamed terminal result.

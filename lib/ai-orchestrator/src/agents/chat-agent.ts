@@ -6393,9 +6393,10 @@ export async function chat(opts: {
   // realpath (catches symlinks that point outside the root).  Any path that
   // fails either phase is silently skipped; the agent's normal tool-call path
   // will surface a missing-file error to the model.
-  const firstEvidenceTargetPath =
-    firstEvidence.allowedFirstAction === "DIRECT_READ" &&
-    firstEvidence.primaryEvidenceTarget?.kind === "FILE"
+  const firstEvidenceTargetPath = capabilityProbeRequest
+    ? singleFilePaths[0] ?? null
+    : firstEvidence.allowedFirstAction === "DIRECT_READ" &&
+        firstEvidence.primaryEvidenceTarget?.kind === "FILE"
       ? canonicalRelativePath(firstEvidence.primaryEvidenceTarget.path)
       : turnIntent.projectTarget?.firstEvidencePath ?? null;
   // Union the single-file forensic manifest with the FEG primary target so the

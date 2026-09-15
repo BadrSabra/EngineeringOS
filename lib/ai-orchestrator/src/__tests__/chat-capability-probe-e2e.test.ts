@@ -41,11 +41,13 @@ import { createExecutionLedger } from "../execution-ledger.js";
 import { PROVIDER_PRIORITY } from "../provider-registry.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { CAPABILITY_PROBE_MESSAGE } from "../prompts/capability-probe.js";
+import { resolveTurnIntent } from "../turn-intent.js";
 
 type EvidenceIntegrityStep = Extract<
   AgentStep,
   { kind: "evidence_integrity" }
 >;
+type DiagnosticStep = Extract<AgentStep, { kind: "diagnostic" }>;
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -63,6 +65,7 @@ function makeContext(): ProjectContext {
 
 const FILE_A = "lib/ai-orchestrator/src/prompts/profile-classifier.ts";
 const FILE_B = "lib/ai-orchestrator/src/tools/file-tools.ts";
+const OFF_SCOPE_PROJECT_TARGET = "artifacts/api-server/src/routes/ai/chat.ts";
 
 // Small real fixtures at the exact probe paths. Keep each well under the
 // forensic read cap so the completed read is never truncated. NOTE: CONTENT_A
@@ -793,6 +796,86 @@ describe("capability probe: C1–C7 are guarded end-to-end and the probe never d
       // exists (hallucination) this would fail.
       expect(result.response).not.toMatch(/`run\(\)` exists/i);
       expect(result.response).not.toMatch(/function run\(/i);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a project-query target out of the Capability Probe first-evidence read", async () => {
+    const rootPath = await makeProbeRoot();
+    await fs.mkdir(path.dirname(path.join(rootPath, OFF_SCOPE_PROJECT_TARGET)), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(rootPath, OFF_SCOPE_PROJECT_TARGET),
+      "export function unrelatedProjectRoute(): string { return 'off-scope'; }\n",
+      "utf8",
+    );
+
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
+        content: GROUNDED_NEGATIVE_ANSWER,
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy);
+
+    const projectTargetIntent = {
+      ...resolveTurnIntent(PROBE_MESSAGE),
+      projectTarget: {
+        id: "embedded-ai" as const,
+        label: "Embedded AI",
+        confidence: 1,
+        firstEvidencePath: OFF_SCOPE_PROJECT_TARGET,
+        primaryPaths: [OFF_SCOPE_PROJECT_TARGET],
+        allowedExpansionPaths: [],
+        forbiddenPaths: [],
+        requiredEvidencePaths: [],
+        requiredClaims: [],
+        promptHint: "Inspect the embedded AI project target.",
+      },
+      projectTargetResolution: "resolved" as const,
+    };
+    const steps: AgentStep[] = [];
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      await chat({
+        message: PROBE_MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        turnIntent: projectTargetIntent,
+        onStep: (step) => {
+          steps.push(step);
+        },
+      });
+
+      const firstEvidenceDiagnostic = steps.find(
+        (step): step is DiagnosticStep =>
+          step.kind === "diagnostic" &&
+          step.code === "FIRST_EVIDENCE_READ_ALLOWED",
+      );
+      expect(firstEvidenceDiagnostic?.details).toContain(`target=${FILE_A}`);
+      expect(firstEvidenceDiagnostic?.details).not.toContain(
+        `target=${OFF_SCOPE_PROJECT_TARGET}`,
+      );
+
+      const integrity = [...steps].reverse().find(
+        (step): step is EvidenceIntegrityStep =>
+          step.kind === "evidence_integrity",
+      );
+      expect(integrity?.uniqueFilesRead).toBe(2);
+      expect(integrity?.evidenceFileCount).toBe(2);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
