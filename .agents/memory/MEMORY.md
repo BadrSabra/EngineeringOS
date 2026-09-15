@@ -83,6 +83,7 @@
 - [Groq model lifecycle](groq-model-lifecycle.md) — validate hardcoded Groq defaults against the live model catalog; valid keys can still fail when Groq retires a slug.
 - [Credential bootstrap order](credential-bootstrap-order.md) — initialize the persisted AI encryption key before any background catalog refresh can decrypt stored provider credentials.
 - [Capability preflight freshness](capability-preflight-freshness.md) — a lifecycle check can still return a valid TTL snapshot; live Capability Probe selection must request an explicit force refresh.
+- [Capability preflight provider models](capability-preflight-provider-models.md) — every preflight leg must use a model owned by the selected provider, including structured-output validation.
 - [Gemini structured output](gemini-structured-output.md) — Gemini's OpenAI-compatible endpoint accepts response_format; preserve JSON mode while still stripping unsupported tools.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
