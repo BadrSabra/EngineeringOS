@@ -238,6 +238,98 @@ const ARABIC_QUALIFIED_COMPOUND_REQUEST_RE =
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|الاسباب\s+الجذرية|الأسباب\s+الجذريه|الاسباب\s+الجذريه|تتبع\s+مسار\s+(?:الجلسة|الجلسه)|تتبع\s+(?:الجلسة|الجلسه)\s+الأخيرة|تتبع\s+(?:الجلسة|الجلسه)\s+الاخيرة|أثبت|اثبت)/iu;
 
+type EvidenceRoutingSignals = {
+  classification: ClassifiedRequest;
+  routeRequiresEvidence: boolean;
+  isLowRiskChat: boolean;
+  implementationDelivery: boolean;
+  planDelivery: boolean;
+  implementationPlanResume: boolean;
+  broadForensicTask: boolean;
+  broadAuditIntent: boolean;
+  hasProjectToolSignal: boolean;
+  normalizedMessage: string;
+  gapAnalysisProjectQuery: boolean;
+  targetedProjectQuery: boolean;
+  unresolvedProjectQuery: boolean;
+  resumedForensicContinuation: boolean;
+};
+
+/**
+ * Evidence policy firewall.
+ *
+ * Classification is intentionally heuristic and may contain several matching
+ * signals. Keep precedence here, at one boundary, instead of repeating
+ * `category !== "exploration"` and forensic exceptions throughout the route:
+ *
+ *   low-risk/plan/delivery/exploration → no evidence
+ *   deep analysis or evidence-capable task → evidence signals
+ *   targeted/gap/resumed project query → evidence when explicitly grounded
+ *
+ * The function returns the existing evidence intent only; tool access and
+ * delivery authorization remain separate decisions below.
+ */
+function resolveEvidenceIntent({
+  classification,
+  routeRequiresEvidence,
+  isLowRiskChat,
+  implementationDelivery,
+  planDelivery,
+  implementationPlanResume,
+  broadForensicTask,
+  broadAuditIntent,
+  hasProjectToolSignal,
+  normalizedMessage,
+  gapAnalysisProjectQuery,
+  targetedProjectQuery,
+  unresolvedProjectQuery,
+  resumedForensicContinuation,
+}: EvidenceRoutingSignals): boolean {
+  const isExploration = classification.category === "exploration";
+  const isDeepAnalysis = classification.category === "deep_analysis";
+
+  // These are hard boundaries, not competing scores.
+  if (
+    isLowRiskChat ||
+    isExploration ||
+    implementationDelivery ||
+    planDelivery ||
+    implementationPlanResume
+  ) {
+    return false;
+  }
+
+  const evidenceCapable = routeRequiresEvidence || isDeepAnalysis;
+  if (!evidenceCapable) return false;
+
+  const categoryEvidence =
+    isDeepAnalysis ||
+    classification.analysisMode === "FORENSIC" ||
+    classification.structuredOutputMode ||
+    classification.singleFileForensicMode ||
+    classification.orderedForensicRoots.length > 0;
+
+  const explicitEvidence =
+    (!broadForensicTask || broadAuditIntent) && categoryEvidence;
+  const behaviorEvidence =
+    hasProjectToolSignal &&
+    !isProjectOrientationQuestion(normalizedMessage) &&
+    isExplicitBehaviorQueryRequest(normalizedMessage);
+  const projectEvidence =
+    gapAnalysisProjectQuery ||
+    targetedProjectQuery ||
+    unresolvedProjectQuery;
+
+  return (
+    explicitEvidence ||
+    behaviorEvidence ||
+    isProductionReachabilityRequest(normalizedMessage) ||
+    FORENSIC_EVIDENCE_SIGNAL_RE.test(normalizedMessage) ||
+    projectEvidence ||
+    resumedForensicContinuation
+  );
+}
+
 const EXPLICIT_AUDIT_SCOPE_RE =
   /(?:\b(?:src|lib|app|server|client|test|tests|components?|pages?|routes?|api|packages?|artifacts?|files?)\b|[./][\w@.-]+(?:\/[\w@.-]+)*|[\w@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|json|yaml|yml|toml|css|scss|html)\b|specific\s+(?:file|folder|directory|module)|(?:whole|entire|full|all)\s+(?:the\s+)?(?:project|workspace|repository|repo|codebase|code)|(?:of|on|in)\s+the\s+(?:project|workspace|repository|repo|codebase)|مجلد\s+(?:محدد|معين)|ملف(?:ات)?\s+(?:محدد(?:ة)?|معين(?:ة)?)|هذا\s+الملف|الملفات\s+الإنتاجية|الكود\s+الإنتاجي|(?:شامل|شاملة|كامل|كاملة|واسع|واسعة)\s+(?:للمشروع|لمشروعي|للمستودع|لمستودعي|للريبو|لقاعدة\s+(?:الكود|الشفرة|المصدر)|المشروع|مشروعي|المستودع|مستودعي|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))|(?:في|على|ضمن|داخل)\s+(?:المشروع|مشروعي|المستودع|مستودعي|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))|(?:المشروع|مشروعي|المستودع|مستودعي|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))\s+(?:بالكامل|كله|كاملًا|كاملة)|كل\s+(?:المشروع|المستودع|الريبو|الكود|قاعدة\s+(?:الكود|الشفرة|المصدر))|المشروع\s+كله)/iu;
 function isExecutionActionRequest(message: string): boolean {
