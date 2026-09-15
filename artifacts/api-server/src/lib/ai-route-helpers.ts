@@ -953,6 +953,7 @@ export async function chatWithFallback(
           timeoutMs: 15_000,
           maxFallbackModels: CAPABILITY_PREFLIGHT_MAX_MODELS,
           signal: baseParams.signal,
+          executionLedger,
            // Capability Probe's effective single-file manifest exposes only
            // read_file. Keep the preflight read contract aligned with the
            // actual tool loop instead of probing a broader generic manifest.

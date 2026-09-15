@@ -9,6 +9,7 @@ import {
   createChatCodeAgentBenchmarkExecutor,
 } from "./live-code-agent-benchmark.js";
 import { GroqClientError } from "../errors.js";
+import { createExecutionLedger } from "../execution-ledger.js";
 
 function response(toolCalls: RawGroqResponse["toolCalls"]): RawGroqResponse {
   return {
@@ -243,6 +244,57 @@ describe("providerHealthProbe", () => {
       attemptCount: 2,
       attemptedModels: [calls[0]?.model, calls[2]?.model],
     });
+  });
+
+  it("keeps Gemini structured-output preflight on the Gemini model", async () => {
+    const calls: Array<{ model?: string; structured: boolean }> = [];
+    const ledger = createExecutionLedger({ mode: "tool_chat" });
+    const strategy: ProviderStrategy = {
+      providerId: "gemini",
+      supportsNativeStream: false,
+      async call(_messages, options) {
+        const model = options.model ?? "gemini-3-flash-preview";
+        calls.push({
+          model,
+          structured: !options.tools?.length,
+        });
+        if (options.tools?.length) {
+          return {
+            ...response([{
+              id: "probe-1",
+              type: "function",
+              function: {
+                name: PROBE_TOOL_NAME,
+                arguments: '{"probe":"ok"}',
+              },
+            }]),
+            model,
+          };
+        }
+        return {
+          content: '{"response":"probe","sources":[]}',
+          toolCalls: null,
+          model,
+          usage: { promptTokens: 10, completionTokens: 5 },
+        };
+      },
+      async *stream() {
+        yield "";
+      },
+    };
+
+    const result = await probeProviderHealth({
+      provider: "gemini",
+      strategy,
+      executionLedger: ledger,
+      requireJsonMode: true,
+      requireStructuredOutput: true,
+    });
+
+    expect(result.status).toBe("usable");
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.model === "gemini-3-flash-preview")).toBe(true);
+    expect(calls[0]?.model).not.toContain("/");
   });
 
   it("allows the caller to disable nested OpenRouter fallback for one candidate", async () => {

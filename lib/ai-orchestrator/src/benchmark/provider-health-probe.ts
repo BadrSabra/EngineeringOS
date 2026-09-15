@@ -1,5 +1,6 @@
 import { GroqClientError, redactProviderErrorText, type GroqErrorCode } from "../errors.js";
-import { getStrategy, type ProviderId } from "../provider-registry.js";
+import { getProvider, getStrategy, type ProviderId } from "../provider-registry.js";
+import type { ExecutionLedger } from "../execution-ledger.js";
 import type { OpenRouterFailureAction } from "../openai-compatible-client.js";
 import type {
   ProviderStrategy,
@@ -96,6 +97,8 @@ export type ProviderHealthProbeOptions = {
   requireJsonMode?: boolean;
   /** Require a valid ChatResponse JSON envelope after the tool probe. */
   requireStructuredOutput?: boolean;
+  /** Request-owned budget shared with the surrounding execution. */
+  executionLedger?: ExecutionLedger;
   /** Test seam; production uses the registered provider strategy. */
   strategy?: ProviderStrategy;
 };
@@ -257,8 +260,14 @@ function unavailableResult(
 }
 
 function probeCandidateModels(options: ProviderHealthProbeOptions): Array<string | undefined> {
-  if (options.model || options.provider !== "openrouter") {
+  if (options.model) {
     return [options.model];
+  }
+
+  if (options.provider !== "openrouter") {
+    // Non-OpenRouter strategies must never inherit the OpenRouter catalog's
+    // module-level fallback model when a structured probe omits tools.
+    return [getProvider(options.provider).defaultModels.fast];
   }
 
   const maxCandidates =
@@ -488,7 +497,7 @@ export async function probeProviderHealth(
     },
   ];
   const baseCallOptions: StrategyCallOptions = {
-    model: options.model,
+    model: options.model ?? getProvider(options.provider).defaultModels.fast,
     apiKey: options.apiKey,
     maxTokens: 64,
     timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS,
@@ -496,6 +505,7 @@ export async function probeProviderHealth(
     toolChoice: "required",
     tools: [PROBE_TOOL, ...(options.additionalTools ?? [])],
     signal: options.signal,
+    executionLedger: options.executionLedger,
     ...(options.requireJsonMode
       ? { responseFormat: { type: "json_object" as const } }
       : {}),
@@ -528,7 +538,7 @@ export async function probeProviderHealth(
     };
     const callOptions: StrategyCallOptions = {
       ...baseCallOptions,
-      ...(candidateModel ? { model: candidateModel } : { model: undefined }),
+      model: candidateModel ?? baseCallOptions.model,
     };
 
     try {

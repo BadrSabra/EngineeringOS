@@ -5167,7 +5167,7 @@ router.post("/ai/chat", async (req, res) => {
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
       capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
-      projectQuery: turnIntent.projectTarget,
+      projectQuery: effectiveProjectQuery,
       projectQueryObjective: effectiveObjective,
       forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
@@ -7009,7 +7009,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
       executionId: aiExecution?.id,
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
-      projectQuery: streamTurnIntent.projectTarget,
+      projectQuery: streamProjectQuery,
       projectQueryObjective: streamObjective,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
@@ -8830,7 +8830,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
       executionPlan,
-      projectQuery: streamTurnIntent.projectTarget,
+      projectQuery: streamProjectQuery,
       projectQueryObjective: streamObjective,
     });
 
