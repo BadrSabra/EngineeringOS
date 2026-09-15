@@ -138,6 +138,23 @@ describe("resolveTurnIntent", () => {
     }
   });
 
+  it("keeps a combined embedded-agent explanation and confirmed-weakness request targeted", () => {
+    const message =
+      "أشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع وحدد نقاط الضعف المؤكدة";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.taskType).toBe("BEHAVIOR_QUERY");
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    expect(intent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
+      requiresEvidence: true,
+      projectTarget: { id: "embedded-ai" },
+    });
+  });
+
   it.each(["ممكن تساعدني؟", "كيف أبدأ؟", "Can you help me?"])(
     "keeps generic question tool-free: %s",
     (message) => {

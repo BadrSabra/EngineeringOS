@@ -540,7 +540,9 @@ const FULL_AUDIT_PATTERNS = [
   // Broad gap/coverage requests need repository investigation, not a
   // behavior-answer contract that waits for a narrowly phrased question.
   /\b(?:gap|gaps|gap\s+analysis|coverage\s+gaps|missing\s+(?:capabilities|pieces))\b/i,
-  /(?:ابحث|اكتشف|حدد|حلل|استكشف)\s+(?:عن\s+)?(?:الفجوات|فجوات|نقاط\s+الضعف)(?:\s|$)/u,
+  // "حدد نقاط الضعف" is a targeted claim request when it names a subsystem;
+  // broad forensic mode is reserved for explicit discovery/audit wording.
+  /(?:ابحث|اكتشف|حلل|استكشف)\s+(?:عن\s+)?(?:الفجوات|فجوات|نقاط\s+الضعف)(?:\s|$)/u,
   /(?:الفجوات|فجوات)\s+(?:في|بطبقة|بمنظومة|داخل)(?:\s|$)/u,
   /(?:اكتشف|ابحث|حدد|حلل|استكشف|افحص|راجع)\s+(?:عن\s+)?(?:المشاكل|المشكلة|المشكلات|الأخطاء|العيوب)(?:\s|$)/u,
   /\b(?:regenerate|rerun|retry|try\s+again)\b[\s\S]{0,60}\b(?:report|audit|repair\s+plan|plan)\b/i,
