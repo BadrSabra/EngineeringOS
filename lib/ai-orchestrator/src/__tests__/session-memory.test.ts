@@ -209,6 +209,72 @@ describe("session memory policy", () => {
     }
   });
 
+  it("orders equal-score memories by ID consistently across retrievals", async () => {
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const now = new Date();
+    const expectedIds = [
+      "00000000-0000-0000-0000-000000000001",
+      "00000000-0000-0000-0000-000000000002",
+      "00000000-0000-0000-0000-000000000003",
+    ];
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "session-memory-ordering-test",
+      name: "session-memory-ordering-test",
+      rootPath: `/tmp/session-memory-ordering-test-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "session-memory-ordering-test",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiSessionMemoriesTable).values(
+      [...expectedIds].reverse().map((id) => ({
+        id,
+        projectId,
+        sessionId,
+        memoryType: "session_summary" as const,
+        content: `Equal-score memory ${id}`,
+        dedupeKey: `equal-score-${id}`,
+        relevance: 0.85,
+        createdAt: now,
+        expiresAt: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
+        lastDecayAt: null,
+      })),
+    );
+
+    try {
+      const retrievals = await Promise.all(
+        Array.from({ length: 3 }, () => fetchSessionMemories(
+          projectId,
+          10,
+          { mode: "episodic", limit: 10 },
+        )),
+      );
+
+      expect(retrievals.map((memories) => memories.map((memory) => memory.id))).toEqual([
+        expectedIds,
+        expectedIds,
+        expectedIds,
+      ]);
+    } finally {
+      await db.delete(aiSessionMemoriesTable).where(eq(
+        aiSessionMemoriesTable.projectId,
+        projectId,
+      ));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("does not retrieve memory when the active plan disables it", async () => {
     const context = {
       project: "Project A",
