@@ -76,7 +76,17 @@ function promptSessionMemorySection(value: string): string {
 export function promptContextOverview(
   context: ProjectContext,
   profile: PromptContextProfile = "full",
-  options: { includeSessionMemory?: boolean; plan?: Readonly<ExecutionPlan> } = {},
+  options: {
+    includeSessionMemory?: boolean;
+    plan?: Readonly<ExecutionPlan>;
+    /**
+     * Project-orientation answers need the context for reasoning, but should
+     * not repeat server-owned IDs, revisions, or correlation metadata to the
+     * user. Keep the raw context unchanged for forensic and operational
+     * prompts.
+     */
+    presentation?: "default" | "project-orientation";
+  } = {},
 ): string {
   const sections = new Set<PromptContextSection>();
   if (options.plan) {
@@ -136,23 +146,58 @@ export function promptContextOverview(
       sourceRefs: entry.sourceRefs,
     })))
     : undefined;
+  const projectOrientation = options.presentation === "project-orientation";
+  const orientationSafeValue = (section: PromptContextSection, value: string): string => {
+    if (!projectOrientation) return value;
+
+    // These values are useful for server correlation, but are not useful in a
+    // functional project explanation. Remove them at the prompt boundary
+    // rather than weakening the evidence retained by the context builder.
+    const internalMetadataLines = /^(?:Context Identity|Scan job|Project revision|Scan correlation|Scanner version|Graph index from scan revision):/i;
+    return value
+      .split("\n")
+      .filter((line) => !internalMetadataLines.test(line.trim()))
+      .map((line) =>
+        section === "recentEvents"
+          ? line.replace(/\s+\[(?:task|wf|corr):[^\]]+\]\s*$/i, "")
+          : line,
+      )
+      .join("\n")
+      .trim();
+  };
 
   return composePrompt(
-    ...(contextIdentity ? [promptSection("Context Identity", contextIdentity)] : []),
+    ...(!projectOrientation && contextIdentity
+      ? [promptSection("Context Identity", contextIdentity)]
+      : []),
     ...(contextHealth ? [promptSection(
       "Context Health",
       `${contextHealth}\nUnavailable or not-requested sections are not evidence that the project lacks those records.`,
     )] : []),
-    ...(contextLinks ? [promptEvidenceSection("Cross-layer Links", contextLinks, "tool_output")] : []),
-    ...(sections.has("project") ? [promptEvidenceSection("Project", context.project, "source")] : []),
-    ...(sections.has("latestMetrics") ? [promptEvidenceSection("Quality Metrics", context.latestMetrics, "provider_diagnostic")] : []),
-    ...(sections.has("latestScanEvidence") && context.latestScanEvidence
-      ? [promptEvidenceSection("Latest Scan Evidence", context.latestScanEvidence, "scan")]
+    ...(!projectOrientation && contextLinks
+      ? [promptEvidenceSection("Cross-layer Links", contextLinks, "tool_output")]
       : []),
-    ...(sections.has("graphSummary") ? [promptEvidenceSection("Knowledge Graph", context.graphSummary, "source")] : []),
-    ...(sections.has("workflows") ? [promptEvidenceSection("Workflows", context.workflows, "checkpoint")] : []),
-    ...(sections.has("recentTasks") ? [promptEvidenceSection("Recent Tasks", context.recentTasks, "tool_output")] : []),
-    ...(sections.has("recentEvents") ? [promptEvidenceSection("Recent Events", context.recentEvents, "tool_output")] : []),
+    ...(sections.has("project")
+      ? [promptEvidenceSection("Project", orientationSafeValue("project", context.project), "source")]
+      : []),
+    ...(sections.has("latestMetrics")
+      ? [promptEvidenceSection("Quality Metrics", orientationSafeValue("latestMetrics", context.latestMetrics), "provider_diagnostic")]
+      : []),
+    ...(sections.has("latestScanEvidence") && context.latestScanEvidence
+      ? [promptEvidenceSection("Latest Scan Evidence", orientationSafeValue("latestScanEvidence", context.latestScanEvidence), "scan")]
+      : []),
+    ...(sections.has("graphSummary")
+      ? [promptEvidenceSection("Knowledge Graph", orientationSafeValue("graphSummary", context.graphSummary), "source")]
+      : []),
+    ...(sections.has("workflows")
+      ? [promptEvidenceSection("Workflows", orientationSafeValue("workflows", context.workflows), "checkpoint")]
+      : []),
+    ...(sections.has("recentTasks")
+      ? [promptEvidenceSection("Recent Tasks", orientationSafeValue("recentTasks", context.recentTasks), "tool_output")]
+      : []),
+    ...(sections.has("recentEvents")
+      ? [promptEvidenceSection("Recent Events", orientationSafeValue("recentEvents", context.recentEvents), "tool_output")]
+      : []),
     ...(includeSessionMemory && context.sessionMemories
       // session-memory.ts already creates the untrusted-content envelope.
       // Keep this as the sole insertion point so prompts cannot contain the

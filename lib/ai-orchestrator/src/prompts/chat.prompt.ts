@@ -341,6 +341,34 @@ function buildTaskContractSection(outputContract: OutputContract): string | null
   }
 }
 
+function buildProjectOrientationSection(responseLanguage?: "ar" | "en"): string {
+  if (responseLanguage === "ar") {
+    return promptSection(
+      "Project orientation answer — ACTIVE",
+      `هذا سؤال لفهم المشروع وظيفيًا، وليس لعرض جرد تقني.
+- ابدأ بملخص وظيفي واضح من 2–4 جمل: ما الذي يبدو أن المشروع يقدمه أو يفعله، ولمن/لأي تدفق، لكن فقط إذا كان ذلك مثبتًا في السياق أو في قراءات الملفات.
+- بعد الملخص، استخدم هذا الترتيب: **المكونات الرئيسية** (3–6 مجموعات مفهومة حسب الدور)، ثم **التدفق الرئيسي** (3–6 خطوات من المدخل أو طلب المستخدم إلى النتيجة)، ثم **مؤشرات مختصرة** (بحد أقصى 4 حقائق مفيدة).
+- اجمع الملفات والدوال والكيانات تحت أدوار وظيفية مثل الواجهة، API، البيانات، المصادقة، أو التحليل. لا تسرد كل ملف أو كل function/class ولا تنسخ قائمة الرسم المعرفي.
+- لا تستنتج وظيفة المشروع من اللغة أو framework أو أسماء الملفات وحدها. إذا لم تكفِ الأدلة لتحديد الوظيفة، قل ذلك صراحةً، واذكر ما هو مؤكد وما يحتاج إلى read_file.
+- ميّز الاستنتاج المعقول عن الحقيقة المثبتة عند وصف التدفق. لا تخترع مستخدمين أو ميزات أو مسارًا تشغيليًا غير موجود في الأدلة.
+- لا تعرض UUIDs أو [internal id] أو task/workflow/correlation IDs أو scan IDs أو revisions أو hashes أو scanner/vendor/model details. لا تعرض أسعارًا أو model tiers إلا إذا طلب المستخدم ذلك صراحةً.
+- لا تضع هذه البيانات الداخلية في الملخص أو المصادر أو مؤشرات الإجابة؛ استخدم فقط أسماء الملفات أو المكونات التي ذكرتها فعلًا كدليل.`,
+    );
+  }
+
+  return promptSection(
+    "Project orientation answer — ACTIVE",
+    `This is a functional project-understanding question, not a technical inventory.
+- Start with a clear 2–4 sentence functional summary: what the project appears to provide or do, and for which user or flow, only when supported by context or completed file reads.
+- Then use this order: **Main components** (3–6 role-based groups), **Main flow** (3–6 steps from user/request entry to outcome), and **Brief indicators** (at most 4 useful facts).
+- Group files, functions, and entities by product role such as UI, API, data, authentication, or analysis. Do not enumerate every file/function/class or copy the knowledge-graph inventory.
+- Do not infer the product purpose from language, framework, or filenames alone. If the evidence cannot establish the purpose, say so and state what is confirmed and what needs read_file.
+- Distinguish a reasonable inference from a verified fact when describing the flow. Do not invent users, features, or an operational path not present in the evidence.
+- Do not expose UUIDs, [internal id], task/workflow/correlation IDs, scan IDs, revisions, hashes, or scanner/vendor/model details. Do not mention prices or model tiers unless the user explicitly asks.
+- Do not put internal metadata in the summary, sources, or indicators; cite only file or component names actually used as evidence.`,
+  );
+}
+
 function buildPreviouslyAcceptedEvidenceSection(
   sources: readonly ProjectFileSource[] | undefined,
 ): string | null {
@@ -390,6 +418,7 @@ export function buildChatSystemPrompt({
   taskChecklist = [],
   targetDetectionMissed = false,
   previouslyAcceptedEvidence,
+  projectOrientationMode = false,
 }: {
   context: ProjectContext;
   hasTools?: boolean;
@@ -445,6 +474,8 @@ export function buildChatSystemPrompt({
   targetDetectionMissed?: boolean;
   /** Server-validated excerpts accepted by an earlier turn at this revision. */
   previouslyAcceptedEvidence?: readonly ProjectFileSource[];
+  /** Use the user-facing functional format for "explain this project" turns. */
+  projectOrientationMode?: boolean;
 }): string {
   const promptContext = suppressSessionMemory
     ? {
@@ -465,6 +496,7 @@ export function buildChatSystemPrompt({
     promptContextOverview(promptContext, profile, {
       includeSessionMemory: !suppressSessionMemory,
       plan: executionPlan,
+      presentation: projectOrientationMode ? "project-orientation" : "default",
     }),
     buildPreviouslyAcceptedEvidenceSection(previouslyAcceptedEvidence),
     `How project access works:
@@ -476,6 +508,7 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // This switches the agent from generic-chat mode into task-aware mode.
     activeTask ? buildActiveTaskSection(activeTask) : null,
     buildTaskContractSection(outputContract),
+    projectOrientationMode ? buildProjectOrientationSection(responseLanguage) : null,
     responseLanguage
       ? promptSection(
           "Response language contract",

@@ -79,7 +79,6 @@
 - [Gemini structured output](gemini-structured-output.md) — Gemini's OpenAI-compatible endpoint accepts response_format; preserve JSON mode while still stripping unsupported tools.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
-- [Dashboard effect fixtures](dashboard-test-effect-fixtures.md) — Strict Mode replay needs fresh network responses and cleanup-safe in-flight markers.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
 - [Context slice health](context-slice-health.md) — keep empty, skipped, loaded, and failed reads distinct from freshness and admission state.
@@ -100,7 +99,6 @@
 - [Durable evidence boundary](durable-evidence-boundary.md) — tool traces retain read metadata only; acceptance-proof snapshots must capture verifier-owned complete bodies before runtime state is discarded.
 - [Evidence snapshot semantics](evidence-snapshot-semantics.md) — explicit UNAVAILABLE provider evidence is incomplete even when proof was not required; ordinary no-evidence success remains complete.
 - [Execution acceptance contract](execution-acceptance-contract.md) — recovery must derive proof requirements from the persisted request, never optional in-memory evidence parameters.
-- [Heartbeat test timing](heartbeat-test-timing.md) — fake-clock stream tests must await async heartbeat writes without draining unrelated execution deadlines.
 - [Durable provisional messages](durable-acceptance-provisional.md) — execution-backed assistant rows stay non-terminal until the acceptance finalizer commits outcome and final content.
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate the immutable acceptance attempt when the resume token is claimed, not when the token is merely issued.
 - [Terminal frame idempotency](terminal-frame-idempotency.md) — client streams must deliver only the first terminal frame so stale or duplicate SSE cannot overwrite durable acceptance.
@@ -157,3 +155,4 @@
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Execution projection surfaces](execution-projection-surfaces.md) — Chat, Tasks, Mission Control, and Flight Deck share the server-owned read model; legacy controls remain bounded fallbacks.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
+- [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.

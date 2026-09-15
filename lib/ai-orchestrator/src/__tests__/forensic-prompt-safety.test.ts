@@ -161,6 +161,36 @@ describe("forensic prompt safety", () => {
     expect(prompt).toContain("do not emit the six-section forensic report");
   });
 
+  it("gives project-orientation questions a functional answer shape and hides internal metadata", () => {
+    const prompt = buildChatSystemPrompt({
+      context: {
+        ...makeContext(),
+        project: "Name: Current project | Language: TypeScript / Express | Description: Project workspace",
+        latestScanEvidence:
+          "Scan job: scan-9f8e7d6c\nStatus: completed\nProject revision: 0123456789abcdef\nScan correlation: corr-1234",
+        graphSummary:
+          "Graph index from scan revision: 0123456789abcdef\n3 entities total:\n  • API (src/api.ts)",
+        recentEvents: "- [INFO] 2026-09-16 import completed [task:task-1234 wf:wf-5678 corr:corr-9012]",
+      },
+      profile: "full",
+      hasTools: true,
+      toolMode: "project-read-only",
+      projectOrientationMode: true,
+      responseLanguage: "ar",
+    });
+
+    expect(prompt).toContain("Project orientation answer — ACTIVE");
+    expect(prompt).toContain("ملخص وظيفي واضح");
+    expect(prompt).toContain("المكونات الرئيسية");
+    expect(prompt).toContain("التدفق الرئيسي");
+    expect(prompt).not.toContain("scan-9f8e7d6c");
+    expect(prompt).not.toContain("0123456789abcdef");
+    expect(prompt).not.toContain("task:task-1234");
+    expect(prompt).not.toContain("projectId=");
+    expect(prompt).not.toContain("operationId=");
+    expect(prompt).toContain("لا تعرض UUIDs");
+  });
+
   it("repeats the Arabic narrative requirement in the final forensic schema lock", () => {
     const prompt = buildChatSystemPrompt({
       context: makeContext(),

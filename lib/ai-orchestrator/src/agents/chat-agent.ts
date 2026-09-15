@@ -5683,6 +5683,9 @@ export async function chat(opts: {
     : undefined;
   const analysisMode = turnIntent.analysisMode;
   const outputContract = turnIntent.outputContract;
+  const projectOrientationMode =
+    turnIntent.kind === "PROJECT_QUERY" &&
+    isProjectOrientationQuestion(message);
   // A fixture capability audit is itself an evidence-grounded behavioral
   // assessment, even when the short request only says to test forensic
   // capability on the named file. Production audits still require explicit
@@ -6830,6 +6833,7 @@ export async function chat(opts: {
          capabilityCatalog: capabilityCatalogPrompt,
          previouslyAcceptedEvidence,
         targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget,
+        projectOrientationMode,
       }) + implementationResumeInstruction +
         (singleFileForensicMode
         ? "\n\n**Effective forensic test manifest — ACTIVE:**\n" +
@@ -8870,6 +8874,7 @@ export async function chat(opts: {
                   capabilityCatalog: capabilityCatalogPrompt,
                   previouslyAcceptedEvidence,
                    targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget,
+                  projectOrientationMode,
                 }) + buildResumedEvidenceLedger(activeTaskState, resumedTask),
             }
           : m,
@@ -9434,7 +9439,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt, previouslyAcceptedEvidence, targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
+          ? { ...m, content: buildChatSystemPrompt({ context: projectContext, hasTools: tools != null, toolMode: projectChatToolMode, streamingMode: true, focusHint: combinedFocusHint || undefined, profile: effectivePromptProfile, executionPlan, activeTask, taskChecklist, structuredOutputMode: promptStructuredOutputMode, outputContract: promptOutputContract, responseLanguage, fixtureAuditMode, suppressSessionMemory: effectiveSuppressSessionMemory, capabilityProbeMode: capabilityProbeRequest, capabilityCatalog: capabilityCatalogPrompt, previouslyAcceptedEvidence, targetDetectionMissed: turnIntent.requiresEvidence && !turnIntent.projectTarget, projectOrientationMode }) + buildResumedEvidenceLedger(activeTaskState, resumedTask) }
         : m,
     );
 
