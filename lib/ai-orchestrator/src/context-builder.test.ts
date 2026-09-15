@@ -224,6 +224,19 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(ctx.metricsVerified).toBe(true);
   });
 
+  it("uses a safe display label when an imported project name is an opaque UUID", async () => {
+    _tableData.set(projectsTable as object, [makeProject({
+      name: "96d47843-3960-40e4-80d5-73afa7e8ee77",
+    })]);
+    invalidateContextCache(PROJECT_ID);
+
+    const ctx = await buildProjectContext(PROJECT_ID);
+
+    expect(ctx.project).toContain("Name: Current project");
+    expect(ctx.project).not.toContain("96d47843-3960-40e4-80d5-73afa7e8ee77");
+    expect(ctx.project).not.toContain("[internal id]");
+  });
+
   it("uses the plan section manifest and bypasses cache for deep plans", async () => {
     const plan = resolveExecutionDecision("scan-runner");
     const first = await buildProjectContext(PROJECT_ID, { plan });
