@@ -248,6 +248,7 @@ type EvidenceRoutingSignals = {
   broadForensicTask: boolean;
   broadAuditIntent: boolean;
   hasProjectToolSignal: boolean;
+  message: string;
   normalizedMessage: string;
   gapAnalysisProjectQuery: boolean;
   targetedProjectQuery: boolean;
@@ -279,6 +280,7 @@ function resolveEvidenceIntent({
   broadForensicTask,
   broadAuditIntent,
   hasProjectToolSignal,
+  message,
   normalizedMessage,
   gapAnalysisProjectQuery,
   targetedProjectQuery,
@@ -313,8 +315,8 @@ function resolveEvidenceIntent({
     (!broadForensicTask || broadAuditIntent) && categoryEvidence;
   const behaviorEvidence =
     hasProjectToolSignal &&
-    !isProjectOrientationQuestion(normalizedMessage) &&
-    isExplicitBehaviorQueryRequest(normalizedMessage);
+    !isProjectOrientationQuestion(message) &&
+    isExplicitBehaviorQueryRequest(message);
   const projectEvidence =
     gapAnalysisProjectQuery ||
     targetedProjectQuery ||
@@ -485,46 +487,23 @@ export function resolveTurnIntent(
      route.requiresEvidence &&
     !scopeClarificationRequired;
 
-  const explicitEvidenceIntent = Boolean(
-    !isLowRiskChat &&
-    // Exploration turns want conceptual answers via bounded reads, never proof.
-    // The outer gap-analysis and project-target conditions are also guarded
-    // below so that a conceptual message naming a module ("Explain how the
-    // embedded AI agent works") cannot escalate through the target resolver.
-    // Only session resumption stays outside the exploration guard: when the
-    // user is already mid-forensic-investigation the session contract in force.
-    classification.category !== "exploration" &&
-    !implementationDelivery &&
-    !planDelivery &&
-    !implementationPlanResume &&
-     (route.requiresEvidence || classification.category === "deep_analysis") &&
-    (
-      (
-        (!broadForensicTask || broadAuditIntent) &&
-        (
-           classification.category === "deep_analysis" ||
-          classification.analysisMode === "FORENSIC" ||
-          classification.structuredOutputMode ||
-          classification.singleFileForensicMode ||
-          classification.orderedForensicRoots.length > 0
-        )
-      ) ||
-      (
-        hasProjectToolSignal &&
-        !isProjectOrientationQuestion(message) &&
-        isExplicitBehaviorQueryRequest(message)
-      ) ||
-      isProductionReachabilityRequest(message) ||
-      FORENSIC_EVIDENCE_SIGNAL_RE.test(normalizedMessage)
-     ) ||
-     // Gap-analysis and project-target conditions are blocked for exploration:
-     // conceptual questions that happen to name a known module must not
-     // escalate to evidence mode through the target resolver alone.
-     (gapAnalysisProjectQuery && classification.category !== "exploration") ||
-     (targetedProjectQuery && classification.category !== "exploration") ||
-     (unresolvedProjectQuery && classification.category !== "exploration") ||
-     resumedForensicContinuation,
-  );
+  const explicitEvidenceIntent = resolveEvidenceIntent({
+    classification,
+    routeRequiresEvidence: route.requiresEvidence,
+    isLowRiskChat,
+    implementationDelivery,
+    planDelivery,
+    implementationPlanResume,
+    broadForensicTask,
+    broadAuditIntent,
+    hasProjectToolSignal,
+    message,
+    normalizedMessage,
+    gapAnalysisProjectQuery,
+    targetedProjectQuery,
+    unresolvedProjectQuery,
+    resumedForensicContinuation,
+  });
 
   const requiresTools =
     isLowRiskChat
