@@ -74,3 +74,15 @@ The capability recovery path must remove every parent abort listener it installs
 **Why:** A live probe accumulated anonymous abort listeners across repeated micro-probes, producing `MaxListenersExceededWarning`; the same-provider recovery path also retried one Groq model repeatedly because non-OpenRouter recovery forces one model and provider fallback de-duplicates by provider.
 
 **How to apply:** Use one named abort handler with symmetric cleanup in `awaitAbortableRecovery`, and represent recovery candidates as provider/model attempts (or use deterministic server-owned claim assembly) so a malformed or slow model cannot consume the whole evidence-recovery window.
+
+Capability Probe and PROJECT_QUERY metadata may coexist in durable state for resume/context, but their active completion contracts must not be conflated. A probe-specific “complete” check must not disable tools or synthesis while a separate active objective still has missing server-owned paths.
+
+**Why:** A failed execution retained the two probe files, set `toolCallsDisabledAfter=0`, and synthesized before the broader objective manifest was complete; the objective gate then correctly blocked with no materialized claims.
+
+**How to apply:** Preserve both durable fields when required for identity, but resolve an explicit active evidence contract per execution. Reuse the engine’s manifest-completeness logic at the chat handoff; do not add a second map-key-only predicate in `chat-agent`.
+
+Terminal classification and durable acceptance must share one capability-specific disposition. Passing only a claim-unclosed evidence marker to `failAiExecution` allows its default recovery state to advertise `REQUIRED/resumable` even when SSE classified the probe as `INCOMPLETE/non-resumable`.
+
+**Why:** The classifier and resume endpoint enforce the stricter capability outcome, but the acceptance row can still persist the generic default, making history/reconnect state disagree with the streamed terminal result.
+
+**How to apply:** Thread the already-computed acceptance disposition into the failure finalizer and assert recovery state, resumable flag, and next action in the persistence integration test—not only SSE and resume rejection.
