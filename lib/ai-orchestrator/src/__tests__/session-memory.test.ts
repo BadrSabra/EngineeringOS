@@ -209,6 +209,96 @@ describe("session memory policy", () => {
     }
   });
 
+  it("deduplicates legacy ties by the lexicographically smallest ID while newer rows still win", async () => {
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const now = new Date();
+    const olderCreatedAt = new Date(now.getTime() - 1_000);
+    const equalCreatedAt = new Date(now.getTime());
+    const olderId = "legacy-older";
+    const equalWinnerId = "legacy-equal-a";
+    const equalLoserId = "legacy-equal-z";
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "session-memory-deduplication-test",
+      name: "session-memory-deduplication-test",
+      rootPath: `/tmp/session-memory-deduplication-test-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "session-memory-deduplication-test",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiSessionMemoriesTable).values([
+      {
+        id: equalLoserId,
+        projectId,
+        sessionId,
+        memoryType: "session_summary",
+        content: "Equal-timestamp loser",
+        dedupeKey: null,
+        relevance: 0.85,
+        createdAt: equalCreatedAt,
+        expiresAt: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
+        lastDecayAt: null,
+      },
+      {
+        id: olderId,
+        projectId,
+        sessionId,
+        memoryType: "session_summary",
+        content: "Older duplicate",
+        dedupeKey: null,
+        relevance: 0.85,
+        createdAt: olderCreatedAt,
+        expiresAt: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
+        lastDecayAt: null,
+      },
+      {
+        id: equalWinnerId,
+        projectId,
+        sessionId,
+        memoryType: "session_summary",
+        content: "Equal-timestamp winner",
+        dedupeKey: null,
+        relevance: 0.85,
+        createdAt: equalCreatedAt,
+        expiresAt: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
+        lastDecayAt: null,
+      },
+    ]);
+
+    try {
+      const retrievals = await Promise.all([
+        fetchSessionMemories(projectId, 10, { mode: "episodic", limit: 10 }),
+        fetchSessionMemories(projectId, 10, { mode: "episodic", limit: 10 }),
+      ]);
+
+      expect(retrievals[0]).toHaveLength(1);
+      expect(retrievals[0][0]).toMatchObject({
+        id: equalWinnerId,
+        content: "Equal-timestamp winner",
+      });
+      expect(retrievals[1]).toEqual(retrievals[0]);
+      expect(retrievals[0].map((memory) => memory.id)).not.toContain(olderId);
+      expect(retrievals[0].map((memory) => memory.id)).not.toContain(equalLoserId);
+    } finally {
+      await db.delete(aiSessionMemoriesTable).where(eq(
+        aiSessionMemoriesTable.projectId,
+        projectId,
+      ));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it("selects and orders tied memories by ID consistently across retrievals", async () => {
     const projectId = randomUUID();
     const sessionId = randomUUID();

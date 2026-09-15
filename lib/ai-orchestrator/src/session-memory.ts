@@ -412,7 +412,16 @@ export async function fetchSessionMemories(
     for (const row of eligible) {
       const key = row.dedupeKey ?? `${row.memoryType}:${row.sourcePath ?? row.sessionId}`;
       const previous = deduped.get(key);
-      if (!previous || row.createdAt > previous.createdAt) deduped.set(key, row);
+      // Preserve newest-row wins; for legacy ties, the lexicographically
+      // smallest stable ID wins independently of database row order.
+      if (
+        !previous
+        || row.createdAt > previous.createdAt
+        || (
+          row.createdAt.getTime() === previous.createdAt.getTime()
+          && row.id.localeCompare(previous.id) < 0
+        )
+      ) deduped.set(key, row);
     }
     const withFreshness = [...deduped.values()].map((row) => {
       const stale = Boolean(
