@@ -12,8 +12,10 @@ import { formatUntrustedContent } from "@workspace/ai-orchestrator";
 import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
 import {
   parseTaskObjectiveContract,
+  parseTaskObjectiveValidatorReceipt,
   validateTaskObjectiveContract,
   type TaskObjectiveContract,
+  type TaskObjectiveValidatorReceipt,
 } from "./task-objective-contract.js";
 import {
   finalizeExecutionAcceptance,
@@ -362,6 +364,7 @@ export function transitionAutonomousOperation(
   operation: AutonomousOperationContract,
   nextState: AutonomousOperationState,
   evidenceRefs: readonly string[] = [],
+  validatorReceipts: readonly TaskObjectiveValidatorReceipt[] = [],
 ): AutonomousOperationContract {
   if (operation.state === nextState) return operation;
   if (!OPERATION_TRANSITIONS[operation.state].includes(nextState)) {
@@ -375,6 +378,7 @@ export function transitionAutonomousOperation(
     const completion = validateAutonomousOperationCompletion(operation, {
       evidenceRefs,
       evidenceVerdict: "PROVEN",
+      validatorReceipts,
     });
     if (!completion.allowed) {
       throw new Error(`Autonomous operation success is blocked: ${completion.reasons.join("; ")}`);
@@ -417,6 +421,8 @@ export const AUTONOMOUS_ACCEPTANCE_REASON_CODES = [
   "task_validator_unavailable",
   "task_evidence_incomplete",
   "task_revision_mismatch",
+  "task_scope_mismatch",
+  "task_validation_failed",
 ] as const;
 export type AutonomousAcceptanceReasonCode =
   (typeof AUTONOMOUS_ACCEPTANCE_REASON_CODES)[number];
@@ -443,6 +449,7 @@ export function validateAutonomousOperationCompletion(
     candidateIdentity?: string | null;
     operationId?: string;
     checkpointOperationId?: string;
+    validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
     nodeStates?: readonly Pick<AutonomousOperationNode, "status" | "evidenceRefs">[];
     requireProven?: boolean;
   } = {},
@@ -458,9 +465,11 @@ export function validateAutonomousOperationCompletion(
       contract: operation.taskObjective,
       workspaceRevision: params.workspaceRevision ?? operation.revisionManifest,
       objectiveValidated: params.evidenceVerdict === "PROVEN",
+      operationId: params.operationId ?? operation.operationId,
       evidenceVerdict: params.evidenceVerdict,
       evidenceComplete: params.evidenceVerdict === "PROVEN",
       targetPaths: operation.targetPaths,
+      validatorReceipts: params.validatorReceipts,
     });
     objectiveCheck.codes.forEach((code, index) => {
       const mapped = code === "validator_unavailable"
@@ -469,7 +478,11 @@ export function validateAutonomousOperationCompletion(
           ? "task_evidence_incomplete"
           : code === "revision_mismatch"
             ? "task_revision_mismatch"
-            : "task_objective_not_proven";
+            : code === "scope_mismatch"
+              ? "task_scope_mismatch"
+              : code === "validation_failed"
+                ? "task_validation_failed"
+                : "task_objective_not_proven";
       addReason(mapped, objectiveCheck.reasons[index] ?? "task objective is not accepted");
     });
   }
@@ -2148,6 +2161,7 @@ export async function completeAiExecution(params: {
   proposalId?: string;
   operation?: AutonomousOperationContract;
   taskObjective?: TaskObjectiveContract;
+  validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
   objectiveValidated?: boolean;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
   evidenceVerdict?: FlightDeckEvidenceVerdict;
@@ -2256,6 +2270,8 @@ export async function completeAiExecution(params: {
         evidenceVerdict: effectiveEvidenceVerdict,
         evidenceComplete: effectiveEvidenceVerdict === "PROVEN",
         targetPaths: operation?.targetPaths ?? request?.validationTargetPaths ?? [],
+        operationId: params.operationId ?? current.operationId ?? params.executionId,
+        validatorReceipts: params.validatorReceipts,
       });
       if (!objectiveCheck.allowed) return false;
     }
@@ -2328,6 +2344,9 @@ export async function completeAiExecution(params: {
       : {}),
     ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
     ...(params.evidenceProgress ? { evidenceProgress: params.evidenceProgress } : {}),
+    ...(params.validatorReceipts && params.validatorReceipts.length > 0
+      ? { validatorReceipts: params.validatorReceipts }
+      : {}),
     ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
     ...(params.capabilityProbe ? { capabilityProbe: params.capabilityProbe } : {}),
     updatedAt: now.toISOString(),

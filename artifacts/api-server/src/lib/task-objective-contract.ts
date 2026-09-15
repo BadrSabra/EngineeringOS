@@ -56,10 +56,12 @@ type TaskObjectiveValidationInput = {
   contract: TaskObjectiveContract;
   workspaceRevision: string;
   projectId?: string;
+  operationId?: string;
   objectiveValidated: boolean;
   evidenceVerdict?: string;
   evidenceComplete?: boolean;
   targetPaths?: readonly string[];
+  validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
 };
 
 export type TaskObjectiveValidation = {
@@ -68,11 +70,46 @@ export type TaskObjectiveValidation = {
   reasons: string[];
 };
 
+export type TaskObjectiveValidatorReceipt = {
+  validatorId: string;
+  status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+  operationId: string;
+  projectId: string;
+  workspaceRevision: string;
+  artifactRef: string;
+};
+
+export function parseTaskObjectiveValidatorReceipt(
+  value: unknown,
+): TaskObjectiveValidatorReceipt | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<TaskObjectiveValidatorReceipt>;
+  if (
+    typeof candidate.validatorId !== "string"
+    || !["PROVEN", "INCOMPLETE", "UNAVAILABLE"].includes(candidate.status ?? "")
+    || typeof candidate.operationId !== "string"
+    || typeof candidate.projectId !== "string"
+    || typeof candidate.workspaceRevision !== "string"
+    || typeof candidate.artifactRef !== "string"
+  ) return undefined;
+  return {
+    validatorId: candidate.validatorId.slice(0, 120),
+    status: candidate.status as TaskObjectiveValidatorReceipt["status"],
+    operationId: candidate.operationId.slice(0, 160),
+    projectId: candidate.projectId.slice(0, 160),
+    workspaceRevision: candidate.workspaceRevision.slice(0, 2_000),
+    artifactRef: candidate.artifactRef.slice(0, 500),
+  };
+}
+
 const SUPPORTED_VALIDATORS = new Set([
   "knowledge-answer.v1",
   "project-query-evidence.v1",
   "registered-validation.v1",
   "browser-preview.v1",
+  "database-schema.v1",
+  "file-conversion.v1",
+  "media-artifact.v1",
 ]);
 
 const CONTRACT_BLUEPRINTS: Record<
@@ -318,6 +355,36 @@ export function validateTaskObjectiveContract(
   }
   if (input.contract.validatorIds.some((id) => !SUPPORTED_VALIDATORS.has(id))) {
     add("validator_unavailable", `no server-owned validator is registered for ${input.contract.kind}`);
+  }
+  for (const validatorId of input.contract.validatorIds) {
+    if (!SUPPORTED_VALIDATORS.has(validatorId)) continue;
+    const receipt = input.validatorReceipts?.find((candidate) => candidate.validatorId === validatorId);
+    if (!receipt) {
+      add("objective_not_proven", `server-owned receipt is missing for ${validatorId}`);
+      continue;
+    }
+    if (receipt.status === "UNAVAILABLE") {
+      add("validator_unavailable", `${validatorId} reported that its validator is unavailable`);
+      continue;
+    }
+    if (receipt.status !== "PROVEN") {
+      add("partial_evidence", `${validatorId} did not produce a proven receipt`);
+      continue;
+    }
+    if (!receipt.operationId.trim() || (input.operationId && receipt.operationId !== input.operationId)) {
+      add("scope_mismatch", `${validatorId} receipt is not bound to the execution operation`);
+    }
+    const expectedProjectId = input.projectId ?? input.contract.projectId;
+    if (receipt.projectId !== expectedProjectId) {
+      add("scope_mismatch", `${validatorId} receipt is not bound to the execution project`);
+    }
+    if (receipt.workspaceRevision !== input.contract.workspaceRevision
+      || receipt.workspaceRevision !== input.workspaceRevision) {
+      add("revision_mismatch", `${validatorId} receipt is not bound to the execution revision`);
+    }
+    if (!receipt.artifactRef.trim()) {
+      add("validation_failed", `${validatorId} receipt has no server-owned artifact reference`);
+    }
   }
   if (input.evidenceComplete === false) {
     add("partial_evidence", "task objective evidence is incomplete");
