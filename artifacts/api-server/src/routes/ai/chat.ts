@@ -9464,6 +9464,42 @@ router.post("/ai/chat/stream", async (req, res) => {
           && !proposalId
         ),
       );
+      const taskObjectiveValidatorReceipts = executionRequest.taskObjective
+        ? executionRequest.taskObjective.validatorIds.flatMap((validatorId) => {
+            const operationId = aiExecution!.operationId ?? aiExecution!.id;
+            const workspaceRevision = executionRequest.workspaceRevision ?? analysisCorrelation.projectRevision;
+            if (
+              validatorId === "project-query-evidence.v1"
+              && (analysisEvidenceAccepted || finalForensicAccepted === true || capabilityProbeAccepted)
+            ) {
+              return [{
+                validatorId,
+                status: "PROVEN" as const,
+                operationId,
+                projectId,
+                workspaceRevision,
+                artifactRef: `analysis-evidence:${operationId}`,
+              }];
+            }
+            if (
+              validatorId === "registered-validation.v1"
+              && finalValidation?.kind === "validation"
+              && finalValidation.status === "passed"
+              && finalValidation.result.evidence.operationId === operationId
+              && finalValidation.result.evidence.projectRevision === workspaceRevision
+            ) {
+              return [{
+                validatorId,
+                status: "PROVEN" as const,
+                operationId,
+                projectId,
+                workspaceRevision,
+                artifactRef: finalValidation.result.evidence.artifactRef,
+              }];
+            }
+            return [];
+          })
+        : [];
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
@@ -9473,6 +9509,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         proposalId,
         operation: operationForCompletion,
         taskObjective: executionRequest.taskObjective,
+        validatorReceipts: taskObjectiveValidatorReceipts,
         objectiveValidated: taskObjectiveValidated,
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,

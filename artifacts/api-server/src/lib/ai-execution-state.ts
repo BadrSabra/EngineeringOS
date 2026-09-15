@@ -860,6 +860,7 @@ export type AiExecutionCheckpoint = {
   detail?: string;
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
+  validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
   updatedAt: string;
 };
 
@@ -1161,6 +1162,18 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
             code: attempt.code.slice(0, 80),
           }))
       : undefined;
+    const validatorReceipts = value.validatorReceipts === undefined
+      ? undefined
+      : Array.isArray(value.validatorReceipts)
+        ? value.validatorReceipts.flatMap((receipt) => {
+            const parsed = parseTaskObjectiveValidatorReceipt(receipt);
+            return parsed ? [parsed] : [];
+          })
+        : undefined;
+    if (
+      value.validatorReceipts !== undefined
+      && (!validatorReceipts || validatorReceipts.length !== value.validatorReceipts.length)
+    ) return undefined;
     return {
       stage: value.stage as AiExecutionCheckpoint["stage"],
       sequence: value.sequence,
@@ -1194,6 +1207,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
       ...(operation ? { operation } : {}),
       ...(recipeBinding ? { recipeBinding } : {}),
+      ...(validatorReceipts ? { validatorReceipts } : {}),
       updatedAt: value.updatedAt,
     };
   } catch {
