@@ -42,6 +42,16 @@ export {
   ReadStatusSchema,
 } from "./tool-execution-engine.js";
 export {
+  deriveSourceSelectionRecord,
+} from "./agents/query-planner.js";
+export type {
+  QuerySourceSelectionRecord,
+  FileStatusEntry,
+  PlannerTier,
+  FileOrigin,
+  FileReadStatus,
+} from "./agents/query-planner.js";
+export {
   ContextManifestSchema,
   RepositoryRevisionManifestSchema,
   ScanCompletenessSchema,

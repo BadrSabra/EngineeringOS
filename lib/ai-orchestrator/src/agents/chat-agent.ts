@@ -121,7 +121,9 @@ import {
 import {
   buildMentionedFileGraphGuidance,
   planQuery,
+  deriveSourceSelectionRecord,
   type QueryPlan,
+  type QuerySourceSelectionRecord,
 } from "./query-planner.js";
 import {
   toolCacheKey,
@@ -13142,6 +13144,36 @@ export async function chat(opts: {
       }
     : undefined;
 
+  // PR-011: derive file-level source plan vs actual coverage for PROJECT_QUERY
+  // turns. Build a combined read-status map from two authoritative sources:
+  //  1. prefetchReadStatuses — covers pre-loop reads and any updates the tool
+  //     loop writes back via the retainedReadStatuses reference it receives.
+  //  2. loopResult.fileContents — any file path with usable content that was
+  //     not tracked in prefetchReadStatuses was read freshly during the loop;
+  //     treat it as READ_COMPLETE (the loop produced a readable body from it).
+  const sourceSelectionRecord: QuerySourceSelectionRecord | undefined = (() => {
+    if (turnIntent.kind !== "PROJECT_QUERY" || !queryPlan) return undefined;
+    const combined = new Map<string, string>(
+      prefetchReadStatuses as Map<string, string>,
+    );
+    for (const filePath of (loopResult.fileContents ?? new Map<string, string>()).keys()) {
+      if (!combined.has(filePath)) {
+        combined.set(filePath, "READ_COMPLETE");
+      }
+    }
+    return deriveSourceSelectionRecord(queryPlan, combined);
+  })();
+  if (sourceSelectionRecord) {
+    relayAgentStep({
+      kind: "project_query_source_selection",
+      plannerTier: sourceSelectionRecord.plannerTier,
+      plannedFiles: sourceSelectionRecord.plannedFiles,
+      fileStatuses: sourceSelectionRecord.fileStatuses,
+      truncatedPlannedCount: sourceSelectionRecord.truncatedPlannedCount,
+      skippedPlannedCount: sourceSelectionRecord.skippedPlannedCount,
+    });
+  }
+
   const output = {
     ...parsed.data,
     response: terminalResponse,
@@ -13162,6 +13194,7 @@ export async function chat(opts: {
         }
       : {}),
     ...(taskResult ? { taskResult } : {}),
+    ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
   };
   const check = ChatOutputSchema.safeParse(output);
   if (!check.success) {

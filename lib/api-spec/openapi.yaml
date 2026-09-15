@@ -5776,6 +5776,10 @@ components:
               WORKSPACE_REVIEW_RESULT: "#/components/schemas/AiWorkspaceReviewResult"
               REPAIR_RESULT: "#/components/schemas/AiRepairResult"
               IMPLEMENTATION_PLAN_RESULT: "#/components/schemas/AiImplementationPlanResult"
+        sourceSelectionRecord:
+          nullable: true
+          description: File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.
+          $ref: "#/components/schemas/QuerySourceSelectionRecord"
         createdAt:
           type: string
           format: date-time
@@ -5794,6 +5798,53 @@ components:
           type: string
           enum: [resolved_target, bounded_unresolved_hint, source_first_discovery]
           description: Allowlisted server-owned source-targeting mode; no planner or provider text is included.
+
+    QuerySourceFileStatus:
+      type: object
+      additionalProperties: false
+      required: [path, origin, readStatus]
+      properties:
+        path:
+          type: string
+          minLength: 1
+        origin:
+          type: string
+          enum: [planned, model_chosen]
+          description: Whether this file was in the query plan or chosen by the model during the loop.
+        readStatus:
+          type: string
+          enum: [READ_COMPLETE, READ_TRUNCATED, READ_FAILED, READ_SKIPPED]
+          description: Server-classified read outcome; provider text is not used.
+
+    QuerySourceSelectionRecord:
+      type: object
+      additionalProperties: false
+      required: [plannerTier, plannedFiles, fileStatuses, truncatedPlannedCount, skippedPlannedCount]
+      properties:
+        plannerTier:
+          type: string
+          enum: [targeted, graph_enriched, fallback]
+          description: Server-derived planner quality tier; never contains provider text.
+        plannedFiles:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+          description: Up to 20 files from the query plan (post-graph-enrichment).
+        fileStatuses:
+          type: array
+          maxItems: 40
+          items:
+            $ref: "#/components/schemas/QuerySourceFileStatus"
+          description: Up to 40 combined file statuses for planned and model-chosen files.
+        truncatedPlannedCount:
+          type: integer
+          minimum: 0
+          description: Number of planned files whose bodies were truncated.
+        skippedPlannedCount:
+          type: integer
+          minimum: 0
+          description: Number of planned files that were never read.
 
     AiExecutionDiagnostics:
       type: object

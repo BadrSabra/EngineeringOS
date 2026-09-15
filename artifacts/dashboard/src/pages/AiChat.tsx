@@ -214,6 +214,18 @@ type ChatMessage = {
   acceptanceDisposition?: AcceptanceDispositionView | null;
   terminalProjection?: AiTerminalProjection | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
+  /** PR-011: file-level source plan vs actual coverage; present only for PROJECT_QUERY turns. */
+  sourceSelectionRecord?: {
+    plannerTier: 'targeted' | 'graph_enriched' | 'fallback';
+    plannedFiles: string[];
+    fileStatuses: Array<{
+      path: string;
+      origin: 'planned' | 'model_chosen';
+      readStatus: 'READ_COMPLETE' | 'READ_TRUNCATED' | 'READ_FAILED' | 'READ_SKIPPED';
+    }>;
+    truncatedPlannedCount: number;
+    skippedPlannedCount: number;
+  } | null;
   createdAt: string;
 };
 
@@ -250,6 +262,106 @@ function ProjectQueryTargetCard({ decision }: { decision: NonNullable<ChatMessag
     </div>
   );
 }
+// ── PR-011: Source Coverage Panel ─────────────────────────────────────────────
+
+type SourceCoveragePanelProps = {
+  record: NonNullable<ChatMessage['sourceSelectionRecord']>;
+};
+
+const readStatusBadge: Record<
+  NonNullable<ChatMessage['sourceSelectionRecord']>['fileStatuses'][number]['readStatus'],
+  { label: string; className: string }
+> = {
+  READ_COMPLETE: { label: 'complete', className: 'border-emerald-500/40 text-emerald-300' },
+  READ_TRUNCATED: { label: 'truncated', className: 'border-amber-500/40 text-amber-300' },
+  READ_FAILED: { label: 'failed', className: 'border-red-500/40 text-red-300' },
+  READ_SKIPPED: { label: 'skipped', className: 'border-border/60 text-muted-foreground' },
+};
+
+const plannerTierInfo: Record<
+  NonNullable<ChatMessage['sourceSelectionRecord']>['plannerTier'],
+  { label: string; className: string }
+> = {
+  targeted: { label: 'Targeted', className: 'border-sky-500/30 bg-sky-500/10 text-sky-300' },
+  graph_enriched: { label: 'Graph-enriched', className: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300' },
+  fallback: { label: 'Fallback plan', className: 'border-amber-500/30 bg-amber-500/10 text-amber-300' },
+};
+
+function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Hidden when there are no planned files — nothing meaningful to display.
+  if (record.plannedFiles.length === 0) return null;
+
+  const plannedStatuses = record.fileStatuses.filter((e) => e.origin === 'planned');
+  const modelChosenStatuses = record.fileStatuses.filter((e) => e.origin === 'model_chosen');
+  const tierInfo = plannerTierInfo[record.plannerTier];
+
+  return (
+    <div className="mt-2 rounded-lg border border-border/40 bg-background/20 text-[11px]">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-muted-foreground hover:text-foreground"
+        aria-expanded={expanded}
+      >
+        <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <span className="flex-1 font-medium">Sources</span>
+        <span className={`rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${tierInfo.className}`}>
+          {tierInfo.label}
+        </span>
+        <span className="ml-1 text-muted-foreground">
+          {record.plannedFiles.length} planned
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border/40 px-3 py-2 space-y-2">
+          {record.truncatedPlannedCount > 0 && (
+            <div className="flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/8 px-2 py-1 text-amber-300">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              <span>
+                {record.truncatedPlannedCount} planned file{record.truncatedPlannedCount !== 1 ? 's' : ''} truncated — answers may reflect partial source coverage.
+              </span>
+            </div>
+          )}
+          {plannedStatuses.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Planned</div>
+              {plannedStatuses.map((entry) => {
+                const badge = readStatusBadge[entry.readStatus];
+                return (
+                  <div key={entry.path} className="flex items-center gap-2 min-w-0">
+                    <code className="flex-1 truncate font-mono text-[10px] text-foreground/80">{entry.path}</code>
+                    <Badge variant="outline" className={`shrink-0 text-[9px] px-1 py-0 ${badge.className}`}>
+                      {badge.label}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {modelChosenStatuses.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Also read</div>
+              {modelChosenStatuses.map((entry) => {
+                const badge = readStatusBadge[entry.readStatus];
+                return (
+                  <div key={entry.path} className="flex items-center gap-2 min-w-0">
+                    <code className="flex-1 truncate font-mono text-[10px] text-foreground/60">{entry.path}</code>
+                    <Badge variant="outline" className={`shrink-0 text-[9px] px-1 py-0 ${badge.className}`}>
+                      {badge.label}
+                    </Badge>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type DeliveryLifecycle =
   | 'proposed' | 'isolated' | 'validated' | 'applied' | 'conflicted'
   | 'committed' | 'cancelled' | 'abandoned' | 'blocked';
@@ -5517,6 +5629,9 @@ function MessageBubble({
         )}
         {!isUser && msg.projectQueryTarget && (
           <ProjectQueryTargetCard decision={msg.projectQueryTarget} />
+        )}
+        {!isUser && msg.sourceSelectionRecord && (
+          <SourceCoveragePanel record={msg.sourceSelectionRecord} />
         )}
         {!isUser && <BehaviorEvidencePanel evidence={parseBehaviorEvidence(msg.behaviorEvidence)} projectId={projectId} />}
         {!isUser && (

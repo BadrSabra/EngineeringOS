@@ -107,6 +107,12 @@ export type QueryPlan = {
   targetConfidence?: number;
   /** Bounded diagnostics for an invalid or fallback plan. */
   planDiagnostics?: string[];
+  /**
+   * PR-011: true when graph enrichment added paths beyond the raw planner
+   * response. Used by deriveSourceSelectionRecord to distinguish targeted from
+   * graph-enriched plan tiers without comparing targetFiles arrays at call time.
+   */
+  graphEnriched?: boolean;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1073,5 +1079,109 @@ export async function planQuery(opts: {
     }),
   );
 
-  return enriched;
+  const graphEnriched = enriched.targetFiles.length > constrainedPlan.targetFiles.length;
+  return graphEnriched ? { ...enriched, graphEnriched: true } : enriched;
+}
+
+// ── PR-011: file-level source plan vs actual coverage ─────────────────────────
+
+export type PlannerTier = "targeted" | "graph_enriched" | "fallback";
+export type FileOrigin = "planned" | "model_chosen";
+export type FileReadStatus =
+  | "READ_COMPLETE"
+  | "READ_TRUNCATED"
+  | "READ_FAILED"
+  | "READ_SKIPPED";
+
+export type FileStatusEntry = {
+  path: string;
+  origin: FileOrigin;
+  readStatus: FileReadStatus;
+};
+
+export type QuerySourceSelectionRecord = {
+  plannerTier: PlannerTier;
+  /** Up to 20 files from the query plan (post-graph-enrichment). */
+  plannedFiles: string[];
+  /** Up to 40 combined file statuses (planned + model-chosen). */
+  fileStatuses: FileStatusEntry[];
+  truncatedPlannedCount: number;
+  skippedPlannedCount: number;
+};
+
+const MAX_PLANNED_FILES = 20;
+const MAX_FILE_STATUSES = 40;
+
+function normalizePath(p: string): string {
+  return p.trim().replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
+}
+
+function toPublicReadStatus(raw: string | undefined): FileReadStatus {
+  if (raw === "READ_COMPLETE" || raw === "READ_CACHED") return "READ_COMPLETE";
+  if (raw === "READ_TRUNCATED") return "READ_TRUNCATED";
+  if (raw === "READ_FAILED") return "READ_FAILED";
+  return "READ_SKIPPED";
+}
+
+/**
+ * Derive a bounded, server-owned coverage summary from the final query plan
+ * and the combined read-status map (prefetch + tool-loop reads).
+ *
+ * This is a pure function with no external I/O. Callers build the map from
+ * `prefetchReadStatuses` and per-file `ReadStatus` values extracted from
+ * `AgentStep` tool_result entries after the loop finishes.
+ */
+export function deriveSourceSelectionRecord(
+  plan: QueryPlan,
+  finalReadStatuses: ReadonlyMap<string, string>,
+): QuerySourceSelectionRecord {
+  const plannerTier: PlannerTier =
+    plan.planStatus === "fallback" || plan.planStatus === "invalid"
+      ? "fallback"
+      : plan.graphEnriched
+      ? "graph_enriched"
+      : "targeted";
+
+  const rawPlannedFiles = plan.targetFiles.slice(0, MAX_PLANNED_FILES);
+  const plannedSet = new Set(rawPlannedFiles.map(normalizePath));
+
+  const plannedStatuses: FileStatusEntry[] = rawPlannedFiles.map((path) => {
+    const key = normalizePath(path);
+    const directStatus = finalReadStatuses.get(key) ?? finalReadStatuses.get(path);
+    const raw = directStatus ?? [...finalReadStatuses.entries()]
+      .find(([candidatePath]) => normalizePath(candidatePath) === key)?.[1];
+    return { path, origin: "planned", readStatus: toPublicReadStatus(raw) };
+  });
+
+  const modelChosenStatuses: FileStatusEntry[] = [];
+  for (const [path, raw] of finalReadStatuses) {
+    const key = normalizePath(path);
+    if (!plannedSet.has(key)) {
+      modelChosenStatuses.push({
+        path,
+        origin: "model_chosen",
+        readStatus: toPublicReadStatus(raw),
+      });
+    }
+  }
+
+  const allStatuses = [
+    ...plannedStatuses,
+    ...modelChosenStatuses,
+  ].slice(0, MAX_FILE_STATUSES);
+
+  const truncatedPlannedCount = plannedStatuses.filter(
+    (e) => e.readStatus === "READ_TRUNCATED",
+  ).length;
+  const skippedPlannedCount = plannedStatuses.filter(
+    (e) => e.readStatus === "READ_SKIPPED",
+  ).length;
+
+  return {
+    plannerTier,
+    plannedFiles: rawPlannedFiles,
+    fileStatuses: allStatuses,
+    truncatedPlannedCount,
+    skippedPlannedCount,
+  };
 }

@@ -3069,6 +3069,16 @@ type PersistedToolTraceEntry = {
   projectQueryTarget?: {
     mode: ProjectQueryTargetMode;
   };
+  /** PR-011: file-level source plan vs actual coverage; set only on project_query_source_selection steps. */
+  plannerTier?: "targeted" | "graph_enriched" | "fallback";
+  plannedFiles?: string[];
+  fileStatuses?: Array<{
+    path: string;
+    origin: "planned" | "model_chosen";
+    readStatus: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_SKIPPED";
+  }>;
+  truncatedPlannedCount?: number;
+  skippedPlannedCount?: number;
 };
 
 const PROJECT_QUERY_TARGET_MODES = new Set<ProjectQueryTargetMode>([
@@ -3076,6 +3086,76 @@ const PROJECT_QUERY_TARGET_MODES = new Set<ProjectQueryTargetMode>([
   "bounded_unresolved_hint",
   "source_first_discovery",
 ]);
+
+// ── PR-011: source-selection record extraction from persisted trace ────────────
+
+type SourceSelectionRecord = {
+  plannerTier: "targeted" | "graph_enriched" | "fallback";
+  plannedFiles: string[];
+  fileStatuses: Array<{
+    path: string;
+    origin: "planned" | "model_chosen";
+    readStatus: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_SKIPPED";
+  }>;
+  truncatedPlannedCount: number;
+  skippedPlannedCount: number;
+};
+
+const SOURCE_SELECTION_PLANNER_TIERS = new Set<SourceSelectionRecord["plannerTier"]>([
+  "targeted",
+  "graph_enriched",
+  "fallback",
+]);
+
+/**
+ * Extract the PR-011 source-selection record from the serialized tool trace.
+ * Mirrors projectQueryTargetFromTrace: looks for the last
+ * "project_query_source_selection" step and reconstructs a bounded record.
+ */
+function sourceSelectionRecordFromTrace(
+  raw: string | null | undefined,
+): SourceSelectionRecord | undefined {
+  if (!raw) return undefined;
+  try {
+    const entries = JSON.parse(raw);
+    if (!Array.isArray(entries)) return undefined;
+    const entry = [...entries].reverse().find(
+      (candidate) =>
+        candidate &&
+        typeof candidate === "object" &&
+        (candidate as { kind?: unknown }).kind === "project_query_source_selection",
+    ) as Record<string, unknown> | undefined;
+    if (
+      !entry ||
+      !SOURCE_SELECTION_PLANNER_TIERS.has(
+        entry.plannerTier as SourceSelectionRecord["plannerTier"],
+      )
+    ) {
+      return undefined;
+    }
+    return {
+      plannerTier: entry.plannerTier as SourceSelectionRecord["plannerTier"],
+      plannedFiles: Array.isArray(entry.plannedFiles)
+        ? (entry.plannedFiles as unknown[]).filter(
+            (s): s is string => typeof s === "string",
+          )
+        : [],
+      fileStatuses: Array.isArray(entry.fileStatuses)
+        ? (entry.fileStatuses as SourceSelectionRecord["fileStatuses"])
+        : [],
+      truncatedPlannedCount:
+        typeof entry.truncatedPlannedCount === "number"
+          ? entry.truncatedPlannedCount
+          : 0,
+      skippedPlannedCount:
+        typeof entry.skippedPlannedCount === "number"
+          ? entry.skippedPlannedCount
+          : 0,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 function projectQueryTargetFromTrace(raw: string | null | undefined): { mode: ProjectQueryTargetMode } | undefined {
   if (!raw) return undefined;
@@ -3159,6 +3239,15 @@ function serializeToolTrace(
         return {
           kind: step.kind,
           mode: step.mode,
+        };
+      case "project_query_source_selection":
+        return {
+          kind: step.kind,
+          plannerTier: step.plannerTier,
+          plannedFiles: step.plannedFiles,
+          fileStatuses: step.fileStatuses,
+          truncatedPlannedCount: step.truncatedPlannedCount,
+          skippedPlannedCount: step.skippedPlannedCount,
         };
       case "validation":
         {
@@ -5268,12 +5357,14 @@ router.post("/ai/chat", async (req, res) => {
       ? deriveForensicDiagnostic(traceSteps)
       : undefined;
     const projectQueryTarget = projectQueryTargetFromTrace(assistantMsg.toolTrace);
+    const sourceSelectionRecord = result.sourceSelectionRecord ?? undefined;
     return res.json({
       sessionId: sessionIdToUse,
       message: {
         ...assistantMsg,
         taskResult: parseTaskResult(assistantMsg.taskResult),
         ...(projectQueryTarget ? { projectQueryTarget } : {}),
+        ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       },
@@ -5284,6 +5375,7 @@ router.post("/ai/chat", async (req, res) => {
       sources: parseStoredJson(assistantMsg.sources) ?? [],
       toolTrace: assistantMsg.toolTrace,
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
+      ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       pendingChanges: proposalId
         ? proposalChanges
@@ -9445,6 +9537,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
+      ...(result.sourceSelectionRecord ? { sourceSelectionRecord: result.sourceSelectionRecord } : {}),
     };
     sse({
       type: "done",
@@ -9455,6 +9548,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       },
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
+      ...(result.sourceSelectionRecord ? { sourceSelectionRecord: result.sourceSelectionRecord } : {}),
       sources: publicAssistantSources,
       toolTrace: publicToolTrace,
       pendingChanges: proposalId
@@ -10443,6 +10537,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
       executionLedger: readExecutionLedgerTrace(message.toolTrace),
       ...(projectQueryTargetFromTrace(message.toolTrace)
         ? { projectQueryTarget: projectQueryTargetFromTrace(message.toolTrace) }
+        : {}),
+      ...(sourceSelectionRecordFromTrace(message.toolTrace)
+        ? { sourceSelectionRecord: sourceSelectionRecordFromTrace(message.toolTrace) }
         : {}),
       ...(readContextProvenanceTrace(message.toolTrace)
         ? { contextProvenance: readContextProvenanceTrace(message.toolTrace) }

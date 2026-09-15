@@ -3589,6 +3589,17 @@ export const AiChatResponse = zod.object({
   "phases": zod.array(zod.record(zod.string(), zod.unknown())).max(aiChatResponseMessageTaskResultSixPhasesMax),
   "readiness": zod.enum(['READY', 'BLOCKED', 'NOT_PROVEN'])
 })]).optional().describe('AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.'),
+  "sourceSelectionRecord": zod.union([zod.object({
+  "plannerTier": zod.enum(['targeted', 'graph_enriched', 'fallback']).describe('Server-derived planner quality tier; never contains provider text.'),
+  "plannedFiles": zod.array(zod.string()),
+  "fileStatuses": zod.array(zod.object({
+  "path": zod.string().min(1),
+  "origin": zod.enum(['planned', 'model_chosen']),
+  "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED'])
+})),
+  "truncatedPlannedCount": zod.number().int().min(0),
+  "skippedPlannedCount": zod.number().int().min(0)
+}),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns.'),
   "createdAt": zod.coerce.date()
 }),
   "sources": zod.array(zod.string()),
@@ -6074,6 +6085,17 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "phases": zod.array(zod.record(zod.string(), zod.unknown())).max(listAiChatMessagesResponseTaskResultSixPhasesMax),
   "readiness": zod.enum(['READY', 'BLOCKED', 'NOT_PROVEN'])
 })]).optional().describe('AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.'),
+  "sourceSelectionRecord": zod.union([zod.object({
+  "plannerTier": zod.enum(['targeted', 'graph_enriched', 'fallback']).describe('Server-derived planner quality tier; never contains provider text.'),
+  "plannedFiles": zod.array(zod.string()),
+  "fileStatuses": zod.array(zod.object({
+  "path": zod.string().min(1),
+  "origin": zod.enum(['planned', 'model_chosen']),
+  "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED'])
+})),
+  "truncatedPlannedCount": zod.number().int().min(0),
+  "skippedPlannedCount": zod.number().int().min(0)
+}),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns.'),
   "createdAt": zod.coerce.date()
 })
 export const ListAiChatMessagesResponse = zod.array(ListAiChatMessagesResponseItem)

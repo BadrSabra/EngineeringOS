@@ -1599,6 +1599,25 @@ export type AgentDiagnosticCode =
 export type AgentStep =
   | { kind: "project_query_target"; mode: ProjectQueryTargetMode }
   | {
+      /**
+       * PR-011: file-level source-plan vs actual-coverage record for PROJECT_QUERY
+       * turns. Emitted exactly once, after the tool loop and before ChatOutput is
+       * returned, so the route handler can extract it from the persisted trace.
+       */
+      kind: "project_query_source_selection";
+      plannerTier: "targeted" | "graph_enriched" | "fallback";
+      /** Up to 20 files from the query plan. */
+      plannedFiles: string[];
+      /** Up to 40 combined file statuses (planned + model-chosen). */
+      fileStatuses: Array<{
+        path: string;
+        origin: "planned" | "model_chosen";
+        readStatus: "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED" | "READ_SKIPPED";
+      }>;
+      truncatedPlannedCount: number;
+      skippedPlannedCount: number;
+    }
+  | {
       kind: "plan_activity";
       stage: "understand" | "scope" | "plan" | "execute" | "validate";
       status: "active" | "done" | "info";

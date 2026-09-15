@@ -293,6 +293,30 @@ export const ChatTaskResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type ChatTaskResult = z.infer<typeof ChatTaskResultSchema>;
 
+// ── PR-011: file-level source plan vs actual coverage ─────────────────────────
+
+export const FileStatusEntrySchema = z.object({
+  path: z.string().min(1),
+  origin: z.enum(["planned", "model_chosen"]),
+  readStatus: z.enum(["READ_COMPLETE", "READ_TRUNCATED", "READ_FAILED", "READ_SKIPPED"]),
+}).strict();
+export type FileStatusEntry = z.infer<typeof FileStatusEntrySchema>;
+
+/**
+ * Server-derived, allowlisted coverage summary for a PROJECT_QUERY turn.
+ * Never contains provider text, planner reasoning, or raw file bodies.
+ */
+export const QuerySourceSelectionRecordSchema = z.object({
+  plannerTier: z.enum(["targeted", "graph_enriched", "fallback"]),
+  /** Up to 20 files from the query plan (post-graph-enrichment). */
+  plannedFiles: z.array(z.string().min(1)).max(20),
+  /** Up to 40 combined file statuses (planned + model-chosen). */
+  fileStatuses: z.array(FileStatusEntrySchema).max(40),
+  truncatedPlannedCount: z.number().int().min(0),
+  skippedPlannedCount: z.number().int().min(0),
+}).strict();
+export type QuerySourceSelectionRecord = z.infer<typeof QuerySourceSelectionRecordSchema>;
+
 export const ChatOutputSchema = ChatResponseSchema.extend({
   /** Provider-reported usage for this final response, when available. */
   usage: z.object({
@@ -322,6 +346,12 @@ export const ChatOutputSchema = ChatResponseSchema.extend({
    * for turns with no declared objective.
    */
   objective: ObjectiveContractSchema.optional(),
+  /**
+   * PR-011: file-level source plan vs actual coverage. Present only for
+   * PROJECT_QUERY turns; absent for CHAT, FORENSIC_AUDIT, task execution,
+   * and all other turn kinds.
+   */
+  sourceSelectionRecord: QuerySourceSelectionRecordSchema.optional(),
 });
 
 export type ChatOutput = z.infer<typeof ChatOutputSchema>;
