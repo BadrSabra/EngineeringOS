@@ -81,6 +81,7 @@ import {
   deriveFlightDeckState,
   isProvenValidation,
   toPublicValidationResult,
+  decideMutationRepair,
   runRegisteredCommand,
   createServerCapabilityRegistry,
   CAPABILITY_PROBE_CLAIM_IDS,
@@ -7865,6 +7866,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               steps: browserValidationProfile.steps as PreviewStep[],
               browser,
               profileName: browserValidationProfile.name,
+               signal: request.signal,
             });
           } catch (error) {
             return {
@@ -12108,6 +12110,32 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       }
       verificationByProfile.set(profile, validation);
     }
+    const validationRepairDecisions = [...verificationByProfile.entries()].map(([profile, validation]) => {
+      const normalized = "evidence" in validation
+        ? validation
+        : makeSyntheticValidationResult(
+            profile,
+            validation.status,
+            validation.scenario ?? "Registered validation did not return canonical evidence.",
+            validation.detail ?? "Registered validation did not return canonical evidence.",
+          );
+      const decision = decideMutationRepair({
+        result: normalized,
+        attempt: 1,
+        // Apply is a single approved attempt. A repair requires a new scoped
+        // proposal; this endpoint must never mutate a failed candidate again.
+        maxAttempts: 1,
+      });
+      return {
+        profile,
+        action: decision.action,
+        failureKind: decision.failureKind,
+        nextStage: decision.nextStage,
+        retryable: decision.retryable,
+        attempt: decision.attempt,
+        maxAttempts: decision.maxAttempts,
+      };
+    });
 
     const candidateHashAfterValidation = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
     const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
@@ -12352,6 +12380,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         : allOk
           ? "verified"
           : "blocked";
+    const lifecycleStage = allOk ? "DELIVERED" : "BLOCKED";
 
     // Do not record a successful AI execution event until the mandatory
     // behavioral validation has passed. Persistence and behavior remain
@@ -12384,6 +12413,8 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
           promotionMismatch,
           integrityOutcome,
+          lifecycleStage,
+          validationRepairDecisions,
         },
       });
       await tx.insert(auditLogsTable).values({
@@ -12415,6 +12446,8 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
             path: result.path,
             status: result.behavioralVerification.status,
           })),
+          lifecycleStage,
+          validationRepairDecisions,
         },
         correlationId: applyCorrelationId,
       });
@@ -12508,6 +12541,14 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       correlationId: applyCorrelationId,
       applyStatus,
       integrityOutcome,
+      lifecycle: {
+        stage: lifecycleStage,
+        operationId: applyCorrelationId,
+        revision: deliveryWorkspace.baseRevision,
+        validationRequired: true,
+        approvalRequired: false,
+        validationRepairDecisions,
+      },
       baseTreeHash: deliveryWorkspace.baseTreeHash,
       candidateTreeHash,
       promotedTreeHash,

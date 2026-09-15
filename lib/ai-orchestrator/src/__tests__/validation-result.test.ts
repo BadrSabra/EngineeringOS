@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { hasValidationEvidence, isProvenValidation, toPublicValidationResult } from "../validation-result.js";
+import {
+  classifyValidationFailure,
+  hasValidationEvidence,
+  isProvenValidation,
+  toPublicValidationResult,
+  withValidationFailureKind,
+} from "../validation-result.js";
 import type { ValidationResult } from "../validation-result.js";
 
 function result(overrides: Partial<ValidationResult> = {}): ValidationResult {
@@ -109,5 +115,38 @@ describe("canonical validation evidence", () => {
       terminalState: "passed",
       nextAction: "Review the validated candidate.",
     });
+  });
+
+  it("classifies validation outcomes before a repair decision is made", () => {
+    expect(classifyValidationFailure(result())).toBe("none");
+    expect(classifyValidationFailure({
+      ...result(),
+      status: "failed",
+      exitCode: 1,
+      terminalState: "failed",
+    })).toBe("candidate");
+    expect(classifyValidationFailure({
+      ...result(),
+      status: "blocked",
+      exitCode: null,
+      terminalState: "timed_out",
+    })).toBe("timeout");
+    expect(classifyValidationFailure({
+      ...result(),
+      status: "unavailable",
+      exitCode: null,
+    })).toBe("unavailable");
+    expect(classifyValidationFailure({
+      ...result(),
+      status: "failed",
+      exitCode: null,
+      reasonCode: "stale_revision",
+    })).toBe("conflict");
+    expect(withValidationFailureKind({
+      ...result(),
+      status: "failed",
+      exitCode: 1,
+      failureKind: "harness",
+    }).failureKind).toBe("harness");
   });
 });

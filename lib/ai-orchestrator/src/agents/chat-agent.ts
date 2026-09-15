@@ -152,7 +152,11 @@ import {
   type ValidationRunner,
 } from "../tools/execution-tools.js";
 import type { CommandProfile, CommandRunner } from "../tools/execution-tools.js";
-import type { ValidationResult } from "../validation-result.js";
+import {
+  withValidationFailureKind,
+  type ValidationResult,
+} from "../validation-result.js";
+import { decideMutationRepair } from "../mutation-lifecycle.js";
 import {
   appendTaskChecklistReport,
   parseTaskChecklist,
@@ -7665,14 +7669,14 @@ export async function chat(opts: {
               parsed.evidence &&
               typeof parsed.evidence.evidenceId === "string"
             ) {
-              automaticValidation = parsed as ValidationResult;
+              automaticValidation = withValidationFailureKind(parsed as ValidationResult);
             }
           } catch {
             // The fail-closed unavailable result below preserves the
             // distinction between "validation was attempted" and "passed".
           }
           if (!automaticValidation) {
-            automaticValidation = {
+            automaticValidation = withValidationFailureKind({
               profile: node.validationProfile,
               status: "unavailable",
               scenario: "Server-owned automatic validation failed to return a result.",
@@ -7688,13 +7692,17 @@ export async function chat(opts: {
                 artifactRef: `automatic-validation:${node.id}`,
               },
               detail: "Automatic validation returned no readable result.",
-            };
+            });
           }
+          const automaticRepairDecision = decideMutationRepair({
+            result: automaticValidation,
+            attempt: validationAttemptsConsumed,
+            maxAttempts: remainingValidationAttempts,
+          });
           const automaticRepairState: RepairLoopState =
             automaticValidation.status === "passed"
               ? "READY_FOR_REVIEW"
-              : automaticValidation.status === "failed" &&
-                  validationAttemptsConsumed < remainingValidationAttempts
+              : automaticRepairDecision.action === "REPAIR_CANDIDATE"
                 ? "REPAIRING"
                 : "BLOCKED";
           recordNodeStep({
@@ -7768,6 +7776,13 @@ export async function chat(opts: {
             step.result.profile === node.validationProfile &&
             step.result.status !== "passed",
           );
+        const failedValidationDecision = failedValidation
+          ? decideMutationRepair({
+              result: failedValidation.result,
+              attempt: validationAttemptsConsumed,
+              maxAttempts: remainingValidationAttempts,
+            })
+          : undefined;
         const outOfScopeChanges = nodePendingChanges.filter((change) =>
           !allowedPathSet.has(nodePath(change.path)),
         );
@@ -7835,7 +7850,9 @@ export async function chat(opts: {
         }
 
         return {
-          status: "failed" as const,
+          status: failedValidationDecision?.action === "REPAIR_CANDIDATE"
+            ? "failed" as const
+            : "blocked" as const,
           detail:
             failedValidation?.result.detail ??
             (childLoop.kind === "partial"

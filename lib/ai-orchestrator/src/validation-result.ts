@@ -7,6 +7,16 @@
  * persisted evidence reference is not sufficient to prove a repair.
  */
 export type ValidationStatus = "passed" | "failed" | "skipped" | "unavailable" | "blocked";
+export type ValidationFailureKind =
+  | "none"
+  | "candidate"
+  | "harness"
+  | "unavailable"
+  | "timeout"
+  | "cancelled"
+  | "scope"
+  | "conflict"
+  | "unknown";
 export type ValidationTerminalState =
   | "running"
   | "passed"
@@ -61,6 +71,8 @@ export type ValidationResult = {
   failedTests: ValidationFailure[];
   changedFiles: string[];
   evidence: ValidationEvidence;
+  /** Server-owned failure taxonomy used to decide whether repair is safe. */
+  failureKind?: ValidationFailureKind;
   detail?: string;
   reasonCode?: BrowserValidationBlockReason;
   /** Server-owned operator telemetry; never supplied by model output. */
@@ -79,7 +91,7 @@ export type ValidationResult = {
  */
 export type PublicValidationResult = Pick<
   ValidationResult,
-  | "profile" | "status" | "scenario" | "exitCode" | "evidence" | "reasonCode"
+  | "profile" | "status" | "scenario" | "exitCode" | "evidence" | "reasonCode" | "failureKind"
   | "processBudgetMs" | "overallBudgetMs" | "elapsedMs" | "remainingMs"
   | "terminalState" | "nextAction"
 > & {
@@ -122,6 +134,7 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
       ...(evidence.consoleErrorCount !== undefined ? { consoleErrorCount: evidence.consoleErrorCount } : {}),
     },
     ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
+    ...(result.failureKind ? { failureKind: result.failureKind } : {}),
     ...(result.processBudgetMs !== undefined ? { processBudgetMs: result.processBudgetMs } : {}),
     ...(result.overallBudgetMs !== undefined ? { overallBudgetMs: result.overallBudgetMs } : {}),
     ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
@@ -129,6 +142,37 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
     ...(result.terminalState ? { terminalState: result.terminalState } : {}),
     ...(result.nextAction ? { nextAction: sanitizeValidationDetail(result.nextAction) } : {}),
     ...(result.detail ? { detail: sanitizeValidationDetail(result.detail) } : {}),
+  };
+}
+
+export function classifyValidationFailure(
+  result: Pick<ValidationResult, "status" | "terminalState" | "reasonCode" | "detail" | "exitCode">,
+): ValidationFailureKind {
+  if (result.status === "passed") return "none";
+  if (result.terminalState === "timed_out") return "timeout";
+  if (result.reasonCode === "stale_revision") return "conflict";
+  if (
+    result.reasonCode === "ownership"
+    || result.reasonCode === "invalid_profile"
+    || result.reasonCode === "resource_limit"
+  ) {
+    return "scope";
+  }
+  if (result.status === "unavailable") return "unavailable";
+  if (result.status === "skipped") return "scope";
+  if (result.status === "blocked") {
+    return /cancel/i.test(result.detail ?? "") ? "cancelled" : "harness";
+  }
+  if (result.status === "failed") {
+    return result.exitCode === null || result.exitCode === undefined ? "harness" : "candidate";
+  }
+  return "unknown";
+}
+
+export function withValidationFailureKind<T extends ValidationResult>(result: T): T {
+  return {
+    ...result,
+    failureKind: result.failureKind ?? classifyValidationFailure(result),
   };
 }
 

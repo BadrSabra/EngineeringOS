@@ -338,6 +338,7 @@ export async function verifyBrowserPreview(input: {
   steps: readonly PreviewStep[];
   browser: PreviewBrowser;
   screenshotDirectory?: string;
+  signal?: AbortSignal;
 }): Promise<PreviewEvidence> {
   const observedAt = new Date().toISOString();
   const baseOrigin = `http://127.0.0.1:${input.session.port}`;
@@ -370,6 +371,11 @@ export async function verifyBrowserPreview(input: {
     };
   }
   let page: PreviewPage | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutController = new AbortController();
+  const abortFromCaller = (): void => timeoutController.abort();
+  if (input.signal?.aborted) timeoutController.abort();
+  else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     page = await input.browser.newPage();
     const activePage = page;
@@ -385,6 +391,9 @@ export async function verifyBrowserPreview(input: {
     if (steps.length > PREVIEW_LIMITS.maxSteps) throw new Error("Preview validation exceeded its step limit.");
     const runSteps = async (): Promise<void> => {
     for (const step of steps) {
+      if (timeoutController.signal.aborted) {
+        throw new Error("Preview validation was cancelled.");
+      }
       if (step.type === "navigate") {
         const target = new URL(step.path, `${baseOrigin}/`);
         if (target.origin !== baseOrigin || target.username || target.password) {
@@ -415,8 +424,14 @@ export async function verifyBrowserPreview(input: {
     const timeoutMs = input.contract?.timeoutMs ?? PREVIEW_LIMITS.maxValidationMs;
     await Promise.race([
       runSteps(),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Preview validation timed out.")), timeoutMs)),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          timeoutController.abort();
+          reject(new Error("Preview validation timed out."));
+        }, timeoutMs);
+      }),
     ]);
+    if (timeout) clearTimeout(timeout);
     if (consoleErrors.length > 0) {
       return {
         kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
@@ -439,6 +454,8 @@ export async function verifyBrowserPreview(input: {
       consoleErrors, observedAt,
     };
   } finally {
+    if (timeout) clearTimeout(timeout);
+    input.signal?.removeEventListener("abort", abortFromCaller);
     await page?.close().catch(() => undefined);
     await input.browser.close().catch(() => undefined);
   }

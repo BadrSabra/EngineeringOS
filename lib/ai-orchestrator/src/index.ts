@@ -328,18 +328,33 @@ export type { RepairLoopState, ValidationRunner, ValidationToolResult, BrowserVa
 export { executeCommandTool, runRegisteredCommand, COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
 export type { CommandProfile, CommandRunner } from "./tools/execution-tools.js";
 export {
+  classifyValidationFailure,
   hasValidationEvidence,
   isProvenValidation,
   toPublicValidationResult,
+  withValidationFailureKind,
 } from "./validation-result.js";
 export type {
   ValidationEvidence,
   ValidationFailure,
+  ValidationFailureKind,
   PublicValidationResult,
   ValidationResult,
   ValidationStatus,
   BrowserValidationBlockReason,
 } from "./validation-result.js";
+export {
+  createMutationLifecyclePlan,
+  decideMutationRepair,
+  lifecycleStageAfterApproval,
+} from "./mutation-lifecycle.js";
+export type {
+  MutationLifecyclePlan,
+  MutationLifecycleStage,
+  MutationRepairAction,
+  MutationRepairDecision,
+  MutationTaskKind,
+} from "./mutation-lifecycle.js";
 
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";
 export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";

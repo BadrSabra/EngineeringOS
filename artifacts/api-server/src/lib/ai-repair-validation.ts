@@ -8,6 +8,7 @@ import {
   type ValidationResult,
   type ValidationStatus,
   type ValidationEvidence,
+  withValidationFailureKind,
 } from "@workspace/ai-orchestrator";
 import {
   verifyBrowserPreview,
@@ -49,6 +50,12 @@ export type RuntimeOracleCommand = {
   command: "pnpm";
   args: readonly string[];
   timeoutMs?: number;
+};
+
+export type RuntimeValidationEvidenceContext = {
+  operationId?: string;
+  projectRevision?: string;
+  candidateHash?: string;
 };
 
 type ValidationProfileDefinition = {
@@ -531,7 +538,7 @@ export async function runRepairValidation(
   const terminalState = result.terminalState ?? (
     result.status === "blocked" ? "timed_out" : validationTerminalState(result.status)
   );
-  return attachValidationEvidence({
+  return withValidationFailureKind(await attachValidationEvidence({
     ...result,
     processBudgetMs: result.processBudgetMs ?? config.validationProcessTimeoutMs,
     overallBudgetMs: result.overallBudgetMs ?? config.validationOverallTimeoutMs,
@@ -539,7 +546,7 @@ export async function runRepairValidation(
     remainingMs: Math.max(0, config.validationOverallTimeoutMs - elapsedMs),
     terminalState,
     nextAction: result.nextAction ?? validationNextAction(result.status, terminalState),
-  }, evidenceContext);
+  }, evidenceContext));
 }
 
 /**
@@ -554,7 +561,42 @@ export async function runRepairRuntimeOracle(
   signal?: AbortSignal,
   prepare?: (workspaceRootPath: string) => Promise<void>,
 ): Promise<{ status: "passed" | "failed"; code?: string; detail?: string }> {
+  const result = await runRepairRuntimeValidation(
+    rootPath,
+    pendingChanges,
+    command,
+    signal,
+    prepare,
+  );
+  if (result.status === "passed") return { status: "passed" };
+  const code = result.status === "blocked"
+    ? "RUNTIME_ORACLE_TIMED_OUT"
+    : result.status === "unavailable"
+      ? "RUNTIME_ORACLE_ERROR"
+      : "RUNTIME_ORACLE_FAILED";
+  return {
+    status: "failed",
+    code,
+    ...(result.detail ? { detail: result.detail } : {}),
+  };
+}
+
+/**
+ * Canonical runtime validation used by new lifecycle callers. The legacy
+ * runRepairRuntimeOracle above intentionally remains a bounded projection for
+ * benchmark and fixture consumers.
+ */
+export async function runRepairRuntimeValidation(
+  rootPath: string,
+  pendingChanges: readonly PendingValidationChange[],
+  command: RuntimeOracleCommand,
+  signal?: AbortSignal,
+  prepare?: (workspaceRootPath: string) => Promise<void>,
+  evidenceContext: RuntimeValidationEvidenceContext = {},
+): Promise<ValidationResult> {
   let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+  const evidenceId = `runtime-validation:${randomUUID()}`;
+  const startedAt = Date.now();
   try {
     validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
     const execution = await runBoundedCommand({
@@ -570,21 +612,89 @@ export async function runRepairRuntimeOracle(
       allowedCommands: new Set(["pnpm"]),
       signal,
     });
-    if (execution.status === "passed") {
-      return { status: "passed" };
-    }
     const output = boundedDetail(execution.combinedOutput.trim());
-    return {
-      status: "failed",
-      code: `RUNTIME_ORACLE_${execution.status.toUpperCase()}`,
-      detail: output || `Runtime behavioral oracle ended with status ${execution.status}.`,
-    };
+    const passed = execution.status === "passed";
+    const timedOut = execution.status === "timed_out";
+    const cancelled = execution.status === "cancelled";
+    const unavailable = execution.status === "spawn_error";
+    return withValidationFailureKind({
+      profile: "runtime-oracle",
+      status: passed ? "passed" : timedOut || cancelled ? "blocked" : unavailable ? "unavailable" : "failed",
+      scenario: "Run the server-registered runtime oracle against the isolated candidate.",
+      command: [command.command, ...command.args].join(" ").slice(0, 240),
+      exitCode: passed ? 0 : execution.exitCode,
+      stdout: execution.combinedOutput.slice(0, VALIDATION_OUTPUT_LIMIT),
+      stderr: "",
+      failedTests: passed
+        ? []
+        : [{
+            name: "runtime oracle",
+            message: output || `Runtime behavioral oracle ended with status ${execution.status}.`,
+          }],
+      changedFiles: pendingChanges.map((change) => change.path).slice(0, 48),
+      evidence: {
+        evidenceId,
+        observedAt: new Date().toISOString(),
+        artifactRef: `runtime-oracle:${execution.status}`,
+        ...(evidenceContext.operationId ? { operationId: evidenceContext.operationId } : {}),
+        ...(evidenceContext.projectRevision ? { projectRevision: evidenceContext.projectRevision } : {}),
+        ...(evidenceContext.candidateHash ? { candidateHash: evidenceContext.candidateHash } : {}),
+      },
+      detail: output || (passed
+        ? "Runtime behavioral oracle passed."
+        : `Runtime behavioral oracle ended with status ${execution.status}.`),
+      terminalState: passed
+        ? "passed"
+        : timedOut
+          ? "timed_out"
+          : cancelled
+            ? "failed"
+            : unavailable
+              ? "unavailable"
+              : "failed",
+      processBudgetMs: Math.min(
+        command.timeoutMs ?? config.validationProcessTimeoutMs,
+        config.validationProcessTimeoutMs,
+      ),
+      overallBudgetMs: config.validationOverallTimeoutMs,
+      elapsedMs: Date.now() - startedAt,
+      remainingMs: Math.max(0, config.validationOverallTimeoutMs - (Date.now() - startedAt)),
+      nextAction: passed
+        ? "Review the runtime evidence; approval and scope gates still apply."
+        : timedOut
+          ? "Retry the same approved runtime oracle without changing the candidate."
+          : cancelled
+            ? "Resume the cancelled operation before attempting repair."
+          : "Review the bounded runtime failure before requesting a scoped repair.",
+    });
   } catch (error) {
-    return {
-      status: "failed",
-      code: "RUNTIME_ORACLE_ERROR",
-      detail: boundedDetail(error instanceof Error ? error.message : String(error)),
-    };
+    const detail = boundedDetail(error instanceof Error ? error.message : String(error));
+    return withValidationFailureKind({
+      profile: "runtime-oracle",
+      status: "unavailable",
+      scenario: "Run the server-registered runtime oracle against the isolated candidate.",
+      command: [command.command, ...command.args].join(" ").slice(0, 240),
+      exitCode: null,
+      stdout: "",
+      stderr: "",
+      failedTests: [{ name: "runtime oracle", message: detail }],
+      changedFiles: pendingChanges.map((change) => change.path).slice(0, 48),
+      evidence: {
+        evidenceId,
+        observedAt: new Date().toISOString(),
+        artifactRef: "runtime-oracle:error",
+        ...(evidenceContext.operationId ? { operationId: evidenceContext.operationId } : {}),
+        ...(evidenceContext.projectRevision ? { projectRevision: evidenceContext.projectRevision } : {}),
+        ...(evidenceContext.candidateHash ? { candidateHash: evidenceContext.candidateHash } : {}),
+      },
+      detail,
+      terminalState: "unavailable",
+      processBudgetMs: config.validationProcessTimeoutMs,
+      overallBudgetMs: config.validationOverallTimeoutMs,
+      elapsedMs: Date.now() - startedAt,
+      remainingMs: Math.max(0, config.validationOverallTimeoutMs - (Date.now() - startedAt)),
+      nextAction: "Restore the registered runtime oracle or workspace, then rerun validation.",
+    });
   } finally {
     await validationWorkspace?.cleanup();
   }
@@ -601,20 +711,21 @@ export async function runRepairPreviewValidation(input: {
   operationId: string;
   executionId: string;
   revision: string;
-  contract?: PreviewValidationContract;
+  contract: PreviewValidationContract;
   steps: readonly PreviewStep[];
   browser: PreviewBrowser;
   screenshotDirectory?: string;
   profileName?: string;
+  signal?: AbortSignal;
 }): Promise<ValidationResult> {
   const result = await verifyBrowserPreview(input);
   const status = result.status === "passed" ? "passed" : result.status;
-  return {
+  return withValidationFailureKind({
     profile: input.profileName ?? "browser-preview",
     status,
     scenario: "Run the registered browser checks against the isolated project Preview.",
     command: "browser-preview",
-    exitCode: status === "passed" ? 0 : null,
+     exitCode: status === "passed" ? 0 : result.status === "failed" ? 1 : null,
     stdout: "",
     stderr: result.consoleErrors.join("\n"),
     failedTests: result.status === "failed"
@@ -634,13 +745,15 @@ export async function runRepairPreviewValidation(input: {
       consoleErrorCount: result.consoleErrors.length,
     },
     detail: result.summary,
-    terminalState: status === "passed"
-      ? "passed"
-      : result.status === "unavailable"
-        ? "unavailable"
-        : "blocked",
+     terminalState: status === "passed"
+       ? "passed"
+       : result.status === "unavailable"
+         ? "unavailable"
+         : result.status === "failed"
+           ? "failed"
+           : "blocked",
     nextAction: status === "passed"
       ? "Review the browser validation evidence; approval and scope gates still apply."
       : "Review the browser validation block or failure, then rerun the approved Preview check.",
-  };
+  });
 }
