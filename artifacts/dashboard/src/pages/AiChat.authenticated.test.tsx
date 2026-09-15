@@ -365,6 +365,7 @@ beforeEach(() => {
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.sessionsFetched = true;
   mocks.sessionsError = false;
+  mocks.historicalAudits = [];
   mocks.proposalMessages[0] = {
     ...mocks.proposalMessages[0],
     id: 'message-1',
@@ -1363,6 +1364,44 @@ describe('AiChat authenticated generated mutations', () => {
         sessionId: 'session-1',
       }),
     );
+  });
+
+  it('keeps the saved proof report visible while a reopened targeted audit rehydrates messages', async () => {
+    mocks.activeExecutionStatus = {
+      status: 'cancelled',
+      proofRequired: true,
+      evidenceVerdict: 'ANALYSIS_INCOMPLETE',
+      acceptanceDisposition: {
+        reasonCodes: ['EVIDENCE_INCOMPLETE'],
+        nextActionCode: 'REVIEW_INCOMPLETE_EVIDENCE',
+      },
+    };
+    mocks.historicalAudits = [{
+      id: 'targeted-audit-reopen',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      status: 'cancelled',
+      objective: 'Verify the targeted audit proof',
+      evidenceVerdict: 'ANALYSIS_INCOMPLETE',
+      disposition: 'RETAIN_FOR_REVIEW',
+      proofRequired: true,
+      resumable: false,
+      checkpointVersion: 2,
+      createdAt: '2026-08-13T00:00:00.000Z',
+      updatedAt: '2026-08-13T00:00:00.000Z',
+    }];
+    localStorage.setItem(`${AI_CHAT_SELECTION_STORAGE_PREFIX}project-1`, JSON.stringify({
+      version: 1,
+      projectId: 'project-1',
+      kind: 'historical-audit',
+      executionId: 'targeted-audit-reopen',
+      sessionId: 'session-1',
+    }));
+
+    renderAiChat();
+
+    expect(await screen.findByText(/saved execution proof is restored from the server-owned audit record/)).toBeInTheDocument();
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
 
   it('keeps selections isolated by project and preserves an independent execution pointer', async () => {

@@ -2361,6 +2361,12 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
         }
       : undefined
   );
+  const provenStructuralEdgeCount =
+    typeof entry.provenStructuralEdgeCount === 'number'
+      ? entry.provenStructuralEdgeCount
+      : typeof entry.provenRuntimeEdgeCount !== 'number' && Array.isArray(entry.provenEdges)
+        ? entry.provenEdges.filter((edge): edge is string => typeof edge === 'string').length
+        : undefined;
   return {
     evidenceIntegrity: {
       code: typeof entry.code === 'string' ? entry.code : '',
@@ -2421,9 +2427,7 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
           ? entry.acceptedBehavioralClaimCount
           : undefined,
       provenStructuralEdgeCount:
-        typeof entry.provenStructuralEdgeCount === 'number'
-          ? entry.provenStructuralEdgeCount
-          : undefined,
+        provenStructuralEdgeCount,
       provenRuntimeEdgeCount:
         typeof entry.provenRuntimeEdgeCount === 'number'
           ? entry.provenRuntimeEdgeCount
@@ -9698,7 +9702,9 @@ export default function AiChat() {
       id: audit.id,
       projectId: audit.projectId,
       sessionId: linkedSessionId,
-      message: audit.objective,
+       message: audit.objective,
+       proofRequired: audit.proofRequired,
+       ...(audit.terminalProjection ? { terminalProjection: audit.terminalProjection } : {}),
     });
   }, [
     activeExecution?.id,
@@ -11320,6 +11326,14 @@ export default function AiChat() {
     liveEvidenceIntegrity ||
     liveFixtureLocal,
   );
+  const showExecutionProofInEmptyState = Boolean(
+    showExecutionProof
+    && (
+      historicalExecutionId
+      || activeExecution?.proofRequired === true
+      || activeExecutionStatus?.proofRequired === true
+    ),
+  );
 
   useEffect(() => {
     if (!isAgentBusy || agentStartedAt === null) return;
@@ -11571,6 +11585,8 @@ export default function AiChat() {
                             projectId: audit.projectId,
                             ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
                             message: audit.objective,
+                             proofRequired: audit.proofRequired,
+                             ...(audit.terminalProjection ? { terminalProjection: audit.terminalProjection } : {}),
                           });
                            // Selecting an audit can target the session that is
                            // already open. Clear the transient view above, but
@@ -11780,7 +11796,7 @@ export default function AiChat() {
               </div>
             </div>
           )}
-          {isEmpty ? (
+          {isEmpty && !showExecutionProofInEmptyState ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6">
               <div className="flex flex-col items-center gap-2">
                 <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
@@ -11842,6 +11858,14 @@ export default function AiChat() {
                    controlPending={executionControlPending}
                  />
                )}
+                {isEmpty && showExecutionProofInEmptyState && (
+                  <div
+                    className="mx-auto mb-4 w-full max-w-3xl rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground"
+                    role="status"
+                  >
+                    The saved execution proof is restored from the server-owned audit record. Conversation messages are still loading.
+                  </div>
+                )}
                {operationMode === 'DELIVERY' && operationId && (
                  <OperationTracePanel
                    operationId={operationId}

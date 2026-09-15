@@ -2,10 +2,17 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Router } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, aiExecutionsTable, operatorAlertsTable, projectsTable } from "@workspace/db";
+import {
+  db,
+  aiExecutionsTable,
+  aiExecutionAcceptancesTable,
+  operatorAlertsTable,
+  projectsTable,
+} from "@workspace/db";
 import { deriveFlightDeckState } from "@workspace/ai-orchestrator";
 import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
+import { projectExecutionAcceptance } from "../../lib/ai-execution-acceptance.js";
 import type { ApiCodeAgentRuntimeOraclePreflight } from "../../lib/ai-code-agent-benchmark.js";
 import { getAiUsageSummary } from "../../lib/ai-telemetry.js";
 import { getAiProjectBudgetSummary } from "../../lib/ai-budget.js";
@@ -342,6 +349,7 @@ function projectRecorderEvent(step: Record<string, unknown>): Record<string, unk
 function projectExecution(
   execution: typeof aiExecutionsTable.$inferSelect,
   operationEvidence?: ReturnType<typeof redactOperationEvidence>,
+  acceptanceRow?: typeof aiExecutionAcceptancesTable.$inferSelect,
 ) {
   const checkpoint = parseRecord(execution.checkpoint);
   const request = parseRecord(execution.request);
@@ -358,6 +366,8 @@ function projectExecution(
   }).length;
   const hasPendingProposal = Boolean(execution.proposalId);
   const evidenceVerdict = textValue(checkpoint.evidenceVerdict ?? checkpoint.evidenceStatus, 48);
+  const proofRequired = checkpoint.proofRequired === true
+    || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId);
   const autonomousOperation = asRecord(checkpoint.operation);
   const autonomousState = textValue(autonomousOperation?.state, 48);
   const recovery = asRecord(checkpoint.recovery);
@@ -370,7 +380,7 @@ function projectExecution(
     hasCommittedChanges: false,
     hasPushedChanges: false,
     evidenceVerdict: evidenceVerdict as never,
-    proofRequired: checkpoint.proofRequired === true || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId),
+    proofRequired,
   });
   const attempts = nodes.reduce((sum, node) => sum + (typeof node.attempts === "number" ? node.attempts : 0), 0);
   const completedNodes = nodes.filter((node) => node.status === "passed").length;
@@ -414,6 +424,8 @@ function projectExecution(
       action: textValue(recovery?.action),
     },
     evidenceProjection: operationEvidence ? redactOperationEvidence(operationEvidence) : undefined,
+    proofRequired,
+    ...(acceptanceRow ? { acceptance: projectExecutionAcceptance(acceptanceRow) } : {}),
     createdAt: execution.createdAt,
     updatedAt: execution.updatedAt,
     startedAt: execution.startedAt,
@@ -869,6 +881,18 @@ router.get("/ai/mission-control", async (req, res) => {
         )).orderBy(desc(operatorAlertsTable.lastSeenAt)).limit(100)
         : Promise.resolve([]),
     ]);
+    const acceptanceRows = executions.length > 0
+      ? await db
+        .select()
+        .from(aiExecutionAcceptancesTable)
+        .where(inArray(
+          aiExecutionAcceptancesTable.executionId,
+          executions.map((execution) => execution.id),
+        ))
+      : [];
+    const acceptanceByExecution = new Map(
+      acceptanceRows.map((row) => [`${row.executionId}:${row.attempt}`, row]),
+    );
     const scorecard =
       isBoundedScorecard(rawScorecard)
         ? projectBoundedScorecard(rawScorecard)
@@ -914,7 +938,11 @@ router.get("/ai/mission-control", async (req, res) => {
       budget,
       budgetAlerts,
       executions: await Promise.all(executions.map(async (execution) => (
-        projectExecution(execution, await loadOperationEvidence(execution))
+        projectExecution(
+          execution,
+          await loadOperationEvidence(execution),
+          acceptanceByExecution.get(`${execution.id}:${execution.attempt}`),
+        )
       ))),
     });
   } catch (error) {

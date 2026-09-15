@@ -53,6 +53,7 @@ type MissionExecution = {
   revision?: unknown;
   evidenceProjection?: unknown;
   phase?: unknown;
+  proofRequired?: unknown;
   acceptance?: unknown;
 };
 
@@ -168,6 +169,64 @@ function acceptanceNextActionLabel(value: unknown): string {
       return 'No operator action is required.';
     default:
       return 'No operator action is recorded.';
+  }
+}
+
+type AcceptanceStatus = 'PROVEN' | 'INCOMPLETE' | 'FAILED' | 'CANCELLED' | 'NOT_RECORDED';
+
+function acceptanceStatus(execution: MissionExecution | undefined): AcceptanceStatus {
+  if (!execution) return 'NOT_RECORDED';
+
+  const state = textValue(execution.state)?.toUpperCase();
+  const acceptance = asRecord(execution.acceptance);
+  const evidenceVerdict = textValue(asRecord(execution.evidence)?.verdict)?.toUpperCase();
+
+  if (acceptance) {
+    const terminalStatus = textValue(acceptance.terminalStatus)?.toLowerCase();
+    const outcome = textValue(acceptance.outcome)?.toUpperCase();
+    if (terminalStatus === 'cancelled' || (state === 'CANCELLED' && outcome === 'INTERRUPTED')) {
+      return 'CANCELLED';
+    }
+    if (outcome === 'FAILED' || state === 'FAILED' || state === 'BLOCKED') {
+      return 'FAILED';
+    }
+    if (acceptance.evidenceComplete === false) return 'INCOMPLETE';
+    if (outcome === 'SUCCEEDED' || outcome === 'SUCCESS' || outcome === 'COMPLETED' || outcome === 'PROVEN') return 'PROVEN';
+    if (textValue(acceptance.nextActionCode)?.toUpperCase() !== 'NONE') return 'INCOMPLETE';
+  }
+
+  if (execution.proofRequired === true && evidenceVerdict !== 'PROVEN') {
+    return 'INCOMPLETE';
+  }
+  return 'NOT_RECORDED';
+}
+
+function acceptanceStatusLabel(status: AcceptanceStatus): string {
+  switch (status) {
+    case 'PROVEN':
+      return 'Acceptance: proven';
+    case 'INCOMPLETE':
+      return 'Acceptance: incomplete';
+    case 'FAILED':
+      return 'Acceptance: failed';
+    case 'CANCELLED':
+      return 'Acceptance: cancelled';
+    default:
+      return '';
+  }
+}
+
+function acceptanceStatusClasses(status: AcceptanceStatus): string {
+  switch (status) {
+    case 'PROVEN':
+      return 'border-emerald-500/35 bg-emerald-500/10 text-emerald-200';
+    case 'FAILED':
+      return 'border-red-500/35 bg-red-500/10 text-red-200';
+    case 'CANCELLED':
+    case 'INCOMPLETE':
+      return 'border-amber-500/35 bg-amber-500/10 text-amber-200';
+    default:
+      return 'border-border/60 bg-background/20 text-muted-foreground';
   }
 }
 
@@ -1413,6 +1472,7 @@ export default function MissionControl() {
                const evidenceStatus = textValue(asRecord(execution.evidenceProjection)?.completeness)
                  ?? recoveryDetail(execution, 'evidenceStatus')
                  ?? textValue(evidence?.verdict);
+               const runAcceptanceStatus = acceptanceStatus(execution);
               return (
                 <button
                   type="button"
@@ -1447,6 +1507,14 @@ export default function MissionControl() {
                         <EvidenceIcon evidence={execution.evidence} />
                          Evidence: {evidenceStatus ?? (execution.evidence ? 'Recorded' : 'Not recorded')}
                       </span>
+                       {runAcceptanceStatus !== 'NOT_RECORDED' && (
+                         <span
+                           className={`rounded-full border px-1.5 py-0.5 font-semibold uppercase tracking-wide ${acceptanceStatusClasses(runAcceptanceStatus)}`}
+                           aria-label={acceptanceStatusLabel(runAcceptanceStatus)}
+                         >
+                           {acceptanceStatusLabel(runAcceptanceStatus)}
+                         </span>
+                       )}
                       <span className="text-muted-foreground">Validation failures: {numberValue(execution.validationFailures) ?? 0}</span>
                       <Link
                         href={`/flight-deck?executionId=${encodeURIComponent(execution.id)}`}
@@ -1518,12 +1586,16 @@ export default function MissionControl() {
             </div>
           </section>
 
-          {asRecord(selectedExecution?.acceptance) && (
+          {acceptanceStatus(selectedExecution) !== 'NOT_RECORDED' && (
             <section className="rounded-xl border border-primary/25 bg-primary/5 p-4" aria-label="Current execution acceptance">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary" />
                 <h2 className="font-semibold">Current attempt acceptance</h2>
+                <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${acceptanceStatusClasses(acceptanceStatus(selectedExecution))}`}>
+                  {acceptanceStatusLabel(acceptanceStatus(selectedExecution))}
+                </span>
               </div>
+              {asRecord(selectedExecution?.acceptance) ? (
               <div className="mt-2 grid gap-2 text-xs sm:grid-cols-4">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attempt</div>
@@ -1542,7 +1614,12 @@ export default function MissionControl() {
                   <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
                 </div>
               </div>
-              {asRecord(selectedExecution.acceptance)?.evidenceComplete === false && (
+              ) : (
+                <p className="mt-2 text-[11px] text-amber-200">
+                  This targeted run requires server-owned acceptance proof, but no complete acceptance snapshot was recorded.
+                </p>
+              )}
+              {asRecord(selectedExecution?.acceptance)?.evidenceComplete === false && (
                 <p className="mt-2 text-[11px] text-amber-200">
                   Acceptance is incomplete because the server-owned evidence snapshot is not complete.
                 </p>

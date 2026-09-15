@@ -291,6 +291,40 @@ describe('Mission Control', () => {
     expect(within(probeAcceptance).getByText('START_NEW_PROBE')).toBeInTheDocument();
   });
 
+  it('shows targeted incomplete acceptance even when the provider returned no proof snapshot', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        id: 'targeted-incomplete-execution',
+        state: 'SUCCEEDED',
+        objective: 'Answer a targeted project question',
+        proofRequired: true,
+        evidence: {
+          ...missionControlFixture.executions[0].evidence,
+          verdict: 'ANALYSIS_INCOMPLETE',
+        },
+        acceptance: {
+          attempt: 1,
+          terminalStatus: 'paused',
+          outcome: 'INTERRUPTED',
+          reasonCode: 'EVIDENCE_INCOMPLETE',
+          nextActionCode: 'REVIEW_INCOMPLETE_EVIDENCE',
+          evidenceComplete: false,
+          evidenceRequired: true,
+          resumable: false,
+        },
+      }],
+    };
+    renderPage();
+
+    expect(screen.getByLabelText('Acceptance: incomplete')).toBeInTheDocument();
+    const acceptance = await screen.findByRole('region', { name: 'Current execution acceptance' });
+    expect(acceptance).toHaveTextContent('Acceptance: incomplete');
+    expect(acceptance).toHaveTextContent('Review the incomplete evidence before relying on this result.');
+    expect(acceptance).toHaveTextContent('REVIEW_INCOMPLETE_EVIDENCE');
+  });
+
   it('shows bounded runtime-oracle failure identifiers without provider output', async () => {
     currentMissionControl = {
       ...missionControlFixture,

@@ -153,3 +153,4 @@
 - [Revision-aware retrieval cache](revision-aware-retrieval-cache.md) — graph plans reuse only across matching workspace, index, and parser identities.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges require the active server-owned session/revision and support stale filtering.
 - [Git history evidence](git-history-retrieval.md) — bounded path history is optional and keeps Git revision separate from other revisions.
+- [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.
