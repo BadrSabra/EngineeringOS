@@ -86,6 +86,12 @@ function parseKgFilters(query: Record<string, unknown>): GraphQueryFilters {
 
   if (query.observedOnly === "true") filters.observedOnly = true;
   if (query.heuristicOnly === "true") filters.heuristicOnly = true;
+  if (typeof query.runtimeSessionId === "string" && query.runtimeSessionId) {
+    filters.runtimeSessionId = query.runtimeSessionId;
+  }
+  if (typeof query.runtimeRevision === "string" && query.runtimeRevision) {
+    filters.runtimeRevision = query.runtimeRevision;
+  }
 
   return filters;
 }
@@ -579,7 +585,14 @@ router.get("/graph/evidence/:entityId", async (req, res) => {
  */
 router.get("/graph/runtime-subgraph/:projectId", requireProjectAccess, async (req, res) => {
   const project = req.project!;
-  const result = await getObservedRuntimeSubgraph(db, project.id);
+  const result = await getObservedRuntimeSubgraph(db, project.id, {
+    runtimeSessionId: typeof req.query.runtimeSessionId === "string"
+      ? req.query.runtimeSessionId
+      : undefined,
+    runtimeRevision: typeof req.query.runtimeRevision === "string"
+      ? req.query.runtimeRevision
+      : undefined,
+  });
   return sendBoundedGraphResponse(res, {
     ...result,
     meta: {

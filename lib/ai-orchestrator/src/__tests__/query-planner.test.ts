@@ -416,8 +416,8 @@ describe("query-planner — knowledge-graph enrichment", () => {
       "proj-1",
       ["chat.ts", "use-ai-chat-stream.ts"],
     );
-    expect(mockGetNeighborhood).toHaveBeenNthCalledWith(1, expect.anything(), "file-chat", 1);
-    expect(mockGetNeighborhood).toHaveBeenNthCalledWith(2, expect.anything(), "file-stream", 1);
+    expect(mockGetNeighborhood).toHaveBeenNthCalledWith(1, expect.anything(), "file-chat", 1, "proj-1");
+    expect(mockGetNeighborhood).toHaveBeenNthCalledWith(2, expect.anything(), "file-stream", 1, "proj-1");
     expect(result?.prefetchFiles).toEqual([
       "src/chat.ts",
       "src/use-ai-chat-stream.ts",

@@ -826,6 +826,7 @@ export async function getHighConfidencePath(
 export async function getObservedRuntimeSubgraph(
   db: Db,
   projectId: string,
+  options: Pick<GraphQueryFilters, "runtimeSessionId" | "runtimeRevision"> = {},
 ): Promise<{
   entities: GraphEntity[];
   relationships: GraphRelationship[];
@@ -837,15 +838,20 @@ export async function getObservedRuntimeSubgraph(
     totalEvidenceCount: number;
   };
 }> {
+  const conditions: SQL[] = [
+    eq(graphRelationshipsTable.projectId, projectId),
+    eq(graphRelationshipsTable.isRuntimeObserved, true),
+  ];
+  if (options.runtimeSessionId) {
+    conditions.push(sql`${graphRelationshipsTable.metadata}->>'runtimeSessionId' = ${options.runtimeSessionId}`);
+  }
+  if (options.runtimeRevision) {
+    conditions.push(sql`${graphRelationshipsTable.metadata}->>'runtimeRevision' = ${options.runtimeRevision}`);
+  }
   const relationships = await db
     .select()
     .from(graphRelationshipsTable)
-    .where(
-      and(
-        eq(graphRelationshipsTable.projectId, projectId),
-        eq(graphRelationshipsTable.isRuntimeObserved, true),
-      ),
-    )
+    .where(and(...conditions))
     .limit(GRAPH_LIMITS.maxRelationships);
 
   if (relationships.length === 0) {
@@ -886,7 +892,7 @@ export async function getObservedRuntimeSubgraph(
     relationships: scopedRelationships,
     provenanceSummary: {
       layer: "runtime",
-      edgeCount: relationships.length,
+      edgeCount: scopedRelationships.length,
       avgConfidence: stats.avgConfidence,
       sourceTypeBreakdown: stats.sourceTypeBreakdown,
       totalEvidenceCount: stats.totalEvidenceCount,
@@ -960,6 +966,12 @@ export async function getLayeredGraphView(
   const structural = allRels.filter((r) => !r.isHeuristic && !r.isRuntimeObserved);
   const heuristic = allRels.filter((r) => r.isHeuristic);
   const runtime = allRels.filter((r) => r.isRuntimeObserved);
+  const filteredRuntime = runtime.filter((relationship) =>
+    (!filters.runtimeSessionId
+      || (relationship.metadata as Record<string, unknown> | null)?.runtimeSessionId === filters.runtimeSessionId)
+    && (!filters.runtimeRevision
+      || (relationship.metadata as Record<string, unknown> | null)?.runtimeRevision === filters.runtimeRevision),
+  );
 
   function entitiesInRels(rels: GraphRelationship[]): GraphEntity[] {
     const ids = new Set(rels.flatMap((r) => [r.sourceId, r.targetId]));
@@ -969,11 +981,11 @@ export async function getLayeredGraphView(
   return {
     structural: { entities: entitiesInRels(structural), relationships: structural },
     heuristic: { entities: entitiesInRels(heuristic), relationships: heuristic },
-    runtime: { entities: entitiesInRels(runtime), relationships: runtime },
+    runtime: { entities: entitiesInRels(filteredRuntime), relationships: filteredRuntime },
     provenanceStats: {
       structural: computeLayerStats(structural),
       heuristic: computeLayerStats(heuristic),
-      runtime: computeLayerStats(runtime),
+      runtime: computeLayerStats(filteredRuntime),
     },
   };
 }

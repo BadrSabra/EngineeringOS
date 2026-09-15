@@ -513,6 +513,11 @@ function buildRelationshipProvenance(
 
 const EXPRESS_METHODS = new Set(["get", "post", "put", "patch", "delete", "all"]);
 
+function isTestFilePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  return /(^|\/)(__tests__|tests?)(\/|$)|\.(test|spec)\.[^/]+$/.test(normalized);
+}
+
 /**
  * Returns true when `node` has a leading JSDoc block comment (`/** ... *\/`).
  * Uses the TypeScript compiler's own comment-range API so it correctly handles
@@ -824,6 +829,24 @@ function extractFromTsJs(
             snippet: node.getText(sourceFile).slice(0, 240),
           }],
         });
+        if (isTestFilePath(path)) {
+          relationships.push({
+            sourceName: path,
+            targetName: target.name,
+            sourcePath: path,
+            targetPath: target.targetPath,
+            relation: "uses",
+            relationType: "uses",
+            relationSubtype: "test-covers",
+            evidence: [{
+              file: path,
+              line: position.line + 1,
+              column: position.character + 1,
+              kind: "call-site",
+              snippet: node.getText(sourceFile).slice(0, 240),
+            }],
+          });
+        }
       }
     }
 

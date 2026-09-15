@@ -103,6 +103,36 @@ describe("extractGraph", () => {
     }));
   });
 
+  it("links test-file calls to covered symbols without adding a new graph relation type", async () => {
+    const files = [
+      makeFile(
+        "src/user.test.ts",
+        'import { parseUser as parse } from "./utils";\n\ntest("parses users", () => {\n  expect(parse()).toBeTruthy();\n});',
+      ),
+      makeFile("src/utils.ts", "export function parseUser() {}"),
+    ];
+
+    const result = await extractGraph(files);
+    const coverage = result.relationships.find(
+      (relationship) =>
+        relationship.relationSubtype === "test-covers"
+        && relationship.targetName === "parseUser",
+    );
+
+    expect(coverage).toMatchObject({
+      sourceName: "src/user.test.ts",
+      targetPath: "src/utils.ts",
+      relation: "uses",
+      relationType: "uses",
+      relationSubtype: "test-covers",
+    });
+    expect(coverage?.evidence?.[0]).toMatchObject({
+      file: "src/user.test.ts",
+      kind: "call-site",
+      line: 4,
+    });
+  });
+
   it("does not produce duplicate file entities for the same path", async () => {
     const files = [makeFile("src/foo.ts", "export const a = 1;")];
 

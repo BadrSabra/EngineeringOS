@@ -72,6 +72,10 @@ export type GraphQueryFilters = {
   observedOnly?: boolean;
   /** When true, return only heuristically-inferred edges. */
   heuristicOnly?: boolean;
+  /** Restrict runtime-observed edges to one server-owned runtime session. */
+  runtimeSessionId?: string;
+  /** Restrict runtime-observed edges to one server-owned runtime revision. */
+  runtimeRevision?: string;
 };
 
 /**

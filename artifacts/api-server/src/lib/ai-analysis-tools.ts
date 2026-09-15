@@ -1,5 +1,7 @@
 import { db, graphEntitiesTable, projectsTable } from "@workspace/db";
 import { and, eq, ilike } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   getImpactedEntities,
   getNeighborhood,
@@ -7,6 +9,7 @@ import {
   searchNodes,
   type GraphEntity,
 } from "@workspace/knowledge-engine";
+import { SCANNER_VERSION } from "@workspace/scanner";
 import type {
   AnalysisCorrelation,
   AnalysisFailureCategory,
@@ -17,6 +20,10 @@ import { performScan, ScanRootUnavailableError } from "./scan-runner.js";
 
 const MAX_OUTPUT = 24_000;
 const HARD_MAX_MS = 30_000;
+const MAX_GIT_HISTORY_PATHS = 6;
+const MAX_GIT_HISTORY_ENTRIES_PER_PATH = 8;
+const MAX_GIT_HISTORY_BUFFER = 256 * 1024;
+const execFileAsync = promisify(execFile);
 
 function bounded(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -58,6 +65,85 @@ function isRootUnavailableError(error: unknown): boolean {
       && typeof error === "object"
       && (error as { outcome?: unknown }).outcome === "root_unavailable"
     );
+}
+
+type GitHistoryEntry = {
+  path: string;
+  commit: string;
+  shortCommit: string;
+  date: string;
+  subject: string;
+};
+
+function safeGitPath(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/").trim();
+  return Boolean(normalized)
+    && !normalized.startsWith("/")
+    && normalized !== "."
+    && !normalized.split("/").some((part) => part === "..");
+}
+
+function safeGitSubject(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240);
+}
+
+async function readBoundedGitHistory(
+  rootPath: string,
+  paths: string[],
+  signal?: AbortSignal,
+  deadlineAt?: number,
+): Promise<{
+  status: "complete" | "unavailable";
+  gitRevision: string | null;
+  entries: GitHistoryEntry[];
+}> {
+  const selectedPaths = [...new Set(paths.filter(safeGitPath))].slice(0, MAX_GIT_HISTORY_PATHS);
+  if (selectedPaths.length === 0) {
+    return { status: "unavailable", gitRevision: null, entries: [] };
+  }
+
+  try {
+    const revisionResult = await execFileAsync(
+      "git",
+      ["-C", rootPath, "rev-parse", "HEAD"],
+      { timeout: 8_000, maxBuffer: 16 * 1024 },
+    );
+    const gitRevision = revisionResult.stdout.trim().slice(0, 128);
+    const entries: GitHistoryEntry[] = [];
+    for (const projectPath of selectedPaths) {
+      check(signal, deadlineAt);
+      const result = await execFileAsync(
+        "git",
+        [
+          "-C",
+          rootPath,
+          "log",
+          "--follow",
+          `-n`,
+          String(MAX_GIT_HISTORY_ENTRIES_PER_PATH),
+          "--format=%H%x1f%h%x1f%ad%x1f%s",
+          "--date=short",
+          "--",
+          projectPath,
+        ],
+        { timeout: 8_000, maxBuffer: MAX_GIT_HISTORY_BUFFER },
+      );
+      for (const line of result.stdout.split(/\r?\n/).filter(Boolean)) {
+        const [commit, shortCommit, date, ...subjectParts] = line.split("\x1f");
+        if (!commit || !shortCommit || !date) continue;
+        entries.push({
+          path: projectPath,
+          commit: commit.slice(0, 128),
+          shortCommit: shortCommit.slice(0, 16),
+          date: date.slice(0, 32),
+          subject: safeGitSubject(subjectParts.join("\x1f")),
+        });
+      }
+    }
+    return { status: "complete", gitRevision, entries };
+  } catch {
+    return { status: "unavailable", gitRevision: null, entries: [] };
+  }
 }
 
 export function classifyAnalysisFailure(
@@ -205,23 +291,38 @@ export function createProjectAnalysisToolRunner(
           .map((value) => value.trim())
           .filter(Boolean)
           .slice(0, 20);
+        const [indexState] = await db
+          .select({ lastScanAt: projectsTable.lastScanAt })
+          .from(projectsTable)
+          .where(eq(projectsTable.id, projectId))
+          .limit(1);
         const plan = await planHierarchicalRetrieval(db, projectId, {
           query,
           paths,
           depth: Math.min(depth, 2),
           operationId: correlationSnapshot.operationId,
           projectRevision: correlationSnapshot.projectRevision,
+          indexRevision: indexState?.lastScanAt?.toISOString() ?? "unscanned",
+          parserVersion: SCANNER_VERSION,
         });
+        const gitHistory = await readBoundedGitHistory(
+          rootPath,
+          plan.sourcePaths,
+          controller.signal,
+          attemptDeadline,
+        );
         check(controller.signal, attemptDeadline);
         await assertRevision();
         check(controller.signal, attemptDeadline);
         return {
           status: "complete",
           source: "analysis:hierarchical-retrieval",
-          output: bounded(plan),
+          output: bounded({ ...plan, gitHistory }),
           correlation: {
             ...(authoritativeCorrelation ?? correlationSnapshot),
-            evidenceProvenance: "persisted-hierarchical-retrieval",
+            evidenceProvenance: gitHistory.status === "complete"
+              ? "persisted-hierarchical-retrieval+git-history"
+              : "persisted-hierarchical-retrieval",
           },
           ...(advancedRevision ? { trustedRevisionAdvance: true } : {}),
         };

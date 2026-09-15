@@ -642,7 +642,7 @@ export async function buildMentionedFileGraphGuidance(opts: {
     const neighbourhoods = await Promise.all(
       roots.map(async (root) => ({
         root,
-        result: await getNeighborhood(db, root.id, 1).catch(() => ({
+        result: await getNeighborhood(db, root.id, 1, opts.projectId).catch(() => ({
           root: null,
           entities: [],
           relationships: [],
@@ -689,6 +689,11 @@ export async function buildMentionedFileGraphGuidance(opts: {
           (entry): entry is { relationship: GraphRelationship; entity: GraphEntity } =>
             entry !== null && entry.entity !== undefined,
         )
+        .sort((left, right) => {
+          const leftTest = left.relationship.relationSubtype === "test-covers" ? 0 : 1;
+          const rightTest = right.relationship.relationSubtype === "test-covers" ? 0 : 1;
+          return leftTest - rightTest;
+        })
         .slice(0, MAX_GRAPH_GUIDED_NEIGHBORS);
 
       const rootLabel = rootPath ?? root.name;

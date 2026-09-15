@@ -16,7 +16,6 @@
 - [Arabic fixture guards](arabic-fixture-guards.md) — Arabic response fixtures must be checked at construction time so English-only regressions name the fixture before scenario assertions.
 - [Forensic fixture language](forensic-fixture-language.md) — deterministic forensic prompts and natural-language reports must use the same language.
 - [Preview port cleanup](preview-port-cleanup.md) — this environment provides lsof, not fuser; port cleanup must wait for listeners to disappear before startup.
-- [Validation workflow accumulation](validation-workflow-accumulation.md) — stale generated validation workflows can exhaust process slots and collide on artifact ports; stop them before recovery work.
 - [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
 - [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
 - [Forensic Recovery formatting](forensic-recovery-formatting.md) — tolerate harmless heading styles only; contract, coverage, Finding, and repair gates remain strict.
@@ -27,12 +26,10 @@
 - [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
 - [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
 - [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
-- [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
 - [Dashboard evidence assertions](dashboard-evidence-assertions.md) — E2E assertions for completed AI runs must open collapsed activity/proof panels and disambiguate repeated evidence text.
 - [Concurrent test barriers](concurrent-test-barriers.md) — concurrent request fixtures should dispatch by request identity and use bounded readiness barriers, not queued mock order or unbounded polling.
 - [Session state concurrency](session-state-concurrency.md) — qualify resumable state writes by turn timestamp; a conditional value expression can still lose after row-lock waits.
 - [Release test isolation](release-test-isolation.md) — release API tests must pin the owning artifact and serialize shared-database fixtures.
-- [Live recovery provider isolation](live-recovery-provider-isolation.md) — real child-process release checks must not inherit mock-only provider credentials from the surrounding fixture suite.
 - [Capability probe evidence boundary](capability-probe-evidence.md) — C1–C7 completion requires both named source bodies retained without truncation.
 - [Capability probe tool-choice parity](capability-probe-tool-choice.md) — first read call must be required, later tool calls auto, and synthesis must omit tools/tool choice.
 - [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.
@@ -48,9 +45,7 @@
 - [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
 - [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
 - [Graph project boundaries](graph-project-boundaries.md) — traversal must validate both endpoint entities; legacy null edge ownership is safe only with project-scoped endpoints.
-- [Browser stream abort fixtures](browser-stream-abort-fixtures.md) — route EOF is clean completion; reject a browser ReadableStream after the durable identity frame to test network recovery.
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
-- [Nested release lock ownership](nested-release-lock.md) — focused release checks inside the quality gate must reuse the parent campaign lock; standalone runners still acquire one.
 - [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — uuid formats can generate unsupported zod.uuid() in the workspace's Zod 3 runtime; verify generated typechecks.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.
@@ -63,7 +58,6 @@
 - [Package test root](package-test-root.md) — run API Vitest from artifacts/api-server; workspace-root discovery can select the stale imported-project copy.
 - [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
-- [Release CORS harness](release-cors-harness.md) — provider-free listener checks use Node's tsx loader without the inherited input-type flag and probe the API directly.
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
 - [Historical acceptance journeys](historical-acceptance-journeys.md) — after reopening an audit, assert public acceptance snapshots from history/detail routes because same-session reselection can clear cached chat messages.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
@@ -71,11 +65,9 @@
 - [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
 - [OpenAPI recovery schemas](openapi-recovery-schemas.md) — inline operation request bodies can collide in generated Zod exports; use a named component schema for new contracts.
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
-- [Dashboard process campaign](dashboard-process-campaign.md) — release browser campaigns coordinate real API restarts through a bounded localhost control surface.
 - [Dashboard freshness watermarks](dashboard-freshness-watermarks.md) — aggregated snapshots need server-owned monotonic revisions so delayed reconnect responses cannot roll visible state back.
 - [OpenRouter catalog state](openrouter-catalog-state.md) — only a successful usable live snapshot is authoritative; failed or expired refreshes retain static compatibility candidates.
 - [Live revision identity mismatch](live-revision-identity-mismatch.md) — dashboard git short hashes and scanner file-inventory digests are different identities; correlation must not compare them as equal.
-- [Benchmark behavior gates](benchmark-behavior-gates.md) — release validation must execute every fixture oracle against an isolated passing candidate, not only check registration.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
 - [Project-query semantic acceptance](project-query-semantic-acceptance.md) — complete source reads never prove a proof-required PROJECT_QUERY without accepted claims and a verified objective verdict.
 - [Browser readiness fixture boundary](browser-readiness-fixture-boundary.md) — fixture mode validates a non-empty authenticated project response; live mode validates its explicit disposable project ID.
@@ -157,3 +149,7 @@
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [Path-aware call edges](path-aware-call-edges.md) — static call relationships must retain endpoint paths so same-named symbols cannot collapse during persistence.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
+- [Test-to-code links](test-to-code-links.md) — direct test coverage uses path-aware uses/test-covers edges with call-site evidence.
+- [Revision-aware retrieval cache](revision-aware-retrieval-cache.md) — graph plans reuse only across matching workspace, index, and parser identities.
+- [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges require the active server-owned session/revision and support stale filtering.
+- [Git history evidence](git-history-retrieval.md) — bounded path history is optional and keeps Git revision separate from other revisions.
