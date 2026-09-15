@@ -7062,6 +7062,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
       "lib/ai-orchestrator/src/tools/file-tools.ts",
     ];
+    const projectQueryObjective = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["artifacts/api-server/src/routes/ai/chat.ts"],
+      requiredClaims: [{
+        claimId: "embedded-ai-routing",
+        text: "The unrelated project-query target must not replace the Capability Probe source manifest.",
+        requiredEvidencePaths: ["artifacts/api-server/src/routes/ai/chat.ts"],
+      }],
+      requiredEvidenceEdges: [],
+    };
     const sourceContents = new Map([
       [
         sources[0],
@@ -7222,12 +7232,21 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const stream = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
-      .send({ projectId, sessionId, message: CAPABILITY_PROBE_MESSAGE });
+      .send({
+        projectId,
+        sessionId,
+        message: CAPABILITY_PROBE_MESSAGE,
+        objective: projectQueryObjective,
+      });
 
     expect(stream.status).toBe(200);
     const events = parseSseEvents(stream.text);
     const integrity = events.find((event) => event.type === "evidence_integrity");
     const done = events.find((event) => event.type === "done");
+    expect(events.find((event) => event.type === "execution_started")).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
     expect(integrity).toMatchObject({
       consistent: true,
       acceptedClaimCount: 7,
@@ -7277,6 +7296,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const [execution] = await db
       .select({
         id: aiExecutionsTable.id,
+        request: aiExecutionsTable.request,
         status: aiExecutionsTable.status,
         finalMessageId: aiExecutionsTable.finalMessageId,
       })
@@ -7287,6 +7307,64 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       status: "completed",
       finalMessageId: assistantMessageId,
     });
+    expect(JSON.parse(execution!.request)).toMatchObject({
+      capabilityProbe: {
+        sourceFiles: sources,
+        requiredClaims: ["C1", "C2", "C3", "C4", "C5", "C6", "C7"],
+      },
+      objective: projectQueryObjective,
+      turnIntent: "PROJECT_QUERY",
+    });
+
+    const [acceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      evidenceSnapshotId: expect.any(String),
+    });
+
+    const [snapshot] = await db
+      .select({
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+        readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+      .limit(1);
+    expect(snapshot).toMatchObject({
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: sources.length,
+    });
+    const evidenceReads = await db
+      .select({
+        path: aiExecutionEvidenceReadsTable.path,
+        body: aiExecutionEvidenceReadsTable.body,
+        complete: aiExecutionEvidenceReadsTable.complete,
+        truncated: aiExecutionEvidenceReadsTable.truncated,
+      })
+      .from(aiExecutionEvidenceReadsTable)
+      .where(eq(aiExecutionEvidenceReadsTable.snapshotId, acceptance!.evidenceSnapshotId!));
+    expect(evidenceReads).toHaveLength(sources.length);
+    expect(evidenceReads).toEqual(expect.arrayContaining(
+      sources.map((source) => expect.objectContaining({
+        path: source,
+        body: sourceContents.get(source),
+        complete: 1,
+        truncated: 0,
+      })),
+    ));
 
     const executionDetail = await request(app)
       .get(`/api/ai/executions/${execution!.id}`)
@@ -7295,6 +7373,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       id: execution!.id,
       status: "completed",
       evidenceVerdict: "PROVEN",
+      acceptance: {
+        outcome: "SUCCEEDED",
+        evidenceRequired: true,
+        evidenceComplete: true,
+      },
+      terminalProjection: {
+        executionId: execution!.id,
+        outcome: "SUCCEEDED",
+        status: "completed",
+      },
       checkpoint: {
         stage: "completed",
         evidenceVerdict: "PROVEN",

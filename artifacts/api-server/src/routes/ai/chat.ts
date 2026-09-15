@@ -9249,7 +9249,12 @@ router.post("/ai/chat/stream", async (req, res) => {
     const parsedAnalysisObjective = ObjectiveContractSchema.safeParse(executionRequest.objective);
     const isProjectQueryObjective =
       parsedAnalysisObjective.success
-      && parsedAnalysisObjective.data.objectiveType.startsWith("PROJECT_QUERY_");
+      && parsedAnalysisObjective.data.objectiveType.startsWith("PROJECT_QUERY_")
+      // A Capability Probe may carry project-query metadata for routing or
+      // provenance, but its server-owned C1–C7 gate is the acceptance
+      // contract. Do not replace that gate with semantic project-query
+      // claims that are outside the probe's two-file manifest.
+      && !executionRequest.capabilityProbe;
     const analysisEvidence = isProjectQueryObjective && proofRequired
       ? deriveProjectQueryAnalysisEvidence({
           traceSteps,

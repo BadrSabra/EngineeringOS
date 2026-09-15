@@ -93,3 +93,15 @@ from the diagnostic report even though the server owns that fact.
 but replace C2/C5 with server-owned lines after recovery and before final
 validation. Preserve the same semantic and citation checks; no retained read
 may substitute for an unclosed source claim.
+
+Mixed metadata must not replace the Capability Probe acceptance lane: a request
+may carry PROJECT_QUERY objective metadata for routing or provenance, but a
+probe's server-owned C1–C7 result remains the authoritative terminal gate.
+
+**Why:** Applying project-query semantic acceptance to the same execution can
+reject a complete two-file probe because its unrelated objective claims are not
+part of the probe manifest.
+
+**How to apply:** When the durable request contains a Capability Probe contract,
+do not derive project-query semantic acceptance from a PROJECT_QUERY_* objective;
+still persist both metadata shapes for auditability.
