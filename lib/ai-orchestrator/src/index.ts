@@ -655,6 +655,13 @@ export type {
   ProjectQueryTargetMode,
   ProjectQueryTargetDecision,
 } from "./project-query-target.js";
+export {
+  resolveActiveEvidenceContract,
+} from "./active-evidence-contract.js";
+export type {
+  ActiveEvidenceContract,
+  ActiveEvidenceContractSource,
+} from "./active-evidence-contract.js";
 
 export {
   chat,

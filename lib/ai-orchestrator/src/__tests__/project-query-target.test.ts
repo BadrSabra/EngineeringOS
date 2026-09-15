@@ -6,6 +6,7 @@ import {
   classifyRequest,
   detectProjectQueryClaimContradictions,
   deriveProjectQueryTargetMode,
+  resolveActiveEvidenceContract,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
@@ -13,6 +14,45 @@ import { deriveObjectiveRuntimeEdgesFromRetainedReads } from "../evidence-integr
 import type { EvidenceReference } from "../task-contracts.js";
 
 describe("target-aware project queries", () => {
+  it("resolves one active contract source without mixing probe and inferred objectives", () => {
+    const message = "Analyze the embedded AI layer in the project";
+    const target = resolveProjectQueryTarget(message);
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    const inferred = resolveActiveEvidenceContract({
+      projectQueryTarget: target,
+      capabilityProbeTurn: false,
+      message,
+    });
+    expect(inferred.source).toBe("inferred");
+    expect(inferred.projectQuery).toBe(target);
+    expect(inferred.objective?.objectiveType).toBe("PROJECT_QUERY_EMBEDDED-AI");
+
+    const explicitObjective = buildProjectQueryObjective(target, message);
+    const explicit = resolveActiveEvidenceContract({
+      explicitObjective,
+      projectQueryTarget: target,
+      capabilityProbeTurn: true,
+      message,
+    });
+    expect(explicit.source).toBe("explicit");
+    expect(explicit.objective).toBe(explicitObjective);
+    expect(explicit.projectQuery).toBe(target);
+
+    const probe = resolveActiveEvidenceContract({
+      projectQueryTarget: target,
+      capabilityProbeTurn: true,
+      message,
+    });
+    expect(probe).toEqual({ source: "capability_probe" });
+
+    expect(resolveActiveEvidenceContract({
+      capabilityProbeTurn: false,
+      message,
+    })).toEqual({ source: "none" });
+  });
+
   it("derives only the allowlisted operator source-targeting modes", () => {
     expect(deriveProjectQueryTargetMode({ targetResolution: "resolved" }))
       .toBe("resolved_target");

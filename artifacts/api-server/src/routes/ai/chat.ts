@@ -48,6 +48,7 @@ import {
   resolveExecutionDecision,
   resolveTurnIntent,
   buildProjectQueryObjective,
+  resolveActiveEvidenceContract,
   isWriteCapableTurn,
   isImmediateExecutionRequest,
   isRepairPlanExecutionRequest,
@@ -4442,13 +4443,14 @@ router.post("/ai/chat", async (req, res) => {
   }, "chat: continuation decision");
   const capabilityProbeTurn =
     isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe);
-  const effectiveObjective =
-    objective ??
-    (!capabilityProbeTurn && turnIntent.projectTarget
-      ? buildProjectQueryObjective(turnIntent.projectTarget, message)
-      : undefined);
-  const effectiveProjectQuery =
-    !capabilityProbeTurn || objective ? turnIntent.projectTarget : undefined;
+  const activeEvidenceContract = resolveActiveEvidenceContract({
+    explicitObjective: objective,
+    projectQueryTarget: turnIntent.projectTarget,
+    capabilityProbeTurn,
+    message,
+  });
+  const effectiveObjective = activeEvidenceContract.objective;
+  const effectiveProjectQuery = activeEvidenceContract.projectQuery;
   const resumableTaskStateAtStart = nextSessionTaskState({
     persisted: resumableStateForTurn,
     classification: chatClassification,
@@ -5801,13 +5803,14 @@ router.post("/ai/chat/stream", async (req, res) => {
   }, "chat/stream: continuation decision");
   const capabilityProbeTurn =
     isCapabilityProbeRequest(message) || Boolean(streamResumableStateForTurn?.capabilityProbe);
-  const streamObjective =
-    objective ??
-    (!capabilityProbeTurn && streamTurnIntent.projectTarget
-      ? buildProjectQueryObjective(streamTurnIntent.projectTarget, message)
-      : undefined);
-  const streamProjectQuery =
-    !capabilityProbeTurn || objective ? streamTurnIntent.projectTarget : undefined;
+  const streamActiveEvidenceContract = resolveActiveEvidenceContract({
+    explicitObjective: objective,
+    projectQueryTarget: streamTurnIntent.projectTarget,
+    capabilityProbeTurn,
+    message,
+  });
+  const streamObjective = streamActiveEvidenceContract.objective;
+  const streamProjectQuery = streamActiveEvidenceContract.projectQuery;
   const capabilityProbeContract = isCapabilityProbeRequest(message)
     ? {
         sourceFiles: [...CAPABILITY_PROBE_SOURCE_FILES],
