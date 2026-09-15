@@ -394,7 +394,11 @@ export async function fetchSessionMemories(
           ),
         ),
       )
-      .orderBy(desc(aiSessionMemoriesTable.relevance), desc(aiSessionMemoriesTable.createdAt))
+      .orderBy(
+        desc(aiSessionMemoriesTable.relevance),
+        desc(aiSessionMemoriesTable.createdAt),
+        asc(aiSessionMemoriesTable.id),
+      )
       .limit(Math.max(effectiveLimit * 4, 20));
     const taskScope = options?.taskScope?.trim();
     const eligible = rows.filter((row) => {

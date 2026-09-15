@@ -209,15 +209,13 @@ describe("session memory policy", () => {
     }
   });
 
-  it("orders equal-score memories by ID consistently across retrievals", async () => {
+  it("selects and orders tied memories by ID consistently across retrievals", async () => {
     const projectId = randomUUID();
     const sessionId = randomUUID();
     const now = new Date();
-    const expectedIds = [
-      "00000000-0000-0000-0000-000000000001",
-      "00000000-0000-0000-0000-000000000002",
-      "00000000-0000-0000-0000-000000000003",
-    ];
+    const insertedIds = Array.from({ length: 21 }, (_, index) =>
+      `00000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`);
+    const expectedIds = insertedIds.slice(0, 5);
 
     await db.insert(projectsTable).values({
       id: projectId,
@@ -237,13 +235,16 @@ describe("session memory policy", () => {
       updatedAt: now,
     });
     await db.insert(aiSessionMemoriesTable).values(
-      [...expectedIds].reverse().map((id) => ({
+      [...insertedIds].reverse().map((id) => ({
         id,
         projectId,
         sessionId,
         memoryType: "session_summary" as const,
         content: `Equal-score memory ${id}`,
         dedupeKey: `equal-score-${id}`,
+        scope: "project",
+        confirmationStatus: "unconfirmed" as const,
+        freshnessStatus: "current_at_write" as const,
         relevance: 0.85,
         createdAt: now,
         expiresAt: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000),
@@ -252,13 +253,11 @@ describe("session memory policy", () => {
     );
 
     try {
-      const retrievals = await Promise.all(
-        Array.from({ length: 3 }, () => fetchSessionMemories(
-          projectId,
-          10,
-          { mode: "episodic", limit: 10 },
-        )),
-      );
+      const retrievals = await Promise.all([
+        fetchSessionMemories(projectId, 5, { mode: "episodic", limit: 5 }),
+        fetchSessionMemories(projectId, 5, { mode: "episodic", limit: 5 }),
+        fetchSessionMemories(projectId, 5, { mode: "episodic", limit: 5 }),
+      ]);
 
       expect(retrievals.map((memories) => memories.map((memory) => memory.id))).toEqual([
         expectedIds,
