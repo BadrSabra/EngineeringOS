@@ -1551,7 +1551,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics]
+                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection]
                 properties:
                   id: { type: string, description: UUID of the AI execution }
                   projectId: { type: string }
@@ -1622,6 +1622,8 @@ paths:
                     $ref: "#/components/schemas/OperationEvidenceProjection"
                   executionDiagnostics:
                     $ref: "#/components/schemas/AiExecutionDiagnostics"
+                  projection:
+                    $ref: "#/components/schemas/AiExecutionProjection"
                   createdAt: { type: string, format: date-time }
                   updatedAt: { type: string, format: date-time }
                   startedAt: { type: string, format: date-time, nullable: true }
@@ -5887,6 +5889,99 @@ components:
                 type: integer
                 minimum: 0
                 maximum: 5000
+
+    AiExecutionProjection:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, kind, phase, objective, progress, plan, tools, workspace, verification, approval, stopped, allowedActions]
+      properties:
+        schemaVersion: { type: integer, enum: [1] }
+        kind: { type: string, enum: [CHAT, TASK, DELIVERY, RECIPE] }
+        phase: { type: string, minLength: 1, maxLength: 80 }
+        objective: { type: string, maxLength: 500 }
+        progress:
+          type: object
+          additionalProperties: false
+          required: [percent, label, currentStep, completedSteps, totalSteps]
+          properties:
+            percent: { type: integer, minimum: 0, maximum: 100, nullable: true }
+            label: { type: string, maxLength: 240 }
+            currentStep: { type: string, maxLength: 240, nullable: true }
+            completedSteps: { type: integer, minimum: 0 }
+            totalSteps: { type: integer, minimum: 0, nullable: true }
+        plan:
+          type: object
+          additionalProperties: false
+          required: [steps, currentStepId]
+          properties:
+            steps:
+              type: array
+              maxItems: 20
+              items:
+                type: object
+                additionalProperties: false
+                required: [id, title, status, action, files]
+                properties:
+                  id: { type: string, maxLength: 80 }
+                  title: { type: string, maxLength: 240 }
+                  status: { type: string, enum: [pending, active, completed, blocked, failed] }
+                  action: { type: string, maxLength: 40, nullable: true }
+                  files: { type: array, maxItems: 20, items: { type: string, maxLength: 500 } }
+            currentStepId: { type: string, maxLength: 80, nullable: true }
+        tools:
+          type: object
+          additionalProperties: false
+          required: [totalCalls, activeTool, recent]
+          properties:
+            totalCalls: { type: integer, minimum: 0 }
+            activeTool: { type: string, maxLength: 80, nullable: true }
+            recent:
+              type: array
+              maxItems: 8
+              items:
+                type: object
+                additionalProperties: false
+                required: [tool, status, source]
+                properties:
+                  tool: { type: string, maxLength: 80 }
+                  status: { type: string, enum: [started, completed, failed] }
+                  source: { type: string, maxLength: 500, nullable: true }
+        workspace:
+          type: object
+          additionalProperties: false
+          required: [changedFiles, diffStatus]
+          properties:
+            changedFiles: { type: array, maxItems: 20, items: { type: string, maxLength: 500 } }
+            diffStatus: { type: string, enum: [available, not_available, not_applicable] }
+        verification:
+          type: object
+          additionalProperties: false
+          required: [status, evidenceVerdict, proofRequired]
+          properties:
+            status: { type: string, enum: [pending, running, passed, failed, unavailable] }
+            evidenceVerdict: { type: string, maxLength: 40 }
+            proofRequired: { type: boolean }
+        approval:
+          type: object
+          additionalProperties: false
+          required: [required, status, proposalId]
+          properties:
+            required: { type: boolean }
+            status: { type: string, enum: [NOT_REQUIRED, PENDING, APPROVED] }
+            proposalId: { type: string, format: uuid, nullable: true }
+        stopped:
+          type: object
+          additionalProperties: false
+          required: [reason, outcome]
+          properties:
+            reason: { type: string, nullable: true }
+            outcome: { type: string, enum: [SUCCEEDED, FAILED, INTERRUPTED], nullable: true }
+        allowedActions:
+          type: array
+          maxItems: 7
+          items:
+            type: string
+            enum: [CANCEL, RESUME_CHECKPOINT, RETRY_CHECKPOINT, START_NEW_RUN, REVIEW_PROOF, REVIEW_DIFF, APPROVE_CHANGES]
 
     AiTerminalProjection:
       type: object

@@ -7,6 +7,7 @@
  */
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
 import type { AiExecutionDiagnostics } from './aiExecutionDiagnostics';
+import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { GetAiExecution200Checkpoint } from './getAiExecution200Checkpoint';
 import type { GetAiExecution200EvidenceVerdict } from './getAiExecution200EvidenceVerdict';
@@ -57,6 +58,7 @@ export type GetAiExecution200 = {
   recovery?: GetAiExecution200Recovery;
   operationEvidence: OperationEvidenceProjection;
   executionDiagnostics: AiExecutionDiagnostics;
+  projection: AiExecutionProjection;
   createdAt?: Date;
   updatedAt?: Date;
   startedAt?: Date | null;

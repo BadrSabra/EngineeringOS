@@ -3830,6 +3830,53 @@ export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProvider
 export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMinOne = 0;
 export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
 
+export const getAiExecutionResponseProjectionPhaseMax = 80;
+
+export const getAiExecutionResponseProjectionObjectiveMax = 500;
+
+export const getAiExecutionResponseProjectionProgressPercentMin = 0;
+export const getAiExecutionResponseProjectionProgressPercentMax = 100;
+
+export const getAiExecutionResponseProjectionProgressLabelMax = 240;
+
+export const getAiExecutionResponseProjectionProgressCurrentStepMax = 240;
+
+export const getAiExecutionResponseProjectionProgressCompletedStepsMin = 0;
+
+export const getAiExecutionResponseProjectionProgressTotalStepsMin = 0;
+
+export const getAiExecutionResponseProjectionPlanStepsItemIdMax = 80;
+
+export const getAiExecutionResponseProjectionPlanStepsItemTitleMax = 240;
+
+export const getAiExecutionResponseProjectionPlanStepsItemActionMax = 40;
+
+export const getAiExecutionResponseProjectionPlanStepsItemFilesItemMax = 500;
+
+export const getAiExecutionResponseProjectionPlanStepsItemFilesMax = 20;
+
+export const getAiExecutionResponseProjectionPlanStepsMax = 20;
+
+export const getAiExecutionResponseProjectionPlanCurrentStepIdMax = 80;
+
+export const getAiExecutionResponseProjectionToolsTotalCallsMin = 0;
+
+export const getAiExecutionResponseProjectionToolsActiveToolMax = 80;
+
+export const getAiExecutionResponseProjectionToolsRecentItemToolMax = 80;
+
+export const getAiExecutionResponseProjectionToolsRecentItemSourceMax = 500;
+
+export const getAiExecutionResponseProjectionToolsRecentMax = 8;
+
+export const getAiExecutionResponseProjectionWorkspaceChangedFilesItemMax = 500;
+
+export const getAiExecutionResponseProjectionWorkspaceChangedFilesMax = 20;
+
+export const getAiExecutionResponseProjectionVerificationEvidenceVerdictMax = 40;
+
+export const getAiExecutionResponseProjectionAllowedActionsMax = 7;
+
 
 
 export const GetAiExecutionResponse = zod.object({
@@ -3960,6 +4007,57 @@ export const GetAiExecutionResponse = zod.object({
   "provider": zod.record(zod.string(), zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMinOne).max(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesProviderMaxOne)),
   "contract": zod.record(zod.string(), zod.number().int().min(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMinOne).max(getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne))
 })
+}),
+  "projection": zod.object({
+  "schemaVersion": zod.literal(1),
+  "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
+  "phase": zod.string().min(1).max(getAiExecutionResponseProjectionPhaseMax),
+  "objective": zod.string().max(getAiExecutionResponseProjectionObjectiveMax),
+  "progress": zod.object({
+  "percent": zod.number().int().min(getAiExecutionResponseProjectionProgressPercentMin).max(getAiExecutionResponseProjectionProgressPercentMax).nullable(),
+  "label": zod.string().max(getAiExecutionResponseProjectionProgressLabelMax),
+  "currentStep": zod.string().max(getAiExecutionResponseProjectionProgressCurrentStepMax).nullable(),
+  "completedSteps": zod.number().int().min(getAiExecutionResponseProjectionProgressCompletedStepsMin),
+  "totalSteps": zod.number().int().min(getAiExecutionResponseProjectionProgressTotalStepsMin).nullable()
+}),
+  "plan": zod.object({
+  "steps": zod.array(zod.object({
+  "id": zod.string().max(getAiExecutionResponseProjectionPlanStepsItemIdMax),
+  "title": zod.string().max(getAiExecutionResponseProjectionPlanStepsItemTitleMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'failed']),
+  "action": zod.string().max(getAiExecutionResponseProjectionPlanStepsItemActionMax).nullable(),
+  "files": zod.array(zod.string().max(getAiExecutionResponseProjectionPlanStepsItemFilesItemMax)).max(getAiExecutionResponseProjectionPlanStepsItemFilesMax)
+})).max(getAiExecutionResponseProjectionPlanStepsMax),
+  "currentStepId": zod.string().max(getAiExecutionResponseProjectionPlanCurrentStepIdMax).nullable()
+}),
+  "tools": zod.object({
+  "totalCalls": zod.number().int().min(getAiExecutionResponseProjectionToolsTotalCallsMin),
+  "activeTool": zod.string().max(getAiExecutionResponseProjectionToolsActiveToolMax).nullable(),
+  "recent": zod.array(zod.object({
+  "tool": zod.string().max(getAiExecutionResponseProjectionToolsRecentItemToolMax),
+  "status": zod.enum(['started', 'completed', 'failed']),
+  "source": zod.string().max(getAiExecutionResponseProjectionToolsRecentItemSourceMax).nullable()
+})).max(getAiExecutionResponseProjectionToolsRecentMax)
+}),
+  "workspace": zod.object({
+  "changedFiles": zod.array(zod.string().max(getAiExecutionResponseProjectionWorkspaceChangedFilesItemMax)).max(getAiExecutionResponseProjectionWorkspaceChangedFilesMax),
+  "diffStatus": zod.enum(['available', 'not_available', 'not_applicable'])
+}),
+  "verification": zod.object({
+  "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
+  "evidenceVerdict": zod.string().max(getAiExecutionResponseProjectionVerificationEvidenceVerdictMax),
+  "proofRequired": zod.boolean()
+}),
+  "approval": zod.object({
+  "required": zod.boolean(),
+  "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
+  "proposalId": zod.string().uuid().nullable()
+}),
+  "stopped": zod.object({
+  "reason": zod.string().nullable(),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+}),
+  "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(getAiExecutionResponseProjectionAllowedActionsMax)
 }),
   "createdAt": zod.coerce.date().optional(),
   "updatedAt": zod.coerce.date().optional(),

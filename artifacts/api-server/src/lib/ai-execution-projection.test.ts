@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest";
+import { buildAiExecutionProjection } from "./ai-execution-projection.js";
+
+describe("buildAiExecutionProjection", () => {
+  it("projects a live execution without inventing terminal actions", () => {
+    const projection = buildAiExecutionProjection({
+      execution: { id: "exec-1", status: "running", proposalId: "proposal-1" },
+      request: { objective: { objective: "Update the dashboard" } },
+      checkpoint: {
+        stage: "validate",
+        recentSteps: [
+          { kind: "plan_activity", stage: "execute", status: "active", stepTitle: "Update dashboard", files: ["artifacts/dashboard/src/App.tsx"] },
+          { kind: "tool_call", tool: "read_file", args: { path: "src/App.tsx" }, cached: false },
+        ],
+      },
+      evidenceVerdict: "NOT_RECORDED",
+      proofRequired: true,
+      terminalReason: null,
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(projection).toMatchObject({
+      schemaVersion: 1,
+      kind: "DELIVERY",
+      phase: "VALIDATE",
+      objective: "Update the dashboard",
+      progress: { currentStep: "Update dashboard" },
+      tools: { totalCalls: 1, activeTool: "read_file" },
+      workspace: { diffStatus: "not_available" },
+      approval: { required: true, status: "PENDING", proposalId: "proposal-1" },
+      stopped: { reason: null, outcome: null },
+    });
+    expect(projection.allowedActions).toEqual(["CANCEL", "REVIEW_PROOF", "REVIEW_DIFF", "APPROVE_CHANGES"]);
+  });
+
+  it("distinguishes resumable checkpoint recovery from starting a new run", () => {
+    const projection = buildAiExecutionProjection({
+      execution: { id: "exec-2", status: "paused", linkedTaskId: "task-1" },
+      request: { message: "Continue the task" },
+      checkpoint: { stage: "analysis", recentSteps: [] },
+      acceptance: { nextActionCode: "RESUME_ALLOWED", resumable: true, outcome: "FAILED" },
+      evidenceVerdict: "PARTIAL",
+      proofRequired: true,
+      terminalReason: "EXECUTION_PAUSED",
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(projection.kind).toBe("TASK");
+    expect(projection.stopped).toEqual({ reason: "EXECUTION_PAUSED", outcome: "FAILED" });
+    expect(projection.allowedActions).toEqual(["RESUME_CHECKPOINT", "REVIEW_PROOF"]);
+  });
+});

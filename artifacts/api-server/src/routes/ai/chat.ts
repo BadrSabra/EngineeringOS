@@ -231,6 +231,7 @@ import {
   getAiExecutionDiagnostics,
   recordAiUsageAttempt,
 } from "../../lib/ai-telemetry.js";
+import { buildAiExecutionProjection } from "../../lib/ai-execution-projection.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -10062,6 +10063,34 @@ router.get("/ai/executions/:executionId", async (req, res) => {
         fallbackMessageId: execution.finalMessageId,
       })
     : undefined;
+  const projection = buildAiExecutionProjection({
+    execution: {
+      id: execution.id,
+      status: execution.status,
+      proposalId: execution.proposalId,
+      linkedTaskId: execution.linkedTaskId,
+      buildPlanMessageId: execution.buildPlanMessageId,
+      recipeReceipt: execution.recipeReceipt,
+    },
+    request: storedRequest ?? {},
+    checkpoint: checkpointRecord,
+    acceptance: currentAcceptance
+      ? {
+          nextActionCode: currentAcceptance.nextActionCode,
+          resumable: currentAcceptance.resumable,
+          outcome: currentAcceptance.outcome,
+        }
+      : undefined,
+    evidenceVerdict,
+    proofRequired,
+    terminalReason: publicExecutionTerminalReason({
+      status: execution.status,
+      acceptanceDisposition,
+    }),
+    hasAppliedChanges,
+    hasCommittedChanges,
+    hasPushedChanges,
+  });
 
   return res.json({
     id: execution.id,
@@ -10096,6 +10125,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     ...(acceptanceDisposition ? { acceptanceDisposition } : {}),
     ...(currentAcceptance ? { acceptance: currentAcceptance } : {}),
     ...(terminalProjection ? { terminalProjection } : {}),
+    projection,
      terminalReason: publicExecutionTerminalReason({
        status: execution.status,
        acceptanceDisposition,
