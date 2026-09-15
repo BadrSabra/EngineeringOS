@@ -336,6 +336,50 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getAllByText('Project context is ready.')).toHaveLength(1);
   });
 
+  it('keeps long activity timelines bounded while preserving the first and latest events', () => {
+    const activityLogs = Array.from({ length: 120 }, (_, index) => ({
+      id: `activity-${index}`,
+      taskId: 'task-long-activity',
+      level: 'info' as const,
+      message: `activity event ${index}`,
+      timestamp: `2026-08-25T10:${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}.000Z`,
+    }));
+    vi.mocked(useListTasks).mockReturnValue({
+      data: [{
+        id: 'task-long-activity',
+        projectId: 'project-1',
+        title: 'Keep a long timeline readable',
+        status: 'completed',
+        priority: 'p1',
+        phase: 'execute',
+        createdAt: '2026-08-25T10:00:00.000Z',
+        updatedAt: '2026-08-25T10:03:00.000Z',
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListTasks>);
+    vi.mocked(useGetTaskLogs).mockReturnValue({
+      data: activityLogs,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useGetTaskLogs>);
+
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Keep a long timeline readable' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Logs' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('latest 79 of 120 activity entries');
+    expect(screen.getByText(/activity event 0/)).toBeInTheDocument();
+    expect(screen.getByText(/activity event 119/)).toBeInTheDocument();
+    expect(screen.queryByText(/activity event 40/)).not.toBeInTheDocument();
+  });
+
   it('separates the current rule decision from its expandable verification history', () => {
     vi.mocked(useListTasks).mockReturnValue({
       data: [{

@@ -30,6 +30,7 @@ import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
+import { redactUserFacingText } from "../lib/ai-route-helpers.js";
 import {
   buildRuleVerificationChecks,
   markRemediationPlanVerified,
@@ -68,7 +69,9 @@ function publicTaskLog(log: typeof taskLogsTable.$inferSelect) {
     id: log.id,
     taskId: log.taskId,
     level: log.level,
-    message: log.message.replace(/\/(?:home\/runner|workspace|tmp)\/[^\s"'<>),;]+/g, "[project path]").slice(0, 500),
+    message: redactUserFacingText(log.message)
+      .replace(/\/(?:home\/runner|workspace|tmp)\/[^\s"'<>),;]+/g, "[project path]")
+      .slice(0, 500),
     ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
     timestamp: log.timestamp,
     ...(log.correlationId ? { correlationId: log.correlationId } : {}),
@@ -80,7 +83,7 @@ function publicTaskLog(log: typeof taskLogsTable.$inferSelect) {
       progressStage: log.progressStage,
       progressStatus: log.progressStatus,
       progressPercent: log.progressPercent,
-      progressMessage: log.progressMessage,
+      progressMessage: log.progressMessage ? redactUserFacingText(log.progressMessage).slice(0, 240) : log.progressMessage,
       startedAt: log.startedAt,
       finishedAt: log.finishedAt,
       terminalOutcome: log.terminalOutcome,
@@ -1050,16 +1053,31 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
   }
 
   let closed = false;
-  req.on("close", () => { closed = true; });
+  let interval: ReturnType<typeof setInterval> | null = null;
+  let ttl: ReturnType<typeof setTimeout> | null = null;
+  const cleanup = () => {
+    if (interval) clearInterval(interval);
+    if (ttl) clearTimeout(ttl);
+    interval = null;
+    ttl = null;
+  };
+  req.on("close", () => {
+    closed = true;
+    cleanup();
+  });
 
   // 5-minute max stream lifetime
-  const ttl = setTimeout(() => {
-    if (!closed) { send("done", { reason: "timeout", cursor }); res.end(); }
+  ttl = setTimeout(() => {
+    if (!closed) {
+      send("done", { reason: "timeout", cursor });
+      cleanup();
+      res.end();
+    }
   }, 5 * 60_000);
 
   let terminalDeadline: number | null = terminalSeen ? Date.now() : null;
   let polling = false;
-  const interval = setInterval(async () => {
+  interval = setInterval(async () => {
     if (closed || polling) return;
     polling = true;
     try {
@@ -1096,8 +1114,7 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
         || terminalSeen
         || (terminalDeadline !== null && Date.now() >= terminalDeadline);
       if (canClose) {
-        clearInterval(interval);
-        clearTimeout(ttl);
+        cleanup();
         send("done", { status: current?.status ?? "unknown", cursor });
         res.end();
       }

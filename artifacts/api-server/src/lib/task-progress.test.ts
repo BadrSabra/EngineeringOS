@@ -113,4 +113,31 @@ describe("task progress emitter", () => {
     expect(rows.filter((row) => row.eventType === "terminal")).toHaveLength(1);
     expect(rows.map((row) => row.sequence).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([1, 2, 3]);
   });
+
+  it("keeps the replay cursor monotonic when a task starts another execution", async () => {
+    const { taskId, executionId, workerId } = await fixture();
+    const first = createTaskProgressEmitter({
+      taskId,
+      executionId,
+      attempt: 1,
+      workerId,
+      correlationId: randomUUID(),
+      trigger: "manual",
+    });
+    const secondExecutionId = randomUUID();
+    const second = createTaskProgressEmitter({
+      taskId,
+      executionId: secondExecutionId,
+      attempt: 2,
+      workerId,
+      correlationId: randomUUID(),
+      trigger: "manual",
+    });
+
+    const firstEvent = await first.start("acquisition", "First execution acquired.", 8, 1);
+    const secondEvent = await second.start("acquisition", "Second execution acquired.", 8, 1);
+
+    expect(firstEvent?.sequence).toBe(1);
+    expect(secondEvent?.sequence).toBe(2);
+  });
 });

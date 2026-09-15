@@ -156,3 +156,4 @@
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Execution projection surfaces](execution-projection-surfaces.md) — Chat, Tasks, Mission Control, and Flight Deck share the server-owned read model; legacy controls remain bounded fallbacks.
+- [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.

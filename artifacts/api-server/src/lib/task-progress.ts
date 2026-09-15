@@ -110,10 +110,7 @@ export function createTaskProgressEmitter(params: {
       const [last] = await tx
         .select({ sequence: max(taskLogsTable.sequence) })
         .from(taskLogsTable)
-        .where(and(
-          eq(taskLogsTable.taskId, params.taskId),
-          eq(taskLogsTable.executionId, params.executionId),
-        ));
+          .where(eq(taskLogsTable.taskId, params.taskId));
       const sequence = (last?.sequence ?? 0) + 1;
       const now = new Date();
       const startedAt = stageStarts.get(input.stage) ?? now;

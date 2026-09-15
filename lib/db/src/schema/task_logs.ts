@@ -25,7 +25,7 @@ export const taskLogsTable = pgTable("task_logs", {
   executionId: text("execution_id"),
   /** Immutable execution attempt associated with this event. */
   attempt: integer("attempt"),
-  /** Monotonic per-task-execution cursor used by REST and SSE replay. */
+  /** Monotonic per-task cursor used by REST and SSE replay across executions. */
   sequence: integer("sequence"),
   /** Public progress stage, never populated from model text. */
   progressStage: text("progress_stage"),

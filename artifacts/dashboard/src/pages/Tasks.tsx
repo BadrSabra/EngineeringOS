@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   useListTasks,
   useExecuteTask,
@@ -312,6 +312,7 @@ type ActivityItem = {
 };
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_VISIBLE_ACTIVITY_ITEMS = 80;
 
 function activityItem(log: TaskLog): ActivityItem {
   const message = safeTaskText(log.message);
@@ -343,6 +344,14 @@ function groupActivity(logs: TaskLog[]): ActivityItem[] {
     else groups.push(item);
   }
   return groups;
+}
+
+function visibleActivityItems(items: ActivityItem[]): ActivityItem[] {
+  if (items.length <= MAX_VISIBLE_ACTIVITY_ITEMS) return items;
+  return [
+    ...items.slice(0, 1),
+    ...items.slice(-(MAX_VISIBLE_ACTIVITY_ITEMS - 1)),
+  ];
 }
 
 type TimelineStep = {
@@ -508,19 +517,21 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
 
   // Merge REST snapshots and SSE replay by durable row identity. The server
   // sequence wins over arrival order, so reconnects cannot reverse the timeline.
-  const allLogs = new Map<string, TaskLog>();
-  for (const log of polledLogs ?? []) {
-    allLogs.set(log.id, log);
-    if (log.sequence !== null && log.sequence !== undefined) cursor.current = Math.max(cursor.current, log.sequence);
-  }
-  for (const log of liveLogs) allLogs.set(log.id, log);
-  const logs: TaskLog[] = [...allLogs.values()].sort((a, b) =>
-    logOrder(a, b));
+  const logs = useMemo(() => {
+    const allLogs = new Map<string, TaskLog>();
+    for (const log of polledLogs ?? []) {
+      allLogs.set(log.id, log);
+      if (log.sequence !== null && log.sequence !== undefined) cursor.current = Math.max(cursor.current, log.sequence);
+    }
+    for (const log of liveLogs) allLogs.set(log.id, log);
+    return [...allLogs.values()].sort((a, b) => logOrder(a, b));
+  }, [liveLogs, polledLogs]);
   const operationId = logs
     .map((log) => log.metadata?.operationId)
     .find((value): value is string => typeof value === 'string');
-  const groupedActivity = groupActivity(logs);
-  const plan = taskPlan(task, logs);
+  const groupedActivity = useMemo(() => groupActivity(logs), [logs]);
+  const activityItems = useMemo(() => visibleActivityItems(groupedActivity), [groupedActivity]);
+  const plan = useMemo(() => taskPlan(task, logs), [logs, task]);
   const completedSteps = plan.filter((step) => step.status === 'done').length;
   const serverPercent = logs
     .filter((log) => log.progressPercent !== null && log.progressPercent !== undefined)
@@ -664,16 +675,23 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
             {isRunning ? 'Waiting for confirmed activity…' : 'No activity recorded.'}
           </span>
         ) : (
-          groupedActivity.map((item) => (
-            <details key={item.key} open={item.kind === 'warning' || item.kind === 'error'} className={`rounded-md border p-2 ${item.kind === 'error' ? 'border-destructive/40' : item.kind === 'warning' ? 'border-yellow-500/40' : 'border-border'}`}>
-              <summary className="flex items-start gap-2 cursor-pointer list-none">
-                <span className={`text-base shrink-0 ${item.kind === 'error' ? 'text-destructive' : item.kind === 'warning' ? 'text-yellow-500' : ''}`}>{item.kind === 'result' ? '✓' : stepIcon(item.summary, item.kind === 'error' ? 'error' : item.kind === 'warning' ? 'warn' : 'info')}</span>
-                <span className="flex-1"><span className="font-medium">{item.label}</span><span className="text-muted-foreground"> — {item.summary}</span></span>
-                {item.count > 1 && <span className="text-muted-foreground">×{item.count}</span>}
-              </summary>
-              <div className="pl-6 pt-1 text-[10px] text-muted-foreground">Confirmed {new Date(item.timestamp).toLocaleTimeString('en', { hour12: false })}</div>
-            </details>
-          ))
+          <>
+            {groupedActivity.length > MAX_VISIBLE_ACTIVITY_ITEMS && (
+              <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground" role="status">
+                Showing the first confirmed event and the latest {MAX_VISIBLE_ACTIVITY_ITEMS - 1} of {groupedActivity.length} activity entries.
+              </div>
+            )}
+            {activityItems.map((item) => (
+              <details key={item.key} open={item.kind === 'warning' || item.kind === 'error'} className={`rounded-md border p-2 ${item.kind === 'error' ? 'border-destructive/40' : item.kind === 'warning' ? 'border-yellow-500/40' : 'border-border'}`}>
+                <summary className="flex items-start gap-2 cursor-pointer list-none">
+                  <span className={`text-base shrink-0 ${item.kind === 'error' ? 'text-destructive' : item.kind === 'warning' ? 'text-yellow-500' : ''}`}>{item.kind === 'result' ? '✓' : stepIcon(item.summary, item.kind === 'error' ? 'error' : item.kind === 'warning' ? 'warn' : 'info')}</span>
+                  <span className="flex-1"><span className="font-medium">{item.label}</span><span className="text-muted-foreground"> — {item.summary}</span></span>
+                  {item.count > 1 && <span className="text-muted-foreground">×{item.count}</span>}
+                </summary>
+                <div className="pl-6 pt-1 text-[10px] text-muted-foreground">Confirmed {new Date(item.timestamp).toLocaleTimeString('en', { hour12: false })}</div>
+              </details>
+            ))}
+          </>
         )}
       </div>
       </section>

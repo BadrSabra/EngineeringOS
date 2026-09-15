@@ -227,6 +227,7 @@ describe("Task lifecycle", () => {
   it("replays structured progress in sequence order and resumes after a cursor", async () => {
     const { taskId } = await createTask();
     const executionId = randomUUID();
+    const resumedExecutionId = randomUUID();
     const correlationId = randomUUID();
     const now = new Date();
     await db
@@ -285,6 +286,21 @@ describe("Task lifecycle", () => {
         progressPercent: 100,
         terminalOutcome: "SUCCEEDED",
       },
+      {
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "resumed execution acquired",
+        timestamp: new Date(now.getTime() + 3),
+        correlationId,
+        eventType: "progress",
+        executionId: resumedExecutionId,
+        attempt: 2,
+        sequence: 4,
+        progressStage: "acquisition",
+        progressStatus: "active",
+        progressMessage: "Resumed execution acquired.",
+      },
     ]);
 
     const replay = await request(app).get(`/api/tasks/${taskId}/logs/stream`);
@@ -292,13 +308,18 @@ describe("Task lifecycle", () => {
     expect(replay.headers["content-type"]).toContain("text/event-stream");
     const replayed = [...replay.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
       .map((match) => JSON.parse(match[1]) as { sequence: number });
-    expect(replayed.map((log) => log.sequence)).toEqual([1, 2, 3]);
+    expect(replayed.map((log) => log.sequence)).toEqual([1, 2, 3, 4]);
     expect(replay.text).toContain('event: done');
 
     const resumed = await request(app).get(`/api/tasks/${taskId}/logs/stream?after=2`);
     const resumedLogs = [...resumed.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
       .map((match) => JSON.parse(match[1]) as { sequence: number });
-    expect(resumedLogs.map((log) => log.sequence)).toEqual([3]);
+    expect(resumedLogs.map((log) => log.sequence)).toEqual([3, 4]);
+
+    const resumedAfterTerminal = await request(app).get(`/api/tasks/${taskId}/logs/stream?after=3`);
+    const resumedExecutionLogs = [...resumedAfterTerminal.text.matchAll(/event: log\ndata: (\{.*\})\n/g)]
+      .map((match) => JSON.parse(match[1]) as { sequence: number });
+    expect(resumedExecutionLogs.map((log) => log.sequence)).toEqual([4]);
   });
 
   it("redacts legacy log content and metadata at the public boundary", async () => {
@@ -307,7 +328,7 @@ describe("Task lifecycle", () => {
       id: randomUUID(),
       taskId,
       level: "info",
-      message: "provider returned /home/runner/workspace/private.ts",
+       message: "provider returned token: sk-or-v1-secret-for-test /home/runner/workspace/private.ts",
       metadata: {
         providerKey: "never-public",
         providerPayload: { raw: "model output" },
@@ -320,6 +341,7 @@ describe("Task lifecycle", () => {
     expect(JSON.stringify(logs.body)).not.toContain("never-public");
     expect(JSON.stringify(logs.body)).not.toContain("model output");
     expect(JSON.stringify(logs.body)).not.toContain("/home/runner/workspace/private.ts");
+    expect(JSON.stringify(logs.body)).not.toContain("sk-or-v1-secret-for-test");
     expect(logs.body.find((log: { metadata?: unknown }) => log.metadata)?.metadata).toBeUndefined();
   });
 
