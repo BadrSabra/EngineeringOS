@@ -97,7 +97,11 @@ import {
   type CapabilityProbeClaimId,
   type CapabilityProbeResponse,
 } from "../schemas/capability-probe.schema.js";
-import { extractJson, parseAgentResponse } from "../parsing.js";
+import {
+  extractJson,
+  isSyntheticModelOutputFailureText,
+  parseAgentResponse,
+} from "../parsing.js";
 import {
   createImplementationPlan,
 } from "./implementation-planner.js";
@@ -8976,6 +8980,19 @@ export async function chat(opts: {
           ]);
         }
       }
+      if (
+        parsedDirect.ok
+        && turnIntent.kind === "CHAT"
+        && isSyntheticModelOutputFailureText(parsedDirect.data.response)
+      ) {
+        parsedDirect = {
+          ok: false,
+          data: parsedDirect.data,
+          code: "MALFORMED_JSON",
+          message: "The provider returned the server-owned parser failure message as chat content.",
+          raw: directContent,
+        };
+      }
       if (!parsedDirect.ok) {
         const parseFailure = parsedDirect as {
           code: AgentErrorCode;
@@ -9830,6 +9847,20 @@ export async function chat(opts: {
       }));
       // Keep the original fallback output — correction is best-effort only.
     }
+  }
+
+  if (
+    parsed.ok
+    && turnIntent.kind === "CHAT"
+    && isSyntheticModelOutputFailureText(parsed.data.response)
+  ) {
+    parsed = {
+      ok: false,
+      data: parsed.data,
+      code: "MALFORMED_JSON",
+      message: "The provider returned the server-owned parser failure message as chat content.",
+      raw: content,
+    };
   }
 
   // Forensic contract recovery: tool gathering may succeed while a model
@@ -13263,7 +13294,10 @@ export async function chat(opts: {
       !structuredOutputMode &&
       !repairPlanExecution &&
       !deterministicTaskExecution &&
-      content.trimStart().startsWith("{")
+        (
+          content.trimStart().startsWith("{")
+          || isSyntheticModelOutputFailureText(content)
+        )
         ? ""
         : check.data.response;
     return { ...check.data, response: terminalResponse, _parseError: parseError };

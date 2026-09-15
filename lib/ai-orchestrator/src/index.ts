@@ -421,7 +421,12 @@ export type {
   AnalysisToolStatus,
 } from "./tools/analysis-tools.js";
 
-export { extractJson, parseAgentResponse } from "./parsing.js";
+export {
+  extractJson,
+  isSyntheticModelOutputFailureText,
+  MODEL_OUTPUT_INVALID_MESSAGE,
+  parseAgentResponse,
+} from "./parsing.js";
 export type { AgentParseResult } from "./parsing.js";
 export type { QualityErrorCode, QualityFailure } from "./errors.js";
 

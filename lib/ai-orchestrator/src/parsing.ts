@@ -12,6 +12,19 @@
 import type { ZodType, ZodTypeDef } from "zod";
 import type { AgentErrorCode } from "./errors.js";
 
+/** Stable server-owned text used when a JSON-looking model response is invalid. */
+export const MODEL_OUTPUT_INVALID_MESSAGE =
+  "The AI response could not be parsed into the expected format. Please try again.";
+
+/**
+ * Detect only the exact parser-failure sentinel that must never become a
+ * successful ordinary chat answer. Do not broaden this to generic
+ * "try again" language: that can be valid provider-authored prose.
+ */
+export function isSyntheticModelOutputFailureText(value: string): boolean {
+  return value.trim().replace(/\s+/g, " ") === MODEL_OUTPUT_INVALID_MESSAGE;
+}
+
 type JsonExtractResult =
   | { ok: true; data: unknown }
   | { ok: false; code: Extract<AgentErrorCode, "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON">; message: string };

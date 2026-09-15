@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
-import { extractJson, parseAgentResponse } from "../parsing.js";
+import {
+  extractJson,
+  isSyntheticModelOutputFailureText,
+  MODEL_OUTPUT_INVALID_MESSAGE,
+  parseAgentResponse,
+} from "../parsing.js";
 
 const schema = z.object({ foo: z.string(), count: z.number() });
 const fallback = (raw: string) => ({ foo: `fallback:${raw}`, count: -1 });
@@ -149,5 +154,13 @@ describe("parseAgentResponse", () => {
       expect(result.raw).toBe(raw);
       expect(result.code).toBe("SCHEMA_VALIDATION_FAILED");
     }
+  });
+});
+
+describe("synthetic model-output failure boundary", () => {
+  it("recognizes only the server-owned parser failure message", () => {
+    expect(isSyntheticModelOutputFailureText(`  ${MODEL_OUTPUT_INVALID_MESSAGE}\n`)).toBe(true);
+    expect(isSyntheticModelOutputFailureText("Please try again with more detail.")).toBe(false);
+    expect(isSyntheticModelOutputFailureText("A normal answer.")).toBe(false);
   });
 });

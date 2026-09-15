@@ -93,6 +93,7 @@ import {
   projectContextProvenance,
   parseContextProvenance,
   extractJson,
+  MODEL_OUTPUT_INVALID_MESSAGE,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -627,7 +628,7 @@ function sanitizeResponseText(raw: string): string {
         { scope: "chat-route", action: "sanitize_invalid_envelope", preview: trimmed.slice(0, 120) },
         "AI-02: rejected an unparseable JSON-looking response at the storage boundary",
       );
-      return "The AI response could not be parsed into the expected format. Please try again.";
+      return MODEL_OUTPUT_INVALID_MESSAGE;
     }
     const parsed = extracted.data;
     if (
@@ -645,9 +646,9 @@ function sanitizeResponseText(raw: string): string {
       { scope: "chat-route", action: "sanitize_invalid_envelope", preview: trimmed.slice(0, 120) },
       "AI-02: rejected an unparseable JSON-looking response at the storage boundary",
     );
-    return "The AI response could not be parsed into the expected format. Please try again.";
+    return MODEL_OUTPUT_INVALID_MESSAGE;
   }
-  return "The AI response could not be parsed into the expected format. Please try again.";
+  return MODEL_OUTPUT_INVALID_MESSAGE;
 }
 
 function parseRepairPlanMetadata(value: string | null): RepairPlanMetadata[] | undefined {

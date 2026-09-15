@@ -16,6 +16,7 @@ import { GroqClientError } from "../errors.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import { resolveTurnIntent } from "../turn-intent.js";
+import { MODEL_OUTPUT_INVALID_MESSAGE } from "../parsing.js";
 import {
   assertArabicForensicFixture,
   assertArabicFixtureResponse,
@@ -1024,6 +1025,67 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(result.response).toContain("plain");
     // Must not have been wrapped in JSON.
     expect(result.response).not.toMatch(/^\{/);
+  });
+
+  it("terminalizes the server-owned parser failure sentinel in direct CHAT streams", async () => {
+    const nextResponse = vi.fn().mockResolvedValue({
+      content: MODEL_OUTPUT_INVALID_MESSAGE,
+      toolCalls: [],
+      model: "m",
+      usage: {},
+    });
+
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: nextResponse,
+      openrouterCompleteWithFallback: nextResponse,
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+      onDelta: (chunk) => deltas.push(chunk),
+    });
+
+    expect(result.response).toBe("");
+    expect(result._parseError).toMatchObject({ code: "MALFORMED_JSON" });
+    expect(deltas).toEqual([]);
+  });
+
+  it("terminalizes the server-owned parser failure sentinel in non-streaming CHAT", async () => {
+    const nextResponse = vi.fn().mockResolvedValue({
+      content: MODEL_OUTPUT_INVALID_MESSAGE,
+      toolCalls: [],
+      model: "m",
+      usage: {},
+    });
+
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: nextResponse,
+      openrouterCompleteWithFallback: nextResponse,
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+    });
+
+    expect(result.response).toBe("");
+    expect(result._parseError).toMatchObject({ code: "MALFORMED_JSON" });
   });
 
   it("uses a soft JSON correction path for OpenRouter without response_format", async () => {
