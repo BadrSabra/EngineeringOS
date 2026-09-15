@@ -571,6 +571,17 @@ const PATTERNS: PatternEntry[] = [
   },
 ];
 
+/**
+ * Explicit forensic intent must outrank conceptual exploration even when both
+ * appear in one message. This is a separate guard rather than only a pattern
+ * weight because exploration suppresses the evidence gate downstream.
+ *
+ * Arabic terms stay outside `\b`: JavaScript does not treat Arabic letters as
+ * word characters for boundary matching.
+ */
+const EXPLICIT_FORENSIC_INTENT_RE =
+  /(?:\b(?:audit|auditing|investigate|investigation|root[\s-]+cause)\b|\b(?:explain\s+how|how\s+does)\s+[^.!?\n]{0,80}\b(?:fail(?:s|ed|ure)?|error(?:s)?|break(?:s)?|crash(?:es)?|throw(?:s)?|hang(?:s)?|leak(?:s)?)\b|(?:تدقيق|استقصاء|تحليل\s+جنائي|مراجعة\s+(?:الكود|النظام)|السبب\s+(?:الجذري|الرئيسي)|سبب\s+(?:المشكلة|الخطأ)|لماذا\s+يفشل))/iu;
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -718,6 +729,12 @@ export function classifyRequest(message: string): ClassifiedRequest {
   // Long messages with weak code / architecture signal → lean toward deep_analysis
   if (trimmed.length > 200 && scores.code < 4 && scores.architecture < 3) {
     scores.deep_analysis += 2;
+  }
+
+  // Never let a conceptual phrase bypass evidence mode when the same request
+  // explicitly asks for an audit/investigation or describes a concrete failure.
+  if (EXPLICIT_FORENSIC_INTENT_RE.test(trimmed)) {
+    scores.deep_analysis = Math.max(scores.deep_analysis, scores.exploration + 1, 5);
   }
 
   // Pick winner

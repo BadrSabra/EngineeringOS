@@ -390,7 +390,7 @@ export function resolveTurnIntent(
     !implementationPlanResume &&
     !implementationDelivery &&
     !planDelivery &&
-    route.requiresEvidence &&
+     route.requiresEvidence &&
     !scopeClarificationRequired;
 
   const explicitEvidenceIntent = Boolean(
@@ -405,11 +405,12 @@ export function resolveTurnIntent(
     !implementationDelivery &&
     !planDelivery &&
     !implementationPlanResume &&
-    route.requiresEvidence &&
+     (route.requiresEvidence || classification.category === "deep_analysis") &&
     (
       (
         (!broadForensicTask || broadAuditIntent) &&
         (
+           classification.category === "deep_analysis" ||
           classification.analysisMode === "FORENSIC" ||
           classification.structuredOutputMode ||
           classification.singleFileForensicMode ||
