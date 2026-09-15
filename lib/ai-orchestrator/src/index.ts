@@ -202,6 +202,18 @@ export type { ReviewScope, NormalizedReviewInputs } from "./review-scope.js";
 export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";
 export type { FilePatchHunk, PatchRebaseResult } from "./patch-contract.js";
 export {
+  buildGeneralTaskPlan,
+  canReuseTaskPlanRevision,
+} from "./task-planner.js";
+export type {
+  ExistingProjectQueryState,
+  GeneralTaskPlan,
+  GeneralTaskPlanDecision,
+  GeneralTaskPlanSource,
+  GeneralTaskPlanStep,
+  GeneralTaskPlanStepKind,
+} from "./task-planner.js";
+export {
   deriveFlightDeckState,
   type FlightDeckState,
   type FlightDeckStateInput,

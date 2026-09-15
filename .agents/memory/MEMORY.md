@@ -153,3 +153,4 @@
 - [Resumed history identity](ai-turn-routing.md) — resumed stream history must exclude the current row only after a validated execution identity is available.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
 - [Generic chat parse boundary](generic-chat-parse-boundary.md) — terminalize malformed JSON-looking chat output, but keep plain prose fallback valid.
+- [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.

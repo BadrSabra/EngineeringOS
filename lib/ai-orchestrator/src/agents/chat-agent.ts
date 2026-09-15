@@ -130,6 +130,11 @@ import {
   type QuerySourceSelectionRecord,
 } from "./query-planner.js";
 import {
+  buildGeneralTaskPlan,
+  canReuseTaskPlanRevision,
+  type GeneralTaskPlan,
+} from "../task-planner.js";
+import {
   toolCacheKey,
   executeToolLoop,
   objectiveEvidenceManifestCompleteForPaths,
@@ -5774,6 +5779,32 @@ export async function chat(opts: {
       : priorRepairPlan
         ? extractExecutionFilePaths(priorRepairPlan)
         : [];
+  const generalTaskPlan: GeneralTaskPlan = buildGeneralTaskPlan({
+    message,
+    turnIntent,
+    objective: objective
+      ? `${objective.objectiveType}: ${message}`
+      : message,
+    existingExecutionPlan:
+      canReuseTaskPlanRevision({
+        persistedRevision: activeTaskState?.scope.revision,
+        currentRevision: analysisCorrelation?.projectRevision,
+        explicitOverride: Boolean(executionPlanOverride),
+      })
+        ? storedExecutionPlan
+        : undefined,
+    existingProjectQuery:
+      canReuseTaskPlanRevision({
+        persistedRevision: activeTaskState?.scope.revision,
+        currentRevision: analysisCorrelation?.projectRevision,
+      })
+        && activeTaskState?.projectQuery
+      ? {
+          requiredEvidencePaths: activeTaskState.projectQuery.requiredEvidencePaths,
+          requiredClaims: activeTaskState.projectQuery.requiredClaims,
+        }
+      : undefined,
+  });
   const repairPlanExecution =
     (!(
       turnIntent.compoundExecution &&
@@ -7068,7 +7099,8 @@ export async function chat(opts: {
     rootPath &&
     !(immediateIntent && priorRepairPlan) &&
     !compoundWriteExecution &&
-    !plannerAlreadyUsed
+    !plannerAlreadyUsed &&
+    !generalTaskPlan.skipQueryPlanner
   ) {
     queryPlan = await planQuery({
       message,
@@ -7128,6 +7160,37 @@ export async function chat(opts: {
         );
       }
     }
+  }
+
+  relayAgentStep({
+    kind: "plan_activity",
+    stage: "plan",
+    status: generalTaskPlan.decision === "BLOCK" ? "info" : "done",
+    stepTitle: generalTaskPlan.decision === "REUSE"
+      ? "Reusing the existing task plan"
+      : "Created a task plan for this turn",
+    resultSummary: [
+      `decision=${generalTaskPlan.decision}`,
+      `source=${generalTaskPlan.source}`,
+      `steps=${generalTaskPlan.steps.length}`,
+      `plan=${generalTaskPlan.planHash.slice(0, 12)}`,
+      ...(generalTaskPlan.conflicts.length > 0
+        ? [`notes=${generalTaskPlan.conflicts.join("; ")}`]
+        : []),
+    ].join(" | "),
+    nextStepTitle: generalTaskPlan.steps[0]?.title,
+  });
+
+  if (generalTaskPlan.decision === "BLOCK") {
+    const response = /[\u0600-\u06FF]/.test(message)
+      ? "تعذر بدء التنفيذ بأمان لأن خطة المهمة الحالية لا تحتوي على خطوة قابلة للتنفيذ."
+      : "The task could not start safely because its plan contains no executable step.";
+    onDelta?.(response);
+    return {
+      response,
+      sources: [],
+      pendingChanges: [],
+    };
   }
 
   if (
