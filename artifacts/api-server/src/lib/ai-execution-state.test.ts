@@ -502,6 +502,30 @@ describe("autonomous operation contract", () => {
     }))).toBeUndefined();
   });
 
+  it("retains only well-formed task validator receipts in a checkpoint", () => {
+    const receipt = {
+      validatorId: "file-conversion.v1",
+      status: "PROVEN",
+      operationId: "operation-2",
+      projectId: "project-1",
+      workspaceRevision: "revision-1",
+      artifactRef: "converted.json",
+    };
+    const checkpoint = parseAiExecutionCheckpoint(JSON.stringify({
+      stage: "completed",
+      sequence: 2,
+      validatorReceipts: [receipt],
+      updatedAt: new Date().toISOString(),
+    }));
+    expect(checkpoint?.validatorReceipts).toEqual([receipt]);
+    expect(parseAiExecutionCheckpoint(JSON.stringify({
+      stage: "completed",
+      sequence: 3,
+      validatorReceipts: [{ ...receipt, artifactRef: 42 }],
+      updatedAt: new Date().toISOString(),
+    }))).toBeUndefined();
+  });
+
   it("round-trips a claim-unclosed forensic verdict through a terminal checkpoint", () => {
     const checkpoint = parseAiExecutionCheckpoint(JSON.stringify({
       stage: "failed",
