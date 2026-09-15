@@ -27,6 +27,7 @@ export const listAiChatMessagesResponseExecutionLedgerOneModelsItemMax = 120;
 export const listAiChatMessagesResponseExecutionLedgerOneModelsMax = 16;
 
 
+
 /**
  * @summary Health check
  */
@@ -83,6 +84,7 @@ export const listProjectsQueryPageDefault = 1;
 
 export const listProjectsQueryPageSizeDefault = 50;
 export const listProjectsQueryPageSizeMax = 200;
+
 
 
 export const ListProjectsQueryParams = zod.object({
@@ -309,6 +311,7 @@ export const listTasksQueryPageSizeDefault = 50;
 export const listTasksQueryPageSizeMax = 200;
 
 
+
 export const ListTasksQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
   "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']).optional(),
@@ -331,6 +334,7 @@ export const listTasksResponseRemediationPlanOneVerificationStepsMax = 20;
 export const listTasksResponseRemediationPlanOneVerificationChecksMax = 20;
 
 export const listTasksResponseAcceptanceDispositionRetryAfterMsMin = 0;
+
 
 
 export const ListTasksResponseItem = zod.object({
@@ -460,6 +464,7 @@ export const createTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 export const createTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
+
 export const CreateTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -576,6 +581,7 @@ export const getTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 export const getTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 
 export const getTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
+
 
 
 export const GetTaskResponse = zod.object({
@@ -701,6 +707,7 @@ export const updateTaskResponseRemediationPlanOneVerificationStepsMax = 20;
 export const updateTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 
 export const updateTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
+
 
 
 export const UpdateTaskResponse = zod.object({
@@ -831,6 +838,7 @@ export const executeTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 export const executeTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
+
 export const ExecuteTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -936,6 +944,7 @@ export const RecordTaskVerificationParams = zod.object({
 export const recordTaskVerificationBodyEvidenceMax = 2000;
 
 
+
 export const RecordTaskVerificationBody = zod.object({
   "checkId": zod.string(),
   "passed": zod.boolean(),
@@ -956,6 +965,7 @@ export const recordTaskVerificationResponseRemediationPlanOneVerificationStepsMa
 export const recordTaskVerificationResponseRemediationPlanOneVerificationChecksMax = 20;
 
 export const recordTaskVerificationResponseAcceptanceDispositionRetryAfterMsMin = 0;
+
 
 
 export const RecordTaskVerificationResponse = zod.object({
@@ -1076,6 +1086,7 @@ export const retryTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 export const retryTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
+
 export const RetryTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -1194,6 +1205,7 @@ export const rollbackTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 export const rollbackTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
+
 export const RollbackTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -1300,6 +1312,7 @@ export const getTaskLogsResponseProgressPercentMin = 0;
 export const getTaskLogsResponseProgressPercentMax = 100;
 
 
+
 export const GetTaskLogsResponseItem = zod.object({
   "id": zod.string(),
   "taskId": zod.string(),
@@ -1335,11 +1348,13 @@ export const StreamTaskLogsParams = zod.object({
 export const streamTaskLogsQueryAfterMin = 0;
 
 
+
 export const StreamTaskLogsQueryParams = zod.object({
   "after": zod.coerce.number().int().min(streamTaskLogsQueryAfterMin).optional().describe('Resume after this server-owned progress sequence.')
 })
 
 export const streamTaskLogsHeaderLastEventIDMin = 0;
+
 
 
 export const StreamTaskLogsHeader = zod.object({
@@ -1356,6 +1371,7 @@ export const listRulesQueryPageDefault = 1;
 
 export const listRulesQueryPageSizeDefault = 50;
 export const listRulesQueryPageSizeMax = 200;
+
 
 
 export const ListRulesQueryParams = zod.object({
@@ -1754,6 +1770,7 @@ export const listEventsQueryLimitMax = 200;
 export const listEventsQueryPageDefault = 1;
 
 
+
 export const ListEventsQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
   "type": zod.coerce.string().optional(),
@@ -1765,6 +1782,7 @@ export const ListEventsQueryParams = zod.object({
 })
 
 export const listEventsResponseTotalMin = 0;
+
 
 
 export const ListEventsResponse = zod.object({
@@ -1793,6 +1811,7 @@ export const listMetricsQueryPageDefault = 1;
 
 export const listMetricsQueryPageSizeDefault = 100;
 export const listMetricsQueryPageSizeMax = 500;
+
 
 
 export const ListMetricsQueryParams = zod.object({
@@ -1859,6 +1878,7 @@ export const listGraphEntitiesQueryPageSizeDefault = 1000;
 export const listGraphEntitiesQueryPageSizeMax = 1000;
 
 
+
 export const ListGraphEntitiesQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
   "type": zod.enum(['file', 'function', 'class', 'api', 'task', 'rule', 'phase', 'module']).optional(),
@@ -1868,6 +1888,7 @@ export const ListGraphEntitiesQueryParams = zod.object({
 
 export const listGraphEntitiesResponseItemsItemConfidenceMin = 0;
 export const listGraphEntitiesResponseItemsItemConfidenceMax = 1;
+
 
 
 export const ListGraphEntitiesResponse = zod.object({
@@ -1921,6 +1942,7 @@ export const listGraphRelationshipsQueryPageSizeDefault = 1000;
 export const listGraphRelationshipsQueryPageSizeMax = 1000;
 
 
+
 export const ListGraphRelationshipsQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
   "sourceId": zod.coerce.string().optional(),
@@ -1933,6 +1955,7 @@ export const listGraphRelationshipsResponseItemsItemWeightMax = 1;
 
 export const listGraphRelationshipsResponseItemsItemConfidenceMin = 0;
 export const listGraphRelationshipsResponseItemsItemConfidenceMax = 1;
+
 
 
 export const ListGraphRelationshipsResponse = zod.object({
@@ -1993,6 +2016,7 @@ export const getGraphEntityImpactQueryMaxDepthDefault = 4;
 export const getGraphEntityImpactQueryMaxDepthMax = 6;
 
 
+
 export const GetGraphEntityImpactQueryParams = zod.object({
   "entityId": zod.coerce.string(),
   "maxDepth": zod.coerce.number().int().min(1).max(getGraphEntityImpactQueryMaxDepthMax).default(getGraphEntityImpactQueryMaxDepthDefault)
@@ -2009,6 +2033,7 @@ export const getGraphEntityImpactResponseImpactedItemViaRelationshipWeightMax = 
 
 export const getGraphEntityImpactResponseImpactedItemViaRelationshipConfidenceMin = 0;
 export const getGraphEntityImpactResponseImpactedItemViaRelationshipConfidenceMax = 1;
+
 
 
 export const GetGraphEntityImpactResponse = zod.object({
@@ -2131,6 +2156,7 @@ export const getGraphPathQueryMaxDepthDefault = 5;
 export const getGraphPathQueryMaxDepthMax = 8;
 
 
+
 export const GetGraphPathQueryParams = zod.object({
   "fromId": zod.coerce.string(),
   "toId": zod.coerce.string(),
@@ -2145,6 +2171,7 @@ export const getGraphPathResponsePathItemRelationshipWeightMax = 1;
 
 export const getGraphPathResponsePathItemRelationshipConfidenceMin = 0;
 export const getGraphPathResponsePathItemRelationshipConfidenceMax = 1;
+
 
 
 export const GetGraphPathResponse = zod.object({
@@ -2245,6 +2272,7 @@ export const getGraphSummaryResponseLayeredByLayerRuntimeAvgConfidenceMin = 0;
 export const getGraphSummaryResponseLayeredByLayerRuntimeAvgConfidenceMax = 1;
 
 
+
 export const GetGraphSummaryResponse = zod.object({
   "projectId": zod.string(),
   "entityCount": zod.number().int(),
@@ -2312,6 +2340,7 @@ export const getGraphEntityNeighborsResponseIncomingItemConfidenceMax = 1;
 
 export const getGraphEntityNeighborsResponseNeighborsItemConfidenceMin = 0;
 export const getGraphEntityNeighborsResponseNeighborsItemConfidenceMax = 1;
+
 
 
 export const GetGraphEntityNeighborsResponse = zod.object({
@@ -2490,6 +2519,7 @@ export const getGraphSubgraphResponseFiltersMinConfidenceMin = 0;
 export const getGraphSubgraphResponseFiltersMinConfidenceMax = 1;
 
 
+
 export const GetGraphSubgraphResponse = zod.object({
   "entities": zod.array(zod.object({
   "id": zod.string(),
@@ -2596,6 +2626,7 @@ export const getGraphSemanticNeighborhoodQueryDepthDefault = 2;
 export const getGraphSemanticNeighborhoodQueryDepthMax = 4;
 
 
+
 export const GetGraphSemanticNeighborhoodQueryParams = zod.object({
   "entityId": zod.coerce.string(),
   "depth": zod.coerce.number().int().max(getGraphSemanticNeighborhoodQueryDepthMax).default(getGraphSemanticNeighborhoodQueryDepthDefault),
@@ -2618,6 +2649,7 @@ export const getGraphSemanticNeighborhoodResponseRelationshipsItemWeightMax = 1;
 
 export const getGraphSemanticNeighborhoodResponseRelationshipsItemConfidenceMin = 0;
 export const getGraphSemanticNeighborhoodResponseRelationshipsItemConfidenceMax = 1;
+
 
 
 export const GetGraphSemanticNeighborhoodResponse = zod.object({
@@ -2746,6 +2778,7 @@ export const getGraphEvidenceResponseEvidenceItemRelationshipConfidenceMin = 0;
 export const getGraphEvidenceResponseEvidenceItemRelationshipConfidenceMax = 1;
 
 
+
 export const GetGraphEvidenceResponse = zod.object({
   "entity": zod.object({
   "id": zod.string(),
@@ -2847,6 +2880,7 @@ export const getGraphRuntimeSubgraphResponseRelationshipsItemWeightMax = 1;
 
 export const getGraphRuntimeSubgraphResponseRelationshipsItemConfidenceMin = 0;
 export const getGraphRuntimeSubgraphResponseRelationshipsItemConfidenceMax = 1;
+
 
 
 export const GetGraphRuntimeSubgraphResponse = zod.object({
@@ -3099,6 +3133,7 @@ export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneVeri
 export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOneVerificationChecksMax = 20;
 
 
+
 export const GetDiscoverySummaryResponse = zod.object({
   "id": zod.string(),
   "detectedName": zod.string(),
@@ -3296,7 +3331,10 @@ export const aiChatBodyIdempotencyKeyMax = 128;
 export const aiChatBodyObjectiveObjectiveTypeMax = 80;
 
 
+
 export const aiChatBodyObjectiveRequiredClaimsMax = 12;
+
+
 
 
 export const aiChatBodyObjectiveRequiredEvidenceEdgesMax = 12;
@@ -3312,6 +3350,7 @@ export const aiChatBodyObjectiveScopePolicyAllowedExpansionPathsMax = 24;
 export const aiChatBodyObjectiveScopePolicyForbiddenPathsItemMax = 500;
 
 export const aiChatBodyObjectiveScopePolicyForbiddenPathsMax = 24;
+
 
 
 export const AiChatBody = zod.object({
@@ -3343,6 +3382,14 @@ export const AiChatBody = zod.object({
 })
 
 
+
+
+
+
+
+
+
+
 export const aiChatResponseMessageAcceptanceDispositionOneReasonCodesMax = 4;
 
 export const aiChatResponseMessageAcceptanceOneAttemptMin = 0;
@@ -3370,6 +3417,7 @@ export const aiChatResponseMessageForensicDiagnosticOneTruncatedFilesMax = 12;
 export const aiChatResponseMessageForensicDiagnosticOneTruncatedFileCountMin = 0;
 
 
+
 export const aiChatResponseMessageBehaviorEvidenceMax = 8;
 
 export const aiChatResponseMessageMissionCorrelationReportOneCountsMessagesMin = 0;
@@ -3394,10 +3442,22 @@ export const aiChatResponseMessageTaskResultFiveEvidenceMax = 20;
 
 export const aiChatResponseMessageTaskResultSixPhasesMax = 12;
 
+export const aiChatResponseMessageSourceSelectionRecordOnePlannedFilesMax = 20;
+
+
+export const aiChatResponseMessageSourceSelectionRecordOneFileStatusesMax = 40;
+
+export const aiChatResponseMessageSourceSelectionRecordOneTruncatedPlannedCountMin = 0;
+
+export const aiChatResponseMessageSourceSelectionRecordOneSkippedPlannedCountMin = 0;
+
 export const aiChatResponsePendingChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
+
 export const aiChatResponsePendingChangesItemHunksItemEvidenceItemLabelMax = 240;
+
 
 
 export const aiChatResponsePendingChangesItemHunksItemEvidenceMax = 4;
@@ -3406,6 +3466,7 @@ export const aiChatResponsePendingChangesItemHunksMax = 100;
 
 
 export const aiChatResponsePendingChangesItemEvidenceItemLabelMax = 240;
+
 
 
 export const aiChatResponsePendingChangesItemEvidenceMax = 4;
@@ -3433,6 +3494,7 @@ export const aiChatResponseCapabilityGapOneCodeMax = 120;
 export const aiChatResponseCapabilityGapOneSummaryMax = 1000;
 
 export const aiChatResponseCapabilityGapOneSuggestedRecipeIdMax = 120;
+
 
 
 export const AiChatResponse = zod.object({
@@ -3591,15 +3653,15 @@ export const AiChatResponse = zod.object({
 })]).optional().describe('AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.'),
   "sourceSelectionRecord": zod.union([zod.object({
   "plannerTier": zod.enum(['targeted', 'graph_enriched', 'fallback']).describe('Server-derived planner quality tier; never contains provider text.'),
-  "plannedFiles": zod.array(zod.string()),
+  "plannedFiles": zod.array(zod.string()).max(aiChatResponseMessageSourceSelectionRecordOnePlannedFilesMax).describe('Up to 20 files from the query plan (post-graph-enrichment).'),
   "fileStatuses": zod.array(zod.object({
   "path": zod.string().min(1),
-  "origin": zod.enum(['planned', 'model_chosen']),
-  "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED'])
-})),
-  "truncatedPlannedCount": zod.number().int().min(0),
-  "skippedPlannedCount": zod.number().int().min(0)
-}),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns.'),
+  "origin": zod.enum(['planned', 'model_chosen']).describe('Whether this file was in the query plan or chosen by the model during the loop.'),
+  "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED']).describe('Server-classified read outcome; provider text is not used.')
+})).max(aiChatResponseMessageSourceSelectionRecordOneFileStatusesMax).describe('Up to 40 combined file statuses for planned and model-chosen files.'),
+  "truncatedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneTruncatedPlannedCountMin).describe('Number of planned files whose bodies were truncated.'),
+  "skippedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.')
+}),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.'),
   "createdAt": zod.coerce.date()
 }),
   "sources": zod.array(zod.string()),
@@ -3769,6 +3831,7 @@ export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContract
 export const getAiExecutionResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
 
 
+
 export const GetAiExecutionResponse = zod.object({
   "id": zod.string().describe('UUID of the AI execution'),
   "projectId": zod.string().optional(),
@@ -3913,6 +3976,7 @@ export const listAiExecutionHistoryQueryLimitDefault = 20;
 export const listAiExecutionHistoryQueryLimitMax = 50;
 
 
+
 export const ListAiExecutionHistoryQueryParams = zod.object({
   "projectId": zod.coerce.string(),
   "limit": zod.coerce.number().int().min(1).max(listAiExecutionHistoryQueryLimitMax).default(listAiExecutionHistoryQueryLimitDefault)
@@ -3927,6 +3991,7 @@ export const listAiExecutionHistoryResponseAcceptanceOneReasonCodeMax = 80;
 export const listAiExecutionHistoryResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
 
 export const listAiExecutionHistoryResponseTerminalProjectionOneAttemptMin = 0;
+
 
 
 export const ListAiExecutionHistoryResponseItem = zod.object({
@@ -4031,6 +4096,7 @@ export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategories
 export const exportAiExecutionAuditResponseExecutionDiagnosticsFailureCategoriesContractMaxOne = 5000;
 
 
+
 export const ExportAiExecutionAuditResponse = zod.object({
   "format": zod.string(),
   "exportedAt": zod.coerce.date(),
@@ -4101,6 +4167,7 @@ export const runAiRecipeHeaderIdempotencyKeyMin = 8;
 export const runAiRecipeHeaderIdempotencyKeyMax = 128;
 
 
+
 export const RunAiRecipeHeader = zod.object({
   "Idempotency-Key": zod.string().min(runAiRecipeHeaderIdempotencyKeyMin).max(runAiRecipeHeaderIdempotencyKeyMax)
 })
@@ -4113,6 +4180,7 @@ export const runAiRecipeBodyApprovedPathsItemMax = 500;
 export const runAiRecipeBodyApprovedPathsMax = 48;
 
 export const runAiRecipeBodyCandidateIdentityMax = 160;
+
 
 
 export const RunAiRecipeBody = zod.object({
@@ -4131,6 +4199,7 @@ export const runAiRecipeResponseCapabilityGapOneCodeMax = 120;
 export const runAiRecipeResponseCapabilityGapOneSummaryMax = 1000;
 
 export const runAiRecipeResponseCapabilityGapOneSuggestedRecipeIdMax = 120;
+
 
 
 export const RunAiRecipeResponse = zod.object({
@@ -4175,6 +4244,7 @@ export const RecoverAiExecutionResumeCapabilityParams = zod.object({
 export const recoverAiExecutionResumeCapabilityResponseResumeTokenMin = 32;
 
 
+
 export const RecoverAiExecutionResumeCapabilityResponse = zod.object({
   "executionId": zod.string(),
   "resumeToken": zod.string().min(recoverAiExecutionResumeCapabilityResponseResumeTokenMin)
@@ -4190,6 +4260,7 @@ export const RecoverAiExecutionParams = zod.object({
 })
 
 export const recoverAiExecutionBodyRevisionMax = 2000;
+
 
 
 export const RecoverAiExecutionBody = zod.object({
@@ -4293,6 +4364,7 @@ export const getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMin 
 export const getAiEmpiricalQualityScorecardResponseMetricsFalseRejectionRateMax = 1;
 
 export const getAiEmpiricalQualityScorecardResponseCasesMax = 128;
+
 
 
 export const GetAiEmpiricalQualityScorecardResponse = zod.object({
@@ -4531,6 +4603,7 @@ export const getAiMissionControlResponseBudgetOneTokenUsageCompletionTokensMin =
 export const getAiMissionControlResponseBudgetOneTokenUsageTotalMin = 0;
 
 export const getAiMissionControlResponseBudgetOneTokenUsageRemainingMin = 0;
+
 
 
 export const GetAiMissionControlResponse = zod.object({
@@ -4879,6 +4952,7 @@ export const getAiProjectBudgetResponseTokenUsageTotalMin = 0;
 export const getAiProjectBudgetResponseTokenUsageRemainingMin = 0;
 
 
+
 export const GetAiProjectBudgetResponse = zod.object({
   "schemaVersion": zod.literal(1),
   "projectId": zod.string(),
@@ -4917,6 +4991,7 @@ export const updateAiProjectBudgetBodyWarningThresholdMin = 0.5;
 export const updateAiProjectBudgetBodyWarningThresholdMax = 0.99;
 
 
+
 export const UpdateAiProjectBudgetBody = zod.object({
   "dailyAttemptLimit": zod.number().int().min(1).max(updateAiProjectBudgetBodyDailyAttemptLimitMax),
   "dailyTokenLimit": zod.number().int().min(updateAiProjectBudgetBodyDailyTokenLimitMin).max(updateAiProjectBudgetBodyDailyTokenLimitMax),
@@ -4944,6 +5019,7 @@ export const updateAiProjectBudgetResponseTokenUsageCompletionTokensMin = 0;
 export const updateAiProjectBudgetResponseTokenUsageTotalMin = 0;
 
 export const updateAiProjectBudgetResponseTokenUsageRemainingMin = 0;
+
 
 
 export const UpdateAiProjectBudgetResponse = zod.object({
@@ -5331,7 +5407,10 @@ export const aiChatStreamBodyIdempotencyKeyMax = 128;
 export const aiChatStreamBodyObjectiveObjectiveTypeMax = 80;
 
 
+
 export const aiChatStreamBodyObjectiveRequiredClaimsMax = 12;
+
+
 
 
 export const aiChatStreamBodyObjectiveRequiredEvidenceEdgesMax = 12;
@@ -5347,6 +5426,7 @@ export const aiChatStreamBodyObjectiveScopePolicyAllowedExpansionPathsMax = 24;
 export const aiChatStreamBodyObjectiveScopePolicyForbiddenPathsItemMax = 500;
 
 export const aiChatStreamBodyObjectiveScopePolicyForbiddenPathsMax = 24;
+
 
 
 export const AiChatStreamBody = zod.object({
@@ -5386,7 +5466,10 @@ export const AiChatStreamResponse = zod.unknown()
 export const aiApplyChangesBodyChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
+
 export const aiApplyChangesBodyChangesItemHunksItemEvidenceItemLabelMax = 240;
+
 
 
 export const aiApplyChangesBodyChangesItemHunksItemEvidenceMax = 4;
@@ -5397,7 +5480,9 @@ export const aiApplyChangesBodyChangesItemHunksMax = 100;
 export const aiApplyChangesBodyChangesItemEvidenceItemLabelMax = 240;
 
 
+
 export const aiApplyChangesBodyChangesItemEvidenceMax = 4;
+
 
 
 export const AiApplyChangesBody = zod.object({
@@ -5445,6 +5530,7 @@ export const aiApplyChangesResponseValidationEvidenceItemOverallBudgetMsMin = 0;
 export const aiApplyChangesResponseValidationEvidenceItemElapsedMsMin = 0;
 
 export const aiApplyChangesResponseValidationEvidenceItemRemainingMsMin = 0;
+
 
 
 export const AiApplyChangesResponse = zod.object({
@@ -5524,7 +5610,10 @@ export const AiApplyChangesResponse = zod.object({
 export const aiRebaseChangesBodyChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
+
 export const aiRebaseChangesBodyChangesItemHunksItemEvidenceItemLabelMax = 240;
+
 
 
 export const aiRebaseChangesBodyChangesItemHunksItemEvidenceMax = 4;
@@ -5535,9 +5624,11 @@ export const aiRebaseChangesBodyChangesItemHunksMax = 100;
 export const aiRebaseChangesBodyChangesItemEvidenceItemLabelMax = 240;
 
 
+
 export const aiRebaseChangesBodyChangesItemEvidenceMax = 4;
 
 export const aiRebaseChangesBodyChangesMax = 50;
+
 
 
 export const AiRebaseChangesBody = zod.object({
@@ -5580,7 +5671,10 @@ export const AiRebaseChangesBody = zod.object({
 export const aiRebaseChangesResponseChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
+
 export const aiRebaseChangesResponseChangesItemHunksItemEvidenceItemLabelMax = 240;
+
 
 
 export const aiRebaseChangesResponseChangesItemHunksItemEvidenceMax = 4;
@@ -5591,9 +5685,11 @@ export const aiRebaseChangesResponseChangesItemHunksMax = 100;
 export const aiRebaseChangesResponseChangesItemEvidenceItemLabelMax = 240;
 
 
+
 export const aiRebaseChangesResponseChangesItemEvidenceMax = 4;
 
 export const aiRebaseChangesResponseRevisionMin = 0;
+
 
 
 export const AiRebaseChangesResponse = zod.object({
@@ -5647,12 +5743,14 @@ export const ApproveAiRebasedProposalParams = zod.object({
 export const approveAiRebasedProposalBodyRevisionMin = 0;
 
 
+
 export const ApproveAiRebasedProposalBody = zod.object({
   "projectId": zod.string(),
   "revision": zod.number().int().min(approveAiRebasedProposalBodyRevisionMin)
 })
 
 export const approveAiRebasedProposalResponseRevisionMin = 0;
+
 
 
 export const ApproveAiRebasedProposalResponse = zod.object({
@@ -5672,7 +5770,10 @@ export const GetAiPendingProposalParams = zod.object({
 export const getAiPendingProposalResponseChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
+
 export const getAiPendingProposalResponseChangesItemHunksItemEvidenceItemLabelMax = 240;
+
 
 
 export const getAiPendingProposalResponseChangesItemHunksItemEvidenceMax = 4;
@@ -5683,6 +5784,7 @@ export const getAiPendingProposalResponseChangesItemHunksMax = 100;
 export const getAiPendingProposalResponseChangesItemEvidenceItemLabelMax = 240;
 
 
+
 export const getAiPendingProposalResponseChangesItemEvidenceMax = 4;
 
 export const getAiPendingProposalResponseRevisionMin = 0;
@@ -5690,7 +5792,10 @@ export const getAiPendingProposalResponseRevisionMin = 0;
 export const getAiPendingProposalResponseAppliedChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
 
+
+
 export const getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceItemLabelMax = 240;
+
 
 
 export const getAiPendingProposalResponseAppliedChangesItemHunksItemEvidenceMax = 4;
@@ -5699,6 +5804,7 @@ export const getAiPendingProposalResponseAppliedChangesItemHunksMax = 100;
 
 
 export const getAiPendingProposalResponseAppliedChangesItemEvidenceItemLabelMax = 240;
+
 
 
 export const getAiPendingProposalResponseAppliedChangesItemEvidenceMax = 4;
@@ -5710,6 +5816,7 @@ export const getAiPendingProposalResponseValidationEvidenceItemOverallBudgetMsMi
 export const getAiPendingProposalResponseValidationEvidenceItemElapsedMsMin = 0;
 
 export const getAiPendingProposalResponseValidationEvidenceItemRemainingMsMin = 0;
+
 
 
 export const GetAiPendingProposalResponse = zod.object({
@@ -5881,6 +5988,14 @@ export const ListAiChatMessagesParams = zod.object({
 })
 
 
+
+
+
+
+
+
+
+
 export const listAiChatMessagesResponseAcceptanceDispositionOneReasonCodesMax = 4;
 
 export const listAiChatMessagesResponseAcceptanceOneAttemptMin = 0;
@@ -5908,6 +6023,7 @@ export const listAiChatMessagesResponseForensicDiagnosticOneTruncatedFilesMax = 
 export const listAiChatMessagesResponseForensicDiagnosticOneTruncatedFileCountMin = 0;
 
 
+
 export const listAiChatMessagesResponseBehaviorEvidenceMax = 8;
 
 export const listAiChatMessagesResponseMissionCorrelationReportOneCountsMessagesMin = 0;
@@ -5931,6 +6047,16 @@ export const listAiChatMessagesResponseTaskResultFourEvidenceMax = 20;
 export const listAiChatMessagesResponseTaskResultFiveEvidenceMax = 20;
 
 export const listAiChatMessagesResponseTaskResultSixPhasesMax = 12;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOnePlannedFilesMax = 20;
+
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneFileStatusesMax = 40;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneTruncatedPlannedCountMin = 0;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneSkippedPlannedCountMin = 0;
+
 
 
 export const ListAiChatMessagesResponseItem = zod.object({
@@ -6087,15 +6213,15 @@ export const ListAiChatMessagesResponseItem = zod.object({
 })]).optional().describe('AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.'),
   "sourceSelectionRecord": zod.union([zod.object({
   "plannerTier": zod.enum(['targeted', 'graph_enriched', 'fallback']).describe('Server-derived planner quality tier; never contains provider text.'),
-  "plannedFiles": zod.array(zod.string()),
+  "plannedFiles": zod.array(zod.string()).max(listAiChatMessagesResponseSourceSelectionRecordOnePlannedFilesMax).describe('Up to 20 files from the query plan (post-graph-enrichment).'),
   "fileStatuses": zod.array(zod.object({
   "path": zod.string().min(1),
-  "origin": zod.enum(['planned', 'model_chosen']),
-  "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED'])
-})),
-  "truncatedPlannedCount": zod.number().int().min(0),
-  "skippedPlannedCount": zod.number().int().min(0)
-}),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns.'),
+  "origin": zod.enum(['planned', 'model_chosen']).describe('Whether this file was in the query plan or chosen by the model during the loop.'),
+  "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED']).describe('Server-classified read outcome; provider text is not used.')
+})).max(listAiChatMessagesResponseSourceSelectionRecordOneFileStatusesMax).describe('Up to 40 combined file statuses for planned and model-chosen files.'),
+  "truncatedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneTruncatedPlannedCountMin).describe('Number of planned files whose bodies were truncated.'),
+  "skippedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.')
+}),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.'),
   "createdAt": zod.coerce.date()
 })
 export const ListAiChatMessagesResponse = zod.array(ListAiChatMessagesResponseItem)
@@ -6122,6 +6248,7 @@ export const regenerateMissionCorrelationReportResponseMissionCorrelationReportC
 export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsValidationMin = 0;
 
 export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsCorrelatedEventsMin = 0;
+
 
 
 export const RegenerateMissionCorrelationReportResponse = zod.object({
@@ -6164,6 +6291,8 @@ export const RegenerateMissionCorrelationReportResponse = zod.object({
  * Project-authorized file-content read. Given a project-relative path and a 1-indexed line window, returns the ACTUAL source lines (never a model excerpt) so analysts can verify the exact code a claim cites. The response is "available:false" (with a reason) when the project root or file is unreachable rather than an HTTP error, so clients can degrade gracefully.
  * @summary Get the real source lines behind a behavior-evidence span
  */
+
+
 
 
 export const GetAiChatFileContentQueryParams = zod.object({
@@ -6245,6 +6374,7 @@ export const aiReviewCodeResponseReviewScopeContextGraphRelationshipsIncludedMin
 
 
 export const aiReviewCodeResponseReviewScopeLimitationsMax = 8;
+
 
 
 export const AiReviewCodeResponse = zod.object({
@@ -6373,6 +6503,7 @@ export const aiExecuteTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 export const aiExecuteTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
+
 export const AiExecuteTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -6492,6 +6623,7 @@ export const aiResumeTaskResponseRemediationPlanOneVerificationChecksMax = 20;
 export const aiResumeTaskResponseAcceptanceDispositionRetryAfterMsMin = 0;
 
 
+
 export const AiResumeTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -6603,6 +6735,7 @@ export const GetGroqKeyStatusResponse = zod.object({
 export const saveGroqKeyBodyApiKeyMin = 10;
 
 
+
 export const SaveGroqKeyBody = zod.object({
   "apiKey": zod.string().min(saveGroqKeyBodyApiKeyMin).describe('The Groq API key to save. Must not be logged or returned.')
 })
@@ -6636,6 +6769,7 @@ export const GetDeepSeekKeyStatusResponse = zod.object({
  * @summary Save or update the authenticated user's DeepSeek API key
  */
 export const saveDeepSeekKeyBodyApiKeyMin = 10;
+
 
 
 export const SaveDeepSeekKeyBody = zod.object({
@@ -6673,6 +6807,7 @@ export const GetOpenRouterKeyStatusResponse = zod.object({
 export const saveOpenRouterKeyBodyApiKeyMin = 10;
 
 
+
 export const SaveOpenRouterKeyBody = zod.object({
   "apiKey": zod.string().min(saveOpenRouterKeyBodyApiKeyMin).describe('The OpenRouter API key to save. Must not be logged or returned.')
 })
@@ -6708,6 +6843,7 @@ export const GetGeminiKeyStatusResponse = zod.object({
 export const saveGeminiKeyBodyApiKeyMin = 10;
 
 
+
 export const SaveGeminiKeyBody = zod.object({
   "apiKey": zod.string().min(saveGeminiKeyBodyApiKeyMin).describe('The Gemini API key to save. Must not be logged or returned.')
 })
@@ -6737,6 +6873,7 @@ export const GetProviderKeyStatusParams = zod.object({
 export const getProviderKeyStatusResponseLifecycleRevisionMin = 0;
 
 export const getProviderKeyStatusResponseLifecycleGenerationMin = 0;
+
 
 
 export const GetProviderKeyStatusResponse = zod.object({
@@ -6796,6 +6933,7 @@ export const SaveProviderKeyParams = zod.object({
 export const saveProviderKeyBodyApiKeyMin = 10;
 
 
+
 export const SaveProviderKeyBody = zod.object({
   "apiKey": zod.string().min(saveProviderKeyBodyApiKeyMin).describe('The Groq API key to save. Must not be logged or returned.')
 })
@@ -6803,6 +6941,7 @@ export const SaveProviderKeyBody = zod.object({
 export const saveProviderKeyResponseLifecycleRevisionMin = 0;
 
 export const saveProviderKeyResponseLifecycleGenerationMin = 0;
+
 
 
 export const SaveProviderKeyResponse = zod.object({
@@ -6871,6 +7010,7 @@ export const getAiMetricsQueryProjectIdMax = 160;
 
 export const getAiMetricsQueryDaysDefault = 30;
 export const getAiMetricsQueryDaysMax = 90;
+
 
 
 export const GetAiMetricsQueryParams = zod.object({
@@ -6960,6 +7100,7 @@ export const getAiMetricsResponseUsageTimelineItemRecoveryAttemptsMin = 0;
 export const getAiMetricsResponseUsageTimelineItemRecoveryAcceptedMin = 0;
 
 export const getAiMetricsResponseUsageTimelineItemFailureKindsMinOne = 0;
+
 
 
 export const GetAiMetricsResponse = zod.object({
@@ -7113,6 +7254,7 @@ export const exportAiMetricsQueryDaysDefault = 30;
 export const exportAiMetricsQueryDaysMax = 90;
 
 
+
 export const ExportAiMetricsQueryParams = zod.object({
   "projectId": zod.coerce.string().max(exportAiMetricsQueryProjectIdMax).optional().describe('Limit the report to one owner-scoped project.'),
   "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'gemini']).optional().describe('Limit the report to one provider.'),
@@ -7160,6 +7302,7 @@ export const exportAiMetricsResponseTimelineItemContractRecoveryAttemptsMin = 0;
 export const exportAiMetricsResponseTimelineItemContractRecoveryAcceptedMin = 0;
 
 export const exportAiMetricsResponseTimelineItemContractFailureKindsMinOne = 0;
+
 
 
 export const ExportAiMetricsResponse = zod.object({
@@ -7230,6 +7373,7 @@ export const listOperatorAlertsQueryLimitDefault = 50;
 export const listOperatorAlertsQueryLimitMax = 100;
 
 
+
 export const ListOperatorAlertsQueryParams = zod.object({
   "activeOnly": zod.coerce.boolean().default(listOperatorAlertsQueryActiveOnlyDefault).describe('Return only currently open alerts unless set to false.'),
   "limit": zod.coerce.number().int().min(1).max(listOperatorAlertsQueryLimitMax).default(listOperatorAlertsQueryLimitDefault).describe('Maximum number of alerts to return.')
@@ -7280,6 +7424,7 @@ export const GetGitHubTokenStatusResponse = zod.object({
 /**
  * @summary Save or update the authenticated user's GitHub Personal Access Token
  */
+
 
 
 export const SaveGitHubTokenBody = zod.object({
@@ -7374,6 +7519,8 @@ export const GetGitLogResponse = zod.object({
 export const GitCommitParams = zod.object({
   "projectId": zod.coerce.string()
 })
+
+
 
 
 export const GitCommitBody = zod.object({

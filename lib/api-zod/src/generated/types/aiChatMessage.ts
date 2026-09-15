@@ -24,6 +24,7 @@ import type { ForensicDiagnostic } from './forensicDiagnostic';
 import type { MissionCorrelationReport } from './missionCorrelationReport';
 import type { ProjectQueryTargetDecision } from './projectQueryTargetDecision';
 import type { ProviderFailureCategory } from './providerFailureCategory';
+import type { QuerySourceSelectionRecord } from './querySourceSelectionRecord';
 
 export interface AiChatMessage {
   id: string;
@@ -66,5 +67,7 @@ export interface AiChatMessage {
   missionCorrelationReport?: MissionCorrelationReport | null;
   /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+  /** File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds. */
+  sourceSelectionRecord?: QuerySourceSelectionRecord | null;
   createdAt: Date;
 }

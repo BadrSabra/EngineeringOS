@@ -2197,6 +2197,19 @@ export interface ExecutionLedgerSnapshot {
  * Allowlisted server-owned source-targeting mode; no planner or provider text is included.
  */
 export type ProjectQueryTargetDecisionMode = typeof ProjectQueryTargetDecisionMode[keyof typeof ProjectQueryTargetDecisionMode];
+
+
+export const ProjectQueryTargetDecisionMode = {
+  resolved_target: 'resolved_target',
+  bounded_unresolved_hint: 'bounded_unresolved_hint',
+  source_first_discovery: 'source_first_discovery',
+} as const;
+
+export interface ProjectQueryTargetDecision {
+  /** Allowlisted server-owned source-targeting mode; no planner or provider text is included. */
+  mode: ProjectQueryTargetDecisionMode;
+}
+
 /**
  * Safe diagnostic category for a provider failure. It does not expose provider payloads, credentials, URLs, or raw messages.
  */
@@ -2536,6 +2549,76 @@ export interface AiRepairResult {
   readiness: AiRepairResultReadiness;
 }
 
+/**
+ * Server-derived planner quality tier; never contains provider text.
+ */
+export type QuerySourceSelectionRecordPlannerTier = typeof QuerySourceSelectionRecordPlannerTier[keyof typeof QuerySourceSelectionRecordPlannerTier];
+
+
+export const QuerySourceSelectionRecordPlannerTier = {
+  targeted: 'targeted',
+  graph_enriched: 'graph_enriched',
+  fallback: 'fallback',
+} as const;
+
+/**
+ * Whether this file was in the query plan or chosen by the model during the loop.
+ */
+export type QuerySourceFileStatusOrigin = typeof QuerySourceFileStatusOrigin[keyof typeof QuerySourceFileStatusOrigin];
+
+
+export const QuerySourceFileStatusOrigin = {
+  planned: 'planned',
+  model_chosen: 'model_chosen',
+} as const;
+
+/**
+ * Server-classified read outcome; provider text is not used.
+ */
+export type QuerySourceFileStatusReadStatus = typeof QuerySourceFileStatusReadStatus[keyof typeof QuerySourceFileStatusReadStatus];
+
+
+export const QuerySourceFileStatusReadStatus = {
+  READ_COMPLETE: 'READ_COMPLETE',
+  READ_TRUNCATED: 'READ_TRUNCATED',
+  READ_FAILED: 'READ_FAILED',
+  READ_SKIPPED: 'READ_SKIPPED',
+} as const;
+
+export interface QuerySourceFileStatus {
+  /** @minLength 1 */
+  path: string;
+  /** Whether this file was in the query plan or chosen by the model during the loop. */
+  origin: QuerySourceFileStatusOrigin;
+  /** Server-classified read outcome; provider text is not used. */
+  readStatus: QuerySourceFileStatusReadStatus;
+}
+
+export interface QuerySourceSelectionRecord {
+  /** Server-derived planner quality tier; never contains provider text. */
+  plannerTier: QuerySourceSelectionRecordPlannerTier;
+  /**
+     * Up to 20 files from the query plan (post-graph-enrichment).
+     * @maxItems 20
+     */
+  plannedFiles: string[];
+  /**
+     * Up to 40 combined file statuses for planned and model-chosen files.
+     * @maxItems 40
+     */
+  fileStatuses: QuerySourceFileStatus[];
+  /**
+     * Number of planned files whose bodies were truncated.
+     * @minimum 0
+     */
+  truncatedPlannedCount: number;
+  /**
+     * Number of planned files that were never read.
+     * @minimum 0
+     */
+  skippedPlannedCount: number;
+}
+
 export interface AiChatMessage {
   id: string;
   sessionId: string;
@@ -2577,6 +2660,8 @@ export interface AiChatMessage {
   missionCorrelationReport?: MissionCorrelationReport | null;
   /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+  /** File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds. */
+  sourceSelectionRecord?: QuerySourceSelectionRecord | null;
   createdAt: string;
 }
 
@@ -5237,15 +5322,3 @@ activeOnly?: boolean;
  */
 limit?: number;
 };
-
-
-export const ProjectQueryTargetDecisionMode = {
-  resolved_target: 'resolved_target',
-  bounded_unresolved_hint: 'bounded_unresolved_hint',
-  source_first_discovery: 'source_first_discovery',
-} as const;
-
-export interface ProjectQueryTargetDecision {
-  /** Allowlisted server-owned source-targeting mode; no planner or provider text is included. */
-  mode: ProjectQueryTargetDecisionMode;
-}

@@ -290,9 +290,6 @@ const plannerTierInfo: Record<
 function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Hidden when there are no planned files — nothing meaningful to display.
-  if (record.plannedFiles.length === 0) return null;
-
   const plannedStatuses = record.fileStatuses.filter((e) => e.origin === 'planned');
   const modelChosenStatuses = record.fileStatuses.filter((e) => e.origin === 'model_chosen');
   const tierInfo = plannerTierInfo[record.plannerTier];
@@ -311,11 +308,18 @@ function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
           {tierInfo.label}
         </span>
         <span className="ml-1 text-muted-foreground">
-          {record.plannedFiles.length} planned
+          {record.plannedFiles.length > 0
+            ? `${record.plannedFiles.length} planned`
+            : 'No planned files'}
         </span>
       </button>
       {expanded && (
         <div className="border-t border-border/40 px-3 py-2 space-y-2">
+          {record.plannedFiles.length === 0 && (
+            <div className="rounded border border-amber-500/30 bg-amber-500/8 px-2 py-1 text-amber-300">
+              No files were selected by the planner. This answer used fallback source discovery; review coverage before relying on it.
+            </div>
+          )}
           {record.truncatedPlannedCount > 0 && (
             <div className="flex items-center gap-1.5 rounded border border-amber-500/30 bg-amber-500/8 px-2 py-1 text-amber-300">
               <AlertCircle className="h-3 w-3 shrink-0" />
