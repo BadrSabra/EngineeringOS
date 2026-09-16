@@ -20,3 +20,9 @@ There is a separate terminalization invariant: orientation coverage must gate ac
 **Why:** A real orientation turn returned `ANALYSIS_INCOMPLETE` with `components` missing, but `completeAiExecution` accepted it because its orientation gate was nested under `proofRequired`; the evidence snapshot then reflected five complete reads rather than semantic orientation coverage.
 
 **How to apply:** Treat `projectOrientation` as its own source-evidence acceptance contract. Keep the role manifest fail-closed, require `orientationCoverageComplete` at the terminal seam, and prevent incomplete orientation responses from entering session memory.
+
+Resume handling must reuse the existing `resumeContract` and retained-evidence seed path without promoting orientation to `proofRequired`. The route should load revision-bound complete reads for persisted orientation executions; the orchestrator already seeds its prefetch statuses and tool cache from those reads.
+
+**Why:** `proofRequired` activates targeted project-query claim acceptance, while orientation has a distinct role-coverage gate. Adding a second cache hydrator would duplicate the orchestrator's existing retained-evidence initialization and could create divergent read cursors.
+
+**How to apply:** Extend the existing resume eligibility/load conditions for persisted `projectOrientation` requests, preserve root/revision/operation checks, and keep generic non-orientation `PROJECT_QUERY` turns non-resumable.
