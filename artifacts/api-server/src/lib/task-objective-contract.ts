@@ -110,6 +110,8 @@ const SUPPORTED_VALIDATORS = new Set([
   "database-schema.v1",
   "file-conversion.v1",
   "media-artifact.v1",
+  "deployment-receipt.v1",
+  "integration-receipt.v1",
 ]);
 
 const CONTRACT_BLUEPRINTS: Record<
