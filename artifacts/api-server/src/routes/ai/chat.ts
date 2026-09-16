@@ -5534,7 +5534,10 @@ router.post("/ai/chat", async (req, res) => {
     });
     // Evidence-bound and forensic plans are stateless in both directions:
     // do not persist their source-derived response as future navigation memory.
-    if (contextExecutionPlan.taskProfile.memoryMode !== "none") {
+    const orientationMemoryAllowed =
+      !isProjectOrientationQuestion(message)
+      || result.sourceSelectionRecord?.orientationCoverage?.complete === true;
+    if (contextExecutionPlan.taskProfile.memoryMode !== "none" && orientationMemoryAllowed) {
       try {
         await writeSessionMemories(
           sessionIdToUse,
@@ -9709,6 +9712,20 @@ router.post("/ai/chat/stream", async (req, res) => {
             return [];
           })
         : [];
+      const orientationCoverageComplete = projectOrientationTurn
+        ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
+        : undefined;
+      const orientationCoverageIncomplete =
+        projectOrientationTurn && orientationCoverageComplete !== true;
+      const terminalEvidenceVerdict = orientationCoverageIncomplete
+        ? "PARTIAL" as const
+        : executionEvidenceVerdict;
+      const terminalEvidenceReason = orientationCoverageIncomplete
+        ? `Project orientation source coverage is incomplete: ${
+            result.sourceSelectionRecord?.orientationCoverage?.missingRoles.join(", ")
+              || "required roles are not fully covered"
+          }.`
+        : executionEvidenceReason;
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
@@ -9722,8 +9739,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         objectiveValidated: taskObjectiveValidated,
         taskResult: result.taskResult,
         nodeStates: executionNodeStates,
-        evidenceVerdict: executionEvidenceVerdict,
-        evidenceReason: executionEvidenceReason,
+        evidenceVerdict: terminalEvidenceVerdict,
+        evidenceReason: terminalEvidenceReason,
         ...(analysisEvidence ? { analysisEvidence } : {}),
         ...(forensicExecution ? { forensicAccepted: finalForensicAccepted === true } : {}),
         ...(capabilityProbeTerminal ? { capabilityProbe: capabilityProbeTerminal } : {}),
@@ -9738,9 +9755,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           : [],
         evidenceReads: evidenceReadsForTerminal(),
         evidenceProgress: evidenceProgressForTerminal(),
-        orientationCoverageComplete: projectOrientationTurn
-          ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
-          : undefined,
+        orientationCoverageComplete,
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";
@@ -9759,8 +9774,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           nodeStates: executionNodeStates,
           operation: undefined,
           acceptanceDisposition,
-          evidenceVerdict: executionEvidenceVerdict,
-          evidenceReason: executionEvidenceReason,
+          evidenceVerdict: terminalEvidenceVerdict,
+          evidenceReason: terminalEvidenceReason,
           evidenceReads: evidenceReadsForTerminal(),
           evidenceProgress: evidenceProgressForTerminal(),
         });
@@ -9809,7 +9824,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     executionTerminal = true;
 
     // Evidence-bound and forensic plans are stateless in both directions.
-    if (streamExecutionPlan.taskProfile.memoryMode !== "none") {
+    const orientationMemoryAllowed =
+      !projectOrientationTurn
+      || result.sourceSelectionRecord?.orientationCoverage?.complete === true;
+    if (streamExecutionPlan.taskProfile.memoryMode !== "none" && orientationMemoryAllowed) {
       try {
         await writeSessionMemories(
           sessionIdToUse,

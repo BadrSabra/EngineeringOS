@@ -210,7 +210,7 @@ export function deriveFallbackOrientationSources(
     ),
     components: pickOrientationPaths(
       paths,
-      /^(?!(?:.*\/(?:__tests__|tests?|specs?)(?:\/|$)|.*\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$))(?:(?:src\/(?:app|main|index)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))|(?:(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)))$/iu,
+      /^(?!(?:.*\/(?:__tests__|tests?|specs?)(?:\/|$)|.*\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:.*\/)?(?:route|routes|controller|controllers|handler|handlers|service|services|api|server)(?:\/|\.|$)|(?:.*\/)?[^/]+\.config\.[^/]+$))(?:(?:.*\/)?src\/.*|(?:.*\/)?(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/iu,
     ),
     primaryFlow: pickOrientationPaths(
       paths,

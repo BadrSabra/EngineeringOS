@@ -2268,7 +2268,10 @@ export async function completeAiExecution(params: {
     || Boolean(request?.capabilityProbe && request?.proofRequired === true);
   const projectOrientationExecution =
     request?.turnIntent === "PROJECT_QUERY" && request?.projectOrientation === true;
-  const projectOrientationAcceptance = projectOrientationExecution && requiresProof;
+  // Project orientation is a source-evidence contract even when it is not a
+  // proof-required targeted query. Generic complete reads must not turn an
+  // explanation with a missing role into a PROVEN terminal result.
+  const projectOrientationAcceptance = projectOrientationExecution;
   const projectQueryProofExecution =
     request?.turnIntent === "PROJECT_QUERY" && requiresProof && !forensicExecution;
   const operation = params.operation ?? checkpoint?.operation;

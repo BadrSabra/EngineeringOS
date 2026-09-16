@@ -195,10 +195,12 @@ describe("query-planner — knowledge-graph enrichment", () => {
       "package (package.json)",
       "tests (lib/ai-orchestrator/src/__tests__/chat-agent.test.ts)",
       "config (artifacts/dashboard/vite.config.ts)",
+      "dashboard (artifacts/dashboard/src/components/App.tsx)",
     ].join("\n"));
 
     expect(sources.purpose).toEqual(["README.md", "package.json"]);
     expect(sources.components).toContain("lib/ai-orchestrator/src/agents/chat-agent.ts");
+    expect(sources.components).toContain("artifacts/dashboard/src/components/App.tsx");
     expect(sources.primaryFlow).toContain("artifacts/api-server/src/routes/ai/chat.ts");
     expect(sources.uncertainty).toEqual([
       "lib/ai-orchestrator/src/__tests__/chat-agent.test.ts",

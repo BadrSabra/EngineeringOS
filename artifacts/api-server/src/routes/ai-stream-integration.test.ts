@@ -431,6 +431,8 @@ async function createReconnectedProofFixture(params: {
   checkpointOperationId?: string;
   includeNodeState?: boolean;
   reclaimAfterReconciliation?: boolean;
+  proofRequired?: boolean;
+  projectOrientation?: boolean;
 }) {
   const [project] = await db
     .select({ updatedAt: projectsTable.updatedAt })
@@ -446,6 +448,7 @@ async function createReconnectedProofFixture(params: {
   const workspaceRoot = projectRoot!.rootPath;
   const candidateIdentity = "candidate-proof-fixture";
   const evidenceRef = "validation-proof-fixture";
+  const proofRequired = params.proofRequired ?? true;
   const node = {
     id: "proof-node",
     title: "Validate the proof fixture",
@@ -476,7 +479,9 @@ async function createReconnectedProofFixture(params: {
     workspaceRevision,
     workspaceRoot,
     validationTargetPaths: ["src/proof-fixture.ts"],
-    proofRequired: true,
+    proofRequired,
+    ...(params.projectOrientation ? { turnIntent: "PROJECT_QUERY" } : {}),
+    ...(params.projectOrientation ? { projectOrientation: true } : {}),
   };
   const created = await createAiExecution({
     userId: "test-user",
@@ -513,7 +518,7 @@ async function createReconnectedProofFixture(params: {
     operation: params.checkpointOperationId
       ? { ...operation, operationId: params.checkpointOperationId }
       : operation,
-    proofRequired: true,
+    proofRequired,
     evidenceVerdict: "PARTIAL" as const,
     evidenceRefs: [evidenceRef],
     detail: "Durable proof fixture checkpoint.",
@@ -1430,6 +1435,49 @@ describe("Durable AI completion identity", () => {
       evidenceVerdict: "PROVEN",
       operation: { operationId },
     });
+  });
+
+  it("does not accept incomplete project orientation when proof is not required", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Project orientation acceptance");
+    const operationId = `orientation-operation-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+      proofRequired: false,
+      projectOrientation: true,
+    });
+
+    const completed = await completeAiExecution({
+      executionId: fixture.created.execution.id,
+      workerId: fixture.workerId!,
+      operation: fixture.operation,
+      proofRequired: false,
+      operationId,
+      evidenceVerdict: "PROVEN",
+      evidenceReads: [{
+        path: "src/proof-fixture.ts",
+        readType: "source",
+        body: PROOF_FIXTURE_BODY,
+        complete: true,
+        truncated: false,
+      }],
+      orientationCoverageComplete: false,
+    });
+
+    expect(completed).toBe(false);
+    const [stored] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(stored?.status).toBe("running");
+    expect(parseAiExecutionCheckpoint(stored?.checkpoint)?.stage).not.toBe("completed");
   });
 
   it("rejects terminal evidence when the execution root or revision drifts", async () => {
@@ -8210,6 +8258,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       explanationInput = args[1] as typeof explanationInput;
       const onStep = (args[1] as { onStep?: (step: unknown) => void }).onStep;
+      const retainedEvidence = (args[1] as {
+        retainedEvidence?: Map<string, string>;
+      }).retainedEvidence;
       const orientationFiles = [
         "src/verified.ts",
         "src/components.ts",
@@ -8217,6 +8268,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         "tests/verified.test.ts",
       ];
       for (const path of orientationFiles) {
+        retainedEvidence?.set(path, `source for ${path}`);
         onStep?.({
           kind: "tool_call",
           tool: "read_file",
