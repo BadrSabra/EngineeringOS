@@ -2416,6 +2416,197 @@ export interface AiTerminalProjection {
   resumable: boolean;
 }
 
+export type AiExecutionProjectionSchemaVersion = typeof AiExecutionProjectionSchemaVersion[keyof typeof AiExecutionProjectionSchemaVersion];
+
+
+export const AiExecutionProjectionSchemaVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type AiExecutionProjectionKind = typeof AiExecutionProjectionKind[keyof typeof AiExecutionProjectionKind];
+
+
+export const AiExecutionProjectionKind = {
+  CHAT: 'CHAT',
+  TASK: 'TASK',
+  DELIVERY: 'DELIVERY',
+  RECIPE: 'RECIPE',
+} as const;
+
+export type AiExecutionProjectionPlanStepsItemStatus = typeof AiExecutionProjectionPlanStepsItemStatus[keyof typeof AiExecutionProjectionPlanStepsItemStatus];
+
+
+export const AiExecutionProjectionPlanStepsItemStatus = {
+  pending: 'pending',
+  active: 'active',
+  completed: 'completed',
+  blocked: 'blocked',
+  failed: 'failed',
+} as const;
+
+export type AiExecutionProjectionToolsRecentItemStatus = typeof AiExecutionProjectionToolsRecentItemStatus[keyof typeof AiExecutionProjectionToolsRecentItemStatus];
+
+
+export const AiExecutionProjectionToolsRecentItemStatus = {
+  started: 'started',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export type AiExecutionProjectionWorkspaceDiffStatus = typeof AiExecutionProjectionWorkspaceDiffStatus[keyof typeof AiExecutionProjectionWorkspaceDiffStatus];
+
+
+export const AiExecutionProjectionWorkspaceDiffStatus = {
+  available: 'available',
+  not_available: 'not_available',
+  not_applicable: 'not_applicable',
+} as const;
+
+export type AiExecutionProjectionVerificationStatus = typeof AiExecutionProjectionVerificationStatus[keyof typeof AiExecutionProjectionVerificationStatus];
+
+
+export const AiExecutionProjectionVerificationStatus = {
+  pending: 'pending',
+  running: 'running',
+  passed: 'passed',
+  failed: 'failed',
+  unavailable: 'unavailable',
+} as const;
+
+export type AiExecutionProjectionApprovalStatus = typeof AiExecutionProjectionApprovalStatus[keyof typeof AiExecutionProjectionApprovalStatus];
+
+
+export const AiExecutionProjectionApprovalStatus = {
+  NOT_REQUIRED: 'NOT_REQUIRED',
+  PENDING: 'PENDING',
+  APPROVED: 'APPROVED',
+} as const;
+
+export type AiExecutionProjectionStoppedOutcome = typeof AiExecutionProjectionStoppedOutcome[keyof typeof AiExecutionProjectionStoppedOutcome] | null;
+
+
+export const AiExecutionProjectionStoppedOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type AiExecutionProjectionAllowedActionsItem = typeof AiExecutionProjectionAllowedActionsItem[keyof typeof AiExecutionProjectionAllowedActionsItem];
+
+
+export const AiExecutionProjectionAllowedActionsItem = {
+  CANCEL: 'CANCEL',
+  RESUME_CHECKPOINT: 'RESUME_CHECKPOINT',
+  RETRY_CHECKPOINT: 'RETRY_CHECKPOINT',
+  START_NEW_RUN: 'START_NEW_RUN',
+  REVIEW_PROOF: 'REVIEW_PROOF',
+  REVIEW_DIFF: 'REVIEW_DIFF',
+  APPROVE_CHANGES: 'APPROVE_CHANGES',
+} as const;
+
+export type AiExecutionProjectionProgress = {
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  percent: number | null;
+  /** @maxLength 240 */
+  label: string;
+  /** @maxLength 240 */
+  currentStep: string | null;
+  /** @minimum 0 */
+  completedSteps: number;
+  /** @minimum 0 */
+  totalSteps: number | null;
+};
+
+export type AiExecutionProjectionPlanStepsItem = {
+  /** @maxLength 80 */
+  id: string;
+  /** @maxLength 240 */
+  title: string;
+  status: AiExecutionProjectionPlanStepsItemStatus;
+  /** @maxLength 40 */
+  action: string | null;
+  /**
+     * @maxItems 20
+     * @items.maxLength 500
+     */
+  files: string[];
+};
+
+export type AiExecutionProjectionPlan = {
+  /** @maxItems 20 */
+  steps: AiExecutionProjectionPlanStepsItem[];
+  /** @maxLength 80 */
+  currentStepId: string | null;
+};
+
+export type AiExecutionProjectionToolsRecentItem = {
+  /** @maxLength 80 */
+  tool: string;
+  status: AiExecutionProjectionToolsRecentItemStatus;
+  /** @maxLength 500 */
+  source: string | null;
+};
+
+export type AiExecutionProjectionTools = {
+  /** @minimum 0 */
+  totalCalls: number;
+  /** @maxLength 80 */
+  activeTool: string | null;
+  /** @maxItems 8 */
+  recent: AiExecutionProjectionToolsRecentItem[];
+};
+
+export type AiExecutionProjectionWorkspace = {
+  /**
+     * @maxItems 20
+     * @items.maxLength 500
+     */
+  changedFiles: string[];
+  diffStatus: AiExecutionProjectionWorkspaceDiffStatus;
+};
+
+export type AiExecutionProjectionVerification = {
+  status: AiExecutionProjectionVerificationStatus;
+  /** @maxLength 40 */
+  evidenceVerdict: string;
+  proofRequired: boolean;
+};
+
+export type AiExecutionProjectionApproval = {
+  required: boolean;
+  status: AiExecutionProjectionApprovalStatus;
+  proposalId: string | null;
+};
+
+export type AiExecutionProjectionStopped = {
+  reason: string | null;
+  outcome: AiExecutionProjectionStoppedOutcome;
+};
+
+export interface AiExecutionProjection {
+  schemaVersion: AiExecutionProjectionSchemaVersion;
+  kind: AiExecutionProjectionKind;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  phase: string;
+  /** @maxLength 500 */
+  objective: string;
+  progress: AiExecutionProjectionProgress;
+  plan: AiExecutionProjectionPlan;
+  tools: AiExecutionProjectionTools;
+  workspace: AiExecutionProjectionWorkspace;
+  verification: AiExecutionProjectionVerification;
+  approval: AiExecutionProjectionApproval;
+  stopped: AiExecutionProjectionStopped;
+  /** @maxItems 7 */
+  allowedActions: AiExecutionProjectionAllowedActionsItem[];
+}
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -2649,6 +2840,8 @@ export interface AiChatMessage {
   acceptance?: AiExecutionAcceptance | null;
   /** Canonical terminal identity shared by stream, execution detail, and chat history. */
   terminalProjection?: AiTerminalProjection | null;
+  /** Full server-owned execution read model shared by detail, history, and terminal stream surfaces. */
+  projection?: AiExecutionProjection | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**
@@ -2735,197 +2928,6 @@ export interface AiExecutionDiagnostics {
   /** @maxItems 4 */
   providers: AiExecutionDiagnosticsProvidersItem[];
   failureCategories: AiExecutionDiagnosticsFailureCategories;
-}
-
-export type AiExecutionProjectionSchemaVersion = typeof AiExecutionProjectionSchemaVersion[keyof typeof AiExecutionProjectionSchemaVersion];
-
-
-export const AiExecutionProjectionSchemaVersion = {
-  NUMBER_1: 1,
-} as const;
-
-export type AiExecutionProjectionKind = typeof AiExecutionProjectionKind[keyof typeof AiExecutionProjectionKind];
-
-
-export const AiExecutionProjectionKind = {
-  CHAT: 'CHAT',
-  TASK: 'TASK',
-  DELIVERY: 'DELIVERY',
-  RECIPE: 'RECIPE',
-} as const;
-
-export type AiExecutionProjectionProgress = {
-  /**
-     * @minimum 0
-     * @maximum 100
-     */
-  percent: number | null;
-  /** @maxLength 240 */
-  label: string;
-  /** @maxLength 240 */
-  currentStep: string | null;
-  /** @minimum 0 */
-  completedSteps: number;
-  /** @minimum 0 */
-  totalSteps: number | null;
-};
-
-export type AiExecutionProjectionPlanStepsItemStatus = typeof AiExecutionProjectionPlanStepsItemStatus[keyof typeof AiExecutionProjectionPlanStepsItemStatus];
-
-
-export const AiExecutionProjectionPlanStepsItemStatus = {
-  pending: 'pending',
-  active: 'active',
-  completed: 'completed',
-  blocked: 'blocked',
-  failed: 'failed',
-} as const;
-
-export type AiExecutionProjectionPlanStepsItem = {
-  /** @maxLength 80 */
-  id: string;
-  /** @maxLength 240 */
-  title: string;
-  status: AiExecutionProjectionPlanStepsItemStatus;
-  /** @maxLength 40 */
-  action: string | null;
-  /**
-     * @maxItems 20
-     * @items.maxLength 500
-     */
-  files: string[];
-};
-
-export type AiExecutionProjectionPlan = {
-  /** @maxItems 20 */
-  steps: AiExecutionProjectionPlanStepsItem[];
-  /** @maxLength 80 */
-  currentStepId: string | null;
-};
-
-export type AiExecutionProjectionToolsRecentItemStatus = typeof AiExecutionProjectionToolsRecentItemStatus[keyof typeof AiExecutionProjectionToolsRecentItemStatus];
-
-
-export const AiExecutionProjectionToolsRecentItemStatus = {
-  started: 'started',
-  completed: 'completed',
-  failed: 'failed',
-} as const;
-
-export type AiExecutionProjectionToolsRecentItem = {
-  /** @maxLength 80 */
-  tool: string;
-  status: AiExecutionProjectionToolsRecentItemStatus;
-  /** @maxLength 500 */
-  source: string | null;
-};
-
-export type AiExecutionProjectionTools = {
-  /** @minimum 0 */
-  totalCalls: number;
-  /** @maxLength 80 */
-  activeTool: string | null;
-  /** @maxItems 8 */
-  recent: AiExecutionProjectionToolsRecentItem[];
-};
-
-export type AiExecutionProjectionWorkspaceDiffStatus = typeof AiExecutionProjectionWorkspaceDiffStatus[keyof typeof AiExecutionProjectionWorkspaceDiffStatus];
-
-
-export const AiExecutionProjectionWorkspaceDiffStatus = {
-  available: 'available',
-  not_available: 'not_available',
-  not_applicable: 'not_applicable',
-} as const;
-
-export type AiExecutionProjectionWorkspace = {
-  /**
-     * @maxItems 20
-     * @items.maxLength 500
-     */
-  changedFiles: string[];
-  diffStatus: AiExecutionProjectionWorkspaceDiffStatus;
-};
-
-export type AiExecutionProjectionVerificationStatus = typeof AiExecutionProjectionVerificationStatus[keyof typeof AiExecutionProjectionVerificationStatus];
-
-
-export const AiExecutionProjectionVerificationStatus = {
-  pending: 'pending',
-  running: 'running',
-  passed: 'passed',
-  failed: 'failed',
-  unavailable: 'unavailable',
-} as const;
-
-export type AiExecutionProjectionVerification = {
-  status: AiExecutionProjectionVerificationStatus;
-  /** @maxLength 40 */
-  evidenceVerdict: string;
-  proofRequired: boolean;
-};
-
-export type AiExecutionProjectionApprovalStatus = typeof AiExecutionProjectionApprovalStatus[keyof typeof AiExecutionProjectionApprovalStatus];
-
-
-export const AiExecutionProjectionApprovalStatus = {
-  NOT_REQUIRED: 'NOT_REQUIRED',
-  PENDING: 'PENDING',
-  APPROVED: 'APPROVED',
-} as const;
-
-export type AiExecutionProjectionApproval = {
-  required: boolean;
-  status: AiExecutionProjectionApprovalStatus;
-  proposalId: string | null;
-};
-
-export type AiExecutionProjectionStoppedOutcome = typeof AiExecutionProjectionStoppedOutcome[keyof typeof AiExecutionProjectionStoppedOutcome] | null;
-
-
-export const AiExecutionProjectionStoppedOutcome = {
-  SUCCEEDED: 'SUCCEEDED',
-  FAILED: 'FAILED',
-  INTERRUPTED: 'INTERRUPTED',
-} as const;
-
-export type AiExecutionProjectionStopped = {
-  reason: string | null;
-  outcome: AiExecutionProjectionStoppedOutcome;
-};
-
-export type AiExecutionProjectionAllowedActionsItem = typeof AiExecutionProjectionAllowedActionsItem[keyof typeof AiExecutionProjectionAllowedActionsItem];
-
-
-export const AiExecutionProjectionAllowedActionsItem = {
-  CANCEL: 'CANCEL',
-  RESUME_CHECKPOINT: 'RESUME_CHECKPOINT',
-  RETRY_CHECKPOINT: 'RETRY_CHECKPOINT',
-  START_NEW_RUN: 'START_NEW_RUN',
-  REVIEW_PROOF: 'REVIEW_PROOF',
-  REVIEW_DIFF: 'REVIEW_DIFF',
-  APPROVE_CHANGES: 'APPROVE_CHANGES',
-} as const;
-
-export interface AiExecutionProjection {
-  schemaVersion: AiExecutionProjectionSchemaVersion;
-  kind: AiExecutionProjectionKind;
-  /**
-     * @minLength 1
-     * @maxLength 80
-     */
-  phase: string;
-  /** @maxLength 500 */
-  objective: string;
-  progress: AiExecutionProjectionProgress;
-  plan: AiExecutionProjectionPlan;
-  tools: AiExecutionProjectionTools;
-  workspace: AiExecutionProjectionWorkspace;
-  verification: AiExecutionProjectionVerification;
-  approval: AiExecutionProjectionApproval;
-  stopped: AiExecutionProjectionStopped;
-  /** @maxItems 7 */
-  allowedActions: AiExecutionProjectionAllowedActionsItem[];
 }
 
 export type AiImplementationPlanResultKind = typeof AiImplementationPlanResultKind[keyof typeof AiImplementationPlanResultKind];
@@ -5279,6 +5281,8 @@ export type ListAiExecutionHistory200Item = {
   acceptance?: AiExecutionAcceptance | null;
   /** Canonical terminal identity for the retained execution attempt. */
   terminalProjection?: AiTerminalProjection | null;
+  /** Full server-owned execution read model shared by detail, history, and terminal stream surfaces. */
+  projection?: AiExecutionProjection;
   proofRequired: boolean;
   disposition: ListAiExecutionHistory200ItemDisposition;
   recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;

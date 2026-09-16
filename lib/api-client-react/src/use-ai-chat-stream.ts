@@ -33,6 +33,7 @@ import { useState, useCallback, useRef } from 'react';
 import { parseAiSseDataLine } from '@workspace/api-zod';
 import type { BrowserValidationBlockReason, PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
 import type { ExecutionLedgerPublicSnapshot, ForensicDiagnostic } from '@workspace/ai-orchestrator';
+import type { AiExecutionProjection } from './generated/api.schemas';
 
 // ── Event shapes ──────────────────────────────────────────────────────────────
 
@@ -127,6 +128,8 @@ export type AiStreamDoneEvent = {
     sessionId?: string | null;
     attempt?: number;
     terminalProjection?: AiTerminalProjection;
+    /** Full server-owned execution read model; identical to execution detail/history. */
+    projection?: AiExecutionProjection;
     projectQueryTarget?: {
       mode: 'resolved_target' | 'bounded_unresolved_hint' | 'source_first_discovery';
     } | null;
@@ -167,6 +170,8 @@ export type AiStreamDoneEvent = {
   executionLedger?: ExecutionLedgerPublicSnapshot;
   /** Canonical terminal identity shared with durable REST/history projections. */
   terminalProjection?: AiTerminalProjection;
+  /** Full server-owned execution read model; identical to execution detail/history. */
+  projection?: AiExecutionProjection;
   productionReachability?: AiProductionReachabilityTrace;
   crossFileTraces?: AiCrossFileSemanticTrace[];
   /**
@@ -319,6 +324,8 @@ export type AiStreamErrorEvent = {
   correlationId?: string;
   /** Canonical terminal identity shared with durable REST/history projections. */
   terminalProjection?: AiTerminalProjection;
+  /** Full server-owned execution read model; identical to execution detail/history. */
+  projection?: AiExecutionProjection;
 };
 
 export type AiTerminalProjection = {

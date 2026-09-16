@@ -3400,6 +3400,53 @@ export const aiChatResponseMessageAcceptanceOneDispositionRetryAfterMsMin = 0;
 
 export const aiChatResponseMessageTerminalProjectionOneAttemptMin = 0;
 
+export const aiChatResponseMessageProjectionOnePhaseMax = 80;
+
+export const aiChatResponseMessageProjectionOneObjectiveMax = 500;
+
+export const aiChatResponseMessageProjectionOneProgressPercentMin = 0;
+export const aiChatResponseMessageProjectionOneProgressPercentMax = 100;
+
+export const aiChatResponseMessageProjectionOneProgressLabelMax = 240;
+
+export const aiChatResponseMessageProjectionOneProgressCurrentStepMax = 240;
+
+export const aiChatResponseMessageProjectionOneProgressCompletedStepsMin = 0;
+
+export const aiChatResponseMessageProjectionOneProgressTotalStepsMin = 0;
+
+export const aiChatResponseMessageProjectionOnePlanStepsItemIdMax = 80;
+
+export const aiChatResponseMessageProjectionOnePlanStepsItemTitleMax = 240;
+
+export const aiChatResponseMessageProjectionOnePlanStepsItemActionMax = 40;
+
+export const aiChatResponseMessageProjectionOnePlanStepsItemFilesItemMax = 500;
+
+export const aiChatResponseMessageProjectionOnePlanStepsItemFilesMax = 20;
+
+export const aiChatResponseMessageProjectionOnePlanStepsMax = 20;
+
+export const aiChatResponseMessageProjectionOnePlanCurrentStepIdMax = 80;
+
+export const aiChatResponseMessageProjectionOneToolsTotalCallsMin = 0;
+
+export const aiChatResponseMessageProjectionOneToolsActiveToolMax = 80;
+
+export const aiChatResponseMessageProjectionOneToolsRecentItemToolMax = 80;
+
+export const aiChatResponseMessageProjectionOneToolsRecentItemSourceMax = 500;
+
+export const aiChatResponseMessageProjectionOneToolsRecentMax = 8;
+
+export const aiChatResponseMessageProjectionOneWorkspaceChangedFilesItemMax = 500;
+
+export const aiChatResponseMessageProjectionOneWorkspaceChangedFilesMax = 20;
+
+export const aiChatResponseMessageProjectionOneVerificationEvidenceVerdictMax = 40;
+
+export const aiChatResponseMessageProjectionOneAllowedActionsMax = 7;
+
 export const aiChatResponseMessageForensicDiagnosticOneExplanationMax = 500;
 
 export const aiChatResponseMessageForensicDiagnosticOneNextActionMax = 300;
@@ -3573,6 +3620,57 @@ export const AiChatResponse = zod.object({
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
 }),zod.null()]).optional().describe('Canonical terminal identity shared by stream, execution detail, and chat history.'),
+  "projection": zod.union([zod.object({
+  "schemaVersion": zod.literal(1),
+  "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
+  "phase": zod.string().min(1).max(aiChatResponseMessageProjectionOnePhaseMax),
+  "objective": zod.string().max(aiChatResponseMessageProjectionOneObjectiveMax),
+  "progress": zod.object({
+  "percent": zod.number().int().min(aiChatResponseMessageProjectionOneProgressPercentMin).max(aiChatResponseMessageProjectionOneProgressPercentMax).nullable(),
+  "label": zod.string().max(aiChatResponseMessageProjectionOneProgressLabelMax),
+  "currentStep": zod.string().max(aiChatResponseMessageProjectionOneProgressCurrentStepMax).nullable(),
+  "completedSteps": zod.number().int().min(aiChatResponseMessageProjectionOneProgressCompletedStepsMin),
+  "totalSteps": zod.number().int().min(aiChatResponseMessageProjectionOneProgressTotalStepsMin).nullable()
+}),
+  "plan": zod.object({
+  "steps": zod.array(zod.object({
+  "id": zod.string().max(aiChatResponseMessageProjectionOnePlanStepsItemIdMax),
+  "title": zod.string().max(aiChatResponseMessageProjectionOnePlanStepsItemTitleMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'failed']),
+  "action": zod.string().max(aiChatResponseMessageProjectionOnePlanStepsItemActionMax).nullable(),
+  "files": zod.array(zod.string().max(aiChatResponseMessageProjectionOnePlanStepsItemFilesItemMax)).max(aiChatResponseMessageProjectionOnePlanStepsItemFilesMax)
+})).max(aiChatResponseMessageProjectionOnePlanStepsMax),
+  "currentStepId": zod.string().max(aiChatResponseMessageProjectionOnePlanCurrentStepIdMax).nullable()
+}),
+  "tools": zod.object({
+  "totalCalls": zod.number().int().min(aiChatResponseMessageProjectionOneToolsTotalCallsMin),
+  "activeTool": zod.string().max(aiChatResponseMessageProjectionOneToolsActiveToolMax).nullable(),
+  "recent": zod.array(zod.object({
+  "tool": zod.string().max(aiChatResponseMessageProjectionOneToolsRecentItemToolMax),
+  "status": zod.enum(['started', 'completed', 'failed']),
+  "source": zod.string().max(aiChatResponseMessageProjectionOneToolsRecentItemSourceMax).nullable()
+})).max(aiChatResponseMessageProjectionOneToolsRecentMax)
+}),
+  "workspace": zod.object({
+  "changedFiles": zod.array(zod.string().max(aiChatResponseMessageProjectionOneWorkspaceChangedFilesItemMax)).max(aiChatResponseMessageProjectionOneWorkspaceChangedFilesMax),
+  "diffStatus": zod.enum(['available', 'not_available', 'not_applicable'])
+}),
+  "verification": zod.object({
+  "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
+  "evidenceVerdict": zod.string().max(aiChatResponseMessageProjectionOneVerificationEvidenceVerdictMax),
+  "proofRequired": zod.boolean()
+}),
+  "approval": zod.object({
+  "required": zod.boolean(),
+  "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
+  "proposalId": zod.string().uuid().nullable()
+}),
+  "stopped": zod.object({
+  "reason": zod.string().nullable(),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+}),
+  "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(aiChatResponseMessageProjectionOneAllowedActionsMax)
+}),zod.null()]).optional().describe('Full server-owned execution read model shared by detail, history, and terminal stream surfaces.'),
   "forensicDiagnostic": zod.union([zod.object({
   "version": zod.literal(1),
   "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),
@@ -4090,6 +4188,53 @@ export const listAiExecutionHistoryResponseAcceptanceOneDispositionRetryAfterMsM
 
 export const listAiExecutionHistoryResponseTerminalProjectionOneAttemptMin = 0;
 
+export const listAiExecutionHistoryResponseProjectionPhaseMax = 80;
+
+export const listAiExecutionHistoryResponseProjectionObjectiveMax = 500;
+
+export const listAiExecutionHistoryResponseProjectionProgressPercentMin = 0;
+export const listAiExecutionHistoryResponseProjectionProgressPercentMax = 100;
+
+export const listAiExecutionHistoryResponseProjectionProgressLabelMax = 240;
+
+export const listAiExecutionHistoryResponseProjectionProgressCurrentStepMax = 240;
+
+export const listAiExecutionHistoryResponseProjectionProgressCompletedStepsMin = 0;
+
+export const listAiExecutionHistoryResponseProjectionProgressTotalStepsMin = 0;
+
+export const listAiExecutionHistoryResponseProjectionPlanStepsItemIdMax = 80;
+
+export const listAiExecutionHistoryResponseProjectionPlanStepsItemTitleMax = 240;
+
+export const listAiExecutionHistoryResponseProjectionPlanStepsItemActionMax = 40;
+
+export const listAiExecutionHistoryResponseProjectionPlanStepsItemFilesItemMax = 500;
+
+export const listAiExecutionHistoryResponseProjectionPlanStepsItemFilesMax = 20;
+
+export const listAiExecutionHistoryResponseProjectionPlanStepsMax = 20;
+
+export const listAiExecutionHistoryResponseProjectionPlanCurrentStepIdMax = 80;
+
+export const listAiExecutionHistoryResponseProjectionToolsTotalCallsMin = 0;
+
+export const listAiExecutionHistoryResponseProjectionToolsActiveToolMax = 80;
+
+export const listAiExecutionHistoryResponseProjectionToolsRecentItemToolMax = 80;
+
+export const listAiExecutionHistoryResponseProjectionToolsRecentItemSourceMax = 500;
+
+export const listAiExecutionHistoryResponseProjectionToolsRecentMax = 8;
+
+export const listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesItemMax = 500;
+
+export const listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesMax = 20;
+
+export const listAiExecutionHistoryResponseProjectionVerificationEvidenceVerdictMax = 40;
+
+export const listAiExecutionHistoryResponseProjectionAllowedActionsMax = 7;
+
 
 
 export const ListAiExecutionHistoryResponseItem = zod.object({
@@ -4143,6 +4288,57 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
 }),zod.null()]).optional().describe('Canonical terminal identity for the retained execution attempt.'),
+  "projection": zod.object({
+  "schemaVersion": zod.literal(1),
+  "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
+  "phase": zod.string().min(1).max(listAiExecutionHistoryResponseProjectionPhaseMax),
+  "objective": zod.string().max(listAiExecutionHistoryResponseProjectionObjectiveMax),
+  "progress": zod.object({
+  "percent": zod.number().int().min(listAiExecutionHistoryResponseProjectionProgressPercentMin).max(listAiExecutionHistoryResponseProjectionProgressPercentMax).nullable(),
+  "label": zod.string().max(listAiExecutionHistoryResponseProjectionProgressLabelMax),
+  "currentStep": zod.string().max(listAiExecutionHistoryResponseProjectionProgressCurrentStepMax).nullable(),
+  "completedSteps": zod.number().int().min(listAiExecutionHistoryResponseProjectionProgressCompletedStepsMin),
+  "totalSteps": zod.number().int().min(listAiExecutionHistoryResponseProjectionProgressTotalStepsMin).nullable()
+}),
+  "plan": zod.object({
+  "steps": zod.array(zod.object({
+  "id": zod.string().max(listAiExecutionHistoryResponseProjectionPlanStepsItemIdMax),
+  "title": zod.string().max(listAiExecutionHistoryResponseProjectionPlanStepsItemTitleMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'failed']),
+  "action": zod.string().max(listAiExecutionHistoryResponseProjectionPlanStepsItemActionMax).nullable(),
+  "files": zod.array(zod.string().max(listAiExecutionHistoryResponseProjectionPlanStepsItemFilesItemMax)).max(listAiExecutionHistoryResponseProjectionPlanStepsItemFilesMax)
+})).max(listAiExecutionHistoryResponseProjectionPlanStepsMax),
+  "currentStepId": zod.string().max(listAiExecutionHistoryResponseProjectionPlanCurrentStepIdMax).nullable()
+}),
+  "tools": zod.object({
+  "totalCalls": zod.number().int().min(listAiExecutionHistoryResponseProjectionToolsTotalCallsMin),
+  "activeTool": zod.string().max(listAiExecutionHistoryResponseProjectionToolsActiveToolMax).nullable(),
+  "recent": zod.array(zod.object({
+  "tool": zod.string().max(listAiExecutionHistoryResponseProjectionToolsRecentItemToolMax),
+  "status": zod.enum(['started', 'completed', 'failed']),
+  "source": zod.string().max(listAiExecutionHistoryResponseProjectionToolsRecentItemSourceMax).nullable()
+})).max(listAiExecutionHistoryResponseProjectionToolsRecentMax)
+}),
+  "workspace": zod.object({
+  "changedFiles": zod.array(zod.string().max(listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesItemMax)).max(listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesMax),
+  "diffStatus": zod.enum(['available', 'not_available', 'not_applicable'])
+}),
+  "verification": zod.object({
+  "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
+  "evidenceVerdict": zod.string().max(listAiExecutionHistoryResponseProjectionVerificationEvidenceVerdictMax),
+  "proofRequired": zod.boolean()
+}),
+  "approval": zod.object({
+  "required": zod.boolean(),
+  "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
+  "proposalId": zod.string().uuid().nullable()
+}),
+  "stopped": zod.object({
+  "reason": zod.string().nullable(),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+}),
+  "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(listAiExecutionHistoryResponseProjectionAllowedActionsMax)
+}).optional().describe('Full server-owned execution read model shared by detail, history, and terminal stream surfaces.'),
   "proofRequired": zod.boolean(),
   "disposition": zod.enum(['RETAIN_FOR_REVIEW', 'NEW_RUN_RECOMMENDED']),
   "recommendedAction": zod.enum(['REVIEW_RETAINED_PROOF', 'START_NEW_RUN', 'RESUME_CHECKPOINT']),
@@ -6104,6 +6300,53 @@ export const listAiChatMessagesResponseAcceptanceOneDispositionRetryAfterMsMin =
 
 export const listAiChatMessagesResponseTerminalProjectionOneAttemptMin = 0;
 
+export const listAiChatMessagesResponseProjectionOnePhaseMax = 80;
+
+export const listAiChatMessagesResponseProjectionOneObjectiveMax = 500;
+
+export const listAiChatMessagesResponseProjectionOneProgressPercentMin = 0;
+export const listAiChatMessagesResponseProjectionOneProgressPercentMax = 100;
+
+export const listAiChatMessagesResponseProjectionOneProgressLabelMax = 240;
+
+export const listAiChatMessagesResponseProjectionOneProgressCurrentStepMax = 240;
+
+export const listAiChatMessagesResponseProjectionOneProgressCompletedStepsMin = 0;
+
+export const listAiChatMessagesResponseProjectionOneProgressTotalStepsMin = 0;
+
+export const listAiChatMessagesResponseProjectionOnePlanStepsItemIdMax = 80;
+
+export const listAiChatMessagesResponseProjectionOnePlanStepsItemTitleMax = 240;
+
+export const listAiChatMessagesResponseProjectionOnePlanStepsItemActionMax = 40;
+
+export const listAiChatMessagesResponseProjectionOnePlanStepsItemFilesItemMax = 500;
+
+export const listAiChatMessagesResponseProjectionOnePlanStepsItemFilesMax = 20;
+
+export const listAiChatMessagesResponseProjectionOnePlanStepsMax = 20;
+
+export const listAiChatMessagesResponseProjectionOnePlanCurrentStepIdMax = 80;
+
+export const listAiChatMessagesResponseProjectionOneToolsTotalCallsMin = 0;
+
+export const listAiChatMessagesResponseProjectionOneToolsActiveToolMax = 80;
+
+export const listAiChatMessagesResponseProjectionOneToolsRecentItemToolMax = 80;
+
+export const listAiChatMessagesResponseProjectionOneToolsRecentItemSourceMax = 500;
+
+export const listAiChatMessagesResponseProjectionOneToolsRecentMax = 8;
+
+export const listAiChatMessagesResponseProjectionOneWorkspaceChangedFilesItemMax = 500;
+
+export const listAiChatMessagesResponseProjectionOneWorkspaceChangedFilesMax = 20;
+
+export const listAiChatMessagesResponseProjectionOneVerificationEvidenceVerdictMax = 40;
+
+export const listAiChatMessagesResponseProjectionOneAllowedActionsMax = 7;
+
 export const listAiChatMessagesResponseForensicDiagnosticOneExplanationMax = 500;
 
 export const listAiChatMessagesResponseForensicDiagnosticOneNextActionMax = 300;
@@ -6231,6 +6474,57 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "nextActionCode": zod.string().nullable(),
   "resumable": zod.boolean()
 }),zod.null()]).optional().describe('Canonical terminal identity shared by stream, execution detail, and chat history.'),
+  "projection": zod.union([zod.object({
+  "schemaVersion": zod.literal(1),
+  "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
+  "phase": zod.string().min(1).max(listAiChatMessagesResponseProjectionOnePhaseMax),
+  "objective": zod.string().max(listAiChatMessagesResponseProjectionOneObjectiveMax),
+  "progress": zod.object({
+  "percent": zod.number().int().min(listAiChatMessagesResponseProjectionOneProgressPercentMin).max(listAiChatMessagesResponseProjectionOneProgressPercentMax).nullable(),
+  "label": zod.string().max(listAiChatMessagesResponseProjectionOneProgressLabelMax),
+  "currentStep": zod.string().max(listAiChatMessagesResponseProjectionOneProgressCurrentStepMax).nullable(),
+  "completedSteps": zod.number().int().min(listAiChatMessagesResponseProjectionOneProgressCompletedStepsMin),
+  "totalSteps": zod.number().int().min(listAiChatMessagesResponseProjectionOneProgressTotalStepsMin).nullable()
+}),
+  "plan": zod.object({
+  "steps": zod.array(zod.object({
+  "id": zod.string().max(listAiChatMessagesResponseProjectionOnePlanStepsItemIdMax),
+  "title": zod.string().max(listAiChatMessagesResponseProjectionOnePlanStepsItemTitleMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'failed']),
+  "action": zod.string().max(listAiChatMessagesResponseProjectionOnePlanStepsItemActionMax).nullable(),
+  "files": zod.array(zod.string().max(listAiChatMessagesResponseProjectionOnePlanStepsItemFilesItemMax)).max(listAiChatMessagesResponseProjectionOnePlanStepsItemFilesMax)
+})).max(listAiChatMessagesResponseProjectionOnePlanStepsMax),
+  "currentStepId": zod.string().max(listAiChatMessagesResponseProjectionOnePlanCurrentStepIdMax).nullable()
+}),
+  "tools": zod.object({
+  "totalCalls": zod.number().int().min(listAiChatMessagesResponseProjectionOneToolsTotalCallsMin),
+  "activeTool": zod.string().max(listAiChatMessagesResponseProjectionOneToolsActiveToolMax).nullable(),
+  "recent": zod.array(zod.object({
+  "tool": zod.string().max(listAiChatMessagesResponseProjectionOneToolsRecentItemToolMax),
+  "status": zod.enum(['started', 'completed', 'failed']),
+  "source": zod.string().max(listAiChatMessagesResponseProjectionOneToolsRecentItemSourceMax).nullable()
+})).max(listAiChatMessagesResponseProjectionOneToolsRecentMax)
+}),
+  "workspace": zod.object({
+  "changedFiles": zod.array(zod.string().max(listAiChatMessagesResponseProjectionOneWorkspaceChangedFilesItemMax)).max(listAiChatMessagesResponseProjectionOneWorkspaceChangedFilesMax),
+  "diffStatus": zod.enum(['available', 'not_available', 'not_applicable'])
+}),
+  "verification": zod.object({
+  "status": zod.enum(['pending', 'running', 'passed', 'failed', 'unavailable']),
+  "evidenceVerdict": zod.string().max(listAiChatMessagesResponseProjectionOneVerificationEvidenceVerdictMax),
+  "proofRequired": zod.boolean()
+}),
+  "approval": zod.object({
+  "required": zod.boolean(),
+  "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
+  "proposalId": zod.string().uuid().nullable()
+}),
+  "stopped": zod.object({
+  "reason": zod.string().nullable(),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
+}),
+  "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(listAiChatMessagesResponseProjectionOneAllowedActionsMax)
+}),zod.null()]).optional().describe('Full server-owned execution read model shared by detail, history, and terminal stream surfaces.'),
   "forensicDiagnostic": zod.union([zod.object({
   "version": zod.literal(1),
   "verdict": zod.enum(['FINDING_PROVEN', 'NO_VERIFIED_FINDING', 'ANALYSIS_INCOMPLETE']),

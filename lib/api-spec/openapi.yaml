@@ -1678,6 +1678,9 @@ paths:
                       nullable: true
                       description: Canonical terminal identity for the retained execution attempt.
                       $ref: "#/components/schemas/AiTerminalProjection"
+                    projection:
+                      description: Full server-owned execution read model shared by detail, history, and terminal stream surfaces.
+                      $ref: "#/components/schemas/AiExecutionProjection"
                     proofRequired: { type: boolean }
                     disposition: { type: string, enum: [RETAIN_FOR_REVIEW, NEW_RUN_RECOMMENDED] }
                     recommendedAction: { type: string, enum: [REVIEW_RETAINED_PROOF, START_NEW_RUN, RESUME_CHECKPOINT] }
@@ -5745,6 +5748,10 @@ components:
           nullable: true
           description: Canonical terminal identity shared by stream, execution detail, and chat history.
           $ref: "#/components/schemas/AiTerminalProjection"
+        projection:
+          nullable: true
+          description: Full server-owned execution read model shared by detail, history, and terminal stream surfaces.
+          $ref: "#/components/schemas/AiExecutionProjection"
         forensicDiagnostic:
           nullable: true
           description: Server-owned, bounded forensic verdict shared by live and historical responses.

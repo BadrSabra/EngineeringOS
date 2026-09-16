@@ -13,6 +13,7 @@ import type { AiChatMessageRecoveryState } from './aiChatMessageRecoveryState';
 import type { AiChatMessageRole } from './aiChatMessageRole';
 import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
+import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiFindingResult } from './aiFindingResult';
 import type { AiForensicReportResult } from './aiForensicReportResult';
 import type { AiRepairResult } from './aiRepairResult';
@@ -56,6 +57,8 @@ export interface AiChatMessage {
   acceptance?: AiExecutionAcceptance | null;
   /** Canonical terminal identity shared by stream, execution detail, and chat history. */
   terminalProjection?: AiTerminalProjection | null;
+  /** Full server-owned execution read model shared by detail, history, and terminal stream surfaces. */
+  projection?: AiExecutionProjection | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
   /**

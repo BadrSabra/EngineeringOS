@@ -7,6 +7,7 @@
  */
 import type { AiAcceptanceDisposition } from './aiAcceptanceDisposition';
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
+import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { ListAiExecutionHistory200ItemDisposition } from './listAiExecutionHistory200ItemDisposition';
 import type { ListAiExecutionHistory200ItemEvidenceVerdict } from './listAiExecutionHistory200ItemEvidenceVerdict';
@@ -26,6 +27,8 @@ export type ListAiExecutionHistory200Item = {
   acceptance?: AiExecutionAcceptance | null;
   /** Canonical terminal identity for the retained execution attempt. */
   terminalProjection?: AiTerminalProjection | null;
+  /** Full server-owned execution read model shared by detail, history, and terminal stream surfaces. */
+  projection?: AiExecutionProjection;
   proofRequired: boolean;
   disposition: ListAiExecutionHistory200ItemDisposition;
   recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;

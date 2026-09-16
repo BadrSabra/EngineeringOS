@@ -232,6 +232,7 @@ import {
   recordAiUsageAttempt,
 } from "../../lib/ai-telemetry.js";
 import { buildAiExecutionProjection } from "../../lib/ai-execution-projection.js";
+import type { AiExecutionProjection } from "../../lib/ai-execution-projection.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -936,6 +937,152 @@ async function loadTerminalProjection(params: {
         }
       : {}),
   };
+}
+
+type AiExecutionRow = typeof aiExecutionsTable.$inferSelect;
+
+/**
+ * Build the complete operator projection from the durable execution row.
+ * History and live terminal frames must use this loader instead of deriving a
+ * reduced status object independently.
+ */
+async function loadExecutionProjection(
+  execution: AiExecutionRow,
+  options: { attempt?: number; messageId?: string | null } = {},
+): Promise<AiExecutionProjection> {
+  let checkpoint: unknown = {};
+  try {
+    checkpoint = JSON.parse(execution.checkpoint);
+  } catch {
+    checkpoint = { stage: "unknown", detail: "Checkpoint is unavailable." };
+  }
+  const checkpointRecord = checkpoint && typeof checkpoint === "object"
+    ? checkpoint as Record<string, unknown>
+    : {};
+  const request = parseExecutionRequest(execution.request);
+  let operationId = execution.operationId
+    ?? execution.buildPlanMessageId
+    ?? execution.proposalId
+    ?? null;
+  let proposalApprovalRequired = false;
+  if (!execution.operationId && execution.proposalId) {
+    const [proposal] = await db
+      .select({ messageId: aiChangeProposalsTable.messageId })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, execution.proposalId))
+      .limit(1);
+    operationId = proposal?.messageId ?? operationId;
+  }
+  if (execution.proposalId) {
+    const [proposal] = await db
+      .select({ approvalRequired: aiChangeProposalsTable.approvalRequired })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, execution.proposalId),
+        eq(aiChangeProposalsTable.projectId, execution.projectId),
+      ))
+      .limit(1);
+    proposalApprovalRequired = proposal?.approvalRequired === true;
+  }
+  const operationEvents = operationId
+    ? await db
+      .select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.projectId, execution.projectId),
+        eq(eventsTable.correlationId, operationId),
+      ))
+    : [];
+  const hasAppliedChanges = operationEvents.some((event) => event.type === "AiChangesApplied");
+  const hasCommittedChanges = operationEvents.some((event) => event.type === "GitCommitCreated");
+  const hasPushedChanges = operationEvents.some((event) => event.type === "GitPushed");
+  const hasPendingProposal = Boolean(execution.proposalId);
+  const proofRequired = checkpointRecord.proofRequired === true
+    || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId);
+  const evidenceVerdict = derivePersistedEvidenceVerdict({
+    executionStatus: execution.status,
+    checkpoint: checkpointRecord,
+    hasPendingProposal,
+  });
+  const acceptanceDisposition = publicAcceptanceDisposition({
+    value: checkpointRecord.acceptanceDisposition,
+    code: execution.error === "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision."
+      ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
+      : undefined,
+    status: execution.status,
+    proofRequired,
+    evidenceVerdict,
+  });
+  const [acceptanceRow] = await db
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.attempt, options.attempt ?? execution.attempt),
+      ...(options.messageId ? [eq(aiExecutionAcceptancesTable.messageId, options.messageId)] : []),
+    ))
+    .limit(1);
+  const acceptance = projectExecutionAcceptance(acceptanceRow);
+  const terminalStatus = acceptanceRow?.terminalStatus;
+  const projectionExecution = terminalStatus === "queued"
+    || terminalStatus === "running"
+    || terminalStatus === "paused"
+    || terminalStatus === "cancelling"
+    || terminalStatus === "cancelled"
+    || terminalStatus === "completed"
+    || terminalStatus === "failed"
+    ? { ...execution, status: terminalStatus }
+    : execution;
+
+  return buildAiExecutionProjection({
+    execution: {
+      id: projectionExecution.id,
+      status: projectionExecution.status,
+      proposalId: projectionExecution.proposalId,
+      proposalApprovalRequired,
+      linkedTaskId: projectionExecution.linkedTaskId,
+      buildPlanMessageId: projectionExecution.buildPlanMessageId,
+      recipeReceipt: projectionExecution.recipeReceipt,
+    },
+    request: request ?? {},
+    checkpoint: checkpointRecord,
+    acceptance: acceptance
+      ? {
+          nextActionCode: acceptance.nextActionCode,
+          resumable: acceptance.resumable,
+          outcome: acceptance.outcome,
+        }
+      : undefined,
+    evidenceVerdict,
+    proofRequired,
+    terminalReason: publicExecutionTerminalReason({
+      status: execution.status,
+      acceptanceDisposition,
+    }),
+    hasAppliedChanges,
+    hasCommittedChanges,
+    hasPushedChanges,
+  });
+}
+
+async function loadExecutionProjectionById(
+  executionId: string,
+  options: { attempt?: number; messageId?: string | null } = {},
+): Promise<AiExecutionProjection | undefined> {
+  try {
+    const executionResult = await db
+      .select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId))
+      .limit(1);
+    const execution = Array.isArray(executionResult) ? executionResult[0] : undefined;
+    return execution && typeof execution.id === "string"
+      ? await loadExecutionProjection(execution, options)
+      : undefined;
+  } catch (error) {
+    logger.warn({ error, executionId }, "AI execution projection could not be loaded");
+    return undefined;
+  }
 }
 
 function boundedPublicErrorCode(value: string | null | undefined): string | null {
@@ -5946,6 +6093,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let executionTerminal = false;
   let terminalAssistantMessageId: string | undefined;
   let completedTerminalProjection: AiTerminalProjection | undefined;
+  let completedExecutionProjection: AiExecutionProjection | undefined;
   let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
   let resumeCheckpoint: AiExecutionCheckpoint | undefined;
   let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
@@ -6187,6 +6335,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             operationId: existingScanExecution.operationId ?? existingJob.id,
             operationMode: "CHAT",
             terminalProjection,
+            projection: await loadExecutionProjectionById(existingScanExecution.id),
             message: existingMessage,
             sources: [`scan-job:${existingJob.id}`],
             pendingChanges: [],
@@ -6497,6 +6646,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         operationId: jobId,
         operationMode: "CHAT",
         terminalProjection,
+        projection: await loadExecutionProjectionById(aiExecution.id),
         telemetry: { latencyMs: Date.now() - now.getTime() },
       });
       res.end();
@@ -6965,11 +7115,13 @@ router.post("/ai/chat/stream", async (req, res) => {
         cancelled: false,
       });
       executionTerminal = true;
+      const executionProjection = await loadExecutionProjectionById(aiExecution.id);
       sse({
         type: "error",
         code: "EXECUTION_NODE_CHECKPOINT_MISMATCH",
         message: "The saved execution progress does not match the approved plan. Start a fresh execution.",
         executionId: aiExecution.id,
+        projection: executionProjection,
       });
       res.end();
       return;
@@ -8158,6 +8310,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             executionId: aiExecution.id,
             sessionId: sessionIdToUse,
           });
+          const executionProjection = await loadExecutionProjectionById(aiExecution.id);
           executionTerminal = true;
           sse({
             type: "error",
@@ -8172,6 +8325,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             attempt: terminalProjection?.attempt,
             correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
             terminalProjection,
+            projection: executionProjection,
             executionLedger: executionLedgerSnapshot,
           });
           res.end();
@@ -8248,6 +8402,7 @@ router.post("/ai/chat/stream", async (req, res) => {
            contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         };
         let terminalProjection: AiTerminalProjection | undefined;
+        let executionProjection: AiExecutionProjection | undefined;
         if (aiExecution) {
           const capabilityProbeAcceptanceDisposition =
             terminalOutcome.outcome === "FAILED"
@@ -8290,6 +8445,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             sessionId: sessionIdToUse,
             fallbackMessageId: persistedFailedMessage?.id,
           });
+          executionProjection = await loadExecutionProjectionById(aiExecution.id);
           executionTerminal = true;
         }
         if (terminalOutcome.failureKind === "TOOL_FAILURE") {
@@ -8318,6 +8474,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             attempt: terminalProjection?.attempt,
             correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
             terminalProjection,
+            projection: executionProjection,
             executionLedger: executionLedgerSnapshot,
              contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
@@ -8355,6 +8512,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               attempt: terminalProjection?.attempt,
               correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
               terminalProjection,
+              projection: executionProjection,
               ...(terminalOutcome.providerFailureCategory
                 ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
                 : {}),
@@ -8372,6 +8530,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             execution: projectPublicExecutionSummary(executionSummary, false),
             executionLedger: executionLedgerSnapshot,
             terminalProjection,
+            projection: executionProjection,
             telemetry: {
               latencyMs: Date.now() - chatStartMs,
             },
@@ -8615,6 +8774,9 @@ router.post("/ai/chat/stream", async (req, res) => {
               fallbackMessageId: persistedProviderFailure?.id,
             })
           : undefined;
+        const executionProjection = aiExecution
+          ? await loadExecutionProjectionById(aiExecution.id)
+          : undefined;
         // Provider messages, model identifiers, paths, and upstream diagnostics
         // stay in the structured server log above. The stream exposes only the
         // bounded public error contract, after durable terminal persistence.
@@ -8648,6 +8810,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           attempt: terminalProjection?.attempt,
           correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
           terminalProjection,
+          projection: executionProjection,
           executionLedger: executionLedgerSnapshot,
           ...(projectQueryTarget ? { projectQueryTarget } : {}),
           contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
@@ -8696,6 +8859,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         return undefined;
       });
       let qualityTerminalProjection: AiTerminalProjection | undefined;
+      let qualityExecutionProjection: AiExecutionProjection | undefined;
       if (aiExecution && persistedQualityFailure) {
         await checkpointChain;
         await failAiExecution({
@@ -8715,6 +8879,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           sessionId: sessionIdToUse,
           fallbackMessageId: persistedQualityFailure.id,
         });
+        qualityExecutionProjection = await loadExecutionProjectionById(aiExecution.id);
         executionTerminal = true;
       }
       if (aiExecution && (
@@ -8739,6 +8904,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         attempt: qualityTerminalProjection?.attempt,
         correlationId: qualityTerminalProjection?.correlationId ?? sessionIdToUse,
         terminalProjection: qualityTerminalProjection,
+        projection: qualityExecutionProjection,
         executionLedger: executionLedgerSnapshot,
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
@@ -8773,6 +8939,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         return undefined;
       });
       let parseTerminalProjection: AiTerminalProjection | undefined;
+      let parseExecutionProjection: AiExecutionProjection | undefined;
       if (aiExecution && persistedParseFailure) {
         await checkpointChain;
         await failAiExecution({
@@ -8792,6 +8959,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           sessionId: sessionIdToUse,
           fallbackMessageId: persistedParseFailure.id,
         });
+        parseExecutionProjection = await loadExecutionProjectionById(aiExecution.id);
         executionTerminal = true;
       }
       if (aiExecution && (
@@ -8815,6 +8983,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         attempt: parseTerminalProjection?.attempt,
         correlationId: parseTerminalProjection?.correlationId ?? sessionIdToUse,
         terminalProjection: parseTerminalProjection,
+        projection: parseExecutionProjection,
         executionLedger: executionLedgerSnapshot,
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
@@ -9259,6 +9428,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           });
         }
       }
+      const persistenceExecutionProjection = await loadExecutionProjectionById(persistenceExecutionId);
       executionTerminal = true;
       if (!persistenceFailureProjection) {
         sse({
@@ -9272,6 +9442,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           executionId: persistenceExecutionId,
           sessionId: sessionIdToUse,
           terminalProjection: persistenceFailureProjection,
+          projection: persistenceExecutionProjection,
           executionLedger: executionLedgerSnapshot,
         });
       }
@@ -9588,6 +9759,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           sessionId: sessionIdToUse,
           fallbackMessageId: assistantMsg.id,
         });
+        const acceptanceExecutionProjection = await loadExecutionProjectionById(aiExecution.id);
         executionTerminal = true;
         sse({
           type: "error",
@@ -9603,6 +9775,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           attempt: acceptanceTerminalProjection?.attempt,
           correlationId: acceptanceTerminalProjection?.correlationId ?? sessionIdToUse,
           terminalProjection: acceptanceTerminalProjection,
+          projection: acceptanceExecutionProjection,
           executionLedger: executionLedgerSnapshot,
         });
         // Do not fall through to the successful done envelope. The retained
@@ -9615,6 +9788,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         sessionId: sessionIdToUse,
         fallbackMessageId: assistantMsg.id,
       });
+      completedExecutionProjection = await loadExecutionProjectionById(aiExecution.id);
       sse({
         type: "recipe_terminal",
         executionId: aiExecution.id,
@@ -9700,6 +9874,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(completedTerminalProjection
         ? { terminalProjection: completedTerminalProjection }
         : {}),
+      ...(completedExecutionProjection
+        ? { projection: completedExecutionProjection }
+        : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
       ...(result.sourceSelectionRecord ? { sourceSelectionRecord: result.sourceSelectionRecord } : {}),
@@ -9742,6 +9919,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       execution: publicExecutionSummary,
       ...(completedTerminalProjection
         ? { terminalProjection: completedTerminalProjection }
+        : {}),
+      ...(completedExecutionProjection
+        ? { projection: completedExecutionProjection }
         : {}),
       executionLedger: executionLedgerSnapshot,
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
@@ -9804,6 +9984,27 @@ router.post("/ai/chat/stream", async (req, res) => {
     // bounded terminal frame and close the stream once instead.
     if (res.headersSent) {
       if (!res.writableEnded) {
+        if (aiExecution && !executionTerminal && executionWorkerId && !executionLeaseLost) {
+          await failAiExecution({
+            executionId: aiExecution.id,
+            workerId: executionWorkerId,
+            finalMessageId: terminalAssistantMessageId,
+            error: "The AI request could not complete. Please retry.",
+            cancelled: false,
+            nodeStates: executionNodeStates,
+            evidenceReads: evidenceReadsForTerminal(),
+            evidenceProgress: evidenceProgressForTerminal(),
+          }).catch((terminalError) => {
+            logger.warn(
+              { terminalError, executionId: aiExecution!.id },
+              "chat stream: generic terminalization failed",
+            );
+          });
+          executionTerminal = true;
+        }
+        const unexpectedProjection = aiExecution
+          ? await loadExecutionProjectionById(aiExecution.id)
+          : undefined;
         try {
           res.write(serializeAiSseEvent({
             type: "error",
@@ -9815,6 +10016,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             retryable: true,
             ...(executionLeaseLost ? { failureKind: "INCOMPLETE", recoveryState: "REQUIRED" } : {}),
             ...(aiExecution?.id ? { executionId: aiExecution.id } : {}),
+            ...(unexpectedProjection ? { projection: unexpectedProjection } : {}),
           }));
         } catch (writeError) {
           logger.warn(
@@ -9914,6 +10116,12 @@ router.get("/ai/executions/history", async (req, res) => {
       : [execution.id, undefined] as const)))
       .filter((entry): entry is readonly [string, AiTerminalProjection] => Boolean(entry[1])),
   );
+  const executionProjectionByExecution = new Map(
+    await Promise.all(executions.map(async (execution) => [
+      execution.id,
+      await loadExecutionProjection(execution),
+    ] as const)),
+  );
 
   const safeText = (value: unknown, fallback: string, max = 240): string => {
     if (typeof value !== "string" || !value.trim()) return fallback;
@@ -9977,6 +10185,7 @@ router.get("/ai/executions/history", async (req, res) => {
       ...(terminalProjectionByExecution.get(execution.id)
         ? { terminalProjection: terminalProjectionByExecution.get(execution.id) }
         : {}),
+      projection: executionProjectionByExecution.get(execution.id),
       terminalReason: execution.status === "cancelled"
         ? "Audit was cancelled before completion."
         : execution.status === "failed"
@@ -10868,6 +11077,16 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     ] as const)))
       .filter((entry): entry is readonly [string, AiTerminalProjection] => Boolean(entry[1])),
   );
+  const executionProjectionByMessage = new Map(
+    (await Promise.all(projectionEntries.map(async (entry) => [
+      entry.messageId,
+      await loadExecutionProjectionById(entry.executionId, {
+        ...(entry.attempt !== undefined ? { attempt: entry.attempt } : {}),
+        messageId: entry.messageId,
+      }),
+    ] as const)))
+      .filter((entry): entry is readonly [string, AiExecutionProjection] => Boolean(entry[1])),
+  );
   return res.json(messages.map((message) => {
     const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
     const terminalMetadata = terminalMetadataFromTrace(message.toolTrace);
@@ -10900,6 +11119,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         ? { acceptanceDisposition: projectedAcceptance.disposition }
         : {}),
       ...(terminalProjection ? { terminalProjection } : {}),
+      ...(executionProjectionByMessage.get(message.id)
+        ? { projection: executionProjectionByMessage.get(message.id) }
+        : {}),
       repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
       behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
       ...(historicalReport.unavailable

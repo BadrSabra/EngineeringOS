@@ -102,7 +102,11 @@ function record(value: unknown): Record<string, unknown> {
 
 function boundedText(value: unknown, fallback: string, max = 240): string {
   if (typeof value !== "string" || !value.trim()) return fallback;
-  return redactUserFacingText(value).replace(/\s+/g, " ").trim().slice(0, max) || fallback;
+  return redactUserFacingText(value)
+    .replace(/\b(?:provider|model|token|key|secret|credential|authorization|diagnostic)\s*[:=]\s*[^\s,;]+/gi, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max) || fallback;
 }
 
 function safeRelativePath(value: unknown): string | undefined {
@@ -323,7 +327,7 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
       proposalId: input.execution.proposalId ?? null,
     },
     stopped: {
-      reason: stopped ? input.terminalReason : null,
+      reason: stopped ? boundedText(input.terminalReason, "Execution stopped", 240) : null,
       outcome: stopped
         ? input.acceptance?.outcome === "SUCCEEDED"
           ? "SUCCEEDED"

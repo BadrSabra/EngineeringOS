@@ -215,6 +215,7 @@ type ChatMessage = {
   recoveryState?: 'NONE' | 'REQUIRED' | 'INCOMPLETE';
   acceptanceDisposition?: AcceptanceDispositionView | null;
   terminalProjection?: AiTerminalProjection | null;
+  projection?: AiExecutionProjection | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
   /** PR-011: file-level source plan vs actual coverage; present only for PROJECT_QUERY turns. */
   sourceSelectionRecord?: {
@@ -589,6 +590,7 @@ type ActiveExecution = {
   message: string;
   buildPlanMessageId?: string;
   terminalProjection?: AiTerminalProjection | null;
+  projection?: AiExecutionProjection | null;
 };
 
 function persistedCompletedReadFiles(execution: unknown): string[] {
@@ -10916,6 +10918,7 @@ export default function AiChat() {
           setLiveBehaviorProgress(null);
           setLiveAuditScopeDescription(null);
           const terminalProjection = data.terminalProjection;
+           const executionProjection = data.projection ?? data.message.projection;
           const terminalFailure = data.message.outcome === 'FAILED'
             || data.message.outcome === 'INTERRUPTED'
             || terminalProjection?.outcome === 'FAILED'
@@ -10938,6 +10941,7 @@ export default function AiChat() {
                ...currentExecution,
                sessionId: data.sessionId,
                ...(terminalProjection ? { terminalProjection } : {}),
+                ...(executionProjection ? { projection: executionProjection } : {}),
              };
              activeExecutionRef.current = retainedExecution;
              setActiveExecution(retainedExecution);
@@ -10974,6 +10978,7 @@ export default function AiChat() {
                 proposalId: data.proposalId,
               }),
                terminalProjection: data.terminalProjection ?? base.terminalProjection ?? null,
+                projection: executionProjection ?? base.projection ?? null,
             }];
           });
           setPendingChanges(data.pendingChanges ?? []);
@@ -11058,6 +11063,14 @@ export default function AiChat() {
           if (!preserveTerminalExecution) {
             activeExecutionRef.current = null;
             setActiveExecution(null);
+          } else if (currentExecution) {
+            const retainedExecution = {
+              ...currentExecution,
+              ...(err.terminalProjection ? { terminalProjection: err.terminalProjection } : {}),
+              ...(err.projection ? { projection: err.projection } : {}),
+            };
+            activeExecutionRef.current = retainedExecution;
+            setActiveExecution(retainedExecution);
           }
           if (failedExecutionId) {
             void qc.invalidateQueries({ queryKey: ['ai-execution', failedExecutionId] });
@@ -11088,6 +11101,7 @@ export default function AiChat() {
                 acceptanceDisposition: err.acceptanceDisposition,
                 executionLedger: err.executionLedger,
                  terminalProjection: err.terminalProjection ?? null,
+                 projection: err.projection ?? null,
                 createdAt: new Date().toISOString(),
               },
             ]);
