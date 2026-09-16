@@ -5081,6 +5081,75 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const projectId = await insertProject();
     projectIds.push(projectId);
 
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as { retainedEvidence?: Map<string, string> };
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStep = args[6] as ((step: unknown) => void) | undefined;
+      const sourceBody = "export const status = \"ok\";\n";
+      input.retainedEvidence?.set("src/verified.ts", sourceBody);
+      onDelta?.("Hello");
+      onDelta?.(" world");
+      onStep?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: "src/verified.ts" },
+        cached: false,
+        prefetched: true,
+      });
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: "src/verified.ts",
+        result: sourceBody,
+        readStatus: "READ_COMPLETE",
+        outputLength: sourceBody.length,
+        cached: false,
+        prefetched: true,
+      });
+      onStep?.({
+        kind: "model_call",
+        model: "actual-fallback-model",
+        provider: "openrouter",
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 2,
+        maxIterations: 24,
+        toolCalls: 1,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: "Hello world",
+          sources: ["src/verified.ts"],
+          pendingChanges: [],
+          sourceSelectionRecord: {
+            plannerTier: "targeted",
+            plannedFiles: ["src/verified.ts"],
+            fileStatuses: [{
+              path: "src/verified.ts",
+              status: "READ_COMPLETE",
+              origin: "planned",
+              readStatus: "READ_COMPLETE",
+            }],
+            truncatedPlannedCount: 0,
+            skippedPlannedCount: 0,
+            orientationCoverage: {
+              purpose: { plannedFiles: ["src/verified.ts"], complete: true },
+              components: { plannedFiles: ["src/verified.ts"], complete: true },
+              primaryFlow: { plannedFiles: ["src/verified.ts"], complete: true },
+              uncertainty: { plannedFiles: ["src/verified.ts"], complete: true },
+              complete: true,
+              missingRoles: [],
+            },
+          },
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
     const res = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
