@@ -3421,6 +3421,7 @@ describe("Implementation Plan Build handoff", () => {
 
     expect(res.status).toBe(200);
     const events = parseSseEvents(res.text);
+    console.error("DEBUG release-smoke events", events);
     const errorEvent = events.find((event) => event["type"] === "error");
     expect(errorEvent?.["code"]).toBe("IMPLEMENTATION_PLAN_SCOPE_BLOCKED");
 
@@ -8213,6 +8214,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       });
     const explanationDone = parseSseEvents(explanation.text)
       .find((event) => event.type === "done");
+    console.error("DEBUG Arabic explanation events", parseSseEvents(explanation.text));
 
     expect(explanation.status).toBe(200);
     expect(explanationDone).toBeDefined();
