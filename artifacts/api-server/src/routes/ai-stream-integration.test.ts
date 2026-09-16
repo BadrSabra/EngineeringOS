@@ -5280,6 +5280,57 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("binds the execution objective from PROJECT_QUERY before keyword inference", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    let providerInput: {
+      turnIntent?: { kind?: string };
+    } | undefined;
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      providerInput = args[1] as typeof providerInput;
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 1,
+        toolCalls: 0,
+        prefetchToolCalls: 0,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: "The acceptance coverage review is incomplete without retained proof.",
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const message =
+      "Explain acceptance coverage across task families including project analysis, bug fix, and file conversion.";
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+
+    expect(res.status).toBe(200);
+    expect(providerInput?.turnIntent?.kind).toBe("PROJECT_QUERY");
+
+    const [execution] = await db
+      .select({ request: aiExecutionsTable.request })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    const storedRequest = JSON.parse(execution!.request) as {
+      taskObjective?: { kind?: string };
+    };
+    expect(storedRequest.taskObjective?.kind).toBe("project_analysis");
+  });
+
   it("keeps Arabic explanation out of execution handoff while preserving mutation detection", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -5768,7 +5819,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
-  it("does not accept a proof-required PROJECT_QUERY when complete reads have no semantic evidence", async () => {
+  it("does not accept a proof-required PROJECT_QUERY when taskResult is NOT_PROVEN", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const sources = [
@@ -5799,12 +5850,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         readAttempts: sources.length,
         uniqueFilesRead: sources.length,
         evidenceFileCount: sources.length,
-        acceptedEvidenceCount: 0,
+         acceptedEvidenceCount: sources.length,
         completedReadFiles: sources,
         retainedBodyFiles: sources,
-        acceptedEvidenceFiles: [],
-        acceptedClaimCount: 0,
-        completionGateResult: "BLOCKED",
+         acceptedEvidenceFiles: sources,
+         acceptedClaimCount: 3,
+         completionGateResult: "PROVEN",
       });
       args[6]?.({
         kind: "diagnostic",
@@ -5826,8 +5877,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       return {
         result: {
           response: blocked,
-          sources: [],
+           sources,
           pendingChanges: [],
+           taskResult: {
+             kind: "FINDING_RESULT",
+             finding: {
+               finding: "No verified finding was established.",
+               evidence: [],
+               severity: "NOT_PROVEN",
+             },
+           },
         },
         effectiveProvider: "groq" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
