@@ -732,6 +732,7 @@ export type AiExecutionRequestEnvelope = {
     projectRevision: string;
     requiresEvidence: boolean;
     capabilityProbe?: AiCapabilityProbeContract;
+    orientationManifest?: AiOrientationRoleManifest;
     scope: {
       projectId: string;
       rootPath: string | null;
@@ -751,6 +752,17 @@ export type AiExecutionRequestEnvelope = {
   taskObjective?: TaskObjectiveContract;
   validationTargetPaths: string[];
   proofRequired?: boolean;
+};
+
+export type AiOrientationRoleManifest = {
+  projectRevision: string;
+  rootPath: string | null;
+  paths: {
+    purpose: string[];
+    components: string[];
+    primaryFlow: string[];
+    uncertainty: string[];
+  };
 };
 
 export type AiCapabilityProbeContract = {
@@ -854,6 +866,7 @@ export type AiExecutionCheckpoint = {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   evidenceProgress?: AiEvidenceProgressCheckpoint;
+  orientationManifest?: AiOrientationRoleManifest;
   proofRequired?: boolean;
   capabilityProbe?: AiCapabilityProbeCheckpoint;
   providerAttempts?: AiProviderAttemptCheckpoint[];
@@ -960,17 +973,67 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       && !parseCapabilityProbeContract(value.resumeContract.capabilityProbe)) {
       return undefined;
     }
+    const orientationManifest = value.resumeContract?.orientationManifest === undefined
+      ? undefined
+      : parseOrientationRoleManifest(value.resumeContract.orientationManifest);
+    if (value.resumeContract?.orientationManifest !== undefined && !orientationManifest) {
+      return undefined;
+    }
     const taskObjective = value.taskObjective === undefined
       ? undefined
       : parseTaskObjectiveContract(value.taskObjective);
     if (value.taskObjective !== undefined && !taskObjective) return undefined;
     return {
       ...value,
+      ...(value.resumeContract && orientationManifest
+        ? { resumeContract: { ...value.resumeContract, orientationManifest } }
+        : {}),
       ...(taskObjective ? { taskObjective } : {}),
     };
   } catch {
     return undefined;
   }
+}
+
+function parseOrientationRoleManifest(value: unknown): AiOrientationRoleManifest | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<AiOrientationRoleManifest>;
+  if (
+    typeof candidate.projectRevision !== "string"
+    || candidate.projectRevision.trim().length === 0
+    || candidate.projectRevision.length > 500
+    || (candidate.rootPath !== null && typeof candidate.rootPath !== "string")
+    || !candidate.paths
+    || typeof candidate.paths !== "object"
+  ) return undefined;
+  const source = candidate.paths as Partial<AiOrientationRoleManifest["paths"]>;
+  const roles = ["purpose", "components", "primaryFlow", "uncertainty"] as const;
+  const paths = {} as AiOrientationRoleManifest["paths"];
+  const allPaths: string[] = [];
+  for (const role of roles) {
+    const values = source[role];
+    if (
+      !Array.isArray(values)
+      || values.length === 0
+      || values.length > 2
+      || values.some((path) =>
+        typeof path !== "string"
+        || path.trim().length === 0
+        || path.length > 500
+        || path.startsWith("/")
+        || /^[A-Za-z]:[\\/]/.test(path)
+        || path.split(/[\\/]+/u).includes("..")
+      )
+    ) return undefined;
+    paths[role] = [...new Set(values.map((path) => path.trim().replace(/\\/g, "/")))];
+    allPaths.push(...paths[role]);
+  }
+  if (new Set(allPaths).size > 8) return undefined;
+  return {
+    projectRevision: candidate.projectRevision.trim(),
+    rootPath: candidate.rootPath === null ? null : candidate.rootPath,
+    paths,
+  };
 }
 
 function parseCapabilityProbeContract(value: unknown): AiCapabilityProbeContract | undefined {
@@ -1152,6 +1215,10 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ? undefined
       : parseEvidenceProgressCheckpoint(value.evidenceProgress);
     if (value.evidenceProgress !== undefined && !evidenceProgress) return undefined;
+    const orientationManifest = value.orientationManifest === undefined
+      ? undefined
+      : parseOrientationRoleManifest(value.orientationManifest);
+    if (value.orientationManifest !== undefined && !orientationManifest) return undefined;
     const providerAttempts = Array.isArray(value.providerAttempts)
       ? value.providerAttempts
           .filter((attempt) => Boolean(attempt) && typeof attempt === "object")
@@ -1204,6 +1271,7 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
         ? { evidenceReason: value.evidenceReason.slice(0, 500) }
         : {}),
       ...(evidenceProgress ? { evidenceProgress } : {}),
+      ...(orientationManifest ? { orientationManifest } : {}),
       ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
       ...(capabilityProbe ? { capabilityProbe } : {}),
       ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
@@ -2116,6 +2184,63 @@ export async function checkpointAiExecution(params: {
       gt(aiExecutionsTable.leaseUntil, new Date()),
       // A stale worker must not overwrite a newer durable checkpoint.
       lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+/**
+ * Enriches the immutable resume contract with the server-owned orientation
+ * role manifest once the query planner has selected it. The worker lease keeps
+ * this write bound to the active execution; a retry cannot replace it with a
+ * different root or revision.
+ */
+export async function persistAiExecutionOrientationManifest(params: {
+  executionId: string;
+  workerId: string;
+  manifest: AiOrientationRoleManifest;
+}): Promise<boolean> {
+  const [row] = await db
+    .select({
+      request: aiExecutionsTable.request,
+      projectId: aiExecutionsTable.projectId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
+    ))
+    .limit(1);
+  const request = row ? parseExecutionRequest(row.request) : undefined;
+  if (
+    !request
+    || request.projectOrientation !== true
+    || request.workspaceRevision !== params.manifest.projectRevision
+    || (request.workspaceRoot ?? null) !== params.manifest.rootPath
+    || !request.resumeContract
+  ) return false;
+  const existing = request.resumeContract.orientationManifest;
+  if (existing) return JSON.stringify(existing) === JSON.stringify(params.manifest);
+  const nextRequest: AiExecutionRequestEnvelope = {
+    ...request,
+    resumeContract: {
+      ...request.resumeContract,
+      orientationManifest: params.manifest,
+    },
+  };
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      request: JSON.stringify(nextRequest),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);

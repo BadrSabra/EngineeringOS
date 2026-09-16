@@ -164,6 +164,7 @@ import {
   getAiExecutionForUser,
   hasAiExecutionResumeContract,
   heartbeatAiExecution,
+  persistAiExecutionOrientationManifest,
   ownsAiExecutionLease,
   recoverAiExecutionResumeToken,
   parseAiExecutionCheckpoint,
@@ -175,6 +176,7 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
   type AiExecutionCheckpoint,
+  type AiOrientationRoleManifest,
   type AiEvidenceProgressCheckpoint,
   type AiExecutionRequestEnvelope,
   type AnalysisEvidenceCompletion,
@@ -6805,6 +6807,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           }
         : {}),
     };
+    let orientationManifest: AiOrientationRoleManifest | undefined =
+      executionRequest.resumeContract?.orientationManifest;
     let proofRequired = executionRequest.proofRequired === true;
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
@@ -6986,6 +6990,17 @@ router.post("/ai/chat/stream", async (req, res) => {
         streamTurnIntent.requiresEvidence || projectOrientationExecution;
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
+      orientationManifest =
+        executionRequest.resumeContract?.orientationManifest
+        ?? resumeCheckpoint?.orientationManifest;
+      if (orientationManifest && !executionRequest.resumeContract?.orientationManifest) {
+        executionRequest = {
+          ...executionRequest,
+          resumeContract: executionRequest.resumeContract
+            ? { ...executionRequest.resumeContract, orientationManifest }
+            : executionRequest.resumeContract,
+        };
+      }
       const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
       if (resumeContext) {
         modelMessage = `${modelMessage}\n\n${resumeContext}`;
@@ -7347,6 +7362,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           });
           return evidenceProgress ? { evidenceProgress } : {};
         })(),
+        ...(orientationManifest ? { orientationManifest } : {}),
         proofRequired,
         ...(capabilityProbeCheckpoint ? { capabilityProbe: capabilityProbeCheckpoint } : {}),
         sequence,
@@ -8242,6 +8258,46 @@ router.post("/ai/chat/stream", async (req, res) => {
           turnIntent: streamTurnIntent,
           retainedEvidence,
           retainedReadStatuses,
+           ...(orientationManifest
+             ? { orientationSourcesOverride: orientationManifest.paths }
+             : {}),
+           ...(aiExecution
+             ? {
+                 onOrientationManifest: async (sources: import("@workspace/ai-orchestrator").ProjectOrientationSources) => {
+                   const nextManifest: AiOrientationRoleManifest = {
+                     projectRevision: analysisCorrelation.projectRevision,
+                     rootPath: validRootPath ?? null,
+                     paths: {
+                       purpose: [...sources.purpose],
+                       components: [...sources.components],
+                       primaryFlow: [...sources.primaryFlow],
+                       uncertainty: [...sources.uncertainty],
+                     },
+                   };
+                   if (orientationManifest) {
+                     if (JSON.stringify(orientationManifest) !== JSON.stringify(nextManifest)) {
+                       throw new Error("Orientation role manifest changed during execution");
+                     }
+                     return;
+                   }
+                   orientationManifest = nextManifest;
+                   executionRequest = {
+                     ...executionRequest,
+                     resumeContract: executionRequest.resumeContract
+                       ? { ...executionRequest.resumeContract, orientationManifest: nextManifest }
+                       : executionRequest.resumeContract,
+                   };
+                   const persisted = await persistAiExecutionOrientationManifest({
+                     executionId: aiExecution!.id,
+                     workerId: executionWorkerId!,
+                     manifest: nextManifest,
+                   });
+                   if (!persisted) {
+                     throw new Error("AI execution orientation manifest was rejected by the lease/state gate");
+                   }
+                 },
+               }
+             : {}),
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,

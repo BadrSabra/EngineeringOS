@@ -46,6 +46,7 @@ export {
 } from "./agents/query-planner.js";
 export type {
   QuerySourceSelectionRecord,
+  ProjectOrientationSources,
   FileStatusEntry,
   PlannerTier,
   FileOrigin,

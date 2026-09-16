@@ -546,6 +546,84 @@ describe("chat agent — ChatOutputSchema validation", () => {
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
+  it("reuses the server-owned orientation role manifest without replanning", async () => {
+    const toolCalls: AgentStep[] = [];
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-resume-"));
+    const orientationSources = {
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    };
+    const sourceFiles = {
+      "README.md": "# Project\nA workspace application.",
+      "src/App.tsx": "export function App() { return null; }",
+      "src/routes.ts": "export const routes = [];",
+      "tests/app.test.ts": "describe('app', () => {});",
+    };
+    for (const [relativePath, content] of Object.entries(sourceFiles)) {
+      const absolutePath = path.join(rootPath, relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, content, "utf8");
+    }
+
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "llama-3.1-8b-instant",
+        powerModel: "llama-3.3-70b-versatile",
+      })),
+    }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    response: "This is the resumed project workspace.",
+                    sources: Object.keys(sourceFiles),
+                  }),
+                },
+              }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const onOrientationManifest = vi.fn();
+    const result = await chat({
+      message: "What is this project?",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      orientationSourcesOverride: orientationSources,
+      onOrientationManifest,
+      onStep: (step) => toolCalls.push(step),
+    });
+
+    expect(onOrientationManifest).not.toHaveBeenCalled();
+    expect(toolCalls
+      .filter((step): step is Extract<AgentStep, { kind: "tool_call" }> => step.kind === "tool_call")
+      .map((step) => step.args))
+      .toEqual(expect.arrayContaining(Object.keys(sourceFiles).map((file) => ({ path: file }))));
+    expect(result.sourceSelectionRecord?.orientationCoverage).toMatchObject({
+      complete: true,
+      missingRoles: [],
+    });
+    await fs.rm(rootPath, { recursive: true, force: true });
+  });
+
   it("keeps retained orientation reads when the provider wrapper is malformed", async () => {
     const toolCalls: AgentStep[] = [];
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-incomplete-"));

@@ -146,3 +146,4 @@
 - [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
 - [Project orientation evidence scheduler](project-orientation-evidence-scheduler.md) — role paths must enter the server-owned evidence manifest, not remain a final coverage diagnostic.
 - [Acceptance coverage target binding](acceptance-coverage-target-binding.md) — cross-task acceptance requests must not become embedded-AI queries from incidental provider/analysis keywords.
+- [Durable orientation role manifest](orientation-role-manifest.md) — preserve the server-owned role-to-path mapping across resume and provider fallback; never replan it mid-execution.

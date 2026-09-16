@@ -130,6 +130,7 @@ import {
   planQuery,
   deriveSourceSelectionRecord,
   type QueryPlan,
+  type ProjectOrientationSources,
   type QuerySourceSelectionRecord,
 } from "./query-planner.js";
 import {
@@ -5471,7 +5472,13 @@ export async function chat(opts: {
   /** Server-validated excerpts accepted by an earlier turn at this revision. */
   previouslyAcceptedEvidence?: readonly ProjectFileSource[];
   /** Read outcomes retained across provider attempts, including truncation. */
-  retainedReadStatuses?: Map<string, ReadStatus>;
+   retainedReadStatuses?: Map<string, ReadStatus>;
+   /** Server-owned orientation role paths captured by the durable execution. */
+   orientationSourcesOverride?: ProjectOrientationSources;
+   /** Persists the first server-owned orientation role manifest. */
+   onOrientationManifest?: (
+     sources: ProjectOrientationSources,
+   ) => void | Promise<void>;
    /**
     * Optional server-owned capability registry. Its catalog is injected into
     * planning context only; it does not add an execution tool.
@@ -5529,6 +5536,8 @@ export async function chat(opts: {
     retainedEvidence,
     previouslyAcceptedEvidence,
     retainedReadStatuses,
+     orientationSourcesOverride,
+     onOrientationManifest,
     capabilityRegistry,
     capabilityCatalogRequest,
     executionLedger: suppliedExecutionLedger,
@@ -5689,7 +5698,9 @@ export async function chat(opts: {
   const projectOrientationMode =
     turnIntent.kind === "PROJECT_QUERY" &&
     isProjectOrientationQuestion(message);
-  let orientationEvidencePaths: string[] = [];
+  let orientationEvidencePaths: string[] = projectOrientationMode && orientationSourcesOverride
+    ? [...new Set(Object.values(orientationSourcesOverride).flat())].slice(0, 8)
+    : [];
   // A fixture capability audit is itself an evidence-grounded behavioral
   // assessment, even when the short request only says to test forensic
   // capability on the named file. Production audits still require explicit
@@ -7163,6 +7174,21 @@ export async function chat(opts: {
   // Failures (timeout, parse error, model error) silently return null so the
   // tool loop continues with base defaults — planning never blocks the request.
   let queryPlan: QueryPlan | null = null;
+  if (projectOrientationMode && orientationSourcesOverride) {
+    const targetFiles = [...new Set(Object.values(orientationSourcesOverride).flat())].slice(0, 8);
+    queryPlan = {
+      originalIntent: message,
+      targetFiles,
+      targetEntities: [],
+      scopeEstimate: "medium",
+      suggestedIterations: 30,
+      requiresToolUse: true,
+      subQueries: [],
+      compoundParts: [],
+      planStatus: "valid",
+      orientationSources: orientationSourcesOverride,
+    };
+  }
   // A short execution follow-up has already been planned. Do not spend an
   // additional model call re-planning "نفّذ الخطة"; use the concrete paths from
   // the recovered plan and start the execution loop immediately.
@@ -7180,7 +7206,8 @@ export async function chat(opts: {
     !(immediateIntent && priorRepairPlan) &&
     !compoundWriteExecution &&
     !plannerAlreadyUsed &&
-    !generalTaskPlan.skipQueryPlanner
+    !generalTaskPlan.skipQueryPlanner &&
+    !(projectOrientationMode && orientationSourcesOverride)
   ) {
     const orientationFallbackPaths =
       projectOrientationMode && rootPath
@@ -7205,6 +7232,12 @@ export async function chat(opts: {
         .flat()
         .map((file) => file.replace(/\\/g, "/").replace(/^\.\/+/, ""));
       orientationEvidencePaths = [...new Set(roleFiles)].slice(0, 8);
+      await onOrientationManifest?.({
+        purpose: [...queryPlan.orientationSources?.purpose ?? []],
+        components: [...queryPlan.orientationSources?.components ?? []],
+        primaryFlow: [...queryPlan.orientationSources?.primaryFlow ?? []],
+        uncertainty: [...queryPlan.orientationSources?.uncertainty ?? []],
+      });
       queryPlan = {
         ...queryPlan,
         targetFiles: [...new Set([...roleFiles, ...queryPlan.targetFiles])].slice(0, 10),

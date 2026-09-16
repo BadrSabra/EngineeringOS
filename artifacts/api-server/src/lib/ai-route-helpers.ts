@@ -793,7 +793,13 @@ export async function chatWithFallback(
   /** Request-scoped read evidence shared across provider retries. */
   retainedEvidence?: Map<string, string>;
    /** Request-scoped read outcomes shared across provider retries. */
-   retainedReadStatuses?: Map<string, ReadStatus>;
+    retainedReadStatuses?: Map<string, ReadStatus>;
+    /** Server-owned orientation role paths captured by the durable execution. */
+    orientationSourcesOverride?: import("@workspace/ai-orchestrator").ProjectOrientationSources;
+    /** Persists the first server-owned orientation role manifest. */
+    onOrientationManifest?: (
+      sources: import("@workspace/ai-orchestrator").ProjectOrientationSources,
+    ) => void | Promise<void>;
     /** Enabled only after the route validates an approved implementation plan. */
     allowValidationTools?: boolean;
      /** Server-owned approval state for write/validation/execution tools. */
@@ -1060,6 +1066,14 @@ export async function chatWithFallback(
         turnIntent: baseParams.turnIntent,
         retainedEvidence,
          retainedReadStatuses,
+         orientationSourcesOverride: baseParams.orientationSourcesOverride,
+         onOrientationManifest: async (sources) => {
+           // Keep the same role mapping across provider fallback attempts in
+           // this request; the durable route callback remains the authority
+           // that persists and validates it.
+           baseParams.orientationSourcesOverride = sources;
+           await baseParams.onOrientationManifest?.(sources);
+         },
         capabilityRecoveryProviders: capabilityProbeTurn
           ? orderedProviders
                .filter((candidate) =>
