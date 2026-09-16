@@ -27,6 +27,13 @@ export type GeneralTaskPlanStep = {
   approvalRequired: boolean;
 };
 
+export type ProjectOrientationCoverage = {
+  purpose: "required";
+  components: "required";
+  primaryFlow: "required";
+  uncertainty: "required";
+};
+
 export type ExistingProjectQueryState = {
   requiredEvidencePaths?: readonly string[];
   requiredClaims?: readonly { claimId: string }[];
@@ -43,6 +50,7 @@ export type GeneralTaskPlan = {
   planHash: string;
   steps: GeneralTaskPlanStep[];
   conflicts: string[];
+  orientationCoverage?: ProjectOrientationCoverage;
   reusedPlanFingerprint?: string;
   /** An existing durable plan owns the next action; do not create another one. */
   skipQueryPlanner: boolean;
@@ -268,6 +276,15 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
   let reusedPlanFingerprint: string | undefined;
   const conflicts: string[] = [];
   let skipQueryPlanner = false;
+  const orientationCoverage: ProjectOrientationCoverage | undefined =
+    profile === "project_orientation"
+      ? {
+          purpose: "required",
+          components: "required",
+          primaryFlow: "required",
+          uncertainty: "required",
+        }
+      : undefined;
 
   if (input.existingExecutionPlan) {
     decision = "REUSE";
@@ -328,9 +345,11 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
       source,
       steps,
       reusedPlanFingerprint,
+      orientationCoverage,
     }),
     steps,
     conflicts: conflicts.slice(0, 8),
+    ...(orientationCoverage ? { orientationCoverage } : {}),
     ...(reusedPlanFingerprint ? { reusedPlanFingerprint } : {}),
     skipQueryPlanner,
   };

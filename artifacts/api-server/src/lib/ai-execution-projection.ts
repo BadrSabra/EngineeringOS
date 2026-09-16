@@ -51,6 +51,10 @@ export type AiExecutionProjection = {
     evidenceVerdict: string;
     proofRequired: boolean;
   };
+  orientation?: {
+    complete: boolean;
+    missingRoles: string[];
+  };
   approval: {
     required: boolean;
     status: "NOT_REQUIRED" | "PENDING" | "APPROVED";
@@ -146,6 +150,22 @@ function progressPercent(input: ProjectionInput, completedSteps: number, totalSt
   return null;
 }
 
+function orientationProjection(
+  steps: ProjectionStep[],
+): AiExecutionProjection["orientation"] {
+  const sourceSelection = [...steps].reverse().find(
+    (step) => step.kind === "project_query_source_selection",
+  );
+  const coverage = record(sourceSelection && sourceSelection.orientationCoverage);
+  if (typeof coverage.complete !== "boolean") return undefined;
+  const missingRoles = Array.isArray(coverage.missingRoles)
+    ? coverage.missingRoles
+      .filter((role): role is string => typeof role === "string")
+      .slice(0, 4)
+    : [];
+  return { complete: coverage.complete, missingRoles };
+}
+
 export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionProjection {
   const steps = Array.isArray(input.checkpoint.recentSteps)
     ? input.checkpoint.recentSteps.filter((step): step is ProjectionStep => Boolean(record(step)))
@@ -179,6 +199,7 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
   const activePlanStep = [...plan].reverse().find((step) => step.status === "active");
   const completedSteps = plan.filter((step) => step.status === "completed").length;
   const currentActivity = [...steps].reverse().find((step) => step.kind === "plan_activity");
+  const orientation = orientationProjection(steps);
   const phase = boundedText(
     input.checkpoint.stage ?? input.checkpoint.phase,
     input.execution.status.toUpperCase(),
@@ -292,6 +313,7 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
       evidenceVerdict: input.evidenceVerdict,
       proofRequired: input.proofRequired,
     },
+    ...(orientation ? { orientation } : {}),
     approval: {
       required: approvalRequired,
       status: approvalStatus,

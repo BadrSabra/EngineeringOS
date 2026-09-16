@@ -1584,6 +1584,7 @@ export type AgentDiagnosticCode =
   | "PROJECT_QUERY_NO_TOOLS_SYNTHESIS"
   | "PROJECT_QUERY_RESPONSE_BINDING"
   | "PROJECT_QUERY_OBJECTIVE_CLOSURE"
+  | "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE"
   | "FORENSIC_CONTRACT_RECOVERY_REJECTED"
   | "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED"
   | "FORENSIC_CONTRACT_RECOVERY_FAILED"
@@ -1685,6 +1686,14 @@ export type AgentStep =
       }>;
       truncatedPlannedCount: number;
       skippedPlannedCount: number;
+      orientationCoverage?: {
+        purpose: { plannedFiles: string[]; complete: boolean };
+        components: { plannedFiles: string[]; complete: boolean };
+        primaryFlow: { plannedFiles: string[]; complete: boolean };
+        uncertainty: { plannedFiles: string[]; complete: boolean };
+        complete: boolean;
+        missingRoles: Array<"purpose" | "components" | "primaryFlow" | "uncertainty">;
+      };
     }
   | {
       kind: "plan_activity";

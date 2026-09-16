@@ -108,6 +108,16 @@ export type QueryPlan = {
   /** Bounded diagnostics for an invalid or fallback plan. */
   planDiagnostics?: string[];
   /**
+   * Orientation-only source roles. Each role is a bounded source set that
+   * must be completely read before the project explanation can be accepted.
+   */
+  orientationSources?: {
+    purpose: string[];
+    components: string[];
+    primaryFlow: string[];
+    uncertainty: string[];
+  };
+  /**
    * PR-011: true when graph enrichment added paths beyond the raw planner
    * response. Used by deriveSourceSelectionRecord to distinguish targeted from
    * graph-enriched plan tiers without comparing targetFiles arrays at call time.
@@ -121,6 +131,7 @@ const PLANNER_TIMEOUT_MS = 5_000;
 const MAX_GRAPH_CHARS = 3_000;
 const MAX_TARGET_FILES = 10;
 const MAX_SUBQUERIES = 5;
+const MAX_ORIENTATION_ROLE_FILES = 2;
 /** Hard cap on files added by graph enrichment (task spec: ≤ 15 total). */
 const MAX_GRAPH_FILES = 15;
 /** Hard timeout for the graph enrichment step (task spec: ≤ 2 seconds). */
@@ -155,6 +166,7 @@ function buildPlannerPrompt(
   message: string,
   graphSummary: string,
   targetResolution?: ProjectQueryTargetResolution,
+  profile: "default" | "project_orientation" = "default",
 ): string {
   const truncated =
     graphSummary.length > MAX_GRAPH_CHARS
@@ -180,6 +192,14 @@ Return exactly this JSON shape:
   "requiresToolUse": true,
   "subQueries": []
   ,"compoundParts": []
+  ${profile === "project_orientation"
+    ? `,"orientationSources": {
+    "purpose": [],
+    "components": [],
+    "primaryFlow": [],
+    "uncertainty": []
+  }`
+    : ""}
 }
 
 Rules:
@@ -198,6 +218,16 @@ Rules:
 - when target resolution is unresolved, return targetConfidence >= 0.75 only when the
   targetFiles are a narrow, directly relevant source set; otherwise return 0 and an empty
   targetFiles array. Never treat the knowledge graph as complete evidence.
+- ${profile === "project_orientation"
+    ? `orientationSources is required for this orientation request. Select 1-4 existing
+  source files for each role:
+  - purpose: README, package/app manifest, or the primary application entrypoint
+  - components: the main UI, server, domain, or feature composition files
+  - primaryFlow: route/controller/handler and service files that show the main user flow
+  - uncertainty: tests, configuration, deployment, or boundary files that reveal limits
+  Every path must also appear in targetFiles. Keep the union bounded to at most 8 files.
+  Do not use graph names or file inventory as evidence without reading the source.`
+    : "orientationSources is omitted unless the project_orientation profile is active."}
 - originalIntent: copy the user query exactly`;
 }
 
@@ -290,6 +320,34 @@ export function validateQueryPlanShape(
     diagnostics.push("targetConfidence must be a number from 0 to 1");
   }
 
+  if (value.orientationSources !== undefined) {
+    if (!isRecord(value.orientationSources)) {
+      diagnostics.push("orientationSources must be an object");
+    } else {
+      for (const role of ["purpose", "components", "primaryFlow", "uncertainty"] as const) {
+        const files = value.orientationSources[role];
+        if (!Array.isArray(files)) {
+          diagnostics.push(`orientationSources.${role} must be an array`);
+          continue;
+        }
+        if (files.length > MAX_ORIENTATION_ROLE_FILES) {
+          diagnostics.push(
+            `orientationSources.${role} exceeds the maximum of ${MAX_ORIENTATION_ROLE_FILES}`,
+          );
+        }
+        if (files.some((file) =>
+          typeof file !== "string" ||
+          !file.trim() ||
+          file.startsWith("/") ||
+          /^[A-Za-z]:[\\/]/.test(file) ||
+          file.split(/[\\/]+/u).includes("..")
+        )) {
+          diagnostics.push(`orientationSources.${role} contains an invalid project-relative path`);
+        }
+      }
+    }
+  }
+
   const subQueries = Array.isArray(value.subQueries) ? value.subQueries : [];
   if (scope === "broad" && subQueries.length > 0 && subQueries.length < 2) {
     diagnostics.push("broad plans require 2-5 subQueries");
@@ -375,6 +433,32 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
       requiresToolUse: parsed["requiresToolUse"] as boolean,
       ...(typeof parsed["targetConfidence"] === "number"
         ? { targetConfidence: parsed["targetConfidence"] }
+        : {}),
+      ...(isRecord(parsed["orientationSources"])
+        ? {
+            orientationSources: {
+              purpose: Array.isArray(parsed.orientationSources.purpose)
+                ? parsed.orientationSources.purpose
+                    .filter((file): file is string => typeof file === "string")
+                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                : [],
+              components: Array.isArray(parsed.orientationSources.components)
+                ? parsed.orientationSources.components
+                    .filter((file): file is string => typeof file === "string")
+                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                : [],
+              primaryFlow: Array.isArray(parsed.orientationSources.primaryFlow)
+                ? parsed.orientationSources.primaryFlow
+                    .filter((file): file is string => typeof file === "string")
+                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                : [],
+              uncertainty: Array.isArray(parsed.orientationSources.uncertainty)
+                ? parsed.orientationSources.uncertainty
+                    .filter((file): file is string => typeof file === "string")
+                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                : [],
+            },
+          }
         : {}),
       subQueries: Array.isArray(parsed["subQueries"])
         ? (parsed["subQueries"] as string[]).filter((q) => typeof q === "string").slice(0, MAX_SUBQUERIES)
@@ -907,6 +991,8 @@ export async function planQuery(opts: {
   executionLedger?: ExecutionLedger;
   /** Server-owned target state used to constrain ambiguous planner output. */
   targetResolution?: ProjectQueryTargetResolution;
+  /** Orientation asks for role-relevant sources and complete reads. */
+  profile?: "default" | "project_orientation";
 }): Promise<QueryPlan> {
   const {
     message,
@@ -918,6 +1004,7 @@ export async function planQuery(opts: {
     signal,
     executionLedger,
     targetResolution,
+    profile = "default",
   } = opts;
   const plannerStartedAt = Date.now();
   if (executionLedger && !executionLedger.admit("planner", { model, operation: "query_plan" })) {
@@ -933,6 +1020,7 @@ export async function planQuery(opts: {
     message,
     projectContext.graphSummary,
     targetResolution,
+    profile,
   );
   const messages: RawMessage[] = [
     { role: "system", content: plannerPrompt },
@@ -1112,6 +1200,7 @@ export type QuerySourceSelectionRecord = {
   fileStatuses: FileStatusEntry[];
   truncatedPlannedCount: number;
   skippedPlannedCount: number;
+  orientationCoverage?: ProjectOrientationCoverage;
 };
 
 const MAX_PLANNED_FILES = 20;
@@ -1140,6 +1229,7 @@ export function deriveSourceSelectionRecord(
   plan: QueryPlan,
   finalReadStatuses: ReadonlyMap<string, string>,
 ): QuerySourceSelectionRecord {
+  const orientationCoverage = deriveProjectOrientationCoverage(plan, finalReadStatuses);
   const plannerTier: PlannerTier =
     plan.planStatus === "fallback" || plan.planStatus === "invalid"
       ? "fallback"
@@ -1188,5 +1278,55 @@ export function deriveSourceSelectionRecord(
     fileStatuses: allStatuses,
     truncatedPlannedCount,
     skippedPlannedCount,
+    ...(orientationCoverage ? { orientationCoverage } : {}),
+  };
+}
+
+export type ProjectOrientationCoverage = {
+  purpose: { plannedFiles: string[]; complete: boolean };
+  components: { plannedFiles: string[]; complete: boolean };
+  primaryFlow: { plannedFiles: string[]; complete: boolean };
+  uncertainty: { plannedFiles: string[]; complete: boolean };
+  complete: boolean;
+  missingRoles: Array<"purpose" | "components" | "primaryFlow" | "uncertainty">;
+};
+
+function statusForPath(
+  path: string,
+  finalReadStatuses: ReadonlyMap<string, string>,
+): FileReadStatus {
+  const key = normalizePath(path);
+  const directStatus = finalReadStatuses.get(key) ?? finalReadStatuses.get(path);
+  const raw = directStatus ?? [...finalReadStatuses.entries()]
+    .find(([candidatePath]) => normalizePath(candidatePath) === key)?.[1];
+  return toPublicReadStatus(raw);
+}
+
+/**
+ * Orientation is accepted only when every bounded role has at least one
+ * complete source read. The role manifest is planner output, while completion
+ * is derived exclusively from server-observed prefetch/tool read statuses.
+ */
+export function deriveProjectOrientationCoverage(
+  plan: QueryPlan,
+  finalReadStatuses: ReadonlyMap<string, string>,
+): ProjectOrientationCoverage | undefined {
+  const roles = plan.orientationSources;
+  if (!roles) return undefined;
+
+  const roleNames = ["purpose", "components", "primaryFlow", "uncertainty"] as const;
+  const coverage = Object.fromEntries(roleNames.map((role) => {
+    const plannedFiles = [...new Set(roles[role].map(normalizePath).filter(Boolean))];
+    const complete =
+      plannedFiles.length > 0 &&
+      plannedFiles.every((path) => statusForPath(path, finalReadStatuses) === "READ_COMPLETE");
+    return [role, { plannedFiles, complete }];
+  })) as Pick<ProjectOrientationCoverage, typeof roleNames[number]>;
+  const missingRoles = roleNames.filter((role) => !coverage[role].complete);
+
+  return {
+    ...coverage,
+    complete: missingRoles.length === 0,
+    missingRoles: [...missingRoles],
   };
 }

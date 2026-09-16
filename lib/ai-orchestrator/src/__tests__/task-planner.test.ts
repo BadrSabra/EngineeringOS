@@ -52,6 +52,12 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.steps[2]?.dependencies).toEqual(["map-components"]);
     expect(plan.steps[3]?.readOnly).toBe(true);
     expect(plan.steps[4]?.dependencies).toEqual(["verify-orientation"]);
+    expect(plan.orientationCoverage).toEqual({
+      purpose: "required",
+      components: "required",
+      primaryFlow: "required",
+      uncertainty: "required",
+    });
   });
 
   it("reuses an existing durable execution plan and suppresses duplicate query planning", () => {

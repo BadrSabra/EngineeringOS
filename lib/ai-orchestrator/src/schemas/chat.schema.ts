@@ -314,6 +314,26 @@ export const QuerySourceSelectionRecordSchema = z.object({
   fileStatuses: z.array(FileStatusEntrySchema).max(40),
   truncatedPlannedCount: z.number().int().min(0),
   skippedPlannedCount: z.number().int().min(0),
+  orientationCoverage: z.object({
+    purpose: z.object({
+      plannedFiles: z.array(z.string().min(1)).max(8),
+      complete: z.boolean(),
+    }).strict(),
+    components: z.object({
+      plannedFiles: z.array(z.string().min(1)).max(8),
+      complete: z.boolean(),
+    }).strict(),
+    primaryFlow: z.object({
+      plannedFiles: z.array(z.string().min(1)).max(8),
+      complete: z.boolean(),
+    }).strict(),
+    uncertainty: z.object({
+      plannedFiles: z.array(z.string().min(1)).max(8),
+      complete: z.boolean(),
+    }).strict(),
+    complete: z.boolean(),
+    missingRoles: z.array(z.enum(["purpose", "components", "primaryFlow", "uncertainty"])).max(4),
+  }).strict().optional(),
 }).strict();
 export type QuerySourceSelectionRecord = z.infer<typeof QuerySourceSelectionRecordSchema>;
 

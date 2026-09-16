@@ -11,6 +11,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  deriveProjectOrientationCoverage,
+  deriveSourceSelectionRecord,
+} from "../agents/query-planner.js";
 
 // ── vi.hoisted: shared mock state ─────────────────────────────────────────────
 const { mockSearchNodes, mockGetNeighborhood, mockFindFileEntities } = vi.hoisted(() => {
@@ -61,6 +65,41 @@ function makeContext(metricsVerified = true) {
     metricsVerified,
   };
 }
+
+describe("project orientation source coverage", () => {
+  it("requires complete reads for every orientation role", () => {
+    const plan = {
+      originalIntent: "Explain the project",
+      targetFiles: ["README.md", "src/App.tsx", "src/routes.ts", "tests/app.test.ts"],
+      targetEntities: [],
+      scopeEstimate: "medium" as const,
+      suggestedIterations: 20,
+      requiresToolUse: true,
+      subQueries: [],
+      compoundParts: [],
+      orientationSources: {
+        purpose: ["README.md"],
+        components: ["src/App.tsx"],
+        primaryFlow: ["src/routes.ts"],
+        uncertainty: ["tests/app.test.ts"],
+      },
+    };
+    const statuses = new Map<string, string>([
+      ["README.md", "READ_COMPLETE"],
+      ["src/App.tsx", "READ_COMPLETE"],
+      ["src/routes.ts", "READ_TRUNCATED"],
+      ["tests/app.test.ts", "READ_COMPLETE"],
+    ]);
+
+    const coverage = deriveProjectOrientationCoverage(plan, statuses);
+    expect(coverage).toMatchObject({
+      complete: false,
+      missingRoles: ["primaryFlow"],
+      primaryFlow: { complete: false },
+    });
+    expect(deriveSourceSelectionRecord(plan, statuses).orientationCoverage).toEqual(coverage);
+  });
+});
 
 describe("query-planner — knowledge-graph enrichment", () => {
   it("infers a citation-required GAPS part from the shared gap signal", async () => {

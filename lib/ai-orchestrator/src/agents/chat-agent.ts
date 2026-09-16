@@ -6165,7 +6165,8 @@ export async function chat(opts: {
   // not use the six-section structured-report path. They still require the
   // complete-read flag so read_file cannot retain a capped preview as source
   // evidence and force a false incomplete result.
-  const completeReadEvidence = structuredOutputMode || capabilityProbeRequest;
+  const completeReadEvidence =
+    structuredOutputMode || capabilityProbeRequest || projectOrientationMode;
   // Only the canonical six-section FORENSIC_REPORT route uses the new staged
   // synthesis envelope. FINDING_ANALYSIS retains its legacy Markdown
   // compatibility path, whose report still passes through the same strict
@@ -6252,7 +6253,7 @@ export async function chat(opts: {
   // probes also stay buffered so their C1–C7 validator and citation recovery
   // run before any answer is emitted.
   const streamCallback =
-    repairPlanExecution || forensicOutputMode || capabilityProbeRequest
+    repairPlanExecution || forensicOutputMode || capabilityProbeRequest || projectOrientationMode
       ? undefined
       : onDelta;
   let recoveryAttemptsUsed = 0;
@@ -7181,7 +7182,18 @@ export async function chat(opts: {
       signal: executionLedger.signal,
       executionLedger,
       targetResolution: turnIntent.projectTargetResolution,
+      profile: projectOrientationMode ? "project_orientation" : "default",
     }).catch(() => null);
+
+    if (projectOrientationMode && queryPlan) {
+      const roleFiles = Object.values(queryPlan.orientationSources ?? {})
+        .flat()
+        .map((file) => file.replace(/\\/g, "/").replace(/^\.\/+/, ""));
+      queryPlan = {
+        ...queryPlan,
+        targetFiles: [...new Set([...roleFiles, ...queryPlan.targetFiles])].slice(0, 10),
+      };
+    }
 
     // The generic planner still supplies scope and iteration estimates, but
     // explicit file mentions remain constrained to the deterministic graph
@@ -13064,6 +13076,33 @@ export async function chat(opts: {
     : finalResponse;
   const terminalLoopKind = (loopResult as { kind: string; reason?: string }).kind;
   const terminalLoopReason = (loopResult as { kind: string; reason?: string }).reason;
+  // PR-011 source selection is also the orientation evidence boundary. Build
+  // it before final response emission so a streamed provider answer cannot
+  // bypass the source-backed explanation gate.
+  const sourceSelectionRecord: QuerySourceSelectionRecord | undefined = (() => {
+    if (turnIntent.kind !== "PROJECT_QUERY" || !queryPlan) return undefined;
+    const combined = new Map<string, string>(
+      prefetchReadStatuses as Map<string, string>,
+    );
+    for (const filePath of (loopResult.fileContents ?? new Map<string, string>()).keys()) {
+      if (!combined.has(filePath)) combined.set(filePath, "READ_COMPLETE");
+    }
+    return deriveSourceSelectionRecord(queryPlan, combined);
+  })();
+  const orientationCoverage = sourceSelectionRecord?.orientationCoverage;
+  if (sourceSelectionRecord) {
+    relayAgentStep({
+      kind: "project_query_source_selection",
+      plannerTier: sourceSelectionRecord.plannerTier,
+      plannedFiles: sourceSelectionRecord.plannedFiles,
+      fileStatuses: sourceSelectionRecord.fileStatuses,
+      truncatedPlannedCount: sourceSelectionRecord.truncatedPlannedCount,
+      skippedPlannedCount: sourceSelectionRecord.skippedPlannedCount,
+      ...(sourceSelectionRecord.orientationCoverage
+        ? { orientationCoverage: sourceSelectionRecord.orientationCoverage }
+        : {}),
+    });
+  }
   const knownIncompleteForensicBoundary =
     forensicSourceCoverage?.complete === false
     || cancelledForensicAudit()
@@ -13084,7 +13123,7 @@ export async function chat(opts: {
     !capabilityProbeClaimUnclosed &&
     !telemetryBlocksVerdict &&
     !objectiveBlocksVerdict;
-  const terminalResponse =
+  let terminalResponse =
     capabilityProbeTerminalAccepted || projectQueryObjectiveComplete
       ? gateFinalResponse
       : forensicOutputMode &&
@@ -13130,6 +13169,18 @@ export async function chat(opts: {
           },
         )
       : gateFinalResponse;
+  if (projectOrientationMode && (!orientationCoverage || !orientationCoverage.complete)) {
+    const missingRoles = orientationCoverage?.missingRoles.join(", ") ||
+      "purpose, components, primary flow, and uncertainty";
+    terminalResponse = /[\u0600-\u06FF]/.test(message)
+      ? `ANALYSIS_INCOMPLETE — لم تكتمل قراءة المصادر اللازمة لشرح المشروع. الأجزاء غير المثبتة: ${missingRoles}. لا يمكنني تقديم جرد موثوق للمكونات أو التدفق اعتمادًا على الرسم البياني وحده.`
+      : `ANALYSIS_INCOMPLETE — the bounded source reads did not cover the project explanation. Unverified areas: ${missingRoles}. I cannot provide a reliable component or flow inventory from the graph alone.`;
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
+      details: [missingRoles],
+    });
+  }
   if (terminalResponse !== gateFinalResponse) {
     relayAgentStep({
       kind: "diagnostic",
@@ -13336,36 +13387,6 @@ export async function chat(opts: {
             : 0,
       }
     : undefined;
-
-  // PR-011: derive file-level source plan vs actual coverage for PROJECT_QUERY
-  // turns. Build a combined read-status map from two authoritative sources:
-  //  1. prefetchReadStatuses — covers pre-loop reads and any updates the tool
-  //     loop writes back via the retainedReadStatuses reference it receives.
-  //  2. loopResult.fileContents — any file path with usable content that was
-  //     not tracked in prefetchReadStatuses was read freshly during the loop;
-  //     treat it as READ_COMPLETE (the loop produced a readable body from it).
-  const sourceSelectionRecord: QuerySourceSelectionRecord | undefined = (() => {
-    if (turnIntent.kind !== "PROJECT_QUERY" || !queryPlan) return undefined;
-    const combined = new Map<string, string>(
-      prefetchReadStatuses as Map<string, string>,
-    );
-    for (const filePath of (loopResult.fileContents ?? new Map<string, string>()).keys()) {
-      if (!combined.has(filePath)) {
-        combined.set(filePath, "READ_COMPLETE");
-      }
-    }
-    return deriveSourceSelectionRecord(queryPlan, combined);
-  })();
-  if (sourceSelectionRecord) {
-    relayAgentStep({
-      kind: "project_query_source_selection",
-      plannerTier: sourceSelectionRecord.plannerTier,
-      plannedFiles: sourceSelectionRecord.plannedFiles,
-      fileStatuses: sourceSelectionRecord.fileStatuses,
-      truncatedPlannedCount: sourceSelectionRecord.truncatedPlannedCount,
-      skippedPlannedCount: sourceSelectionRecord.skippedPlannedCount,
-    });
-  }
 
   const output = {
     ...parsed.data,

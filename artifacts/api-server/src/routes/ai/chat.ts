@@ -3135,6 +3135,14 @@ type SourceSelectionRecord = {
   }>;
   truncatedPlannedCount: number;
   skippedPlannedCount: number;
+  orientationCoverage?: {
+    purpose: { plannedFiles: string[]; complete: boolean };
+    components: { plannedFiles: string[]; complete: boolean };
+    primaryFlow: { plannedFiles: string[]; complete: boolean };
+    uncertainty: { plannedFiles: string[]; complete: boolean };
+    complete: boolean;
+    missingRoles: string[];
+  };
 };
 
 const SOURCE_SELECTION_PLANNER_TIERS = new Set<SourceSelectionRecord["plannerTier"]>([
@@ -3187,6 +3195,9 @@ function sourceSelectionRecordFromTrace(
         typeof entry.skippedPlannedCount === "number"
           ? entry.skippedPlannedCount
           : 0,
+      ...(entry.orientationCoverage && typeof entry.orientationCoverage === "object"
+        ? { orientationCoverage: entry.orientationCoverage as SourceSelectionRecord["orientationCoverage"] }
+        : {}),
     };
   } catch {
     return undefined;
@@ -3284,6 +3295,9 @@ function serializeToolTrace(
           fileStatuses: step.fileStatuses,
           truncatedPlannedCount: step.truncatedPlannedCount,
           skippedPlannedCount: step.skippedPlannedCount,
+          ...("orientationCoverage" in step && step.orientationCoverage
+            ? { orientationCoverage: step.orientationCoverage }
+            : {}),
         };
       case "validation":
         {
