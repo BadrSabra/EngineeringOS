@@ -461,13 +461,14 @@ export function validateAutonomousOperationCompletion(
     reasons.push(message);
   };
   if (operation.taskObjective) {
+    const reviewReady = params.requireProven === false;
     const objectiveCheck = validateTaskObjectiveContract({
       contract: operation.taskObjective,
       workspaceRevision: params.workspaceRevision ?? operation.revisionManifest,
-      objectiveValidated: params.evidenceVerdict === "PROVEN",
+      objectiveValidated: reviewReady || params.evidenceVerdict === "PROVEN",
       operationId: params.operationId ?? operation.operationId,
-      evidenceVerdict: params.evidenceVerdict,
-      evidenceComplete: params.evidenceVerdict === "PROVEN",
+      evidenceVerdict: reviewReady ? "PROVEN" : params.evidenceVerdict,
+      evidenceComplete: reviewReady || params.evidenceVerdict === "PROVEN",
       targetPaths: operation.targetPaths,
       validatorReceipts: params.validatorReceipts,
     });
@@ -2261,10 +2262,12 @@ export async function completeAiExecution(params: {
     if (!checkpoint?.recipeBinding || checkpoint.recipeBinding.leaseOwner !== params.workerId) return false;
   }
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
+  const pendingProposal = Boolean(params.proposalId);
   const forensicExecution = request?.turnIntent === "FORENSIC_AUDIT"
     || Boolean(request?.capabilityProbe && request?.proofRequired === true);
   const projectOrientationExecution =
     request?.turnIntent === "PROJECT_QUERY" && request?.projectOrientation === true;
+  const projectOrientationAcceptance = projectOrientationExecution && requiresProof;
   const projectQueryProofExecution =
     request?.turnIntent === "PROJECT_QUERY" && requiresProof && !forensicExecution;
   const operation = params.operation ?? checkpoint?.operation;
@@ -2282,7 +2285,7 @@ export async function completeAiExecution(params: {
         ? "PROVEN" as const
         : params.evidenceVerdict;
   if (requiresProof) {
-    if (taskObjective) {
+    if (taskObjective && !pendingProposal) {
       const objectiveCheck = validateTaskObjectiveContract({
         contract: taskObjective,
         workspaceRevision: request?.workspaceRevision ?? "",
@@ -2316,7 +2319,6 @@ export async function completeAiExecution(params: {
           sourceRevision: request.workspaceRevision,
         })
       : (() => {
-          const pendingProposal = Boolean(params.proposalId);
           return validateAutonomousOperationCompletion(operation, {
             // A complete retained source read is server-owned acceptance
             // evidence even when the provider did not produce a separate
@@ -2343,10 +2345,10 @@ export async function completeAiExecution(params: {
         })();
     if (!completion.allowed) return false;
   }
-  if (projectOrientationExecution && params.orientationCoverageComplete !== true) {
+  if (projectOrientationAcceptance && params.orientationCoverageComplete !== true) {
     return false;
   }
-  const sourceEvidenceRequired = projectOrientationExecution
+  const sourceEvidenceRequired = projectOrientationAcceptance
     || forensicExecution
     || Boolean(params.analysisEvidence)
     || Boolean(params.evidenceReads && params.evidenceReads.length > 0);
@@ -2391,7 +2393,7 @@ export async function completeAiExecution(params: {
       ? {
           evidence: {
             operationId: params.operationId,
-            workspaceRoot: effectiveWorkspaceRoot,
+            workspaceRoot: pendingProposal ? null : effectiveWorkspaceRoot,
             sourceRevision: request?.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
               verdict: effectiveEvidenceVerdict,

@@ -234,6 +234,16 @@ export function inferTaskObjectiveKind(input: {
   implementationTaskMode?: boolean;
 }): TaskObjectiveKind {
   const message = input.message.toLocaleLowerCase();
+  // Intent is resolved from the full request before this text fallback. A
+  // capability probe can mention images/media while still being a forensic
+  // source-evidence task, and a Build handoff must not be reclassified from a
+  // keyword in its natural-language objective.
+  if (input.turnIntent === "FORENSIC_AUDIT" || input.turnIntent === "PROJECT_QUERY") {
+    return "project_analysis";
+  }
+  if (input.implementationTaskMode || input.operationMode === "BUILD") {
+    return "feature_implementation";
+  }
   if (hasAny(message, ["convert", "conversion", "تحويل", "حوّل", "تحويل ملف"])) {
     return "file_conversion";
   }
@@ -263,12 +273,6 @@ export function inferTaskObjectiveKind(input: {
   }
   if (hasAny(message, ["implement", "implementation", "feature", "build", "create", "add ", "تنفيذ", "ميزة", "أضف"])) {
     return "feature_implementation";
-  }
-  if (input.implementationTaskMode || input.operationMode === "BUILD") {
-    return "feature_implementation";
-  }
-  if (input.turnIntent === "FORENSIC_AUDIT" || input.turnIntent === "PROJECT_QUERY") {
-    return "project_analysis";
   }
   return "knowledge_answer";
 }

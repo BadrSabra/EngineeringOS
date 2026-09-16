@@ -20,3 +20,9 @@ Workflow orchestration decisions are not task-objective proof; keep their durabl
 **Why:** Choosing the next workflow phase is not evidence that the phase ran successfully, and treating the model's routing response as `PROVEN` creates synthetic acceptance.
 
 **How to apply:** Record orchestration with a non-proof execution and let the phase executor or task-specific receipt adapter own terminal success.
+
+Review-ready proposals are a distinct terminal state: validate their operation, revision, scope, node, and server-owned receipt bindings, but do not require a `PROVEN` verdict until the approved change is actually finalized. Non-proof project-orientation queries must not inherit the source-evidence gate merely because they are classified as `PROJECT_QUERY`.
+
+**Why:** Requiring final proof before creating a proposal blocks the Plan → Approve → Build handoff, while applying the orientation evidence gate to lightweight status questions turns valid read-only responses into false incomplete executions.
+
+**How to apply:** Keep proposal completion checks identity-bound and receipt-backed with `requireProven: false`; gate orientation coverage/evidence only when the persisted execution explicitly requires proof.

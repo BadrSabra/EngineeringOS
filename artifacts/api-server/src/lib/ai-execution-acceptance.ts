@@ -515,6 +515,10 @@ export async function finalizeExecutionAcceptance(
       ?? parseTaskObjectiveContract(storedRequest?.taskObjective);
     const storedProofRequired = storedRequest?.proofRequired === true;
     const evidenceRequired = storedProofRequired || params.evidence?.required === true;
+    const reviewReadyProposal =
+      params.outcome === "SUCCEEDED"
+      && typeof params.proposalId === "string"
+      && params.proposalId.length > 0;
     const expectedRevision = typeof storedRequest?.workspaceRevision === "string"
       ? storedRequest.workspaceRevision
       : execution.baseRevision ?? null;
@@ -538,6 +542,7 @@ export async function finalizeExecutionAcceptance(
         || (rootWasSupplied && suppliedRoot !== expectedRoot)
         || (
           params.outcome === "SUCCEEDED"
+          && !reviewReadyProposal
           && (expectedRevision === null || expectedRoot === null)
         )
       )
@@ -563,7 +568,7 @@ export async function finalizeExecutionAcceptance(
         } satisfies EvidenceSnapshotInput
       : params.evidence;
     const evidence = normalizeEvidenceSnapshot(effectiveEvidence);
-    if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete) {
+    if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete && !reviewReadyProposal) {
       return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
     }
 
