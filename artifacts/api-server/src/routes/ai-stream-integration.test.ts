@@ -5790,7 +5790,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
-  it("records required incomplete evidence when an analytical PROJECT_QUERY only reads sources", async () => {
+  it("preserves partial evidence when an analytical PROJECT_QUERY fails parsing after reading sources", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const sources = [
@@ -5817,6 +5817,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           tool: "read_file",
           source,
           cached: false,
+          readStatus: "READ_COMPLETE",
           outputLength: source.length + 20,
         });
       }
@@ -5867,6 +5868,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           response: incomplete,
           sources,
           pendingChanges: [],
+          _parseError: {
+            code: "MALFORMED_JSON",
+            message: "The provider response was not valid JSON.",
+            raw: "not valid json",
+          },
         },
         effectiveProvider: "groq" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
@@ -5889,6 +5895,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
     expect(events.some((event) => event.type === "forensic_recovery_start")).toBe(false);
     expect(events.some((event) => event.type === "forensic_terminal")).toBe(false);
+    expect(events.find((event) => event.type === "error")).toMatchObject({
+      code: "model_output_invalid",
+      outcome: "FAILED",
+      failureKind: "PROVIDER_FAILURE",
+    });
     const doneTaskResult = events.find((event) => event.type === "done")?.taskResult as
       | { kind?: string }
       | undefined;
@@ -5930,7 +5941,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
       .limit(1);
     expect(snapshot).toMatchObject({
-      verdict: "NOT_RECORDED",
+      verdict: "PARTIAL",
       complete: 0,
       readCount: sources.length,
     });
