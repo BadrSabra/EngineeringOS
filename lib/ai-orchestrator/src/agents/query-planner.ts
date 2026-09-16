@@ -202,7 +202,7 @@ export function deriveFallbackOrientationSources(
     ),
     components: pickOrientationPaths(
       paths,
-      /(?:^|\/)(?:(?:src\/(?:app|main|index)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))|(?:(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)))$/iu,
+      /^(?!(?:.*\/(?:__tests__|tests?|specs?)(?:\/|$)|.*\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$))(?:(?:src\/(?:app|main|index)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))|(?:(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)))$/iu,
     ),
     primaryFlow: pickOrientationPaths(
       paths,
@@ -210,7 +210,7 @@ export function deriveFallbackOrientationSources(
     ),
     uncertainty: pickOrientationPaths(
       paths,
-      /(?:^|\/)(?:test|tests|spec|specs|config|configs|deploy|deployment|workflow|workflows|docker|\.github)(?:\/|\.|$)|(?:package-lock|pnpm-lock|yarn\.lock|tsconfig|vite\.config|replit\.toml|artifact\.toml)/iu,
+      /(?:^|\/)(?:__tests__|test|tests|spec|specs|config|configs|deploy|deployment|workflow|workflows|docker|\.github)(?:\/|\.|$)|(?:^|\/).*?\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:package-lock|pnpm-lock|yarn\.lock|tsconfig|vite\.config|replit\.toml|artifact\.toml)/iu,
     ),
   };
 }

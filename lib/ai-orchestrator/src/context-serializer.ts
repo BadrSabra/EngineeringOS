@@ -277,13 +277,25 @@ function buildGraphSummary(
   const shownIds = new Set<string>();
   const entityLines: string[] = [];
 
+  const displayGraphPath = (rawPath: string): string => {
+    const normalized = rawPath.replace(/\\/g, "/").replace(/^(\.\/)+/, "");
+    // Graph paths are normally project-relative. If a legacy row contains an
+    // absolute path, keep the summary from leaking the host path and retain a
+    // safe basename instead. Relative paths must retain their directories so
+    // server-owned planners can recover bounded source targets.
+    if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) {
+      return normalized.slice(normalized.lastIndexOf("/") + 1);
+    }
+    return normalized;
+  };
+
   for (const [type, group] of Object.entries(entityGroups)) {
     const members = group
       .filter((e) => !shownIds.has(e.id))
       .slice(0, 20)
       .map((e) => {
         shownIds.add(e.id);
-        const file = e.path ? ` (${e.path.replace(/^.*[\\/]/, "")})` : "";
+        const file = e.path ? ` (${displayGraphPath(e.path)})` : "";
         const kind = e.kind ? ` <${e.kind}>` : "";
         const conf =
           e.confidence != null

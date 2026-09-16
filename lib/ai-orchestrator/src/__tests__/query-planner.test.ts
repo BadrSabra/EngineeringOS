@@ -145,6 +145,26 @@ describe("query-planner — knowledge-graph enrichment", () => {
     expect(result.planDiagnostics).toContain("planner response was not a valid plan");
   });
 
+  it("recovers all orientation roles from the structured graph-summary path shape", async () => {
+    const { deriveFallbackOrientationSources } = await import("../agents/query-planner.js");
+    const sources = deriveFallbackOrientationSources([
+      "service (lib/ai-orchestrator/src/agents/chat-agent.ts)",
+      "controller (artifacts/api-server/src/routes/ai/chat.ts)",
+      "documentation (README.md)",
+      "package (package.json)",
+      "tests (lib/ai-orchestrator/src/__tests__/chat-agent.test.ts)",
+      "config (artifacts/dashboard/vite.config.ts)",
+    ].join("\n"));
+
+    expect(sources.purpose).toEqual(["README.md", "package.json"]);
+    expect(sources.components).toContain("lib/ai-orchestrator/src/agents/chat-agent.ts");
+    expect(sources.primaryFlow).toContain("artifacts/api-server/src/routes/ai/chat.ts");
+    expect(sources.uncertainty).toEqual([
+      "lib/ai-orchestrator/src/__tests__/chat-agent.test.ts",
+      "artifacts/dashboard/vite.config.ts",
+    ]);
+  });
+
   it("infers a citation-required GAPS part from the shared gap signal", async () => {
     const { inferCompoundParts } = await import("../agents/query-planner.js");
 

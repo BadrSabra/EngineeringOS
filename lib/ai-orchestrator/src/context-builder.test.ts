@@ -379,6 +379,34 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(ctx.graphSummary).toMatch(/Provenance:/);
     expect(ctx.graphSummary).toMatch(/Confidence:/);
   });
+
+  it("preserves project-relative graph directories for bounded source planning", async () => {
+    _tableData.set(graphEntitiesTable as object, [
+      {
+        id: "e1",
+        name: "ChatAgent",
+        type: "service",
+        confidence: 0.95,
+        sourceType: "typescript-ast",
+        path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+      },
+      {
+        id: "e2",
+        name: "ApiRoutes",
+        type: "controller",
+        confidence: 0.9,
+        sourceType: "typescript-ast",
+        path: "artifacts/api-server/src/routes/ai/chat.ts",
+      },
+    ]);
+    _tableData.set(graphRelationshipsTable as object, []);
+    invalidateContextCache(PROJECT_ID);
+
+    const ctx = await buildProjectContext(PROJECT_ID);
+
+    expect(ctx.graphSummary).toContain("(lib/ai-orchestrator/src/agents/chat-agent.ts)");
+    expect(ctx.graphSummary).toContain("(artifacts/api-server/src/routes/ai/chat.ts)");
+  });
   it("skips unloaded sections and only queries the requested context slices", async () => {
     const ctx = await buildProjectContext(PROJECT_ID, { sections: ["metrics"] });
 
