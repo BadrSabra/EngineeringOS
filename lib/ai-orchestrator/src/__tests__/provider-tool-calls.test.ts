@@ -67,6 +67,37 @@ describe("provider tool-call normalization", () => {
     expect(calls[1]?.function.arguments).toBe('{"path":"src/a.ts","content":"a"}');
   });
 
+  it("retains only allowlisted Gemini replay metadata", () => {
+    const geminiCalls = normalizeProviderToolCalls(
+      [{
+        id: "gemini-call",
+        type: "function",
+        function: { name: "read_file", arguments: { path: "src/a.ts" } },
+        providerMetadata: {
+          gemini: { thoughtSignature: "signature-1" },
+          openrouter: { internal: "must-not-survive" },
+        },
+      }],
+      { tools, providerName: "Gemini", model: "gemini-test" },
+    );
+    expect(geminiCalls[0]).toMatchObject({
+      providerMetadata: { gemini: { thoughtSignature: "signature-1" } },
+    });
+
+    const nonGeminiCalls = normalizeProviderToolCalls(
+      [{
+        id: "openrouter-call",
+        type: "function",
+        function: { name: "read_file", arguments: { path: "src/a.ts" } },
+        providerMetadata: {
+          gemini: { thoughtSignature: "signature-should-not-forward" },
+        },
+      }],
+      { tools, providerName: "OpenRouter", model: "fixture-model" },
+    );
+    expect(nonGeminiCalls[0]).not.toHaveProperty("providerMetadata");
+  });
+
   it("rejects malformed, non-object, and unregistered native calls", () => {
     invalid(() => normalizeProviderToolCalls([
       { id: "bad", type: "function", function: { name: "read_file", arguments: "{not-json}" } },

@@ -352,10 +352,21 @@ function buildRequest(messages: Message[], opts: { model: string; temperature: n
 
 // ── Tool-calling types ────────────────────────────────────────────────────────
 
+export type ToolCallProviderMetadata = {
+  gemini?: {
+    thoughtSignature?: string;
+  };
+};
+
 export type ToolCall = {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
+  /**
+   * Provider-native replay metadata. This is retained internally and must be
+   * explicitly projected by the provider that owns it.
+   */
+  providerMetadata?: ToolCallProviderMetadata;
 };
 
 export type ToolDefinition = {

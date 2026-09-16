@@ -234,7 +234,21 @@ function sanitizeOutboundMessages(messages: RawMessage[]): RawMessage[] {
           .map((toolCall) => toolCall.id)
           .filter((id): id is string => Boolean(id)),
       );
-      sanitized.push(message);
+      sanitized.push({
+        ...message,
+        ...(toolCalls.length > 0
+          ? {
+              tool_calls: toolCalls.map((toolCall) => ({
+                id: toolCall.id,
+                type: "function" as const,
+                function: {
+                  name: toolCall.function.name,
+                  arguments: toolCall.function.arguments,
+                },
+              })),
+            }
+          : {}),
+      });
       continue;
     }
 
@@ -730,7 +744,9 @@ async function oacCompleteRawUntracked(
 
   const body: Record<string, unknown> = {
     model,
-    messages,
+    // Provider-native replay metadata belongs only to its owning provider.
+    // OpenAI-compatible endpoints receive the canonical public message shape.
+    messages: sanitizeOutboundMessages(messages),
     temperature,
     max_tokens: maxTokens,
   };
@@ -1728,6 +1744,7 @@ type GeminiPart = {
   text?: string;
   functionCall?: { name?: unknown; args?: unknown };
   functionResponse?: { name?: unknown; response?: unknown };
+  thoughtSignature?: string;
 };
 
 type GeminiContent = {
@@ -1797,6 +1814,9 @@ function toGeminiContents(messages: RawMessage[]): {
         toolNamesById.set(call.id, call.function.name);
         parts.push({
           functionCall: { name: call.function.name, args },
+          ...(call.providerMetadata?.gemini?.thoughtSignature
+            ? { thoughtSignature: call.providerMetadata.gemini.thoughtSignature }
+            : {}),
         });
       }
       if (parts.length > 0) contents.push({ role: "model", parts });
@@ -1930,6 +1950,13 @@ async function geminiCompleteWithTools(
             name: functionCall.name as string,
             arguments: JSON.stringify(functionCall.args ?? {}),
           },
+          ...(typeof part.thoughtSignature === "string" && part.thoughtSignature.trim()
+            ? {
+                providerMetadata: {
+                  gemini: { thoughtSignature: part.thoughtSignature },
+                },
+              }
+            : {}),
         };
       });
     const normalized = normalizeProviderResponse(

@@ -116,6 +116,77 @@ describe("geminiCompleteRaw", () => {
     });
   });
 
+  it("replays Gemini thought signatures on the next native tool round", async () => {
+    const captured: Array<Record<string, unknown>> = [];
+    let requestCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      captured.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      requestCount += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => requestCount === 1
+          ? {
+              candidates: [{
+                content: {
+                  role: "model",
+                  parts: [{
+                    functionCall: { name: "read_file", args: { path: "src/auth.ts" } },
+                    thoughtSignature: "signature-round-1",
+                  }],
+                },
+                finishReason: "STOP",
+              }],
+              usageMetadata: { promptTokenCount: 4, candidatesTokenCount: 3 },
+            }
+          : {
+              candidates: [{
+                content: {
+                  role: "model",
+                  parts: [{ text: "done" }],
+                },
+                finishReason: "STOP",
+              }],
+            },
+        text: async () => "",
+      } as Response;
+    }));
+
+    const options = {
+      apiKey: "test-key",
+      model: "gemini-3-flash-preview",
+      tools: [{
+        type: "function" as const,
+        function: {
+          name: "read_file",
+          description: "Read a file",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      }],
+      toolChoice: "auto" as const,
+    };
+    const first = await geminiCompleteRaw(baseMessages as any, options);
+    const firstCall = first.toolCalls?.[0];
+    expect(firstCall).toMatchObject({
+      providerMetadata: { gemini: { thoughtSignature: "signature-round-1" } },
+    });
+
+    await geminiCompleteRaw([
+      ...baseMessages,
+      { role: "assistant", content: null, tool_calls: first.toolCalls ?? [] },
+      {
+        role: "tool",
+        tool_call_id: firstCall!.id,
+        content: '{"result":"source"}',
+      },
+    ] as any, options);
+
+    expect(captured[1]).toHaveProperty(
+      "contents.1.parts.0.thoughtSignature",
+      "signature-round-1",
+    );
+  });
+
   it("redacts credential-like transport failures while retaining NETWORK_ERROR", async () => {
     const secret = "AIzaSyFixtureTransportSecret_1234567890";
     vi.stubGlobal("fetch", vi.fn(async () => {
@@ -132,6 +203,50 @@ describe("geminiCompleteRaw", () => {
       expect(error.message).toContain("[redacted]");
       expect(JSON.stringify(error.toProviderContext())).not.toContain(secret);
     });
+  });
+});
+
+describe("OpenAI-compatible outbound metadata", () => {
+  it("does not forward Gemini metadata to OpenRouter", async () => {
+    let captured: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "ok" } }],
+          model: "openrouter-test",
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => "",
+      } as Response;
+    }));
+
+    await oacCompleteRaw([
+      { role: "user", content: "read the file" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "gemini-call",
+          type: "function",
+          function: { name: "read_file", arguments: '{"path":"src/a.ts"}' },
+          providerMetadata: { gemini: { thoughtSignature: "must-not-leak" } },
+        }],
+      },
+      { role: "tool", tool_call_id: "gemini-call", content: '{"result":"source"}' },
+    ] as any, {
+      apiKey: "test-key",
+      model: "openrouter-test",
+      providerName: "OpenRouter",
+      baseUrl: "https://openrouter.example/v1",
+    });
+
+    expect(captured).toBeDefined();
+    expect(captured).not.toHaveProperty(
+      "messages.1.tool_calls.0.providerMetadata",
+    );
   });
 });
 

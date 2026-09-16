@@ -165,10 +165,21 @@ export function normalizeProviderToolCalls(
       typeof rawCall.id === "string" && rawCall.id.trim()
         ? rawCall.id
         : deterministicId(name, args, index, "native");
+    const thoughtSignature =
+      options.providerName === "Gemini"
+      && isRecord(rawCall.providerMetadata)
+      && isRecord(rawCall.providerMetadata.gemini)
+      && typeof rawCall.providerMetadata.gemini.thoughtSignature === "string"
+      && rawCall.providerMetadata.gemini.thoughtSignature.trim().length > 0
+        ? rawCall.providerMetadata.gemini.thoughtSignature
+        : undefined;
     return {
       id,
       type: "function",
       function: { name, arguments: args },
+      ...(thoughtSignature
+        ? { providerMetadata: { gemini: { thoughtSignature } } }
+        : {}),
     };
   });
 }

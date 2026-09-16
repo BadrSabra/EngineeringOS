@@ -5987,6 +5987,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const projectOrientationTurn =
     streamTurnIntent.kind === "PROJECT_QUERY"
     && isProjectOrientationQuestion(message);
+  let projectOrientationExecution = projectOrientationTurn;
   logger.info({
     scope: "chat-route",
     action: "continuation_decision",
@@ -6122,9 +6123,11 @@ router.post("/ai/chat/stream", async (req, res) => {
   const retainedEvidence = new Map<string, string>();
   const retainedReadStatuses = new Map<string, ReadStatus>();
   const traceSteps: AgentStep[] = [];
+  let sourceEvidenceRequiredForTurn =
+    streamTurnIntent.requiresEvidence || projectOrientationExecution;
   const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
     retainedEvidence,
-    streamTurnIntent.requiresEvidence || projectOrientationTurn,
+    sourceEvidenceRequiredForTurn,
     retainedReadStatuses,
     traceSteps,
   );
@@ -6699,7 +6702,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         classification: String(streamTurnIntent.classification),
         operationMode: streamTurnIntent.operationMode,
         phases: streamTurnIntent.phases.map((phase) => String(phase)),
-        requiresEvidence: streamTurnIntent.requiresEvidence,
+        requiresEvidence: sourceEvidenceRequiredForTurn,
         contextMode: streamTurnIntent.contextMode,
         compoundExecution: streamTurnIntent.compoundExecution,
         compoundWrite: streamTurnIntent.compoundWrite,
@@ -6783,6 +6786,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(isResumableTaskType(streamClassification.taskType)
         || capabilityProbeContract
         || streamTurnIntent.projectTarget
+        || projectOrientationTurn
         ? {
             resumeContract: {
               taskType: streamClassification.taskType,
@@ -6790,7 +6794,7 @@ router.post("/ai/chat/stream", async (req, res) => {
               contextProfile: streamClassification.contextProfile,
               sessionId: sessionIdToUse,
               projectRevision: analysisCorrelation.projectRevision,
-              requiresEvidence: streamTurnIntent.requiresEvidence,
+              requiresEvidence: sourceEvidenceRequiredForTurn,
               ...(capabilityProbeContract ? { capabilityProbe: capabilityProbeContract } : {}),
               scope: {
                 projectId,
@@ -6976,6 +6980,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         ...storedRequest,
         modelMessage: storedRequest.modelMessage,
       };
+      projectOrientationExecution =
+        projectOrientationTurn || executionRequest.projectOrientation === true;
+      sourceEvidenceRequiredForTurn =
+        streamTurnIntent.requiresEvidence || projectOrientationExecution;
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
       const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
@@ -6983,7 +6991,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         modelMessage = `${modelMessage}\n\n${resumeContext}`;
       }
       const previousAttempt = aiExecution.attempt;
-      if (streamTurnIntent.requiresEvidence) {
+      if (sourceEvidenceRequiredForTurn) {
         const reusableEvidence = await loadReusableEvidenceReads({
           executionId: aiExecution.id,
           projectId,
@@ -7492,7 +7500,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       type: "intent",
       intent: streamTurnIntent.kind,
       operationMode: streamTurnIntent.operationMode,
-      requiresEvidence: streamTurnIntent.requiresEvidence,
+      requiresEvidence: sourceEvidenceRequiredForTurn,
       operationId: projectContext.operationId,
       workspaceRevision: projectContext.workspaceRevision,
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
@@ -7517,7 +7525,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       compoundExecution: streamTurnIntent.compoundExecution,
       compoundWrite: streamTurnIntent.compoundWrite,
       requireTools: streamModelHasTools,
-      requiresEvidence: streamTurnIntent.requiresEvidence,
+      requiresEvidence: sourceEvidenceRequiredForTurn,
       qualityProfile: streamTurnIntent.executionTaskType,
       contextProfile: streamClassification.contextProfile,
       executionPlan: {
@@ -8269,7 +8277,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       );
       result = chatOut.result;
       endedBeforeEvidence =
-        streamTurnIntent.requiresEvidence &&
+        sourceEvidenceRequiredForTurn &&
         !activeExecutionAbortController.signal.aborted &&
         endedBeforeFirstSourceRead(traceSteps);
       if (endedBeforeEvidence) {
@@ -8294,9 +8302,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       const terminalOutcome = classifyAiTerminalOutcome({
         result,
         trace: traceSteps,
-        requiresEvidence: streamTurnIntent.requiresEvidence,
+        requiresEvidence: sourceEvidenceRequiredForTurn,
         forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
-          || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence),
+          || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn),
         cancelled: activeExecutionAbortController.signal.aborted && !executionLeaseLost,
         leaseLost: executionLeaseLost,
         endedBeforeEvidence,
@@ -8601,7 +8609,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       // PR-011: record failure metrics before emitting the SSE error.
       recordFailure(provider);
       const providerEvidenceSummary = evidenceFailureSummary();
-      if (streamTurnIntent.requiresEvidence && providerEvidenceSummary.sourceReadCount > 0) {
+      if (sourceEvidenceRequiredForTurn && providerEvidenceSummary.sourceReadCount > 0) {
         result = {
           response: buildProviderFailureEvidenceResponse(
             streamTurnIntent.kind,
@@ -8643,14 +8651,16 @@ router.post("/ai/chat/stream", async (req, res) => {
           ? "UNAVAILABLE"
           : "PARTIAL";
       const preserveProviderEvidenceProgress =
-        targetedProjectQueryFailure || streamTurnIntent.kind === "FORENSIC_AUDIT";
+        targetedProjectQueryFailure
+        || streamTurnIntent.kind === "FORENSIC_AUDIT"
+        || projectOrientationExecution;
       const endedBeforeProviderEvidence =
-        streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
+        sourceEvidenceRequiredForTurn && endedBeforeFirstSourceRead(traceSteps);
       const classifiedTerminalOutcome = classifyAiTerminalOutcome({
         trace: traceSteps,
-        requiresEvidence: streamTurnIntent.requiresEvidence,
+        requiresEvidence: sourceEvidenceRequiredForTurn,
         forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
-          || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence),
+          || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn),
         cancelled,
         leaseLost: executionLeaseLost,
         endedBeforeEvidence: endedBeforeProviderEvidence,
@@ -9585,7 +9595,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         const finalForensicOutcome = classifyAiTerminalOutcome({
           result,
           trace: traceSteps,
-          requiresEvidence: streamTurnIntent.requiresEvidence,
+          requiresEvidence: sourceEvidenceRequiredForTurn,
           forensic: true,
           endedBeforeEvidence,
           analysisEvidenceAccepted,
@@ -9712,11 +9722,11 @@ router.post("/ai/chat/stream", async (req, res) => {
             return [];
           })
         : [];
-      const orientationCoverageComplete = projectOrientationTurn
+      const orientationCoverageComplete = projectOrientationExecution
         ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
         : undefined;
       const orientationCoverageIncomplete =
-        projectOrientationTurn && orientationCoverageComplete !== true;
+        projectOrientationExecution && orientationCoverageComplete !== true;
       const terminalEvidenceVerdict = orientationCoverageIncomplete
         ? "PARTIAL" as const
         : executionEvidenceVerdict;
@@ -9825,7 +9835,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     // Evidence-bound and forensic plans are stateless in both directions.
     const orientationMemoryAllowed =
-      !projectOrientationTurn
+      !projectOrientationExecution
       || result.sourceSelectionRecord?.orientationCoverage?.complete === true;
     if (streamExecutionPlan.taskProfile.memoryMode !== "none" && orientationMemoryAllowed) {
       try {
