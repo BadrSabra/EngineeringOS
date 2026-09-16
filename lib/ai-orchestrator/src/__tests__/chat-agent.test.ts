@@ -546,6 +546,61 @@ describe("chat agent — ChatOutputSchema validation", () => {
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
+  it("keeps retained orientation reads when the provider wrapper is malformed", async () => {
+    const toolCalls: AgentStep[] = [];
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-incomplete-"));
+    await fs.writeFile(path.join(rootPath, "README.md"), "# Project\nA workspace application.", "utf8");
+    await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"orientation-fixture"}', "utf8");
+
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "llama-3.1-8b-instant",
+        powerModel: "llama-3.3-70b-versatile",
+      })),
+    }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: "not valid JSON" } }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "What is this project?",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      onStep: (step) => toolCalls.push(step),
+    });
+
+    expect(result._parseError).toBeUndefined();
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.response).not.toContain("MODEL_OUTPUT_INVALID");
+    expect(result.sources).toEqual(expect.arrayContaining(["README.md", "package.json"]));
+    expect(result.sourceSelectionRecord?.orientationCoverage).toMatchObject({
+      complete: false,
+    });
+    expect(toolCalls.some(
+      (step) => step.kind === "diagnostic"
+        && step.code === "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
+    )).toBe(true);
+    await fs.rm(rootPath, { recursive: true, force: true });
+  });
+
   it("emits a proven production trace only from runtime-observed links", async () => {
     vi.doMock("groq-sdk", () => ({
       default: class {

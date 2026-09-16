@@ -145,6 +145,47 @@ describe("query-planner — knowledge-graph enrichment", () => {
     expect(result.planDiagnostics).toContain("planner response was not a valid plan");
   });
 
+  it("uses the bounded filesystem inventory when graph summary paths are unavailable", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Explain the project",
+      projectContext: {
+        ...makeContext(false),
+        graphSummary: "",
+      },
+      model: "mock-model",
+      strategy: {
+        call: vi.fn().mockResolvedValue({
+          content: "not valid planner JSON",
+          model: "mock-model",
+          usage: {},
+        }),
+      } as never,
+      profile: "project_orientation",
+      orientationFallbackPaths: [
+        "README.md",
+        "package.json",
+        "src/App.tsx",
+        "src/routes.ts",
+        "tests/app.test.ts",
+      ],
+    });
+
+    expect(result.orientationSources).toEqual({
+      purpose: ["README.md", "package.json"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    });
+    expect(result.targetFiles).toEqual([
+      "README.md",
+      "package.json",
+      "src/App.tsx",
+      "src/routes.ts",
+      "tests/app.test.ts",
+    ]);
+  });
+
   it("recovers all orientation roles from the structured graph-summary path shape", async () => {
     const { deriveFallbackOrientationSources } = await import("../agents/query-planner.js");
     const sources = deriveFallbackOrientationSources([

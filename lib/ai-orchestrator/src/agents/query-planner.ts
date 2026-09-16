@@ -193,8 +193,16 @@ function pickOrientationPaths(
  */
 export function deriveFallbackOrientationSources(
   graphSummary: string,
+  additionalPaths: readonly string[] = [],
 ): ProjectOrientationSources {
-  const paths = graphSummaryPaths(graphSummary);
+  const paths = [
+    ...new Set([
+      ...graphSummaryPaths(graphSummary),
+      ...additionalPaths
+        .map(normalizePlannerPath)
+        .filter((path) => path && !path.startsWith("/") && !path.split("/").includes("..")),
+    ]),
+  ];
   return {
     purpose: pickOrientationPaths(
       paths,
@@ -220,12 +228,16 @@ function fallbackPlanFor(opts: {
   targetResolution?: ProjectQueryTargetResolution;
   profile: "default" | "project_orientation";
   graphSummary?: string;
+  orientationFallbackPaths?: readonly string[];
   planStatus?: QueryPlanStatus;
   diagnostics?: string[];
 }): QueryPlan {
   const orientationSources =
     opts.profile === "project_orientation"
-      ? deriveFallbackOrientationSources(opts.graphSummary ?? "")
+      ? deriveFallbackOrientationSources(
+          opts.graphSummary ?? "",
+          opts.orientationFallbackPaths ?? [],
+        )
       : undefined;
   const targetFiles = orientationSources
     ? [...new Set(ORIENTATION_ROLES.flatMap((role) => orientationSources[role]))].slice(0, MAX_TARGET_FILES)
@@ -1108,6 +1120,12 @@ export async function planQuery(opts: {
   targetResolution?: ProjectQueryTargetResolution;
   /** Orientation asks for role-relevant sources and complete reads. */
   profile?: "default" | "project_orientation";
+  /**
+   * Bounded paths from the validated project filesystem manifest. These are
+   * fallback navigation inputs only; the read tool remains authoritative
+   * before any path becomes evidence.
+   */
+  orientationFallbackPaths?: readonly string[];
 }): Promise<QueryPlan> {
   const {
     message,
@@ -1120,6 +1138,7 @@ export async function planQuery(opts: {
     executionLedger,
     targetResolution,
     profile = "default",
+    orientationFallbackPaths = [],
   } = opts;
   const plannerStartedAt = Date.now();
   if (executionLedger && !executionLedger.admit("planner", { model, operation: "query_plan" })) {
@@ -1128,6 +1147,7 @@ export async function planQuery(opts: {
       targetResolution,
       profile,
       graphSummary: projectContext.graphSummary,
+      orientationFallbackPaths,
       diagnostics: ["request execution budget exhausted before planning"],
     });
   }
@@ -1186,6 +1206,7 @@ export async function planQuery(opts: {
       targetResolution,
       profile,
       graphSummary: projectContext.graphSummary,
+      orientationFallbackPaths,
       diagnostics: ["planner timed out or returned no response"],
     });
   }
@@ -1219,6 +1240,7 @@ export async function planQuery(opts: {
       targetResolution,
       profile,
       graphSummary: projectContext.graphSummary,
+      orientationFallbackPaths,
       planStatus: result.content ? "invalid" : "fallback",
       diagnostics: invalidDiagnostics,
     });
@@ -1271,6 +1293,7 @@ export async function planQuery(opts: {
         targetResolution,
         profile,
         graphSummary: projectContext.graphSummary,
+        orientationFallbackPaths,
         planStatus: "invalid",
         diagnostics: ["broad plans require at least two focused subQueries"],
       }),

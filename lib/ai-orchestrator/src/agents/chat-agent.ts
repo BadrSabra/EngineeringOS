@@ -54,7 +54,10 @@ import type { ModelCapability } from "../openrouter/model-catalog.js";
 import { GroqClientError, type AgentErrorCode, type QualityFailure } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
-import type { ProjectFileSource } from "../filesystem-manifest.js";
+import {
+  buildProjectFileManifest,
+  type ProjectFileSource,
+} from "../filesystem-manifest.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
 import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
 import {
@@ -7179,6 +7182,10 @@ export async function chat(opts: {
     !plannerAlreadyUsed &&
     !generalTaskPlan.skipQueryPlanner
   ) {
+    const orientationFallbackPaths =
+      projectOrientationMode && rootPath
+        ? (await buildProjectFileManifest(rootPath)).files
+        : [];
     queryPlan = await planQuery({
       message,
       projectContext,
@@ -7190,6 +7197,7 @@ export async function chat(opts: {
       executionLedger,
       targetResolution: turnIntent.projectTargetResolution,
       profile: projectOrientationMode ? "project_orientation" : "default",
+      ...(projectOrientationMode ? { orientationFallbackPaths } : {}),
     }).catch(() => null);
 
     if (projectOrientationMode && queryPlan) {
@@ -13184,6 +13192,18 @@ export async function chat(opts: {
     terminalResponse = /[\u0600-\u06FF]/.test(message)
       ? `ANALYSIS_INCOMPLETE — لم تكتمل قراءة المصادر اللازمة لشرح المشروع. الأجزاء غير المثبتة: ${missingRoles}. لا يمكنني تقديم جرد موثوق للمكونات أو التدفق اعتمادًا على الرسم البياني وحده.`
       : `ANALYSIS_INCOMPLETE — the bounded source reads did not cover the project explanation. Unverified areas: ${missingRoles}. I cannot provide a reliable component or flow inventory from the graph alone.`;
+    if (parseError) {
+      // Orientation owns a server-generated incomplete response when the
+      // provider wrapper is malformed. Retained reads still belong in the
+      // evidence projection; do not let the generic parser failure discard
+      // them before the acceptance gate can mark the turn incomplete.
+      parseError = undefined;
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
+        details: ["provider output was malformed; retained source reads remain available to the incomplete projection"],
+      });
+    }
     relayAgentStep({
       kind: "diagnostic",
       code: "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
