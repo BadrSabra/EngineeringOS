@@ -5686,6 +5686,7 @@ export async function chat(opts: {
   const projectOrientationMode =
     turnIntent.kind === "PROJECT_QUERY" &&
     isProjectOrientationQuestion(message);
+  let orientationEvidencePaths: string[] = [];
   // A fixture capability audit is itself an evidence-grounded behavioral
   // assessment, even when the short request only says to test forensic
   // capability on the named file. Production audits still require explicit
@@ -6182,6 +6183,10 @@ export async function chat(opts: {
   // terminal happened — an inventory is not an answer. Generic chats (neither
   // forensic nor behavior-evidence) must never emit a forensic_terminal step.
   const isForensicOrEvidenceRun = turnIntent.requiresEvidence;
+  // Project orientation is source-backed, but it is not a forensic Finding
+  // contract. Give its read manifest to the evidence scheduler without routing
+  // the terminal result through the generic forensic terminal projection.
+  const sourceEvidenceRequired = turnIntent.requiresEvidence || projectOrientationMode;
   let recoveryFailureKind: RecoveryFailureKind | undefined;
   const promptOutputContract = forensicOutputMode
     ? "FORENSIC_REPORT"
@@ -6449,7 +6454,9 @@ export async function chat(opts: {
     : firstEvidence.allowedFirstAction === "DIRECT_READ" &&
         firstEvidence.primaryEvidenceTarget?.kind === "FILE"
       ? canonicalRelativePath(firstEvidence.primaryEvidenceTarget.path)
-      : turnIntent.projectTarget?.firstEvidencePath ?? null;
+      : turnIntent.projectTarget?.firstEvidencePath
+        ?? orientationEvidencePaths[0]
+        ?? null;
   // Union the single-file forensic manifest with the FEG primary target so the
   // runtime's first read covers both an isolated audit and a general explicit
   // file mention, exactly once each (deduped).
@@ -6657,7 +6664,7 @@ export async function chat(opts: {
         projectChatToolMode,
       )
     : undefined;
-  const executionToolManifest = turnIntent.requiresEvidence ? toolManifest : undefined;
+  const executionToolManifest = sourceEvidenceRequired ? toolManifest : undefined;
   if (
     modelHasTools &&
     (!toolManifest
@@ -7189,6 +7196,7 @@ export async function chat(opts: {
       const roleFiles = Object.values(queryPlan.orientationSources ?? {})
         .flat()
         .map((file) => file.replace(/\\/g, "/").replace(/^\.\/+/, ""));
+      orientationEvidencePaths = [...new Set(roleFiles)].slice(0, 8);
       queryPlan = {
         ...queryPlan,
         targetFiles: [...new Set([...roleFiles, ...queryPlan.targetFiles])].slice(0, 10),
@@ -7648,7 +7656,7 @@ export async function chat(opts: {
           toolChoice: "required",
           maxIterations: Math.min(budget.maxIterations, 48),
           taskType: executionPlan.taskProfile.taskType,
-          requiresEvidence: turnIntent.requiresEvidence,
+          requiresEvidence: sourceEvidenceRequired,
           deterministicTaskExecution: false,
           maxToolCalls: Math.min(budget.maxToolCalls, 100),
           executionMode: "repair_plan",
@@ -7993,14 +8001,15 @@ export async function chat(opts: {
     objective,
     prefetchFileContents.keys(),
   );
-  const evidenceRecoveryPaths = !objective
-    ? [...new Set(
-        (forensicSourceCoverage?.roots ?? []).flatMap((root) => [
+  const evidenceRecoveryPaths = [
+    ...(projectOrientationMode ? orientationEvidencePaths : []),
+    ...(!objective
+      ? (forensicSourceCoverage?.roots ?? []).flatMap((root) => [
           ...(root.truncatedPaths ?? []),
           ...(root.budgetExhausted ? [] : (root.unreadPaths ?? [])),
-        ]),
-      )]
-    : [];
+        ])
+      : []),
+  ];
   const loopEvidenceTargetPath = objective
     ? nextObjectiveEvidenceTargetPath
     : firstEvidenceTargetPath;
@@ -8056,7 +8065,7 @@ export async function chat(opts: {
         : undefined,
     maxIterations: budget.maxIterations,
     taskType: executionPlan.taskProfile.taskType,
-    requiresEvidence: turnIntent.requiresEvidence,
+    requiresEvidence: sourceEvidenceRequired,
     deterministicTaskExecution,
     maxToolCalls: structuredOutputMode || capabilityProbeRequest
       ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)

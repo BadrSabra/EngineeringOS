@@ -700,6 +700,50 @@ describe("executeToolLoop", () => {
     );
   });
 
+  it("forces every project-orientation recovery path without requiring a forensic objective", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockImplementation(async (_name: string, args: { path?: string }) =>
+      `File: ${args.path ?? "unknown"}\nexport const orientationEvidence = true;`,
+    );
+    const strategy = makeStrategy([
+      makeResponse("I can answer without reading the orientation sources."),
+      makeResponse("The first orientation source is enough."),
+      makeResponse("The bounded orientation manifest is complete."),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      evidenceRecoveryPaths: ["README.md", "src/App.tsx"],
+      requiresEvidence: true,
+      maxIterations: 3,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      1,
+      "read_file",
+      { path: "README.md" },
+      "/project",
+      [],
+    );
+    expect(FILE_TOOL_MOCK).toHaveBeenNthCalledWith(
+      2,
+      "read_file",
+      { path: "src/App.tsx" },
+      "/project",
+      [],
+    );
+    expect(result.fileContents?.has("README.md")).toBe(true);
+    expect(result.fileContents?.has("src/App.tsx")).toBe(true);
+  });
+
   it("hands a provider failure after a read back to the next objective evidence path", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const providerFailure = new GroqClientError("MODEL_UNAVAILABLE", "fixture provider interruption");

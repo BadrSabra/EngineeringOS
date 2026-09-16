@@ -61,6 +61,12 @@ import {
 
 export type ScopeEstimate = "narrow" | "medium" | "broad";
 export type QueryPlanStatus = "valid" | "fallback" | "invalid";
+export type ProjectOrientationSources = {
+  purpose: string[];
+  components: string[];
+  primaryFlow: string[];
+  uncertainty: string[];
+};
 
 export type CompoundPartKind =
   | "CURRENT_STATE"
@@ -111,12 +117,7 @@ export type QueryPlan = {
    * Orientation-only source roles. Each role is a bounded source set that
    * must be completely read before the project explanation can be accepted.
    */
-  orientationSources?: {
-    purpose: string[];
-    components: string[];
-    primaryFlow: string[];
-    uncertainty: string[];
-  };
+  orientationSources?: ProjectOrientationSources;
   /**
    * PR-011: true when graph enrichment added paths beyond the raw planner
    * response. Used by deriveSourceSelectionRecord to distinguish targeted from
@@ -142,6 +143,9 @@ const MAX_GRAPH_GUIDED_ROOTS = 4;
 const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
 const MAX_UNRESOLVED_TARGET_FILES = 4;
 const MIN_UNRESOLVED_TARGET_CONFIDENCE = 0.75;
+const ORIENTATION_ROLES = ["purpose", "components", "primaryFlow", "uncertainty"] as const;
+const GRAPH_PATH_PATTERN =
+  /(?:^|[\s"'`([{,])((?:[A-Za-z0-9_.@-]+\/)*[A-Za-z0-9_.@-]+\.(?:md|json|yaml|yml|toml|ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|css|html))(?=$|[\s"'`)\]},;:])/g;
 
 /**
  * Returned whenever planning fails (timeout, parse error, model error).
@@ -159,6 +163,83 @@ const FALLBACK_PLAN: QueryPlan = {
   planStatus: "fallback",
   planDiagnostics: ["planner output was unavailable"],
 };
+
+function normalizePlannerPath(value: string): string {
+  return value.trim().replace(/\\/g, "/").replace(/^(\.\/)+/, "");
+}
+
+function graphSummaryPaths(graphSummary: string): string[] {
+  const paths = new Set<string>();
+  for (const match of graphSummary.matchAll(GRAPH_PATH_PATTERN)) {
+    const path = normalizePlannerPath(match[1] ?? "");
+    if (path && !path.startsWith("/") && !path.split("/").includes("..")) paths.add(path);
+  }
+  return [...paths];
+}
+
+function pickOrientationPaths(
+  paths: readonly string[],
+  pattern: RegExp,
+): string[] {
+  return paths.filter((path) => pattern.test(path)).slice(0, MAX_ORIENTATION_ROLE_FILES);
+}
+
+/**
+ * Build a bounded, navigation-only orientation manifest when the planner
+ * provider is unavailable. These paths come from the server-provided graph
+ * summary; they are still source evidence only after the read tool succeeds.
+ * Empty roles intentionally remain empty so the final coverage gate fails
+ * closed instead of inventing a project structure.
+ */
+export function deriveFallbackOrientationSources(
+  graphSummary: string,
+): ProjectOrientationSources {
+  const paths = graphSummaryPaths(graphSummary);
+  return {
+    purpose: pickOrientationPaths(
+      paths,
+      /(?:^|\/)(?:readme(?:\.[^/]+)?|package(?:\.[^/]+)?|pyproject\.toml|cargo\.toml|go\.mod)$/iu,
+    ),
+    components: pickOrientationPaths(
+      paths,
+      /(?:^|\/)(?:(?:src\/(?:app|main|index)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))|(?:(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)))$/iu,
+    ),
+    primaryFlow: pickOrientationPaths(
+      paths,
+      /(?:route|routes|controller|controllers|handler|handlers|service|services|api|server|main|index).*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/iu,
+    ),
+    uncertainty: pickOrientationPaths(
+      paths,
+      /(?:^|\/)(?:test|tests|spec|specs|config|configs|deploy|deployment|workflow|workflows|docker|\.github)(?:\/|\.|$)|(?:package-lock|pnpm-lock|yarn\.lock|tsconfig|vite\.config|replit\.toml|artifact\.toml)/iu,
+    ),
+  };
+}
+
+function fallbackPlanFor(opts: {
+  message: string;
+  targetResolution?: ProjectQueryTargetResolution;
+  profile: "default" | "project_orientation";
+  graphSummary?: string;
+  planStatus?: QueryPlanStatus;
+  diagnostics?: string[];
+}): QueryPlan {
+  const orientationSources =
+    opts.profile === "project_orientation"
+      ? deriveFallbackOrientationSources(opts.graphSummary ?? "")
+      : undefined;
+  const targetFiles = orientationSources
+    ? [...new Set(ORIENTATION_ROLES.flatMap((role) => orientationSources[role]))].slice(0, MAX_TARGET_FILES)
+    : [];
+  return {
+    ...FALLBACK_PLAN,
+    originalIntent: opts.message,
+    targetResolution: opts.targetResolution,
+    planStatus: opts.planStatus ?? "fallback",
+    targetFiles,
+    ...(orientationSources ? { orientationSources } : {}),
+    planDiagnostics: (opts.diagnostics ?? FALLBACK_PLAN.planDiagnostics ?? []).slice(0, 4),
+  };
+}
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
@@ -249,6 +330,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function validateQueryPlanShape(
   value: unknown,
+  options: { requireOrientationSources?: boolean } = {},
 ): RawQueryPlanValidation {
   const diagnostics: string[] = [];
   if (!isRecord(value)) return { valid: false, diagnostics: ["plan must be a JSON object"] };
@@ -347,6 +429,34 @@ export function validateQueryPlanShape(
       }
     }
   }
+  if (options.requireOrientationSources) {
+    if (!isRecord(value.orientationSources)) {
+      diagnostics.push("project_orientation requires orientationSources");
+    } else {
+      const orientationSources = value.orientationSources as Record<string, unknown>;
+      const roleFiles = ORIENTATION_ROLES.flatMap((role) => {
+        const files = orientationSources[role];
+        return Array.isArray(files)
+          ? files.filter((file): file is string => typeof file === "string" && file.trim().length > 0)
+          : [];
+      });
+      if (ORIENTATION_ROLES.some((role) => {
+        const files = orientationSources[role];
+        return !Array.isArray(files) || files.length === 0;
+      })) {
+        diagnostics.push("project_orientation requires at least one source file per role");
+      }
+      const targetFileSet = new Set(
+        targetFiles.filter((file): file is string => typeof file === "string").map(normalizePlannerPath),
+      );
+      if (roleFiles.some((file) => !targetFileSet.has(normalizePlannerPath(file)))) {
+        diagnostics.push("orientationSources files must also appear in targetFiles");
+      }
+      if (new Set(roleFiles.map(normalizePlannerPath)).size > 8) {
+        diagnostics.push("project_orientation source union exceeds the maximum of 8 files");
+      }
+    }
+  }
 
   const subQueries = Array.isArray(value.subQueries) ? value.subQueries : [];
   if (scope === "broad" && subQueries.length > 0 && subQueries.length < 2) {
@@ -405,7 +515,10 @@ export function validateQueryPlanShape(
   return { valid: diagnostics.length === 0, diagnostics: [...new Set(diagnostics)] };
 }
 
-function parsePlannerResponse(raw: string | null): QueryPlan | null {
+function parsePlannerResponse(
+  raw: string | null,
+  profile: "default" | "project_orientation" = "default",
+): QueryPlan | null {
   if (!raw) return null;
 
   // Extract the first JSON object from the response (handles spurious prose)
@@ -415,12 +528,14 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
   try {
     const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
-    const validation = validateQueryPlanShape(parsed);
+    const validation = validateQueryPlanShape(parsed, {
+      requireOrientationSources: profile === "project_orientation",
+    });
     if (!validation.valid) return null;
     const scopeEstimate = parsed["scopeEstimate"] as ScopeEstimate;
     const suggestedIterations = parsed["suggestedIterations"] as number;
 
-    return {
+      return {
       originalIntent: typeof parsed["originalIntent"] === "string" ? parsed["originalIntent"] : "",
       targetFiles: Array.isArray(parsed["targetFiles"])
         ? (parsed["targetFiles"] as string[]).filter((f) => typeof f === "string").slice(0, MAX_TARGET_FILES)
@@ -483,7 +598,7 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
         : [],
       planStatus: "valid",
       planDiagnostics: [],
-    };
+      };
   } catch {
     return null;
   }
@@ -1008,12 +1123,13 @@ export async function planQuery(opts: {
   } = opts;
   const plannerStartedAt = Date.now();
   if (executionLedger && !executionLedger.admit("planner", { model, operation: "query_plan" })) {
-    return {
-      ...FALLBACK_PLAN,
-      originalIntent: message,
+    return fallbackPlanFor({
+      message,
       targetResolution,
-      planDiagnostics: ["request execution budget exhausted before planning"],
-    };
+      profile,
+      graphSummary: projectContext.graphSummary,
+      diagnostics: ["request execution budget exhausted before planning"],
+    });
   }
 
   const plannerPrompt = buildPlannerPrompt(
@@ -1065,17 +1181,25 @@ export async function planQuery(opts: {
 
   if (!result) {
     console.warn(JSON.stringify({ scope: "query-planner", code: "TIMEOUT_OR_ERROR", model }));
-    return { ...FALLBACK_PLAN, originalIntent: message, targetResolution };
+    return fallbackPlanFor({
+      message,
+      targetResolution,
+      profile,
+      graphSummary: projectContext.graphSummary,
+      diagnostics: ["planner timed out or returned no response"],
+    });
   }
 
-  const parsedPlan = parsePlannerResponse(result.content);
+  const parsedPlan = parsePlannerResponse(result.content, profile);
   if (!parsedPlan) {
     let invalidDiagnostics = ["planner response was not a valid plan"];
     try {
       const jsonMatch = result.content?.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]) as unknown;
-        const validation = validateQueryPlanShape(parsed);
+        const validation = validateQueryPlanShape(parsed, {
+          requireOrientationSources: profile === "project_orientation",
+        });
         if (!validation.valid) invalidDiagnostics = validation.diagnostics;
       }
     } catch {
@@ -1090,13 +1214,14 @@ export async function planQuery(opts: {
         diagnostics: invalidDiagnostics.slice(0, 4),
       }),
     );
-    return {
-      ...FALLBACK_PLAN,
-      planStatus: result.content ? "invalid" : "fallback",
-      originalIntent: message,
+    return fallbackPlanFor({
+      message,
       targetResolution,
-      planDiagnostics: invalidDiagnostics.slice(0, 4),
-    };
+      profile,
+      graphSummary: projectContext.graphSummary,
+      planStatus: result.content ? "invalid" : "fallback",
+      diagnostics: invalidDiagnostics,
+    });
   }
 
   // ── Graph enrichment ───────────────────────────────────────────────────────
@@ -1141,14 +1266,17 @@ export async function planQuery(opts: {
     constrainedPlan.subQueries.length < 2
   ) {
     return {
-      ...FALLBACK_PLAN,
-      originalIntent: message,
-      planStatus: "invalid",
-      targetResolution,
+      ...fallbackPlanFor({
+        message,
+        targetResolution,
+        profile,
+        graphSummary: projectContext.graphSummary,
+        planStatus: "invalid",
+        diagnostics: ["broad plans require at least two focused subQueries"],
+      }),
       ...(deriveProjectQueryTargetMode({ targetResolution })
         ? { targetMode: deriveProjectQueryTargetMode({ targetResolution }) }
         : {}),
-      planDiagnostics: ["broad plans require at least two focused subQueries"],
     };
   }
 

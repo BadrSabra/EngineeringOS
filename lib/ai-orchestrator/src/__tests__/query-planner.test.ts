@@ -102,6 +102,49 @@ describe("project orientation source coverage", () => {
 });
 
 describe("query-planner — knowledge-graph enrichment", () => {
+  it("keeps a bounded orientation manifest when the planner response is invalid", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const strategy = {
+      call: vi.fn().mockResolvedValue({
+        content: "not valid planner JSON",
+        model: "mock-model",
+        usage: {},
+      }),
+    };
+    const result = await planQuery({
+      message: "Explain the project",
+      projectContext: {
+        ...makeContext(false),
+        graphSummary: [
+          "README.md",
+          "package.json",
+          "src/App.tsx",
+          "src/routes.ts",
+          "tests/app.test.ts",
+        ].join(" "),
+      },
+      model: "mock-model",
+      strategy: strategy as never,
+      profile: "project_orientation",
+    });
+
+    expect(result.planStatus).toBe("invalid");
+    expect(result.orientationSources).toEqual({
+      purpose: ["README.md", "package.json"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    });
+    expect(result.targetFiles).toEqual([
+      "README.md",
+      "package.json",
+      "src/App.tsx",
+      "src/routes.ts",
+      "tests/app.test.ts",
+    ]);
+    expect(result.planDiagnostics).toContain("planner response was not a valid plan");
+  });
+
   it("infers a citation-required GAPS part from the shared gap signal", async () => {
     const { inferCompoundParts } = await import("../agents/query-planner.js");
 

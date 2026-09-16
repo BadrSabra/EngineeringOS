@@ -452,9 +452,22 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.response).toBe("أهلًا بك!");
   });
 
-  it("enables project tools for orientation questions and hides raw provenance sources", async () => {
+  it("enables project tools for orientation questions and exposes only read-backed sources", async () => {
     const toolCalls: AgentStep[] = [];
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-"));
+    const sourceFiles = {
+      "README.md": "# Project\nA workspace application.",
+      "package.json": '{"name":"orientation-fixture"}',
+      "src/App.tsx": "export function App() { return null; }",
+      "src/routes.ts": "export const routes = [];",
+      "tests/app.test.ts": "describe('app', () => {});",
+    };
+    for (const [relativePath, content] of Object.entries(sourceFiles)) {
+      const absolutePath = path.join(rootPath, relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, content, "utf8");
+    }
 
     vi.doMock("../model-selection/decision-engine.js", () => ({
       resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => {
@@ -496,8 +509,11 @@ describe("chat agent — ChatOutputSchema validation", () => {
     const result = await chat({
       message: "What is this project?",
       history: [],
-      projectContext: makeContext(),
-      rootPath: "/tmp/project",
+      projectContext: {
+        ...makeContext(),
+        graphSummary: Object.keys(sourceFiles).join(" "),
+      },
+      rootPath,
       onStep: (step) => toolCalls.push(step),
     });
 
@@ -505,9 +521,25 @@ describe("chat agent — ChatOutputSchema validation", () => {
       scope: "tool_chat",
       opts: { hasTools: true, requireTools: true },
     });
-    expect(toolCalls.filter((step) => step.kind === "tool_call")).toHaveLength(0);
-    expect(result.sources).toEqual([]);
+    const sourceReadCalls = toolCalls.filter(
+      (step): step is Extract<AgentStep, { kind: "tool_call" }> => step.kind === "tool_call",
+    );
+    expect(sourceReadCalls).toHaveLength(5);
+    expect(sourceReadCalls.map((step) => step.args)).toEqual(
+      expect.arrayContaining([
+        { path: "README.md" },
+        { path: "package.json" },
+        { path: "src/App.tsx" },
+        { path: "src/routes.ts" },
+        { path: "tests/app.test.ts" },
+      ]),
+    );
+    expect(result.sources).toEqual(expect.arrayContaining(Object.keys(sourceFiles)));
+    expect(result.sources).not.toContain("directory: .");
+    expect(result.sources).not.toContain("git:status");
+    expect(result.sources).not.toContain("search:project");
     expect(result.response).toBe("This is the project workspace.");
+    await fs.rm(rootPath, { recursive: true, force: true });
   });
 
   it("emits a proven production trace only from runtime-observed links", async () => {
