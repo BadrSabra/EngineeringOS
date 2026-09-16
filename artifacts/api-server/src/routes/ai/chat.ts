@@ -95,6 +95,8 @@ import {
   projectContextProvenance,
   parseContextProvenance,
   extractJson,
+  isSyntheticModelOutputFailureText,
+  isUnsupportedJsonLookingChatResponse,
   MODEL_OUTPUT_INVALID_MESSAGE,
 } from "@workspace/ai-orchestrator";
 import type {
@@ -658,6 +660,37 @@ function sanitizeResponseText(raw: string): string {
     return MODEL_OUTPUT_INVALID_MESSAGE;
   }
   return MODEL_OUTPUT_INVALID_MESSAGE;
+}
+
+/**
+ * Defense-in-depth for provider results that bypass the orchestrator's chat
+ * parser. This runs before terminal classification and persistence, so a
+ * storage-boundary sentinel can never be recorded as SUCCEEDED.
+ */
+function terminalizeUnsupportedChatResponse(
+  result: Awaited<ReturnType<typeof chat>>,
+  turnIntentKind: string,
+): Awaited<ReturnType<typeof chat>> {
+  if (
+    turnIntentKind !== "CHAT"
+    || result._parseError
+    || !(
+      isSyntheticModelOutputFailureText(result.response)
+      || isUnsupportedJsonLookingChatResponse(result.response)
+    )
+  ) {
+    return result;
+  }
+
+  return {
+    ...result,
+    response: "",
+    _parseError: {
+      code: "MALFORMED_JSON",
+      message: "The provider returned unsupported JSON-looking chat content.",
+      raw: result.response,
+    },
+  };
 }
 
 function parseRepairPlanMetadata(value: string | null): RepairPlanMetadata[] | undefined {
@@ -4965,7 +4998,7 @@ router.post("/ai/chat", async (req, res) => {
         undefined,
         (step) => traceSteps.push(step),
       );
-      result = chatOut.result;
+      result = terminalizeUnsupportedChatResponse(chatOut.result, turnIntent.kind);
       if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
         result = {
           ...result,
@@ -8331,7 +8364,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         onStreamReset,
         onStep,
       );
-      result = chatOut.result;
+      result = terminalizeUnsupportedChatResponse(chatOut.result, streamTurnIntent.kind);
       endedBeforeEvidence =
         sourceEvidenceRequiredForTurn &&
         !activeExecutionAbortController.signal.aborted &&

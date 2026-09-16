@@ -465,6 +465,7 @@ export type {
 export {
   extractJson,
   isSyntheticModelOutputFailureText,
+  isUnsupportedJsonLookingChatResponse,
   MODEL_OUTPUT_INVALID_MESSAGE,
   parseAgentResponse,
 } from "./parsing.js";

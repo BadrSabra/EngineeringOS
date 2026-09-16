@@ -1957,6 +1957,67 @@ describe("POST /api/ai/chat", () => {
     expect(res.body.parseCode).toBeUndefined();
   });
 
+  it("fails closed when /chat receives a nested JSON response without a parse marker", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: JSON.stringify({
+        response: JSON.stringify({ response: "inner answer", sources: [] }),
+        sources: [],
+      }),
+      sources: [],
+      pendingChanges: [],
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "nested response boundary" });
+
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({
+      error: "model_output_invalid",
+      outcome: "FAILED",
+      failureKind: "PROVIDER_FAILURE",
+    });
+
+    const rows = await db
+      .select({ role: aiChatMessagesTable.role, outcome: aiChatMessagesTable.outcome })
+      .from(aiChatMessagesTable)
+      .innerJoin(aiChatSessionsTable, eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id))
+      .where(eq(aiChatSessionsTable.projectId, projectId));
+    expect(rows.some((row) => row.role === "assistant" && row.outcome === "SUCCEEDED")).toBe(false);
+  });
+
+  it("fails closed when /chat/stream receives a nested JSON response without a parse marker", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: JSON.stringify({
+        response: JSON.stringify({ response: "inner answer", sources: [] }),
+        sources: [],
+      }),
+      sources: [],
+      pendingChanges: [],
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId, message: "nested streamed response boundary" });
+
+    expect(res.status).toBe(200);
+    const terminal = lastSseEvent(res.text);
+    expect(terminal).toMatchObject({
+      type: "error",
+      code: "model_output_invalid",
+      outcome: "FAILED",
+    });
+    expect(res.text).not.toContain('"type":"done"');
+  });
+
   it("reuses an existing session when sessionId is provided", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

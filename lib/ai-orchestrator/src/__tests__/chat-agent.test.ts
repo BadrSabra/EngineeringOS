@@ -1257,6 +1257,63 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(result._parseError).toMatchObject({ code: "MALFORMED_JSON" });
   });
 
+  it("terminalizes a valid outer envelope whose response is a nested JSON envelope", async () => {
+    const nested = JSON.stringify({
+      response: JSON.stringify({ response: "inner answer", sources: [] }),
+      sources: [],
+    });
+
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: nested, toolCalls: [] }),
+      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: nested, toolCalls: [] }),
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+      onDelta: (chunk) => deltas.push(chunk),
+    });
+
+    expect(result.response).toBe("");
+    expect(result._parseError).toMatchObject({ code: "MALFORMED_JSON" });
+    expect(deltas).toEqual([]);
+  });
+
+  it("terminalizes malformed JSON-looking text nested in an outer response envelope", async () => {
+    const nestedMalformed = JSON.stringify({
+      response: '{"response":"inner answer","sources":[]',
+      sources: [],
+    });
+
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: nestedMalformed, toolCalls: [] }),
+      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: nestedMalformed, toolCalls: [] }),
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+    });
+
+    expect(result.response).toBe("");
+    expect(result._parseError).toMatchObject({ code: "MALFORMED_JSON" });
+  });
+
   it("uses a soft JSON correction path for OpenRouter without response_format", async () => {
     const calls: Array<{ responseFormat?: unknown }> = [];
 

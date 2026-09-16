@@ -103,6 +103,7 @@ import {
 import {
   extractJson,
   isSyntheticModelOutputFailureText,
+  isUnsupportedJsonLookingChatResponse,
   parseAgentResponse,
 } from "../parsing.js";
 import {
@@ -9191,13 +9192,18 @@ export async function chat(opts: {
       if (
         parsedDirect.ok
         && turnIntent.kind === "CHAT"
-        && isSyntheticModelOutputFailureText(parsedDirect.data.response)
+        && (
+          isSyntheticModelOutputFailureText(parsedDirect.data.response)
+          || isUnsupportedJsonLookingChatResponse(parsedDirect.data.response)
+        )
       ) {
         parsedDirect = {
           ok: false,
           data: parsedDirect.data,
           code: "MALFORMED_JSON",
-          message: "The provider returned the server-owned parser failure message as chat content.",
+          message: isSyntheticModelOutputFailureText(parsedDirect.data.response)
+            ? "The provider returned the server-owned parser failure message as chat content."
+            : "The provider returned JSON-looking content inside the chat response envelope.",
           raw: directContent,
         };
       }
@@ -10060,13 +10066,18 @@ export async function chat(opts: {
   if (
     parsed.ok
     && turnIntent.kind === "CHAT"
-    && isSyntheticModelOutputFailureText(parsed.data.response)
+    && (
+      isSyntheticModelOutputFailureText(parsed.data.response)
+      || isUnsupportedJsonLookingChatResponse(parsed.data.response)
+    )
   ) {
     parsed = {
       ok: false,
       data: parsed.data,
       code: "MALFORMED_JSON",
-      message: "The provider returned the server-owned parser failure message as chat content.",
+      message: isSyntheticModelOutputFailureText(parsed.data.response)
+        ? "The provider returned the server-owned parser failure message as chat content."
+        : "The provider returned JSON-looking content inside the chat response envelope.",
       raw: content,
     };
   }

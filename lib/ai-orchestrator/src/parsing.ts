@@ -25,6 +25,26 @@ export function isSyntheticModelOutputFailureText(value: string): boolean {
   return value.trim().replace(/\s+/g, " ") === MODEL_OUTPUT_INVALID_MESSAGE;
 }
 
+/**
+ * Detect response text that is still a JSON value after the chat envelope was
+ * parsed. A response envelope with another object/array (or malformed
+ * JSON-looking text) in its `response` field is not usable chat prose and must
+ * not reach streaming or persistence as a successful answer.
+ *
+ * Plain prose remains valid, including prose that contains JSON later in the
+ * answer. The check is intentionally limited to values whose first
+ * non-whitespace character is an object/array delimiter.
+ */
+export function isUnsupportedJsonLookingChatResponse(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || !/^[{[]/.test(trimmed)) return false;
+
+  const extracted = extractJson(trimmed);
+  if (!extracted.ok) return true;
+
+  return extracted.data !== null && typeof extracted.data === "object";
+}
+
 type JsonExtractResult =
   | { ok: true; data: unknown }
   | { ok: false; code: Extract<AgentErrorCode, "EMPTY_MODEL_RESPONSE" | "MALFORMED_JSON">; message: string };
