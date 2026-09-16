@@ -9720,6 +9720,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         taskObjective: executionRequest.taskObjective,
         validatorReceipts: taskObjectiveValidatorReceipts,
         objectiveValidated: taskObjectiveValidated,
+        taskResult: result.taskResult,
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,

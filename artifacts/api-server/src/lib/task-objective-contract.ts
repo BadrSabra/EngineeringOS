@@ -62,6 +62,7 @@ type TaskObjectiveValidationInput = {
   evidenceComplete?: boolean;
   targetPaths?: readonly string[];
   validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
+  taskResult?: unknown;
 };
 
 export type TaskObjectiveValidation = {
@@ -227,6 +228,9 @@ function hasAny(message: string, terms: readonly string[]): boolean {
   return terms.some((term) => message.includes(term));
 }
 
+const ACCEPTANCE_COVERAGE_META_RE =
+  /(?:\bacceptance\b[\s\S]{0,220}\b(?:coverage|all|each|every|task\s+(?:type|family|families)|objective|validator|success\s+criteria)\b|\b(?:all|each|every)\s+task\s+(?:types?|famil(?:y|ies))\b[\s\S]{0,220}\b(?:acceptance|objective|validator|success\s+criteria)\b|(?:تغطية\s+(?:شاملة|كاملة)|كل\s+نوع\s+مهمة|جميع\s+أنواع\s+المهام)[\s\S]{0,260}(?:acceptance|objective|validator|معايير|نجاح))/iu;
+
 export function inferTaskObjectiveKind(input: {
   message: string;
   turnIntent?: string;
@@ -234,6 +238,9 @@ export function inferTaskObjectiveKind(input: {
   implementationTaskMode?: boolean;
 }): TaskObjectiveKind {
   const message = input.message.toLocaleLowerCase();
+  if (ACCEPTANCE_COVERAGE_META_RE.test(input.message)) {
+    return "project_analysis";
+  }
   // Intent is resolved from the full request before this text fallback. A
   // capability probe can mention images/media while still being a forensic
   // source-evidence task, and a Build handoff must not be reclassified from a
@@ -350,6 +357,27 @@ export function validateTaskObjectiveContract(
     if (!codes.includes(code)) codes.push(code);
     reasons.push(reason);
   };
+  const taskResult = input.taskResult;
+  if (taskResult && typeof taskResult === "object" && !Array.isArray(taskResult)) {
+    const candidate = taskResult as Record<string, unknown>;
+    if (candidate.kind === "FINDING_RESULT" && candidate.finding
+      && typeof candidate.finding === "object" && !Array.isArray(candidate.finding)) {
+      const finding = candidate.finding as Record<string, unknown>;
+      if (
+        finding.severity === "NOT_PROVEN"
+        && Array.isArray(finding.evidence)
+        && finding.evidence.length === 0
+      ) {
+        add(
+          "objective_not_proven",
+          "finding result is NOT_PROVEN and has no retained evidence",
+        );
+      }
+    }
+    if (candidate.kind === "REPAIR_RESULT" && candidate.readiness === "NOT_PROVEN") {
+      add("objective_not_proven", "repair result is NOT_PROVEN");
+    }
+  }
   if (input.contract.workspaceRevision !== input.workspaceRevision) {
     add("revision_mismatch", "task objective revision does not match the execution revision");
   }

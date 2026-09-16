@@ -30,7 +30,10 @@ import {
   CAPABILITY_PROBE_CLAIM_IDS,
   CAPABILITY_PROBE_SOURCE_FILES,
 } from "./prompts/capability-probe.js";
-import type { ProjectQueryTarget } from "./project-query-target.js";
+import {
+  isAcceptanceCoverageRequest,
+  type ProjectQueryTarget,
+} from "./project-query-target.js";
 
 const RESUMABLE_TASK_TYPES = [
   "FINDING_ANALYSIS",
@@ -562,7 +565,8 @@ export function isProjectQueryFollowUpRequest(message: string): boolean {
  */
 export function isProjectQueryContinuationCandidate(message: string): boolean {
   const normalized = normalizeContinuationMessage(message);
-  return normalized.length <= 120
+  return !isAcceptanceCoverageRequest(normalized)
+    && normalized.length <= 120
     && (isProjectQueryFollowUpRequest(normalized) || isGapAnalysisRequest(normalized));
 }
 
@@ -640,6 +644,7 @@ export function isTaskContinuationRequest(
   if (CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
   return Boolean(
     state?.projectQuery
+    && !isAcceptanceCoverageRequest(normalized)
     && (
       isProjectQueryFollowUpRequest(normalized)
       || (

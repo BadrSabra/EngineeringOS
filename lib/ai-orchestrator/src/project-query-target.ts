@@ -43,6 +43,18 @@ const SESSION_QUALITY_DIVERGENCE_RE =
   /(?:\broot\s+cause\b|\bdivergence\b|\bdeviation\b|السبب\s+الجذري|الانحراف|الانحرافات)/iu;
 const SESSION_QUALITY_TRACE_RE =
   /(?:\b(?:trace|track|follow)\s+(?:the\s+)?(?:path|flow)\b|تتبع\s+مسار|تتبّع\s+مسار)/iu;
+const ACCEPTANCE_COVERAGE_REQUEST_RE =
+  /(?:\bacceptance\b[\s\S]{0,180}\b(?:coverage|all|each|every|task\s+(?:type|family|families)|objective|validator|success\s+criteria)\b|\b(?:all|each|every)\s+task\s+(?:types?|famil(?:y|ies))\b[\s\S]{0,180}\b(?:acceptance|objective|validator|success\s+criteria)\b|(?:تغطية\s+(?:شاملة|كاملة)|كل\s+نوع\s+مهمة|جميع\s+أنواع\s+المهام)[\s\S]{0,240}(?:acceptance|objective|validator|معايير|نجاح))/iu;
+
+/**
+ * A request that inventories several task families is a meta-level acceptance
+ * contract request. It must not become a subsystem query merely because the
+ * inventory contains words such as "provider", "analysis", or "file
+ * conversion".
+ */
+export function isAcceptanceCoverageRequest(message: string): boolean {
+  return ACCEPTANCE_COVERAGE_REQUEST_RE.test(message);
+}
 
 /**
  * This is intentionally narrower than a generic session question. It requires
@@ -424,6 +436,7 @@ function materializeTarget(
 }
 
 export function resolveProjectQueryTarget(message: string): ProjectQueryTarget | undefined {
+  if (isAcceptanceCoverageRequest(message)) return undefined;
   if (isSessionQualityAuditRequest(message)) {
     return materializeTarget(
       {

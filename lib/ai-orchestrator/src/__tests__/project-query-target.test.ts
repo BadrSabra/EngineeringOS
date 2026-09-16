@@ -7,6 +7,7 @@ import {
   detectProjectQueryClaimContradictions,
   deriveProjectQueryTargetMode,
   resolveActiveEvidenceContract,
+  isAcceptanceCoverageRequest,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
@@ -274,6 +275,14 @@ describe("target-aware project queries", () => {
   it("does not treat a generic session question as a latest-session quality audit", () => {
     expect(resolveProjectQueryTarget("What happened in the latest session?")).toBeUndefined();
     expect(resolveProjectQueryTarget("راجع الجلسة الأخيرة")).toBeUndefined();
+  });
+
+  it("does not route cross-task acceptance coverage to embedded AI", () => {
+    const message =
+      "تحقق خاص بكل نوع مهمة: acceptance coverage لكل أنواع المهام، مع objective وvalidator وsuccess criteria، بما فيها file conversion وmedia task.";
+    expect(isAcceptanceCoverageRequest(message)).toBe(true);
+    expect(resolveProjectQueryTarget(message)).toBeUndefined();
+    expect(classifyRequest(message).projectTarget).toBeUndefined();
   });
 
   it("creates a bounded target and objective for an otherwise generic gap question", () => {

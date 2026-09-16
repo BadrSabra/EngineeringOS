@@ -39,6 +39,13 @@ describe("task objective contracts", () => {
     }
   });
 
+  it("does not infer file conversion from a cross-task acceptance inventory", () => {
+    const message =
+      "Acceptance coverage لكل أنواع المهام: project analysis, bug fix, file conversion, and media task؛ لكل نوع objective وvalidator وsuccess criteria.";
+    expect(inferTaskObjectiveKind({ message })).toBe("project_analysis");
+    expect(buildTaskObjectiveContract({ ...base, message })?.kind).toBe("project_analysis");
+  });
+
   it("does not treat a non-empty provider response as proven objective success", () => {
     const contract = buildTaskObjectiveContract({
       ...base,
@@ -51,6 +58,33 @@ describe("task objective contracts", () => {
       objectiveValidated: false,
       evidenceVerdict: "PROVEN",
       evidenceComplete: true,
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.codes).toContain("objective_not_proven");
+  });
+
+  it("rejects a NOT_PROVEN finding with no evidence even when source evidence is complete", () => {
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Analyze the project acceptance coverage",
+      turnIntent: "PROJECT_QUERY",
+    })!;
+
+    const result = validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      taskResult: {
+        kind: "FINDING_RESULT",
+        finding: {
+          finding: "No verified finding",
+          evidence: [],
+          severity: "NOT_PROVEN",
+        },
+      },
     });
 
     expect(result.allowed).toBe(false);

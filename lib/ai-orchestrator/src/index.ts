@@ -688,6 +688,7 @@ export {
   resolveProjectQueryTargetResolution,
   isAmbiguousProjectQuery,
   isSessionQualityAuditRequest,
+  isAcceptanceCoverageRequest,
   buildProjectQueryObjective,
   detectProjectQueryClaimContradictions,
   deriveProjectQueryTargetMode,

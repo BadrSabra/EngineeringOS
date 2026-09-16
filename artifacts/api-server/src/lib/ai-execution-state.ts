@@ -2181,6 +2181,7 @@ export async function completeAiExecution(params: {
   taskObjective?: TaskObjectiveContract;
   validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
   objectiveValidated?: boolean;
+  taskResult?: unknown;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
@@ -2296,6 +2297,7 @@ export async function completeAiExecution(params: {
         targetPaths: operation?.targetPaths ?? request?.validationTargetPaths ?? [],
         operationId: params.operationId ?? current.operationId ?? params.executionId,
         validatorReceipts: params.validatorReceipts,
+        taskResult: params.taskResult,
       });
       if (!objectiveCheck.allowed) return false;
     }

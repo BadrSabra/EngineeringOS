@@ -272,6 +272,24 @@ describe("active task session state", () => {
     expect(result.classification.taskType).toBe("BEHAVIOR_QUERY");
   });
 
+  it("does not inherit an embedded-AI state for a new cross-task acceptance request", () => {
+    const classification = classifyRequest("حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع");
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      projectQuery: classification.projectTarget,
+    });
+    const message =
+      "حدد الفجوات في acceptance coverage لكل أنواع المهام: file conversion وmedia، مع objective وvalidator.";
+
+    expect(isProjectQueryContinuationCandidate(message)).toBe(false);
+    expect(isTaskContinuationRequest(message, state)).toBe(false);
+    expect(resumeActiveTaskClassification(message, classifyRequest(message), state).resumed)
+      .toBe(false);
+  });
+
   it("keeps only unique normalized file paths in the evidence ledger", () => {
     const state = buildActiveTaskState({
       classification: auditClassification,
