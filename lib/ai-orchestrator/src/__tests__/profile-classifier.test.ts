@@ -36,10 +36,20 @@ describe("classifyRequest — ordinary orientation questions", () => {
 
   it.each([
     "ما اسم المشروع؟",
+  ])("keeps a factual name question %s outside orientation mode", (message) => {
+    expect(isProjectOrientationQuestion(message)).toBe(false);
+  });
+
+  it.each([
     "What is the project status?",
     "هل المشروع شغال حاليًا؟",
-  ])("keeps factual status/name question %s outside orientation mode", (message) => {
-    expect(isProjectOrientationQuestion(message)).toBe(false);
+  ])("routes project status question %s through orientation mode", (message) => {
+    const result = classifyRequest(message);
+
+    expect(isProjectOrientationQuestion(message)).toBe(true);
+    expect(result.category).toBe("simple");
+    expect(result.allowPrefetch).toBe(false);
+    expect(result.structuredOutputMode).toBe(false);
   });
 
   it.each([
