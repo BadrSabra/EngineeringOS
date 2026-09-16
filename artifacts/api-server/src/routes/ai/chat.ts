@@ -50,6 +50,7 @@ import {
   buildProjectQueryObjective,
   resolveActiveEvidenceContract,
   isWriteCapableTurn,
+  isProjectOrientationQuestion,
   isImmediateExecutionRequest,
   isRepairPlanExecutionRequest,
   isPlanExecutionRequest,
@@ -998,6 +999,7 @@ async function loadExecutionProjection(
   const hasPushedChanges = operationEvents.some((event) => event.type === "GitPushed");
   const hasPendingProposal = Boolean(execution.proposalId);
   const proofRequired = checkpointRecord.proofRequired === true
+    || request?.projectOrientation === true
     || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId);
   const evidenceVerdict = derivePersistedEvidenceVerdict({
     executionStatus: execution.status,
@@ -5979,6 +5981,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
+  const projectOrientationTurn =
+    streamTurnIntent.kind === "PROJECT_QUERY"
+    && isProjectOrientationQuestion(message);
   logger.info({
     scope: "chat-route",
     action: "continuation_decision",
@@ -6116,7 +6121,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const traceSteps: AgentStep[] = [];
   const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
     retainedEvidence,
-    streamTurnIntent.requiresEvidence,
+    streamTurnIntent.requiresEvidence || projectOrientationTurn,
     retainedReadStatuses,
     traceSteps,
   );
@@ -6747,6 +6752,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     let executionRequest: AiExecutionRequestEnvelope = {
       projectId,
        turnIntent: streamTurnIntent.kind,
+      ...(projectOrientationTurn ? { projectOrientation: true } : {}),
       // Session task state is context, not proof that this request is a
       // resume. Fresh executions must receive a new operation identity from
       // createAiExecution; only an explicit execution can carry the old one.
@@ -9731,6 +9737,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           : [],
         evidenceReads: evidenceReadsForTerminal(),
         evidenceProgress: evidenceProgressForTerminal(),
+        orientationCoverageComplete: projectOrientationTurn
+          ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
+          : undefined,
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";

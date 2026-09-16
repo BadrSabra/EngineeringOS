@@ -717,6 +717,8 @@ export type AiExecutionRequestEnvelope = {
   projectId: string;
   /** Immutable route intent used by terminal policy and reconnect projections. */
   turnIntent?: string;
+  /** Server-owned source-backed project explanation contract. */
+  projectOrientation?: boolean;
   /** Stable server-owned identity shared by all phases of one operation. */
   operationId?: string;
   capabilityProbe?: AiCapabilityProbeContract;
@@ -2207,6 +2209,8 @@ export async function completeAiExecution(params: {
   recipeBinding?: RecipeOperationBinding;
   recipeReceipt?: RecipeReceipt;
   evidenceReads?: readonly EvidenceReadInput[];
+  /** Orientation requires complete role coverage in addition to source reads. */
+  orientationCoverageComplete?: boolean;
 }): Promise<boolean> {
   const [current] = await db
     .select({
@@ -2259,6 +2263,8 @@ export async function completeAiExecution(params: {
   const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
   const forensicExecution = request?.turnIntent === "FORENSIC_AUDIT"
     || Boolean(request?.capabilityProbe && request?.proofRequired === true);
+  const projectOrientationExecution =
+    request?.turnIntent === "PROJECT_QUERY" && request?.projectOrientation === true;
   const projectQueryProofExecution =
     request?.turnIntent === "PROJECT_QUERY" && requiresProof && !forensicExecution;
   const operation = params.operation ?? checkpoint?.operation;
@@ -2336,7 +2342,11 @@ export async function completeAiExecution(params: {
         })();
     if (!completion.allowed) return false;
   }
-  const sourceEvidenceRequired = forensicExecution
+  if (projectOrientationExecution && params.orientationCoverageComplete !== true) {
+    return false;
+  }
+  const sourceEvidenceRequired = projectOrientationExecution
+    || forensicExecution
     || Boolean(params.analysisEvidence)
     || Boolean(params.evidenceReads && params.evidenceReads.length > 0);
   const now = new Date();
@@ -2376,7 +2386,7 @@ export async function completeAiExecution(params: {
     terminalStatus: "completed",
     reasonCode: "ACCEPTED",
     recoveryState: "NONE",
-    ...(requiresProof
+    ...(requiresProof || sourceEvidenceRequired
       ? {
           evidence: {
             operationId: params.operationId,
@@ -2384,7 +2394,7 @@ export async function completeAiExecution(params: {
             sourceRevision: request?.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
               verdict: effectiveEvidenceVerdict,
-            required: sourceEvidenceRequired,
+            required: true,
             sourceEvidenceRequired,
             reads: params.evidenceReads,
           } satisfies EvidenceSnapshotInput,
@@ -2428,6 +2438,7 @@ export async function failAiExecution(params: {
   finalMessageErrorCode?: string;
   workspaceRoot?: string | null;
   evidenceReads?: readonly EvidenceReadInput[];
+  orientationCoverageComplete?: boolean;
 }): Promise<boolean> {
   const [current] = await db
     .select()
@@ -2471,6 +2482,8 @@ export async function failAiExecution(params: {
     current.workspaceRoot !== null
     || request?.workspaceRoot !== undefined;
   const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
+  const projectOrientationExecution =
+    request?.turnIntent === "PROJECT_QUERY" && request?.projectOrientation === true;
   const providerFailure = params.providerAttempts !== undefined;
   const reasonCode = params.cancelled
     ? "EXECUTION_CANCELLED"
@@ -2520,7 +2533,7 @@ export async function failAiExecution(params: {
               : null,
           sourceRevision: request?.workspaceRevision,
            verdict: params.evidenceVerdict ?? (request?.proofRequired === true ? "NOT_RECORDED" : undefined),
-           required: request?.proofRequired === true,
+           required: request?.proofRequired === true || projectOrientationExecution,
           reads: params.evidenceReads,
         }
       : undefined,

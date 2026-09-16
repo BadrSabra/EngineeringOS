@@ -539,6 +539,10 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.sources).not.toContain("git:status");
     expect(result.sources).not.toContain("search:project");
     expect(result.response).toBe("This is the project workspace.");
+    expect(result.sourceSelectionRecord?.orientationCoverage).toMatchObject({
+      complete: true,
+      missingRoles: [],
+    });
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
