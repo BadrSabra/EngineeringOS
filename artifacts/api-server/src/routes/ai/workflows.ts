@@ -120,7 +120,10 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
     workspaceRevision: workflow.updatedAt.toISOString(),
     objective: `Orchestrate workflow "${workflow.name}" from phase "${currentPhase ?? "none"}"`,
     validationTargetPaths: [],
-    proofRequired: true,
+    // Workflow orchestration records a server-owned routing decision. It is
+    // not a task-objective proof of a deployment, integration, or phase
+    // outcome; those outcomes are accepted by their own durable executors.
+    proofRequired: false,
   };
   let operationExecution: Awaited<ReturnType<typeof createAiExecution>>["execution"];
   let workerId: string | undefined;
@@ -230,9 +233,8 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
     await completeAiExecution({
       executionId: operationExecution.id,
       workerId,
-      evidenceVerdict: "PROVEN",
-      evidenceReason: "The workflow decision and phase context were retained in the durable operation ledger.",
-      proofRequired: true,
+      evidenceReason: "The workflow routing decision was retained in the durable operation ledger.",
+      proofRequired: false,
       operation: completedOperation,
     });
     operation = completedOperation;

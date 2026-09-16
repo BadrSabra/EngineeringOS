@@ -121,7 +121,7 @@ describe("task objective contracts", () => {
     expect(result.allowed).toBe(true);
   });
 
-  it("keeps deployment and integration tasks incomplete until validators exist", () => {
+  it("keeps deployment and integration tasks incomplete until receipts exist", () => {
     for (const message of [
       "Deploy the application",
       "Integrate the application with GitHub",
@@ -135,7 +135,7 @@ describe("task objective contracts", () => {
         evidenceComplete: true,
       });
       expect(result.allowed).toBe(false);
-      expect(result.codes).toContain("validator_unavailable");
+      expect(result.codes).toContain("objective_not_proven");
     }
   });
 

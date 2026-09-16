@@ -14,3 +14,9 @@ Each registered validator must also emit a server-owned receipt before a proof-r
 **Why:** A validator ID plus a positive evidence verdict can otherwise become an unbound claim during completion or reconnect, especially when the task has multiple possible artifact sources.
 
 **How to apply:** Generate receipts only from authoritative server adapters, pass them through autonomous and chat completion gates, persist them in terminal checkpoints, and reject missing, incomplete, unavailable, stale, or cross-operation receipts.
+
+Workflow orchestration decisions are not task-objective proof; keep their durable routing record separate from phase/deployment/integration acceptance.
+
+**Why:** Choosing the next workflow phase is not evidence that the phase ran successfully, and treating the model's routing response as `PROVEN` creates synthetic acceptance.
+
+**How to apply:** Record orchestration with a non-proof execution and let the phase executor or task-specific receipt adapter own terminal success.

@@ -2326,6 +2326,7 @@ export async function completeAiExecution(params: {
               evidenceRefs: inferredEvidenceRefs,
             evidence: params.evidence,
               evidenceVerdict: effectiveEvidenceVerdict,
+            validatorReceipts: params.validatorReceipts,
             workspaceRevision: request.workspaceRevision,
             candidateIdentity: params.candidateIdentity,
             operationId: params.operationId ?? durableOperationId,
