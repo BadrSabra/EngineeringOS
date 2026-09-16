@@ -417,6 +417,41 @@ function deriveProjectQueryAnalysisEvidence(params: {
   };
 }
 
+function deriveProjectQueryAnalysisEvidenceState(params: {
+  traceSteps: AgentStep[];
+  objective: unknown;
+  operationId: string;
+  sourceRevision: string;
+  retainedEvidence: ReadonlyMap<string, string>;
+  proofRequired: boolean;
+  capabilityProbe?: boolean;
+}): {
+  analysisEvidence?: AnalysisEvidenceCompletion;
+  accepted: boolean;
+  check?: ReturnType<typeof validateAnalysisEvidenceCompletion>;
+} {
+  if (!params.proofRequired || params.capabilityProbe) {
+    return { accepted: false };
+  }
+  const objective = ObjectiveContractSchema.safeParse(params.objective);
+  if (!objective.success || !objective.data.objectiveType.startsWith("PROJECT_QUERY_")) {
+    return { accepted: false };
+  }
+  const analysisEvidence = deriveProjectQueryAnalysisEvidence(params);
+  if (!analysisEvidence) {
+    return { accepted: false };
+  }
+  const check = validateAnalysisEvidenceCompletion(analysisEvidence, {
+    operationId: params.operationId,
+    sourceRevision: params.sourceRevision,
+  });
+  return {
+    analysisEvidence,
+    accepted: check.allowed,
+    check,
+  };
+}
+
 function deriveEvidenceProgressCheckpoint(params: {
   objective: unknown;
   traceSteps: AgentStep[];
@@ -9025,6 +9060,35 @@ router.post("/ai/chat/stream", async (req, res) => {
       const forensicDiagnostic = streamTurnIntent.requiresEvidence
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
+      const parserProjectQueryEvidence =
+        deriveProjectQueryAnalysisEvidenceState({
+          traceSteps,
+          objective: executionRequest.objective,
+          operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
+          sourceRevision: analysisCorrelation.projectRevision,
+          retainedEvidence,
+          proofRequired,
+          capabilityProbe: executionRequest.capabilityProbe !== undefined,
+        });
+      const parserEvidenceSummary = evidenceFailureSummary();
+      const parserEvidenceVerdict: FlightDeckEvidenceVerdict =
+        parserProjectQueryEvidence.accepted
+          ? "PROVEN"
+          : parserProjectQueryEvidence.analysisEvidence?.acceptedClaimCount
+            ? "CLAIM_UNCLOSED"
+            : parserEvidenceSummary.completeSourceReadCount > 0
+              ? "PARTIAL"
+              : "UNAVAILABLE";
+      const parserEvidenceReason = parserProjectQueryEvidence.accepted
+        ? "Project analysis claims were accepted from source evidence bound to this revision, but the provider response could not be parsed."
+        : (
+            parserProjectQueryEvidence.check?.reasons.slice(0, 2).join("; ")
+            || (
+              parserEvidenceSummary.completeSourceReadCount > 0
+                ? "Complete source evidence was retained, but the required project-query result was not accepted."
+                : "No complete source evidence was retained before the provider response became unparseable."
+            )
+          );
       const persistedParseFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
@@ -9057,10 +9121,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           error: "The AI model returned an unexpected response.",
           nodeStates: executionNodeStates,
           recentSteps: serializeExecutionCheckpointSteps(traceSteps),
-          evidenceVerdict: "UNAVAILABLE",
-          evidenceReason: "The model response could not be parsed into the required result shape.",
+          evidenceVerdict: parserEvidenceVerdict,
+          evidenceReason: parserEvidenceReason,
           evidenceReads: evidenceReadsForTerminal(),
           evidenceProgress: evidenceProgressForTerminal(),
+          providerAttempts: providerAttemptSummary,
         });
         parseTerminalProjection = await loadTerminalProjection({
           executionId: aiExecution.id,
@@ -9594,35 +9659,20 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
       }
     }
-    const parsedAnalysisObjective = ObjectiveContractSchema.safeParse(executionRequest.objective);
-    const isProjectQueryObjective =
-      parsedAnalysisObjective.success
-      && parsedAnalysisObjective.data.objectiveType.startsWith("PROJECT_QUERY_")
-      // A Capability Probe may carry project-query metadata for routing or
-      // provenance, but its server-owned C1–C7 gate is the acceptance
-      // contract. Do not replace that gate with semantic project-query
-      // claims that are outside the probe's two-file manifest.
-      && !executionRequest.capabilityProbe;
-    const analysisEvidence = isProjectQueryObjective && proofRequired
-      ? deriveProjectQueryAnalysisEvidence({
-          traceSteps,
-          objective: executionRequest.objective,
-          operationId: aiExecution.operationId ?? aiExecution.id,
-          sourceRevision: analysisCorrelation.projectRevision,
-          retainedEvidence,
-        })
-      : undefined;
-    let analysisEvidenceAccepted = false;
-    if (analysisEvidence) {
-      const analysisCheck = validateAnalysisEvidenceCompletion(analysisEvidence, {
-        operationId: aiExecution.operationId ?? aiExecution.id,
-        sourceRevision: analysisCorrelation.projectRevision,
-      });
-      analysisEvidenceAccepted = analysisCheck.allowed;
-      if (analysisCheck.allowed) {
-        executionEvidenceVerdict = "PROVEN";
-        executionEvidenceReason = "Project analysis claims were accepted from source evidence bound to this revision.";
-      }
+    const analysisEvidenceState = deriveProjectQueryAnalysisEvidenceState({
+      traceSteps,
+      objective: executionRequest.objective,
+      operationId: aiExecution.operationId ?? aiExecution.id,
+      sourceRevision: analysisCorrelation.projectRevision,
+      retainedEvidence,
+      proofRequired,
+      capabilityProbe: executionRequest.capabilityProbe !== undefined,
+    });
+    const analysisEvidence = analysisEvidenceState.analysisEvidence;
+    const analysisEvidenceAccepted = analysisEvidenceState.accepted;
+    if (analysisEvidenceAccepted) {
+      executionEvidenceVerdict = "PROVEN";
+      executionEvidenceReason = "Project analysis claims were accepted from source evidence bound to this revision.";
     }
     if (autonomousOperation) {
       const finalEvidenceRef = finalValidation?.kind === "validation"
