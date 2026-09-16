@@ -14,3 +14,9 @@ Source-backed project orientation is a separate durable acceptance contract from
 **Why:** A generic explanation has no project-query target or claim contract, so forcing it through targeted objective validation either rejects a valid explanation or weakens the objective gate.
 
 **How to apply:** Keep `PROJECT_QUERY` and tool execution unchanged; mark orientation turns as source-evidence-required at terminalization, persist the retained reads, and accept only when orientation coverage is complete for the same operation and revision.
+
+There is a separate terminalization invariant: orientation coverage must gate acceptance even when `proofRequired` is false. Generic complete-read evidence can otherwise be projected as `PROVEN` while the role coverage record is incomplete.
+
+**Why:** A real orientation turn returned `ANALYSIS_INCOMPLETE` with `components` missing, but `completeAiExecution` accepted it because its orientation gate was nested under `proofRequired`; the evidence snapshot then reflected five complete reads rather than semantic orientation coverage.
+
+**How to apply:** Treat `projectOrientation` as its own source-evidence acceptance contract. Keep the role manifest fail-closed, require `orientationCoverageComplete` at the terminal seam, and prevent incomplete orientation responses from entering session memory.
