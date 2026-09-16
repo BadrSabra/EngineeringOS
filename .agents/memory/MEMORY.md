@@ -156,3 +156,4 @@
 - [Execution projection surfaces](execution-projection-surfaces.md) — Chat, Tasks, Mission Control, and Flight Deck share the server-owned read model; legacy controls remain bounded fallbacks.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
+- [Project orientation evidence scheduler](project-orientation-evidence-scheduler.md) — role paths must enter the server-owned evidence manifest, not remain a final coverage diagnostic.
