@@ -74,6 +74,7 @@ type ProjectionInput = {
     id: string;
     status: string;
     proposalId?: string | null;
+    proposalApprovalRequired?: boolean;
     linkedTaskId?: string | null;
     buildPlanMessageId?: string | null;
     recipeReceipt?: unknown;
@@ -267,9 +268,11 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
   if (input.proofRequired && input.evidenceVerdict !== "PROVEN") {
     allowedActions.push("REVIEW_PROOF");
   }
-  if (input.execution.proposalId) {
+  if (input.execution.proposalId && input.execution.proposalApprovalRequired === true) {
     allowedActions.push("REVIEW_DIFF");
     if (approvalStatus === "PENDING") allowedActions.push("APPROVE_CHANGES");
+  } else if (input.execution.proposalId) {
+    allowedActions.push("REVIEW_DIFF");
   }
 
   return {

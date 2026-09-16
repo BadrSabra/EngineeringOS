@@ -4,7 +4,7 @@ import { buildAiExecutionProjection } from "./ai-execution-projection.js";
 describe("buildAiExecutionProjection", () => {
   it("projects a live execution without inventing terminal actions", () => {
     const projection = buildAiExecutionProjection({
-      execution: { id: "exec-1", status: "running", proposalId: "proposal-1" },
+      execution: { id: "exec-1", status: "running", proposalId: "proposal-1", proposalApprovalRequired: true },
       request: { objective: { objective: "Update the dashboard" } },
       checkpoint: {
         stage: "validate",

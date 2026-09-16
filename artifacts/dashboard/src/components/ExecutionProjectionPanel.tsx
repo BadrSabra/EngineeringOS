@@ -1,6 +1,18 @@
+import { useState } from 'react';
+import { Loader2, RotateCcw, ShieldCheck, Square, GitCompareArrows } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 
-const actionLabels: Record<AiExecutionProjection['allowedActions'][number], string> = {
+type ProjectionAction = AiExecutionProjection['allowedActions'][number];
+
+type ReviewDiff = {
+  path: string;
+  originalContent: string | null;
+  newContent: string | null;
+  truncated: boolean;
+};
+
+const actionLabels: Record<ProjectionAction, string> = {
   CANCEL: 'Stop',
   RESUME_CHECKPOINT: 'Resume checkpoint',
   RETRY_CHECKPOINT: 'Retry checkpoint',
@@ -29,13 +41,43 @@ function verificationClasses(status: AiExecutionProjection['verification']['stat
   return 'text-amber-200';
 }
 
+function reviewLines(originalContent: string | null, newContent: string | null): string[] {
+  const before = (originalContent ?? '').split(/\r?\n/);
+  const after = (newContent ?? '').split(/\r?\n/);
+  const longest = Math.max(before.length, after.length);
+  const lines: string[] = [];
+  for (let index = 0; index < longest; index += 1) {
+    if (before[index] === after[index]) {
+      if (before[index] !== undefined) lines.push(`  ${before[index]}`);
+      continue;
+    }
+    if (before[index] !== undefined) lines.push(`- ${before[index]}`);
+    if (after[index] !== undefined) lines.push(`+ ${after[index]}`);
+  }
+  return lines.slice(0, 600);
+}
+
 export function ExecutionProjectionPanel({
   projection,
+  executionId,
+  taskId,
   compact = false,
+  onAction,
 }: {
   projection?: AiExecutionProjection | null;
+  executionId?: string | null;
+  taskId?: string | null;
   compact?: boolean;
+  onAction?: (action: ProjectionAction) => Promise<void> | void;
 }) {
+  const queryClient = useQueryClient();
+  const [pendingAction, setPendingAction] = useState<ProjectionAction | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
+  const [diff, setDiff] = useState<ReviewDiff[] | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
+
   if (!projection) return null;
 
   const percent = projection.progress.percent;
@@ -43,6 +85,79 @@ export function ExecutionProjectionPanel({
   const hasTools = projection.tools.recent.length > 0;
   const hasFiles = projection.workspace.changedFiles.length > 0;
   const hasActions = projection.allowedActions.length > 0;
+
+  async function loadDiff(): Promise<void> {
+    if (!executionId) {
+      setDiffError('The execution identity is not available for this review.');
+      return;
+    }
+    setDiffLoading(true);
+    setDiffError(null);
+    try {
+      const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/diff`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      const body = await response.json().catch(() => ({})) as {
+        changes?: ReviewDiff[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || 'The review diff could not be loaded.');
+      setDiff(Array.isArray(body.changes) ? body.changes : []);
+    } catch (error) {
+      setDiffError(error instanceof Error ? error.message : 'The review diff could not be loaded.');
+    } finally {
+      setDiffLoading(false);
+    }
+  }
+
+  async function runAction(action: ProjectionAction): Promise<void> {
+    if (action === 'REVIEW_DIFF') {
+      await loadDiff();
+      return;
+    }
+    if (action === 'REVIEW_PROOF') {
+      setProofOpen(true);
+      return;
+    }
+    if (!executionId) {
+      setActionError('The execution identity is not available for this action.');
+      return;
+    }
+    setPendingAction(action);
+    setActionError(null);
+    try {
+      if (onAction) {
+        await onAction(action);
+      } else {
+        let endpoint = `/api/ai/executions/${encodeURIComponent(executionId)}/cancel`;
+        let body: Record<string, string> | undefined;
+        if (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT') {
+          endpoint = taskId
+            ? `/api/ai/tasks/${encodeURIComponent(taskId)}/resume`
+            : `/api/ai/executions/${encodeURIComponent(executionId)}/recovery`;
+          body = taskId ? undefined : { action: 'resume' };
+        } else if (action === 'APPROVE_CHANGES') {
+          endpoint = `/api/ai/executions/${encodeURIComponent(executionId)}/approve`;
+        } else if (action !== 'CANCEL') {
+          throw new Error('This action must be completed from the owning execution surface.');
+        }
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        const responseBody = await response.json().catch(() => ({})) as { error?: string };
+        if (!response.ok) throw new Error(responseBody.error || 'The execution action was rejected.');
+      }
+      await queryClient.invalidateQueries({ queryKey: [`/api/ai/executions/${executionId}`] });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'The execution action was rejected.');
+    } finally {
+      setPendingAction(null);
+    }
+  }
 
   return (
     <section
@@ -167,18 +282,65 @@ export function ExecutionProjectionPanel({
         </div>
       )}
 
+      {proofOpen && (
+        <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-[10px]" aria-label="Verification details">
+          <div className="flex items-center gap-1.5 font-semibold text-foreground">
+            <ShieldCheck className="h-3.5 w-3.5 text-amber-200" />
+            Verification and evidence
+          </div>
+          <p className="mt-1 leading-4 text-muted-foreground">
+            Status: {titleCase(projection.verification.status)} · verdict: {titleCase(projection.verification.evidenceVerdict)}.
+            {projection.verification.proofRequired ? ' This execution requires server-owned proof before it can be accepted.' : ' No proof gate is required for this execution.'}
+          </p>
+        </div>
+      )}
+
+      {diff && (
+        <div className="mt-2 space-y-2 rounded-md border border-primary/30 bg-background/30 p-2.5" aria-label="Reviewable execution diff">
+          <div className="flex items-center gap-2">
+            <GitCompareArrows className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[10px] font-semibold text-foreground">Reviewable diff</span>
+            <span className="text-[10px] text-muted-foreground">{diff.length} file{diff.length === 1 ? '' : 's'}</span>
+          </div>
+          {diff.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground">No reviewable file content is attached to this execution.</p>
+          ) : diff.map((file) => (
+            <details key={file.path} className="rounded border border-border/40 bg-black/10" open={!compact}>
+              <summary className="cursor-pointer px-2 py-1.5 font-mono text-[10px] text-foreground">{file.path}</summary>
+              <pre className="max-h-80 overflow-auto border-t border-border/40 px-2 py-2 text-[9px] leading-4 text-muted-foreground">
+                {reviewLines(file.originalContent, file.newContent).join('\n')}
+              </pre>
+              {file.truncated && <div className="px-2 pb-1 text-[9px] text-amber-200">This file is truncated for safe review.</div>}
+            </details>
+          ))}
+        </div>
+      )}
+      {diffError && <p className="mt-2 text-[10px] text-red-200">{diffError}</p>}
+
       {(projection.stopped.reason || hasActions) && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {projection.stopped.reason && (
             <span className="text-[10px] text-amber-200">Stopped: {projection.stopped.reason}</span>
           )}
+          {actionError && <span className="text-[10px] text-red-200">{actionError}</span>}
           {hasActions && (
             <div className="ml-auto flex flex-wrap justify-end gap-1" aria-label="Allowed execution actions">
-              {projection.allowedActions.map((action) => (
-                <span key={action} className="rounded border border-primary/25 bg-primary/5 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                  {actionLabels[action]}
-                </span>
-              ))}
+              {projection.allowedActions.map((action) => {
+                const pending = pendingAction === action;
+                const icon = action === 'CANCEL' ? <Square className="mr-1 h-3 w-3" /> : action === 'REVIEW_DIFF' ? <GitCompareArrows className="mr-1 h-3 w-3" /> : <RotateCcw className="mr-1 h-3 w-3" />;
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-2 py-1 text-[9px] font-semibold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void runAction(action)}
+                    disabled={pendingAction !== null || diffLoading}
+                  >
+                    {pending || (action === 'REVIEW_DIFF' && diffLoading) ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : icon}
+                    {pending ? 'Working…' : action === 'REVIEW_DIFF' && diffLoading ? 'Loading diff…' : actionLabels[action]}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

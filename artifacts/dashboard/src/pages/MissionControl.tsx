@@ -1612,7 +1612,10 @@ export default function MissionControl() {
           </section>
 
           {selectedExecutionDetail?.projection && (
-            <ExecutionProjectionPanel projection={selectedExecutionDetail.projection} />
+            <ExecutionProjectionPanel
+              projection={selectedExecutionDetail.projection}
+              executionId={selectedExecution?.id}
+            />
           )}
 
           {acceptanceStatus(selectedExecution) !== 'NOT_RECORDED' && (

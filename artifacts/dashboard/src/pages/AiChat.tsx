@@ -7987,6 +7987,7 @@ function AgentExecutionProofPanel({
   verdictScope,
   onCancel,
   onResume,
+  onProjectionAction,
   onExport,
   onPreview,
   exportPending,
@@ -8028,6 +8029,7 @@ function AgentExecutionProofPanel({
   } | null;
   onCancel?: () => void;
   onResume?: () => void;
+  onProjectionAction?: (action: AiExecutionProjection['allowedActions'][number]) => Promise<void> | void;
   onExport?: () => void;
   onPreview?: () => void;
   exportPending?: boolean;
@@ -8301,7 +8303,12 @@ function AgentExecutionProofPanel({
         </div>
       </div>
 
-      <ExecutionProjectionPanel projection={execution?.projection} compact />
+      <ExecutionProjectionPanel
+        projection={execution?.projection}
+        executionId={execution?.id ?? executionId}
+        onAction={onProjectionAction}
+        compact
+      />
 
       {(auditPreview || auditPreviewError) && (
         <div className="border-b border-border/40 bg-background/30 px-3 py-3" aria-label="Redacted audit preview">
@@ -10283,6 +10290,31 @@ export default function AiChat() {
     });
   }
 
+  async function handleProjectionAction(action: AiExecutionProjection['allowedActions'][number]): Promise<void> {
+    if (action === 'CANCEL') {
+      await cancelActiveExecution();
+      return;
+    }
+    if (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT') {
+      resumeActiveExecution();
+      return;
+    }
+    if (action === 'APPROVE_CHANGES') {
+      if (pendingChanges.length === 0) {
+        throw new Error('No pending validated changes are available to approve.');
+      }
+      handleApplyChanges(pendingChanges);
+      return;
+    }
+    if (action === 'START_NEW_RUN') {
+      const message = activeExecutionRef.current?.message?.trim();
+      if (!message) throw new Error('The original request is not available for a new run.');
+      sendMessage(message);
+      return;
+    }
+    throw new Error('This action is handled by the dedicated proof or diff review.');
+  }
+
   function handleRebaseChanges(changes: PendingChange[]) {
     if (!selectedProjectId || !proposalId) {
       toast({
@@ -11851,6 +11883,7 @@ export default function AiChat() {
                    verdictScope={liveVerdictScope}
                    onCancel={cancelActiveExecution}
                     onResume={historicalExecutionId ? undefined : resumeActiveExecution}
+                   onProjectionAction={handleProjectionAction}
                    onExport={exportExecutionAudit}
                    onPreview={previewExecutionAudit}
                    onRetryPreview={previewExecutionAudit}

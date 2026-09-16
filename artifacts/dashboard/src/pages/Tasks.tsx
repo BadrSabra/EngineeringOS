@@ -290,7 +290,14 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
   });
 
   if (!executionId || !execution?.projection) return null;
-  return <ExecutionProjectionPanel projection={execution.projection} compact />;
+  return (
+    <ExecutionProjectionPanel
+      projection={execution.projection}
+      executionId={executionId}
+      taskId={taskId}
+      compact
+    />
+  );
 }
 
 function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {

@@ -10013,6 +10013,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       : {};
   const storedRequest = parseExecutionRequest(execution.request);
   let operationId = execution.operationId ?? execution.buildPlanMessageId ?? execution.proposalId ?? null;
+  let proposalApprovalRequired = false;
   if (!execution.operationId && execution.proposalId) {
     const [proposal] = await db
       .select({ messageId: aiChangeProposalsTable.messageId })
@@ -10020,6 +10021,17 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       .where(eq(aiChangeProposalsTable.id, execution.proposalId))
       .limit(1);
     operationId = proposal?.messageId ?? operationId;
+  }
+  if (execution.proposalId) {
+    const [proposal] = await db
+      .select({ approvalRequired: aiChangeProposalsTable.approvalRequired })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, execution.proposalId),
+        eq(aiChangeProposalsTable.projectId, execution.projectId),
+      ))
+      .limit(1);
+    proposalApprovalRequired = proposal?.approvalRequired === true;
   }
   const operationEvents = operationId
     ? await db
@@ -10082,6 +10094,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       id: execution.id,
       status: execution.status,
       proposalId: execution.proposalId,
+      proposalApprovalRequired,
       linkedTaskId: execution.linkedTaskId,
       buildPlanMessageId: execution.buildPlanMessageId,
       recipeReceipt: execution.recipeReceipt,
@@ -10177,6 +10190,171 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     operationEvidence: redactOperationEvidence(operationEvidence),
     executionDiagnostics,
       ...(execution.recipeReceipt ? { recipeReceipt: toPublicRecipeReceipt(execution.recipeReceipt) } : {}),
+  });
+});
+
+/**
+ * Return the reviewable change set owned by this execution.  The execution
+ * projection intentionally exposes only changed-file names; this endpoint is
+ * the bounded source for the actual review diff so every dashboard surface
+ * can use the same proposal bytes instead of reconstructing a diff locally.
+ */
+router.get("/ai/executions/:executionId/diff", async (req, res) => {
+  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+  if (!execution.proposalId) {
+    return res.json({
+      executionId: execution.id,
+      proposalId: null,
+      available: false,
+      changes: [],
+    });
+  }
+
+  const [proposal] = await db
+    .select({
+      id: aiChangeProposalsTable.id,
+      changes: aiChangeProposalsTable.changes,
+      revision: aiChangeProposalsTable.revision,
+      changeSetHash: aiChangeProposalsTable.changeSetHash,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+    })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, execution.proposalId),
+      eq(aiChangeProposalsTable.projectId, execution.projectId),
+    ))
+    .limit(1);
+  if (!proposal) {
+    return res.json({
+      executionId: execution.id,
+      proposalId: execution.proposalId,
+      available: false,
+      changes: [],
+    });
+  }
+
+  const stored = parseStoredJson(proposal.changes);
+  const changes = Array.isArray(stored)
+    ? stored.slice(0, 50).flatMap((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+      const change = value as Record<string, unknown>;
+      const path = typeof change.path === "string"
+        && change.path.length > 0
+        && !change.path.startsWith("/")
+        && !change.path.includes("..")
+        ? change.path.slice(0, 500)
+        : null;
+      if (!path) return [];
+      const originalContent = typeof change.originalContent === "string"
+        ? change.originalContent.slice(0, 120_000)
+        : null;
+      const newContent = typeof change.newContent === "string"
+        ? change.newContent.slice(0, 120_000)
+        : null;
+      if (originalContent === null && newContent === null) return [];
+      return [{
+        path,
+        originalContent,
+        newContent,
+        truncated: (
+          (typeof change.originalContent === "string" && change.originalContent.length > 120_000)
+          || (typeof change.newContent === "string" && change.newContent.length > 120_000)
+        ),
+      }];
+    })
+    : [];
+
+  return res.json({
+    executionId: execution.id,
+    proposalId: proposal.id,
+    available: changes.length > 0,
+    revision: proposal.revision,
+    changeSetHash: proposal.changeSetHash,
+    lifecycle: proposal.lifecycle,
+    changes,
+  });
+});
+
+/**
+ * Approve the current server-owned proposal revision from any execution
+ * surface.  Applying files remains a separate, validated operation; this
+ * endpoint only clears a re-approval gate after the user reviewed the diff.
+ */
+router.post("/ai/executions/:executionId/approve", async (req, res) => {
+  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+  if (!execution.proposalId) {
+    return res.status(409).json({ error: "This execution has no change proposal.", code: "PROPOSAL_NOT_FOUND" });
+  }
+
+  const [proposal] = await db
+    .select({
+      id: aiChangeProposalsTable.id,
+      projectId: aiChangeProposalsTable.projectId,
+      revision: aiChangeProposalsTable.revision,
+      approvalRequired: aiChangeProposalsTable.approvalRequired,
+      status: aiChangeProposalsTable.status,
+      messageId: aiChangeProposalsTable.messageId,
+    })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, execution.proposalId),
+      eq(aiChangeProposalsTable.projectId, execution.projectId),
+    ))
+    .limit(1);
+  if (!proposal) return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+  if (proposal.status !== "pending") {
+    return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
+  }
+  if (!proposal.approvalRequired) {
+    return res.status(409).json({
+      error: "This proposal does not require re-approval.",
+      code: "PROPOSAL_REAPPROVAL_NOT_REQUIRED",
+      approvalRequired: false,
+      revision: proposal.revision,
+    });
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(aiChangeProposalsTable)
+      .set({ approvalRequired: false })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposal.id),
+        eq(aiChangeProposalsTable.projectId, proposal.projectId),
+        eq(aiChangeProposalsTable.status, "pending"),
+        eq(aiChangeProposalsTable.approvalRequired, true),
+        eq(aiChangeProposalsTable.revision, proposal.revision),
+      ))
+      .returning({ id: aiChangeProposalsTable.id });
+    if (!rows[0]) return false;
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiPatchReapproved",
+      projectId: proposal.projectId,
+      severity: "success",
+      message: "AI patch approved from execution projection",
+      correlationId: proposal.messageId,
+      payload: {
+        proposalId: proposal.id,
+        revision: proposal.revision,
+        approvalRequired: false,
+      },
+    });
+    return true;
+  });
+  if (!updated) {
+    return res.status(409).json({
+      error: "The proposal changed before it could be approved; reload and review it again.",
+      code: "PROPOSAL_APPROVAL_CONFLICT",
+    });
+  }
+  return res.json({
+    executionId: execution.id,
+    proposalId: proposal.id,
+    approvalRequired: false,
+    revision: proposal.revision,
   });
 });
 
