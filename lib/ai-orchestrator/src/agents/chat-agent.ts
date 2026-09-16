@@ -5796,6 +5796,7 @@ export async function chat(opts: {
   const generalTaskPlan: GeneralTaskPlan = buildGeneralTaskPlan({
     message,
     turnIntent,
+    projectOrientation: projectOrientationMode,
     objective: objective
       ? `${objective.objectiveType}: ${message}`
       : message,

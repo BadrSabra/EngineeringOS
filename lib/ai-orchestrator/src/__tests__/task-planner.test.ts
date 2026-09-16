@@ -26,6 +26,34 @@ describe("buildGeneralTaskPlan", () => {
     expect(plan.steps[1]?.dependencies).toEqual(["inspect"]);
   });
 
+  it("creates a functional orientation plan for broad explain-project requests", () => {
+    const plan = buildGeneralTaskPlan({
+      message: "Explain the project",
+      turnIntent: intent({ requiresEvidence: false }),
+      projectOrientation: true,
+    });
+
+    expect(plan.profile).toBe("project_orientation");
+    expect(plan.decision).toBe("CREATE");
+    expect(plan.steps.map((step) => step.id)).toEqual([
+      "discover-purpose",
+      "map-components",
+      "trace-primary-flow",
+      "verify-orientation",
+      "deliver",
+    ]);
+    expect(plan.steps.map((step) => step.kind)).toEqual([
+      "inspect",
+      "analyze",
+      "analyze",
+      "validate",
+      "deliver",
+    ]);
+    expect(plan.steps[2]?.dependencies).toEqual(["map-components"]);
+    expect(plan.steps[3]?.readOnly).toBe(true);
+    expect(plan.steps[4]?.dependencies).toEqual(["verify-orientation"]);
+  });
+
   it("reuses an existing durable execution plan and suppresses duplicate query planning", () => {
     const existing = {
       phases: [],

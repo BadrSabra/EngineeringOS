@@ -8,6 +8,7 @@ export type GeneralTaskPlanSource =
   | "new"
   | "execution_plan"
   | "project_query_state";
+export type GeneralTaskPlanProfile = "default" | "project_orientation";
 
 export type GeneralTaskPlanStepKind =
   | "inspect"
@@ -36,6 +37,7 @@ export type GeneralTaskPlan = {
   objective: string;
   turnKind: TurnIntent["kind"];
   executionTaskType: string;
+  profile: GeneralTaskPlanProfile;
   decision: GeneralTaskPlanDecision;
   source: GeneralTaskPlanSource;
   planHash: string;
@@ -70,6 +72,7 @@ type GeneralTaskPlanInput = {
   existingExecutionPlan?: ActiveTaskExecutionPlan | null;
   existingProjectQuery?: ExistingProjectQueryState | null;
   existingQueryPlan?: QueryPlan | null;
+  projectOrientation?: boolean;
 };
 
 function hashPlan(value: unknown): string {
@@ -104,6 +107,36 @@ function step(
 
 function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
   const { turnIntent } = input;
+  if (input.projectOrientation && turnIntent.kind === "PROJECT_QUERY") {
+    return [
+      step("discover-purpose", "Discover the project purpose", "inspect"),
+      step(
+        "map-components",
+        "Map the main product components",
+        "analyze",
+        ["discover-purpose"],
+      ),
+      step(
+        "trace-primary-flow",
+        "Trace the primary user flow",
+        "analyze",
+        ["map-components"],
+      ),
+      step(
+        "verify-orientation",
+        "Verify the functional explanation",
+        "validate",
+        ["trace-primary-flow"],
+      ),
+      step(
+        "deliver",
+        "Deliver the functional project overview",
+        "deliver",
+        ["verify-orientation"],
+      ),
+    ];
+  }
+
   if (turnIntent.kind === "CHAT" && !turnIntent.requiresTools) {
     return [step("deliver", "Respond to the user", "deliver")];
   }
@@ -225,6 +258,10 @@ function stepsForExistingProjectQuery(
  */
 export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPlan {
   const objective = (input.objective ?? input.message).trim().slice(0, 2_000);
+  const profile: GeneralTaskPlanProfile =
+    input.projectOrientation && input.turnIntent.kind === "PROJECT_QUERY"
+      ? "project_orientation"
+      : "default";
   let decision: GeneralTaskPlanDecision = "CREATE";
   let source: GeneralTaskPlanSource = "new";
   let steps: GeneralTaskPlanStep[];
@@ -280,12 +317,14 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
     objective,
     turnKind: input.turnIntent.kind,
     executionTaskType: input.turnIntent.executionTaskType,
+    profile,
     decision,
     source,
     planHash: hashPlan({
       objective,
       turnKind: input.turnIntent.kind,
       executionTaskType: input.turnIntent.executionTaskType,
+      profile,
       source,
       steps,
       reusedPlanFingerprint,
