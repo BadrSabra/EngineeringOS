@@ -8151,11 +8151,53 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       explanationInput = args[1] as typeof explanationInput;
+      const onStep = (args[1] as { onStep?: (step: unknown) => void }).onStep;
+      const orientationFiles = [
+        "src/verified.ts",
+        "src/components.ts",
+        "src/flow.ts",
+        "tests/verified.test.ts",
+      ];
+      for (const path of orientationFiles) {
+        onStep?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path },
+          cached: false,
+        });
+        onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          args: { path },
+          result: `source for ${path}`,
+          readStatus: "READ_COMPLETE",
+        });
+      }
       return {
         result: {
           response: "هذا شرح للمعمارية فقط.",
-          sources: ["src/verified.ts"],
+          sources: orientationFiles,
           pendingChanges: [],
+          sourceSelectionRecord: {
+            plannerTier: "targeted",
+            plannedFiles: orientationFiles,
+            fileStatuses: orientationFiles.map((path) => ({
+              path,
+              status: "READ_COMPLETE",
+              origin: "planned",
+              readStatus: "READ_COMPLETE",
+            })),
+            truncatedPlannedCount: 0,
+            skippedPlannedCount: 0,
+            orientationCoverage: {
+              purpose: { plannedFiles: ["src/verified.ts"], complete: true },
+              components: { plannedFiles: ["src/components.ts"], complete: true },
+              primaryFlow: { plannedFiles: ["src/flow.ts"], complete: true },
+              uncertainty: { plannedFiles: ["tests/verified.test.ts"], complete: true },
+              complete: true,
+              missingRoles: [],
+            },
+          },
         },
         effectiveProvider: "groq",
       };

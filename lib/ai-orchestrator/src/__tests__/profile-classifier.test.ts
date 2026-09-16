@@ -21,7 +21,6 @@ describe("classifyRequest — ordinary orientation questions", () => {
   it.each([
     "ما هذا المشروع؟",
     "ممكن تساعدني أفهم المشروع؟",
-    "هل المشروع شغال حاليًا؟",
     "أشرح المشروع بصورة مبسطة",
     "What is this project?",
   ])("keeps %s on the fast chat profile", (message) => {
@@ -33,6 +32,14 @@ describe("classifyRequest — ordinary orientation questions", () => {
     expect(result.allowPrefetch).toBe(false);
     expect(result.orderedForensicRoots).toEqual([]);
     expect(result.structuredOutputMode).toBe(false);
+  });
+
+  it.each([
+    "ما اسم المشروع؟",
+    "What is the project status?",
+    "هل المشروع شغال حاليًا؟",
+  ])("keeps factual status/name question %s outside orientation mode", (message) => {
+    expect(isProjectOrientationQuestion(message)).toBe(false);
   });
 
   it.each([
