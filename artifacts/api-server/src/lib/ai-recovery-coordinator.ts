@@ -223,16 +223,24 @@ export function planChatRecovery(
     && candidate.reasonCode === "MODEL_OUTPUT_INVALID"
     && candidate.action === "RESUME_ALLOWED"
     && candidate.resumable === 1;
+  const transientProviderRecovery =
+    request?.turnIntent === "CHAT"
+    && candidate.reasonCode === "EXECUTION_PROVIDER_FAILURE"
+    && (candidate.action === "RETRY_AFTER_TIMEOUT"
+      || candidate.action === "RETRY_AFTER_RATE_LIMIT")
+    && candidate.resumable === 0;
   // The initial parser failure gets one server-owned replay. Once the
   // execution attempt has advanced, leave the existing manual resume fallback
   // visible instead of creating an automatic retry loop.
-  const boundedParserFailureRecovery = parserFailureRecovery && candidate.executionAttempt === 0;
+  const boundedChatRecovery =
+    (parserFailureRecovery || transientProviderRecovery)
+    && candidate.executionAttempt === 0;
   if (
     !request
     || request.projectId !== candidate.executionProjectId
     || !candidate.userId
     || !request.sessionId
-    || (!boundedParserFailureRecovery && !hasAiExecutionResumeContract(request))
+    || (!boundedChatRecovery && !hasAiExecutionResumeContract(request))
   ) {
     return { kind: "skip", reason: "not_a_resumable_turn" };
   }

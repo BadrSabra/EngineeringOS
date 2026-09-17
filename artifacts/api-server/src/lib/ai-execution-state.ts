@@ -1797,10 +1797,16 @@ export async function recoverAiExecutionResumeToken(params: {
     && priorAcceptance?.reasonCode === "MODEL_OUTPUT_INVALID"
     && priorAcceptance.nextActionCode === "RESUME_ALLOWED"
     && priorAcceptance.resumable === 1;
+  const transientProviderRecovery =
+    ordinaryChat
+    && priorAcceptance?.reasonCode === "EXECUTION_PROVIDER_FAILURE"
+    && (priorAcceptance.nextActionCode === "RETRY_AFTER_TIMEOUT"
+      || priorAcceptance.nextActionCode === "RETRY_AFTER_RATE_LIMIT")
+    && priorAcceptance.resumable === 0;
   // Ordinary chat has no durable resume contract. This guard also protects
   // legacy paused rows created before reconciliation learned that distinction.
   if (
-    (ordinaryChat && !parserFailureRecovery)
+    (ordinaryChat && !parserFailureRecovery && !transientProviderRecovery)
     || (priorAcceptance && priorAcceptance.resumable !== 1)
   ) {
     return undefined;
@@ -1858,10 +1864,12 @@ export async function recoverAiExecutionRetryToken(params: {
   if (!candidate) return undefined;
 
   const request = parseExecutionRequest(candidate.request);
-  if (!hasAiExecutionResumeContract(request)) return undefined;
+  const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
+  if (!hasAiExecutionResumeContract(request) && !ordinaryChat) return undefined;
 
   const [priorAcceptance] = await db
     .select({
+      reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
       disposition: aiExecutionAcceptancesTable.disposition,
@@ -1874,6 +1882,8 @@ export async function recoverAiExecutionRetryToken(params: {
     .limit(1);
   if (
     !priorAcceptance
+    || (ordinaryChat
+      && priorAcceptance.reasonCode !== "EXECUTION_PROVIDER_FAILURE")
     || (priorAcceptance.nextActionCode !== "RETRY_AFTER_TIMEOUT"
       && priorAcceptance.nextActionCode !== "RETRY_AFTER_RATE_LIMIT")
     || priorAcceptance.resumable !== 0

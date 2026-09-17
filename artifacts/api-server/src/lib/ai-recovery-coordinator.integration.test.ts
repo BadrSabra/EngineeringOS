@@ -242,6 +242,34 @@ async function insertParserChatFixture() {
   return fixture;
 }
 
+async function insertProviderFailureChatFixture() {
+  const fixture = await insertChatFixture();
+  await db.update(aiExecutionsTable)
+    .set({
+      request: JSON.stringify({
+        projectId: fixture.projectId,
+        turnIntent: "CHAT",
+        sessionId: fixture.sessionId,
+        message: "Explain this",
+        modelMessage: "Explain this",
+        validationTargetPaths: [],
+      }),
+    })
+    .where(eq(aiExecutionsTable.id, fixture.executionId));
+  await db.update(aiExecutionAcceptancesTable)
+    .set({
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_TIMEOUT",
+      disposition: {
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+      },
+      resumable: 0,
+    })
+    .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+  return fixture;
+}
+
 describe("durable automatic task recovery", () => {
   afterEach(async () => {
     vi.clearAllMocks();
@@ -334,6 +362,31 @@ describe("durable automatic conversational recovery", () => {
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
         mode: "resume",
+      });
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("dispatches one bounded automatic retry for an ordinary chat provider failure", async () => {
+    const fixture = await insertProviderFailureChatFixture();
+    try {
+      const dispatched = await dispatchAutonomousTaskRecoveries();
+
+      expect(dispatched).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await queuedJobs[0]!.run();
+
+      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledWith({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        mode: "retry",
       });
       expect(executeTaskLifecycle).not.toHaveBeenCalled();
     } finally {

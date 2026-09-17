@@ -98,6 +98,8 @@ type RecoveryRequest = Request & {
  * Server-owned chat continuation. It deliberately delegates to the same
  * stream handler used by HTTP clients, with a response sink that discards SSE
  * transport while retaining all durable execution and acceptance writes.
+ * Parser failures and transient provider failures use the same bounded
+ * continuation seam; admission remains owned by the recovery coordinator.
  */
 export async function runChatExecutionRecovery(params: {
   executionId: string;

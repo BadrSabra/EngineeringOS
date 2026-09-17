@@ -13,7 +13,9 @@ import {
 } from "./ai-execution-state.js";
 
 describe("durable conversational retry authorization", () => {
-  it("rotates a retry token and creates a new auditable attempt on claim", async () => {
+  it.each(["PROJECT_QUERY", "CHAT"] as const)(
+    "rotates a retry token and creates a new auditable attempt for %s",
+    async (turnIntent) => {
     const projectId = randomUUID();
     const executionId = randomUUID();
     const now = new Date();
@@ -40,22 +42,26 @@ describe("durable conversational retry authorization", () => {
       resumeTokenHash: "old-token-hash",
       request: JSON.stringify({
         projectId,
-        turnIntent: "PROJECT_QUERY",
+        turnIntent,
         sessionId: randomUUID(),
         message: "Explain the project flow",
         modelMessage: "Explain the project flow",
         workspaceRevision,
         validationTargetPaths: [],
-        proofRequired: true,
-        resumeContract: {
-          taskType: "BEHAVIOR_QUERY",
-          outputContract: "BEHAVIOR_ANSWER",
-          contextProfile: "project_query",
-          sessionId: randomUUID(),
-          projectRevision: workspaceRevision,
-          requiresEvidence: true,
-          scope: { projectId, rootPath: null, linkedTaskId: null },
-        },
+        ...(turnIntent === "PROJECT_QUERY"
+          ? {
+              proofRequired: true,
+              resumeContract: {
+                taskType: "BEHAVIOR_QUERY",
+                outputContract: "BEHAVIOR_ANSWER",
+                contextProfile: "project_query",
+                sessionId: randomUUID(),
+                projectRevision: workspaceRevision,
+                requiresEvidence: true,
+                scope: { projectId, rootPath: null, linkedTaskId: null },
+              },
+            }
+          : {}),
       }),
       checkpoint: "{}",
       status: "failed",
@@ -120,5 +126,6 @@ describe("durable conversational retry authorization", () => {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
-  });
+    },
+  );
 });

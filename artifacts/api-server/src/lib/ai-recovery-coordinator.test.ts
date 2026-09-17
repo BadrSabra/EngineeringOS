@@ -202,7 +202,7 @@ describe("automatic task recovery admission", () => {
     });
   });
 
-  it("automatically recovers only ordinary chat parser failures", () => {
+  it("automatically recovers bounded ordinary chat parser and provider failures", () => {
     expect(planChatRecovery(chatCandidate())).toMatchObject({
       kind: "resume",
       action: "RESUME_ALLOWED",
@@ -212,6 +212,15 @@ describe("automatic task recovery admission", () => {
     expect(planChatRecovery(chatCandidate({
       reasonCode: "EXECUTION_PROVIDER_FAILURE",
     })).kind).toBe("skip");
+    expect(planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+    }))).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_TIMEOUT",
+      queueKey: "ai-recovery:chat:execution-chat-1:0:retry",
+    });
     const blocked = planChatRecovery(chatCandidate({
       reasonCode: "MODEL_OUTPUT_INVALID",
       resumable: 0,
@@ -221,6 +230,15 @@ describe("automatic task recovery admission", () => {
       reason: "not_a_resumable_turn",
     });
     expect(planChatRecovery(chatCandidate({
+      executionAttempt: 1,
+    }))).toMatchObject({
+      kind: "skip",
+      reason: "not_a_resumable_turn",
+    });
+    expect(planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
       executionAttempt: 1,
     }))).toMatchObject({
       kind: "skip",
