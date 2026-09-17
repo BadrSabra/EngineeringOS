@@ -54,6 +54,12 @@ export type {
   FileReadStatus,
 } from "./agents/query-planner.js";
 export {
+  buildDeterministicProjectOrientationResponse,
+} from "./project-orientation-fallback.js";
+export type {
+  ProjectOrientationFallbackResult,
+} from "./project-orientation-fallback.js";
+export {
   ContextManifestSchema,
   RepositoryRevisionManifestSchema,
   ScanCompletenessSchema,

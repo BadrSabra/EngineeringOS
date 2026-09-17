@@ -59,6 +59,7 @@ import {
   type ProjectFileSource,
 } from "../filesystem-manifest.js";
 import { hasCompleteProjectOrientationSources } from "./query-planner.js";
+import { buildDeterministicProjectOrientationResponse } from "../project-orientation-fallback.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
 import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
 import {
@@ -12015,6 +12016,44 @@ export async function chat(opts: {
     scopedToolSources.length > 0
       ? [...scopedToolSources, ...cleanModelSources.filter((s) => !scopedToolSources.includes(s))]
       : cleanModelSources;
+
+  const deterministicOrientationSources =
+    orientationSourcesOverride
+    ?? (
+      projectOrientationMode
+      && hasCompleteProjectOrientationSources(queryPlan?.orientationSources)
+        ? queryPlan.orientationSources
+        : undefined
+    );
+  const deterministicOrientationFallback =
+    projectOrientationMode && deterministicOrientationSources && parseError
+      ? buildDeterministicProjectOrientationResponse({
+          orientationSources: deterministicOrientationSources,
+          fileContents: forensicFileContents,
+          language: responseLanguage,
+        })
+      : undefined;
+  if (deterministicOrientationFallback) {
+    parsed = {
+      ok: true,
+      data: {
+        ...parsed.data,
+        response: deterministicOrientationFallback.response,
+        sources: deterministicOrientationFallback.sources,
+      },
+    };
+    content = deterministicOrientationFallback.response;
+    parseError = undefined;
+    recoveryFailureKind = undefined;
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_ORIENTATION_DETERMINISTIC_FALLBACK",
+      details: [
+        "provider synthesis was unavailable; response assembled from complete retained role reads",
+        `sources=${deterministicOrientationFallback.sources.join(",")}`,
+      ],
+    });
+  }
 
   const providerResponseCandidate =
     projectQueryEvidenceResponseOverride ??

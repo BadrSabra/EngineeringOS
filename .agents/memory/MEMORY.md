@@ -122,6 +122,7 @@
 - [Scoped correlation extensions](scoped-correlation-extensions.md) — new provenance fields must be limited to the request contract that needs them, or exact legacy payload consumers can regress.
 - [Orientation manifest fallback](orientation-manifest-fallback.md) — never persist a partial role manifest after planner fallback; later retries can hydrate it as immutable valid scope.
 - [Orientation recovery telemetry](orientation-recovery-telemetry.md) — malformed project-orientation recovery must consume the request ledger and usage contract, not only increment a local terminal counter.
+- [Orientation deterministic fallback](project-orientation-deterministic-fallback.md) — complete role reads can produce a bounded server-owned answer when provider synthesis fails; missing roles remain incomplete.
  - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
  - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.

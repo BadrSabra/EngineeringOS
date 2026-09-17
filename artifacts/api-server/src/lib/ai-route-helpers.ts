@@ -30,6 +30,7 @@ import {
   getCapabilityProbePreflightTools,
   toPublicExecutionLedgerSnapshot,
   isCapabilityProbeRequest,
+  buildDeterministicProjectOrientationResponse,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -1237,6 +1238,34 @@ export async function chatWithFallback(
   // (and the user) can see which providers were tried and why each failed,
   // instead of only seeing the last provider's error code.
   const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}] ${e.message.slice(0, 120)}`).join(" | ");
+  if (baseParams.projectOrientation && baseParams.orientationSourcesOverride) {
+    const deterministicOrientationFallback = buildDeterministicProjectOrientationResponse({
+      orientationSources: baseParams.orientationSourcesOverride,
+      fileContents: retainedEvidence,
+      language: /[\u0600-\u06FF]/.test(baseParams.message) ? "ar" : "en",
+    });
+    if (deterministicOrientationFallback) {
+      onStep?.({
+        kind: "diagnostic",
+        code: "PROJECT_ORIENTATION_DETERMINISTIC_FALLBACK",
+        details: [
+          "all provider synthesis attempts failed; response assembled from complete retained role reads",
+          `sources=${deterministicOrientationFallback.sources.join(",")}`,
+        ],
+      });
+      return {
+        result: {
+          response: deterministicOrientationFallback.response,
+          sources: deterministicOrientationFallback.sources,
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: undefined,
+          behaviorEvidence: undefined,
+        } as Awaited<ReturnType<typeof chat>>,
+        effectiveProvider: initialProvider.provider,
+      };
+    }
+  }
   const exhaustedMsg = cascade
     ? `All providers failed — ${cascade}`
     : "No AI provider returned a response";

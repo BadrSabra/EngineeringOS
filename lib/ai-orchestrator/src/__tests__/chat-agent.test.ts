@@ -635,6 +635,76 @@ describe("chat agent — ChatOutputSchema validation", () => {
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
+  it("recovers a complete orientation from retained reads after malformed synthesis", async () => {
+    const toolCalls: AgentStep[] = [];
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-complete-fallback-"));
+    const orientationSources = {
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    };
+    const sourceFiles = {
+      "README.md": "# Project\nA workspace application.",
+      "src/App.tsx": "export function App() { return <Dashboard />; }",
+      "src/routes.ts": "export const routes = ['/'];",
+      "tests/app.test.ts": "describe('app', () => { it('renders', () => {}); });",
+    };
+    for (const [relativePath, content] of Object.entries(sourceFiles)) {
+      const absolutePath = path.join(rootPath, relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, content, "utf8");
+    }
+
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "llama-3.1-8b-instant",
+        powerModel: "llama-3.3-70b-versatile",
+      })),
+    }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: '{"response":' } }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "What is this project?",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      projectOrientation: true,
+      orientationSourcesOverride: orientationSources,
+      onStep: (step) => toolCalls.push(step),
+    });
+
+    expect(result._parseError).toBeUndefined();
+    expect(result.response).toContain("PROJECT ORIENTATION — deterministic evidence recovery");
+    expect(result.response).toContain("export function App()");
+    expect(result.response).toContain("export const routes");
+    expect(result.sources).toEqual(expect.arrayContaining(Object.keys(sourceFiles)));
+    expect(toolCalls.some(
+      (step) => step.kind === "diagnostic"
+        && step.code === "PROJECT_ORIENTATION_DETERMINISTIC_FALLBACK",
+    )).toBe(true);
+    await fs.rm(rootPath, { recursive: true, force: true });
+  });
+
   it("keeps retained orientation reads when the provider wrapper is malformed", async () => {
     const toolCalls: AgentStep[] = [];
     const providerAttempts: Array<Record<string, unknown>> = [];
