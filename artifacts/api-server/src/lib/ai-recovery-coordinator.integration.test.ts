@@ -405,6 +405,44 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
+  it("ignores a stale acceptance after the execution advances to a later attempt", async () => {
+    const fixture = await insertProviderFailureChatFixture();
+    try {
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 1 })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.insert(aiExecutionAcceptancesTable).values({
+        id: randomUUID(),
+        executionId: fixture.executionId,
+        projectId: fixture.projectId,
+        attempt: 1,
+        finalizationKey: `recovery-chat-stale-attempt:${fixture.executionId}:1`,
+        operationId: fixture.executionId,
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        nextActionCode: "ABANDON_EXECUTION",
+        disposition: {
+          recoveryState: "INCOMPLETE",
+          nextActionCode: "ABANDON_EXECUTION",
+        },
+        evidenceRequired: 1,
+        evidenceComplete: 0,
+        resumable: 0,
+        sourceRevision: null,
+        createdAt: new Date(),
+      });
+
+      expect(await dispatchAutonomousTaskRecoveries()).toBe(0);
+      expect(queuedJobs).toHaveLength(0);
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
   it("finalizes exhausted evidence-backed recovery without scheduling another provider call", async () => {
     const fixture = await insertChatFixture();
     try {

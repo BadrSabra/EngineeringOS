@@ -184,6 +184,18 @@ describe("automatic task recovery admission", () => {
       reason: "revision_changed",
     });
 
+    // The projects table has an updatedAt timestamp, not the workspace
+    // content hash used by the execution request. When the coordinator cannot
+    // compute the current root revision, the recovery handler owns the
+    // authoritative provenance check.
+    expect(planChatRecovery({
+      ...base,
+      projectRevision: null,
+    })).toMatchObject({
+      kind: "resume",
+      action: "RESUME_ALLOWED",
+    });
+
     expect(planChatRecovery({
       ...base,
       action: "RETRY_AFTER_TIMEOUT",

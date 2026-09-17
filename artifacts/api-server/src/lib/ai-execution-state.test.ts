@@ -463,6 +463,53 @@ describe("autonomous operation contract", () => {
     }))).toBeUndefined();
   });
 
+  it("accepts a partially materialized orientation manifest for resumable analysis", () => {
+    const request = parseExecutionRequest(JSON.stringify({
+      projectId: "project-1",
+      turnIntent: "PROJECT_QUERY",
+      projectOrientation: true,
+      sessionId: "session-1",
+      message: "Explain the project",
+      modelMessage: "Explain the project",
+      workspaceRevision: "revision-1",
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "GENERIC_RESPONSE",
+        contextProfile: "chat-lite",
+        sessionId: "session-1",
+        projectRevision: "revision-1",
+        requiresEvidence: true,
+        orientationManifest: {
+          projectRevision: "revision-1",
+          rootPath: "/workspace/project-1",
+          paths: {
+            purpose: [],
+            components: [],
+            primaryFlow: ["src/index.ts"],
+            uncertainty: [],
+          },
+        },
+        scope: {
+          projectId: "project-1",
+          rootPath: "/workspace/project-1",
+          linkedTaskId: null,
+        },
+      },
+    }));
+
+    expect(request?.resumeContract?.orientationManifest).toMatchObject({
+      projectRevision: "revision-1",
+      paths: {
+        purpose: [],
+        components: [],
+        primaryFlow: ["src/index.ts"],
+        uncertainty: [],
+      },
+    });
+  });
+
   it("enforces the server-owned stage graph and evidence gate", () => {
     const planned = createAutonomousOperationContract({
       operationId: "operation-1",

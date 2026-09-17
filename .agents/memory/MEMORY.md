@@ -40,6 +40,7 @@
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
 - [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
 - [Forensic resume contract](forensic-resume-contract.md) — persist task intent, scope, revision, and identities before provider work; legacy recovery must remain proof- and revision-bound.
+- [Recovery candidate binding](recovery-candidate-binding.md) — bind acceptances to the execution attempt; never compare workspace hashes to project timestamps; partial orientation checkpoints can resume.
 - [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
 - [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
 - [Graph project boundaries](graph-project-boundaries.md) — traversal must validate both endpoint entities; legacy null edge ownership is safe only with project-scoped endpoints.

@@ -1014,7 +1014,6 @@ function parseOrientationRoleManifest(value: unknown): AiOrientationRoleManifest
     const values = source[role];
     if (
       !Array.isArray(values)
-      || values.length === 0
       || values.length > 2
       || values.some((path) =>
         typeof path !== "string"

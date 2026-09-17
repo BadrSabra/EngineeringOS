@@ -99,7 +99,13 @@ export type ChatRecoveryCandidate = {
   resumable: number;
   disposition: unknown;
   sourceRevision: string | null;
-  projectRevision: string | null;
+  /**
+   * The current project revision when the persistence layer can provide one.
+   * `projects.updatedAt` is not a workspace revision; callers that cannot
+   * compute the current root revision must leave this unset and let the
+   * recovery handler perform its authoritative provenance check.
+   */
+  projectRevision?: string | null;
   request: string;
 };
 
@@ -351,6 +357,7 @@ async function findRecoveryCandidates(): Promise<RecoveryRow[]> {
     .innerJoin(tasksTable, eq(tasksTable.id, aiExecutionsTable.linkedTaskId))
     .innerJoin(projectsTable, eq(projectsTable.id, tasksTable.projectId))
     .where(and(
+      eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
       inArray(aiExecutionAcceptancesTable.nextActionCode, [...RECOVERY_ACTIONS]),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
@@ -378,7 +385,6 @@ async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
       resumable: aiExecutionAcceptancesTable.resumable,
       disposition: aiExecutionAcceptancesTable.disposition,
       sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
-      projectRevision: projectsTable.updatedAt,
       request: aiExecutionsTable.request,
     })
     .from(aiExecutionAcceptancesTable)
@@ -391,6 +397,7 @@ async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
       eq(projectsTable.id, aiExecutionsTable.projectId),
     )
     .where(and(
+      eq(aiExecutionAcceptancesTable.attempt, aiExecutionsTable.attempt),
       inArray(aiExecutionAcceptancesTable.nextActionCode, [
         "RESUME_ALLOWED",
         "RETRY_AFTER_TIMEOUT",
@@ -405,7 +412,6 @@ async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
 
   return rows.map((row) => ({
     ...row,
-    projectRevision: row.projectRevision?.toISOString() ?? null,
   }));
 }
 
