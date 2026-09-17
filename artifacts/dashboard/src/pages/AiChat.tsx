@@ -8697,7 +8697,7 @@ export default function AiChat() {
   const hydratedSelectionProjectRef = useRef<string | null>(null);
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
-  const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
+  const [resumeRecoveryPending, setResumeRecoveryPending] = useState(false);
   const resumeRecoveryPendingRef = useRef<string | null>(null);
   const [executionNodes, setExecutionNodes] = useState<AiExecutionNodeSnapshot[]>([]);
   const activeExecutionRef = useRef<ActiveExecution | null>(null);
@@ -8947,7 +8947,7 @@ export default function AiChat() {
     }
     if (activeExecutionStatus.status === 'paused' || activeExecutionStatus.status === 'failed') {
       if (executionCanResume(activeExecutionStatus)) {
-        setAgentStage('Execution paused — ready to resume from its durable checkpoint');
+        setAgentStage('Automatic recovery is available — resume manually if it remains paused');
       } else {
         setAgentStage('Execution ended — start a new run');
         if (activeExecution.resumeToken || activeExecution.resumable) {
@@ -8974,90 +8974,6 @@ export default function AiChat() {
     sessionId,
     executionPointerKey,
     executionStorageKey,
-  ]);
-
-  useEffect(() => {
-    const execution = activeExecution;
-    const status = activeExecutionStatus?.status;
-    if (
-      !execution?.id ||
-      execution.resumeToken ||
-      !status ||
-      !executionCanResume(activeExecutionStatus) ||
-      resumeRecoveryPendingRef.current === execution.id
-    ) return;
-
-    let cancelled = false;
-    resumeRecoveryPendingRef.current = execution.id;
-    setResumeRecoveryError(null);
-    void fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
-    })
-      .then(async (response) => {
-        const body = await response.json().catch(() => ({})) as {
-          executionId?: string;
-          resumeToken?: string;
-          error?: string;
-        };
-        if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
-          throw new Error(body.error || 'Resume is no longer available for this execution.');
-        }
-        if (cancelled) return;
-        const recovered = { ...execution, resumeToken: body.resumeToken };
-        activeExecutionRef.current = recovered;
-        // Persist the capability in the same turn as recovery. The effect
-        // below mirrors this state for normal updates, but an immediate write
-        // prevents a refresh between the response and the next React commit
-        // from losing the only resumable credential held by the browser.
-        if (executionStorageKey) {
-          localStorage.setItem(
-            executionStorageKey,
-            JSON.stringify({
-              ...recovered,
-              projectId: selectedProjectId,
-              sessionId: executionStorageSessionId,
-            }),
-          );
-          if (executionPointerKey && executionStorageSessionId) {
-            localStorage.setItem(executionPointerKey, executionStorageSessionId);
-          }
-        }
-        setActiveExecution(recovered);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setResumeRecoveryError(
-            error instanceof Error
-              ? error.message
-              : 'Could not recover the resume capability. Try again.',
-          );
-        }
-      })
-      .finally(() => {
-        if (resumeRecoveryPendingRef.current === execution.id) {
-          resumeRecoveryPendingRef.current = null;
-        }
-      });
-    return () => {
-      cancelled = true;
-      // In React Strict Mode an effect is mounted, cleaned up, and mounted
-      // again. Clear the lease marker during cleanup so the second mount can
-      // retry instead of being blocked by the canceled first request.
-      if (resumeRecoveryPendingRef.current === execution.id) {
-        resumeRecoveryPendingRef.current = null;
-      }
-    };
-  }, [
-    activeExecution?.id,
-    activeExecution?.resumeToken,
-    activeExecutionStatus?.status,
-    executionPointerKey,
-    executionStorageKey,
-    executionStorageSessionId,
-    resumeRecoveryAttempt,
-    selectedProjectId,
   ]);
 
   function clearLiveActivityEvents() {
@@ -11185,22 +11101,73 @@ export default function AiChat() {
     });
   }
 
-  function resumeActiveExecution() {
+  async function resumeActiveExecution() {
     const execution = activeExecutionRef.current;
-    if (!execution?.resumeToken) {
-      toast({
-        title: resumeRecoveryError ? 'Resume unavailable' : 'Recovering resume capability',
-        description: resumeRecoveryError ?? 'The saved execution capability is being refreshed.',
-        variant: 'destructive',
+    if (!execution || resumeRecoveryPendingRef.current === execution.id) return;
+    setResumeRecoveryError(null);
+
+    if (execution.resumeToken) {
+      sendMessage(execution.message, {
+        executionId: execution.id,
+        resumeToken: execution.resumeToken,
+        buildPlanMessageId: execution.buildPlanMessageId,
       });
-      if (resumeRecoveryError) setResumeRecoveryAttempt((attempt) => attempt + 1);
       return;
     }
-    sendMessage(execution.message, {
-      executionId: execution.id,
-      resumeToken: execution.resumeToken,
-      buildPlanMessageId: execution.buildPlanMessageId,
-    });
+
+    resumeRecoveryPendingRef.current = execution.id;
+    setResumeRecoveryPending(true);
+    try {
+      const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      const body = await response.json().catch(() => ({})) as {
+        executionId?: string;
+        resumeToken?: string;
+        error?: string;
+      };
+      if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
+        throw new Error(body.error || 'Resume is no longer available for this execution.');
+      }
+
+      const recovered = { ...execution, resumeToken: body.resumeToken };
+      activeExecutionRef.current = recovered;
+      // Persist the capability only after an explicit manual resume request.
+      // Passive status polling must not claim the token while the server-side
+      // recovery coordinator is trying to continue the same execution.
+      if (executionStorageKey) {
+        localStorage.setItem(
+          executionStorageKey,
+          JSON.stringify({
+            ...recovered,
+            projectId: selectedProjectId,
+            sessionId: executionStorageSessionId,
+          }),
+        );
+        if (executionPointerKey && executionStorageSessionId) {
+          localStorage.setItem(executionPointerKey, executionStorageSessionId);
+        }
+      }
+      setActiveExecution(recovered);
+      sendMessage(recovered.message, {
+        executionId: recovered.id,
+        resumeToken: recovered.resumeToken,
+        buildPlanMessageId: recovered.buildPlanMessageId,
+      });
+    } catch (error: unknown) {
+      setResumeRecoveryError(
+        error instanceof Error
+          ? error.message
+          : 'Could not recover the resume capability. Try again.',
+      );
+    } finally {
+      if (resumeRecoveryPendingRef.current === execution.id) {
+        resumeRecoveryPendingRef.current = null;
+      }
+      setResumeRecoveryPending(false);
+    }
   }
 
   async function cancelActiveExecution() {
@@ -12210,10 +12177,14 @@ export default function AiChat() {
                     size="sm"
                     variant="outline"
                     onClick={resumeActiveExecution}
-                    disabled={!activeExecution.resumeToken && !resumeRecoveryError}
+                    disabled={resumeRecoveryPending}
                   >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                    {resumeRecoveryError ? 'Retry' : activeExecution.resumeToken ? 'Resume' : 'Recovering…'}
+                    {resumeRecoveryPending
+                      ? 'Recovering…'
+                      : resumeRecoveryError
+                        ? 'Retry'
+                        : 'Resume'}
                   </Button>
                 </div>
               )}
