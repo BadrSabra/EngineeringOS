@@ -345,7 +345,7 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
-  it("dispatches one bounded automatic retry for an ordinary chat parse failure", async () => {
+  it("dispatches a bounded automatic retry for an ordinary chat parse failure", async () => {
     const fixture = await insertParserChatFixture();
     try {
       const [first, second] = await Promise.all([
@@ -372,7 +372,7 @@ describe("durable automatic conversational recovery", () => {
     }
   });
 
-  it("dispatches one bounded automatic retry for an ordinary chat provider failure", async () => {
+  it("dispatches a bounded automatic retry for an ordinary chat provider failure", async () => {
     const fixture = await insertProviderFailureChatFixture();
     try {
       const dispatched = await dispatchAutonomousTaskRecoveries();

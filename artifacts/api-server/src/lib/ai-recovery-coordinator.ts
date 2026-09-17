@@ -29,6 +29,7 @@ const RECOVERY_ACTIONS = [
 const RECOVERY_TASK_STATUSES = ["pending", "queued", "verifying"] as const;
 const RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
 const MAX_RECOVERY_CANDIDATES = 64;
+const MAX_AUTOMATIC_CHAT_RECOVERY_ATTEMPTS = 2;
 
 type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
 type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
@@ -229,12 +230,12 @@ export function planChatRecovery(
     && (candidate.action === "RETRY_AFTER_TIMEOUT"
       || candidate.action === "RETRY_AFTER_RATE_LIMIT")
     && candidate.resumable === 0;
-  // The initial parser failure gets one server-owned replay. Once the
-  // execution attempt has advanced, leave the existing manual resume fallback
-  // visible instead of creating an automatic retry loop.
+  // Ordinary CHAT gets a small, explicit recovery budget. Once the budget is
+  // exhausted, leave the existing manual fallback visible instead of creating
+  // an automatic retry loop.
   const boundedChatRecovery =
     (parserFailureRecovery || transientProviderRecovery)
-    && candidate.executionAttempt === 0;
+    && candidate.executionAttempt < MAX_AUTOMATIC_CHAT_RECOVERY_ATTEMPTS;
   if (
     !request
     || request.projectId !== candidate.executionProjectId

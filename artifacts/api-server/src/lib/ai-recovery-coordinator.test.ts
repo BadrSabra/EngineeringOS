@@ -232,14 +232,20 @@ describe("automatic task recovery admission", () => {
     expect(planChatRecovery(chatCandidate({
       executionAttempt: 1,
     }))).toMatchObject({
-      kind: "skip",
-      reason: "not_a_resumable_turn",
+      kind: "resume",
+      action: "RESUME_ALLOWED",
     });
     expect(planChatRecovery(chatCandidate({
       action: "RETRY_AFTER_TIMEOUT",
       reasonCode: "EXECUTION_PROVIDER_FAILURE",
       resumable: 0,
       executionAttempt: 1,
+    }))).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_TIMEOUT",
+    });
+    expect(planChatRecovery(chatCandidate({
+      executionAttempt: 2,
     }))).toMatchObject({
       kind: "skip",
       reason: "not_a_resumable_turn",
