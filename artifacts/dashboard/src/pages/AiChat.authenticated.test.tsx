@@ -258,6 +258,20 @@ vi.mock('@workspace/api-client-react', () => {
       isError: false,
       error: null,
     })),
+    useGetAiDeliveryPolicy: vi.fn(() => ({
+      data: {
+        projectId: 'project-1',
+        mode: 'manual',
+        automaticPromotionEnabled: false,
+        approvedAt: null,
+        updatedAt: null,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    })),
+    getGetAiDeliveryPolicyQueryKey: (params?: unknown) => ['ai-delivery-policy', params],
+    useUpdateAiDeliveryPolicy: vi.fn(() => emptyMutation()),
     useSaveDeepSeekKey: vi.fn((options: { mutation?: typeof mocks.mutationOptions.saveDeepSeek }) => {
       mocks.mutationOptions.saveDeepSeek = options?.mutation;
       return mocks.mutations.saveDeepSeek;
@@ -1006,16 +1020,26 @@ describe('AiChat authenticated generated mutations', () => {
       sessionId: 'session-1',
       message: 'Continue after refresh',
     }));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(new Response(
-      JSON.stringify({
-        executionId: 'execution-missing-token',
-        resumeToken: 'recovered-opaque-resume-token',
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    )));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes('/api/ai/delivery/recoverable')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ operations: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        JSON.stringify({
+          executionId: 'execution-missing-token',
+          resumeToken: 'recovered-opaque-resume-token',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ));
+    });
 
     renderAiChat();
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(
         '/api/ai/executions/execution-missing-token/resume-capability',
@@ -1042,13 +1066,23 @@ describe('AiChat authenticated generated mutations', () => {
       sessionId: 'session-1',
       message: 'Retry the saved run',
     }));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
-      JSON.stringify({ error: 'This AI execution is no longer eligible for resume.' }),
-      { status: 409, headers: { 'Content-Type': 'application/json' } },
-    ));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes('/api/ai/delivery/recoverable')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ operations: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ));
+      }
+      return Promise.resolve(new Response(
+        JSON.stringify({ error: 'This AI execution is no longer eligible for resume.' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } },
+      ));
+    });
 
     renderAiChat();
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
     expect(await screen.findByText('This AI execution is no longer eligible for resume.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     fetchSpy.mockRestore();
