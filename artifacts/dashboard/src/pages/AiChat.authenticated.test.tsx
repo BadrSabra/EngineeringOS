@@ -337,6 +337,7 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.toast.mockReset();
+  mocks.proposalMessages.length = 1;
   mocks.serverProposal = undefined;
   mocks.groqStatus = undefined;
   mocks.aiMetrics = {
@@ -4630,6 +4631,54 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(await screen.findByText(
       /did not satisfy the required six-section evidence contract/,
     )).toBeInTheDocument();
+  });
+
+  it('resumes a failed project query with the original user message and saved execution', async () => {
+    mocks.serverProposal = { proposalId: 'orientation-retry', changes: [] };
+    mocks.proposalMessages = [
+      {
+        id: 'user-orientation',
+        role: 'user',
+        content: 'What is this project?',
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+      {
+        ...mocks.proposalMessages[0],
+        id: 'assistant-orientation-failed',
+        content: '',
+        turnIntent: 'PROJECT_QUERY',
+        executionId: 'execution-orientation-failed',
+        outcome: 'FAILED',
+        errorCode: 'EXECUTION_PROVIDER_FAILURE',
+        retryable: true,
+      },
+    ] as typeof mocks.proposalMessages;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        executionId: 'execution-orientation-failed',
+        resumeToken: 'orientation-resume-token',
+      }),
+    } as Response);
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-orientation-failed/resume-capability',
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      );
+      expect(mocks.sentParams).toEqual(expect.objectContaining({
+        message: 'What is this project?',
+        executionId: 'execution-orientation-failed',
+        resumeToken: 'orientation-resume-token',
+      }));
+    });
+    fetchSpy.mockRestore();
   });
 
   it.each([

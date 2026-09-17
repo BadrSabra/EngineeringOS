@@ -203,6 +203,11 @@ export const ActiveTaskStateSchema = z.object({
     }).strict()).min(1).max(24),
     promptHint: z.string().min(1).max(2000),
   }).strict().optional(),
+  /**
+   * General project-orientation turns have no targeted query id, but they are
+   * still source-backed and resumable through the durable execution contract.
+   */
+  projectOrientation: z.boolean().optional(),
   executionPlan: ActiveTaskExecutionPlanSchema.nullable().default(null),
   startedAt: z.string().datetime({ offset: true }),
   lastProgressAt: z.string().datetime({ offset: true }),
@@ -670,9 +675,15 @@ export function buildActiveTaskState(args: {
   capabilityProbe?: boolean;
   projectQuery?: ProjectQueryTarget;
   projectQueryObjective?: ObjectiveContract;
+  projectOrientation?: boolean;
   now?: Date;
 }): ActiveTaskState | null {
-  if (!isResumableTaskType(args.classification.taskType) && !args.capabilityProbe && !args.projectQuery) return null;
+  if (
+    !isResumableTaskType(args.classification.taskType)
+    && !args.capabilityProbe
+    && !args.projectQuery
+    && !args.projectOrientation
+  ) return null;
   const now = (args.now ?? new Date()).toISOString();
   const route = routeTask(args.classification.taskType);
   const projectQuery = args.projectQuery
@@ -730,6 +741,7 @@ export function buildActiveTaskState(args: {
           },
         }
       : {}),
+    ...(args.projectOrientation ? { projectOrientation: true } : {}),
     executionPlan: null,
     startedAt: now,
     lastProgressAt: now,
@@ -775,7 +787,12 @@ export function resumeActiveTaskClassification(
 ): { classification: ClassifiedRequest; resumed: boolean } {
   if (
     !state ||
-    (!isResumableTaskType(state.taskType) && !state.capabilityProbe && !state.projectQuery) ||
+    (
+      !isResumableTaskType(state.taskType)
+      && !state.capabilityProbe
+      && !state.projectQuery
+      && !state.projectOrientation
+    ) ||
     state.scope.projectId.length === 0 ||
     !isTaskContinuationRequest(message, state)
   ) {

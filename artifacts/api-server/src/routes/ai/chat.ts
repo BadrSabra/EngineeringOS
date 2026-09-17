@@ -3975,7 +3975,7 @@ async function recoverSessionTaskStateFromExecution(params: {
   for (const execution of executions) {
     const request = parseExecutionRequest(execution.request);
     if (
-      (!request?.proofRequired && !request?.capabilityProbe)
+      (!request?.proofRequired && !request?.capabilityProbe && !request?.projectOrientation)
       || request.sessionId !== params.sessionId
       || !request.workspaceRevision
     ) {
@@ -4039,7 +4039,12 @@ async function recoverSessionTaskStateFromExecution(params: {
     const projectQueryObjective = projectQueryTarget
       ? buildProjectQueryObjective(projectQueryTarget, request.message)
       : undefined;
-    if (!isResumableTaskType(classification.taskType) && !request.capabilityProbe && !projectQueryTarget) continue;
+    if (
+      !isResumableTaskType(classification.taskType)
+      && !request.capabilityProbe
+      && !projectQueryTarget
+      && request.projectOrientation !== true
+    ) continue;
     const state = buildActiveTaskState({
       classification,
       projectId: params.projectId,
@@ -4051,6 +4056,7 @@ async function recoverSessionTaskStateFromExecution(params: {
       capabilityProbe: Boolean(request.capabilityProbe),
       projectQuery: projectQueryTarget,
       projectQueryObjective,
+      projectOrientation: request.projectOrientation === true,
     });
     if (state) return state;
   }
@@ -4292,6 +4298,7 @@ function nextSessionTaskState(args: {
   executionId?: string;
   capabilityProbe?: boolean;
   projectQuery?: NonNullable<ReturnType<typeof resolveTurnIntent>["projectTarget"]>;
+  projectOrientation?: boolean;
   forcePersist?: boolean;
   now: Date;
   readFiles: string[];
@@ -4312,7 +4319,7 @@ function nextSessionTaskState(args: {
     ? mergeProjectQueryObjective(args.projectQuery, args.projectQueryObjective)
     : undefined;
 
-  if (args.persisted && (args.resumed || args.executionPlan || projectQuery)) {
+  if (args.persisted && (args.resumed || args.executionPlan || projectQuery || args.projectOrientation)) {
     const touched = touchActiveTaskState(args.persisted, args.now);
     const revised = args.revision && !touched.scope.revision
       ? {
@@ -4365,10 +4372,11 @@ function nextSessionTaskState(args: {
     isResumableTaskType(args.classification.taskType)
     || args.capabilityProbe
     || args.projectQuery
+    || args.projectOrientation
     || shouldPersistExecutionPlan
     || args.forcePersist
   ) {
-    const stateClassification = args.capabilityProbe || args.projectQuery
+    const stateClassification = args.capabilityProbe || args.projectQuery || args.projectOrientation
       ? {
           ...args.classification,
           taskType: "BEHAVIOR_QUERY" as const,
@@ -4391,6 +4399,7 @@ function nextSessionTaskState(args: {
       executionId: args.executionId,
       capabilityProbe: args.capabilityProbe,
       projectQuery,
+      projectOrientation: args.projectOrientation,
       now: args.now,
     });
     return serializeActiveTaskState(state
@@ -4692,6 +4701,7 @@ router.post("/ai/chat", async (req, res) => {
     classification: chatClassification,
     resumed: classificationResolution.resumed,
     implementationPlanResume,
+    projectOrientation: resumableStateForTurn?.projectOrientation === true,
   });
   logger.info({
     scope: "chat-route",
@@ -4731,6 +4741,11 @@ router.post("/ai/chat", async (req, res) => {
     capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
     projectQuery: effectiveProjectQuery,
     projectQueryObjective: effectiveObjective,
+    projectOrientation: turnIntent.kind === "PROJECT_QUERY"
+      && (
+        isProjectOrientationQuestion(message)
+        || resumableStateForTurn?.projectOrientation === true
+      ),
     forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
     now: msgNow,
     readFiles: [],
@@ -6053,10 +6068,14 @@ router.post("/ai/chat/stream", async (req, res) => {
     resumed: streamClassificationResolution.resumed,
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
+    projectOrientation: streamResumableStateForTurn?.projectOrientation === true,
   });
   const projectOrientationTurn =
     streamTurnIntent.kind === "PROJECT_QUERY"
-    && isProjectOrientationQuestion(message);
+    && (
+      isProjectOrientationQuestion(message)
+      || streamResumableStateForTurn?.projectOrientation === true
+    );
   let projectOrientationExecution = projectOrientationTurn;
   logger.info({
     scope: "chat-route",
@@ -6803,6 +6822,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     const taskObjectiveProofRequired = Boolean(
       streamTurnIntent.requiresEvidence
       || streamTurnIntent.projectTarget
+      || projectOrientationTurn
       || streamObjective
       || effectiveBuildPlanMessageId
       || (effectiveLinkedTaskId && streamTurnIntent.kind === "DELIVERY")
@@ -7172,6 +7192,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
       projectQuery: streamProjectQuery,
       projectQueryObjective: streamObjective,
+      projectOrientation: projectOrientationExecution,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       operationId: aiExecution.operationId ?? executionRequest.operationId,
       executionId: aiExecution.id,
@@ -7331,6 +7352,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       capabilityProbe: Boolean(executionRequest.capabilityProbe),
       projectQuery: streamProjectQuery,
       projectQueryObjective: streamObjective,
+      projectOrientation: projectOrientationExecution,
       forcePersist: streamTurnIntent.kind === "FORENSIC_AUDIT",
       now: msgNow,
       readFiles: collectReadEvidencePaths(traceSteps),
@@ -8758,7 +8780,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       const cancelled = Boolean(executionAbortController?.signal.aborted && !executionLeaseLost);
       const providerErrorCode = err instanceof GroqClientError ? err.code : "UNKNOWN";
       const targetedProjectQueryFailure =
-        streamTurnIntent.kind === "PROJECT_QUERY" && proofRequired;
+        streamTurnIntent.kind === "PROJECT_QUERY"
+        && proofRequired
+        && !projectOrientationExecution;
       const terminalErrorCode = targetedProjectQueryFailure
         ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
         : providerErrorCode;
@@ -8815,7 +8839,10 @@ router.post("/ai/chat/stream", async (req, res) => {
       // A proof-required targeted query is not resumable merely because the
       // provider failure itself is retryable. Its retained reads still need
       // objective closure, so the durable acceptance row and every public
-      // projection must use the incomplete-acceptance disposition.
+      // projection must use the incomplete-acceptance disposition. General
+      // project orientation is different: it owns a source-backed execution
+      // contract and may resume the same execution even when the first
+      // provider attempt fails before the first read.
       const terminalOutcome = targetedProjectQueryFailure && !cancelled
         ? {
             ...classifiedTerminalOutcome,
@@ -9243,6 +9270,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       executionPlan,
       projectQuery: streamProjectQuery,
       projectQueryObjective: streamObjective,
+      projectOrientation: projectOrientationExecution,
     });
 
     const aiExecutionId = aiExecution.id;

@@ -9422,10 +9422,63 @@ export default function AiChat() {
     startStructuredTask(task, run.prompt, messageId);
   }
 
-  function retryProjectQuery(messageId: string) {
+  async function retryProjectQuery(messageId: string) {
     if (projectQueryRetryMessageId || isSending || !sessionId) return;
+    const failedMessageIndex = messages.findIndex((message) => message.id === messageId);
+    const failedMessage = failedMessageIndex >= 0 ? messages[failedMessageIndex] : undefined;
+    const originalUserMessage = failedMessageIndex >= 0
+      ? [...messages.slice(0, failedMessageIndex)]
+        .reverse()
+        .find((message) => message.role === 'user')
+        ?.content
+        ?.trim()
+      : undefined;
+    const activeExecution = activeExecutionRef.current;
+    const executionId = failedMessage?.executionId ?? activeExecution?.id;
+    const resumableActiveExecution =
+      activeExecution && activeExecution.id === executionId ? activeExecution : undefined;
+    const messageToResume = originalUserMessage || resumableActiveExecution?.message.trim();
+    if (!executionId || !messageToResume) {
+      toast({
+        title: 'Retry unavailable',
+        description: 'The original project question or execution identity is no longer available.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setProjectQueryRetryMessageId(messageId);
-    sendMessage('retry');
+    try {
+      let resumeToken =
+        activeExecution?.id === executionId ? activeExecution.resumeToken : undefined;
+      if (!resumeToken) {
+        const response = await fetch(
+          `/api/ai/executions/${encodeURIComponent(executionId)}/resume-capability`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { Accept: 'application/json' },
+          },
+        );
+        const body = await response.json().catch(() => ({})) as {
+          executionId?: string;
+          resumeToken?: string;
+          error?: string;
+        };
+        if (!response.ok || body.executionId !== executionId || !body.resumeToken) {
+          throw new Error(body.error || 'Resume is no longer available for this execution.');
+        }
+        resumeToken = body.resumeToken;
+      }
+      sendMessage(messageToResume, { executionId, resumeToken });
+    } catch (error) {
+      setProjectQueryRetryMessageId(null);
+      toast({
+        title: 'Retry unavailable',
+        description: error instanceof Error ? error.message : 'The saved execution could not be resumed.',
+        variant: 'destructive',
+      });
+    }
   }
 
   const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({

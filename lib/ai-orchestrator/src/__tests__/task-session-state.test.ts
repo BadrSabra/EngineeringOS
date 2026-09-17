@@ -137,6 +137,43 @@ describe("active task session state", () => {
     });
   });
 
+  it("persists and resumes a general project-orientation contract without enabling forensic mode", () => {
+    const classification = classifyRequest("ما هذا المشروع؟");
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      projectOrientation: true,
+      now: new Date("2026-08-16T12:00:00.000Z"),
+    });
+
+    expect(state).toMatchObject({
+      taskType: "BEHAVIOR_QUERY",
+      outputContract: "BEHAVIOR_ANSWER",
+      projectOrientation: true,
+    });
+    const roundTripped = parseActiveTaskState(serializeActiveTaskState(state));
+    expect(roundTripped?.projectOrientation).toBe(true);
+
+    const resumed = resumeActiveTaskClassification(
+      "retry",
+      classifyRequest("retry"),
+      roundTripped,
+    );
+    expect(resumed.resumed).toBe(true);
+    expect(resolveTurnIntent("retry", {
+      classification: resumed.classification,
+      resumed: resumed.resumed,
+      projectOrientation: roundTripped?.projectOrientation,
+    })).toMatchObject({
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
+      requiresEvidence: false,
+    });
+  });
+
   it("persists dynamically requested project-query claims for resume", () => {
     const message = "أشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع وحدد نقاط الضعف";
     const classification = classifyRequest(message);

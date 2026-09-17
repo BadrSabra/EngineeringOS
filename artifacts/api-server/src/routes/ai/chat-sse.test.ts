@@ -1274,7 +1274,7 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(JSON.stringify(dbFixture.execution.checkpoint)).not.toContain("evidence-bound");
   });
 
-  it("keeps a generic project query non-resumable when the provider fails before source evidence", async () => {
+  it("keeps a generic project query proof-bound even when the provider fails before source evidence", async () => {
     vi.mocked(chatWithFallback as (...a: unknown[]) => unknown)
       .mockRejectedValueOnce(new Error("upstream provider failure"));
 
@@ -1289,10 +1289,10 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(frames.find((frame) => frame.type === "execution_started")).toMatchObject({
       turnIntent: "PROJECT_QUERY",
       operationMode: "CHAT",
-      proofRequired: false,
-      resumable: false,
+      proofRequired: true,
+      resumable: true,
     });
-    expect(frames.find((frame) => frame.type === "execution_started")).not.toHaveProperty("resumeToken");
+    expect(frames.find((frame) => frame.type === "execution_started")).toHaveProperty("resumeToken");
 
     const dbModule = (await import("@workspace/db") as unknown as {
       __chatTestFixture: {
@@ -1301,17 +1301,17 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       __chatTestAcceptances: Array<Record<string, unknown>>;
     });
     expect(dbModule.__chatTestAcceptances[0]).toMatchObject({
-      evidenceRequired: 0,
+      evidenceRequired: 1,
       evidenceComplete: 0,
-      resumable: 0,
-      nextActionCode: "RETRY_AFTER_TIMEOUT",
+      resumable: 1,
+      nextActionCode: "RESUME_ALLOWED",
     });
     const checkpoint = JSON.parse(String(dbModule.__chatTestFixture.execution.checkpoint)) as {
       proofRequired?: boolean;
       evidenceVerdict?: string;
     };
     expect(checkpoint).toMatchObject({
-      proofRequired: false,
+      proofRequired: true,
       evidenceVerdict: "UNAVAILABLE",
     });
   });

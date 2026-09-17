@@ -254,6 +254,7 @@ type EvidenceRoutingSignals = {
   targetedProjectQuery: boolean;
   unresolvedProjectQuery: boolean;
   resumedForensicContinuation: boolean;
+  projectOrientation: boolean;
 };
 
 /**
@@ -286,6 +287,7 @@ function resolveEvidenceIntent({
   targetedProjectQuery,
   unresolvedProjectQuery,
   resumedForensicContinuation,
+  projectOrientation,
 }: EvidenceRoutingSignals): boolean {
   const isExploration = classification.category === "exploration";
   const isDeepAnalysis = classification.category === "deep_analysis";
@@ -296,7 +298,8 @@ function resolveEvidenceIntent({
     isExploration ||
     implementationDelivery ||
     planDelivery ||
-    implementationPlanResume
+    implementationPlanResume ||
+    projectOrientation
   ) {
     return false;
   }
@@ -371,6 +374,7 @@ export function resolveTurnIntent(
     resumed?: boolean;
     buildHandoff?: boolean;
     implementationPlanResume?: boolean;
+    projectOrientation?: boolean;
   } = {},
 ): TurnIntent {
   const baseClassification = options.classification ?? classifyRequest(message);
@@ -405,6 +409,7 @@ export function resolveTurnIntent(
         implementationTaskMode: false,
       }
     : baseClassification;
+  const projectOrientation = options.projectOrientation === true;
   const route = routeTask(classification.taskType);
   const planDelivery =
     !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
@@ -503,6 +508,7 @@ export function resolveTurnIntent(
     targetedProjectQuery,
     unresolvedProjectQuery,
     resumedForensicContinuation,
+    projectOrientation,
   });
 
   const requiresTools =
@@ -514,7 +520,8 @@ export function resolveTurnIntent(
         // model can cite project context without entering the evidence gate.
         classification.category === "exploration" ||
         (explicitEvidenceIntent && !scopeClarificationRequired) ||
-        (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired);
+         (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired) ||
+         projectOrientation;
 
   const kind: TurnIntentKind = implementationDelivery || planDelivery
     ? "DELIVERY"
