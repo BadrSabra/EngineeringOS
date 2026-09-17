@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
+  aiChatSessionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   db,
@@ -15,6 +16,10 @@ const executeTaskLifecycle = vi.hoisted(() => vi.fn(async () => ({
   ok: true,
   status: "completed" as const,
   executionId: "replacement-execution",
+})));
+const runChatExecutionRecovery = vi.hoisted(() => vi.fn(async () => ({
+  ok: true,
+  statusCode: 200,
 })));
 
 vi.mock("./job-queue.js", () => ({
@@ -49,7 +54,7 @@ vi.mock("./task-execution-service.js", () => ({
 }));
 
 vi.mock("./chat-recovery-runner.js", () => ({
-  runChatExecutionRecovery: vi.fn(async () => ({ ok: true, statusCode: 200 })),
+  runChatExecutionRecovery,
 }));
 
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
@@ -127,6 +132,88 @@ async function insertFixture() {
   return { projectId, taskId, executionId };
 }
 
+async function insertChatFixture() {
+  const projectId = randomUUID();
+  const executionId = randomUUID();
+  const sessionId = randomUUID();
+  const now = new Date();
+  const workspaceRevision = now.toISOString();
+
+  await db.insert(projectsTable).values({
+    id: projectId,
+    ownerId: "recovery-chat-test-user",
+    name: `recovery-chat-${projectId.slice(0, 8)}`,
+    rootPath: `/tmp/recovery-chat-${projectId}`,
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Recoverable chat",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiExecutionsTable).values({
+    id: executionId,
+    projectId,
+    sessionId,
+    operationId: executionId,
+    userId: "recovery-chat-test-user",
+    idempotencyKey: `${executionId}:attempt:0`,
+    correlationId: executionId,
+    attempt: 0,
+    resumeTokenHash: "test-chat-resume-token-hash",
+    request: JSON.stringify({
+      projectId,
+      turnIntent: "PROJECT_QUERY",
+      sessionId,
+      message: "Explain the project flow",
+      modelMessage: "Explain the project flow",
+      workspaceRevision,
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "BEHAVIOR_ANSWER",
+        contextProfile: "project_query",
+        sessionId,
+        projectRevision: workspaceRevision,
+        requiresEvidence: true,
+        scope: { projectId, rootPath: null, linkedTaskId: null },
+      },
+    }),
+    checkpoint: "{}",
+    status: "failed",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiExecutionAcceptancesTable).values({
+    id: randomUUID(),
+    executionId,
+    projectId,
+    attempt: 0,
+    finalizationKey: `recovery-chat-test:${executionId}:0`,
+    operationId: executionId,
+    terminalStatus: "failed",
+    outcome: "FAILED",
+    reasonCode: "EXECUTION_PROVIDER_FAILURE",
+    nextActionCode: "RESUME_ALLOWED",
+    disposition: {
+      recoveryState: "REQUIRED",
+      nextActionCode: "RESUME_ALLOWED",
+    },
+    evidenceRequired: 1,
+    evidenceComplete: 0,
+    resumable: 1,
+    sourceRevision: workspaceRevision,
+    createdAt: now,
+  });
+  return { projectId, executionId, sessionId };
+}
+
 describe("durable automatic task recovery", () => {
   afterEach(async () => {
     vi.clearAllMocks();
@@ -163,6 +250,39 @@ describe("durable automatic task recovery", () => {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(tasksTable).where(eq(tasksTable.id, fixture.taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+});
+
+describe("durable automatic conversational recovery", () => {
+  afterEach(() => {
+    runChatExecutionRecovery.mockClear();
+  });
+
+  it("dispatches an eligible proof-backed chat turn once without routing it through task lifecycle", async () => {
+    const fixture = await insertChatFixture();
+    try {
+      const [first, second] = await Promise.all([
+        dispatchAutonomousTaskRecoveries(),
+        dispatchAutonomousTaskRecoveries(),
+      ]);
+      expect(first + second).toBe(1);
+      expect(queuedJobs).toHaveLength(1);
+
+      await queuedJobs[0]!.run();
+
+      expect(runChatExecutionRecovery).toHaveBeenCalledTimes(1);
+      expect(runChatExecutionRecovery).toHaveBeenCalledWith({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        mode: "resume",
+      });
+      expect(executeTaskLifecycle).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
     }
   });
