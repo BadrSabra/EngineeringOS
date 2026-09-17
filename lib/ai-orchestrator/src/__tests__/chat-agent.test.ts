@@ -543,6 +543,12 @@ describe("chat agent — ChatOutputSchema validation", () => {
       complete: true,
       missingRoles: [],
     });
+    expect(result.response).toBe("This is the resumed project workspace.");
+    expect(toolCalls.some(
+      (step) => step.kind === "diagnostic"
+        && (step.code === "BEHAVIOR_EVIDENCE_REJECTED"
+          || step.code === "BEHAVIOR_EVIDENCE_RECOVERY_REJECTED"),
+    )).toBe(false);
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
