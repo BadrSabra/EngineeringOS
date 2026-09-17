@@ -4681,6 +4681,55 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fetchSpy.mockRestore();
   });
 
+  it('starts a fresh execution for an incomplete targeted project query', async () => {
+    mocks.serverProposal = { proposalId: 'targeted-retry', changes: [] };
+    mocks.proposalMessages = [
+      {
+        id: 'user-targeted-query',
+        role: 'user',
+        content: 'Where is the embedded AI implemented?',
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+      {
+        ...mocks.proposalMessages[0],
+        id: 'assistant-targeted-failed',
+        content: '',
+        turnIntent: 'PROJECT_QUERY',
+        executionId: 'execution-targeted-failed',
+        outcome: 'FAILED',
+        errorCode: 'EXECUTION_ACCEPTANCE_INCOMPLETE',
+        retryable: true,
+        acceptanceDisposition: {
+          reasonCodes: ['EXECUTION_ACCEPTANCE_INCOMPLETE'],
+          outcome: 'FAILED',
+          failureKind: 'INCOMPLETE',
+          recoveryState: 'INCOMPLETE',
+          nextActionCode: 'START_NEW_PROBE',
+          operatorAction: 'Start a new scoped run before relying on this result.',
+        },
+      },
+    ] as typeof mocks.proposalMessages;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
+
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/resume-capability'),
+        expect.anything(),
+      );
+      expect(mocks.sentParams).toEqual(expect.objectContaining({
+        message: 'retry',
+      }));
+    });
+    expect(mocks.sentParams?.executionId).toBeUndefined();
+    expect(mocks.sentParams?.resumeToken).toBeUndefined();
+    fetchSpy.mockRestore();
+  });
+
   it.each([
     ['BLOCKED', 'Repair blocked'],
     ['REPAIRING', 'Repair correction allowed'],
