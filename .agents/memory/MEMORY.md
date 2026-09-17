@@ -128,6 +128,7 @@
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
 - [Scoped correlation extensions](scoped-correlation-extensions.md) — new provenance fields must be limited to the request contract that needs them, or exact legacy payload consumers can regress.
+- [Orientation manifest fallback](orientation-manifest-fallback.md) — never persist a partial role manifest after planner fallback; later retries can hydrate it as immutable valid scope.
  - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
  - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
