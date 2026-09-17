@@ -484,8 +484,13 @@ describe("session memory policy", () => {
         projectId,
       ));
       expect(memories).toHaveLength(3);
-      expect(memories.find((memory) => memory.memoryType === "file_summary")?.sourcePath)
-        .toBe("src/feature.ts");
+      expect(memories.find((memory) => memory.memoryType === "file_summary")).toMatchObject({
+        sourcePath: "src/feature.ts",
+        turnId,
+      });
+      expect(memories.find((memory) => memory.memoryType === "session_summary")).toMatchObject({
+        turnId,
+      });
       expect(memories.find((memory) => memory.semanticKind === "decision")).toMatchObject({
         memoryType: "entity_fact",
         scope: "task:chat",
