@@ -83,7 +83,7 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getAllByText('Run checks').length).toBeGreaterThan(0);
     expect(screen.getAllByText('read_file').length).toBeGreaterThan(0);
     expect(screen.getAllByText('src/App.tsx').length).toBeGreaterThan(0);
-    expect(screen.getByText('Partial')).toBeInTheDocument();
+    expect(screen.getAllByText('Partial').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Review diff' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve changes' })).toBeInTheDocument();

@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { Loader2, RotateCcw, ShieldCheck, Square, GitCompareArrows } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  FileText,
+  GitCompareArrows,
+  Loader2,
+  RotateCcw,
+  ShieldCheck,
+  Square,
+  Wrench,
+} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 
@@ -40,6 +51,35 @@ function verificationClasses(status: AiExecutionProjection['verification']['stat
   if (status === 'running') return 'text-sky-200';
   return 'text-amber-200';
 }
+
+function verificationSummary(projection: AiExecutionProjection): string {
+  switch (projection.verification.status) {
+    case 'passed':
+      return projection.verification.proofRequired
+        ? 'Server-owned validation passed and the required evidence is ready for acceptance.'
+        : 'Server-owned validation passed for this execution.';
+    case 'failed':
+      return 'Server-owned validation did not pass. Review the stop reason and evidence before continuing.';
+    case 'unavailable':
+      return 'No complete server-owned verification is available for this execution.';
+    case 'running':
+      return 'The server is still collecting validation or evidence for this execution.';
+    default:
+      return projection.verification.proofRequired
+        ? 'This execution cannot be accepted until its server-owned proof is complete.'
+        : 'Verification has not been recorded yet.';
+  }
+}
+
+const actionOrder: ProjectionAction[] = [
+  'APPROVE_CHANGES',
+  'RESUME_CHECKPOINT',
+  'RETRY_CHECKPOINT',
+  'CANCEL',
+  'REVIEW_DIFF',
+  'REVIEW_PROOF',
+  'START_NEW_RUN',
+];
 
 function reviewLines(originalContent: string | null, newContent: string | null): string[] {
   const before = (originalContent ?? '').split(/\r?\n/);
@@ -85,6 +125,14 @@ export function ExecutionProjectionPanel({
   const hasTools = projection.tools.recent.length > 0;
   const hasFiles = projection.workspace.changedFiles.length > 0;
   const hasActions = projection.allowedActions.length > 0;
+  const orderedActions = [...projection.allowedActions].sort(
+    (left, right) => actionOrder.indexOf(left) - actionOrder.indexOf(right),
+  );
+  const footerActions = orderedActions.filter(
+    (action) => !(action === 'APPROVE_CHANGES' && projection.approval.required && projection.approval.status === 'PENDING'),
+  );
+  const isStopped = Boolean(projection.stopped.outcome);
+  const progressWidth = percent == null ? 0 : Math.max(0, Math.min(100, percent));
 
   async function loadDiff(): Promise<void> {
     if (!executionId) {
@@ -230,23 +278,63 @@ export function ExecutionProjectionPanel({
         </div>
       </div>
 
+      <div className="mt-3" aria-label="Execution progress">
+        <div className="flex items-center justify-between gap-2 text-[10px]">
+          <span className="font-semibold text-foreground">Live execution progress</span>
+          <span className="tabular-nums text-muted-foreground">
+            {percent == null ? 'Awaiting server progress' : `${percent}% complete`}
+          </span>
+        </div>
+        <div
+          className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-border/60"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent ?? 0}
+          aria-label={percent == null ? 'Execution progress is not yet available' : `Execution ${percent}% complete`}
+        >
+          <div
+            className={`h-full rounded-full transition-[width] duration-500 ${
+              projection.verification.status === 'failed' ? 'bg-red-400' : 'bg-primary'
+            }`}
+            style={{ width: `${progressWidth}%` }}
+          />
+        </div>
+      </div>
+
       {projection.progress.label && (
         <p className="mt-2 break-words text-[10px] leading-4 text-muted-foreground">{projection.progress.label}</p>
       )}
 
       {hasPlan && (
-        <details className="mt-2 rounded-md border border-border/40 bg-background/20" open={!compact}>
+        <details className="mt-3 rounded-md border border-border/40 bg-background/20" open={!compact}>
           <summary className="cursor-pointer px-2.5 py-1.5 text-[10px] font-semibold text-foreground">
             Current plan ({projection.plan.steps.length} steps)
           </summary>
           <div className="space-y-1 border-t border-border/40 px-2.5 py-2">
             {projection.plan.steps.map((step) => (
-              <div key={step.id} className="flex min-w-0 items-center gap-2 text-[10px]">
-                <span className={`shrink-0 rounded-full border px-1.5 py-0.5 font-semibold uppercase ${statusClasses[step.status] ?? statusClasses.pending}`}>
-                  {step.status}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-foreground/90">{step.title}</span>
-                {step.files.length > 0 && <span className="shrink-0 text-muted-foreground">{step.files.length} file{step.files.length === 1 ? '' : 's'}</span>}
+              <div key={step.id} className="rounded border border-border/30 px-2 py-1.5 text-[10px]">
+                <div className="flex min-w-0 items-center gap-2">
+                  {step.status === 'completed'
+                    ? <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-200" />
+                    : step.status === 'active'
+                      ? <Clock3 className="h-3 w-3 shrink-0 animate-pulse text-primary" />
+                      : step.status === 'failed' || step.status === 'blocked'
+                        ? <AlertTriangle className="h-3 w-3 shrink-0 text-red-200" />
+                        : <span className="h-3 w-3 shrink-0 rounded-full border border-border/70" />}
+                  <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">{step.title}</span>
+                  <span className={`shrink-0 rounded-full border px-1.5 py-0.5 font-semibold uppercase ${statusClasses[step.status] ?? statusClasses.pending}`}>
+                    {step.status}
+                  </span>
+                </div>
+                {(step.action || step.files.length > 0) && (
+                  <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 pl-5 text-muted-foreground">
+                    {step.action && <span>Action: {step.action}</span>}
+                    {step.files.length > 0 && (
+                      <span>{step.files.length} scoped file{step.files.length === 1 ? '' : 's'}</span>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -256,44 +344,61 @@ export function ExecutionProjectionPanel({
       {(hasTools || hasFiles) && (
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {hasTools && (
-            <div className="rounded-md border border-border/40 bg-background/20 px-2.5 py-2">
-              <div className="text-[10px] font-semibold text-foreground">Recent tools</div>
-              <div className="mt-1 space-y-1">
-                {projection.tools.recent.slice(-4).map((tool, index) => (
-                  <div key={`${tool.tool}-${index}`} className="flex min-w-0 items-center gap-1.5 text-[10px]">
+            <details className="rounded-md border border-border/40 bg-background/20 px-2.5 py-2" open={!compact}>
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold text-foreground">
+                <Wrench className="h-3 w-3 text-primary" />
+                Tools used ({projection.tools.totalCalls} calls)
+              </summary>
+              <div className="mt-1 space-y-1 border-t border-border/30 pt-1.5">
+                {projection.tools.recent.map((tool, index) => (
+                  <div key={`${tool.tool}-${tool.source ?? 'no-source'}-${index}`} className="flex min-w-0 items-center gap-1.5 text-[10px]">
                     <span className={tool.status === 'failed' ? 'text-red-200' : tool.status === 'started' ? 'text-primary' : 'text-emerald-200'}>{tool.status}</span>
                     <span className="min-w-0 truncate text-muted-foreground">{tool.tool}</span>
                     {tool.source && <code className="min-w-0 truncate text-muted-foreground/70">{tool.source}</code>}
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           )}
           {hasFiles && (
-            <div className="rounded-md border border-border/40 bg-background/20 px-2.5 py-2">
-              <div className="text-[10px] font-semibold text-foreground">Changed files</div>
-              <div className="mt-1 space-y-1">
-                {projection.workspace.changedFiles.slice(0, 5).map((file) => (
+            <details className="rounded-md border border-border/40 bg-background/20 px-2.5 py-2" open={!compact}>
+              <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] font-semibold text-foreground">
+                <FileText className="h-3 w-3 text-primary" />
+                Changed files ({projection.workspace.changedFiles.length})
+              </summary>
+              <div className="mt-1 space-y-1 border-t border-border/30 pt-1.5">
+                {projection.workspace.changedFiles.map((file) => (
                   <code key={file} className="block truncate text-[10px] text-muted-foreground">{file}</code>
                 ))}
               </div>
-            </div>
+            </details>
           )}
         </div>
       )}
 
-      {proofOpen && (
-        <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-[10px]" aria-label="Verification details">
-          <div className="flex items-center gap-1.5 font-semibold text-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-amber-200" />
-            Verification and evidence
-          </div>
-          <p className="mt-1 leading-4 text-muted-foreground">
-            Status: {titleCase(projection.verification.status)} · verdict: {titleCase(projection.verification.evidenceVerdict)}.
-            {projection.verification.proofRequired ? ' This execution requires server-owned proof before it can be accepted.' : ' No proof gate is required for this execution.'}
+      <details
+        className={`mt-3 rounded-md border px-2.5 py-2 text-[10px] ${
+          projection.verification.status === 'failed' || projection.verification.status === 'unavailable'
+            ? 'border-red-500/30 bg-red-500/5'
+            : 'border-amber-500/30 bg-amber-500/5'
+        }`}
+        open={proofOpen || projection.verification.status === 'failed' || projection.verification.status === 'unavailable'}
+      >
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold text-foreground">
+          <ShieldCheck className={`h-3.5 w-3.5 ${verificationClasses(projection.verification.status)}`} />
+          What was verified
+          <span className={`ml-auto font-normal ${verificationClasses(projection.verification.status)}`}>
+            {titleCase(projection.verification.status)}
+          </span>
+        </summary>
+        <div className="mt-1 border-t border-border/30 pt-1.5 leading-4 text-muted-foreground">
+          <p>{verificationSummary(projection)}</p>
+          <p className="mt-1">
+            Evidence verdict: <span className="font-medium text-foreground">{titleCase(projection.verification.evidenceVerdict)}</span>
+            {projection.verification.proofRequired ? ' · Proof gate required' : ' · No proof gate required'}
           </p>
         </div>
-      )}
+      </details>
 
       {diff && (
         <div className="mt-2 space-y-2 rounded-md border border-primary/30 bg-background/30 p-2.5" aria-label="Reviewable execution diff">
@@ -317,15 +422,55 @@ export function ExecutionProjectionPanel({
       )}
       {diffError && <p className="mt-2 text-[10px] text-red-200">{diffError}</p>}
 
-      {(projection.stopped.reason || hasActions) && (
+      {projection.approval.required && projection.approval.status === 'PENDING' && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-2" role="region" aria-label="Approval required">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-semibold text-foreground">Your approval is required</div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">
+              Review the proposed files and diff before allowing the agent to continue.
+            </div>
+          </div>
+          {projection.allowedActions.includes('REVIEW_DIFF') && (
+            <button
+              type="button"
+              className="inline-flex items-center rounded border border-primary/40 bg-background/40 px-2 py-1 text-[9px] font-semibold text-primary hover:bg-primary/20"
+              onClick={() => void runAction('REVIEW_DIFF')}
+              disabled={pendingAction !== null || diffLoading}
+            >
+              <GitCompareArrows className="mr-1 h-3 w-3" />
+              Review diff first
+            </button>
+          )}
+          {projection.allowedActions.includes('APPROVE_CHANGES') && (
+            <button
+              type="button"
+              className="inline-flex items-center rounded bg-primary px-2.5 py-1 text-[9px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void runAction('APPROVE_CHANGES')}
+              disabled={pendingAction !== null}
+            >
+              {pendingAction === 'APPROVE_CHANGES' && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              Approve changes
+            </button>
+          )}
+        </div>
+      )}
+
+      {(isStopped || hasActions) && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {projection.stopped.reason && (
-            <span className="text-[10px] text-amber-200">Stopped: {projection.stopped.reason}</span>
+          {isStopped && (
+            <div className="flex min-w-0 items-start gap-1.5 text-[10px] text-amber-200" role="status">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                <span className="font-semibold">Execution stopped:</span>{' '}
+                {projection.stopped.reason || 'The server ended this execution without a more specific reason.'}
+              </span>
+            </div>
           )}
           {actionError && <span className="text-[10px] text-red-200">{actionError}</span>}
-          {hasActions && (
+          {footerActions.length > 0 && (
             <div className="ml-auto flex flex-wrap justify-end gap-1" aria-label="Allowed execution actions">
-              {projection.allowedActions.map((action) => {
+              {footerActions.map((action) => {
                 const pending = pendingAction === action;
                 const icon = action === 'CANCEL' ? <Square className="mr-1 h-3 w-3" /> : action === 'REVIEW_DIFF' ? <GitCompareArrows className="mr-1 h-3 w-3" /> : <RotateCcw className="mr-1 h-3 w-3" />;
                 return (
