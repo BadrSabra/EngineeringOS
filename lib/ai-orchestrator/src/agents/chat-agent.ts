@@ -5682,9 +5682,15 @@ export async function chat(opts: {
     classification.category === "simple" &&
     !turnIntent.requiresTools &&
     !turnIntent.requiresEvidence;
+  const projectOrientationMode =
+    turnIntent.kind === "PROJECT_QUERY" &&
+    (
+      serverProjectOrientation === true
+      || isProjectOrientationQuestion(message)
+    );
   const explicitBehaviorQueryRequested =
     !lowRiskChatTurn &&
-    !isProjectOrientationQuestion(message) &&
+    !projectOrientationMode &&
     isExplicitBehaviorQueryRequest(message);
   const capabilityProbeRequest = isCapabilityProbeRequest(message);
   const taskChecklistSource = [activeTask?.description, message]
@@ -5719,12 +5725,6 @@ export async function chat(opts: {
     : undefined;
   const analysisMode = turnIntent.analysisMode;
   const outputContract = turnIntent.outputContract;
-  const projectOrientationMode =
-    turnIntent.kind === "PROJECT_QUERY" &&
-    (
-      serverProjectOrientation === true
-      || isProjectOrientationQuestion(message)
-    );
   let orientationEvidencePaths: string[] = projectOrientationMode && orientationSourcesOverride
     ? [...new Set(Object.values(orientationSourcesOverride).flat())].slice(0, 8)
     : [];
