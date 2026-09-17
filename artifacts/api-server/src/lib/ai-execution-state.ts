@@ -1823,6 +1823,84 @@ export async function recoverAiExecutionResumeToken(params: {
   return execution ? { execution, resumeToken } : undefined;
 }
 
+/**
+ * Retry a failed proof-backed conversational execution without creating a
+ * second user turn. The retry action is accepted only from the current
+ * server-owned acceptance row and the same immutable request contract.
+ */
+export async function recoverAiExecutionRetryToken(params: {
+  executionId: string;
+  userId: string;
+  expectedAttempt?: number;
+}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  const resumeToken = createResumeToken();
+  const [candidate] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+      ...(params.expectedAttempt !== undefined
+        ? [eq(aiExecutionsTable.attempt, params.expectedAttempt)]
+        : []),
+    ))
+    .limit(1);
+  if (!candidate) return undefined;
+
+  const request = parseExecutionRequest(candidate.request);
+  if (!hasAiExecutionResumeContract(request)) return undefined;
+
+  const [priorAcceptance] = await db
+    .select({
+      resumable: aiExecutionAcceptancesTable.resumable,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+      disposition: aiExecutionAcceptancesTable.disposition,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, candidate.id),
+      eq(aiExecutionAcceptancesTable.attempt, candidate.attempt),
+    ))
+    .limit(1);
+  if (
+    !priorAcceptance
+    || (priorAcceptance.nextActionCode !== "RETRY_AFTER_TIMEOUT"
+      && priorAcceptance.nextActionCode !== "RETRY_AFTER_RATE_LIMIT")
+    || priorAcceptance.resumable !== 0
+  ) {
+    return undefined;
+  }
+
+  const disposition = priorAcceptance.disposition;
+  const recoveryState = disposition && typeof disposition === "object"
+    ? (disposition as { recoveryState?: unknown }).recoveryState
+    : undefined;
+  const retryAt = disposition && typeof disposition === "object"
+    ? (disposition as { retryAt?: unknown }).retryAt
+    : undefined;
+  if (recoveryState !== "REQUIRED") return undefined;
+  if (typeof retryAt === "string" && Date.parse(retryAt) > Date.now()) return undefined;
+
+  const [execution] = await db
+    .update(aiExecutionsTable)
+    .set({
+      resumeTokenHash: hashResumeToken(resumeToken),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+      eq(aiExecutionsTable.attempt, candidate.attempt),
+      ...(params.expectedAttempt !== undefined
+        ? [eq(aiExecutionsTable.attempt, params.expectedAttempt)]
+        : []),
+    ))
+    .returning();
+  return execution ? { execution, resumeToken } : undefined;
+}
+
 export type AiExecutionRecoveryAction = "resume" | "abandon";
 export type AiExecutionRecoveryOutcome =
   | "resume_accepted"

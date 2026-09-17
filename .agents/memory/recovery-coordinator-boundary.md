@@ -7,4 +7,4 @@ The recovery coordinator may automatically retry or resume durable task executio
 
 **Why:** Task lifecycle execution already owns provider invocation, retry identity, leases, and terminal acceptance. Reusing it for conversational turns would risk losing session/evidence bindings or treating a user-facing retry as a task retry.
 
-**How to apply:** Keep task retries on the task lifecycle. Route conversational RESUME_ALLOWED work through the shared chat stream handler via a server-owned response sink; require a valid resume contract, session, accepted resumability, and matching project revision.
+**How to apply:** Keep task retries on the task lifecycle. Route conversational RESUME_ALLOWED and due provider-retry actions through the shared chat stream handler via a server-owned response sink; require a valid resume contract, session, accepted action, and matching project revision. Retry claims increment the execution attempt.

@@ -3,6 +3,7 @@ import {
   getAiExecutionForUser,
   hasAiExecutionResumeContract,
   parseExecutionRequest,
+  recoverAiExecutionRetryToken,
   recoverAiExecutionResumeToken,
 } from "./ai-execution-state.js";
 import { handleChatStream } from "../routes/ai/chat.js";
@@ -101,6 +102,7 @@ type RecoveryRequest = Request & {
 export async function runChatExecutionRecovery(params: {
   executionId: string;
   userId: string;
+  mode?: "resume" | "retry";
 }): Promise<{ ok: boolean; reason?: string; statusCode?: number }> {
   const execution = await getAiExecutionForUser(params.executionId, params.userId);
   if (!execution) return { ok: false, reason: "execution_not_found" };
@@ -115,10 +117,17 @@ export async function runChatExecutionRecovery(params: {
     return { ok: false, reason: "execution_not_resumable" };
   }
 
-  const recovered = await recoverAiExecutionResumeToken({
-    executionId: execution.id,
-    userId: params.userId,
-  });
+  const recovered = params.mode === "retry"
+    ? await recoverAiExecutionRetryToken({
+        executionId: execution.id,
+        userId: params.userId,
+        expectedAttempt: execution.attempt,
+      })
+    : await recoverAiExecutionResumeToken({
+        executionId: execution.id,
+        userId: params.userId,
+        expectedAttempt: execution.attempt,
+      });
   if (!recovered) return { ok: false, reason: "resume_claim_conflict" };
 
   const response = createInternalResponse();

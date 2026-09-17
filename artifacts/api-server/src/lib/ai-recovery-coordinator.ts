@@ -99,10 +99,11 @@ export type ChatRecoveryCandidate = {
 
 export type ChatRecoveryPlan =
   | {
-    kind: "resume";
-    action: "RESUME_ALLOWED";
+    kind: "resume" | "retry";
+    action: "RESUME_ALLOWED" | "RETRY_AFTER_TIMEOUT" | "RETRY_AFTER_RATE_LIMIT";
     executionId: string;
     executionAttempt: number;
+    delayMs: number;
     queueKey: string;
   }
   | {
@@ -112,6 +113,7 @@ export type ChatRecoveryPlan =
       | "execution_not_recoverable"
       | "resume_not_authorized"
       | "revision_changed"
+      | "retry_not_due"
       | "not_a_resumable_turn";
   };
 
@@ -210,7 +212,10 @@ export function planTaskRecovery(
   };
 }
 
-export function planChatRecovery(candidate: ChatRecoveryCandidate): ChatRecoveryPlan {
+export function planChatRecovery(
+  candidate: ChatRecoveryCandidate,
+  nowMs = Date.now(),
+): ChatRecoveryPlan {
   const request = parseExecutionRequest(candidate.request);
   if (
     !request
@@ -230,19 +235,40 @@ export function planChatRecovery(candidate: ChatRecoveryCandidate): ChatRecovery
     return { kind: "skip", reason: "execution_not_recoverable" };
   }
   const disposition = asDisposition(candidate.disposition);
+  if (disposition.recoveryState !== "REQUIRED") {
+    return { kind: "skip", reason: "resume_not_authorized" };
+  }
+  const retryAtMs = parseRetryAt(disposition.retryAt);
+  if (retryAtMs !== undefined && retryAtMs > nowMs) {
+    return { kind: "skip", reason: "retry_not_due" };
+  }
+  if (candidate.action === "RESUME_ALLOWED") {
+    if (candidate.resumable !== 1) {
+      return { kind: "skip", reason: "resume_not_authorized" };
+    }
+    return {
+      kind: "resume",
+      action: "RESUME_ALLOWED",
+      executionId: candidate.executionId,
+      executionAttempt: candidate.executionAttempt,
+      delayMs: 0,
+      queueKey: `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:resume`,
+    };
+  }
   if (
-    candidate.action !== "RESUME_ALLOWED"
-    || candidate.resumable !== 1
-    || disposition.recoveryState !== "REQUIRED"
+    (candidate.action !== "RETRY_AFTER_TIMEOUT"
+      && candidate.action !== "RETRY_AFTER_RATE_LIMIT")
+    || candidate.resumable !== 0
   ) {
     return { kind: "skip", reason: "resume_not_authorized" };
   }
   return {
-    kind: "resume",
-    action: "RESUME_ALLOWED",
+    kind: "retry",
+    action: candidate.action,
     executionId: candidate.executionId,
     executionAttempt: candidate.executionAttempt,
-    queueKey: `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:resume`,
+    delayMs: 0,
+    queueKey: `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:retry`,
   };
 }
 
@@ -319,7 +345,11 @@ async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
       eq(projectsTable.id, aiExecutionsTable.projectId),
     )
     .where(and(
-      eq(aiExecutionAcceptancesTable.nextActionCode, "RESUME_ALLOWED"),
+      inArray(aiExecutionAcceptancesTable.nextActionCode, [
+        "RESUME_ALLOWED",
+        "RETRY_AFTER_TIMEOUT",
+        "RETRY_AFTER_RATE_LIMIT",
+      ]),
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
       isNull(aiExecutionsTable.linkedTaskId),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
@@ -433,7 +463,10 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
   }
 }
 
-async function runChatRecovery(candidate: ChatRecoveryCandidate): Promise<void> {
+async function runChatRecovery(
+  candidate: ChatRecoveryCandidate,
+  plan: Extract<ChatRecoveryPlan, { kind: "resume" | "retry" }>,
+): Promise<void> {
   const resolved = await resolveProvider(candidate.userId, {
     qualityProfile: "analysis",
   });
@@ -455,6 +488,7 @@ async function runChatRecovery(candidate: ChatRecoveryCandidate): Promise<void> 
   const result = await runChatExecutionRecovery({
     executionId: candidate.executionId,
     userId: candidate.userId,
+    mode: plan.kind,
   });
   if (!result.ok) {
     logger.warn(
@@ -502,7 +536,7 @@ export async function dispatchAutonomousTaskRecoveries(): Promise<number> {
       if (plan.kind === "skip") continue;
       if (heavyJobQueue.enqueueWithId(plan.queueKey, async () => {
         try {
-          await runChatRecovery(candidate);
+          await runChatRecovery(candidate, plan);
         } catch (error) {
           logger.error(
             { error, executionId: candidate.executionId },

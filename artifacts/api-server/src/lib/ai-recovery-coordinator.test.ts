@@ -146,6 +146,7 @@ describe("automatic task recovery admission", () => {
       action: "RESUME_ALLOWED",
       executionId: "execution-chat-1",
       executionAttempt: 1,
+      delayMs: 0,
       queueKey: "ai-recovery:chat:execution-chat-1:1:resume",
     });
     expect(planChatRecovery({
@@ -154,6 +155,23 @@ describe("automatic task recovery admission", () => {
     })).toEqual({
       kind: "skip",
       reason: "revision_changed",
+    });
+
+    expect(planChatRecovery({
+      ...base,
+      action: "RETRY_AFTER_TIMEOUT",
+      resumable: 0,
+      disposition: {
+        recoveryState: "REQUIRED",
+        retryAt: "2020-01-01T00:00:00.000Z",
+      },
+    })).toEqual({
+      kind: "retry",
+      action: "RETRY_AFTER_TIMEOUT",
+      executionId: "execution-chat-1",
+      executionAttempt: 1,
+      delayMs: 0,
+      queueKey: "ai-recovery:chat:execution-chat-1:1:retry",
     });
   });
 });
