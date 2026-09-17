@@ -202,6 +202,42 @@ describe("query-planner — knowledge-graph enrichment", () => {
     ]);
   });
 
+  it("builds a complete fallback plan for a static build inventory", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Explain the project",
+      projectContext: {
+        ...makeContext(false),
+        graphSummary: "",
+      },
+      model: "mock-model",
+      strategy: {
+        call: vi.fn().mockResolvedValue({
+          content: "not valid planner JSON",
+          model: "mock-model",
+          usage: {},
+        }),
+      } as never,
+      profile: "project_orientation",
+      orientationFallbackPaths: [
+        "index.html",
+        "404.html",
+        "spa-redirect.js",
+        "assets/index-DXiaUjCL.js",
+        "assets/vendor-react.js",
+      ],
+    });
+
+    expect(result.planStatus).toBe("invalid");
+    expect(result.orientationSources).toEqual({
+      purpose: ["index.html"],
+      components: ["assets/index-DXiaUjCL.js"],
+      primaryFlow: ["spa-redirect.js", "assets/index-DXiaUjCL.js"],
+      uncertainty: ["404.html"],
+    });
+    expect(hasCompleteProjectOrientationSources(result.orientationSources)).toBe(true);
+  });
+
   it("recovers all orientation roles from the structured graph-summary path shape", async () => {
     const { deriveFallbackOrientationSources } = await import("../agents/query-planner.js");
     const sources = deriveFallbackOrientationSources([
@@ -222,6 +258,27 @@ describe("query-planner — knowledge-graph enrichment", () => {
       "lib/ai-orchestrator/src/__tests__/chat-agent.test.ts",
       "artifacts/dashboard/vite.config.ts",
     ]);
+  });
+
+  it("covers static build roots without treating vendor bundles as project components", async () => {
+    const { deriveFallbackOrientationSources } = await import("../agents/query-planner.js");
+    const sources = deriveFallbackOrientationSources([
+      "index.html",
+      "404.html",
+      "spa-redirect.js",
+      "assets/index-DXiaUjCL.js",
+      "assets/vendor-react.js",
+      "assets/app.css",
+      "projects/demo.webp",
+    ].join("\n"));
+
+    expect(sources).toEqual({
+      purpose: ["index.html"],
+      components: ["assets/index-DXiaUjCL.js"],
+      primaryFlow: ["spa-redirect.js", "assets/index-DXiaUjCL.js"],
+      uncertainty: ["404.html"],
+    });
+    expect(hasCompleteProjectOrientationSources(sources)).toBe(true);
   });
 
   it("infers a citation-required GAPS part from the shared gap signal", async () => {

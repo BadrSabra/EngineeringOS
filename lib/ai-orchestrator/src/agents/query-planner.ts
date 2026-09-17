@@ -68,6 +68,8 @@ export type ProjectOrientationSources = {
   uncertainty: string[];
 };
 
+export type ProjectOrientationRole = keyof ProjectOrientationSources;
+
 /**
  * A project-orientation manifest is durable execution scope, not just a
  * navigation hint. Every role must have at least one non-empty path before it
@@ -222,19 +224,19 @@ export function deriveFallbackOrientationSources(
   return {
     purpose: pickOrientationPaths(
       paths,
-      /(?:^|\/)(?:readme(?:\.[^/]+)?|package(?:\.[^/]+)?|pyproject\.toml|cargo\.toml|go\.mod)$/iu,
+      /(?:^|\/)(?:readme(?:\.[^/]+)?|package(?:\.[^/]+)?|pyproject\.toml|cargo\.toml|go\.mod|index\.html|(?:src\/)?(?:main|index)\.(?:ts|tsx|js|jsx|mjs|cjs))$/iu,
     ),
     components: pickOrientationPaths(
       paths,
-      /^(?!(?:.*\/(?:__tests__|tests?|specs?)(?:\/|$)|.*\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:.*\/)?(?:route|routes|controller|controllers|handler|handlers|service|services|api|server)(?:\/|\.|$)|(?:.*\/)?[^/]+\.config\.[^/]+$))(?:(?:.*\/)?src\/.*|(?:.*\/)?(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/iu,
+      /^(?!(?:.*\/(?:__tests__|tests?|specs?)(?:\/|$)|.*\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:.*\/)?(?:route|routes|controller|controllers|handler|handlers|service|services|api|server)(?:\/|\.|$)|(?:.*\/)?[^/]+\.config\.[^/]+$))(?:(?:.*\/)?src\/.*|(?:.*\/)?(?:lib|app|apps|components|ui|client|dashboard|packages?)\/.*)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:^|\/)assets\/(?:index|main|app)(?:-[^/]*)?\.(?:js|jsx|mjs|cjs|ts|tsx)$/iu,
     ),
     primaryFlow: pickOrientationPaths(
       paths,
-      /(?:route|routes|controller|controllers|handler|handlers|service|services|api|server|main|index).*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/iu,
+      /(?:route|routes|controller|controllers|handler|handlers|service|services|api|server|main|index|(?:spa|404)-redirect).*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/iu,
     ),
     uncertainty: pickOrientationPaths(
       paths,
-      /(?:^|\/)(?:__tests__|test|tests|spec|specs|config|configs|deploy|deployment|workflow|workflows|docker|\.github)(?:\/|\.|$)|(?:^|\/).*?\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:package-lock|pnpm-lock|yarn\.lock|tsconfig|vite\.config|replit\.toml|artifact\.toml)/iu,
+      /(?:^|\/)(?:__tests__|test|tests|spec|specs|config|configs|deploy|deployment|workflow|workflows|docker|\.github)(?:\/|\.|$)|(?:^|\/).*?\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$|(?:package-lock|pnpm-lock|yarn\.lock|tsconfig|vite\.config|replit\.toml|artifact\.toml)|(?:^|\/)(?:404|500|robots|sitemap)(?:\.[^/]+)?$/iu,
     ),
   };
 }
