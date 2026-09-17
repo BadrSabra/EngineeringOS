@@ -231,6 +231,7 @@ import {
   atomicallyPromoteFile,
   writeDeliveryWorkspaceFile,
 } from "../../lib/delivery-workspace.js";
+import { decideDeliveryPromotion } from "../../lib/ai-promotion-decision.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import {
   getAiExecutionDiagnostics,
@@ -1496,6 +1497,51 @@ function parsePublicValidationReceipts(value: unknown): PublicValidationResult[]
       ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode as PublicValidationResult["reasonCode"] } : {}),
       ...(typeof candidate.detail === "string" ? { detail: redactUserFacingText(candidate.detail).slice(0, 240) } : {}),
     }];
+  });
+}
+
+function getDeliveryPromotionDecision(params: {
+  proposal: {
+    changes: unknown;
+    candidateTreeHash: string | null;
+    changeSetHash: string | null;
+    treeDigestVersion: string | null;
+    approvalRequired: boolean;
+  };
+  validationEvidence: unknown;
+  observedCandidateTreeHash?: string | null;
+  observedChangeSetHash?: string | null;
+  observedTreeDigestVersion?: string | null;
+}) {
+  let parsedChanges: unknown;
+  try {
+    parsedChanges = parseStoredJson(params.proposal.changes);
+  } catch {
+    parsedChanges = [];
+  }
+  const changes = Array.isArray(parsedChanges)
+    ? parsedChanges.filter((change): change is {
+        path: string;
+        newContent: string;
+        originalContent?: string | null;
+      } => (
+        Boolean(change)
+        && typeof change === "object"
+        && typeof (change as Record<string, unknown>).path === "string"
+        && typeof (change as Record<string, unknown>).newContent === "string"
+      ))
+    : [];
+
+  return decideDeliveryPromotion({
+    changes,
+    validationResults: parsePublicValidationReceipts(params.validationEvidence),
+    expectedCandidateTreeHash: params.proposal.candidateTreeHash,
+    observedCandidateTreeHash: params.observedCandidateTreeHash,
+    expectedChangeSetHash: params.proposal.changeSetHash,
+    observedChangeSetHash: params.observedChangeSetHash,
+    expectedTreeDigestVersion: params.proposal.treeDigestVersion,
+    observedTreeDigestVersion: params.observedTreeDigestVersion,
+    approvalRequired: params.proposal.approvalRequired,
   });
 }
 
@@ -11706,6 +11752,17 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
       proposal.operationId
       && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
     );
+    const validationEvidence = proposal.validationEvidence
+      ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+      : null;
+    const latestEvidence = validationEvidence?.at(-1)?.evidence;
+    const promotion = getDeliveryPromotionDecision({
+      proposal,
+      validationEvidence: validationEvidence ?? [],
+      observedCandidateTreeHash: latestEvidence?.candidateHash,
+      observedChangeSetHash: latestEvidence?.changeSetHash,
+      observedTreeDigestVersion: latestEvidence?.treeDigestVersion,
+    });
     const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
       ? "discarded"
       : workspaceAvailable
@@ -11742,9 +11799,11 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
       recoveryState,
       operatorExplanation,
       nextAction,
-      validationEvidence: proposal.validationEvidence
-        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+      validationEvidence: validationEvidence
+        ? redactUserFacingValue(validationEvidence)
         : null,
+      promotionDecision: promotion.decision,
+      promotionReasons: promotion.reasons,
       workspaceAvailable,
       changeCount: (() => {
         try {
@@ -11878,6 +11937,13 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   }
   const passed = results.length === groups.size && results.length > 0
     && results.every((result) => result.status === "passed");
+  const promotion = getDeliveryPromotionDecision({
+    proposal,
+    validationEvidence: results,
+    observedCandidateTreeHash: candidateHash,
+    observedChangeSetHash: changeSetHash,
+    observedTreeDigestVersion: proposal.treeDigestVersion ?? DELIVERY_TREE_DIGEST_VERSION,
+  });
   const evidence = JSON.stringify(results);
   const [updated] = await db.update(aiChangeProposalsTable).set({
     lifecycle: passed ? "validated" : "blocked",
@@ -11897,6 +11963,8 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
     proposalId: proposal.id,
     operationId: proposal.operationId,
     lifecycle: passed ? "validated" : "blocked",
+    promotionDecision: promotion.decision,
+    promotionReasons: promotion.reasons,
     validationEvidence: parsePublicValidationReceipts(results),
   });
 });
