@@ -7,7 +7,7 @@
  * GET  /api/ai/chat/:sessionId/messages
  * POST /api/ai/chat/apply-changes
  */
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
@@ -5697,7 +5697,7 @@ router.post("/ai/chat", async (req, res) => {
 
 // ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
 
-router.post("/ai/chat/stream", async (req, res) => {
+export async function handleChatStream(req: Request, res: Response) {
   const ChatBodySchema = z.object({
     projectId:    z.string({ required_error: "projectId is required" }).min(1, "projectId is required"),
     message:      z.string({ required_error: "message is required" }).trim().min(1, "message is required"),
@@ -10275,7 +10275,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
     await applyLock.release();
   }
-});
+}
+
+router.post("/ai/chat/stream", handleChatStream);
 
 // ── Durable AI execution control plane ────────────────────────────────────────
 

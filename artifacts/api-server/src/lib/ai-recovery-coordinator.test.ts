@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  planChatRecovery,
   planTaskRecovery,
   type TaskRecoveryCandidate,
 } from "./ai-recovery-coordinator.js";
@@ -97,6 +98,60 @@ describe("automatic task recovery admission", () => {
       resumable: 1,
       sourceRevision: "old-revision",
     }))).toEqual({
+      kind: "skip",
+      reason: "revision_changed",
+    });
+  });
+
+  it("keeps resumable project-query recovery bound to its persisted revision", () => {
+    const request = {
+      projectId: "project-1",
+      turnIntent: "PROJECT_QUERY",
+      message: "Explain the project flow",
+      modelMessage: "Explain the project flow",
+      sessionId: "session-1",
+      workspaceRevision: "revision-1",
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "BEHAVIOR_ANSWER",
+        contextProfile: "project_query",
+        sessionId: "session-1",
+        projectRevision: "revision-1",
+        requiresEvidence: true,
+        scope: {
+          projectId: "project-1",
+          rootPath: null,
+          linkedTaskId: null,
+        },
+      },
+    };
+    const base = {
+      executionId: "execution-chat-1",
+      executionProjectId: "project-1",
+      executionStatus: "failed",
+      executionAttempt: 1,
+      userId: "user-1",
+      action: "RESUME_ALLOWED",
+      resumable: 1,
+      disposition: { recoveryState: "REQUIRED" },
+      sourceRevision: "revision-1",
+      projectRevision: "revision-1",
+      request: JSON.stringify(request),
+    } as const;
+
+    expect(planChatRecovery(base)).toEqual({
+      kind: "resume",
+      action: "RESUME_ALLOWED",
+      executionId: "execution-chat-1",
+      executionAttempt: 1,
+      queueKey: "ai-recovery:chat:execution-chat-1:1:resume",
+    });
+    expect(planChatRecovery({
+      ...base,
+      projectRevision: "revision-2",
+    })).toEqual({
       kind: "skip",
       reason: "revision_changed",
     });

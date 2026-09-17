@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -11,9 +11,14 @@ import {
 import { resolveProvider } from "./ai-route-helpers.js";
 import { checkProjectRateLimitDb } from "./db-rate-limiter.js";
 import { recoverAiExecutionResumeToken } from "./ai-execution-state.js";
+import {
+  hasAiExecutionResumeContract,
+  parseExecutionRequest,
+} from "./ai-execution-state.js";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { executeTaskLifecycle } from "./task-execution-service.js";
+import { runChatExecutionRecovery } from "./chat-recovery-runner.js";
 
 const RECOVERY_ACTIONS = [
   "RESUME_ALLOWED",
@@ -76,6 +81,38 @@ export type TaskRecoveryPlan =
       | "revision_changed"
       | "retry_not_due"
       | "unknown_action";
+  };
+
+export type ChatRecoveryCandidate = {
+  executionId: string;
+  executionProjectId: string;
+  executionStatus: string;
+  executionAttempt: number;
+  userId: string;
+  action: string;
+  resumable: number;
+  disposition: unknown;
+  sourceRevision: string | null;
+  projectRevision: string | null;
+  request: string;
+};
+
+export type ChatRecoveryPlan =
+  | {
+    kind: "resume";
+    action: "RESUME_ALLOWED";
+    executionId: string;
+    executionAttempt: number;
+    queueKey: string;
+  }
+  | {
+    kind: "skip";
+    reason:
+      | "invalid_scope"
+      | "execution_not_recoverable"
+      | "resume_not_authorized"
+      | "revision_changed"
+      | "not_a_resumable_turn";
   };
 
 function asDisposition(value: unknown): RecoveryDisposition {
@@ -173,6 +210,42 @@ export function planTaskRecovery(
   };
 }
 
+export function planChatRecovery(candidate: ChatRecoveryCandidate): ChatRecoveryPlan {
+  const request = parseExecutionRequest(candidate.request);
+  if (
+    !request
+    || request.projectId !== candidate.executionProjectId
+    || !candidate.userId
+    || !request.sessionId
+    || request.turnIntent === "CHAT"
+    || !hasAiExecutionResumeContract(request)
+  ) {
+    return { kind: "skip", reason: "not_a_resumable_turn" };
+  }
+  if (request.workspaceRevision && candidate.projectRevision
+    && request.workspaceRevision !== candidate.projectRevision) {
+    return { kind: "skip", reason: "revision_changed" };
+  }
+  if (!["paused", "failed"].includes(candidate.executionStatus)) {
+    return { kind: "skip", reason: "execution_not_recoverable" };
+  }
+  const disposition = asDisposition(candidate.disposition);
+  if (
+    candidate.action !== "RESUME_ALLOWED"
+    || candidate.resumable !== 1
+    || disposition.recoveryState !== "REQUIRED"
+  ) {
+    return { kind: "skip", reason: "resume_not_authorized" };
+  }
+  return {
+    kind: "resume",
+    action: "RESUME_ALLOWED",
+    executionId: candidate.executionId,
+    executionAttempt: candidate.executionAttempt,
+    queueKey: `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:resume`,
+  };
+}
+
 type RecoveryRow = TaskRecoveryCandidate & {
   acceptanceCreatedAt: Date;
 };
@@ -211,6 +284,45 @@ async function findRecoveryCandidates(): Promise<RecoveryRow[]> {
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       inArray(tasksTable.status, [...RECOVERY_TASK_STATUSES]),
+    ))
+    .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
+    .limit(MAX_RECOVERY_CANDIDATES);
+
+  return rows.map((row) => ({
+    ...row,
+    projectRevision: row.projectRevision?.toISOString() ?? null,
+  }));
+}
+
+async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
+  const rows = await db
+    .select({
+      executionId: aiExecutionsTable.id,
+      executionProjectId: aiExecutionsTable.projectId,
+      executionStatus: aiExecutionsTable.status,
+      executionAttempt: aiExecutionsTable.attempt,
+      userId: aiExecutionsTable.userId,
+      action: aiExecutionAcceptancesTable.nextActionCode,
+      resumable: aiExecutionAcceptancesTable.resumable,
+      disposition: aiExecutionAcceptancesTable.disposition,
+      sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      projectRevision: projectsTable.updatedAt,
+      request: aiExecutionsTable.request,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .innerJoin(
+      aiExecutionsTable,
+      eq(aiExecutionAcceptancesTable.executionId, aiExecutionsTable.id),
+    )
+    .innerJoin(
+      projectsTable,
+      eq(projectsTable.id, aiExecutionsTable.projectId),
+    )
+    .where(and(
+      eq(aiExecutionAcceptancesTable.nextActionCode, "RESUME_ALLOWED"),
+      eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
+      isNull(aiExecutionsTable.linkedTaskId),
+      inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
     ))
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
     .limit(MAX_RECOVERY_CANDIDATES);
@@ -321,6 +433,37 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
   }
 }
 
+async function runChatRecovery(candidate: ChatRecoveryCandidate): Promise<void> {
+  const resolved = await resolveProvider(candidate.userId, {
+    qualityProfile: "analysis",
+  });
+  if (!resolved) {
+    logger.warn(
+      { executionId: candidate.executionId },
+      "automatic chat recovery deferred: no AI provider is available",
+    );
+    return;
+  }
+  const rateLimit = await checkProjectRateLimitDb(candidate.executionProjectId);
+  if (!rateLimit.allowed) {
+    logger.warn(
+      { executionId: candidate.executionId, retryAfterSec: rateLimit.retryAfterSec },
+      "automatic chat recovery deferred by project rate limit",
+    );
+    return;
+  }
+  const result = await runChatExecutionRecovery({
+    executionId: candidate.executionId,
+    userId: candidate.userId,
+  });
+  if (!result.ok) {
+    logger.warn(
+      { executionId: candidate.executionId, reason: result.reason, statusCode: result.statusCode },
+      "automatic chat recovery did not complete",
+    );
+  }
+}
+
 /**
  * Dispatch acceptance-authorized task recovery. The database acceptance is
  * the source of truth; the in-memory queue only limits local concurrency.
@@ -328,7 +471,10 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
 export async function dispatchAutonomousTaskRecoveries(): Promise<number> {
   let dispatched = 0;
   try {
-    const rows = await findRecoveryCandidates();
+    const [rows, chatRows] = await Promise.all([
+      findRecoveryCandidates(),
+      findChatRecoveryCandidates(),
+    ]);
     const seenTasks = new Set<string>();
     for (const candidate of rows) {
       if (seenTasks.has(candidate.taskId)) continue;
@@ -342,6 +488,25 @@ export async function dispatchAutonomousTaskRecoveries(): Promise<number> {
           logger.error(
             { error, taskId: candidate.taskId, executionId: candidate.executionId, action: candidate.action },
             "automatic AI recovery failed outside lifecycle handling",
+          );
+        }
+      })) {
+        dispatched++;
+      }
+    }
+    const seenExecutions = new Set<string>();
+    for (const candidate of chatRows) {
+      if (seenExecutions.has(candidate.executionId)) continue;
+      seenExecutions.add(candidate.executionId);
+      const plan = planChatRecovery(candidate);
+      if (plan.kind === "skip") continue;
+      if (heavyJobQueue.enqueueWithId(plan.queueKey, async () => {
+        try {
+          await runChatRecovery(candidate);
+        } catch (error) {
+          logger.error(
+            { error, executionId: candidate.executionId },
+            "automatic chat recovery failed outside handler",
           );
         }
       })) {
