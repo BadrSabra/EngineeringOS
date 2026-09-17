@@ -18,7 +18,10 @@ import {
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { executeTaskLifecycle } from "./task-execution-service.js";
-import { runChatExecutionRecovery } from "./chat-recovery-runner.js";
+import {
+  runChatEvidenceRecoveryFinalization,
+  runChatExecutionRecovery,
+} from "./chat-recovery-runner.js";
 
 const RECOVERY_ACTIONS = [
   "RESUME_ALLOWED",
@@ -117,7 +120,8 @@ export type ChatRecoveryPlan =
       | "resume_not_authorized"
       | "revision_changed"
       | "retry_not_due"
-      | "not_a_resumable_turn";
+       | "not_a_resumable_turn"
+       | "automatic_recovery_exhausted";
   };
 
 function asDisposition(value: unknown): RecoveryDisposition {
@@ -231,13 +235,26 @@ export function planChatRecovery(
     && (candidate.action === "RETRY_AFTER_TIMEOUT"
       || candidate.action === "RETRY_AFTER_RATE_LIMIT")
     && candidate.resumable === 0;
+  const evidenceProviderRecovery =
+    request?.turnIntent !== undefined
+    && request.turnIntent !== "CHAT"
+    && request.proofRequired === true
+    && candidate.reasonCode === "EXECUTION_PROVIDER_FAILURE"
+    && (candidate.action === "RESUME_ALLOWED"
+      || candidate.action === "RETRY_AFTER_TIMEOUT"
+      || candidate.action === "RETRY_AFTER_RATE_LIMIT");
   // Ordinary CHAT gets small, explicit recovery budgets. Parser failures stop
   // sooner because repeating the same malformed response is unlikely to help;
   // transient provider failures get one extra bounded attempt because the
   // external outage/rate limit may clear without changing the user turn.
   const recoveryAttemptLimit = transientProviderRecovery
     ? MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS
-    : MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS;
+    : evidenceProviderRecovery
+      ? MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS
+      : MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS;
+  const automaticRecoveryExhausted =
+    evidenceProviderRecovery
+    && candidate.executionAttempt >= recoveryAttemptLimit;
   const boundedChatRecovery =
     (parserFailureRecovery || transientProviderRecovery)
     && candidate.executionAttempt < recoveryAttemptLimit;
@@ -246,7 +263,10 @@ export function planChatRecovery(
     || request.projectId !== candidate.executionProjectId
     || !candidate.userId
     || !request.sessionId
-    || (!boundedChatRecovery && !hasAiExecutionResumeContract(request))
+    || (!boundedChatRecovery
+      && !evidenceProviderRecovery
+      && !hasAiExecutionResumeContract(request)
+      && !automaticRecoveryExhausted)
   ) {
     return { kind: "skip", reason: "not_a_resumable_turn" };
   }
@@ -264,6 +284,9 @@ export function planChatRecovery(
   const retryAtMs = parseRetryAt(disposition.retryAt);
   if (retryAtMs !== undefined && retryAtMs > nowMs) {
     return { kind: "skip", reason: "retry_not_due" };
+  }
+  if (automaticRecoveryExhausted) {
+    return { kind: "skip", reason: "automatic_recovery_exhausted" };
   }
   if (candidate.action === "RESUME_ALLOWED") {
     if (candidate.resumable !== 1) {
@@ -557,7 +580,37 @@ export async function dispatchAutonomousTaskRecoveries(): Promise<number> {
       if (seenExecutions.has(candidate.executionId)) continue;
       seenExecutions.add(candidate.executionId);
       const plan = planChatRecovery(candidate);
-      if (plan.kind === "skip") continue;
+      if (plan.kind === "skip") {
+        if (plan.reason === "automatic_recovery_exhausted") {
+          const queueKey = `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:evidence-finalize`;
+          if (heavyJobQueue.enqueueWithId(queueKey, async () => {
+            try {
+              const result = await runChatEvidenceRecoveryFinalization({
+                executionId: candidate.executionId,
+                userId: candidate.userId,
+              });
+              if (!result.ok) {
+                logger.warn(
+                  {
+                    executionId: candidate.executionId,
+                    reason: result.reason,
+                    readCount: result.readCount,
+                  },
+                  "automatic evidence recovery finalization did not complete",
+                );
+              }
+            } catch (error) {
+              logger.error(
+                { error, executionId: candidate.executionId },
+                "automatic evidence recovery finalization failed",
+              );
+            }
+          })) {
+            dispatched++;
+          }
+        }
+        continue;
+      }
       if (heavyJobQueue.enqueueWithId(plan.queueKey, async () => {
         try {
           await runChatRecovery(candidate, plan);

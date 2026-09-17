@@ -268,5 +268,35 @@ describe("automatic task recovery admission", () => {
       kind: "skip",
       reason: "not_a_resumable_turn",
     });
+
+    const evidenceRecovery = JSON.stringify({
+      projectId: "project-1",
+      turnIntent: "PROJECT_QUERY",
+      message: "Explain this",
+      modelMessage: "Explain this",
+      sessionId: "session-1",
+      workspaceRevision: "revision-1",
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "BEHAVIOR_ANSWER",
+        contextProfile: "project_query",
+        sessionId: "session-1",
+        projectRevision: "revision-1",
+        requiresEvidence: true,
+        scope: { projectId: "project-1", rootPath: null, linkedTaskId: null },
+      },
+    });
+    expect(planChatRecovery(chatCandidate({
+      executionAttempt: 3,
+      action: "RESUME_ALLOWED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 1,
+      request: evidenceRecovery,
+    }))).toMatchObject({
+      kind: "skip",
+      reason: "automatic_recovery_exhausted",
+    });
   });
 });

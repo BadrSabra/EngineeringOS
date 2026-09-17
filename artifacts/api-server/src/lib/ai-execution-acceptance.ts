@@ -120,6 +120,124 @@ export type FinalizeExecutionAcceptanceParams = {
   taskObjectiveStatus?: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
 };
 
+/**
+ * Refine an already-terminal provider failure when bounded recovery is
+ * exhausted. This is intentionally not a new acceptance attempt: the
+ * existing execution/attempt/message identity remains authoritative while
+ * the public disposition changes from "retry" to an explicit incomplete
+ * result backed by the evidence snapshot already persisted for that attempt.
+ */
+export async function settleExhaustedExecutionRecovery(params: {
+  executionId: string;
+  userId: string;
+  finalMessageId: string;
+  content: string;
+  errorMessage: string;
+  evidenceReason: string;
+}): Promise<{ settled: boolean; reason?: string }> {
+  return db.transaction(async (tx) => {
+    const [execution] = await tx
+      .select()
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, params.executionId),
+        eq(aiExecutionsTable.userId, params.userId),
+      ))
+      .for("update");
+    if (!execution) return { settled: false, reason: "execution_not_found" };
+    if (execution.status === "cancelled" || execution.status === "completed") {
+      return { settled: false, reason: "execution_already_terminal" };
+    }
+    if (execution.finalMessageId !== params.finalMessageId) {
+      return { settled: false, reason: "final_message_mismatch" };
+    }
+
+    const [acceptance] = await tx
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, execution.id),
+        eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+      ))
+      .limit(1);
+    if (!acceptance) return { settled: false, reason: "acceptance_not_found" };
+    if (acceptance.outcome !== "FAILED" && acceptance.outcome !== "INTERRUPTED") {
+      return { settled: false, reason: "acceptance_already_terminal" };
+    }
+
+    const now = new Date();
+    const disposition = {
+      ...(acceptance.disposition && typeof acceptance.disposition === "object"
+        ? acceptance.disposition as Record<string, unknown>
+        : {}),
+      reasonCodes: ["EVIDENCE_RECOVERY_EXHAUSTED"],
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+      operatorAction: "REVIEW_INCOMPLETE_EVIDENCE",
+      evidenceReason: params.evidenceReason.slice(0, 500),
+    };
+    await tx
+      .update(aiExecutionAcceptancesTable)
+      .set({
+        terminalStatus: "failed",
+        outcome: "FAILED",
+        reasonCode: "EVIDENCE_RECOVERY_EXHAUSTED",
+        nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+        disposition,
+        resumable: 0,
+      })
+      .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+
+    await tx
+      .update(aiChatMessagesTable)
+      .set({
+        content: params.content,
+        outcome: "FAILED",
+        errorCode: "EVIDENCE_RECOVERY_EXHAUSTED",
+        errorMessage: params.errorMessage.slice(0, 500),
+      })
+      .where(and(
+        eq(aiChatMessagesTable.id, params.finalMessageId),
+        eq(aiChatMessagesTable.executionId, execution.id),
+      ));
+
+    let checkpoint: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(execution.checkpoint) as unknown;
+      if (parsed && typeof parsed === "object") checkpoint = parsed as Record<string, unknown>;
+    } catch {
+      // Preserve a valid terminal envelope even when a legacy checkpoint is malformed.
+    }
+    await tx
+      .update(aiExecutionsTable)
+      .set({
+        status: "failed",
+        error: params.errorMessage.slice(0, 500),
+        updatedAt: now,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        checkpoint: JSON.stringify({
+          ...checkpoint,
+          stage: "failed",
+          evidenceVerdict: "PARTIAL",
+          evidenceReason: params.evidenceReason.slice(0, 500),
+          recoveryState: "INCOMPLETE",
+          updatedAt: now.toISOString(),
+        }),
+        checkpointVersion: execution.checkpointVersion + 1,
+      })
+      .where(and(
+        eq(aiExecutionsTable.id, execution.id),
+        eq(aiExecutionsTable.finalMessageId, params.finalMessageId),
+      ));
+
+    return { settled: true };
+  });
+}
+
 export type TaskExecutionFinalization = {
   taskId: string;
   workerId: string;

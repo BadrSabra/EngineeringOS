@@ -6,7 +6,10 @@ import {
   recoverAiExecutionRetryToken,
   recoverAiExecutionResumeToken,
 } from "./ai-execution-state.js";
-import { handleChatStream } from "../routes/ai/chat.js";
+import {
+  finalizeChatEvidenceRecovery,
+  handleChatStream,
+} from "../routes/ai/chat.js";
 
 type InternalResponse = Response & {
   recoveryStatusCode: number;
@@ -159,4 +162,11 @@ export async function runChatExecutionRecovery(params: {
     statusCode: response.recoveryStatusCode,
     ...(response.recoveryStatusCode >= 400 ? { reason: "chat_recovery_handler_rejected" } : {}),
   };
+}
+
+export async function runChatEvidenceRecoveryFinalization(params: {
+  executionId: string;
+  userId: string;
+}): Promise<{ ok: boolean; reason?: string; readCount?: number }> {
+  return finalizeChatEvidenceRecovery(params);
 }

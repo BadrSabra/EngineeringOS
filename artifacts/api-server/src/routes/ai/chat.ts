@@ -206,6 +206,7 @@ import {
   loadReusableEvidenceReads,
   normalizeEvidenceSnapshot,
   projectExecutionAcceptance,
+  settleExhaustedExecutionRecovery,
 } from "../../lib/ai-execution-acceptance.js";
 import { inspectAiChange } from "../../lib/ai-change-guard.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
@@ -2828,6 +2829,62 @@ async function persistFailedChatTurn(params: {
       ...(params.contextProvenance ? { contextProvenance: params.contextProvenance } : {}),
     };
   });
+}
+
+/**
+ * Server-owned terminal refinement for evidence-backed turns whose bounded
+ * provider recovery has been exhausted. It reuses the same evidence manifest
+ * and chat persistence boundary instead of asking the client to submit a new
+ * turn or starting another provider loop.
+ */
+export async function finalizeChatEvidenceRecovery(params: {
+  executionId: string;
+  userId: string;
+}): Promise<{ ok: boolean; reason?: string; readCount?: number }> {
+  const execution = await getAiExecutionForUser(params.executionId, params.userId);
+  if (!execution) return { ok: false, reason: "execution_not_found" };
+
+  const request = parseExecutionRequest(execution.request);
+  if (
+    !request
+    || !request.sessionId
+    || request.proofRequired !== true
+    || (request.turnIntent !== "PROJECT_QUERY" && request.turnIntent !== "FORENSIC_AUDIT")
+    || !execution.finalMessageId
+  ) {
+    return { ok: false, reason: "execution_not_evidence_backed" };
+  }
+
+  const sourceRevision = request.workspaceRevision ?? execution.baseRevision ?? undefined;
+  const reads = await loadReusableEvidenceReads({
+    executionId: execution.id,
+    projectId: execution.projectId,
+    attempt: execution.attempt,
+    operationId: execution.operationId,
+    sourceRevision,
+  });
+  const retainedEvidence = new Map(reads.map((read) => [read.path, read.body]));
+  const content = buildProviderFailureEvidenceResponse(
+    request.turnIntent,
+    request.message,
+    retainedEvidence,
+  );
+  const evidenceReason = reads.length > 0
+    ? "Automatic provider recovery was exhausted after retaining complete source evidence; no verified conclusion was accepted."
+    : "Automatic provider recovery was exhausted before a complete source-evidence set was retained.";
+  const settled = await settleExhaustedExecutionRecovery({
+    executionId: execution.id,
+    userId: params.userId,
+    finalMessageId: execution.finalMessageId,
+    content,
+    errorMessage: evidenceReason,
+    evidenceReason,
+  });
+  return {
+    ok: settled.settled,
+    ...(settled.reason ? { reason: settled.reason } : {}),
+    readCount: reads.length,
+  };
 }
 
 type ApplySnapshot = {
