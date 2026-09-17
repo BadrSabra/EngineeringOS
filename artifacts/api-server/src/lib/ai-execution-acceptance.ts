@@ -134,6 +134,9 @@ export async function settleExhaustedExecutionRecovery(params: {
   content: string;
   errorMessage: string;
   evidenceReason: string;
+  reasonCode?: string;
+  evidenceVerdict?: "UNAVAILABLE" | "PARTIAL";
+  nextActionCode?: "REVIEW_INCOMPLETE_EVIDENCE" | "ABANDON_EXECUTION";
 }): Promise<{ settled: boolean; reason?: string }> {
   return db.transaction(async (tx) => {
     const [execution] = await tx
@@ -166,16 +169,18 @@ export async function settleExhaustedExecutionRecovery(params: {
     }
 
     const now = new Date();
+    const errorCode = params.reasonCode ?? "EVIDENCE_RECOVERY_EXHAUSTED";
+    const nextActionCode = params.nextActionCode ?? "REVIEW_INCOMPLETE_EVIDENCE";
     const disposition = {
       ...(acceptance.disposition && typeof acceptance.disposition === "object"
         ? acceptance.disposition as Record<string, unknown>
         : {}),
-      reasonCodes: ["EVIDENCE_RECOVERY_EXHAUSTED"],
+      reasonCodes: ["EXECUTION_ACCEPTANCE_INCOMPLETE"],
       outcome: "FAILED",
       failureKind: "INCOMPLETE",
       recoveryState: "INCOMPLETE",
-      nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
-      operatorAction: "REVIEW_INCOMPLETE_EVIDENCE",
+      nextActionCode,
+      operatorAction: "START_NEW_RUN",
       evidenceReason: params.evidenceReason.slice(0, 500),
     };
     await tx
@@ -183,8 +188,8 @@ export async function settleExhaustedExecutionRecovery(params: {
       .set({
         terminalStatus: "failed",
         outcome: "FAILED",
-        reasonCode: "EVIDENCE_RECOVERY_EXHAUSTED",
-        nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE",
+        reasonCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+        nextActionCode,
         disposition,
         resumable: 0,
       })
@@ -195,7 +200,7 @@ export async function settleExhaustedExecutionRecovery(params: {
       .set({
         content: params.content,
         outcome: "FAILED",
-        errorCode: "EVIDENCE_RECOVERY_EXHAUSTED",
+        errorCode,
         errorMessage: params.errorMessage.slice(0, 500),
       })
       .where(and(
@@ -222,7 +227,7 @@ export async function settleExhaustedExecutionRecovery(params: {
         checkpoint: JSON.stringify({
           ...checkpoint,
           stage: "failed",
-          evidenceVerdict: "PARTIAL",
+          evidenceVerdict: params.evidenceVerdict ?? "PARTIAL",
           evidenceReason: params.evidenceReason.slice(0, 500),
           recoveryState: "INCOMPLETE",
           updatedAt: now.toISOString(),

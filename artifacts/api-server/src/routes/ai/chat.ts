@@ -2243,6 +2243,23 @@ function buildProviderFailureEvidenceResponse(
   return buildBehaviorEvidenceIncompleteResponse(message, retainedEvidence);
 }
 
+function buildChatRecoveryExhaustedResponse(message: string): string {
+  const isArabic = /[\u0600-\u06FF]/.test(message);
+  return isArabic
+    ? [
+        "ANALYSIS_INCOMPLETE — تعذر إكمال الطلب بعد استنفاد محاولات تلقائية محدودة.",
+        "",
+        "لم يتم اعتماد إجابة نهائية، ولا توجد أدلة موثوقة كافية يمكن استخدامها لإنشاء إجابة تلقائيًا.",
+        "يمكنك إعادة إرسال الطلب لاحقًا إذا أردت المحاولة مرة أخرى.",
+      ].join("\n")
+    : [
+        "ANALYSIS_INCOMPLETE — the request could not be completed after bounded automatic recovery.",
+        "",
+        "No final answer was accepted, and there is not enough server-accepted evidence to synthesize one automatically.",
+        "You can submit the request again later if you want to try again.",
+      ].join("\n");
+}
+
 function buildModelOutputInvalidResponse(
   turnKind: string,
   message: string,
@@ -2837,7 +2854,7 @@ async function persistFailedChatTurn(params: {
  * and chat persistence boundary instead of asking the client to submit a new
  * turn or starting another provider loop.
  */
-export async function finalizeChatEvidenceRecovery(params: {
+export async function finalizeChatRecoveryExhaustion(params: {
   executionId: string;
   userId: string;
 }): Promise<{ ok: boolean; reason?: string; readCount?: number }> {
@@ -2848,8 +2865,12 @@ export async function finalizeChatEvidenceRecovery(params: {
   if (
     !request
     || !request.sessionId
-    || request.proofRequired !== true
-    || (request.turnIntent !== "PROJECT_QUERY" && request.turnIntent !== "FORENSIC_AUDIT")
+    || (
+      request.turnIntent !== "CHAT"
+      && request.proofRequired !== true
+      && request.turnIntent !== "PROJECT_QUERY"
+      && request.turnIntent !== "FORENSIC_AUDIT"
+    )
     || !execution.finalMessageId
   ) {
     return { ok: false, reason: "execution_not_evidence_backed" };
@@ -2864,14 +2885,18 @@ export async function finalizeChatEvidenceRecovery(params: {
     sourceRevision,
   });
   const retainedEvidence = new Map(reads.map((read) => [read.path, read.body]));
-  const content = buildProviderFailureEvidenceResponse(
-    request.turnIntent,
-    request.message,
-    retainedEvidence,
-  );
-  const evidenceReason = reads.length > 0
-    ? "Automatic provider recovery was exhausted after retaining complete source evidence; no verified conclusion was accepted."
-    : "Automatic provider recovery was exhausted before a complete source-evidence set was retained.";
+  const content = request.turnIntent === "CHAT"
+    ? buildChatRecoveryExhaustedResponse(request.message)
+    : buildProviderFailureEvidenceResponse(
+        request.turnIntent ?? "PROJECT_QUERY",
+        request.message,
+        retainedEvidence,
+      );
+  const evidenceReason = request.turnIntent === "CHAT"
+    ? "Bounded automatic recovery was exhausted without a server-accepted final answer."
+    : reads.length > 0
+      ? "Automatic provider recovery was exhausted after retaining complete source evidence; no verified conclusion was accepted."
+      : "Automatic provider recovery was exhausted before a complete source-evidence set was retained.";
   const settled = await settleExhaustedExecutionRecovery({
     executionId: execution.id,
     userId: params.userId,
@@ -2879,6 +2904,13 @@ export async function finalizeChatEvidenceRecovery(params: {
     content,
     errorMessage: evidenceReason,
     evidenceReason,
+    reasonCode: request.turnIntent === "CHAT"
+      ? "RECOVERY_BUDGET_EXHAUSTED"
+      : "EVIDENCE_RECOVERY_EXHAUSTED",
+    evidenceVerdict: reads.length > 0 ? "PARTIAL" : "UNAVAILABLE",
+    ...(request.turnIntent === "CHAT"
+      ? { nextActionCode: "ABANDON_EXECUTION" as const }
+      : {}),
   });
   return {
     ok: settled.settled,

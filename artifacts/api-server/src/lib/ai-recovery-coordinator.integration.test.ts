@@ -21,7 +21,7 @@ const runChatExecutionRecovery = vi.hoisted(() => vi.fn(async () => ({
   ok: true,
   statusCode: 200,
 })));
-const runChatEvidenceRecoveryFinalization = vi.hoisted(() => vi.fn(async () => ({
+const runChatRecoveryExhaustionFinalization = vi.hoisted(() => vi.fn(async () => ({
   ok: true,
   readCount: 2,
 })));
@@ -59,7 +59,7 @@ vi.mock("./task-execution-service.js", () => ({
 
 vi.mock("./chat-recovery-runner.js", () => ({
   runChatExecutionRecovery,
-  runChatEvidenceRecoveryFinalization,
+  runChatRecoveryExhaustionFinalization,
 }));
 
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
@@ -319,7 +319,7 @@ describe("durable automatic task recovery", () => {
 describe("durable automatic conversational recovery", () => {
   afterEach(() => {
     runChatExecutionRecovery.mockClear();
-    runChatEvidenceRecoveryFinalization.mockClear();
+    runChatRecoveryExhaustionFinalization.mockClear();
     queuedJobs.length = 0;
     queuedIds.clear();
   });
@@ -418,12 +418,44 @@ describe("durable automatic conversational recovery", () => {
       expect(dispatched).toBe(1);
       expect(queuedJobs).toHaveLength(1);
       expect(queuedJobs[0]?.id).toBe(
-        `ai-recovery:chat:${fixture.executionId}:3:evidence-finalize`,
+        `ai-recovery:chat:${fixture.executionId}:3:recovery-finalize`,
       );
 
       await queuedJobs[0]!.run();
 
-      expect(runChatEvidenceRecoveryFinalization).toHaveBeenCalledWith({
+      expect(runChatRecoveryExhaustionFinalization).toHaveBeenCalledWith({
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+      });
+      expect(runChatExecutionRecovery).not.toHaveBeenCalled();
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("finalizes exhausted ordinary chat recovery without scheduling another provider call", async () => {
+    const fixture = await insertProviderFailureChatFixture();
+    try {
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 3 })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ attempt: 3 })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const dispatched = await dispatchAutonomousTaskRecoveries();
+
+      expect(dispatched).toBe(1);
+      expect(queuedJobs[0]?.id).toBe(
+        `ai-recovery:chat:${fixture.executionId}:3:recovery-finalize`,
+      );
+
+      await queuedJobs[0]!.run();
+
+      expect(runChatRecoveryExhaustionFinalization).toHaveBeenCalledWith({
         executionId: fixture.executionId,
         userId: "recovery-chat-test-user",
       });

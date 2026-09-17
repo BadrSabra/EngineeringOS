@@ -248,7 +248,7 @@ describe("automatic task recovery admission", () => {
       executionAttempt: 2,
     }))).toMatchObject({
       kind: "skip",
-      reason: "not_a_resumable_turn",
+      reason: "automatic_recovery_exhausted",
     });
     expect(planChatRecovery(chatCandidate({
       action: "RETRY_AFTER_TIMEOUT",
@@ -266,7 +266,7 @@ describe("automatic task recovery admission", () => {
       executionAttempt: 3,
     }))).toMatchObject({
       kind: "skip",
-      reason: "not_a_resumable_turn",
+      reason: "automatic_recovery_exhausted",
     });
 
     const evidenceRecovery = JSON.stringify({

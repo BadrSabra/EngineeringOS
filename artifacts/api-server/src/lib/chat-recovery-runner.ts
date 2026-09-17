@@ -7,7 +7,7 @@ import {
   recoverAiExecutionResumeToken,
 } from "./ai-execution-state.js";
 import {
-  finalizeChatEvidenceRecovery,
+  finalizeChatRecoveryExhaustion,
   handleChatStream,
 } from "../routes/ai/chat.js";
 
@@ -164,9 +164,9 @@ export async function runChatExecutionRecovery(params: {
   };
 }
 
-export async function runChatEvidenceRecoveryFinalization(params: {
+export async function runChatRecoveryExhaustionFinalization(params: {
   executionId: string;
   userId: string;
 }): Promise<{ ok: boolean; reason?: string; readCount?: number }> {
-  return finalizeChatEvidenceRecovery(params);
+  return finalizeChatRecoveryExhaustion(params);
 }

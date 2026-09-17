@@ -19,7 +19,7 @@ import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { executeTaskLifecycle } from "./task-execution-service.js";
 import {
-  runChatEvidenceRecoveryFinalization,
+  runChatRecoveryExhaustionFinalization,
   runChatExecutionRecovery,
 } from "./chat-recovery-runner.js";
 
@@ -253,7 +253,7 @@ export function planChatRecovery(
       ? MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS
       : MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS;
   const automaticRecoveryExhausted =
-    evidenceProviderRecovery
+    (parserFailureRecovery || transientProviderRecovery || evidenceProviderRecovery)
     && candidate.executionAttempt >= recoveryAttemptLimit;
   const boundedChatRecovery =
     (parserFailureRecovery || transientProviderRecovery)
@@ -264,7 +264,6 @@ export function planChatRecovery(
     || !candidate.userId
     || !request.sessionId
     || (!boundedChatRecovery
-      && !evidenceProviderRecovery
       && !hasAiExecutionResumeContract(request)
       && !automaticRecoveryExhausted)
   ) {
@@ -582,10 +581,10 @@ export async function dispatchAutonomousTaskRecoveries(): Promise<number> {
       const plan = planChatRecovery(candidate);
       if (plan.kind === "skip") {
         if (plan.reason === "automatic_recovery_exhausted") {
-          const queueKey = `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:evidence-finalize`;
+          const queueKey = `ai-recovery:chat:${candidate.executionId}:${candidate.executionAttempt}:recovery-finalize`;
           if (heavyJobQueue.enqueueWithId(queueKey, async () => {
             try {
-              const result = await runChatEvidenceRecoveryFinalization({
+              const result = await runChatRecoveryExhaustionFinalization({
                 executionId: candidate.executionId,
                 userId: candidate.userId,
               });
