@@ -148,3 +148,4 @@
 - [Acceptance coverage target binding](acceptance-coverage-target-binding.md) — cross-task acceptance requests must not become embedded-AI queries from incidental provider/analysis keywords.
 - [Durable orientation role manifest](orientation-role-manifest.md) — preserve the server-owned role-to-path mapping across resume and provider fallback; never replan it mid-execution.
 - [Project orientation recovery](project-orientation-recovery.md) — orientation PROJECT_QUERY is proof-bound but may resume after a pre-read provider failure; targeted claims remain incomplete.
+- [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.

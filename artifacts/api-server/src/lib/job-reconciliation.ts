@@ -30,10 +30,10 @@
  * and marks the session "error" with a clear message.
  *
  * For interrupted AI tasks, resetting to "verifying" makes the task visible
- * and re-triggerable by the user or by the auto-scheduler. We cannot safely
- * resume an AI agent call from an unknown midpoint, so we never re-execute
- * automatically here — we only restore the task to a state where re-execution
- * is safe to initiate.
+ * and re-triggerable. Unknown-midpoint workers are never replayed directly.
+ * Separately, the durable dispatcher may execute a new bounded recovery only
+ * when an acceptance row authorizes it and the coordinator can claim the
+ * task's retry budget or one-time resume token.
  *
  * PR-D1 (Durability hardening):
  *   - All re-enqueue calls use `enqueueWithId` (ID-based deduplication) to
@@ -65,6 +65,7 @@ import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { recoverPromotion } from "./delivery-workspace.js";
+import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -723,7 +724,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -732,7 +733,9 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
         .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
         .from(discoverySessionsTable)
         .where(eq(discoverySessionsTable.status, "pending")),
+      dispatchAutonomousTaskRecoveries(),
     ]);
+    dispatched += recoveryCount;
 
     for (const job of queuedScans) {
       if (
@@ -767,6 +770,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
           dispatched,
           scanCount: queuedScans.length,
           discoveryCount: pendingDiscoveries.length,
+          recoveryCount,
         },
         "durable job dispatcher: persisted pending work dispatched",
       );
