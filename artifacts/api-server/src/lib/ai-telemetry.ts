@@ -76,8 +76,12 @@ type AiExecutionTelemetryRow = Pick<
   | "outcome"
   | "fallbackCount"
   | "contractOutcome"
+> & Partial<Pick<
+  AiUsageEvent,
+  | "recoveryOutcome"
+  | "contractFailureKind"
   | "providerFailureKind"
->;
+>>;
 
 function incrementCategory(
   counts: Partial<Record<string, number>>,
