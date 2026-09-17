@@ -4911,7 +4911,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await expect(
       page.getByText(
-        "Execution paused — ready to resume from its durable checkpoint",
+        "A saved AI execution is ready to resume",
         { exact: true },
       ),
     ).toBeVisible();
@@ -7968,7 +7968,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await expect(
       page.getByText(
-        "Execution paused — ready to resume from its durable checkpoint",
+        "A saved AI execution is ready to resume",
         {
           exact: true,
         },
@@ -8003,6 +8003,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         exact: true,
       }),
     ).toBeVisible();
+
+    await executionProof
+      .getByRole("button", { name: "Resume", exact: true })
+      .click();
     await expect
       .poll(() =>
         page.evaluate((key) => {
@@ -8011,10 +8015,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         }, storageKey),
       )
       .toBe(recovery.recoveredToken);
-
-    await executionProof
-      .getByRole("button", { name: "Resume", exact: true })
-      .click();
     await expect(
       page.getByText(recovery.fixture.answer, { exact: true }),
     ).toBeVisible();
