@@ -6282,6 +6282,20 @@ export async function chat(opts: {
       ? undefined
       : onDelta;
   let recoveryAttemptsUsed = 0;
+  let orientationRecoveryAttempted = false;
+  const beginOrientationRecovery = (): void => {
+    if (!projectOrientationMode || orientationRecoveryAttempted) return;
+    orientationRecoveryAttempted = true;
+    recoveryAttemptsUsed += 1;
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_ORIENTATION_NO_TOOLS_SYNTHESIS",
+      details: [
+        "provider output was malformed; starting one bounded no-tools orientation recovery",
+        `retained sources: ${[...prefetchFileContents.keys()].slice(0, 8).join(", ") || "(none)"}`,
+      ],
+    });
+  };
 
   // Deep-analysis gate: forensic/audit prompts (structuredOutputMode) and
   // deep_analysis category are handled purely through prompt behavioural rules
@@ -9163,11 +9177,18 @@ export async function chat(opts: {
         && !classification.implementationTaskMode
         && directContent.trimStart().startsWith("{")
       ) {
+        beginOrientationRecovery();
         const correctionPrompt =
-          "Your previous response was not valid JSON. " +
-          "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
-          "nothing before or after it:\n" +
-          '{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}';
+          projectOrientationMode
+            ? "Your previous project-orientation response was not valid JSON. " +
+              "Recover it using only the retained source reads already present in this conversation. " +
+              "Do not call tools, request more files, or invent project structure. " +
+              "Return ONLY a valid JSON object with this exact shape, nothing before or after it:\n" +
+              '{"response":"<a reliable project explanation grounded in the retained reads>","sources":["<retained project-relative path>"]}'
+            : "Your previous response was not valid JSON. " +
+              "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
+              "nothing before or after it:\n" +
+              '{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}';
         try {
           const correction = await strategy.call(
             [
@@ -9192,12 +9213,34 @@ export async function chat(opts: {
           );
           if (corrected.ok) {
             parsedDirect = corrected;
+            if (projectOrientationMode) {
+              relayAgentStep({
+                kind: "diagnostic",
+                code: "PROJECT_ORIENTATION_NO_TOOLS_SYNTHESIS",
+                details: [
+                  "bounded orientation recovery returned a valid JSON response",
+                  "the response remained limited to retained source reads",
+                ],
+              });
+            }
           } else {
+            if (projectOrientationMode) {
+              recoveryFailureKind = classifyRecoveryFailure({
+                kind: "parse",
+                parseCode: corrected.code,
+              });
+            }
             recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_FAILED", [
               `direct-stream correction parse code: ${corrected.code}`,
             ]);
           }
         } catch (error) {
+          if (projectOrientationMode) {
+            recoveryFailureKind = classifyRecoveryFailure({
+              kind: "provider",
+              code: error instanceof Error ? error.message : String(error),
+            });
+          }
           recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_RETRY_FAILED", [
             `direct-stream correction provider failure: ${
               error instanceof Error ? error.message : String(error)
@@ -9994,6 +10037,7 @@ export async function chat(opts: {
       sourceCount: forensicFileContents.size,
     }));
   } else if (!parsed.ok && !capabilityProbeRequest) {
+    beginOrientationRecovery();
     console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
     const forensicCorrection =
       stagedForensicSynthesis
@@ -10005,10 +10049,15 @@ export async function chat(opts: {
             "Use only verified file/tool evidence. If a section has no verified result, say so explicitly.\n"
         : "";
     const correctionPrompt =
-      "Your previous response was not valid JSON. " +
-      "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
-      "nothing before or after it:\n" +
-      `{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}` +
+      (projectOrientationMode
+        ? "Your previous project-orientation response was not valid JSON. " +
+          "Recover it using only the retained source reads already present in this conversation. " +
+          "Do not call tools, request more files, or invent project structure. " +
+          "Explain only what the retained sources support. "
+        : "Your previous response was not valid JSON. " +
+          "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
+          "nothing before or after it:\n") +
+      '{"response":"<your full answer as a markdown string>","sources":["<retained project-relative path or cited entity>"]}' +
       forensicCorrection;
     messages.push({ role: "assistant", content });
     messages.push({ role: "user", content: correctionPrompt });
@@ -10050,8 +10099,24 @@ export async function chat(opts: {
           // Correction succeeded — use the reformatted response.
           parsed = retryParsed;
           content = retryContent;
+          if (projectOrientationMode) {
+            relayAgentStep({
+              kind: "diagnostic",
+              code: "PROJECT_ORIENTATION_NO_TOOLS_SYNTHESIS",
+              details: [
+                "bounded orientation recovery returned a valid JSON response",
+                "the response remained limited to retained source reads",
+              ],
+            });
+          }
         } else {
           // Correction also failed — the fallback already wraps raw text gracefully.
+          if (projectOrientationMode) {
+            recoveryFailureKind = classifyRecoveryFailure({
+              kind: "parse",
+              parseCode: retryParsed.code,
+            });
+          }
           recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_FAILED", [
             `correction parse code: ${retryParsed.code}`,
           ]);
@@ -10059,6 +10124,12 @@ export async function chat(opts: {
         }
       }
     } catch (err) {
+      if (projectOrientationMode) {
+        recoveryFailureKind = classifyRecoveryFailure({
+          kind: "provider",
+          code: err instanceof Error ? err.message : String(err),
+        });
+      }
       const errorCode =
         err instanceof GroqClientError && "code" in err
           ? String((err as { code?: unknown }).code ?? "unknown")

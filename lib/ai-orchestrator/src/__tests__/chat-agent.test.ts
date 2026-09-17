@@ -648,7 +648,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
         chat = {
           completions: {
             create: vi.fn().mockResolvedValue({
-              choices: [{ message: { content: "not valid JSON" } }],
+              choices: [{ message: { content: '{"response":' } }],
               model: "m",
               usage: {},
             }),
@@ -680,6 +680,15 @@ describe("chat agent — ChatOutputSchema validation", () => {
       (step) => step.kind === "diagnostic"
         && step.code === "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
     )).toBe(true);
+    expect(toolCalls.some(
+      (step) => step.kind === "diagnostic"
+        && step.code === "PROJECT_ORIENTATION_NO_TOOLS_SYNTHESIS",
+    )).toBe(true);
+    const orientationDecision = toolCalls.find(
+      (step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
+        step.kind === "decision_trace",
+    );
+    expect(orientationDecision?.trace.recoveryAttempt).toBe(1);
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
