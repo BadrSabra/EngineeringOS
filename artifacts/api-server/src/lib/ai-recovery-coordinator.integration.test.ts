@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
+  aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -9,6 +10,7 @@ import {
   projectsTable,
   tasksTable,
 } from "@workspace/db";
+import { settleExhaustedExecutionRecovery } from "./ai-execution-acceptance.js";
 
 const queuedJobs = vi.hoisted(() => [] as Array<{ id: string; run: () => Promise<void> }>);
 const queuedIds = vi.hoisted(() => new Set<string>());
@@ -461,6 +463,84 @@ describe("durable automatic conversational recovery", () => {
       });
       expect(runChatExecutionRecovery).not.toHaveBeenCalled();
     } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, fixture.projectId));
+    }
+  });
+
+  it("settles the existing execution, acceptance, and assistant message atomically", async () => {
+    const fixture = await insertChatFixture();
+    const messageId = randomUUID();
+    try {
+      await db.insert(aiChatMessagesTable).values({
+        id: messageId,
+        sessionId: fixture.sessionId,
+        role: "assistant",
+        content: "provider failed",
+        turnIntent: "PROJECT_QUERY",
+        executionId: fixture.executionId,
+        outcome: "FAILED",
+        errorCode: "EXECUTION_PROVIDER_FAILURE",
+        errorMessage: "provider unavailable",
+        createdAt: new Date(),
+      });
+      await db.update(aiExecutionsTable)
+        .set({ attempt: 3, finalMessageId: messageId })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({ attempt: 3 })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const params = {
+        executionId: fixture.executionId,
+        userId: "recovery-chat-test-user",
+        finalMessageId: messageId,
+        content: "ANALYSIS_INCOMPLETE — no verified conclusion was accepted.",
+        errorMessage: "Recovery budget exhausted.",
+        evidenceReason: "The bounded recovery budget was exhausted.",
+        nextActionCode: "REVIEW_INCOMPLETE_EVIDENCE" as const,
+        evidenceVerdict: "PARTIAL" as const,
+      };
+      expect(await settleExhaustedExecutionRecovery(params)).toEqual({ settled: true });
+      expect(await settleExhaustedExecutionRecovery(params)).toEqual({ settled: true });
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const [acceptance] = await db
+        .select({
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          recoveryState: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      const messages = await db
+        .select({
+          id: aiChatMessagesTable.id,
+          content: aiChatMessagesTable.content,
+        })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.executionId, fixture.executionId));
+
+      expect(execution).toEqual({
+        status: "failed",
+        finalMessageId: messageId,
+      });
+      expect(acceptance?.reasonCode).toBe("EXECUTION_ACCEPTANCE_INCOMPLETE");
+      expect(acceptance?.nextActionCode).toBe("REVIEW_INCOMPLETE_EVIDENCE");
+      expect(messages).toEqual([{
+        id: messageId,
+        content: "ANALYSIS_INCOMPLETE — no verified conclusion was accepted.",
+      }]);
+    } finally {
+      await db.delete(aiChatMessagesTable).where(eq(aiChatMessagesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, fixture.executionId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, fixture.sessionId));
