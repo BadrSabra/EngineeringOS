@@ -5294,6 +5294,30 @@ export type ListAiExecutionHistory200Item = {
   completedAt?: string | null;
 };
 
+export type GetAiExecutionDiff200ChangesItem = {
+  path: string;
+  originalContent: string | null;
+  newContent: string | null;
+  truncated: boolean;
+};
+
+export type GetAiExecutionDiff200 = {
+  executionId: string;
+  proposalId: string | null;
+  available: boolean;
+  revision?: string | null;
+  changeSetHash?: string | null;
+  lifecycle?: string | null;
+  changes: GetAiExecutionDiff200ChangesItem[];
+};
+
+export type ApproveAiExecutionProposal200 = {
+  executionId: string;
+  proposalId: string;
+  approvalRequired: boolean;
+  revision: string;
+};
+
 export type ExportAiExecutionAudit200Execution = { [key: string]: unknown };
 
 export type ExportAiExecutionAudit200TimelineItem = { [key: string]: unknown };

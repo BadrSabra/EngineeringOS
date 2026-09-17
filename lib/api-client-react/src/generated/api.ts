@@ -47,6 +47,7 @@ import type {
   AiReviewRequest,
   AiScanAnalysis,
   ApiError,
+  ApproveAiExecutionProposal200,
   ArchiveUploadInput,
   ArchiveUploadOutput,
   CancelAiExecutionById200,
@@ -72,6 +73,7 @@ import type {
   GeminiKeyStatus,
   GetAiChatFileContentParams,
   GetAiExecution200,
+  GetAiExecutionDiff200,
   GetAiMetrics200,
   GetAiMetricsParams,
   GetAiMissionControlParams,
@@ -5173,6 +5175,159 @@ export function useListAiExecutionHistory<TData = Awaited<ReturnType<typeof list
 
 
 
+
+export const getGetAiExecutionDiffUrl = (executionId: string,) => {
+
+
+
+
+  return `/api/ai/executions/${executionId}/diff`
+}
+
+/**
+ * Returns the server-owned proposal contents for review without applying any changes.
+ * @summary Get the reviewable change set owned by a durable AI execution
+ */
+export const getAiExecutionDiff = async (executionId: string, options?: Parameters<typeof customFetch>[1]): Promise<GetAiExecutionDiff200> => {
+
+  return customFetch<GetAiExecutionDiff200>(getGetAiExecutionDiffUrl(executionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiExecutionDiffQueryKey = (executionId: string,) => {
+    return [
+    `/api/ai/executions/${executionId}/diff`
+    ] as const;
+    }
+
+
+export const getGetAiExecutionDiffQueryOptions = <TData = Awaited<ReturnType<typeof getAiExecutionDiff>>, TError = ErrorType<void>>(executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiExecutionDiff>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiExecutionDiffQueryKey(executionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiExecutionDiff>>> = ({ signal }) => getAiExecutionDiff(executionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: executionId !== null && executionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiExecutionDiff>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiExecutionDiffQueryResult = NonNullable<Awaited<ReturnType<typeof getAiExecutionDiff>>>
+export type GetAiExecutionDiffQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the reviewable change set owned by a durable AI execution
+ */
+
+export function useGetAiExecutionDiff<TData = Awaited<ReturnType<typeof getAiExecutionDiff>>, TError = ErrorType<void>>(
+ executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiExecutionDiff>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiExecutionDiffQueryOptions(executionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getApproveAiExecutionProposalUrl = (executionId: string,) => {
+
+
+
+
+  return `/api/ai/executions/${executionId}/approve`
+}
+
+/**
+ * Clears a required re-approval gate after the user reviews the execution diff. Applying files remains separate.
+ * @summary Approve the current server-owned proposal revision for an AI execution
+ */
+export const approveAiExecutionProposal = async (executionId: string, options?: Parameters<typeof customFetch>[1]): Promise<ApproveAiExecutionProposal200> => {
+
+  return customFetch<ApproveAiExecutionProposal200>(getApproveAiExecutionProposalUrl(executionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveAiExecutionProposalMutationKey = () => ['approveAiExecutionProposal'] as const;
+
+export const getApproveAiExecutionProposalMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiExecutionProposal>>, TError,ApproveAiExecutionProposalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveAiExecutionProposal>>, TError,ApproveAiExecutionProposalMutationVariables, TContext> => {
+
+const mutationKey = getApproveAiExecutionProposalMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveAiExecutionProposal>>, ApproveAiExecutionProposalMutationVariables> = (props) => {
+          const {executionId} = props ?? {};
+
+          return  approveAiExecutionProposal(executionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveAiExecutionProposalMutationResult = NonNullable<Awaited<ReturnType<typeof approveAiExecutionProposal>>>
+
+    export type ApproveAiExecutionProposalMutationError = ErrorType<void>
+    export type ApproveAiExecutionProposalMutationVariables = {executionId: string}
+
+    /**
+ * @summary Approve the current server-owned proposal revision for an AI execution
+ */
+export const useApproveAiExecutionProposal = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiExecutionProposal>>, TError,ApproveAiExecutionProposalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveAiExecutionProposal>>,
+        TError,
+        ApproveAiExecutionProposalMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApproveAiExecutionProposalMutationOptions(options));
+    }
 
 export const getExportAiExecutionAuditUrl = (executionId: string,) => {
 

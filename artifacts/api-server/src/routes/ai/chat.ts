@@ -9702,6 +9702,9 @@ export async function handleChatStream(req: Request, res: Response) {
       executionEvidenceVerdict = "PROVEN";
       executionEvidenceReason = "Project analysis claims were accepted from source evidence bound to this revision.";
     }
+    const orientationCoverageComplete = projectOrientationExecution
+      ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
+      : undefined;
     if (autonomousOperation) {
       const finalEvidenceRef = finalValidation?.kind === "validation"
         ? finalValidation.result.evidence.artifactRef
@@ -9827,6 +9830,7 @@ export async function handleChatStream(req: Request, res: Response) {
         : autonomousOperation;
       const taskObjectiveValidated = Boolean(
         analysisEvidenceAccepted
+        || (projectOrientationExecution && orientationCoverageComplete === true)
         || finalForensicAccepted === true
         || capabilityProbeAccepted
         || (
@@ -9842,7 +9846,12 @@ export async function handleChatStream(req: Request, res: Response) {
             const workspaceRevision = executionRequest.workspaceRevision ?? analysisCorrelation.projectRevision;
             if (
               validatorId === "project-query-evidence.v1"
-              && (analysisEvidenceAccepted || finalForensicAccepted === true || capabilityProbeAccepted)
+              && (
+                analysisEvidenceAccepted
+                || (projectOrientationExecution && orientationCoverageComplete === true)
+                || finalForensicAccepted === true
+                || capabilityProbeAccepted
+              )
             ) {
               return [{
                 validatorId,
@@ -9889,9 +9898,6 @@ export async function handleChatStream(req: Request, res: Response) {
             return [];
           })
         : [];
-      const orientationCoverageComplete = projectOrientationExecution
-        ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
-        : undefined;
       const orientationCoverageIncomplete =
         projectOrientationExecution && orientationCoverageComplete !== true;
       const terminalEvidenceVerdict = orientationCoverageIncomplete

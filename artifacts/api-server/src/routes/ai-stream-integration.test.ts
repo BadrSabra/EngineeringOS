@@ -5153,7 +5153,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const res = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
-      .send({ projectId, message: "What is the project status?" });
+      .send({ projectId, message: "Hello, what can you help me with?" });
 
     // SSE routes always respond with 200 — errors are surfaced as SSE events
     expect(res.status).toBe(200);
@@ -8337,7 +8337,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
       explanationInput = args[1] as typeof explanationInput;
-      const onStep = (args[1] as { onStep?: (step: unknown) => void }).onStep;
+      const onStep = args[6] as ((step: unknown) => void) | undefined;
       const retainedEvidence = (args[1] as {
         retainedEvidence?: Map<string, string>;
       }).retainedEvidence;
@@ -8361,8 +8361,31 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           args: { path },
           result: `source for ${path}`,
           readStatus: "READ_COMPLETE",
+          outputLength: `source for ${path}`.length,
         });
       }
+      onStep?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        completedReadFiles: orientationFiles,
+        retainedBodyFiles: orientationFiles,
+        acceptedEvidenceFiles: orientationFiles,
+        acceptedClaimCount: 1,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+      });
+      onStep?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: orientationFiles,
+          filesRead: orientationFiles,
+          evidenceSelected: orientationFiles.length,
+          objectiveVerdict: "ANSWER_COMPLETE",
+          finalState: "VERIFIED",
+        },
+      });
       return {
         result: {
           response: "هذا شرح للمعمارية فقط.",

@@ -4353,6 +4353,46 @@ export const ListAiExecutionHistoryResponse = zod.array(ListAiExecutionHistoryRe
 
 
 /**
+ * Returns the server-owned proposal contents for review without applying any changes.
+ * @summary Get the reviewable change set owned by a durable AI execution
+ */
+export const GetAiExecutionDiffParams = zod.object({
+  "executionId": zod.coerce.string()
+})
+
+export const GetAiExecutionDiffResponse = zod.object({
+  "executionId": zod.string(),
+  "proposalId": zod.string().nullable(),
+  "available": zod.boolean(),
+  "revision": zod.string().nullish(),
+  "changeSetHash": zod.string().nullish(),
+  "lifecycle": zod.string().nullish(),
+  "changes": zod.array(zod.object({
+  "path": zod.string(),
+  "originalContent": zod.string().nullable(),
+  "newContent": zod.string().nullable(),
+  "truncated": zod.boolean()
+}))
+})
+
+
+/**
+ * Clears a required re-approval gate after the user reviews the execution diff. Applying files remains separate.
+ * @summary Approve the current server-owned proposal revision for an AI execution
+ */
+export const ApproveAiExecutionProposalParams = zod.object({
+  "executionId": zod.coerce.string()
+})
+
+export const ApproveAiExecutionProposalResponse = zod.object({
+  "executionId": zod.string(),
+  "proposalId": zod.string(),
+  "approvalRequired": zod.boolean(),
+  "revision": zod.string()
+})
+
+
+/**
  * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
  * @summary Preview or download a redacted durable AI execution audit
  */

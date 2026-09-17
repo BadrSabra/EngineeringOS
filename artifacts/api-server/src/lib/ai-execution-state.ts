@@ -2476,7 +2476,10 @@ export async function completeAiExecution(params: {
   // explanation with a missing role into a PROVEN terminal result.
   const projectOrientationAcceptance = projectOrientationExecution;
   const projectQueryProofExecution =
-    request?.turnIntent === "PROJECT_QUERY" && requiresProof && !forensicExecution;
+    request?.turnIntent === "PROJECT_QUERY"
+    && requiresProof
+    && !forensicExecution
+    && !projectOrientationExecution;
   const operation = params.operation ?? checkpoint?.operation;
   const taskObjective = params.taskObjective ?? request?.taskObjective ?? operation?.taskObjective;
   const inferredEvidenceRefs = [
