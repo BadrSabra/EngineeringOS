@@ -424,11 +424,35 @@ export function classifyAiTerminalOutcome(input: TerminalClassifierInput): AiTer
     ?? false;
   const incompleteEvidenceAvailable = input.incompleteEvidenceAvailable ?? false;
   const requiredEvidencePending = input.requiredEvidencePending ?? false;
+  const parseFailure = Boolean(
+    input.result
+    && typeof input.result === "object"
+    && "_parseError" in input.result
+    && input.result._parseError,
+  );
 
   // Execution evidence and forensic audit evidence are different contracts.
   // Only the authoritative route intent may activate forensic terminal rules;
   // delivery turns can require execution proof without becoming audits.
   const forensic = input.forensic === true;
+  // A bounded JSON correction has already happened inside the orchestrator by
+  // the time this classifier sees the result. Keep the turn non-successful,
+  // but make it retryable and preserve any source evidence for the route's
+  // deterministic fallback response.
+  if (parseFailure) {
+    return {
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      contractFailureCategory: "MALFORMED_RESPONSE",
+      retryable: true,
+      code: "MODEL_OUTPUT_INVALID",
+      message: completeEvidenceAvailable
+        ? "The model response could not be parsed after a bounded correction, so the retained source evidence is shown as an incomplete result."
+        : "The model response could not be parsed after a bounded correction, so the analysis is incomplete. Please retry.",
+      recoveryState: completeEvidenceAvailable ? "INCOMPLETE" : "REQUIRED",
+      evidenceAccepted: false,
+    };
+  }
   // A capability probe with retained source bodies but unclosed claims is a
   // terminal proof failure, not a resumable execution. The resume endpoint
   // deliberately rejects this checkpoint because replaying the same evidence

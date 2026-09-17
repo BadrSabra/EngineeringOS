@@ -1905,10 +1905,7 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(400);
   });
 
-  // PR-E: a parse marker is terminal even when a non-empty fallback response
-  // is present. The fallback must not turn malformed provider output into a
-  // successful persisted assistant message.
-  it("returns 422 when chat has _parseError with a non-empty fallback response", async () => {
+  it("returns a retryable incomplete result when chat has _parseError with a non-empty fallback response", async () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockChat).mockResolvedValueOnce({
       response: "fallback text",
@@ -1923,14 +1920,16 @@ describe("POST /api/ai/chat", () => {
     const res = await request(app)
       .post("/api/ai/chat")
       .send({ projectId, message: "trigger parse failure" });
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBe("model_output_invalid");
-    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe("MODEL_OUTPUT_INVALID");
     expect(res.body.outcome).toBe("FAILED");
+    expect(res.body.failureKind).toBe("INCOMPLETE");
+    expect(res.body.retryable).toBe(true);
+    expect(res.body.recoveryState).toBe("REQUIRED");
+    expect(res.body.message.content).toContain("ANALYSIS_INCOMPLETE");
   });
 
-  // PR-E: empty/unusable parse failures remain terminal (422).
-  it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
+  it("returns ANALYSIS_INCOMPLETE when chat returns an empty _parseError response", async () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockChat).mockResolvedValueOnce({
       response: "",
@@ -1945,13 +1944,13 @@ describe("POST /api/ai/chat", () => {
     const res = await request(app)
       .post("/api/ai/chat")
       .send({ projectId, message: "trigger hard parse failure" });
-    expect(res.status).toBe(422);
-    expect(res.body.error).toBe("model_output_invalid");
-    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe("MODEL_OUTPUT_INVALID");
     expect(res.body.outcome).toBe("FAILED");
-    expect(res.body.failureKind).toBe("PROVIDER_FAILURE");
-    expect(res.body.retryable).toBe(false);
+    expect(res.body.failureKind).toBe("INCOMPLETE");
+    expect(res.body.retryable).toBe(true);
     expect(res.body.recoveryState).toBe("REQUIRED");
+    expect(res.body.message.content).toContain("ANALYSIS_INCOMPLETE");
     expect(res.body.hint).toBeUndefined();
     expect(res.body.raw).toBeUndefined();
     expect(res.body.parseCode).toBeUndefined();
@@ -1975,12 +1974,14 @@ describe("POST /api/ai/chat", () => {
       .post("/api/ai/chat")
       .send({ projectId, message: "nested response boundary" });
 
-    expect(res.status).toBe(422);
+    expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      error: "model_output_invalid",
+      code: "MODEL_OUTPUT_INVALID",
       outcome: "FAILED",
-      failureKind: "PROVIDER_FAILURE",
+      failureKind: "INCOMPLETE",
+      retryable: true,
     });
+    expect(res.body.message.content).toContain("ANALYSIS_INCOMPLETE");
 
     const rows = await db
       .select({ role: aiChatMessagesTable.role, outcome: aiChatMessagesTable.outcome })
@@ -2011,11 +2012,12 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(200);
     const terminal = lastSseEvent(res.text);
     expect(terminal).toMatchObject({
-      type: "error",
-      code: "model_output_invalid",
+      type: "done",
       outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      retryable: true,
     });
-    expect(res.text).not.toContain('"type":"done"');
+    expect(JSON.stringify(terminal)).toContain("ANALYSIS_INCOMPLETE");
   });
 
   it("reuses an existing session when sessionId is provided", async () => {

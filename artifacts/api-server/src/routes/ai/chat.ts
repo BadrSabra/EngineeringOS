@@ -706,11 +706,9 @@ function sanitizeResponseText(raw: string): string {
  */
 function terminalizeUnsupportedChatResponse(
   result: Awaited<ReturnType<typeof chat>>,
-  turnIntentKind: string,
 ): Awaited<ReturnType<typeof chat>> {
   if (
-    turnIntentKind !== "CHAT"
-    || result._parseError
+    result._parseError
     || !(
       isSyntheticModelOutputFailureText(result.response)
       || isUnsupportedJsonLookingChatResponse(result.response)
@@ -2242,6 +2240,31 @@ function buildProviderFailureEvidenceResponse(
     return buildProjectQueryIncompleteResponse(message, retainedEvidence);
   }
   return buildBehaviorEvidenceIncompleteResponse(message, retainedEvidence);
+}
+
+function buildModelOutputInvalidResponse(
+  turnKind: string,
+  message: string,
+  retainedEvidence: ReadonlyMap<string, string>,
+): string {
+  if (turnKind !== "CHAT") {
+    return buildProviderFailureEvidenceResponse(turnKind, message, retainedEvidence);
+  }
+
+  const isArabic = /[\u0600-\u06FF]/.test(message);
+  return isArabic
+    ? [
+        "ANALYSIS_INCOMPLETE — تعذر تحليل استجابة النموذج بعد محاولة تصحيح محدودة.",
+        "",
+        "لم يتم اعتماد إجابة نهائية، ولم تُستخدم استجابة النموذج غير الصالحة كدليل.",
+        "أعد المحاولة لإعادة تشغيل الطلب.",
+      ].join("\n")
+    : [
+        "ANALYSIS_INCOMPLETE — the model response remained invalid after one bounded format correction.",
+        "",
+        "No final answer was accepted, and the invalid model output was not treated as evidence.",
+        "Retry to run the request again.",
+      ].join("\n");
 }
 
 function evidenceFailureMessage(
@@ -5171,7 +5194,22 @@ router.post("/ai/chat", async (req, res) => {
         undefined,
         (step) => traceSteps.push(step),
       );
-      result = terminalizeUnsupportedChatResponse(chatOut.result, turnIntent.kind);
+      result = terminalizeUnsupportedChatResponse(chatOut.result);
+      if (result._parseError) {
+        result = {
+          ...result,
+          response: buildModelOutputInvalidResponse(
+            turnIntent.kind,
+            message,
+            retainedEvidence,
+          ),
+          sources: [...retainedEvidence.keys()],
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: undefined,
+          behaviorEvidence: undefined,
+        };
+      }
       if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
         result = {
           ...result,
@@ -8544,7 +8582,22 @@ export async function handleChatStream(req: Request, res: Response) {
         onStreamReset,
         onStep,
       );
-      result = terminalizeUnsupportedChatResponse(chatOut.result, streamTurnIntent.kind);
+      result = terminalizeUnsupportedChatResponse(chatOut.result);
+      if (result._parseError) {
+        result = {
+          ...result,
+          response: buildModelOutputInvalidResponse(
+            streamTurnIntent.kind,
+            message,
+            retainedEvidence,
+          ),
+          sources: [...retainedEvidence.keys()],
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: undefined,
+          behaviorEvidence: undefined,
+        };
+      }
       endedBeforeEvidence =
         sourceEvidenceRequiredForTurn &&
         !activeExecutionAbortController.signal.aborted &&
@@ -8709,6 +8762,18 @@ export async function handleChatStream(req: Request, res: Response) {
             workerId: executionWorkerId!,
             finalMessageId: persistedFailedMessage?.id,
             error: safeMessage,
+            ...(terminalOutcome.code === "MODEL_OUTPUT_INVALID"
+              ? {
+                  recoveryState: terminalOutcome.recoveryState,
+                  acceptanceDisposition: publicAcceptanceDisposition({
+                    code: terminalOutcome.code,
+                    outcome: terminalOutcome.outcome,
+                    failureKind: terminalOutcome.failureKind,
+                    recoveryState: terminalOutcome.recoveryState,
+                  }),
+                  finalMessageErrorCode: terminalOutcome.code,
+                }
+              : {}),
             cancelled: terminalOutcome.outcome === "INTERRUPTED",
             nodeStates: executionNodeStates,
             streamedPreview: streamedContent,
@@ -8773,6 +8838,12 @@ export async function handleChatStream(req: Request, res: Response) {
           sse({
             type: "done",
             sessionId: sessionIdToUse,
+            outcome: terminalOutcome.outcome,
+            failureKind: terminalOutcome.failureKind,
+            retryable: terminalOutcome.retryable,
+            recoveryState: terminalOutcome.recoveryState,
+            errorCode: terminalOutcome.code,
+            errorMessage: safeMessage,
             message: {
               id: failedMessage.id,
               sessionId: sessionIdToUse,
@@ -8801,6 +8872,9 @@ export async function handleChatStream(req: Request, res: Response) {
               projection: executionProjection,
               ...(terminalOutcome.providerFailureCategory
                 ? { providerFailureCategory: terminalOutcome.providerFailureCategory }
+                : {}),
+              ...(terminalOutcome.contractFailureCategory
+                ? { contractFailureCategory: terminalOutcome.contractFailureCategory }
                 : {}),
               executionLedger: executionLedgerSnapshot,
               ...(projectQueryTarget ? { projectQueryTarget } : {}),
@@ -9239,6 +9313,20 @@ export async function handleChatStream(req: Request, res: Response) {
                 : "No complete source evidence was retained before the provider response became unparseable."
             )
           );
+      const parseOutcome = classifyAiTerminalOutcome({
+        result,
+        trace: traceSteps,
+        requiresEvidence: streamTurnIntent.requiresEvidence,
+        forensic: streamTurnIntent.kind === "FORENSIC_AUDIT"
+          || (isCapabilityProbeRequest(message) && streamTurnIntent.requiresEvidence),
+        endedBeforeEvidence: streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+        ...terminalEvidenceState(parserEvidenceSummary, evidenceProgressForTerminal()),
+      });
+      const parseResponse = buildModelOutputInvalidResponse(
+        streamTurnIntent.kind,
+        message,
+        retainedEvidence,
+      );
       const persistedParseFailure = await persistFailedChatTurn({
         sessionId: sessionIdToUse,
         projectId,
@@ -9248,13 +9336,18 @@ export async function handleChatStream(req: Request, res: Response) {
         executionId: aiExecution?.id,
          workerId: executionWorkerId,
         outcome: "FAILED",
-        errorCode: "MODEL_OUTPUT_INVALID",
-        errorMessage: "The AI model returned an unexpected response.",
+        errorCode: parseOutcome.code ?? "MODEL_OUTPUT_INVALID",
+        errorMessage: parseOutcome.message ?? "The AI model returned an unexpected response.",
+        content: parseResponse,
+        sources: [...retainedEvidence.keys()],
         createdAt: now,
         assistantAt: msgNow,
         toolTrace: traceSteps,
         executionLedgerSnapshot,
         evidenceSummary: evidenceFailureSummary(),
+        evidenceVerdict: parserEvidenceVerdict,
+        evidenceReason: parserEvidenceReason,
+        terminalOutcome: parseOutcome,
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       }).catch((persistError) => {
         logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure");
@@ -9268,7 +9361,14 @@ export async function handleChatStream(req: Request, res: Response) {
           executionId: aiExecution.id,
           workerId: executionWorkerId!,
           finalMessageId: persistedParseFailure.id,
-          error: "The AI model returned an unexpected response.",
+          error: parseOutcome.message ?? "The AI model returned an unexpected response.",
+          recoveryState: parseOutcome.recoveryState,
+          acceptanceDisposition: publicAcceptanceDisposition({
+            code: parseOutcome.code,
+            outcome: parseOutcome.outcome,
+            failureKind: parseOutcome.failureKind,
+            recoveryState: parseOutcome.recoveryState,
+          }),
           nodeStates: executionNodeStates,
           recentSteps: serializeExecutionCheckpointSteps(traceSteps),
           evidenceVerdict: parserEvidenceVerdict,
@@ -9276,6 +9376,7 @@ export async function handleChatStream(req: Request, res: Response) {
           evidenceReads: evidenceReadsForTerminal(),
           evidenceProgress: evidenceProgressForTerminal(),
           providerAttempts: providerAttemptSummary,
+          finalMessageErrorCode: parseOutcome.code,
         });
         parseTerminalProjection = await loadTerminalProjection({
           executionId: aiExecution.id,
@@ -9296,11 +9397,13 @@ export async function handleChatStream(req: Request, res: Response) {
       sse({
         type: "error",
         code: "model_output_invalid",
-        message: "The AI request returned an unsupported response and was not completed.",
+        message: parseResponse,
+        response: parseResponse,
+        report: parseResponse,
         outcome: "FAILED",
-        failureKind: "PROVIDER_FAILURE",
-        retryable: false,
-        recoveryState: "REQUIRED",
+        failureKind: parseOutcome.failureKind,
+        retryable: parseOutcome.retryable,
+        recoveryState: parseOutcome.recoveryState,
         executionId: parseTerminalProjection?.executionId ?? aiExecution?.id,
         sessionId: parseTerminalProjection?.sessionId ?? sessionIdToUse,
         attempt: parseTerminalProjection?.attempt,
@@ -9310,6 +9413,9 @@ export async function handleChatStream(req: Request, res: Response) {
         executionLedger: executionLedgerSnapshot,
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+        ...(parseOutcome.contractFailureCategory
+          ? { contractFailureCategory: parseOutcome.contractFailureCategory }
+          : {}),
       });
       res.end();
       return;
