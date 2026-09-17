@@ -4684,6 +4684,11 @@ function normalizeRecoveryAssistantText(raw: string): string {
  * with HTTP 400 even though the same model can still answer correctly in plain
  * text. For that provider we keep the correction prompt but skip the hard
  * response-format constraint so recovery never becomes a hard failure.
+ *
+ * When the preceding tool loop reports the model it actually used, keep that
+ * model for the bounded correction call. Letting OpenRouter resolve a fresh
+ * chain here can select a different, temporarily rate-limited first model and
+ * discard a correction opportunity that belongs to the same provider turn.
  */
 function buildJsonCorrectionOptions(
   provider: ProviderId,
@@ -4699,12 +4704,11 @@ function buildJsonCorrectionOptions(
   };
 
   if (provider === "openrouter") {
-    // JSON correction is a no-tools chat turn. Do not pin the model that
-    // performed the tool loop: some OpenRouter catalog entries support
-    // tool_calling but do not advertise chat.
+    // JSON correction is a no-tools chat turn. Keep the actual model when it
+    // is known; the strategy still re-resolves it if the live catalog says it
+    // cannot satisfy the chat capability.
     return {
       ...base,
-      model: undefined,
       quality: "powerful",
       capability: "chat",
     };
@@ -9162,7 +9166,7 @@ export async function chat(opts: {
             {
               ...buildJsonCorrectionOptions(
                 provider,
-                provider === "openrouter" ? undefined : result.model || model,
+                result.model || model,
                 apiKey,
                 signal,
               ),
@@ -10000,9 +10004,7 @@ export async function chat(opts: {
       // The tool-loop fallback may have returned a different model than the
       // initially selected candidate. Correct using that actual model so the
       // follow-up sees a model-family-compatible response format.
-      const correctionModel = provider === "openrouter"
-        ? undefined
-        : result.model || model;
+      const correctionModel = result.model || model;
       const retry = await strategy.call(
         _compactSynthesisMessages(messages),
         {

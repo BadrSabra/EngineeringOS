@@ -1062,15 +1062,22 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       '{"response":"The answer starts here, then the provider duplicated an inner envelope {\n "response":"still malformed","sources":[]}',
       '{"response":"Corrected answer","sources":[]}',
     ];
-    const nextResponse = vi.fn(async () => ({
-      content: responses.shift() ?? responses[responses.length - 1] ?? '{"response":"Corrected answer","sources":[]}',
-      toolCalls: [],
-      model: "m",
-      usage: {},
-    }));
+    const requestedModels: Array<string | undefined> = [];
+    const nextResponse = vi.fn(async (
+      _messages: unknown[],
+      options: { model?: string } = {},
+    ) => {
+      requestedModels.push(options.model);
+      return {
+        content: responses.shift() ?? responses[responses.length - 1] ?? '{"response":"Corrected answer","sources":[]}',
+        toolCalls: [],
+        model: "liquid/lfm-2.5-2.6b:free",
+        usage: {},
+      };
+    });
 
     vi.doMock("../openai-compatible-client.js", () => ({
-      openrouterCompleteRaw: nextResponse,
+      openrouterCompleteRaw: vi.fn(),
       openrouterCompleteWithFallback: nextResponse,
       openrouterCompleteStream: vi.fn(),
       geminiCompleteRaw: vi.fn(),
@@ -1090,6 +1097,10 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     });
 
     expect(nextResponse).toHaveBeenCalledTimes(2);
+    expect(requestedModels).toEqual([
+      "liquid/lfm-2.5-2.6b:free",
+      "liquid/lfm-2.5-2.6b:free",
+    ]);
     expect(result.response).toBe("Corrected answer");
     expect(result.response).not.toContain('"response"');
     expect(deltas.join("")).toBe("Corrected answer");
