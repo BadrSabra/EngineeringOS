@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   deriveProjectOrientationCoverage,
   deriveSourceSelectionRecord,
+  hasCompleteProjectOrientationSources,
 } from "../agents/query-planner.js";
 
 // ── vi.hoisted: shared mock state ─────────────────────────────────────────────
@@ -67,6 +68,21 @@ function makeContext(metricsVerified = true) {
 }
 
 describe("project orientation source coverage", () => {
+  it("does not admit a partial orientation manifest as durable scope", () => {
+    expect(hasCompleteProjectOrientationSources({
+      purpose: [],
+      components: [],
+      primaryFlow: ["assets/index.js"],
+      uncertainty: [],
+    })).toBe(false);
+    expect(hasCompleteProjectOrientationSources({
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    })).toBe(true);
+  });
+
   it("requires complete reads for every orientation role", () => {
     const plan = {
       originalIntent: "Explain the project",

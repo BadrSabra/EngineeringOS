@@ -68,6 +68,22 @@ export type ProjectOrientationSources = {
   uncertainty: string[];
 };
 
+/**
+ * A project-orientation manifest is durable execution scope, not just a
+ * navigation hint. Every role must have at least one non-empty path before it
+ * can be persisted or reused as an immutable override.
+ */
+export function hasCompleteProjectOrientationSources(
+  sources: ProjectOrientationSources | undefined,
+): sources is ProjectOrientationSources {
+  return Boolean(
+    sources
+    && ORIENTATION_ROLES.every((role) =>
+      sources[role].some((file) => typeof file === "string" && file.trim().length > 0),
+    ),
+  );
+}
+
 export type CompoundPartKind =
   | "CURRENT_STATE"
   | "FEATURES"

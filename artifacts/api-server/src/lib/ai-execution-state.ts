@@ -8,7 +8,10 @@ import type {
   RecipeReceipt,
   ValidationEvidence,
 } from "@workspace/ai-orchestrator";
-import { formatUntrustedContent } from "@workspace/ai-orchestrator";
+import {
+  formatUntrustedContent,
+  hasCompleteProjectOrientationSources,
+} from "@workspace/ai-orchestrator";
 import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
 import {
   parseTaskObjectiveContract,
@@ -2317,6 +2320,7 @@ export async function persistAiExecutionOrientationManifest(params: {
     || (request.workspaceRoot ?? null) !== params.manifest.rootPath
     || !request.resumeContract
   ) return false;
+  if (!hasCompleteProjectOrientationSources(params.manifest.paths)) return false;
   const existing = request.resumeContract.orientationManifest;
   if (existing) return JSON.stringify(existing) === JSON.stringify(params.manifest);
   const nextRequest: AiExecutionRequestEnvelope = {

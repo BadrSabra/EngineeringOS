@@ -58,6 +58,7 @@ import {
   buildProjectFileManifest,
   type ProjectFileSource,
 } from "../filesystem-manifest.js";
+import { hasCompleteProjectOrientationSources } from "./query-planner.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
 import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
 import {
@@ -7237,12 +7238,23 @@ export async function chat(opts: {
         .flat()
         .map((file) => file.replace(/\\/g, "/").replace(/^\.\/+/, ""));
       orientationEvidencePaths = [...new Set(roleFiles)].slice(0, 8);
-      await onOrientationManifest?.({
-        purpose: [...queryPlan.orientationSources?.purpose ?? []],
-        components: [...queryPlan.orientationSources?.components ?? []],
-        primaryFlow: [...queryPlan.orientationSources?.primaryFlow ?? []],
-        uncertainty: [...queryPlan.orientationSources?.uncertainty ?? []],
-      });
+      const orientationSources = queryPlan.orientationSources;
+      if (hasCompleteProjectOrientationSources(orientationSources)) {
+        await onOrientationManifest?.({
+          purpose: [...orientationSources.purpose],
+          components: [...orientationSources.components],
+          primaryFlow: [...orientationSources.primaryFlow],
+          uncertainty: [...orientationSources.uncertainty],
+        });
+      } else {
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
+          details: [
+            "planner orientation manifest is incomplete; durable orientation scope was not persisted",
+          ],
+        });
+      }
       queryPlan = {
         ...queryPlan,
         targetFiles: [...new Set([...roleFiles, ...queryPlan.targetFiles])].slice(0, 10),

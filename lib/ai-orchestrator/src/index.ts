@@ -43,6 +43,7 @@ export {
 } from "./tool-execution-engine.js";
 export {
   deriveSourceSelectionRecord,
+  hasCompleteProjectOrientationSources,
 } from "./agents/query-planner.js";
 export type {
   QuerySourceSelectionRecord,
