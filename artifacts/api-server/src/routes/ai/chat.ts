@@ -291,6 +291,25 @@ function hasTraceDiagnosticCode(traceSteps: AgentStep[], code: string): boolean 
   );
 }
 
+function deriveOrientationTraceParityFailure(traceSteps: AgentStep[]): string | undefined {
+  const decision = [...traceSteps]
+    .reverse()
+    .find((step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
+      step.kind === "decision_trace",
+    );
+  if (!decision) return undefined;
+  if (decision.trace.finalState !== "VERIFIED") {
+    return `orientation decision finalState=${decision.trace.finalState}`;
+  }
+  if (
+    decision.trace.objectiveVerdict !== undefined
+    && decision.trace.objectiveVerdict !== "ANSWER_COMPLETE"
+  ) {
+    return `orientation objectiveVerdict=${decision.trace.objectiveVerdict}`;
+  }
+  return undefined;
+}
+
 function isCapabilityProbeRecoveryDiagnostic(code: string): boolean {
   return code.startsWith("CAPABILITY_PROBE_EVIDENCE_RECOVERY_")
     || code.startsWith("CAPABILITY_MICRO_PROBE_");
@@ -10064,6 +10083,13 @@ export async function handleChatStream(req: Request, res: Response) {
     const orientationCoverageComplete = projectOrientationExecution
       ? result.sourceSelectionRecord?.orientationCoverage?.complete === true
       : undefined;
+    const orientationTraceParityFailure = projectOrientationExecution
+      && orientationCoverageComplete === true
+      ? deriveOrientationTraceParityFailure(traceSteps)
+      : undefined;
+    const orientationAcceptanceEligible =
+      orientationCoverageComplete === true
+      && orientationTraceParityFailure === undefined;
     if (autonomousOperation) {
       const finalEvidenceRef = finalValidation?.kind === "validation"
         ? finalValidation.result.evidence.artifactRef
@@ -10258,15 +10284,17 @@ export async function handleChatStream(req: Request, res: Response) {
           })
         : [];
       const orientationCoverageIncomplete =
-        projectOrientationExecution && orientationCoverageComplete !== true;
+        projectOrientationExecution && !orientationAcceptanceEligible;
       const terminalEvidenceVerdict = orientationCoverageIncomplete
         ? "PARTIAL" as const
         : executionEvidenceVerdict;
       const terminalEvidenceReason = orientationCoverageIncomplete
-        ? `Project orientation source coverage is incomplete: ${
-            result.sourceSelectionRecord?.orientationCoverage?.missingRoles.join(", ")
-              || "required roles are not fully covered"
-          }.`
+        ? orientationTraceParityFailure
+          ? `Project orientation trace is inconsistent with its accepted source coverage: ${orientationTraceParityFailure}.`
+          : `Project orientation source coverage is incomplete: ${
+              result.sourceSelectionRecord?.orientationCoverage?.missingRoles.join(", ")
+                || "required roles are not fully covered"
+            }.`
         : executionEvidenceReason;
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
@@ -10297,7 +10325,7 @@ export async function handleChatStream(req: Request, res: Response) {
           : [],
         evidenceReads: evidenceReadsForTerminal(),
         evidenceProgress: evidenceProgressForTerminal(),
-        orientationCoverageComplete,
+        orientationCoverageComplete: orientationAcceptanceEligible,
       });
       if (!completed) {
         const acceptanceError = "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.";

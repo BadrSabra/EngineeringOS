@@ -6473,6 +6473,15 @@ export async function chat(opts: {
   const prefetchReadStatuses =
     retainedReadStatuses ??
     new Map<string, "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED">();
+  const orientationCoverageCompleteForTrace = (): boolean => {
+    if (!projectOrientationMode || !queryPlan?.orientationSources) return false;
+    const readStatuses = new Map(prefetchReadStatuses);
+    for (const filePath of forensicFileContents.keys()) {
+      readStatuses.set(filePath, "READ_COMPLETE");
+    }
+    return deriveSourceSelectionRecord(queryPlan, readStatuses)
+      .orientationCoverage?.complete === true;
+  };
   // Keep the status keys that existed before this provider attempt. A status
   // created by the current attempt still allows the normal FIRST_EVIDENCE
   // recovery below; a status inherited from an earlier provider attempt must
@@ -9546,14 +9555,20 @@ export async function chat(opts: {
           !streamingRequiredClaimGate.anyRequiredClaimUnclosed &&
           objectiveTelemetryReconciliation.consistent,
         allClaimsProven:
-          streamingObjectiveGate.gate?.status === "PROVEN" &&
-          objectiveTelemetryReconciliation.consistent,
+          projectOrientationMode
+            ? orientationCoverageCompleteForTrace()
+            : streamingObjectiveGate.gate?.status === "PROVEN" &&
+              objectiveTelemetryReconciliation.consistent,
         anyClaimProven:
-          (streamingObjectiveGate.gate?.completedClaims.length ?? 0) > 0 ||
-          (streamingObjectiveGate.gate?.provenEdges.length ?? 0) > 0,
+          projectOrientationMode
+            ? orientationCoverageCompleteForTrace()
+            : (streamingObjectiveGate.gate?.completedClaims.length ?? 0) > 0 ||
+              (streamingObjectiveGate.gate?.provenEdges.length ?? 0) > 0,
         evidenceCollected:
-          objectiveTelemetryLedger.evidenceFileCount > 0 ||
-          objectiveTelemetryLedger.acceptedEvidenceCount > 0,
+          projectOrientationMode
+            ? orientationCoverageCompleteForTrace()
+            : objectiveTelemetryLedger.evidenceFileCount > 0 ||
+              objectiveTelemetryLedger.acceptedEvidenceCount > 0,
         recoveryAvailable: recoveryAttemptsUsed < 1,
       });
       relayStreamObjectiveFinalization({
@@ -9856,14 +9871,20 @@ export async function chat(opts: {
           !nativeSseRequiredClaimGate.anyRequiredClaimUnclosed &&
           nativeObjectiveTelemetryReconciliation.consistent,
         allClaimsProven:
-          nativeSseObjectiveGate.gate?.status === "PROVEN" &&
-          nativeObjectiveTelemetryReconciliation.consistent,
+          projectOrientationMode
+            ? orientationCoverageCompleteForTrace()
+            : nativeSseObjectiveGate.gate?.status === "PROVEN" &&
+              nativeObjectiveTelemetryReconciliation.consistent,
         anyClaimProven:
-          (nativeSseObjectiveGate.gate?.completedClaims.length ?? 0) > 0 ||
-          (nativeSseObjectiveGate.gate?.provenEdges.length ?? 0) > 0,
+          projectOrientationMode
+            ? orientationCoverageCompleteForTrace()
+            : (nativeSseObjectiveGate.gate?.completedClaims.length ?? 0) > 0 ||
+              (nativeSseObjectiveGate.gate?.provenEdges.length ?? 0) > 0,
         evidenceCollected:
-          nativeObjectiveTelemetryLedger.evidenceFileCount > 0 ||
-          nativeObjectiveTelemetryLedger.acceptedEvidenceCount > 0,
+          projectOrientationMode
+            ? orientationCoverageCompleteForTrace()
+            : nativeObjectiveTelemetryLedger.evidenceFileCount > 0 ||
+              nativeObjectiveTelemetryLedger.acceptedEvidenceCount > 0,
         recoveryAvailable: recoveryAttemptsUsed < 1,
       });
       relayStreamObjectiveFinalization({
@@ -13411,8 +13432,12 @@ export async function chat(opts: {
     || terminalLoopKind === "exhausted"
     || (terminalLoopKind === "partial" && terminalLoopReason !== "response");
   const projectQueryObjectiveComplete =
-    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
-    && objectiveGate?.status === "PROVEN"
+    (
+      projectOrientationMode
+        ? orientationCoverage?.complete === true
+        : objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
+          && objectiveGate?.status === "PROVEN"
+    )
     && !anyRequiredClaimUnclosed
     && !behaviorAnswerRejected
     && !projectQueryAnswerRejected
@@ -13542,7 +13567,10 @@ export async function chat(opts: {
     anyClaimProven:
       projectQueryObjectiveComplete
       || runtimeLedger.validations.some((v) => v.result === "PROVEN"),
-    evidenceCollected: runtimeLedger.evidenceFileCount > 0 || acceptedBehaviorEvidence.length > 0,
+    evidenceCollected:
+      projectQueryObjectiveComplete
+      || runtimeLedger.evidenceFileCount > 0
+      || acceptedBehaviorEvidence.length > 0,
     recoveryAvailable: recoveryAttemptsUsed < FINAL_ANSWER_MAX_RECOVERY,
   });
   const verificationRejectionReasons = [

@@ -543,6 +543,14 @@ describe("chat agent — ChatOutputSchema validation", () => {
       complete: true,
       missingRoles: [],
     });
+    const orientationDecision = toolCalls.filter(
+      (step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
+        step.kind === "decision_trace",
+    ).at(-1);
+    expect(orientationDecision?.trace).toMatchObject({
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+    });
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
