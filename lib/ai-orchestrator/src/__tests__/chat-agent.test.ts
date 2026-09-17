@@ -626,6 +626,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
 
   it("keeps retained orientation reads when the provider wrapper is malformed", async () => {
     const toolCalls: AgentStep[] = [];
+    const onOrientationManifest = vi.fn();
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-incomplete-"));
     await fs.writeFile(path.join(rootPath, "README.md"), "# Project\nA workspace application.", "utf8");
     await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"orientation-fixture"}', "utf8");
@@ -662,12 +663,15 @@ describe("chat agent — ChatOutputSchema validation", () => {
       history: [],
       projectContext: makeContext(),
       rootPath,
+      onOrientationManifest,
       onStep: (step) => toolCalls.push(step),
     });
 
     expect(result._parseError).toBeUndefined();
     expect(result.response).toContain("ANALYSIS_INCOMPLETE");
     expect(result.response).not.toContain("MODEL_OUTPUT_INVALID");
+    expect(onOrientationManifest).not.toHaveBeenCalled();
+    expect(result.sourceSelectionRecord?.plannerTier).toBe("fallback");
     expect(result.sources).toEqual(expect.arrayContaining(["README.md", "package.json"]));
     expect(result.sourceSelectionRecord?.orientationCoverage).toMatchObject({
       complete: false,
