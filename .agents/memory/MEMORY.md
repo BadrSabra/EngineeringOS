@@ -151,3 +151,4 @@
 - [Project orientation recovery](project-orientation-recovery.md) — orientation PROJECT_QUERY is proof-bound but may resume after a pre-read provider failure; targeted claims remain incomplete.
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
+- [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.

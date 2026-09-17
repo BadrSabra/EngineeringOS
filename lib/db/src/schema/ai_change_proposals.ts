@@ -18,6 +18,25 @@ export const aiDeliveryLifecycleEnum = pgEnum("ai_delivery_lifecycle", [
   "abandoned",
   "blocked",
 ]);
+export const aiDeliveryPromotionModeEnum = pgEnum("ai_delivery_promotion_mode", [
+  "manual",
+  "eligible_auto_promote",
+]);
+
+/**
+ * Project-scoped, owner-approved policy for reducing manual delivery steps.
+ * The policy never makes a candidate eligible by itself; the API must still
+ * pass the immutable candidate and validation gates before promotion.
+ */
+export const aiDeliveryPoliciesTable = pgTable("ai_delivery_policies", {
+  projectId: text("project_id")
+    .primaryKey()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  mode: aiDeliveryPromotionModeEnum("mode").notNull().default("manual"),
+  approvedBy: text("approved_by").notNull(),
+  approvedAt: timestamp("approved_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
 
 /**
  * Server-owned approval envelope for AI file changes.
@@ -78,3 +97,5 @@ export const aiChangeProposalsTable = pgTable("ai_change_proposals", {
 
 export type InsertAiChangeProposal = typeof aiChangeProposalsTable.$inferInsert;
 export type AiChangeProposal = typeof aiChangeProposalsTable.$inferSelect;
+export type InsertAiDeliveryPolicy = typeof aiDeliveryPoliciesTable.$inferInsert;
+export type AiDeliveryPolicy = typeof aiDeliveryPoliciesTable.$inferSelect;

@@ -44,6 +44,9 @@ import {
   useAiRebaseChanges,
   useApproveAiRebasedProposal,
   useRejectAiChangeProposal,
+  useGetAiDeliveryPolicy,
+  getGetAiDeliveryPolicyQueryKey,
+  useUpdateAiDeliveryPolicy,
   useGitCommit,
   useGitPush,
 } from '@workspace/api-client-react';
@@ -386,6 +389,8 @@ type RecoverableDelivery = {
   operatorExplanation: string;
   nextAction: string;
   validationEvidence?: PublicValidationResult[] | null;
+  promotionDecision?: 'AUTO_PROMOTE_ELIGIBLE' | 'REVIEW_REQUIRED' | 'BLOCKED';
+  promotionReasons?: string[];
   workspaceAvailable: boolean;
   changeCount: number;
 };
@@ -9765,6 +9770,41 @@ export default function AiChat() {
     },
     refetchInterval: 30_000,
   });
+  const { data: deliveryPolicy } = useGetAiDeliveryPolicy(
+    { projectId: selectedProjectId },
+    {
+      query: {
+        queryKey: getGetAiDeliveryPolicyQueryKey({ projectId: selectedProjectId }),
+        enabled: isLoaded && !!selectedProjectId,
+        staleTime: 10_000,
+      },
+    },
+  );
+  const updateDeliveryPolicyMutation = useUpdateAiDeliveryPolicy({
+    mutation: {
+      onSuccess: (policy) => {
+        qc.setQueryData(
+          getGetAiDeliveryPolicyQueryKey({ projectId: selectedProjectId }),
+          policy,
+        );
+        toast({
+          title: policy.automaticPromotionEnabled
+            ? 'Automatic promotion enabled'
+            : 'Automatic promotion disabled',
+          description: policy.automaticPromotionEnabled
+            ? 'Only server-validated, low-risk delivery candidates can be promoted automatically.'
+            : 'Delivery proposals will require the existing review and apply flow.',
+        });
+      },
+      onError: (error) => {
+        toast({
+          title: 'Delivery policy could not be updated',
+          description: error instanceof Error ? error.message : 'Try again.',
+          variant: 'destructive',
+        });
+      },
+    },
+  });
   const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
 
   async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
@@ -9781,6 +9821,7 @@ export default function AiChat() {
         error?: string;
         code?: string;
         lifecycle?: DeliveryLifecycle;
+        automaticPromotion?: boolean;
       };
       if (!response.ok) {
         if (response.status === 404 && payload.code === 'DELIVERY_NOT_FOUND') {
@@ -9813,9 +9854,15 @@ export default function AiChat() {
         setSessionId(proposal.sessionId);
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
         toast({
-          title: payload.lifecycle === 'validated' ? 'Validation recovered' : 'Validation remains blocked',
-          description: payload.lifecycle === 'validated'
-            ? 'The retained operation workspace passed its registered validation checks.'
+          title: payload.automaticPromotion
+            ? 'Validated delivery promoted automatically'
+            : payload.lifecycle === 'validated'
+              ? 'Validation recovered'
+              : 'Validation remains blocked',
+          description: payload.automaticPromotion
+            ? 'The owner-approved policy promoted this low-risk candidate through the existing guarded apply flow.'
+            : payload.lifecycle === 'validated'
+              ? 'The retained operation workspace passed its registered validation checks.'
             : 'The retained evidence was preserved and the operation remains blocked.',
         });
       } else {
@@ -11807,6 +11854,50 @@ export default function AiChat() {
               </Button>
             </div>
           )}
+          {selectedProjectId && (
+            <div
+              className="mb-4 rounded-lg border border-border/60 bg-card/30 p-3"
+              role="region"
+              aria-label="Automatic delivery promotion policy"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    {deliveryPolicy?.automaticPromotionEnabled
+                      ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
+                      : <ShieldAlert className="h-3.5 w-3.5 text-amber-300" />}
+                    Automatic delivery promotion
+                    <Badge variant={deliveryPolicy?.automaticPromotionEnabled ? 'default' : 'outline'} className="text-[10px]">
+                      {deliveryPolicy?.automaticPromotionEnabled ? 'Enabled' : 'Manual review'}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 max-w-2xl text-[11px] text-muted-foreground">
+                    When enabled, only small, server-validated documentation or test candidates
+                    can use the existing guarded apply path automatically. Source, config,
+                    credential, deployment, and failed candidates remain blocked or review-required.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={deliveryPolicy?.automaticPromotionEnabled ? 'outline' : 'default'}
+                  className="h-8 shrink-0 px-2.5 text-[11px]"
+                  disabled={updateDeliveryPolicyMutation.isPending || !deliveryPolicy}
+                  onClick={() => updateDeliveryPolicyMutation.mutate({
+                    data: {
+                      projectId: selectedProjectId,
+                      automaticPromotionEnabled: !deliveryPolicy?.automaticPromotionEnabled,
+                    },
+                  })}
+                >
+                  {updateDeliveryPolicyMutation.isPending
+                    ? <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                    : null}
+                  {deliveryPolicy?.automaticPromotionEnabled ? 'Disable' : 'Enable'}
+                </Button>
+              </div>
+            </div>
+          )}
           {(recoverableDeliveries?.operations?.length ?? 0) > 0 && (
             <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
               <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
@@ -11835,6 +11926,29 @@ export default function AiChat() {
                     <div className="mt-1 break-words text-foreground/90">{delivery.operatorExplanation}</div>
                     {delivery.conflictReason && delivery.recoveryState !== 'discarded' && (
                       <div className="mt-1 break-words text-red-200">Retained reason: {delivery.conflictReason}</div>
+                    )}
+                    {delivery.promotionDecision && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <Badge
+                          variant={delivery.promotionDecision === 'AUTO_PROMOTE_ELIGIBLE'
+                            ? 'default'
+                            : delivery.promotionDecision === 'BLOCKED'
+                              ? 'destructive'
+                              : 'outline'}
+                          className="text-[10px]"
+                        >
+                          {delivery.promotionDecision === 'AUTO_PROMOTE_ELIGIBLE'
+                            ? 'Eligible for automatic promotion'
+                            : delivery.promotionDecision === 'BLOCKED'
+                              ? 'Automatic promotion blocked'
+                              : 'Review required'}
+                        </Badge>
+                        {delivery.promotionReasons?.length ? (
+                          <span className="text-muted-foreground">
+                            {delivery.promotionReasons.join(' · ')}
+                          </span>
+                        ) : null}
+                      </div>
                     )}
                     {delivery.validationEvidence && delivery.validationEvidence.length > 0 && (
                       <CandidateValidationProof

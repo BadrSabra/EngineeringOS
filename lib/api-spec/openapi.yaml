@@ -2168,6 +2168,53 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ApiError" }
 
+  /api/ai/delivery/policy:
+    get:
+      operationId: getAiDeliveryPolicy
+      summary: Get the owner-approved automatic delivery promotion policy
+      tags: [AI]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Current project delivery promotion policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiDeliveryPolicy"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+    put:
+      operationId: updateAiDeliveryPolicy
+      summary: Update the owner-approved automatic delivery promotion policy
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiDeliveryPolicyUpdate"
+      responses:
+        "200":
+          description: Updated project delivery promotion policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiDeliveryPolicy"
+        "400":
+          description: Invalid delivery policy request
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
   /api/ai/delivery/{proposalId}/resume-validation:
     post:
       operationId: resumeAiDeliveryValidation
@@ -3703,6 +3750,24 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    AiDeliveryPolicy:
+      type: object
+      additionalProperties: false
+      required: [projectId, mode, automaticPromotionEnabled, approvedAt, updatedAt]
+      properties:
+        projectId: { type: string }
+        mode: { type: string, enum: [manual, eligible_auto_promote] }
+        automaticPromotionEnabled: { type: boolean }
+        approvedAt: { type: string, format: date-time, nullable: true }
+        updatedAt: { type: string, format: date-time, nullable: true }
+    AiDeliveryPolicyUpdate:
+      type: object
+      additionalProperties: false
+      required: [projectId, automaticPromotionEnabled]
+      properties:
+        projectId: { type: string, minLength: 1 }
+        automaticPromotionEnabled: { type: boolean }
+
     RecipeRequest:
       type: object
       additionalProperties: false

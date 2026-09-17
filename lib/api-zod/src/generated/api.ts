@@ -5462,6 +5462,42 @@ export const ListRecoverableAiDeliveriesResponse = zod.object({
 
 
 /**
+ * @summary Get the owner-approved automatic delivery promotion policy
+ */
+export const GetAiDeliveryPolicyQueryParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const GetAiDeliveryPolicyResponse = zod.object({
+  "projectId": zod.string(),
+  "mode": zod.enum(['manual', 'eligible_auto_promote']),
+  "automaticPromotionEnabled": zod.boolean(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable()
+})
+
+
+/**
+ * @summary Update the owner-approved automatic delivery promotion policy
+ */
+
+
+
+export const UpdateAiDeliveryPolicyBody = zod.object({
+  "projectId": zod.string().min(1),
+  "automaticPromotionEnabled": zod.boolean()
+})
+
+export const UpdateAiDeliveryPolicyResponse = zod.object({
+  "projectId": zod.string(),
+  "mode": zod.enum(['manual', 'eligible_auto_promote']),
+  "automaticPromotionEnabled": zod.boolean(),
+  "approvedAt": zod.coerce.date().nullable(),
+  "updatedAt": zod.coerce.date().nullable()
+})
+
+
+/**
  * @summary Resume validation for a saved delivery recovery
  */
 export const ResumeAiDeliveryValidationParams = zod.object({

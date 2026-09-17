@@ -17,6 +17,7 @@ import {
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
+  aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
   aiApplyJournalTable,
@@ -1543,6 +1544,21 @@ function getDeliveryPromotionDecision(params: {
     observedTreeDigestVersion: params.observedTreeDigestVersion,
     approvalRequired: params.proposal.approvalRequired,
   });
+}
+
+const serverAutoPromotionRequests = new WeakSet<Request>();
+
+function publicDeliveryPolicy(
+  projectId: string,
+  policy: typeof aiDeliveryPoliciesTable.$inferSelect | undefined,
+) {
+  return {
+    projectId,
+    mode: policy?.mode ?? "manual",
+    automaticPromotionEnabled: policy?.mode === "eligible_auto_promote",
+    approvedAt: policy?.approvedAt ?? null,
+    updatedAt: policy?.updatedAt ?? null,
+  };
 }
 
 /**
@@ -4476,6 +4492,67 @@ function sessionTaskStateIsAtOrBefore(msgNow: Date) {
 }
 
 const router = Router();
+
+router.get("/ai/delivery/policy", async (req, res) => {
+  const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+  const [policy] = await db.select().from(aiDeliveryPoliciesTable)
+    .where(eq(aiDeliveryPoliciesTable.projectId, project.id))
+    .limit(1);
+  return res.json(publicDeliveryPolicy(project.id, policy));
+});
+
+router.put("/ai/delivery/policy", async (req, res) => {
+  const body = z.object({
+    projectId: z.string().min(1),
+    automaticPromotionEnabled: z.boolean(),
+  }).strict().safeParse(req.body);
+  if (!body.success) {
+    return res.status(400).json({
+      error: body.error.issues[0]?.message ?? "Invalid delivery policy request",
+      code: "DELIVERY_POLICY_INVALID",
+    });
+  }
+  const project = await loadProjectByIdForUser(body.data.projectId, req.userId, res);
+  if (!project) return;
+
+  const now = new Date();
+  const mode = body.data.automaticPromotionEnabled ? "eligible_auto_promote" : "manual";
+  const policy = await db.transaction(async (tx) => {
+    const [saved] = await tx.insert(aiDeliveryPoliciesTable).values({
+      projectId: project.id,
+      mode,
+      approvedBy: req.userId,
+      approvedAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: aiDeliveryPoliciesTable.projectId,
+      set: {
+        mode,
+        approvedBy: req.userId,
+        approvedAt: now,
+        updatedAt: now,
+      },
+    }).returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiDeliveryPolicyChanged",
+      projectId: project.id,
+      severity: "info",
+      message: body.data.automaticPromotionEnabled
+        ? "Automatic delivery promotion enabled by the project owner"
+        : "Automatic delivery promotion disabled by the project owner",
+      correlationId: randomUUID(),
+      payload: {
+        mode,
+        approvedBy: req.userId,
+      },
+    });
+    return saved;
+  });
+  return res.json(publicDeliveryPolicy(project.id, policy));
+});
 
 function runtimeChatTraceLinks(routeName: string): ProductionTraceLink[] {
   return [{
@@ -11959,6 +12036,41 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
       .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
   }
+
+  const [policy] = await db.select()
+    .from(aiDeliveryPoliciesTable)
+    .where(eq(aiDeliveryPoliciesTable.projectId, proposal.projectId))
+    .limit(1);
+  if (
+    passed
+    && promotion.decision === "AUTO_PROMOTE_ELIGIBLE"
+    && policy?.mode === "eligible_auto_promote"
+  ) {
+    let autoChanges: unknown;
+    try {
+      autoChanges = parseStoredJson(proposal.changes);
+      if (!Array.isArray(autoChanges) || autoChanges.length === 0) throw new Error("invalid changes");
+    } catch {
+      return res.status(409).json({
+        error: "Automatic promotion could not use the stored change proposal.",
+        code: "AUTO_PROMOTION_INVALID_PROPOSAL",
+      });
+    }
+    req.body = {
+      projectId: proposal.projectId,
+      proposalId: proposal.id,
+      operationId: proposal.operationId,
+      changes: autoChanges,
+    };
+    serverAutoPromotionRequests.add(req);
+    try {
+      await applyChangesHandler(req, res);
+      return;
+    } finally {
+      serverAutoPromotionRequests.delete(req);
+    }
+  }
+
   return res.json({
     proposalId: proposal.id,
     operationId: proposal.operationId,
@@ -12410,7 +12522,7 @@ router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
 
 // ── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
 
-router.post("/ai/chat/apply-changes", async (req, res) => {
+async function applyChangesHandler(req: Request, res: Response) {
   const ChangeItemSchema = z.object({
     path:         z.string().min(1, "each change must have a non-empty path"),
     absolutePath: z.string()
@@ -12462,6 +12574,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     return res.status(400).json({ error });
   }
   const { changes, projectId, proposalId, operationId } = applyBody.data;
+  const automaticPromotion = serverAutoPromotionRequests.has(req);
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
@@ -12986,9 +13099,37 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     const liveRootChangedBeforePromotion = liveRootHashBeforePromotion !== deliveryWorkspace.baseTreeHash;
     const candidateHashBeforePromotion = await hashDeliveryTree(deliveryWorkspace.workspaceRoot);
     const candidateChangedBeforePromotion = candidateHashBeforePromotion !== candidateHash;
+    let automaticPromotionBlockedReason: string | undefined;
+    if (automaticPromotion) {
+      const [policy] = await db.select()
+        .from(aiDeliveryPoliciesTable)
+        .where(eq(aiDeliveryPoliciesTable.projectId, projectId))
+        .limit(1);
+      const currentValidationEvidence = [...verificationByProfile.values()]
+        .map((validation) => ({
+          status: validation.status,
+          evidence: "evidence" in validation ? validation.evidence : undefined,
+        }));
+      const currentPromotion = getDeliveryPromotionDecision({
+        proposal,
+        validationEvidence: currentValidationEvidence,
+        observedCandidateTreeHash: candidateHashBeforePromotion,
+        observedChangeSetHash: effectiveChangeSetHash,
+        observedTreeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      });
+      if (policy?.mode !== "eligible_auto_promote") {
+        automaticPromotionBlockedReason = "Automatic delivery promotion was disabled before the candidate could be promoted.";
+      } else if (currentPromotion.decision !== "AUTO_PROMOTE_ELIGIBLE") {
+        automaticPromotionBlockedReason =
+          `Automatic delivery promotion was blocked: ${currentPromotion.reasons.join(", ")}.`;
+      } else if (preflightFailures.length > 0 || candidateChanges.length !== changes.length) {
+        automaticPromotionBlockedReason = "Automatic delivery promotion requires every approved change to pass preflight.";
+      }
+    }
     const validationNeedsReview = candidateChangedDuringValidation
       || candidateChangedBeforePromotion
       || liveRootChangedBeforePromotion
+      || Boolean(automaticPromotionBlockedReason)
       || [...verificationByProfile.values()].some((validation) =>
       validation.status === "failed" ||
       validation.status === "unavailable" ||
@@ -13003,11 +13144,14 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         results.push({
           path: change.path,
           ok: false,
-          error: "Behavioral verification did not pass; the candidate was not promoted.",
+          error: automaticPromotionBlockedReason
+            ?? "Behavioral verification did not pass; the candidate was not promoted.",
         });
       }
       await appendApplyJournal("BLOCKED", {
-        reason: candidateChangedDuringValidation
+        reason: automaticPromotionBlockedReason
+          ? "automatic_promotion_policy"
+          : candidateChangedDuringValidation
           ? "candidate_changed_after_validation"
           : candidateChangedBeforePromotion
             ? "candidate_changed_before_promotion"
@@ -13257,6 +13401,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           promotionMismatch,
           integrityOutcome,
           lifecycleStage,
+          automaticPromotion,
           validationRepairDecisions,
         },
       });
@@ -13315,6 +13460,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           appliedFiles: appliedPaths,
           failedFiles: failedPaths,
           applyStatus,
+          automaticPromotion,
           integrityOutcome,
           rollbackFailures,
           candidateHash,
@@ -13383,6 +13529,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       results: responseResults,
       correlationId: applyCorrelationId,
       applyStatus,
+      automaticPromotion,
       integrityOutcome,
       lifecycle: {
         stage: lifecycleStage,
@@ -13403,6 +13550,8 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
   } finally {
     await applyLock.release();
   }
-});
+}
+
+router.post("/ai/chat/apply-changes", applyChangesHandler);
 
 export default router;

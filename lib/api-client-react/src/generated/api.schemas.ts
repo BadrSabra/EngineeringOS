@@ -5,6 +5,28 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export type AiDeliveryPolicyMode = typeof AiDeliveryPolicyMode[keyof typeof AiDeliveryPolicyMode];
+
+
+export const AiDeliveryPolicyMode = {
+  manual: 'manual',
+  eligible_auto_promote: 'eligible_auto_promote',
+} as const;
+
+export interface AiDeliveryPolicy {
+  projectId: string;
+  mode: AiDeliveryPolicyMode;
+  automaticPromotionEnabled: boolean;
+  approvedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface AiDeliveryPolicyUpdate {
+  /** @minLength 1 */
+  projectId: string;
+  automaticPromotionEnabled: boolean;
+}
+
 export interface RecipeRequest {
   /**
      * @minLength 1
@@ -5413,6 +5435,10 @@ export type ListRecoverableAiDeliveries200OperationsItem = { [key: string]: unkn
 
 export type ListRecoverableAiDeliveries200 = {
   operations: ListRecoverableAiDeliveries200OperationsItem[];
+};
+
+export type GetAiDeliveryPolicyParams = {
+projectId: string;
 };
 
 export type ResumeAiDeliveryValidation200 = { [key: string]: unknown };
