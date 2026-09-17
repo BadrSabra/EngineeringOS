@@ -5898,7 +5898,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(events.find((event) => event.type === "error")).toMatchObject({
       code: "model_output_invalid",
       outcome: "FAILED",
-      failureKind: "PROVIDER_FAILURE",
+      failureKind: "INCOMPLETE",
     });
     const doneTaskResult = events.find((event) => event.type === "done")?.taskResult as
       | { kind?: string }

@@ -152,3 +152,4 @@
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
+- [Operator alert campaign isolation](operator-alert-campaign-isolation.md) — controlled campaign assertions must scope alerts to campaign-owned kinds or fingerprints because shared fixtures retain unrelated active alerts.

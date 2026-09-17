@@ -5667,7 +5667,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await setGroqCatalogFixture(page, "healthy");
     await restartApiForCampaign(page);
     const recoveredAlerts = await readOperatorAlerts(page);
-    expect(recoveredAlerts).toHaveLength(0);
+    expect(
+      recoveredAlerts.filter((alert) =>
+        ["groq_model_catalog_unavailable", "groq_model_catalog_drift"].includes(
+          String(alert.kind),
+        ),
+      ),
+    ).toHaveLength(0);
 
     await setGroqCatalogFixture(page, "retired");
     await restartApiForCampaign(page);
@@ -5691,7 +5697,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await setGroqCatalogFixture(page, "healthy");
     await restartApiForCampaign(page);
     const finalAlerts = await readOperatorAlerts(page);
-    expect(finalAlerts).toHaveLength(0);
+    expect(
+      finalAlerts.filter((alert) =>
+        ["groq_model_catalog_unavailable", "groq_model_catalog_drift"].includes(
+          String(alert.kind),
+        ),
+      ),
+    ).toHaveLength(0);
     await writeGroqCatalogEvidence({
       outcome: "passed",
       outage: {

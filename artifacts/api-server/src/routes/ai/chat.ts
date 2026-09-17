@@ -8874,6 +8874,16 @@ export async function handleChatStream(req: Request, res: Response) {
                     ?? "Source evidence was retained, but the required capability claims were not closed.",
                 }
               : {}),
+            ...(result._parseError
+              ? {
+                  evidenceVerdict: evidenceFailureSummary().completeSourceReadCount > 0
+                    ? "PARTIAL" as const
+                    : "UNAVAILABLE" as const,
+                  evidenceReason: evidenceFailureSummary().completeSourceReadCount > 0
+                    ? "Complete source evidence was retained, but the provider response could not be parsed."
+                    : "No complete source evidence was retained before the provider response became unparseable.",
+                }
+              : {}),
             ...(capabilityProbeAcceptanceDisposition
               ? { acceptanceDisposition: capabilityProbeAcceptanceDisposition }
               : {}),
@@ -8918,6 +8928,35 @@ export async function handleChatStream(req: Request, res: Response) {
             executionLedger: executionLedgerSnapshot,
              contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+          });
+        } else if (result._parseError) {
+          // Parse failures are terminal for this provider attempt, but they
+          // must use the error SSE contract so clients can render the bounded
+          // automatic-recovery state instead of mistaking the failed result
+          // for a normal completed message.
+          const publicContent = report ? sanitizeResponseText(report).slice(0, 12_000) : "";
+          sse({
+            type: "error",
+            code: "model_output_invalid",
+            message: safeMessage,
+            response: publicContent,
+            report: publicContent,
+            outcome: terminalOutcome.outcome,
+            failureKind: terminalOutcome.failureKind,
+            retryable: terminalOutcome.retryable,
+            recoveryState: terminalOutcome.recoveryState,
+            executionId: aiExecution.id,
+            sessionId: sessionIdToUse,
+            attempt: terminalProjection?.attempt,
+            correlationId: terminalProjection?.correlationId ?? sessionIdToUse,
+            terminalProjection,
+            projection: executionProjection,
+            executionLedger: executionLedgerSnapshot,
+            contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
+            ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
+            ...(terminalOutcome.contractFailureCategory
+              ? { contractFailureCategory: terminalOutcome.contractFailureCategory }
+              : {}),
           });
         } else {
           // A failed/incomplete report may still be useful to an operator, but

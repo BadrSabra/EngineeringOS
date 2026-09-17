@@ -2012,7 +2012,8 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(200);
     const terminal = lastSseEvent(res.text);
     expect(terminal).toMatchObject({
-      type: "done",
+      type: "error",
+      code: "model_output_invalid",
       outcome: "FAILED",
       failureKind: "INCOMPLETE",
       retryable: true,
