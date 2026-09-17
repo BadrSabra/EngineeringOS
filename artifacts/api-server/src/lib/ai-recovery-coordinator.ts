@@ -90,6 +90,7 @@ export type ChatRecoveryCandidate = {
   executionAttempt: number;
   userId: string;
   action: string;
+  reasonCode: string | null;
   resumable: number;
   disposition: unknown;
   sourceRevision: string | null;
@@ -217,13 +218,21 @@ export function planChatRecovery(
   nowMs = Date.now(),
 ): ChatRecoveryPlan {
   const request = parseExecutionRequest(candidate.request);
+  const parserFailureRecovery =
+    request?.turnIntent === "CHAT"
+    && candidate.reasonCode === "MODEL_OUTPUT_INVALID"
+    && candidate.action === "RESUME_ALLOWED"
+    && candidate.resumable === 1;
+  // The initial parser failure gets one server-owned replay. Once the
+  // execution attempt has advanced, leave the existing manual resume fallback
+  // visible instead of creating an automatic retry loop.
+  const boundedParserFailureRecovery = parserFailureRecovery && candidate.executionAttempt === 0;
   if (
     !request
     || request.projectId !== candidate.executionProjectId
     || !candidate.userId
     || !request.sessionId
-    || request.turnIntent === "CHAT"
-    || !hasAiExecutionResumeContract(request)
+    || (!boundedParserFailureRecovery && !hasAiExecutionResumeContract(request))
   ) {
     return { kind: "skip", reason: "not_a_resumable_turn" };
   }
@@ -329,6 +338,7 @@ async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
       executionAttempt: aiExecutionsTable.attempt,
       userId: aiExecutionsTable.userId,
       action: aiExecutionAcceptancesTable.nextActionCode,
+      reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
       disposition: aiExecutionAcceptancesTable.disposition,
       sourceRevision: aiExecutionAcceptancesTable.sourceRevision,

@@ -110,9 +110,8 @@ export async function runChatExecutionRecovery(params: {
   const request = parseExecutionRequest(execution.request);
   if (
     !request
-    || request.turnIntent === "CHAT"
-    || !hasAiExecutionResumeContract(request)
     || !request.sessionId
+    || (request.turnIntent !== "CHAT" && !hasAiExecutionResumeContract(request))
   ) {
     return { ok: false, reason: "execution_not_resumable" };
   }

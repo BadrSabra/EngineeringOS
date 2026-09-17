@@ -9363,6 +9363,7 @@ export async function handleChatStream(req: Request, res: Response) {
           finalMessageId: persistedParseFailure.id,
           error: parseOutcome.message ?? "The AI model returned an unexpected response.",
           recoveryState: parseOutcome.recoveryState,
+          resumable: true,
           acceptanceDisposition: publicAcceptanceDisposition({
             code: parseOutcome.code,
             outcome: parseOutcome.outcome,

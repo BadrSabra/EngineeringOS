@@ -1779,7 +1779,11 @@ export async function recoverAiExecutionResumeToken(params: {
   if (!candidate) return undefined;
   const checkpoint = parseAiExecutionCheckpoint(candidate.checkpoint);
   const [priorAcceptance] = await db
-    .select({ resumable: aiExecutionAcceptancesTable.resumable, nextActionCode: aiExecutionAcceptancesTable.nextActionCode })
+    .select({
+      reasonCode: aiExecutionAcceptancesTable.reasonCode,
+      resumable: aiExecutionAcceptancesTable.resumable,
+      nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+    })
     .from(aiExecutionAcceptancesTable)
     .where(and(
       eq(aiExecutionAcceptancesTable.executionId, candidate.id),
@@ -1788,10 +1792,15 @@ export async function recoverAiExecutionResumeToken(params: {
     .limit(1);
   const request = parseExecutionRequest(candidate.request);
   const ordinaryChat = request?.turnIntent === "CHAT" && request.proofRequired !== true;
+  const parserFailureRecovery =
+    ordinaryChat
+    && priorAcceptance?.reasonCode === "MODEL_OUTPUT_INVALID"
+    && priorAcceptance.nextActionCode === "RESUME_ALLOWED"
+    && priorAcceptance.resumable === 1;
   // Ordinary chat has no durable resume contract. This guard also protects
   // legacy paused rows created before reconciliation learned that distinction.
   if (
-    ordinaryChat
+    (ordinaryChat && !parserFailureRecovery)
     || (priorAcceptance && priorAcceptance.resumable !== 1)
   ) {
     return undefined;
@@ -2699,8 +2708,11 @@ export async function failAiExecution(params: {
   const projectOrientationExecution =
     request?.turnIntent === "PROJECT_QUERY" && request?.projectOrientation === true;
   const providerFailure = params.providerAttempts !== undefined;
+  const parserFailure = params.finalMessageErrorCode === "MODEL_OUTPUT_INVALID";
   const reasonCode = params.cancelled
     ? "EXECUTION_CANCELLED"
+    : parserFailure
+      ? "MODEL_OUTPUT_INVALID"
     : params.acceptanceDisposition
       ? "EXECUTION_ACCEPTANCE_INCOMPLETE"
       : providerFailure
@@ -2719,7 +2731,7 @@ export async function failAiExecution(params: {
       ?? (params.cancelled ? "CANCELLATION" : providerFailure ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
     recoveryState: params.cancelled
       ? "INCOMPLETE"
-      : ordinaryChat
+      : ordinaryChat && !parserFailure
         ? "INCOMPLETE"
         : params.acceptanceDisposition?.recoveryState
           ?? params.recoveryState
@@ -2727,15 +2739,20 @@ export async function failAiExecution(params: {
           ?? "REQUIRED",
     retryAfterMs: params.retryAfterMs,
     retryAt,
-    // Ordinary CHAT turns never create a resumable execution contract. A
-    // retryable provider error may still be retried by the caller, but it must
-    // not expose the forensic/task resume path or revive session state.
+    // Ordinary CHAT turns do not create a resumable execution contract. The
+    // parser-failure exception is narrowly server-owned and replays the same
+    // request through the bounded recovery coordinator.
     resumable: params.resumable
       ?? (
         !params.cancelled
-        && !params.acceptanceDisposition
-        && params.recoveryState !== "INCOMPLETE"
-        && hasAiExecutionResumeContract(request)
+        && (
+          parserFailure
+          || (
+            !params.acceptanceDisposition
+            && params.recoveryState !== "INCOMPLETE"
+            && hasAiExecutionResumeContract(request)
+          )
+        )
       ),
     disposition: params.disposition ?? params.acceptanceDisposition,
     error: params.error,

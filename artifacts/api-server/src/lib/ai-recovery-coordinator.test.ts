@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   planChatRecovery,
   planTaskRecovery,
+  type ChatRecoveryCandidate,
   type TaskRecoveryCandidate,
 } from "./ai-recovery-coordinator.js";
 
@@ -24,6 +25,31 @@ function candidate(overrides: Partial<TaskRecoveryCandidate> = {}): TaskRecovery
     disposition: { recoveryState: "REQUIRED" },
     sourceRevision: "revision-1",
     projectRevision: "revision-1",
+    ...overrides,
+  };
+}
+
+function chatCandidate(overrides: Partial<ChatRecoveryCandidate> = {}): ChatRecoveryCandidate {
+  return {
+    executionId: "execution-chat-1",
+    executionProjectId: "project-1",
+    executionStatus: "failed",
+    executionAttempt: 0,
+    userId: "user-1",
+    action: "RESUME_ALLOWED",
+    reasonCode: "MODEL_OUTPUT_INVALID",
+    resumable: 1,
+    disposition: { recoveryState: "REQUIRED" },
+    sourceRevision: "revision-1",
+    projectRevision: "revision-1",
+    request: JSON.stringify({
+      projectId: "project-1",
+      turnIntent: "CHAT",
+      sessionId: "session-1",
+      message: "Explain this",
+      modelMessage: "Explain this",
+      validationTargetPaths: [],
+    }),
     ...overrides,
   };
 }
@@ -134,6 +160,7 @@ describe("automatic task recovery admission", () => {
       executionAttempt: 1,
       userId: "user-1",
       action: "RESUME_ALLOWED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
       resumable: 1,
       disposition: { recoveryState: "REQUIRED" },
       sourceRevision: "revision-1",
@@ -172,6 +199,32 @@ describe("automatic task recovery admission", () => {
       executionAttempt: 1,
       delayMs: 0,
       queueKey: "ai-recovery:chat:execution-chat-1:1:retry",
+    });
+  });
+
+  it("automatically recovers only ordinary chat parser failures", () => {
+    expect(planChatRecovery(chatCandidate())).toMatchObject({
+      kind: "resume",
+      action: "RESUME_ALLOWED",
+      queueKey: "ai-recovery:chat:execution-chat-1:0:resume",
+    });
+
+    expect(planChatRecovery(chatCandidate({
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+    })).kind).toBe("skip");
+    const blocked = planChatRecovery(chatCandidate({
+      reasonCode: "MODEL_OUTPUT_INVALID",
+      resumable: 0,
+    }));
+    expect(blocked).toMatchObject({
+      kind: "skip",
+      reason: "not_a_resumable_turn",
+    });
+    expect(planChatRecovery(chatCandidate({
+      executionAttempt: 1,
+    }))).toMatchObject({
+      kind: "skip",
+      reason: "not_a_resumable_turn",
     });
   });
 });
