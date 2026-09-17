@@ -64,7 +64,10 @@ const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
 const childTimeoutMs = Number(
-  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 600_000,
+  // The full authenticated journey includes 48 serial browser scenarios and
+  // several controlled API restarts. Keep the default above the observed
+  // suite duration while allowing release environments to override it.
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 900_000,
 );
 const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
   .split(",")
