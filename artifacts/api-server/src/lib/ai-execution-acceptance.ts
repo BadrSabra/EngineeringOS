@@ -20,6 +20,7 @@ export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "START_NEW_PROBE",
   "REVIEW_INCOMPLETE_EVIDENCE",
   "ABANDON_EXECUTION",
+  "RETRY_AFTER_PARSE",
   "RETRY_AFTER_TIMEOUT",
   "RETRY_AFTER_RATE_LIMIT",
 ] as const;
@@ -594,6 +595,7 @@ export function deriveAcceptanceNextAction(params: {
     if (params.retryAfterMs !== undefined) return "RETRY_AFTER_RATE_LIMIT";
     return "RETRY_AFTER_TIMEOUT";
   }
+  if (params.reasonCode === "MODEL_OUTPUT_INVALID") return "RETRY_AFTER_PARSE";
   if (params.reasonCode === "EVIDENCE_INCOMPLETE" || params.reasonCode === "EXECUTION_ACCEPTANCE_INCOMPLETE") {
     return "REVIEW_INCOMPLETE_EVIDENCE";
   }

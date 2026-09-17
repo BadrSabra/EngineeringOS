@@ -92,6 +92,28 @@ describe("durable AI telemetry", () => {
     });
   });
 
+  it("classifies malformed orientation output without treating it as a provider failure", () => {
+    const diagnostics = projectAiExecutionDiagnostics([
+      {
+        provider: "groq",
+        outcome: "success",
+        fallbackCount: 0,
+        contractOutcome: "malformed_response",
+        recoveryOutcome: "failed",
+        contractFailureKind: "MALFORMED_JSON",
+      },
+    ]);
+
+    expect(diagnostics).toMatchObject({
+      attempts: 1,
+      failedAttempts: 0,
+      failureCategories: {
+        provider: {},
+        contract: { MALFORMED_RESPONSE: 1 },
+      },
+    });
+  });
+
   it("records a recovered contract separately from provider HTTP success", () => {
     const telemetry = deriveAiContractTelemetry({
       message: "# AI Model Capability Probe\nC1–C7",

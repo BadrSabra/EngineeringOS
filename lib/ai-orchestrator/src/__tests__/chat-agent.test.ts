@@ -626,6 +626,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
 
   it("keeps retained orientation reads when the provider wrapper is malformed", async () => {
     const toolCalls: AgentStep[] = [];
+    const providerAttempts: Array<Record<string, unknown>> = [];
     const onOrientationManifest = vi.fn();
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-incomplete-"));
     await fs.writeFile(path.join(rootPath, "README.md"), "# Project\nA workspace application.", "utf8");
@@ -658,12 +659,17 @@ describe("chat agent — ChatOutputSchema validation", () => {
     }));
 
     const { chat } = await import("../agents/chat-agent.js");
+    const executionLedger = createExecutionLedger();
     const result = await chat({
       message: "What is this project?",
       history: [],
       projectContext: makeContext(),
       rootPath,
+      executionLedger,
       onOrientationManifest,
+      onProviderAttempt: (attempt) => {
+        providerAttempts.push(attempt);
+      },
       onStep: (step) => toolCalls.push(step),
     });
 
@@ -684,6 +690,20 @@ describe("chat agent — ChatOutputSchema validation", () => {
       (step) => step.kind === "diagnostic"
         && step.code === "PROJECT_ORIENTATION_NO_TOOLS_SYNTHESIS",
     )).toBe(true);
+    expect(toolCalls.some(
+      (step) => step.kind === "recovery_model_call" && step.attempt === 1,
+    )).toBe(true);
+    expect(executionLedger.snapshot().counts.recovery).toBe(1);
+    expect(executionLedger.snapshot().events.some(
+      (event) => event.kind === "recovery" && event.status === "failed",
+    )).toBe(true);
+    expect(providerAttempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        operation: "project_orientation_json_correction",
+        contractOutcome: "malformed_response",
+        recoveryOutcome: "failed",
+      }),
+    ]));
     const orientationDecision = toolCalls.find(
       (step): step is Extract<AgentStep, { kind: "decision_trace" }> =>
         step.kind === "decision_trace",

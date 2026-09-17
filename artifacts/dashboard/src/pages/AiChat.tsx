@@ -87,6 +87,7 @@ type AcceptanceNextActionCode =
   | 'START_NEW_PROBE'
   | 'REVIEW_INCOMPLETE_EVIDENCE'
   | 'ABANDON_EXECUTION'
+  | 'RETRY_AFTER_PARSE'
   | 'RETRY_AFTER_TIMEOUT'
   | 'RETRY_AFTER_RATE_LIMIT';
 type AcceptanceDispositionView = AiAcceptanceDisposition & {
@@ -7665,6 +7666,7 @@ function executionCanResume(
     && (
       execution.acceptance?.nextActionCode === undefined
       || execution.acceptance.nextActionCode === 'RESUME_ALLOWED'
+      || execution.acceptance.nextActionCode === 'RETRY_AFTER_PARSE'
       || execution.acceptance.nextActionCode === 'RETRY_AFTER_TIMEOUT'
       || execution.acceptance.nextActionCode === 'RETRY_AFTER_RATE_LIMIT'
     );

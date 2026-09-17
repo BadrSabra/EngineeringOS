@@ -8,6 +8,7 @@ export const AI_CONTRACT_OUTCOMES = [
   "citation_mismatch",
   "semantic_failure",
   "provider_empty",
+  "malformed_response",
 ] as const;
 export type AiContractOutcome = (typeof AI_CONTRACT_OUTCOMES)[number];
 

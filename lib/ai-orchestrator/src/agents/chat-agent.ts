@@ -2682,6 +2682,18 @@ type CapabilityRecoveryTelemetryAttempt = {
   attemptId?: string;
   providerFailureKind?: string | null;
   operation: string;
+  contractOutcome?:
+    | "not_applicable"
+    | "accepted"
+    | "malformed_but_recovered"
+    | "missing_claims"
+    | "citation_mismatch"
+    | "semantic_failure"
+    | "provider_empty"
+    | "malformed_response";
+  recoveryOutcome?: "not_attempted" | "not_needed" | "accepted" | "failed";
+  contractFailureKind?: string | null;
+  contractRecoveryLatencyMs?: number | null;
 };
 
 type CapabilityRecoveryCallResult = {
@@ -6283,18 +6295,31 @@ export async function chat(opts: {
       : onDelta;
   let recoveryAttemptsUsed = 0;
   let orientationRecoveryAttempted = false;
-  const beginOrientationRecovery = (): void => {
-    if (!projectOrientationMode || orientationRecoveryAttempted) return;
+  const beginOrientationRecovery = (): boolean => {
+    if (!projectOrientationMode || orientationRecoveryAttempted) return false;
     orientationRecoveryAttempted = true;
+    const admitted = executionLedger.admit("recovery", {
+      provider,
+      operation: "project_orientation_json_correction",
+    });
+    if (!admitted) {
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "PROJECT_ORIENTATION_RECOVERY_BUDGET_EXHAUSTED",
+        details: ["request execution ledger rejected the bounded orientation recovery"],
+      });
+      return false;
+    }
     recoveryAttemptsUsed += 1;
     relayAgentStep({
       kind: "diagnostic",
       code: "PROJECT_ORIENTATION_NO_TOOLS_SYNTHESIS",
       details: [
         "provider output was malformed; starting one bounded no-tools orientation recovery",
-        `retained sources: ${[...prefetchFileContents.keys()].slice(0, 8).join(", ") || "(none)"}`,
+        `retained sources: ${[...forensicFileContents.keys()].slice(0, 8).join(", ") || "(none)"}`,
       ],
     });
+    return true;
   };
 
   // Deep-analysis gate: forensic/audit prompts (structuredOutputMode) and
@@ -10037,7 +10062,10 @@ export async function chat(opts: {
       sourceCount: forensicFileContents.size,
     }));
   } else if (!parsed.ok && !capabilityProbeRequest) {
-    beginOrientationRecovery();
+    const orientationRecoveryAdmitted = projectOrientationMode
+      ? beginOrientationRecovery()
+      : true;
+    const initialParseCode = parsed.code;
     console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
     const forensicCorrection =
       stagedForensicSynthesis
@@ -10061,11 +10089,13 @@ export async function chat(opts: {
       forensicCorrection;
     messages.push({ role: "assistant", content });
     messages.push({ role: "user", content: correctionPrompt });
-    try {
+    if (orientationRecoveryAdmitted) {
+      const correctionModel = result.model || model;
+      const recoveryStartedAt = Date.now();
+      try {
       // The tool-loop fallback may have returned a different model than the
       // initially selected candidate. Correct using that actual model so the
       // follow-up sees a model-family-compatible response format.
-      const correctionModel = result.model || model;
       const retry = await strategy.call(
         _compactSynthesisMessages(messages),
         {
@@ -10073,6 +10103,14 @@ export async function chat(opts: {
           executionLedger,
         },
       );
+      if (projectOrientationMode) {
+        relayAgentStep({
+          kind: "recovery_model_call",
+          model: retry.model || correctionModel,
+          provider,
+          attempt: recoveryAttemptsUsed,
+        });
+      }
       const retryContent = retry.content ?? "";
       if (forensicOutputMode) {
         const stagedRetry = parseAgentResponse(
@@ -10123,7 +10161,30 @@ export async function chat(opts: {
           console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
         }
       }
-    } catch (err) {
+      if (projectOrientationMode) {
+        try {
+          await onProviderAttempt?.({
+            provider,
+            model: retry.model || correctionModel,
+            outcome: "success",
+            latencyMs: Date.now() - recoveryStartedAt,
+            attemptNumber: recoveryAttemptsUsed,
+            fallbackCount: 0,
+            operation: "project_orientation_json_correction",
+            contractOutcome: parsed.ok ? "malformed_but_recovered" : "malformed_response",
+            recoveryOutcome: parsed.ok ? "accepted" : "failed",
+            contractFailureKind: parsed.ok ? null : initialParseCode,
+            contractRecoveryLatencyMs: Date.now() - recoveryStartedAt,
+          });
+        } catch (telemetryError) {
+          console.warn(JSON.stringify({
+            scope: "chat-agent",
+            code: "ORIENTATION_RECOVERY_TELEMETRY_FAILED",
+            reason: telemetryError instanceof Error ? telemetryError.name : "unknown",
+          }));
+        }
+      }
+      } catch (err) {
       if (projectOrientationMode) {
         recoveryFailureKind = classifyRecoveryFailure({
           kind: "provider",
@@ -10134,6 +10195,30 @@ export async function chat(opts: {
         err instanceof GroqClientError && "code" in err
           ? String((err as { code?: unknown }).code ?? "unknown")
           : "unknown";
+      if (projectOrientationMode) {
+        try {
+          await onProviderAttempt?.({
+            provider,
+            model: correctionModel,
+            outcome: "failure",
+            latencyMs: Date.now() - recoveryStartedAt,
+            attemptNumber: recoveryAttemptsUsed,
+            fallbackCount: 0,
+            operation: "project_orientation_json_correction",
+            contractOutcome: "malformed_response",
+            recoveryOutcome: "failed",
+            contractFailureKind: initialParseCode,
+            providerFailureKind: errorCode,
+            contractRecoveryLatencyMs: Date.now() - recoveryStartedAt,
+          });
+        } catch (telemetryError) {
+          console.warn(JSON.stringify({
+            scope: "chat-agent",
+            code: "ORIENTATION_RECOVERY_TELEMETRY_FAILED",
+            reason: telemetryError instanceof Error ? telemetryError.name : "unknown",
+          }));
+        }
+      }
       recordExecutionDiagnostic("EXECUTION_JSON_CORRECTION_RETRY_FAILED", [
         `correction provider failure code: ${errorCode}`,
       ]);
@@ -10145,6 +10230,26 @@ export async function chat(opts: {
         reason: err instanceof Error ? err.message : String(err),
       }));
       // Keep the original fallback output — correction is best-effort only.
+      if (projectOrientationMode) {
+        relayAgentStep({
+          kind: "recovery_model_call",
+          model: correctionModel,
+          provider,
+          attempt: recoveryAttemptsUsed,
+        });
+      }
+      } finally {
+        if (projectOrientationMode) {
+          executionLedger.complete("recovery", {
+            provider,
+            model: correctionModel,
+            operation: "project_orientation_json_correction",
+            startedAt: recoveryStartedAt,
+            status: parsed.ok ? "completed" : "failed",
+            reason: parsed.ok ? undefined : recoveryFailureKind ?? "PARSE_FAILURE",
+          });
+        }
+      }
     }
   }
 

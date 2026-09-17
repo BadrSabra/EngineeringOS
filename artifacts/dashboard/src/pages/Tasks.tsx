@@ -144,7 +144,7 @@ type TaskAcceptance = {
   terminalStatus: string;
   outcome: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | string;
   reasonCode: string;
-  nextActionCode: 'NONE' | 'RESUME_ALLOWED' | 'START_NEW_PROBE' | 'REVIEW_INCOMPLETE_EVIDENCE' | 'ABANDON_EXECUTION' | 'RETRY_AFTER_TIMEOUT' | string;
+  nextActionCode: 'NONE' | 'RESUME_ALLOWED' | 'START_NEW_PROBE' | 'REVIEW_INCOMPLETE_EVIDENCE' | 'ABANDON_EXECUTION' | 'RETRY_AFTER_PARSE' | 'RETRY_AFTER_TIMEOUT' | string;
   evidenceComplete: boolean;
   evidenceRequired: boolean;
   resumable: boolean;
@@ -190,6 +190,7 @@ function acceptanceNextAction(acceptance: TaskAcceptance): string {
     case 'RESUME_ALLOWED': return 'Resume the saved execution checkpoint.';
     case 'START_NEW_PROBE': return 'Start a new scoped probe.';
     case 'REVIEW_INCOMPLETE_EVIDENCE': return 'Review the incomplete evidence before relying on this result.';
+    case 'RETRY_AFTER_PARSE': return 'Retry after correcting the model response format.';
     case 'RETRY_AFTER_TIMEOUT': return 'Retry after the timeout window has cleared.';
     case 'ABANDON_EXECUTION': return 'Start a new scoped run before relying on this result.';
     default: return 'No operator action is required.';

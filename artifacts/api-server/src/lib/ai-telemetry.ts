@@ -103,6 +103,8 @@ function contractFailureCategory(
       return "SEMANTIC_FAILURE";
     case "provider_empty":
       return "PROVIDER_EMPTY";
+    case "malformed_response":
+      return "MALFORMED_RESPONSE";
     default:
       return "UNKNOWN";
   }

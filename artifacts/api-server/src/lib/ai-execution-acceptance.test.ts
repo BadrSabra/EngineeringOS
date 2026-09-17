@@ -140,6 +140,12 @@ describe("server-owned execution acceptance", () => {
       reasonCode: "EXECUTION_PROVIDER_FAILURE",
       retryAfterMs: 15_000,
     })).toBe("RETRY_AFTER_RATE_LIMIT");
+    expect(deriveAcceptanceNextAction({
+      outcome: "FAILED",
+      recoveryState: "INCOMPLETE",
+      resumable: true,
+      reasonCode: "MODEL_OUTPUT_INVALID",
+    })).toBe("RETRY_AFTER_PARSE");
   });
 
   it("projects only the allowlisted current-attempt acceptance fields", () => {

@@ -163,6 +163,8 @@ function acceptanceNextActionLabel(value: unknown): string {
       return 'Start a new scoped probe.';
     case 'REVIEW_INCOMPLETE_EVIDENCE':
       return 'Review the incomplete evidence before relying on this result.';
+    case 'RETRY_AFTER_PARSE':
+      return 'Retry after correcting the model response format.';
     case 'RETRY_AFTER_TIMEOUT':
       return 'Retry after the timeout window has cleared.';
     case 'ABANDON_EXECUTION':
