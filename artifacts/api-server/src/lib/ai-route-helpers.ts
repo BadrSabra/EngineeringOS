@@ -786,6 +786,8 @@ export async function chatWithFallback(
     objective?: ObjectiveContract;
     /** Route-owned decision derived from the unaugmented user message. */
     turnIntent?: TurnIntent;
+     /** Server-owned project orientation decision; survives resume prompt augmentation. */
+     projectOrientation?: boolean;
     /** Immutable route-owned context and execution policy. */
     executionPlan?: import("@workspace/ai-orchestrator").ExecutionPlan;
      /** Server-validated excerpts accepted by an earlier turn at this revision. */
@@ -1064,6 +1066,7 @@ export async function chatWithFallback(
         onExecutionNodes: baseParams.onExecutionNodes,
         signal: baseParams.signal,
         turnIntent: baseParams.turnIntent,
+         projectOrientation: baseParams.projectOrientation,
         retainedEvidence,
          retainedReadStatuses,
          orientationSourcesOverride: baseParams.orientationSourcesOverride,

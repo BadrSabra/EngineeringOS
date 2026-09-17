@@ -602,11 +602,14 @@ describe("chat agent — ChatOutputSchema validation", () => {
 
     const { chat } = await import("../agents/chat-agent.js");
     const onOrientationManifest = vi.fn();
+    const turnIntent = resolveTurnIntent("What is this project?");
     const result = await chat({
-      message: "What is this project?",
+      message: "What is this project?\n\nRESUME CONTEXT: complete source reads are retained for this execution.",
       history: [],
       projectContext: makeContext(),
       rootPath,
+      turnIntent,
+      projectOrientation: true,
       orientationSourcesOverride: orientationSources,
       onOrientationManifest,
       onStep: (step) => toolCalls.push(step),

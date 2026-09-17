@@ -5480,6 +5480,11 @@ export async function chat(opts: {
    * must pass this when they augment `message` with Build/resume context.
    */
   turnIntent?: TurnIntent;
+  /**
+   * Server-owned project orientation decision. This remains authoritative when
+   * the route augments the model message with resume context.
+   */
+  projectOrientation?: boolean;
   /** Immutable server-owned policy shared by context, memory, history, and prompt construction. */
   executionPlan?: Readonly<ExecutionPlan>;
   /**
@@ -5550,6 +5555,7 @@ export async function chat(opts: {
     productionTraceLinks,
     objective,
     turnIntent: suppliedTurnIntent,
+     projectOrientation: serverProjectOrientation,
     executionPlan: suppliedExecutionPlan,
     retainedEvidence,
     previouslyAcceptedEvidence,
@@ -5715,7 +5721,10 @@ export async function chat(opts: {
   const outputContract = turnIntent.outputContract;
   const projectOrientationMode =
     turnIntent.kind === "PROJECT_QUERY" &&
-    isProjectOrientationQuestion(message);
+    (
+      serverProjectOrientation === true
+      || isProjectOrientationQuestion(message)
+    );
   let orientationEvidencePaths: string[] = projectOrientationMode && orientationSourcesOverride
     ? [...new Set(Object.values(orientationSourcesOverride).flat())].slice(0, 8)
     : [];

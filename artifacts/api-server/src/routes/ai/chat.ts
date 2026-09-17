@@ -8596,6 +8596,7 @@ export async function handleChatStream(req: Request, res: Response) {
              },
            } : {}),
           turnIntent: streamTurnIntent,
+           projectOrientation: projectOrientationExecution,
           retainedEvidence,
           retainedReadStatuses,
            ...(orientationManifest
