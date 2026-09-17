@@ -7,6 +7,6 @@ For project-orientation queries, a planner timeout can produce a fallback manife
 
 **Why:** A complete source read is not enough for orientation acceptance; purpose, components, primary flow, and uncertainty must each have server-owned role coverage. Persisting an incomplete fallback caused a full five-file read to end with zero accepted claims and an incomplete verdict.
 
-**How to apply:** Keep planner fallback status and diagnostics durable. Before calling the orientation-manifest persistence boundary, require every role to have a bounded valid path; otherwise use a typed bounded planning-incomplete outcome or a deterministic role-discovery retry without freezing the partial manifest.
+**How to apply:** Keep planner fallback status and diagnostics durable. Before calling the orientation-manifest persistence boundary, require every role to have a bounded valid path; otherwise pass bounded role candidates/missing roles into the existing evidence scheduler for one deterministic discovery retry, or emit a typed planning-incomplete outcome without freezing the partial manifest. An incomplete manifest must not become an empty recovery path.
 
 Legacy execution requests may still parse with partial orientation manifests for compatibility; enforce completeness when creating or persisting new manifests rather than rejecting old durable state at the parser boundary.
