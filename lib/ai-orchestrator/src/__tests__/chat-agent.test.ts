@@ -625,11 +625,13 @@ describe("chat agent — ChatOutputSchema validation", () => {
       missingRoles: [],
     });
     expect(result.response).toBe("This is the resumed project workspace.");
-    expect(toolCalls.some(
-      (step) => step.kind === "diagnostic"
-        && (step.code === "BEHAVIOR_EVIDENCE_REJECTED"
-          || step.code === "BEHAVIOR_EVIDENCE_RECOVERY_REJECTED"),
-    )).toBe(false);
+    expect(toolCalls
+      .filter((step): step is Extract<AgentStep, { kind: "diagnostic" }> => step.kind === "diagnostic")
+      .map((step) => String(step.code)))
+      .not.toEqual(expect.arrayContaining([
+        "BEHAVIOR_EVIDENCE_REJECTED",
+        "BEHAVIOR_EVIDENCE_RECOVERY_REJECTED",
+      ]));
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
