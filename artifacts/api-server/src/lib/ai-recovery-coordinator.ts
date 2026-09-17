@@ -29,7 +29,8 @@ const RECOVERY_ACTIONS = [
 const RECOVERY_TASK_STATUSES = ["pending", "queued", "verifying"] as const;
 const RECOVERY_EXECUTION_STATUSES = ["paused", "failed"] as const;
 const MAX_RECOVERY_CANDIDATES = 64;
-const MAX_AUTOMATIC_CHAT_RECOVERY_ATTEMPTS = 2;
+const MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS = 2;
+const MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS = 3;
 
 type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
 type RecoveryTaskStatus = (typeof RECOVERY_TASK_STATUSES)[number];
@@ -230,12 +231,16 @@ export function planChatRecovery(
     && (candidate.action === "RETRY_AFTER_TIMEOUT"
       || candidate.action === "RETRY_AFTER_RATE_LIMIT")
     && candidate.resumable === 0;
-  // Ordinary CHAT gets a small, explicit recovery budget. Once the budget is
-  // exhausted, leave the existing manual fallback visible instead of creating
-  // an automatic retry loop.
+  // Ordinary CHAT gets small, explicit recovery budgets. Parser failures stop
+  // sooner because repeating the same malformed response is unlikely to help;
+  // transient provider failures get one extra bounded attempt because the
+  // external outage/rate limit may clear without changing the user turn.
+  const recoveryAttemptLimit = transientProviderRecovery
+    ? MAX_AUTOMATIC_CHAT_PROVIDER_RECOVERY_ATTEMPTS
+    : MAX_AUTOMATIC_CHAT_PARSER_RECOVERY_ATTEMPTS;
   const boundedChatRecovery =
     (parserFailureRecovery || transientProviderRecovery)
-    && candidate.executionAttempt < MAX_AUTOMATIC_CHAT_RECOVERY_ATTEMPTS;
+    && candidate.executionAttempt < recoveryAttemptLimit;
   if (
     !request
     || request.projectId !== candidate.executionProjectId

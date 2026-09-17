@@ -250,5 +250,23 @@ describe("automatic task recovery admission", () => {
       kind: "skip",
       reason: "not_a_resumable_turn",
     });
+    expect(planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      executionAttempt: 2,
+    }))).toMatchObject({
+      kind: "retry",
+      action: "RETRY_AFTER_TIMEOUT",
+    });
+    expect(planChatRecovery(chatCandidate({
+      action: "RETRY_AFTER_TIMEOUT",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      resumable: 0,
+      executionAttempt: 3,
+    }))).toMatchObject({
+      kind: "skip",
+      reason: "not_a_resumable_turn",
+    });
   });
 });
