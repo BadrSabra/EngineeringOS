@@ -97,12 +97,6 @@
 - [SSE recovery authority](sse-recovery-authority.md) — transport keepalive is separate from lease ownership; after EOF, durable status and acceptance decide recovery.
 - [Cancellation registration race](cancellation-registration-race.md) — cancel can win before the worker registers its controller; re-read durable state after registration and abort immediately.
 - [Dashboard proof fixture contracts](dashboard-proof-fixtures.md) — proof-bearing resumable fixtures must preserve proofRequired through terminal/reload state or the proof panel correctly disappears.
-- [Structured task terminal events](structured-task-terminal-events.md) — structured SSE ends with task_done; parsers must treat it as terminal or clean EOF becomes a false interruption.
-- [Structured execution adapter](structured-execution-adapter.md) — Analyze/Review must reserve durable execution state before provider work and persist the assistant terminal row before acceptance.
-- [Structured provider fallback](structured-provider-fallback.md) — structured routes must explicitly opt into bounded transient model fallback; resolver chains alone do not consume on 429.
-- [Provider-native tool history](provider-native-tool-history.md) — normalized tool-call history must retain provider-required metadata when fallback can replay it to the same provider.
-- [Server cooldown gates](server-cooldown-gates.md) — a persisted retryAt is only protective when new execution creation rejects early; client guards and acceptance projection are not authoritative.
-- [Structured cooldown backoff](structured-cooldown-backoff.md) — missing provider Retry-After uses bounded adaptive windows, while explicit provider/project durations remain authoritative.
 - [Evidence scheduler contract](evidence-scheduler-contract.md) — required source paths need complete/targeted reads; stalled loops force the next missing path, not repeated first-file reads.
 - [Short imperative routing](short-imperative-routing.md) — detect short execution commands before simple-chat fast paths so provider success cannot mask zero-tool non-execution.
 - [Browser-safe AI routing](browser-safe-ai-routing.md) — client intent helpers must avoid importing the Node-heavy orchestrator root into Vite.
@@ -113,9 +107,7 @@
 - [Fresh project-query state](fresh-project-query-state.md) — only bounded continuations and explicit handoffs may inherit a session’s target/evidence scope.
 - [Artifact-only acceptance](artifact-only-acceptance.md) — delivery proof can be complete from bound validation evidence without source reads; forensic proof still requires retained reads.
 - [OpenRouter live acceptance](openrouter-live-acceptance.md) — catalog/auth success does not prove structured review acceptance; free-model contract/rate failures must remain incomplete and may trigger only classified paid fallback.
-- [OpenRouter correction model binding](openrouter-correction-model.md) — bounded JSON correction should reuse the successful tool-loop model before resolving a fresh free-model chain.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
-- [Forensic recovery deferral](forensic-recovery-deferral.md) — retained structured forensic candidates must reach bounded recovery before objective incompleteness becomes terminal.
 - [Project-query direct-stream acceptance](project-query-direct-stream-acceptance.md) — direct streaming must emit decision trace and accepted-claim evidence before project-query acceptance can finalize.
 - [Project-query terminal parity](project-query-terminal-parity.md) — accepted project queries must not lose objective verdicts in public projections or emit generic forensic incompleteness.
 - [Objective evidence range ownership](objective-evidence-range-ownership.md) — server-computed claim windows must override provider-selected ranges when proving behavioral objectives.
@@ -131,6 +123,7 @@
 - [Orientation manifest fallback](orientation-manifest-fallback.md) — never persist a partial role manifest after planner fallback; later retries can hydrate it as immutable valid scope.
 - [Orientation recovery telemetry](orientation-recovery-telemetry.md) — malformed project-orientation recovery must consume the request ledger and usage contract, not only increment a local terminal counter.
  - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
+- [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
  - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
 - [Generic chat parse boundary](generic-chat-parse-boundary.md) — terminalize malformed JSON-looking chat output, but keep plain prose fallback valid.
