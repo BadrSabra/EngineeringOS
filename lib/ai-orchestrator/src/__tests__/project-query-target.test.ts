@@ -362,4 +362,22 @@ describe("target-aware project queries", () => {
     });
     expect(intent.projectTarget).toBeUndefined();
   });
+
+  it("keeps the historical user-and-internal-components brief on the orientation contract", () => {
+    const message =
+      "اشرح EngineeringOS كاملًا من منظور المستخدم والمكونات الداخلية، واشمل Dashboard وAuthentication وProject Discovery وKnowledge Graph وAI Execution وGovernance، مع ذكر المسارات العامة كاملة ببادئة /api والاستشهاد بالملفات التي تثبت كل جزء.";
+    const target = resolveProjectQueryTarget(message);
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(target).toBeUndefined();
+    expect(classification.projectTargetResolution).toBe("not_applicable");
+    expect(intent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
+      requiresEvidence: false,
+    });
+    expect(intent.projectTarget).toBeUndefined();
+  });
 });

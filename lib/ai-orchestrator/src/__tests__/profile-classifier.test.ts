@@ -54,6 +54,20 @@ describe("classifyRequest — ordinary orientation questions", () => {
     expect(result.orderedForensicRoots).toEqual([]);
   });
 
+  it("recognizes the historical broad brief from user and internal-component framing", () => {
+    const message =
+      "اشرح EngineeringOS كاملًا من منظور المستخدم والمكونات الداخلية، واشمل Dashboard وAuthentication وProject Discovery وKnowledge Graph وAI Execution وGovernance، مع ذكر المسارات العامة كاملة ببادئة /api والاستشهاد بالملفات التي تثبت كل جزء.";
+    const result = classifyRequest(message);
+
+    expect(isProjectOrientationQuestion(message)).toBe(true);
+    expect(result.category).toBe("simple");
+    expect(result.projectTarget).toBeUndefined();
+    expect(result.projectTargetResolution).toBe("not_applicable");
+    expect(result.allowPrefetch).toBe(false);
+    expect(result.structuredOutputMode).toBe(false);
+    expect(result.orderedForensicRoots).toEqual([]);
+  });
+
   it("does not classify a broad architecture audit as orientation", () => {
     const message =
       "دقّق معماريًا في مشروع EngineeringOS واكتشف فجوات Dashboard وAuthentication وحدد الأسباب الجذرية";

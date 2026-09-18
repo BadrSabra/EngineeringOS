@@ -397,7 +397,7 @@ const PROJECT_ORIENTATION_RE =
 const BROAD_ORIENTATION_ACTION_RE =
   /(?:اشرح|أشرح|شرح|استعرض|اعرض|وضّح|وضح|قدّم|قدم|أعطني|خريطة|نظرة\s+عامة|كيف\s+يعمل|explain|describe|overview|walk\s+me\s+through|map|summarize)/iu;
 const BROAD_ORIENTATION_ARCHITECTURE_RE =
-  /(?:معمار(?:ية|ي)|هندسي(?:ة|ا)?|بنية|هيكل(?:ية)?|architecture|system\s+design|technical\s+overview)/iu;
+  /(?:معمار(?:ية|ي)|هندسي(?:ة|ا)?|بنية|هيكل(?:ية)?|من\s+منظور\s+المستخدم|المكونات?\s+الداخلية|internal\s+components?|architecture|system\s+design|technical\s+overview)/iu;
 const BROAD_ORIENTATION_PROJECT_RE =
   /(?:المشروع|مشروعي|النظام|EngineeringOS|project|workspace|repository|codebase)/iu;
 const BROAD_ORIENTATION_BREADTH_RE =
@@ -416,9 +416,10 @@ const BROAD_ORIENTATION_DOMAIN_SIGNALS = [
 
 /**
  * Broad architecture explanations are still orientation requests, not
- * subsystem queries. Requiring an explicit explanation action, architecture
- * vocabulary, project reference, and either breadth or multiple named domains
- * keeps forensic audits and ordinary subsystem questions on their own paths.
+ * subsystem queries. Requiring an explicit explanation action, structural
+ * vocabulary (including user/internal-component framing), project reference,
+ * and either breadth or multiple named domains keeps forensic audits and
+ * ordinary subsystem questions on their own paths.
  */
 export function isProjectArchitectureOrientationRequest(message: string): boolean {
   const normalized = message.trim();
