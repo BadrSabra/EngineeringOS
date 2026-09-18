@@ -242,6 +242,21 @@ describe("target-aware project queries", () => {
     );
   });
 
+  it("routes the Arabic أحدث جلسة and الوكيل المدمج wording to the same session contract", () => {
+    const message =
+      "تتبع مسار أحدث جلسة للوكيل المدمج داخل EngineeringOS وقم بتقييم مستوى الردود واتساقها";
+    const target = resolveProjectQueryTarget(message);
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(target?.id).toBe("embedded-ai");
+    expect(target?.label).toBe("embedded-agent session quality");
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    expect(classification.projectTargetResolution).toBe("resolved");
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.requiresEvidence).toBe(true);
+  });
+
   it("routes Arabic latest-session divergence tracing to the bounded root-cause contract", () => {
     const message = "تتبع مسار الجلسة الأخيرة وتتبع السبب الجذري لحدوث الانحراف";
     const target = resolveProjectQueryTarget(message);

@@ -1075,9 +1075,26 @@ describe("POST /api/ai/chat", () => {
     },
   );
 
-  it.each(["/api/ai/chat", "/api/ai/chat/stream"])(
+  it.each([
+    [
+      "/api/ai/chat",
+      "Trace the latest project-agent session and assess response quality and consistency.",
+    ],
+    [
+      "/api/ai/chat/stream",
+      "Trace the latest project-agent session and assess response quality and consistency.",
+    ],
+    [
+      "/api/ai/chat",
+      "تتبع مسار أحدث جلسة للوكيل المدمج داخل EngineeringOS وقم بتقييم مستوى الردود واتساقها",
+    ],
+    [
+      "/api/ai/chat/stream",
+      "تتبع مسار أحدث جلسة للوكيل المدمج داخل EngineeringOS وقم بتقييم مستوى الردود واتساقها",
+    ],
+  ] as const)(
     "binds a latest-session quality audit to the newest non-empty project session (%s)",
-    async (endpoint) => {
+    async (endpoint, message) => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const now = new Date();
@@ -1127,8 +1144,7 @@ describe("POST /api/ai/chat", () => {
       .post(endpoint)
       .send({
         projectId,
-        message:
-          "Trace the latest project-agent session and assess response quality and consistency.",
+        message,
       });
 
     expect(res.status).toBe(200);
