@@ -10569,7 +10569,9 @@ describe("INT-007 — chatWithFallback call counts prove the resolver controls r
   });
 
   it("passes an accessible project root to the agent with file tools enabled", async () => {
-    const projectId = await insertProject("/tmp");
+    const rootPath = await fs.mkdtemp("/tmp/stream-accessible-root-");
+    rootPaths.push(rootPath);
+    const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
 
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
@@ -10596,7 +10598,7 @@ describe("INT-007 — chatWithFallback call counts prove the resolver controls r
     };
 
     expect(input.projectId).toBe(projectId);
-    expect(input.rootPath).toBe("/tmp");
+    expect(input.rootPath).toBe(rootPath);
     expect(options).toEqual({
       requireTools: true,
       qualityProfile: "tool_chat",
