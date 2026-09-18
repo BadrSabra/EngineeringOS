@@ -9465,7 +9465,11 @@ export default function AiChat() {
         }
         resumeToken = body.resumeToken;
       }
-      sendMessage(messageToResume, { executionId, resumeToken });
+      sendMessage(messageToResume, {
+        executionId,
+        resumeToken,
+        sessionId: resumableActiveExecution?.sessionId,
+      });
     } catch (error) {
       setProjectQueryRetryMessageId(null);
       toast({
@@ -10472,6 +10476,7 @@ export default function AiChat() {
       buildPlanMessageId?: string;
       executionId?: string;
       resumeToken?: string;
+      sessionId?: string;
     },
   ) {
     if (!msg.trim()) return;
@@ -10500,7 +10505,7 @@ export default function AiChat() {
     setProposalUnavailable(null);
     const generation = ++streamGenerationRef.current;
     const requestProjectId = selectedProjectId;
-    const requestSessionId = sessionId;
+    const requestSessionId = options?.sessionId ?? sessionId;
     streamOwnerRef.current = {
       generation,
       projectId: requestProjectId,
@@ -10561,7 +10566,7 @@ export default function AiChat() {
       {
         projectId: requestProjectId,
         message: msg.trim(),
-        sessionId,
+        sessionId: requestSessionId,
         linkedTaskId,
         buildPlanMessageId: options?.buildPlanMessageId,
         executionId: options?.executionId,
@@ -11213,6 +11218,7 @@ export default function AiChat() {
         executionId: execution.id,
         resumeToken: execution.resumeToken,
         buildPlanMessageId: execution.buildPlanMessageId,
+        sessionId: execution.sessionId,
       });
       return;
     }
@@ -11257,6 +11263,7 @@ export default function AiChat() {
         executionId: recovered.id,
         resumeToken: recovered.resumeToken,
         buildPlanMessageId: recovered.buildPlanMessageId,
+        sessionId: recovered.sessionId,
       });
     } catch (error: unknown) {
       setResumeRecoveryError(

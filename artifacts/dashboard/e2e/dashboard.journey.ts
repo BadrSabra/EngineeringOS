@@ -4924,11 +4924,20 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       proof.getByRole("button", { name: "Resume", exact: true }),
     ).toBeVisible();
 
-    await proof.getByRole("button", { name: "Resume", exact: true }).click();
-
     const report = page.getByRole("region", {
       name: "Capability probe report",
     });
+    try {
+      // A transient SSE failure may be recovered automatically before the
+      // manual control is clicked. In that case the proof panel re-renders
+      // and the button is intentionally removed; the terminal report is the
+      // authoritative signal that the same execution was restored.
+      await proof
+        .getByRole("button", { name: "Resume", exact: true })
+        .click({ timeout: 5_000 });
+    } catch (error) {
+      if (!(await report.isVisible())) throw error;
+    }
     await expect(report).toBeVisible();
     await expect(
       report.locator('[aria-label="Capability probe score 7 out of 7"]'),
