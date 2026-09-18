@@ -148,6 +148,22 @@ function evidenceOutcomeClasses(status: string): string {
   return 'border-border/60 bg-background/20 text-muted-foreground';
 }
 
+function fallbackFlightState(execution: {
+  status?: string;
+  proofRequired?: boolean;
+  evidenceVerdict?: string;
+  proposalId?: string | null;
+}): string {
+  if (execution.status === 'failed') return 'BLOCKED';
+  if (execution.status === 'cancelled' || execution.status === 'cancelling') return 'CANCELLED';
+  if (execution.status === 'completed') {
+    if (!execution.proofRequired || execution.evidenceVerdict === 'PROVEN') return 'COMPLETED';
+    if (execution.proposalId && execution.evidenceVerdict === 'PARTIAL') return 'READY_FOR_REVIEW';
+    return 'BLOCKED';
+  }
+  return 'BUILDING';
+}
+
 function safeEvidenceAction(completeness: OperationEvidenceProjection['completeness']): string {
   if (completeness === 'blocked' || completeness === 'failed') {
     return 'Review the blocked receipt, then rerun the approved validation before applying or delivering.';
@@ -345,13 +361,7 @@ export default function FlightDeck() {
     );
   }
 
-  const state = execution.flightState ?? (
-    execution.status === 'failed' || execution.status === 'completed'
-      ? 'BLOCKED'
-      : execution.status === 'cancelled' || execution.status === 'cancelling'
-        ? 'CANCELLED'
-        : 'BUILDING'
-  );
+  const state = execution.flightState ?? fallbackFlightState(execution);
   const evidenceVerdict = execution.evidenceVerdict ?? 'NOT_RECORDED';
   const checkpoint = execution.checkpoint;
   const nodes = checkpointNodes(checkpoint);

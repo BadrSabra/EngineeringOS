@@ -116,6 +116,38 @@ describe('Flight Deck mission control', () => {
     expect(screen.queryByText('Mission → Push')).toBeNull();
   });
 
+  it('uses evidence-aware fallback states for legacy executions without flightState', () => {
+    mocks.execution = {
+      ...baseExecution('COMPLETED', 'passed'),
+      flightState: undefined,
+      status: 'completed',
+      proofRequired: false,
+      linkedTaskId: null,
+      buildPlanMessageId: null,
+      proposalId: null,
+      operationId: null,
+      objective: null,
+    };
+    renderDeck();
+
+    expect(screen.getAllByText('COMPLETED').length).toBeGreaterThan(0);
+    expect(screen.getByText('Audit / Chat run')).toBeInTheDocument();
+  });
+
+  it('keeps legacy completed delivery runs reviewable when evidence is partial', () => {
+    mocks.execution = {
+      ...baseExecution('READY_FOR_REVIEW', 'passed'),
+      flightState: undefined,
+      status: 'completed',
+      proofRequired: true,
+      evidenceVerdict: 'PARTIAL',
+      proposalId: 'proposal-1',
+    };
+    renderDeck();
+
+    expect(screen.getAllByText('READY FOR REVIEW').length).toBeGreaterThan(0);
+  });
+
   it('renders the correlated redacted proof chain and delivered-byte hashes', () => {
     mocks.execution = {
       ...baseExecution('COMMITTED', 'passed'),
