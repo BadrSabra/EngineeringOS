@@ -696,6 +696,7 @@ export {
   resolveProjectQueryTarget,
   resolveProjectQueryTargetResolution,
   isAmbiguousProjectQuery,
+  isProjectArchitectureOrientationRequest,
   isSessionQualityAuditRequest,
   isAcceptanceCoverageRequest,
   buildProjectQueryObjective,

@@ -150,7 +150,7 @@ const PLANNER_TIMEOUT_MS = 5_000;
 const MAX_GRAPH_CHARS = 3_000;
 const MAX_TARGET_FILES = 10;
 const MAX_SUBQUERIES = 5;
-const MAX_ORIENTATION_ROLE_FILES = 2;
+const MAX_ORIENTATION_ROLE_FILES = 3;
 /** Hard cap on files added by graph enrichment (task spec: ≤ 15 total). */
 const MAX_GRAPH_FILES = 15;
 /** Hard timeout for the graph enrichment step (task spec: ≤ 2 seconds). */
@@ -329,14 +329,20 @@ Rules:
 - when target resolution is unresolved, return targetConfidence >= 0.75 only when the
   targetFiles are a narrow, directly relevant source set; otherwise return 0 and an empty
   targetFiles array. Never treat the knowledge graph as complete evidence.
-- ${profile === "project_orientation"
-    ? `orientationSources is required for this orientation request. Select 1-4 existing
+  - ${profile === "project_orientation"
+    ? `orientationSources is required for this orientation request. Select 1-3 existing
   source files for each role:
   - purpose: README, package/app manifest, or the primary application entrypoint
-  - components: the main UI, server, domain, or feature composition files
-  - primaryFlow: route/controller/handler and service files that show the main user flow
+  - components: the main UI, server, domain, or feature composition files; when the
+    request names multiple subsystems, preserve one concrete source path for each
+    named area (for example dashboard, authentication, discovery, knowledge graph,
+    AI execution, and governance)
+  - primaryFlow: route/controller/handler and service files that show the main user flow,
+    including the requested /api routes when they are named
   - uncertainty: tests, configuration, deployment, or boundary files that reveal limits
-  Every path must also appear in targetFiles. Keep the union bounded to at most 8 files.
+  Every path must also appear in targetFiles. Keep the union bounded to at most 10 files.
+  File names, graph labels, and requested citations are navigation hints only; every
+  cited claim must be supported by a complete read of the cited source file.
   Do not use graph names or file inventory as evidence without reading the source.`
     : "orientationSources is omitted unless the project_orientation profile is active."}
 - originalIntent: copy the user query exactly`;
@@ -482,8 +488,8 @@ export function validateQueryPlanShape(
       if (roleFiles.some((file) => !targetFileSet.has(normalizePlannerPath(file)))) {
         diagnostics.push("orientationSources files must also appear in targetFiles");
       }
-      if (new Set(roleFiles.map(normalizePlannerPath)).size > 8) {
-        diagnostics.push("project_orientation source union exceeds the maximum of 8 files");
+      if (new Set(roleFiles.map(normalizePlannerPath)).size > 10) {
+        diagnostics.push("project_orientation source union exceeds the maximum of 10 files");
       }
     }
   }

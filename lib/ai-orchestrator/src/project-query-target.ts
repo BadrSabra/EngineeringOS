@@ -394,6 +394,48 @@ const AMBIGUOUS_PROJECT_ANALYSIS_RE =
 const PROJECT_ORIENTATION_RE =
   /^(?:ما(?:\s+هو)?\s+(?:اسم\s+)?(?:هذا\s+)?المشروع|ماذا\s+(?:يفعل|يقدم|يحتوي)\s+(?:هذا\s+)?المشروع|عن\s+ماذا\s+يدور\s+(?:هذا\s+)?المشروع|[اأ]شرح(?:\s+لي)?\s+(?:هذا\s+)?المشروع(?:\s+(?:بصورة\s+)?(?:مبسطة|ببساطة))?|ساعدني(?:\s+في)?\s+(?:فهم|أفهم)(?:\s+هذا)?\s+المشروع|ممكن\s+تساعدني(?:\s+أن)?\s+(?:أفهم\s+)?المشروع|هل\s+(?:هذا\s+)?المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+(?:the\s+)?(?:this\s+)?project(?:'s\s+name|\s+status)?|what\s+does\s+(?:this\s+)?project\s+do|(?:explain|describe)\s+(?:this\s+)?project|help\s+me\s+understand\s+(?:this\s+)?project|is\s+(?:this\s+)?project\s+running|(?:ما|ماذا)\s+(?:هي|هو)?\s*(?:حالة|وضع)\s+(?:هذا\s+)?المشروع)[؟?!.\s]*$/iu;
 
+const BROAD_ORIENTATION_ACTION_RE =
+  /(?:اشرح|أشرح|شرح|استعرض|اعرض|وضّح|وضح|قدّم|قدم|أعطني|خريطة|نظرة\s+عامة|كيف\s+يعمل|explain|describe|overview|walk\s+me\s+through|map|summarize)/iu;
+const BROAD_ORIENTATION_ARCHITECTURE_RE =
+  /(?:معمار(?:ية|ي)|هندسي(?:ة|ا)?|بنية|هيكل(?:ية)?|architecture|system\s+design|technical\s+overview)/iu;
+const BROAD_ORIENTATION_PROJECT_RE =
+  /(?:المشروع|مشروعي|النظام|EngineeringOS|project|workspace|repository|codebase)/iu;
+const BROAD_ORIENTATION_BREADTH_RE =
+  /(?:شامل(?:ة|ًا|ا)?|كامل(?:ة|ًا|ا)?|واسع(?:ة|ًا|ا)?|بالتفصيل|بصورة\s+كاملة|جميع|كل|ستة|6|مسارات?\s+\/?\s*api|\/\s*api|ملفات?\s+(?:إثبات|المصدر|الدليل)|citations?|evidence\s+files?|comprehensive|end[-\s]?to[-\s]+end|all\s+api\s+routes?)/iu;
+const BROAD_ORIENTATION_FORENSIC_RE =
+  /(?:تدقيق|دقّق|تحقيق\s+جنائي|تحليل\s+جنائي|فجوات?|عيوب?|خلل|أسباب?\s+جذرية?|إثبات\s+(?:خلل|عيب)|audit|forensic|root\s+causes?|verified\s+gaps?|defects?)/iu;
+const BROAD_ORIENTATION_DOMAIN_SIGNALS = [
+  /dashboard|لوحة\s+التحكم/u,
+  /auth(?:entication)?|مصادقة|توثيق/u,
+  /project\s+discovery|اكتشاف\s+المشروع|استكشاف\s+المشروع/u,
+  /knowledge\s+graph|الرسم\s+المعرفي|الرسم\s+المعرفى/u,
+  /ai\s+execution|تنفيذ\s+الذكاء|تنفيذ\s+ai/u,
+  /governance|الحوكمة/u,
+  /\/\s*api|مسارات?\s+api/u,
+];
+
+/**
+ * Broad architecture explanations are still orientation requests, not
+ * subsystem queries. Requiring an explicit explanation action, architecture
+ * vocabulary, project reference, and either breadth or multiple named domains
+ * keeps forensic audits and ordinary subsystem questions on their own paths.
+ */
+export function isProjectArchitectureOrientationRequest(message: string): boolean {
+  const normalized = message.trim();
+  if (
+    !normalized
+    || BROAD_ORIENTATION_FORENSIC_RE.test(normalized)
+    || !BROAD_ORIENTATION_ACTION_RE.test(normalized)
+    || !BROAD_ORIENTATION_ARCHITECTURE_RE.test(normalized)
+    || !BROAD_ORIENTATION_PROJECT_RE.test(normalized)
+  ) {
+    return false;
+  }
+  const domainCount = BROAD_ORIENTATION_DOMAIN_SIGNALS
+    .reduce((count, signal) => count + (signal.test(normalized) ? 1 : 0), 0);
+  return BROAD_ORIENTATION_BREADTH_RE.test(normalized) || domainCount >= 2;
+}
+
 /**
  * An evidence-shaped question can still lack a safe subsystem target. Keep
  * this detector conservative: broad audits retain their separate consent
@@ -402,7 +444,9 @@ const PROJECT_ORIENTATION_RE =
  */
 export function isAmbiguousProjectQuery(message: string): boolean {
   if (BROAD_GAP_REQUEST_RE.test(message)) return false;
-  if (PROJECT_ORIENTATION_RE.test(message.trim())) return false;
+  if (PROJECT_ORIENTATION_RE.test(message.trim()) || isProjectArchitectureOrientationRequest(message)) {
+    return false;
+  }
   if (resolveProjectQueryTarget(message)) return false;
   if (
     /(?:^|[\s`"'(])(?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|md|json|yaml|yml|toml|css|scss|html)\b/iu.test(
@@ -437,6 +481,10 @@ function materializeTarget(
 
 export function resolveProjectQueryTarget(message: string): ProjectQueryTarget | undefined {
   if (isAcceptanceCoverageRequest(message)) return undefined;
+  // Broad architecture explanations use the source-backed orientation
+  // contract. Do not let a mention such as "AI execution" select only the
+  // embedded-AI target and silently discard the other requested domains.
+  if (isProjectArchitectureOrientationRequest(message)) return undefined;
   if (isSessionQualityAuditRequest(message)) {
     return materializeTarget(
       {

@@ -40,6 +40,27 @@ describe("classifyRequest — ordinary orientation questions", () => {
     expect(isProjectOrientationQuestion(message)).toBe(false);
   });
 
+  it("routes a broad Arabic architecture brief through source-backed orientation", () => {
+    const message =
+      "اشرح لي المعمارية الشاملة لمشروع EngineeringOS مع Dashboard وAuthentication وProject Discovery وKnowledge Graph وAI Execution وGovernance، وكل مسارات /api وملفات الإثبات والاستشهادات";
+    const result = classifyRequest(message);
+
+    expect(isProjectOrientationQuestion(message)).toBe(true);
+    expect(result.category).toBe("simple");
+    expect(result.projectTarget).toBeUndefined();
+    expect(result.projectTargetResolution).toBe("not_applicable");
+    expect(result.allowPrefetch).toBe(false);
+    expect(result.structuredOutputMode).toBe(false);
+    expect(result.orderedForensicRoots).toEqual([]);
+  });
+
+  it("does not classify a broad architecture audit as orientation", () => {
+    const message =
+      "دقّق معماريًا في مشروع EngineeringOS واكتشف فجوات Dashboard وAuthentication وحدد الأسباب الجذرية";
+    expect(isProjectOrientationQuestion(message)).toBe(false);
+    expect(classifyRequest(message).taskType).not.toBe("BEHAVIOR_QUERY");
+  });
+
   it.each([
     "What is the project status?",
     "هل المشروع شغال حاليًا؟",

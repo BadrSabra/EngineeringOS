@@ -344,4 +344,22 @@ describe("target-aware project queries", () => {
     expect(intent.requiresTools).toBe(true);
     expect(intent.requiresEvidence).toBe(false);
   });
+
+  it("keeps a broad Arabic architecture brief on the orientation contract", () => {
+    const message =
+      "اشرح لي المعمارية الشاملة لمشروع EngineeringOS مع Dashboard وAuthentication وProject Discovery وKnowledge Graph وAI Execution وGovernance، وكل مسارات /api وملفات الإثبات والاستشهادات";
+    const target = resolveProjectQueryTarget(message);
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(target).toBeUndefined();
+    expect(classification.projectTargetResolution).toBe("not_applicable");
+    expect(intent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      executionTaskType: "tool_chat",
+      requiresTools: true,
+      requiresEvidence: false,
+    });
+    expect(intent.projectTarget).toBeUndefined();
+  });
 });
