@@ -8718,6 +8718,10 @@ export default function AiChat() {
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryPending, setResumeRecoveryPending] = useState(false);
   const resumeRecoveryPendingRef = useRef<string | null>(null);
+  // Prevent a manual Resume click from racing an already scheduled automatic
+  // reconnect. The resume-token path used to bypass resumeRecoveryPendingRef,
+  // allowing both callers to send a second stream for the same execution.
+  const resumeStreamExecutionRef = useRef<string | null>(null);
   const autoReconnectRef = useRef<{
     executionId: string | null;
     attempts: number;
@@ -9051,6 +9055,7 @@ export default function AiChat() {
 
   function clearExecutionScopedState(options?: { preserveBuildPending?: boolean }) {
     resetAutoReconnect();
+    resumeStreamExecutionRef.current = null;
     streamOwnerRef.current = null;
     activeExecutionRef.current = null;
     setActiveExecution(null);
@@ -10994,6 +10999,11 @@ export default function AiChat() {
         onDone: (data) => {
           if (!ownsStream({ sessionId: data.sessionId })) return;
            resetAutoReconnect();
+           if (
+             resumeStreamExecutionRef.current === options?.executionId
+           ) {
+             resumeStreamExecutionRef.current = null;
+           }
           persistAiChatSelection({
             version: 1,
             projectId: requestProjectId,
@@ -11110,6 +11120,10 @@ export default function AiChat() {
         onError: (err) => {
           if (!ownsStream(err.executionId ? { executionId: err.executionId } : undefined)) return;
           const currentExecution = activeExecutionRef.current;
+           const erroredExecutionId = err.executionId ?? currentExecution?.id;
+           if (resumeStreamExecutionRef.current === erroredExecutionId) {
+             resumeStreamExecutionRef.current = null;
+           }
           const preserveTerminalExecution = Boolean(
             currentExecution
             && currentExecution.proofRequired !== false
@@ -11213,10 +11227,19 @@ export default function AiChat() {
 
   async function resumeActiveExecution() {
     const execution = activeExecutionRef.current;
-    if (!execution || resumeRecoveryPendingRef.current === execution.id) return;
+    if (
+      !execution
+      || resumeRecoveryPendingRef.current === execution.id
+      || resumeStreamExecutionRef.current === execution.id
+    ) return;
     setResumeRecoveryError(null);
+    // A manual resume supersedes a queued automatic reconnect. Clearing the
+    // timer here also closes the race where the timer fires after the button
+    // handler has already sent the same resume request.
+    resetAutoReconnect();
 
     if (execution.resumeToken) {
+      resumeStreamExecutionRef.current = execution.id;
       sendMessage(execution.message, {
         executionId: execution.id,
         resumeToken: execution.resumeToken,
@@ -11262,6 +11285,7 @@ export default function AiChat() {
         }
       }
       setActiveExecution(recovered);
+      resumeStreamExecutionRef.current = recovered.id;
       sendMessage(recovered.message, {
         executionId: recovered.id,
         resumeToken: recovered.resumeToken,
