@@ -5739,10 +5739,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const started = events.find((event) => event.type === "execution_started");
     const done = events.find((event) => event.type === "done");
     expect(started).toMatchObject({
-      sessionId: latestSessionId,
       turnIntent: "PROJECT_QUERY",
       proofRequired: true,
     });
+    expect(done?.sessionId).toBe(latestSessionId);
     expect(done?.execution).toMatchObject({
       diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
     });
