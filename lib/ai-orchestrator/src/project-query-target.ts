@@ -36,7 +36,7 @@ export type ProjectQueryTarget = {
 const SESSION_QUALITY_LATEST_RE =
   /(?:\b(?:latest|most\s+recent)(?:[-\s]+\w+){0,3}\s+session\b|(?:آخر|أحدث)\s+(?:جلسة|جلسه)|الجلسة\s+(?:(?:الأخيرة|الاخيرة)|(?:الأحدث|الاحدث)))/iu;
 const SESSION_QUALITY_AGENT_RE =
-  /(?:\b(?:internal|embedded)\s+(?:AI\s+)?agent\b|\bproject[-\s]agent\b|\bagent\s+(?:of|inside)\s+the\s+project\b|الوكيل\s+(?:(?:الداخلي|الداخلى)\s+(?:للمشروع|داخل\s+المشروع)|(?:المدمج|المضمن|المضمّن))|وكيل\s+المشروع)/iu;
+  /(?:\b(?:internal|embedded)\s+(?:AI\s+)?agent\b|\bproject[-\s]agent\b|\bagent\s+(?:of|inside)\s+the\s+project\b|(?:الوكيل|للوكيل)\s+(?:(?:الداخلي|الداخلى)\s+(?:للمشروع|داخل\s+المشروع)|(?:المدمج|المضمن|المضمّن))|وكيل\s+المشروع)/iu;
 const SESSION_QUALITY_DIMENSIONS_RE =
   /(?:\b(?:response|answer)\s+quality\b|\bquality\s+of\s+(?:the\s+)?responses?\b|\bconsistency\b|\bconsistent\b|\broot\s+cause\b|\bdivergence\b|\bdeviation\b|جودة\s+(?:الردود|الإجابات)|مستوى\s+(?:الردود|الإجابات)|اتساق(?:ها|هما|الردود|الإجابات)?|تقييم|قيّم|قيم|السبب\s+الجذري|الانحراف|الانحرافات)/iu;
 const SESSION_QUALITY_DIVERGENCE_RE =
