@@ -414,7 +414,7 @@ describe('Mission Control', () => {
       benchmark: {
         ...missionControlFixture.benchmark,
         freeTierEnvelope: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           verdict: 'PASS',
         },
       },

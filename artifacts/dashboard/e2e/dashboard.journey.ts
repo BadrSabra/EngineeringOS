@@ -212,6 +212,59 @@ const executionFixture = {
     stage: "complete",
     detail: "Controlled browser fixture completed.",
   },
+  projection: {
+    schemaVersion: 2,
+    kind: "DELIVERY",
+    phase: "COMPLETE",
+    objective: "Verify the dashboard browser journey",
+    progress: {
+      percent: 100,
+      label: "Delivery completed",
+      currentStep: null,
+      completedSteps: 1,
+      totalSteps: 1,
+    },
+    plan: {
+      steps: [{
+        id: "delivery-step",
+        title: "Deliver verified candidate",
+        status: "completed",
+        action: "deliver",
+        files: ["src/feature.ts"],
+      }],
+      currentStepId: null,
+    },
+    tools: { totalCalls: 2, activeTool: null, recent: [] },
+    workspace: {
+      changedFiles: ["src/feature.ts"],
+      diffStatus: "available",
+    },
+    verification: {
+      status: "passed",
+      evidenceVerdict: "PROVEN",
+      proofRequired: true,
+    },
+    approval: {
+      required: true,
+      status: "APPROVED",
+      proposalId: "e2e-proposal",
+    },
+    stopped: {
+      reason: "Apply, commit, and push receipts recorded.",
+      outcome: "SUCCEEDED",
+    },
+    timeline: [
+      { id: "understand", label: "Understand request", status: "completed", detail: "Request retained." },
+      { id: "investigate", label: "Investigate project", status: "completed", detail: "Project evidence retained." },
+      { id: "plan", label: "Create bounded plan", status: "completed", detail: "1 server-recorded plan step." },
+      { id: "approval", label: "Approve change", status: "completed", detail: null },
+      { id: "build", label: "Build candidate", status: "completed", detail: "1 scoped file changed." },
+      { id: "validate", label: "Validate candidate", status: "completed", detail: "Candidate-bound validation passed." },
+      { id: "review", label: "Review changes", status: "completed", detail: "Approved change reviewed." },
+      { id: "deliver", label: "Deliver to Git", status: "completed", detail: "Apply, commit, and push receipts are recorded for this operation." },
+    ],
+    allowedActions: [],
+  },
   objective: { objective: "Verify the dashboard browser journey" },
   startedAt: "2026-01-01T00:00:00.000Z",
   completedAt: "2026-01-01T00:01:00.000Z",
@@ -5792,6 +5845,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(proof).toBeVisible();
     await expect(proof).toContainText(/completed/i);
     await expect(proof).toContainText("Revision: e2e-revision-42");
+    const mission = page.getByTestId("mission-capsule");
+    await expect(mission).toBeVisible();
+    await expect(mission).toContainText("Delivered");
+    await expect(page.getByTestId("mission-identity")).toContainText("e2e-operation");
+    await expect(page.getByTestId("mission-timeline")).toBeVisible();
+    await expect(page.getByTestId("timeline-validate")).toContainText("Done");
+    await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
 
     await proof.getByRole("button", { name: "Preview audit" }).click();
     const preview = page.getByLabel("Redacted audit preview");
@@ -5828,6 +5888,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(reloadedProof).toContainText(/completed/i);
     await expect(reloadedProof).toContainText("Execution e2e-controlled-execution");
     await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
+    const reloadedMission = page.getByTestId("mission-capsule");
+    await expect(reloadedMission).toBeVisible();
+    await expect(reloadedMission).toContainText("Delivered");
+    await expect(page.getByTestId("mission-identity")).toContainText("e2e-operation");
+    await expect(page.getByTestId("timeline-deliver")).toContainText("Done");
     await expect(
       page.getByLabel("Redacted audit preview"),
     ).toBeHidden();

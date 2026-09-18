@@ -22,7 +22,7 @@ describe("buildAiExecutionProjection", () => {
     });
 
     expect(projection).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: "DELIVERY",
       phase: "VALIDATE",
       objective: "Update the dashboard",
@@ -32,6 +32,16 @@ describe("buildAiExecutionProjection", () => {
       approval: { required: true, status: "PENDING", proposalId: "proposal-1" },
       stopped: { reason: null, outcome: null },
     });
+    expect(projection.timeline.map((item) => [item.id, item.status])).toEqual([
+      ["understand", "completed"],
+      ["investigate", "completed"],
+      ["plan", "completed"],
+      ["approval", "active"],
+      ["build", "pending"],
+      ["validate", "active"],
+      ["review", "active"],
+      ["deliver", "pending"],
+    ]);
     expect(projection.allowedActions).toEqual(["CANCEL", "REVIEW_PROOF", "REVIEW_DIFF", "APPROVE_CHANGES"]);
   });
 
@@ -51,6 +61,8 @@ describe("buildAiExecutionProjection", () => {
 
     expect(projection.kind).toBe("TASK");
     expect(projection.stopped).toEqual({ reason: "EXECUTION_PAUSED", outcome: "FAILED" });
+    expect(projection.timeline.find((item) => item.id === "build")?.status).toBe("not_applicable");
+    expect(projection.timeline.find((item) => item.id === "deliver")?.status).toBe("not_applicable");
     expect(projection.allowedActions).toEqual(["RESUME_CHECKPOINT", "REVIEW_PROOF"]);
   });
 
@@ -82,5 +94,7 @@ describe("buildAiExecutionProjection", () => {
 
     expect(retryable.allowedActions).toContain("RETRY_CHECKPOINT");
     expect(blocked.allowedActions).not.toContain("RETRY_CHECKPOINT");
+    expect(blocked.timeline.find((item) => item.id === "validate")?.status).toBe("blocked");
+    expect(blocked.timeline.find((item) => item.id === "deliver")?.status).toBe("not_applicable");
   });
 });

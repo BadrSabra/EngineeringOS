@@ -2442,7 +2442,7 @@ export type AiExecutionProjectionSchemaVersion = typeof AiExecutionProjectionSch
 
 
 export const AiExecutionProjectionSchemaVersion = {
-  NUMBER_1: 1,
+  NUMBER_2: 2,
 } as const;
 
 export type AiExecutionProjectionKind = typeof AiExecutionProjectionKind[keyof typeof AiExecutionProjectionKind];
@@ -2511,6 +2511,31 @@ export const AiExecutionProjectionStoppedOutcome = {
   SUCCEEDED: 'SUCCEEDED',
   FAILED: 'FAILED',
   INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type AiExecutionProjectionTimelineItemId = typeof AiExecutionProjectionTimelineItemId[keyof typeof AiExecutionProjectionTimelineItemId];
+
+
+export const AiExecutionProjectionTimelineItemId = {
+  understand: 'understand',
+  investigate: 'investigate',
+  plan: 'plan',
+  approval: 'approval',
+  build: 'build',
+  validate: 'validate',
+  review: 'review',
+  deliver: 'deliver',
+} as const;
+
+export type AiExecutionProjectionTimelineItemStatus = typeof AiExecutionProjectionTimelineItemStatus[keyof typeof AiExecutionProjectionTimelineItemStatus];
+
+
+export const AiExecutionProjectionTimelineItemStatus = {
+  pending: 'pending',
+  active: 'active',
+  completed: 'completed',
+  blocked: 'blocked',
+  not_applicable: 'not_applicable',
 } as const;
 
 export type AiExecutionProjectionAllowedActionsItem = typeof AiExecutionProjectionAllowedActionsItem[keyof typeof AiExecutionProjectionAllowedActionsItem];
@@ -2608,6 +2633,15 @@ export type AiExecutionProjectionStopped = {
   outcome: AiExecutionProjectionStoppedOutcome;
 };
 
+export type AiExecutionProjectionTimelineItem = {
+  id: AiExecutionProjectionTimelineItemId;
+  /** @maxLength 80 */
+  label: string;
+  status: AiExecutionProjectionTimelineItemStatus;
+  /** @maxLength 240 */
+  detail: string | null;
+};
+
 export interface AiExecutionProjection {
   schemaVersion: AiExecutionProjectionSchemaVersion;
   kind: AiExecutionProjectionKind;
@@ -2625,6 +2659,8 @@ export interface AiExecutionProjection {
   verification: AiExecutionProjectionVerification;
   approval: AiExecutionProjectionApproval;
   stopped: AiExecutionProjectionStopped;
+  /** @maxItems 8 */
+  timeline: AiExecutionProjectionTimelineItem[];
   /** @maxItems 7 */
   allowedActions: AiExecutionProjectionAllowedActionsItem[];
 }

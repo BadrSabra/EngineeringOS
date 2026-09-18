@@ -360,7 +360,7 @@ beforeEach(() => {
     usage: undefined,
   };
   mocks.qualityExport.mockResolvedValue({
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: '2026-08-13T00:00:00.000Z',
     scope: { projectId: 'project-1', provider: 'all', windowDays: 30 },
     summary: {

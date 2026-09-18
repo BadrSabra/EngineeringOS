@@ -3445,6 +3445,12 @@ export const aiChatResponseMessageProjectionOneWorkspaceChangedFilesMax = 20;
 
 export const aiChatResponseMessageProjectionOneVerificationEvidenceVerdictMax = 40;
 
+export const aiChatResponseMessageProjectionOneTimelineItemLabelMax = 80;
+
+export const aiChatResponseMessageProjectionOneTimelineItemDetailMax = 240;
+
+export const aiChatResponseMessageProjectionOneTimelineMax = 8;
+
 export const aiChatResponseMessageProjectionOneAllowedActionsMax = 7;
 
 export const aiChatResponseMessageForensicDiagnosticOneExplanationMax = 500;
@@ -3621,7 +3627,7 @@ export const AiChatResponse = zod.object({
   "resumable": zod.boolean()
 }),zod.null()]).optional().describe('Canonical terminal identity shared by stream, execution detail, and chat history.'),
   "projection": zod.union([zod.object({
-  "schemaVersion": zod.literal(1),
+  "schemaVersion": zod.literal(2),
   "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
   "phase": zod.string().min(1).max(aiChatResponseMessageProjectionOnePhaseMax),
   "objective": zod.string().max(aiChatResponseMessageProjectionOneObjectiveMax),
@@ -3669,6 +3675,12 @@ export const AiChatResponse = zod.object({
   "reason": zod.string().nullable(),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
+  "timeline": zod.array(zod.object({
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "label": zod.string().max(aiChatResponseMessageProjectionOneTimelineItemLabelMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
+  "detail": zod.string().max(aiChatResponseMessageProjectionOneTimelineItemDetailMax).nullable()
+})).max(aiChatResponseMessageProjectionOneTimelineMax),
   "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(aiChatResponseMessageProjectionOneAllowedActionsMax)
 }),zod.null()]).optional().describe('Full server-owned execution read model shared by detail, history, and terminal stream surfaces.'),
   "forensicDiagnostic": zod.union([zod.object({
@@ -3973,6 +3985,12 @@ export const getAiExecutionResponseProjectionWorkspaceChangedFilesMax = 20;
 
 export const getAiExecutionResponseProjectionVerificationEvidenceVerdictMax = 40;
 
+export const getAiExecutionResponseProjectionTimelineItemLabelMax = 80;
+
+export const getAiExecutionResponseProjectionTimelineItemDetailMax = 240;
+
+export const getAiExecutionResponseProjectionTimelineMax = 8;
+
 export const getAiExecutionResponseProjectionAllowedActionsMax = 7;
 
 
@@ -4107,7 +4125,7 @@ export const GetAiExecutionResponse = zod.object({
 })
 }),
   "projection": zod.object({
-  "schemaVersion": zod.literal(1),
+  "schemaVersion": zod.literal(2),
   "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
   "phase": zod.string().min(1).max(getAiExecutionResponseProjectionPhaseMax),
   "objective": zod.string().max(getAiExecutionResponseProjectionObjectiveMax),
@@ -4155,6 +4173,12 @@ export const GetAiExecutionResponse = zod.object({
   "reason": zod.string().nullable(),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
+  "timeline": zod.array(zod.object({
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "label": zod.string().max(getAiExecutionResponseProjectionTimelineItemLabelMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
+  "detail": zod.string().max(getAiExecutionResponseProjectionTimelineItemDetailMax).nullable()
+})).max(getAiExecutionResponseProjectionTimelineMax),
   "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(getAiExecutionResponseProjectionAllowedActionsMax)
 }),
   "createdAt": zod.coerce.date().optional(),
@@ -4233,6 +4257,12 @@ export const listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesMax = 
 
 export const listAiExecutionHistoryResponseProjectionVerificationEvidenceVerdictMax = 40;
 
+export const listAiExecutionHistoryResponseProjectionTimelineItemLabelMax = 80;
+
+export const listAiExecutionHistoryResponseProjectionTimelineItemDetailMax = 240;
+
+export const listAiExecutionHistoryResponseProjectionTimelineMax = 8;
+
 export const listAiExecutionHistoryResponseProjectionAllowedActionsMax = 7;
 
 
@@ -4289,7 +4319,7 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "resumable": zod.boolean()
 }),zod.null()]).optional().describe('Canonical terminal identity for the retained execution attempt.'),
   "projection": zod.object({
-  "schemaVersion": zod.literal(1),
+  "schemaVersion": zod.literal(2),
   "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
   "phase": zod.string().min(1).max(listAiExecutionHistoryResponseProjectionPhaseMax),
   "objective": zod.string().max(listAiExecutionHistoryResponseProjectionObjectiveMax),
@@ -4337,6 +4367,12 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "reason": zod.string().nullable(),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
+  "timeline": zod.array(zod.object({
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "label": zod.string().max(listAiExecutionHistoryResponseProjectionTimelineItemLabelMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
+  "detail": zod.string().max(listAiExecutionHistoryResponseProjectionTimelineItemDetailMax).nullable()
+})).max(listAiExecutionHistoryResponseProjectionTimelineMax),
   "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(listAiExecutionHistoryResponseProjectionAllowedActionsMax)
 }).optional().describe('Full server-owned execution read model shared by detail, history, and terminal stream surfaces.'),
   "proofRequired": zod.boolean(),
@@ -6421,6 +6457,12 @@ export const listAiChatMessagesResponseProjectionOneWorkspaceChangedFilesMax = 2
 
 export const listAiChatMessagesResponseProjectionOneVerificationEvidenceVerdictMax = 40;
 
+export const listAiChatMessagesResponseProjectionOneTimelineItemLabelMax = 80;
+
+export const listAiChatMessagesResponseProjectionOneTimelineItemDetailMax = 240;
+
+export const listAiChatMessagesResponseProjectionOneTimelineMax = 8;
+
 export const listAiChatMessagesResponseProjectionOneAllowedActionsMax = 7;
 
 export const listAiChatMessagesResponseForensicDiagnosticOneExplanationMax = 500;
@@ -6551,7 +6593,7 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "resumable": zod.boolean()
 }),zod.null()]).optional().describe('Canonical terminal identity shared by stream, execution detail, and chat history.'),
   "projection": zod.union([zod.object({
-  "schemaVersion": zod.literal(1),
+  "schemaVersion": zod.literal(2),
   "kind": zod.enum(['CHAT', 'TASK', 'DELIVERY', 'RECIPE']),
   "phase": zod.string().min(1).max(listAiChatMessagesResponseProjectionOnePhaseMax),
   "objective": zod.string().max(listAiChatMessagesResponseProjectionOneObjectiveMax),
@@ -6599,6 +6641,12 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "reason": zod.string().nullable(),
   "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullable()
 }),
+  "timeline": zod.array(zod.object({
+  "id": zod.enum(['understand', 'investigate', 'plan', 'approval', 'build', 'validate', 'review', 'deliver']),
+  "label": zod.string().max(listAiChatMessagesResponseProjectionOneTimelineItemLabelMax),
+  "status": zod.enum(['pending', 'active', 'completed', 'blocked', 'not_applicable']),
+  "detail": zod.string().max(listAiChatMessagesResponseProjectionOneTimelineItemDetailMax).nullable()
+})).max(listAiChatMessagesResponseProjectionOneTimelineMax),
   "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(listAiChatMessagesResponseProjectionOneAllowedActionsMax)
 }),zod.null()]).optional().describe('Full server-owned execution read model shared by detail, history, and terminal stream surfaces.'),
   "forensicDiagnostic": zod.union([zod.object({

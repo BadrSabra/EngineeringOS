@@ -144,6 +144,24 @@ function stepIcon(status: string | undefined) {
   return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
 }
 
+function timelineIcon(status: string) {
+  if (status === 'completed') return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-200" />;
+  if (status === 'active') return <Clock3 className="h-3.5 w-3.5 shrink-0 animate-pulse text-primary" />;
+  if (status === 'blocked') return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-200" />;
+  if (status === 'not_applicable') return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />;
+  return <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />;
+}
+
+function timelineStatusLabel(status: string): string {
+  switch (status) {
+    case 'completed': return 'Done';
+    case 'active': return 'Now';
+    case 'blocked': return 'Blocked';
+    case 'not_applicable': return 'Not needed';
+    default: return 'Next';
+  }
+}
+
 function actionIcon(action: ProjectionAction) {
   if (action === 'CANCEL') return <Square className="mr-1.5 h-3.5 w-3.5" />;
   if (action === 'REVIEW_DIFF') return <GitCompareArrows className="mr-1.5 h-3.5 w-3.5" />;
@@ -312,6 +330,40 @@ export function ExecutionProjectionPanel({
           {taskId && <span>Task <code className="text-foreground">{taskId}</code></span>}
           {resolvedProposalId && <span>Proposal <code className="text-foreground">{resolvedProposalId}</code></span>}
         </div>
+      )}
+
+      {projection.timeline?.length > 0 && (
+        <details className="mt-3 rounded-md border border-border/45 bg-background/20" open={!compact} data-testid="mission-timeline">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[10px] font-semibold text-foreground">
+            <span>Mission timeline</span>
+            <span className="font-normal text-muted-foreground">({projection.timeline.length} stages)</span>
+            <span className={`ml-auto rounded-full border px-1.5 py-0.5 text-[9px] ${stateTone(missionState.key)}`}>{missionState.label}</span>
+          </summary>
+          <div className="grid gap-1.5 border-t border-border/40 p-2 sm:grid-cols-2 lg:grid-cols-4">
+            {projection.timeline.map((item) => (
+              <div
+                key={item.id}
+                className={`rounded-md border px-2.5 py-2 ${
+                  item.status === 'active'
+                    ? 'border-primary/35 bg-primary/10'
+                    : item.status === 'blocked'
+                      ? 'border-red-500/30 bg-red-500/5'
+                      : item.status === 'completed'
+                        ? 'border-emerald-500/20 bg-emerald-500/5'
+                        : 'border-border/35 bg-background/20'
+                }`}
+                data-testid={`timeline-${item.id}`}
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {timelineIcon(item.status)}
+                  <span className="min-w-0 flex-1 truncate text-[10px] font-medium text-foreground">{item.label}</span>
+                  <span className="shrink-0 text-[9px] text-muted-foreground">{timelineStatusLabel(item.status)}</span>
+                </div>
+                {item.detail && <p className="mt-1 text-[9px] leading-4 text-muted-foreground">{item.detail}</p>}
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       <div className={`mt-3 grid gap-2 text-[10px] ${compact ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 md:grid-cols-4'}`}>

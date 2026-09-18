@@ -10,5 +10,5 @@ export type AiExecutionProjectionSchemaVersion = typeof AiExecutionProjectionSch
 
 
 export const AiExecutionProjectionSchemaVersion = {
-  NUMBER_1: 1,
+  NUMBER_2: 2,
 } as const;

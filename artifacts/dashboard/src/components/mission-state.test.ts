@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { getMissionState } from './mission-state';
 
 const baseProjection: AiExecutionProjection = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: 'DELIVERY',
   phase: 'BUILD',
   objective: 'Update the dashboard',
@@ -14,6 +14,7 @@ const baseProjection: AiExecutionProjection = {
   verification: { status: 'pending', evidenceVerdict: 'NOT_RECORDED', proofRequired: true },
   approval: { required: false, status: 'NOT_REQUIRED', proposalId: null },
   stopped: { reason: null, outcome: null },
+  timeline: [],
   allowedActions: [],
 };
 
@@ -39,6 +40,25 @@ describe('getMissionState', () => {
       projection: baseProjection,
       executionStatus: 'completed',
       flightState: 'PUSHED',
+      evidenceVerdict: 'PROVEN',
+    })).toMatchObject({ key: 'DELIVERED', label: 'Delivered' });
+  });
+
+  it('prefers a completed delivery timeline over a reviewable workspace snapshot', () => {
+    expect(getMissionState({
+      projection: {
+        ...baseProjection,
+        verification: { ...baseProjection.verification, status: 'passed' },
+        workspace: { changedFiles: ['src/feature.ts'], diffStatus: 'available' },
+        timeline: [{
+          id: 'deliver',
+          label: 'Deliver to Git',
+          status: 'completed',
+          detail: null,
+        }],
+      },
+      executionStatus: 'completed',
+      flightState: 'COMPLETED',
       evidenceVerdict: 'PROVEN',
     })).toMatchObject({ key: 'DELIVERED', label: 'Delivered' });
   });

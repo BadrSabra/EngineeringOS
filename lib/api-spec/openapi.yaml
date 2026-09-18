@@ -6037,9 +6037,9 @@ components:
     AiExecutionProjection:
       type: object
       additionalProperties: false
-      required: [schemaVersion, kind, phase, objective, progress, plan, tools, workspace, verification, approval, stopped, allowedActions]
+      required: [schemaVersion, kind, phase, objective, progress, plan, tools, workspace, verification, approval, stopped, timeline, allowedActions]
       properties:
-        schemaVersion: { type: integer, enum: [1] }
+        schemaVersion: { type: integer, enum: [2] }
         kind: { type: string, enum: [CHAT, TASK, DELIVERY, RECIPE] }
         phase: { type: string, minLength: 1, maxLength: 80 }
         objective: { type: string, maxLength: 500 }
@@ -6120,6 +6120,18 @@ components:
           properties:
             reason: { type: string, nullable: true }
             outcome: { type: string, enum: [SUCCEEDED, FAILED, INTERRUPTED], nullable: true }
+        timeline:
+          type: array
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, label, status, detail]
+            properties:
+              id: { type: string, enum: [understand, investigate, plan, approval, build, validate, review, deliver] }
+              label: { type: string, maxLength: 80 }
+              status: { type: string, enum: [pending, active, completed, blocked, not_applicable] }
+              detail: { type: string, maxLength: 240, nullable: true }
         allowedActions:
           type: array
           maxItems: 7

@@ -5,7 +5,7 @@ import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { ExecutionProjectionPanel } from './ExecutionProjectionPanel';
 
 const projection: AiExecutionProjection = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   kind: 'DELIVERY',
   phase: 'VALIDATE',
   objective: 'Update the dashboard',
@@ -35,6 +35,16 @@ const projection: AiExecutionProjection = {
   verification: { status: 'running', evidenceVerdict: 'PARTIAL', proofRequired: true },
   approval: { required: true, status: 'PENDING', proposalId: 'proposal-1' },
   stopped: { reason: null, outcome: null },
+  timeline: [
+    { id: 'understand', label: 'Understand request', status: 'completed', detail: 'Request retained.' },
+    { id: 'investigate', label: 'Investigate project', status: 'completed', detail: null },
+    { id: 'plan', label: 'Create bounded plan', status: 'completed', detail: '1 step.' },
+    { id: 'approval', label: 'Approve change', status: 'active', detail: 'Approval required.' },
+    { id: 'build', label: 'Build candidate', status: 'pending', detail: null },
+    { id: 'validate', label: 'Validate candidate', status: 'active', detail: null },
+    { id: 'review', label: 'Review changes', status: 'active', detail: null },
+    { id: 'deliver', label: 'Deliver to Git', status: 'pending', detail: null },
+  ],
   allowedActions: ['CANCEL', 'REVIEW_DIFF', 'APPROVE_CHANGES'],
 };
 
@@ -63,6 +73,8 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Awaiting approval');
     expect(screen.getByTestId('status-canonical')).toHaveTextContent('Mission state');
     expect(screen.getByTestId('mission-identity')).toHaveTextContent('execution-1');
+    expect(screen.getByTestId('mission-timeline')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
     expect(screen.getByTestId('status-proof')).toHaveTextContent('Partial');
     expect(screen.getByTestId('text-next-action')).toHaveTextContent('Review the validation evidence');
     expect(screen.getAllByText('Run checks').length).toBeGreaterThan(0);

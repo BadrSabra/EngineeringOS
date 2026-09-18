@@ -47,6 +47,9 @@ export function getMissionState(input: MissionStateInput): MissionState {
   const phase = normalized(input.projection.phase);
   const verification = input.projection.verification?.status;
   const stopped = input.projection.stopped?.outcome;
+  const deliveryCompleted = input.projection.timeline?.some(
+    (item) => item.id === 'deliver' && item.status === 'completed',
+  ) ?? false;
 
   if (stopped === 'FAILED' || executionStatus === 'FAILED' || flightState === 'BLOCKED' || verification === 'failed' || evidenceVerdict === 'BLOCKED') {
     return {
@@ -75,6 +78,14 @@ export function getMissionState(input: MissionStateInput): MissionState {
   }
 
   if (flightState === 'PUSHED') {
+    return {
+      key: 'DELIVERED',
+      label: 'Delivered',
+      detail: 'The server recorded the delivered change. The receipt and proof remain available below.',
+    };
+  }
+
+  if (deliveryCompleted) {
     return {
       key: 'DELIVERED',
       label: 'Delivered',

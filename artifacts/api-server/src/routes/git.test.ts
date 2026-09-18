@@ -120,6 +120,24 @@ async function createFixture() {
       treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
     },
   });
+  await db.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "ValidationCompleted",
+    projectId,
+    severity: "success",
+    message: "Candidate validation passed for Git test",
+    correlationId: proposalId,
+    payload: {
+      proposalId,
+      operationId: proposalId,
+      status: "passed",
+      profile: "workspace-typecheck",
+      candidateHash: promotedTreeHash,
+      candidateTreeHash: promotedTreeHash,
+      changeSetHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+    },
+  });
   projectIds.push(projectId);
   return { projectId, proposalId, rootPath, baseTreeHash, promotedTreeHash, changeSetHash };
 }
@@ -287,6 +305,24 @@ process.exit(result.status ?? 1);
         eq(eventsTable.projectId, fixture.projectId),
         eq(eventsTable.type, "AiChangesApplied"),
       ));
+    await db.update(eventsTable)
+      .set({
+        correlationId: operationId,
+        payload: {
+          proposalId: fixture.proposalId,
+          operationId,
+          status: "passed",
+          profile: "workspace-typecheck",
+          candidateHash: fixture.promotedTreeHash,
+          candidateTreeHash: fixture.promotedTreeHash,
+          changeSetHash: fixture.changeSetHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        },
+      })
+      .where(and(
+        eq(eventsTable.projectId, fixture.projectId),
+        eq(eventsTable.type, "ValidationCompleted"),
+      ));
     await db.update(aiChangeProposalsTable)
       .set({ operationId })
       .where(eq(aiChangeProposalsTable.id, fixture.proposalId));
@@ -407,14 +443,23 @@ process.exit(result.status ?? 1);
           eq(eventsTable.correlationId, operationId),
         ));
       expect(traceEvents.map((event) => event.type)).toEqual(
-        expect.arrayContaining(["AiChangesApplied", "GitCommitCreated", "GitPushed"]),
+        expect.arrayContaining(["ValidationCompleted", "AiChangesApplied", "GitCommitCreated", "GitPushed"]),
       );
-      for (const event of traceEvents.filter((entry) => ["AiChangesApplied", "GitCommitCreated", "GitPushed"].includes(entry.type))) {
+      for (const event of traceEvents.filter((entry) => ["ValidationCompleted", "AiChangesApplied", "GitCommitCreated", "GitPushed"].includes(entry.type))) {
         expect(event.correlationId).toBe(operationId);
         expect(event.payload).toMatchObject({
           proposalId: fixture.proposalId,
           operationId,
         });
+        if (event.type === "ValidationCompleted") {
+          expect(event.payload).toMatchObject({
+            status: "passed",
+            candidateHash: fixture.promotedTreeHash,
+            candidateTreeHash: fixture.promotedTreeHash,
+            changeSetHash: fixture.changeSetHash,
+            treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+          });
+        }
         if (event.type === "AiChangesApplied") {
           expect(event.payload).toMatchObject({
             baseTreeHash: fixture.baseTreeHash,

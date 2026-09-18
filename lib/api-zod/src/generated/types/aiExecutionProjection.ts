@@ -12,6 +12,7 @@ import type { AiExecutionProjectionPlan } from './aiExecutionProjectionPlan';
 import type { AiExecutionProjectionProgress } from './aiExecutionProjectionProgress';
 import type { AiExecutionProjectionSchemaVersion } from './aiExecutionProjectionSchemaVersion';
 import type { AiExecutionProjectionStopped } from './aiExecutionProjectionStopped';
+import type { AiExecutionProjectionTimelineItem } from './aiExecutionProjectionTimelineItem';
 import type { AiExecutionProjectionTools } from './aiExecutionProjectionTools';
 import type { AiExecutionProjectionVerification } from './aiExecutionProjectionVerification';
 import type { AiExecutionProjectionWorkspace } from './aiExecutionProjectionWorkspace';
@@ -33,6 +34,8 @@ export interface AiExecutionProjection {
   verification: AiExecutionProjectionVerification;
   approval: AiExecutionProjectionApproval;
   stopped: AiExecutionProjectionStopped;
+  /** @maxItems 8 */
+  timeline: AiExecutionProjectionTimelineItem[];
   /** @maxItems 7 */
   allowedActions: AiExecutionProjectionAllowedActionsItem[];
 }

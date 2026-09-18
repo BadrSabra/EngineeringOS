@@ -1,6 +1,6 @@
 import { redactUserFacingText } from "./ai-route-helpers.js";
 
-export const AI_EXECUTION_PROJECTION_SCHEMA_VERSION = 1 as const;
+export const AI_EXECUTION_PROJECTION_SCHEMA_VERSION = 2 as const;
 
 export type AiExecutionProjectionAction =
   | "CANCEL"
@@ -64,6 +64,12 @@ export type AiExecutionProjection = {
     reason: string | null;
     outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED" | null;
   };
+  timeline: Array<{
+    id: "understand" | "investigate" | "plan" | "approval" | "build" | "validate" | "review" | "deliver";
+    label: string;
+    status: "pending" | "active" | "completed" | "blocked" | "not_applicable";
+    detail: string | null;
+  }>;
   allowedActions: AiExecutionProjectionAction[];
 };
 
@@ -129,6 +135,10 @@ function safeFiles(value: unknown): string[] {
     .slice(0, 20);
 }
 
+function phaseMatches(phase: string, ...values: string[]): boolean {
+  return values.some((value) => phase.includes(value));
+}
+
 function executionKind(input: ProjectionInput): AiExecutionProjection["kind"] {
   if (input.execution.linkedTaskId) return "TASK";
   if (input.execution.recipeReceipt) return "RECIPE";
@@ -169,6 +179,140 @@ function orientationProjection(
       .slice(0, 4)
     : [];
   return { complete: coverage.complete, missingRoles };
+}
+
+type TimelineStatus = AiExecutionProjection["timeline"][number]["status"];
+
+function timelineEntry(
+  id: AiExecutionProjection["timeline"][number]["id"],
+  label: string,
+  status: TimelineStatus,
+  detail: string | null = null,
+): AiExecutionProjection["timeline"][number] {
+  return { id, label, status, detail: detail ? boundedText(detail, "Recorded by the server.", 240) : null };
+}
+
+function timelineProjection(input: ProjectionInput, values: {
+  phase: string;
+  planLength: number;
+  changedFiles: string[];
+  approvalRequired: boolean;
+  approvalStatus: "NOT_REQUIRED" | "PENDING" | "APPROVED";
+  verificationStatus: AiExecutionProjection["verification"]["status"];
+}): AiExecutionProjection["timeline"] {
+  const { phase, planLength, changedFiles, approvalRequired, approvalStatus, verificationStatus } = values;
+  const deliveryExecution = approvalRequired || Boolean(
+    input.execution.proposalId || input.execution.buildPlanMessageId,
+  );
+  const validationExecution = deliveryExecution || input.proofRequired;
+  const hasInvestigationEvidence = Array.isArray(input.checkpoint.recentSteps)
+    && input.checkpoint.recentSteps.some((step) => {
+      const value = record(step);
+      return ["tool_call", "tool_result", "project_query_source_selection", "read_evidence"].includes(String(value.kind));
+    });
+  const hasPlanEvidence = planLength > 0 || phaseMatches(phase, "PLAN", "BUILD", "VALIDAT", "APPLY", "COMMIT", "PUSH");
+  const buildActive = phaseMatches(phase, "BUILD", "REPAIR");
+  const validationBlocked = verificationStatus === "failed" || verificationStatus === "unavailable";
+  const reviewRequired = Boolean(input.execution.proposalId || input.execution.buildPlanMessageId);
+  const reviewComplete = input.hasAppliedChanges || input.hasCommittedChanges || input.hasPushedChanges;
+  const deliverStatus: TimelineStatus = !deliveryExecution
+    ? "not_applicable"
+    : input.hasPushedChanges
+      ? "completed"
+      : input.hasCommittedChanges || input.hasAppliedChanges
+        ? "active"
+        : validationBlocked
+          ? "blocked"
+          : "pending";
+
+  return [
+    timelineEntry(
+      "understand",
+      "Understand request",
+      input.execution.status === "queued" ? "active" : "completed",
+      input.execution.status === "queued" ? "The server is preparing the mission scope." : "The request is retained in the execution objective.",
+    ),
+    timelineEntry(
+      "investigate",
+      "Investigate project",
+      phaseMatches(phase, "DISCOVER", "ORIENT", "EXPLORE", "READ", "SEARCH")
+        ? "active"
+        : hasInvestigationEvidence || hasPlanEvidence || input.execution.status === "completed" || input.execution.status === "failed"
+          ? "completed"
+          : "pending",
+      hasInvestigationEvidence ? "Source reads and project evidence are retained for this execution." : null,
+    ),
+    timelineEntry(
+      "plan",
+      "Create bounded plan",
+      !deliveryExecution && planLength === 0
+        ? "not_applicable"
+        : phaseMatches(phase, "PLAN") && planLength === 0
+          ? "active"
+          : planLength > 0 || hasPlanEvidence
+            ? "completed"
+            : "pending",
+      planLength > 0 ? `${planLength} server-recorded plan step${planLength === 1 ? "" : "s"}.` : null,
+    ),
+    timelineEntry(
+      "approval",
+      "Approve change",
+      !approvalRequired ? "not_applicable" : approvalStatus === "PENDING" ? "active" : "completed",
+      approvalStatus === "PENDING" ? "Approval is required before the candidate can continue." : null,
+    ),
+    timelineEntry(
+      "build",
+      "Build candidate",
+      !deliveryExecution
+        ? "not_applicable"
+        : buildActive
+          ? "active"
+          : changedFiles.length > 0 || input.hasAppliedChanges || input.hasCommittedChanges || input.hasPushedChanges
+            ? "completed"
+            : "pending",
+      changedFiles.length > 0 ? `${changedFiles.length} scoped file${changedFiles.length === 1 ? "" : "s"} changed.` : null,
+    ),
+    timelineEntry(
+      "validate",
+      "Validate candidate",
+      !validationExecution
+        ? "not_applicable"
+        : validationBlocked
+          ? "blocked"
+          : verificationStatus === "passed"
+            ? "completed"
+            : verificationStatus === "running"
+              ? "active"
+              : "pending",
+      validationBlocked ? "Required server-owned validation or evidence is incomplete." : null,
+    ),
+    timelineEntry(
+      "review",
+      "Review changes",
+      !reviewRequired
+        ? "not_applicable"
+        : reviewComplete
+          ? "completed"
+          : input.execution.proposalId
+            ? "active"
+            : "pending",
+      approvalStatus === "PENDING" ? "Review the proposal before approval." : null,
+    ),
+    timelineEntry(
+      "deliver",
+      "Deliver to Git",
+      deliverStatus,
+      deliverStatus === "blocked"
+        ? "Delivery is blocked until the validation issue is resolved."
+        : input.hasPushedChanges
+          ? "Apply, commit, and push receipts are recorded for this operation."
+          : input.hasCommittedChanges
+            ? "Commit is recorded; push remains pending."
+            : input.hasAppliedChanges
+              ? "Apply is recorded; commit and push remain pending."
+              : null,
+    ),
+  ];
 }
 
 export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionProjection {
@@ -248,6 +392,14 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
     : input.hasAppliedChanges || input.hasCommittedChanges || input.hasPushedChanges
       ? "APPROVED"
       : "PENDING";
+  const timeline = timelineProjection(input, {
+    phase,
+    planLength: plan.length,
+    changedFiles,
+    approvalRequired,
+    approvalStatus,
+    verificationStatus,
+  });
   const stopped = input.execution.status === "completed"
     || input.execution.status === "failed"
     || input.execution.status === "cancelled"
@@ -342,6 +494,7 @@ export function buildAiExecutionProjection(input: ProjectionInput): AiExecutionP
                   : null
         : null,
     },
+    timeline,
     allowedActions: [...new Set(allowedActions)],
   };
 }
