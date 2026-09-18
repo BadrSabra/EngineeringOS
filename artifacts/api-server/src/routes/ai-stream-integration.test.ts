@@ -5646,6 +5646,161 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(execution?.request).toContain('"objectiveType":"PROJECT_QUERY_GAP-ANALYSIS"');
   });
 
+  it("persists the evidence contract for the exact Arabic latest-session audit before a zero-read stop", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const now = new Date();
+    const olderSessionId = randomUUID();
+    const latestSessionId = randomUUID();
+    await db.insert(aiChatSessionsTable).values([
+      {
+        id: olderSessionId,
+        projectId,
+        title: "Older embedded-agent session",
+        createdAt: new Date(now.getTime() - 20_000),
+        updatedAt: new Date(now.getTime() - 10_000),
+      },
+      {
+        id: latestSessionId,
+        projectId,
+        title: "Latest embedded-agent session",
+        createdAt: new Date(now.getTime() - 9_000),
+        updatedAt: new Date(now.getTime() - 1_000),
+      },
+    ]);
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId: olderSessionId,
+        role: "user",
+        content: "Older embedded-agent turn",
+        createdAt: new Date(now.getTime() - 9_000),
+      },
+      {
+        id: randomUUID(),
+        sessionId: latestSessionId,
+        role: "user",
+        content: "Latest embedded-agent turn",
+        createdAt: new Date(now.getTime() - 800),
+      },
+    ]);
+
+    let providerInput: {
+      objective?: {
+        objectiveType?: string;
+        requiredEvidencePaths?: string[];
+      };
+      retainedEvidence?: Map<string, string>;
+    } | undefined;
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      providerInput = args[1] as typeof providerInput;
+      args[6]?.({
+        kind: "diagnostic",
+        code: "INCOMPLETE_BEFORE_EVIDENCE",
+        details: ["The exact latest-session audit stopped before its first source read."],
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 24,
+        toolCalls: 0,
+        prefetchToolCalls: 0,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+      });
+      return {
+        result: {
+          response: "لم يتم اعتماد التحليل قبل قراءة الأدلة المصدرية.",
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const message =
+      "تتبع مسار أحدث جلسة للوكيل المدمج داخل EngineeringOS وقم بتقييم مستوى الردود واتساقها";
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+
+    expect(res.status).toBe(200);
+    expect(providerInput?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: expect.arrayContaining([
+        "lib/db/src/schema/ai_chats.ts",
+      ]),
+    });
+
+    const events = parseSseEvents(res.text);
+    const started = events.find((event) => event.type === "execution_started");
+    const done = events.find((event) => event.type === "done");
+    expect(started).toMatchObject({
+      sessionId: latestSessionId,
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+    });
+    expect(done?.execution).toMatchObject({
+      diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+    });
+
+    const executionId = String(started?.executionId);
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        sessionId: aiExecutionsTable.sessionId,
+        status: aiExecutionsTable.status,
+        request: aiExecutionsTable.request,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId))
+      .limit(1);
+    expect(execution).toMatchObject({
+      id: executionId,
+      sessionId: latestSessionId,
+      status: "failed",
+    });
+
+    const requestEnvelope = JSON.parse(execution!.request) as {
+      turnIntent?: string;
+      proofRequired?: boolean;
+      sessionId?: string;
+      objective?: { objectiveType?: string };
+      taskObjective?: { kind?: string };
+      resumeContract?: { requiresEvidence?: boolean };
+    };
+    expect(requestEnvelope).toMatchObject({
+      turnIntent: "PROJECT_QUERY",
+      proofRequired: true,
+      sessionId: latestSessionId,
+      objective: { objectiveType: "PROJECT_QUERY_EMBEDDED-AI" },
+      taskObjective: { kind: "project_analysis" },
+      resumeContract: { requiresEvidence: true },
+    });
+
+    const [acceptance] = await db
+      .select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+      .limit(1);
+    expect(acceptance).toMatchObject({
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      evidenceSnapshotId: expect.any(String),
+    });
+  });
+
   it("accepts a gap PROJECT_QUERY when its objective claims are grounded", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
