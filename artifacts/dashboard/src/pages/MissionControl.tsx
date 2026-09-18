@@ -29,7 +29,7 @@ import {
   useGetAiExecution,
 } from '@workspace/api-client-react';
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
-import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
+import { MissionCapsule } from '@/components/MissionCapsule';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1157,6 +1157,20 @@ export default function MissionControl() {
         queryKey: ['ai-mission-control', projectId],
         staleTime: 15_000,
         retry: false,
+        refetchOnWindowFocus: true,
+        refetchInterval: (query) => {
+          const snapshot = query.state.data as AiMissionControl | undefined;
+          const hasActiveExecution = snapshot?.executions?.some((execution) => {
+            const state = textValue((execution as MissionExecution).state)?.toUpperCase();
+            return state === 'BUILDING'
+              || state === 'RUNNING'
+              || state === 'VALIDATING'
+              || state === 'REPAIRING'
+              || state === 'QUEUED'
+              || state === 'CANCELLING';
+          }) ?? false;
+          return hasActiveExecution ? 3_000 : false;
+        },
       },
     },
   );
@@ -1614,9 +1628,14 @@ export default function MissionControl() {
           </section>
 
           {selectedExecutionDetail?.projection && (
-            <ExecutionProjectionPanel
+            <MissionCapsule
               projection={selectedExecutionDetail.projection}
               executionId={selectedExecution?.id}
+              executionStatus={selectedExecutionDetail.status}
+              flightState={selectedExecutionDetail.flightState}
+              evidenceVerdict={selectedExecutionDetail.evidenceVerdict}
+              resumable={selectedExecutionDetail.resumable}
+              nextAction={selectedExecutionDetail.evidenceReason ?? selectedExecutionDetail.acceptance?.disposition?.operatorAction}
             />
           )}
 

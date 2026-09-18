@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
 import { ExecutionProjectionPanel } from './ExecutionProjectionPanel';
 
@@ -29,110 +29,88 @@ const projection: AiExecutionProjection = {
   tools: {
     totalCalls: 2,
     activeTool: 'read_file',
-    recent: [{
-      tool: 'read_file',
-      status: 'completed',
-      source: 'src/App.tsx',
-    }],
+    recent: [{ tool: 'read_file', status: 'completed', source: 'src/App.tsx' }],
   },
-  workspace: {
-    changedFiles: ['src/App.tsx'],
-    diffStatus: 'available',
-  },
-  verification: {
-    status: 'running',
-    evidenceVerdict: 'PARTIAL',
-    proofRequired: true,
-  },
-  approval: {
-    required: true,
-    status: 'PENDING',
-    proposalId: 'proposal-1',
-  },
-  stopped: {
-    reason: null,
-    outcome: null,
-  },
+  workspace: { changedFiles: ['src/App.tsx'], diffStatus: 'available' },
+  verification: { status: 'running', evidenceVerdict: 'PARTIAL', proofRequired: true },
+  approval: { required: true, status: 'PENDING', proposalId: 'proposal-1' },
+  stopped: { reason: null, outcome: null },
   allowedActions: ['CANCEL', 'REVIEW_DIFF', 'APPROVE_CHANGES'],
 };
 
-function renderPanel(props: Partial<React.ComponentProps<typeof ExecutionProjectionPanel>> = {}) {
+function renderPanel(ui: React.ReactNode) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
+describe('ExecutionProjectionPanel', () => {
+  it('renders lifecycle, proof posture, concise technical details, and only allowed actions', () => {
+    renderPanel(
       <ExecutionProjectionPanel
         projection={projection}
         executionId="execution-1"
-        {...props}
-      />
-    </QueryClientProvider>,
-  );
-}
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe('ExecutionProjectionPanel', () => {
-  it('renders the server-owned plan, tools, progress, files, verification, and real actions', () => {
-    renderPanel();
-
-    expect(screen.getByText('50%')).toBeInTheDocument();
-    expect(screen.getAllByText('Run checks').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('read_file').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('src/App.tsx').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Partial').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Review diff' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Approve changes' })).toBeInTheDocument();
-  });
-
-  it('loads and renders the bounded review diff from the execution endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      changes: [{
-        path: 'src/App.tsx',
-        originalContent: 'old line',
-        newContent: 'new line',
-        truncated: false,
-      }],
-    }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Review diff' }));
-
-    await waitFor(() => expect(screen.getByText('Reviewable diff')).toBeInTheDocument());
-    expect(screen.getAllByText('src/App.tsx').length).toBeGreaterThan(0);
-    const pre = document.querySelector('pre');
-    expect(pre?.textContent).toContain('- old line');
-    expect(pre?.textContent).toContain('+ new line');
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/ai/executions/execution-1/diff',
-      expect.objectContaining({ credentials: 'include' }),
+        executionStatus="running"
+        flightState="VALIDATING"
+        resumable
+        nextAction="Review the validation evidence before accepting the change."
+        onAction={vi.fn()}
+      />,
     );
+
+    expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Work is in progress');
+    expect(screen.getByTestId('status-proof')).toHaveTextContent('Partial');
+    expect(screen.getByTestId('text-next-action')).toHaveTextContent('Review the validation evidence');
+    expect(screen.getAllByText('Run checks').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('tool-0')).toHaveTextContent('Completed');
+    expect(screen.getByTestId('tool-0')).toHaveTextContent('read_file');
+    expect(screen.getByTestId('button-action-cancel')).toHaveTextContent('Stop run');
+    expect(screen.getByTestId('button-action-review_diff')).toHaveTextContent('Review changes');
+    expect(screen.getByTestId('button-action-approve_changes')).toHaveTextContent('Approve changes');
+    expect(screen.queryByTestId('button-action-resume_checkpoint')).not.toBeInTheDocument();
   });
 
-  it('uses the server cancellation action and invalidates the execution projection', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'cancelling' }), { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      '/api/ai/executions/execution-1/cancel',
-      expect.objectContaining({ method: 'POST', credentials: 'include' }),
-    ));
-  });
-
-  it('delegates approval to the owning surface instead of inventing client state', async () => {
+  it('delegates every displayed action to the owning surface without making an API request', async () => {
     const onAction = vi.fn().mockResolvedValue(undefined);
-    renderPanel({ onAction });
+    renderPanel(<ExecutionProjectionPanel projection={projection} executionId="execution-1" onAction={onAction} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Approve changes' }));
+    fireEvent.click(screen.getByTestId('button-action-approve_changes'));
 
     await waitFor(() => expect(onAction).toHaveBeenCalledWith('APPROVE_CHANGES'));
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders safely without projection and does not infer success from missing data', () => {
+    const { container } = renderPanel(
+      <ExecutionProjectionPanel
+        projection={null}
+        executionStatus="completed"
+        flightState={null}
+        evidenceVerdict={null}
+      />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('keeps an interrupted or incomplete run conservative', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{
+          ...projection,
+          verification: { status: 'unavailable', evidenceVerdict: 'UNAVAILABLE', proofRequired: true },
+          stopped: { reason: 'Checkpoint expired', outcome: 'INTERRUPTED' },
+          allowedActions: [],
+        }}
+        executionStatus="cancelled"
+      />,
+    );
+
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Run interrupted');
+    expect(screen.getByTestId('status-stopped')).toHaveTextContent('Interrupted');
+    expect(screen.getByTestId('status-proof')).toHaveTextContent('Unavailable');
+    expect(screen.queryByText('Completed and verified')).not.toBeInTheDocument();
   });
 });

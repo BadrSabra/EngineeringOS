@@ -3705,7 +3705,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
       });
     });
 
-    expect(await screen.findAllByText('Disconnected — execution saved')).not.toHaveLength(0);
+    expect(await screen.findAllByText(/Reconnecting to the saved execution/)).not.toHaveLength(0);
     firstRender.unmount();
 
     const reloadedRender = renderAiChat();

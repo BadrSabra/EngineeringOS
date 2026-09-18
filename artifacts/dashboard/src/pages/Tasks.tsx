@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
-import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
+import { MissionCapsule } from '@/components/MissionCapsule';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -292,10 +292,15 @@ function TaskExecutionProjection({ taskId }: { taskId: string }) {
 
   if (!executionId || !execution?.projection) return null;
   return (
-    <ExecutionProjectionPanel
+    <MissionCapsule
       projection={execution.projection}
       executionId={executionId}
       taskId={taskId}
+      executionStatus={execution.status}
+      flightState={execution.flightState}
+      evidenceVerdict={execution.evidenceVerdict}
+      resumable={execution.resumable}
+      nextAction={execution.evidenceReason ?? execution.acceptance?.disposition?.operatorAction}
       compact
     />
   );

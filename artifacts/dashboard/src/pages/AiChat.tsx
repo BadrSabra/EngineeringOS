@@ -54,7 +54,7 @@ import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
 import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
-import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
+import { MissionCapsule } from '@/components/MissionCapsule';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
@@ -8312,9 +8312,14 @@ function AgentExecutionProofPanel({
         </div>
       </div>
 
-      <ExecutionProjectionPanel
+      <MissionCapsule
         projection={execution?.projection}
         executionId={execution?.id ?? executionId}
+        executionStatus={execution?.status}
+        flightState={execution?.flightState}
+        evidenceVerdict={execution?.evidenceVerdict}
+        resumable={execution?.resumable}
+        nextAction={execution?.evidenceReason ?? execution?.acceptanceDisposition?.operatorAction}
         onAction={onProjectionAction}
         compact
       />
@@ -8679,6 +8684,10 @@ export default function AiChat() {
 
   useEffect(() => {
     return () => {
+      if (autoReconnectRef.current.timer !== null) {
+        window.clearTimeout(autoReconnectRef.current.timer);
+      }
+      autoReconnectRef.current = { executionId: null, attempts: 0, timer: null };
       cancelStream();
       cancelTaskStream();
     };
@@ -8706,6 +8715,11 @@ export default function AiChat() {
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryPending, setResumeRecoveryPending] = useState(false);
   const resumeRecoveryPendingRef = useRef<string | null>(null);
+  const autoReconnectRef = useRef<{
+    executionId: string | null;
+    attempts: number;
+    timer: number | null;
+  }>({ executionId: null, attempts: 0, timer: null });
   const [executionNodes, setExecutionNodes] = useState<AiExecutionNodeSnapshot[]>([]);
   const activeExecutionRef = useRef<ActiveExecution | null>(null);
   /** True once a live forensic_status SSE step reports isFixtureLocal — lets
@@ -8990,7 +9004,50 @@ export default function AiChat() {
     setLiveBehaviorProgress(null);
   }
 
+  function resetAutoReconnect() {
+    const current = autoReconnectRef.current;
+    if (current.timer !== null) {
+      window.clearTimeout(current.timer);
+    }
+    autoReconnectRef.current = { executionId: null, attempts: 0, timer: null };
+  }
+
+  function scheduleAutoReconnect(execution: ActiveExecution): boolean {
+    const current = autoReconnectRef.current;
+    const attempts = current.executionId === execution.id ? current.attempts : 0;
+    if (attempts >= 3 || (execution.resumable === false && !execution.resumeToken)) {
+      return false;
+    }
+    if (current.timer !== null) {
+      return true;
+    }
+
+    const nextAttempts = attempts + 1;
+    const delayMs = Math.min(4_000, 750 * nextAttempts);
+    autoReconnectRef.current = {
+      executionId: execution.id,
+      attempts: nextAttempts,
+      timer: window.setTimeout(() => {
+        autoReconnectRef.current = {
+          executionId: execution.id,
+          attempts: nextAttempts,
+          timer: null,
+        };
+        void resumeActiveExecution();
+      }, delayMs),
+    };
+    setAgentStage(`Reconnecting to the saved execution… (${nextAttempts}/3)`);
+    appendLiveActivityEvent({
+      kind: 'stage',
+      label: 'Reconnecting',
+      detail: `Retry ${nextAttempts} of 3`,
+      status: 'info',
+    });
+    return true;
+  }
+
   function clearExecutionScopedState(options?: { preserveBuildPending?: boolean }) {
+    resetAutoReconnect();
     streamOwnerRef.current = null;
     activeExecutionRef.current = null;
     setActiveExecution(null);
@@ -10928,6 +10985,7 @@ export default function AiChat() {
         },
         onDone: (data) => {
           if (!ownsStream({ sessionId: data.sessionId })) return;
+           resetAutoReconnect();
           persistAiChatSelection({
             version: 1,
             projectId: requestProjectId,
@@ -11060,23 +11118,18 @@ export default function AiChat() {
             err.code === 'network_error' || err.code === 'no_body'
           ) && Boolean(
             currentExecution
-            && operationMode !== 'CHAT'
             && currentExecution.proofRequired !== false
             && currentExecution.resumable !== false,
           );
-          if (resumableDisconnect && currentExecution) {
-             setAgentStage('Disconnected — execution saved');
+           if (resumableDisconnect && currentExecution && scheduleAutoReconnect(currentExecution)) {
              setAgentStartedAt(null);
              setAgentElapsedSeconds(0);
              void refetchActiveExecutionStatus?.();
              void qc.invalidateQueries({ queryKey: ['ai-execution', currentExecution.id] });
              publishAiChatData(requestProjectId, currentExecution.sessionId);
-             toast({
-               title: 'AI execution saved',
-               description: 'The stream disconnected, but the server kept the execution. Resume it below.',
-             });
              return;
            }
+           resetAutoReconnect();
           setAgentStage(null);
           setProjectQueryRetryMessageId(null);
           setStreamingContent('');

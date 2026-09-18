@@ -10,7 +10,7 @@ import {
   useGitPush,
 } from '@workspace/api-client-react';
 import type { OperationEvidenceProjection } from '@workspace/api-client-react';
-import { ExecutionProjectionPanel } from '@/components/ExecutionProjectionPanel';
+import { MissionCapsule } from '@/components/MissionCapsule';
 
 type FlightNode = {
   id: string;
@@ -445,7 +445,15 @@ export default function FlightDeck() {
         </div>
 
         <div className="mt-5">
-          <ExecutionProjectionPanel projection={execution.projection} executionId={executionId} />
+          <MissionCapsule
+            projection={execution.projection}
+            executionId={executionId}
+            executionStatus={execution.status}
+            flightState={state}
+            evidenceVerdict={evidenceVerdict}
+            resumable={execution.resumable}
+            nextAction={execution.evidenceReason ?? safeEvidenceAction(execution.operationEvidence?.completeness ?? 'partial')}
+          />
         </div>
 
         <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-5" aria-label="Mission control summary">
