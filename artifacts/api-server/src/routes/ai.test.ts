@@ -2991,6 +2991,30 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
     expect(exported).not.toContain("/tmp/");
     expect(exported).not.toContain("/private/");
 
+    const rawExport = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}/audit-export`)
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        response.on("end", () => callback(null, Buffer.concat(chunks)));
+        response.on("error", callback);
+      });
+    expect(rawExport.status).toBe(200);
+    expect(Buffer.isBuffer(rawExport.body)).toBe(true);
+    const rawExportText = (rawExport.body as Buffer).toString("utf8");
+    expect(JSON.parse(rawExportText)).toMatchObject({
+      format: "engineeringos.execution-audit.v1",
+      execution: { id: created.execution.id, status: "completed" },
+    });
+    expect(rawExportText).not.toContain("sk-live-do-not-export");
+    expect(rawExportText).not.toContain("MODEL_PREVIEW_SHOULD_NOT_EXPORT");
+    expect(rawExportText).not.toContain("/home/runner/workspace");
+    expect(rawExportText).not.toContain("/tmp/");
+    expect(rawExportText).not.toContain("/private/");
+
     await db
       .update(aiExecutionsTable)
       .set({ userId: "different-user" })
@@ -2999,6 +3023,72 @@ describe("GET /api/ai/executions/:executionId/audit-export", () => {
       .get(`/api/ai/executions/${created.execution.id}/audit-export`);
     expect(forbidden.status).toBe(404);
     expect(forbidden.body).toEqual({ error: "AI execution not found" });
+  });
+});
+
+describe("POST /api/ai/executions/:executionId/retry-capability", () => {
+  it("returns a server-authorized retry token for a retryable failed execution", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const executionId = randomUUID();
+    const now = new Date();
+
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId: randomUUID(),
+      operationId: executionId,
+      userId: "test-user",
+      idempotencyKey: randomUUID(),
+      attempt: 0,
+      resumeTokenHash: "previous-token-hash",
+      request: JSON.stringify({
+        projectId,
+        turnIntent: "CHAT",
+        message: "Retry the timed out execution",
+        modelMessage: "Retry the timed out execution",
+        validationTargetPaths: [],
+      }),
+      checkpoint: JSON.stringify({ stage: "failed", evidenceVerdict: "UNAVAILABLE" }),
+      status: "failed",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `${executionId}:attempt:0`,
+      operationId: executionId,
+      terminalStatus: "failed",
+      outcome: "FAILED",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      nextActionCode: "RETRY_AFTER_TIMEOUT",
+      disposition: {
+        reasonCodes: ["EXECUTION_PROVIDER_FAILURE"],
+        outcome: "FAILED",
+        recoveryState: "REQUIRED",
+        nextActionCode: "RETRY_AFTER_TIMEOUT",
+        retryAt: "2020-01-01T00:00:00.000Z",
+      },
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      resumable: 0,
+      sourceRevision: null,
+      createdAt: now,
+    });
+
+    const response = await request(app)
+      .post(`/api/ai/executions/${executionId}/retry-capability`)
+      .send({});
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toEqual({
+      executionId,
+      resumeToken: expect.any(String),
+      attempt: 0,
+    });
   });
 });
 

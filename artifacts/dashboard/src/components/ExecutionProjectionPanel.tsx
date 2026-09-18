@@ -265,7 +265,9 @@ export function ExecutionProjectionPanel({
       } else {
         let endpoint = `/api/ai/executions/${encodeURIComponent(executionId)}/cancel`;
         let body: Record<string, string> | undefined;
-        if (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT') {
+        if (action === 'RETRY_CHECKPOINT') {
+          endpoint = `/api/ai/executions/${encodeURIComponent(executionId)}/retry-capability`;
+        } else if (action === 'RESUME_CHECKPOINT') {
           endpoint = taskId
             ? `/api/ai/tasks/${encodeURIComponent(taskId)}/resume`
             : `/api/ai/executions/${encodeURIComponent(executionId)}/recovery`;

@@ -2823,7 +2823,7 @@ describe("Durable AI execution crash/reconnect", () => {
     }))?.status).toBe("running");
 
     const controller = new AbortController();
-    registerAiExecutionController(created.execution.id, controller);
+    await registerAiExecutionController(created.execution.id, controller);
     const cancelling = await requestAiExecutionCancel({
       executionId: created.execution.id,
       userId: "test-user",
@@ -2852,6 +2852,48 @@ describe("Durable AI execution crash/reconnect", () => {
       stage: "cancelled",
       detail: "provider observed cancellation",
     });
+  });
+
+  it("aborts a controller registered after cancellation already won", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-cancel-register-race-");
+    rootPaths.push(rootPath);
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const { sessionId } = await insertApprovedPlan(projectId);
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "cancel before controller registration",
+        modelMessage: "cancel before controller registration",
+        validationTargetPaths: [],
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    const workerId = randomUUID();
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId,
+    }))?.status).toBe("running");
+
+    expect((await requestAiExecutionCancel({
+      executionId: created.execution.id,
+      userId: "test-user",
+    }))?.status).toBe("cancelling");
+
+    const controller = new AbortController();
+    expect(await registerAiExecutionController(created.execution.id, controller)).toBe(false);
+    expect(controller.signal.aborted).toBe(true);
+    expect(await failAiExecution({
+      executionId: created.execution.id,
+      workerId,
+      cancelled: true,
+      error: "late worker observed cancellation",
+    })).toBe(true);
   });
 
   it("resumes from a checkpoint, then rebases drifted changes and requires fresh approval", async () => {

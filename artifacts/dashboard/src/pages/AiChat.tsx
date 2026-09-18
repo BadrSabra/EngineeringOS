@@ -8038,7 +8038,7 @@ function AgentExecutionProofPanel({
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
   } | null;
   onCancel?: () => void;
-  onResume?: () => void;
+  onResume?: (mode?: 'resume' | 'retry') => void;
   onProjectionAction?: (action: AiExecutionProjection['allowedActions'][number]) => Promise<void> | void;
   onExport?: () => void;
   onPreview?: () => void;
@@ -8133,8 +8133,8 @@ function AgentExecutionProofPanel({
           ? 'Evidence integrity risk'
           : 'No unresolved patch risk recorded';
   const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
-  const canResume = Boolean(onResume && executionCanResume(execution));
   const retryCheckpoint = execution?.projection?.allowedActions.includes('RETRY_CHECKPOINT');
+  const canResume = Boolean(onResume && (executionCanResume(execution) || retryCheckpoint));
   const canExport = Boolean(
     executionId
       && onExport
@@ -8257,7 +8257,7 @@ function AgentExecutionProofPanel({
                     type="button"
                     size="sm"
                     variant="outline"
-                    onClick={onResume}
+                    onClick={() => onResume?.(retryCheckpoint ? 'retry' : 'resume')}
                     disabled={controlPending}
                     className="h-6 px-2 text-[10px]"
                   >
@@ -10401,7 +10401,7 @@ export default function AiChat() {
       return;
     }
     if (action === 'RESUME_CHECKPOINT' || action === 'RETRY_CHECKPOINT') {
-      resumeActiveExecution();
+      void resumeActiveExecution(action === 'RETRY_CHECKPOINT' ? 'retry' : 'resume');
       return;
     }
     if (action === 'APPROVE_CHANGES') {
@@ -11226,7 +11226,7 @@ export default function AiChat() {
     });
   }
 
-  async function resumeActiveExecution() {
+  async function resumeActiveExecution(mode: 'resume' | 'retry' = 'resume') {
     const execution = activeExecutionRef.current;
     if (
       !execution
@@ -11239,7 +11239,7 @@ export default function AiChat() {
     // handler has already sent the same resume request.
     resetAutoReconnect();
 
-    if (execution.resumeToken) {
+    if (mode === 'resume' && execution.resumeToken) {
       resumeStreamExecutionRef.current = execution.id;
       sendMessage(execution.message, {
         executionId: execution.id,
@@ -11253,18 +11253,26 @@ export default function AiChat() {
     resumeRecoveryPendingRef.current = execution.id;
     setResumeRecoveryPending(true);
     try {
-      const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
+      const response = await fetch(
+        `/api/ai/executions/${encodeURIComponent(execution.id)}/${mode === 'retry' ? 'retry-capability' : 'resume-capability'}`,
+        {
         method: 'POST',
         credentials: 'include',
         headers: { Accept: 'application/json' },
-      });
+        },
+      );
       const body = await response.json().catch(() => ({})) as {
         executionId?: string;
         resumeToken?: string;
         error?: string;
       };
       if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
-        throw new Error(body.error || 'Resume is no longer available for this execution.');
+        throw new Error(
+          body.error
+            || (mode === 'retry'
+              ? 'Retry is no longer available for this execution.'
+              : 'Resume is no longer available for this execution.'),
+        );
       }
 
       const recovered = { ...execution, resumeToken: body.resumeToken };
@@ -12135,7 +12143,7 @@ export default function AiChat() {
                    isFixtureLocal={liveFixtureLocal}
                    verdictScope={liveVerdictScope}
                    onCancel={cancelActiveExecution}
-                    onResume={historicalExecutionId ? undefined : resumeActiveExecution}
+                    onResume={historicalExecutionId ? undefined : (mode) => void resumeActiveExecution(mode)}
                    onProjectionAction={handleProjectionAction}
                    onExport={exportExecutionAudit}
                    onPreview={previewExecutionAudit}
@@ -12380,7 +12388,7 @@ export default function AiChat() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={resumeActiveExecution}
+                    onClick={() => void resumeActiveExecution()}
                     disabled={resumeRecoveryPending}
                   >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />

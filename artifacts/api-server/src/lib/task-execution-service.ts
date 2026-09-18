@@ -506,7 +506,7 @@ export async function executeTaskLifecycle(params: {
     ));
   }, Math.max(1_000, Math.floor(AI_EXECUTION_LEASE_MS / 3)));
   const executionAbortController = new AbortController();
-  registerAiExecutionController(executionId, executionAbortController);
+  await registerAiExecutionController(executionId, executionAbortController);
 
   try {
     stage = "context";

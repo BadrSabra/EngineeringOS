@@ -169,6 +169,7 @@ import {
   heartbeatAiExecution,
   persistAiExecutionOrientationManifest,
   ownsAiExecutionLease,
+  recoverAiExecutionRetryToken,
   recoverAiExecutionResumeToken,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
@@ -7543,7 +7544,7 @@ export async function handleChatStream(req: Request, res: Response) {
          });
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
-    registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+    await registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
     // Cancellation can win the race between execution creation and controller
     // registration. Re-check the durable row after registration so a provider
     // turn cannot wait forever on an already-cancelled execution.
@@ -11396,6 +11397,29 @@ router.post("/ai/executions/:executionId/resume-capability", async (req, res) =>
     error: "This AI execution is no longer eligible for resume.",
     code: "EXECUTION_NOT_RESUMABLE",
     status: current.status,
+  });
+});
+
+router.post("/ai/executions/:executionId/retry-capability", async (req, res) => {
+  const recovered = await recoverAiExecutionRetryToken({
+    executionId: req.params.executionId,
+    userId: req.userId,
+  });
+  if (recovered) {
+    return res.json({
+      executionId: recovered.execution.id,
+      resumeToken: recovered.resumeToken,
+      attempt: recovered.execution.attempt,
+    });
+  }
+
+  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+  if (!current) return res.status(404).json({ error: "AI execution not found" });
+  return res.status(409).json({
+    error: "This AI execution is not eligible for checkpoint retry.",
+    code: "EXECUTION_NOT_RETRYABLE",
+    status: current.status,
+    attempt: current.attempt,
   });
 });
 

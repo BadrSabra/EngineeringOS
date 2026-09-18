@@ -295,7 +295,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       : {}),
   });
   const overallController = new AbortController();
-  registerAiExecutionController(claimed.id, overallController);
+  await registerAiExecutionController(claimed.id, overallController);
   const heartbeatTimer = setInterval(() => {
     void heartbeatAiExecution({ executionId: claimed.id, workerId }).then((ok) => {
       if (!ok) overallController.abort();

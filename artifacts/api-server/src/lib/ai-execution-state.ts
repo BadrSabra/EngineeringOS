@@ -2832,8 +2832,37 @@ export async function requestAiExecutionCancel(params: {
   return updated;
 }
 
-export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+export async function registerAiExecutionController(
+  executionId: string,
+  controller: AbortController,
+): Promise<boolean> {
+  const [beforeRegister] = await db
+    .select({ status: aiExecutionsTable.status })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, executionId))
+    .limit(1);
+  if (!beforeRegister || beforeRegister.status !== "running") {
+    controller.abort(new Error("AI execution is no longer running"));
+    return false;
+  }
+
   activeControllers.set(executionId, controller);
+
+  // Cancellation can win between the status read and the in-memory
+  // registration. Re-read the durable state so a late worker cannot miss it.
+  const [afterRegister] = await db
+    .select({ status: aiExecutionsTable.status })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, executionId))
+    .limit(1);
+  if (!afterRegister || afterRegister.status !== "running") {
+    if (activeControllers.get(executionId) === controller) {
+      activeControllers.delete(executionId);
+    }
+    controller.abort(new Error("AI execution cancellation requested"));
+    return false;
+  }
+  return true;
 }
 
 export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {

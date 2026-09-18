@@ -1088,6 +1088,72 @@ describe('AiChat authenticated generated mutations', () => {
     fetchSpy.mockRestore();
   });
 
+  it('uses the dedicated retry capability instead of resuming a failed checkpoint', async () => {
+    mocks.activeExecutionStatus = {
+      status: 'failed',
+      resumable: false,
+      proofRequired: true,
+      acceptance: {
+        nextActionCode: 'RETRY_AFTER_TIMEOUT',
+        resumable: false,
+      },
+      projection: {
+        allowedActions: ['RETRY_CHECKPOINT'],
+      },
+    } as never;
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-retry-checkpoint',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      message: 'Retry the timed out execution',
+      proofRequired: true,
+    }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes('/api/ai/delivery/recoverable')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ operations: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ));
+      }
+      if (url.includes('/retry-capability')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({
+            executionId: 'execution-retry-checkpoint',
+            resumeToken: 'dedicated-retry-token',
+            attempt: 1,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ));
+      }
+      return Promise.resolve(new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    });
+
+    renderAiChat();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Retry checkpoint' }))[0]);
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-retry-checkpoint/retry-capability',
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      );
+      expect(fetchSpy).not.toHaveBeenCalledWith(
+        '/api/ai/executions/execution-retry-checkpoint/resume-capability',
+        expect.anything(),
+      );
+      expect(mocks.sentParams).toEqual(expect.objectContaining({
+        executionId: 'execution-retry-checkpoint',
+        resumeToken: 'dedicated-retry-token',
+        message: 'Retry the timed out execution',
+      }));
+    });
+    fetchSpy.mockRestore();
+  });
+
   it('does not offer resume when durable status rejects a failed execution', async () => {
     mocks.activeExecutionStatus = {
       status: 'failed',

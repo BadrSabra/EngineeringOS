@@ -418,7 +418,7 @@ export async function startStructuredExecution(params: {
     return checkpointChain;
   };
 
-  registerAiExecutionController(execution.id, controller);
+  await registerAiExecutionController(execution.id, controller);
   const heartbeat = setInterval(() => {
     if (terminal || controller.signal.aborted) return;
     void heartbeatAiExecution({
