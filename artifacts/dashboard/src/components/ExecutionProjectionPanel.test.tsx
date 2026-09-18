@@ -60,7 +60,9 @@ describe('ExecutionProjectionPanel', () => {
     );
 
     expect(screen.getByTestId('mission-capsule')).toBeInTheDocument();
-    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Work is in progress');
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Awaiting approval');
+    expect(screen.getByTestId('status-canonical')).toHaveTextContent('Mission state');
+    expect(screen.getByTestId('mission-identity')).toHaveTextContent('execution-1');
     expect(screen.getByTestId('status-proof')).toHaveTextContent('Partial');
     expect(screen.getByTestId('text-next-action')).toHaveTextContent('Review the validation evidence');
     expect(screen.getAllByText('Run checks').length).toBeGreaterThan(0);
@@ -108,7 +110,7 @@ describe('ExecutionProjectionPanel', () => {
       />,
     );
 
-    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Run interrupted');
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Incomplete');
     expect(screen.getByTestId('status-stopped')).toHaveTextContent('Interrupted');
     expect(screen.getByTestId('status-proof')).toHaveTextContent('Unavailable');
     expect(screen.queryByText('Completed and verified')).not.toBeInTheDocument();

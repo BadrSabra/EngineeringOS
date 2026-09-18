@@ -8315,6 +8315,9 @@ function AgentExecutionProofPanel({
       <MissionCapsule
         projection={execution?.projection}
         executionId={execution?.id ?? executionId}
+        missionId={execution?.operationId ?? execution?.id ?? executionId}
+        operationId={execution?.operationId}
+        proposalId={execution?.projection?.approval?.proposalId}
         executionStatus={execution?.status}
         flightState={execution?.flightState}
         evidenceVerdict={execution?.evidenceVerdict}

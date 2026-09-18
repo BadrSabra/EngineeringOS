@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
+import { getMissionState } from './mission-state';
 
 export type ProjectionAction = AiExecutionProjection['allowedActions'][number];
 
@@ -36,9 +37,14 @@ export type ExecutionProjectionPanelProps = {
   onAction?: (action: ProjectionAction) => Promise<void> | void;
   /**
    * Kept for callers that still pass the task identity while surfaces migrate
-   * to the shared capsule. The capsule does not use task identity or call APIs.
+   * to the shared capsule. The capsule uses it only for identity and recovery
+   * routing; the owning surface still controls execution actions.
    */
   taskId?: string | null;
+  /** Stable mission identity. Falls back to operationId, then executionId. */
+  missionId?: string | null;
+  operationId?: string | null;
+  proposalId?: string | null;
 };
 
 const actionLabels: Record<ProjectionAction, string> = {
@@ -71,14 +77,17 @@ function titleCase(value: unknown, fallback = 'Not recorded'): string {
 
 function stateTone(value: unknown): string {
   const normalized = typeof value === 'string' ? value.toUpperCase() : '';
-  if (['FAILED', 'BLOCKED', 'UNAVAILABLE'].includes(normalized)) {
+  if (['FAILED', 'BLOCKED', 'UNAVAILABLE', 'NEEDS_ATTENTION'].includes(normalized)) {
     return 'border-red-500/35 bg-red-500/10 text-red-200';
   }
-  if (['INTERRUPTED', 'CANCELLED', 'PENDING', 'PARTIAL', 'INCOMPLETE'].includes(normalized)) {
+  if (['INTERRUPTED', 'CANCELLED', 'PENDING', 'PARTIAL', 'INCOMPLETE', 'AWAITING_APPROVAL'].includes(normalized)) {
     return 'border-amber-500/35 bg-amber-500/10 text-amber-200';
   }
-  if (['PASSED', 'PROVEN', 'VERIFIED', 'APPROVED', 'SUCCEEDED'].includes(normalized)) {
+  if (['PASSED', 'PROVEN', 'VERIFIED', 'APPROVED', 'SUCCEEDED', 'DELIVERED', 'COMPLETE', 'READY_FOR_REVIEW'].includes(normalized)) {
     return 'border-emerald-500/35 bg-emerald-500/10 text-emerald-200';
+  }
+  if (['BUILDING', 'VALIDATING', 'DELIVERING', 'INVESTIGATING', 'PLANNING', 'UNDERSTANDING'].includes(normalized)) {
+    return 'border-primary/35 bg-primary/10 text-primary';
   }
   return 'border-border/60 bg-background/30 text-muted-foreground';
 }
@@ -88,62 +97,6 @@ function verificationTone(status: unknown): string {
   if (status === 'failed' || status === 'unavailable') return 'text-red-200';
   if (status === 'running') return 'text-sky-200';
   return 'text-amber-200';
-}
-
-function lifecycleCopy(
-  projection: AiExecutionProjection,
-  executionStatus?: string | null,
-): { title: string; detail: string; tone: string } {
-  const stopped = projection.stopped?.outcome;
-  if (stopped === 'FAILED') {
-    return {
-      title: 'Run stopped before acceptance',
-      detail: projection.stopped.reason || 'The server stopped this run. Review the recorded proof before deciding what to do next.',
-      tone: 'border-red-500/30 bg-red-500/5',
-    };
-  }
-  if (stopped === 'INTERRUPTED') {
-    return {
-      title: 'Run interrupted',
-      detail: projection.stopped.reason || 'The server interrupted this run. The retained checkpoint and evidence determine whether it can continue.',
-      tone: 'border-amber-500/30 bg-amber-500/5',
-    };
-  }
-  if (stopped === 'SUCCEEDED') {
-    return {
-      title: 'Execution finished',
-      detail: 'The server marked execution complete. Acceptance still depends on the verification and evidence posture below.',
-      tone: 'border-primary/30 bg-primary/5',
-    };
-  }
-  if (executionStatus?.toLowerCase() === 'failed') {
-    return {
-      title: 'Run needs attention',
-      detail: 'The current execution status is failed. No successful outcome is inferred without server-owned proof.',
-      tone: 'border-red-500/30 bg-red-500/5',
-    };
-  }
-  if (projection.verification?.status === 'running') {
-    return {
-      title: 'Work is in progress',
-      detail: 'The server is still collecting validation or evidence. This view reports progress, not a final result.',
-      tone: 'border-primary/30 bg-primary/5',
-    };
-  }
-  if (projection.verification?.status === 'passed') {
-    return {
-      title: 'Validation is recorded',
-      detail: projection.verification.proofRequired
-        ? 'Server-owned validation passed; confirm the evidence posture before treating the work as accepted.'
-        : 'Server-owned validation passed for this run.',
-      tone: 'border-emerald-500/30 bg-emerald-500/5',
-    };
-  }
-  return {
-    title: 'Run status is being tracked',
-    detail: 'The server has not recorded a final acceptance claim for this run.',
-    tone: 'border-border/50 bg-background/20',
-  };
 }
 
 function verificationSummary(
@@ -209,6 +162,9 @@ export function ExecutionProjectionPanel({
   compact = false,
   onAction,
   taskId,
+  missionId,
+  operationId,
+  proposalId,
 }: ExecutionProjectionPanelProps) {
   const queryClient = useQueryClient();
   const [pendingAction, setPendingAction] = useState<ProjectionAction | null>(null);
@@ -229,10 +185,18 @@ export function ExecutionProjectionPanel({
     (left, right) => actionOrder.indexOf(left) - actionOrder.indexOf(right),
   );
   const verdict = evidenceVerdict ?? projection.verification?.evidenceVerdict;
-  const lifecycle = lifecycleCopy(projection, executionStatus);
+  const missionState = getMissionState({
+    projection,
+    executionStatus,
+    flightState,
+    evidenceVerdict,
+    resumable,
+  });
   const percent = typeof progress?.percent === 'number' ? Math.max(0, Math.min(100, progress.percent)) : null;
   const approvalPending = projection.approval?.required && projection.approval.status === 'PENDING';
   const isStopped = Boolean(projection.stopped?.outcome);
+  const resolvedMissionId = missionId ?? operationId ?? executionId;
+  const resolvedProposalId = proposalId ?? projection.approval?.proposalId;
 
   async function loadDiff(): Promise<void> {
     if (!executionId) {
@@ -324,16 +288,31 @@ export function ExecutionProjectionPanel({
               {titleCase(projection.phase)}
             </span>
           </div>
-          <h2 className="mt-2 text-sm font-semibold text-foreground" data-testid="text-lifecycle-title">{lifecycle.title}</h2>
+          <h2 className="mt-2 text-sm font-semibold text-foreground" data-testid="text-lifecycle-title">{missionState.label}</h2>
           <p className="mt-1 max-w-3xl break-words text-xs leading-5 text-muted-foreground" data-testid="text-mission-objective">
             {projection.objective || 'No objective was retained for this run.'}
           </p>
         </div>
-        <div className={`rounded-lg border px-3 py-2 text-right ${lifecycle.tone}`} data-testid="status-lifecycle">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Current handoff</div>
-          <div className="mt-0.5 text-xs font-semibold text-foreground">{lifecycle.title}</div>
+        <div className={`rounded-lg border px-3 py-2 text-right ${stateTone(missionState.key)}`} data-testid="status-canonical">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Mission state</div>
+          <div className="mt-0.5 text-xs font-semibold text-foreground">{missionState.label}</div>
         </div>
       </div>
+
+      <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px]" role="status" data-testid="text-mission-state-detail">
+        {missionState.detail}
+      </div>
+
+      {resolvedMissionId && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground" data-testid="mission-identity">
+          <span className="font-semibold uppercase tracking-wide text-primary">Mission</span>
+          <code className="max-w-[18rem] truncate text-foreground" title={resolvedMissionId}>{resolvedMissionId}</code>
+          {executionId && executionId !== resolvedMissionId && <span>Execution <code className="text-foreground">{executionId}</code></span>}
+          {operationId && operationId !== resolvedMissionId && <span>Operation <code className="text-foreground">{operationId}</code></span>}
+          {taskId && <span>Task <code className="text-foreground">{taskId}</code></span>}
+          {resolvedProposalId && <span>Proposal <code className="text-foreground">{resolvedProposalId}</code></span>}
+        </div>
+      )}
 
       <div className={`mt-3 grid gap-2 text-[10px] ${compact ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 md:grid-cols-4'}`}>
         <div className="rounded-md border border-border/45 bg-background/25 px-2.5 py-2" data-testid="status-progress">
@@ -369,10 +348,6 @@ export function ExecutionProjectionPanel({
         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-border/60" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? 0} aria-label={percent === null ? 'Execution progress is not yet available' : `Execution ${percent}% complete`} data-testid="progress-execution">
           <div className={`h-full rounded-full transition-[width] duration-500 ${projection.verification?.status === 'failed' ? 'bg-red-400' : 'bg-primary'}`} style={{ width: `${percent ?? 0}%` }} />
         </div>
-      </div>
-
-      <div className={`mt-3 rounded-md border px-3 py-2 text-[11px] ${lifecycle.tone}`} role="status" data-testid="text-lifecycle-detail">
-        {lifecycle.detail}
       </div>
 
       {nextAction && (

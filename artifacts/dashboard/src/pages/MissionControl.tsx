@@ -1631,6 +1631,10 @@ export default function MissionControl() {
             <MissionCapsule
               projection={selectedExecutionDetail.projection}
               executionId={selectedExecution?.id}
+              missionId={selectedExecutionDetail.operationId ?? selectedExecution?.id}
+              operationId={selectedExecutionDetail.operationId}
+              proposalId={selectedExecutionDetail.proposalId}
+              taskId={selectedExecutionDetail.linkedTaskId}
               executionStatus={selectedExecutionDetail.status}
               flightState={selectedExecutionDetail.flightState}
               evidenceVerdict={selectedExecutionDetail.evidenceVerdict}
