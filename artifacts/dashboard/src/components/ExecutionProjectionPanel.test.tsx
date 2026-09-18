@@ -73,6 +73,10 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Awaiting approval');
     expect(screen.getByTestId('status-canonical')).toHaveTextContent('Mission state');
     expect(screen.getByTestId('mission-identity')).toHaveTextContent('execution-1');
+    expect(screen.getByTestId('mission-links')).toHaveTextContent('Open Flight Deck');
+    expect(screen.getByTestId('mission-links')).toHaveTextContent('Open Mission Control');
+    expect(screen.getByTestId('mission-links').querySelector('a[href="/flight-deck?executionId=execution-1"]')).toBeTruthy();
+    expect(screen.getByTestId('mission-links').querySelector('a[href="/mission-control?executionId=execution-1"]')).toBeTruthy();
     expect(screen.getByTestId('mission-timeline')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-validate')).toHaveTextContent('Now');
     expect(screen.getByTestId('status-proof')).toHaveTextContent('Partial');
@@ -83,6 +87,8 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getByTestId('button-action-cancel')).toHaveTextContent('Stop run');
     expect(screen.getByTestId('button-action-review_diff')).toHaveTextContent('Review changes');
     expect(screen.getByTestId('button-action-approve_changes')).toHaveTextContent('Approve changes');
+    expect(screen.getByTestId('button-action-approve_changes')).toHaveAttribute('data-primary-action', 'true');
+    expect(screen.getByTestId('primary-next-action')).toHaveTextContent('Next action');
     expect(screen.queryByTestId('button-action-resume_checkpoint')).not.toBeInTheDocument();
   });
 

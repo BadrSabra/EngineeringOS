@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { AiExecutionProjection } from '@workspace/api-client-react';
+import { Link } from 'wouter';
 import { getMissionState } from './mission-state';
 
 export type ProjectionAction = AiExecutionProjection['allowedActions'][number];
@@ -215,6 +216,8 @@ export function ExecutionProjectionPanel({
   const isStopped = Boolean(projection.stopped?.outcome);
   const resolvedMissionId = missionId ?? operationId ?? executionId;
   const resolvedProposalId = proposalId ?? projection.approval?.proposalId;
+  const primaryAction = missionState.primaryAction;
+  const secondaryActions = orderedActions.filter((action) => action !== primaryAction);
 
   async function loadDiff(): Promise<void> {
     if (!executionId) {
@@ -332,6 +335,35 @@ export function ExecutionProjectionPanel({
         </div>
       )}
 
+      {(executionId || taskId) && (
+        <nav className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Mission surfaces" data-testid="mission-links">
+          {executionId && (
+            <>
+              <Link
+                href={`/flight-deck?executionId=${encodeURIComponent(executionId)}`}
+                className="rounded border border-primary/25 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10"
+              >
+                Open Flight Deck
+              </Link>
+              <Link
+                href={`/mission-control?executionId=${encodeURIComponent(executionId)}`}
+                className="rounded border border-border/60 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground"
+              >
+                Open Mission Control
+              </Link>
+            </>
+          )}
+          {taskId && (
+            <Link
+              href={`/tasks?taskId=${encodeURIComponent(taskId)}`}
+              className="rounded border border-border/60 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-background/60 hover:text-foreground"
+            >
+              Open Task
+            </Link>
+          )}
+        </nav>
+      )}
+
       {projection.timeline?.length > 0 && (
         <details className="mt-3 rounded-md border border-border/45 bg-background/20" open={!compact} data-testid="mission-timeline">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-[10px] font-semibold text-foreground">
@@ -402,12 +434,35 @@ export function ExecutionProjectionPanel({
         </div>
       </div>
 
-      {nextAction && (
-        <div className="mt-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-[11px]" data-testid="text-next-action">
-          <span className="font-semibold text-foreground">Next safe action: </span>
-          <span className="text-muted-foreground">{nextAction}</span>
+      <div className="mt-3 rounded-md border border-primary/35 bg-primary/10 px-3 py-2.5" data-testid="primary-next-action">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Next action</div>
+            <div className="mt-0.5 text-xs font-semibold text-foreground">{missionState.primaryActionLabel}</div>
+            {nextAction && (
+              <div className="mt-0.5 text-[10px] text-muted-foreground" data-testid="text-next-action">
+                {nextAction}
+              </div>
+            )}
+          </div>
+          {primaryAction && (
+            <button
+              type="button"
+              data-testid={`button-action-${primaryAction.toLowerCase()}`}
+              data-primary-action="true"
+              className="inline-flex items-center rounded border border-primary/40 bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void runAction(primaryAction)}
+              disabled={pendingAction !== null}
+              title={onAction ? undefined : 'This action is handled by the owning execution surface'}
+            >
+              {pendingAction === primaryAction
+                ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                : actionIcon(primaryAction)}
+              {pendingAction === primaryAction ? 'Working…' : actionLabels[primaryAction]}
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {planSteps.length > 0 && (
         <details className="mt-3 rounded-md border border-border/45 bg-background/20" open={!compact}>
@@ -505,7 +560,7 @@ export function ExecutionProjectionPanel({
         </div>
       </details>
 
-      {(isStopped || approvalPending || orderedActions.length > 0 || actionError) && (
+      {(isStopped || approvalPending || secondaryActions.length > 0 || actionError) && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {isStopped && (
             <div className="flex min-w-0 items-start gap-1.5 text-[10px] text-amber-200" role="status" data-testid="status-stopped">
@@ -515,26 +570,31 @@ export function ExecutionProjectionPanel({
           )}
           {approvalPending && <span className="text-[10px] font-semibold text-amber-200" data-testid="status-approval">Approval required before continuing</span>}
           {actionError && <span className="text-[10px] text-red-200" role="alert" data-testid="text-action-error">{actionError}</span>}
-          {orderedActions.length > 0 && (
-            <div className="ml-auto flex flex-wrap justify-end gap-1.5" aria-label="Allowed execution actions">
-              {orderedActions.map((action) => {
-                const pending = pendingAction === action;
-                return (
-                  <button
-                    key={action}
-                    type="button"
-                    data-testid={`button-action-${action.toLowerCase()}`}
-                    className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[10px] font-semibold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={() => void runAction(action)}
-                    disabled={pendingAction !== null}
-                    title={onAction ? undefined : 'This action is handled by the owning execution surface'}
-                  >
-                    {pending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : actionIcon(action)}
-                    {pending ? 'Working…' : actionLabels[action]}
-                  </button>
-                );
-              })}
-            </div>
+          {secondaryActions.length > 0 && (
+            <details className="ml-auto w-full rounded-md border border-border/45 bg-background/20" data-testid="advanced-actions">
+              <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground">
+                More actions ({secondaryActions.length})
+              </summary>
+              <div className="flex flex-wrap justify-end gap-1.5 border-t border-border/40 px-2.5 py-2" aria-label="Additional execution actions">
+                {secondaryActions.map((action) => {
+                  const pending = pendingAction === action;
+                  return (
+                    <button
+                      key={action}
+                      type="button"
+                      data-testid={`button-action-${action.toLowerCase()}`}
+                      className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[10px] font-semibold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={() => void runAction(action)}
+                      disabled={pendingAction !== null}
+                      title={onAction ? undefined : 'This action is handled by the owning execution surface'}
+                    >
+                      {pending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : actionIcon(action)}
+                      {pending ? 'Working…' : actionLabels[action]}
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
           )}
         </div>
       )}

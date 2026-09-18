@@ -874,11 +874,12 @@ function acceptanceFilterKey(acceptance: TaskAcceptance): TaskAcceptanceFilter {
 
 export default function Tasks() {
   const queryClient = useQueryClient();
+  const requestedTaskId = new URLSearchParams(window.location.search).get('taskId') ?? '';
   const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
   const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');
   const [filterAcceptance, setFilterAcceptance] = useState<TaskAcceptanceFilter | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
 
   const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
@@ -893,6 +894,12 @@ export default function Tasks() {
     },
   );
   const tasks = useMonotonicData(rawTasks, newestUpdatedAt(rawTasks));
+
+  useEffect(() => {
+    if (requestedTaskId && tasks?.some((task) => task.id === requestedTaskId)) {
+      setExpandedTask(requestedTaskId);
+    }
+  }, [requestedTaskId, tasks]);
 
   const { toast } = useToast();
   const executeTask = useExecuteTask();

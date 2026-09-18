@@ -1138,8 +1138,10 @@ function MissionSkeleton() {
 }
 
 export default function MissionControl() {
-  const projectId = new URLSearchParams(window.location.search).get('projectId') ?? '';
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const searchParams = new URLSearchParams(window.location.search);
+  const projectId = searchParams.get('projectId') ?? '';
+  const requestedExecutionId = searchParams.get('executionId') ?? '';
+  const [selectedId, setSelectedId] = useState<string | null>(() => requestedExecutionId || null);
   const [comparisonLiveId, setComparisonLiveId] = useState<string | null>(null);
   const [comparisonImportedId, setComparisonImportedId] = useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = useState('');
@@ -1198,7 +1200,8 @@ export default function MissionControl() {
     (historyPage - 1) * historyPageSize,
     historyPage * historyPageSize,
   );
-  const selectedExecution = executions.find((execution) => execution.id === selectedId) ?? executions[0];
+  const selectedExecution = executions.find((execution) => execution.id === selectedId)
+    ?? (requestedExecutionId ? undefined : executions[0]);
   const { data: selectedExecutionDetail } = useGetAiExecution(selectedExecution?.id ?? '', {
     query: {
       queryKey: ['ai-mission-control-execution', selectedExecution?.id],
@@ -1656,19 +1659,19 @@ export default function MissionControl() {
               <div className="mt-2 grid gap-2 text-xs sm:grid-cols-4">
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Attempt</div>
-                  <div className="font-mono">{formatValue(asRecord(selectedExecution.acceptance)?.attempt)}</div>
+                  <div className="font-mono">{formatValue(asRecord(selectedExecution?.acceptance)?.attempt)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Outcome</div>
-                  <div>{formatValue(asRecord(selectedExecution.acceptance)?.outcome)}</div>
+                  <div>{formatValue(asRecord(selectedExecution?.acceptance)?.outcome)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Next step</div>
-                  <div className="text-primary">{acceptanceNextActionLabel(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
+                  <div className="text-primary">{acceptanceNextActionLabel(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Diagnostic code</div>
-                  <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution.acceptance)?.nextActionCode)}</div>
+                  <div className="font-mono text-primary">{formatValue(asRecord(selectedExecution?.acceptance)?.nextActionCode)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Task kind</div>

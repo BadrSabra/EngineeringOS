@@ -6991,9 +6991,10 @@ function LiveAgentActivity({
           type="button"
           onClick={onCancel}
           className="mt-2 inline-flex items-center gap-1.5 rounded border border-border/70 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+          title="Stops the local live display only. The server execution remains resumable."
         >
           <Square className="h-2.5 w-2.5 fill-current" />
-          Stop request
+          Stop display
         </button>
       )}
     </div>
@@ -11589,8 +11590,8 @@ export default function AiChat() {
     setLiveVerdictScope(null);
     setLocalMessages((prev) => prev.filter((message) => !message.id.startsWith('opt-')));
     toast({
-      title: 'Request stopped',
-      description: 'The unfinished AI request was cancelled. No changes were applied.',
+      title: 'Live display stopped',
+      description: 'Only the local stream display stopped. The server execution remains available to resume.',
     });
   }
 
