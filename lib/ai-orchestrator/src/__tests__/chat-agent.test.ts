@@ -756,6 +756,12 @@ describe("chat agent — ChatOutputSchema validation", () => {
       rootPath,
       executionLedger,
       onOrientationManifest,
+      orientationSourcesOverride: {
+        purpose: ["README.md"],
+        components: ["src/MissingApp.tsx"],
+        primaryFlow: ["src/MissingRoutes.ts"],
+        uncertainty: ["tests/Missing.test.ts"],
+      },
       onProviderAttempt: (attempt) => {
         providerAttempts.push(attempt);
       },
@@ -766,8 +772,8 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.response).toContain("ANALYSIS_INCOMPLETE");
     expect(result.response).not.toContain("MODEL_OUTPUT_INVALID");
     expect(onOrientationManifest).not.toHaveBeenCalled();
-    expect(result.sourceSelectionRecord?.plannerTier).toBe("fallback");
-    expect(result.sources).toEqual(expect.arrayContaining(["README.md", "package.json"]));
+    expect(result.sourceSelectionRecord?.plannerTier).toBe("targeted");
+    expect(result.sources).toEqual(["README.md"]);
     expect(result.sourceSelectionRecord?.orientationCoverage).toMatchObject({
       complete: false,
     });

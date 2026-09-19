@@ -153,3 +153,4 @@
  - [Operator alert campaign isolation](operator-alert-campaign-isolation.md) — controlled campaign assertions must scope alerts to campaign-owned kinds or fingerprints because shared fixtures retain unrelated active alerts.
  - [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
 - [Cancellation controller registration](cancellation-controller-registration.md) — durable cancellation must win even when a worker registers its AbortController after the cancel request.
+- [Live evaluation inconclusive outcomes](live-evaluation-inconclusive.md) — provider/runtime exceptions do not prove application contract success or failure; live receipts must mark them inconclusive.

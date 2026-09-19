@@ -184,14 +184,18 @@ async function runCase({ name, files, orientationSources, timeoutMs }) {
   } catch (error) {
     return {
       name,
-      status: "failed",
+      // A live provider/transport failure does not establish either the
+      // orientation acceptance contract or its incomplete-result contract.
+      // Keep this case explicitly inconclusive so the receipt cannot report
+      // an upstream failure as an application-level contract failure.
+      status: "inconclusive",
       intent: turnIntent.kind,
       category: classification.category,
       latencyMs: Date.now() - startedAt,
       errorName: error?.name ?? "unknown",
       failureKind:
         error?.name === "AbortError" ? "timeout" : "provider_or_runtime_failure",
-      passed: false,
+      passed: null,
     };
   } finally {
     await fs.rm(rootPath, { recursive: true, force: true });
@@ -227,7 +231,11 @@ try {
       kind: "live-orientation-evaluation-receipt",
       provider: "openrouter",
       results,
-      overallPassed: results.every((result) => result.passed),
+      overallStatus: results.some((result) => result.status === "inconclusive")
+        ? "inconclusive"
+        : results.every((result) => result.passed)
+          ? "passed"
+          : "failed",
     })}\n`,
   );
 } finally {
