@@ -9,8 +9,23 @@ import {
 } from "@workspace/db";
 import {
   claimAiExecution,
+  persistAiExecutionOrientationManifest,
   recoverAiExecutionRetryToken,
+  type AiOrientationRoleManifest,
 } from "./ai-execution-state.js";
+
+function orientationManifest(projectRevision: string, rootPath: string): AiOrientationRoleManifest {
+  return {
+    projectRevision,
+    rootPath,
+    paths: {
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    },
+  };
+}
 
 describe("durable conversational retry authorization", () => {
   it.each(["PROJECT_QUERY", "CHAT"] as const)(
@@ -20,6 +35,9 @@ describe("durable conversational retry authorization", () => {
     const executionId = randomUUID();
     const now = new Date();
     const workspaceRevision = now.toISOString();
+      const manifest = turnIntent === "PROJECT_QUERY"
+        ? orientationManifest(workspaceRevision, `/tmp/retry-${projectId}`)
+        : undefined;
 
     await db.insert(projectsTable).values({
       id: projectId,
@@ -47,6 +65,7 @@ describe("durable conversational retry authorization", () => {
         message: "Explain the project flow",
         modelMessage: "Explain the project flow",
         workspaceRevision,
+         ...(manifest ? { projectOrientation: true, workspaceRoot: manifest.rootPath } : {}),
         validationTargetPaths: [],
         ...(turnIntent === "PROJECT_QUERY"
           ? {
@@ -58,6 +77,7 @@ describe("durable conversational retry authorization", () => {
                 sessionId: randomUUID(),
                 projectRevision: workspaceRevision,
                 requiresEvidence: true,
+                 ...(manifest ? { orientationManifest: manifest } : {}),
                 scope: { projectId, rootPath: null, linkedTaskId: null },
               },
             }
@@ -115,6 +135,13 @@ describe("durable conversational retry authorization", () => {
         attempt: 1,
         workerId: "retry-test-worker",
       });
+       if (manifest) {
+         const [executionRow] = await db
+           .select({ request: aiExecutionsTable.request })
+           .from(aiExecutionsTable)
+           .where(eq(aiExecutionsTable.id, executionId));
+         expect(JSON.parse(executionRow!.request).resumeContract.orientationManifest).toEqual(manifest);
+       }
 
       const acceptances = await db
         .select({ attempt: aiExecutionAcceptancesTable.attempt })
@@ -128,4 +155,103 @@ describe("durable conversational retry authorization", () => {
     }
     },
   );
+
+  it("persists one verified orientation manifest and rejects drift or incomplete replacements", async () => {
+    const projectId = randomUUID();
+    const executionId = randomUUID();
+    const workerId = "orientation-manifest-worker";
+    const now = new Date();
+    const workspaceRevision = now.toISOString();
+    const rootPath = `/tmp/orientation-${projectId}`;
+    const manifest = orientationManifest(workspaceRevision, rootPath);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "orientation-test-user",
+      name: `orientation-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId: randomUUID(),
+      operationId: executionId,
+      userId: "orientation-test-user",
+      idempotencyKey: `${executionId}:orientation`,
+      attempt: 0,
+      resumeTokenHash: null,
+      request: JSON.stringify({
+        projectId,
+        turnIntent: "PROJECT_QUERY",
+        projectOrientation: true,
+        sessionId: randomUUID(),
+        message: "Explain the project",
+        modelMessage: "Explain the project",
+        workspaceRevision,
+        workspaceRoot: rootPath,
+        validationTargetPaths: [],
+        proofRequired: true,
+        resumeContract: {
+          taskType: "BEHAVIOR_QUERY",
+          outputContract: "BEHAVIOR_ANSWER",
+          contextProfile: "project_query",
+          sessionId: randomUUID(),
+          projectRevision: workspaceRevision,
+          requiresEvidence: true,
+          scope: { projectId, rootPath, linkedTaskId: null },
+        },
+      }),
+      checkpoint: "{}",
+      status: "running",
+      workerId,
+      leaseUntil: new Date(Date.now() + 60_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId,
+        manifest,
+      })).resolves.toBe(true);
+
+      const [stored] = await db
+        .select({ request: aiExecutionsTable.request })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId));
+      expect(JSON.parse(stored!.request).resumeContract.orientationManifest).toEqual(manifest);
+
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId,
+        manifest,
+      })).resolves.toBe(true);
+
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId,
+        manifest: {
+          ...manifest,
+          projectRevision: `${workspaceRevision}-drift`,
+        },
+      })).resolves.toBe(false);
+
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId,
+        manifest: {
+          ...manifest,
+          paths: { ...manifest.paths, uncertainty: [] },
+        },
+      })).resolves.toBe(false);
+    } finally {
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
 });
