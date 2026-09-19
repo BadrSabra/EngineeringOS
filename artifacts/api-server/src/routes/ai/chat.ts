@@ -5587,7 +5587,7 @@ router.post("/ai/chat", async (req, res) => {
     if (result._qualityError) {
       const quality = publicQualityFailure(result._qualityError);
       const safeMessage = "The AI result did not meet the quality checks required for completion.";
-      const forensicDiagnostic = turnIntent.requiresEvidence
+      const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
       await persistFailedChatTurn({
@@ -5627,7 +5627,7 @@ router.post("/ai/chat", async (req, res) => {
     }
 
     if (result._parseError) {
-      const forensicDiagnostic = turnIntent.requiresEvidence
+      const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
       return res.status(422).json({
@@ -5651,7 +5651,7 @@ router.post("/ai/chat", async (req, res) => {
       );
     } catch (error) {
       if (error instanceof MissionCorrelationReportValidationError) {
-        const forensicDiagnostic = turnIntent.requiresEvidence
+        const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         return res.status(422).json({
@@ -8196,7 +8196,7 @@ export async function handleChatStream(req: Request, res: Response) {
       } else if (step.kind === "audit_state") {
         sse({ type: "audit_state", ...step.state });
       } else if (step.kind === "forensic_terminal") {
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         sse({
@@ -8803,7 +8803,7 @@ export async function handleChatStream(req: Request, res: Response) {
           executionLedgerSnapshot,
         );
         const projectQueryTarget = projectQueryTargetFromTrace(publicToolTrace);
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         const persistedFailedMessage = await persistFailedChatTurn({
@@ -9354,7 +9354,7 @@ export async function handleChatStream(req: Request, res: Response) {
     if (result._qualityError) {
       const quality = publicQualityFailure(result._qualityError);
       const safeMessage = "The AI result did not meet the quality checks required for completion.";
-      const forensicDiagnostic = streamTurnIntent.requiresEvidence
+      const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
       const persistedQualityFailure = await persistFailedChatTurn({
@@ -9439,7 +9439,7 @@ export async function handleChatStream(req: Request, res: Response) {
     }
 
     if (result._parseError) {
-      const forensicDiagnostic = streamTurnIntent.requiresEvidence
+      const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
       const parserProjectQueryEvidence =
@@ -9670,7 +9670,7 @@ export async function handleChatStream(req: Request, res: Response) {
     } catch (error) {
       if (error instanceof MissionCorrelationReportValidationError) {
         const safeMessage = "The forensic report could not be validated and was not completed.";
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence
+        const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         sse({
