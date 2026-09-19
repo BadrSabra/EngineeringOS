@@ -581,6 +581,13 @@ export function parseActiveTaskState(value: string | null | undefined): ActiveTa
     const parsed: unknown = JSON.parse(value);
     const result = ActiveTaskStateSchema.safeParse(parsed);
     if (!result.success) return null;
+    if (
+      result.data.projectQuery
+      && new Set(result.data.projectQuery.requiredClaims.map((claim) => claim.claimId)).size
+        !== result.data.projectQuery.requiredClaims.length
+    ) {
+      return null;
+    }
     if (routeTask(result.data.taskType).outputContract !== result.data.outputContract) return null;
     return result.data;
   } catch {
@@ -610,21 +617,27 @@ export function mergeProjectQueryObjective(
     return target;
   }
 
-  const requiredClaims = objective.requiredClaims.map((claim) => ({
-    claimId: claim.claimId,
-    text: claim.text,
-    requiredEvidencePaths: [...(claim.requiredEvidencePaths ?? [])],
-    ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
-    ...(claim.evidenceNeedlesByPath
-      ? {
-          evidenceNeedlesByPath: Object.fromEntries(
-            Object.entries(claim.evidenceNeedlesByPath).map(
-              ([path, needles]) => [path, [...needles]],
+  const requiredClaims: ProjectQueryTarget["requiredClaims"] = [];
+  const seenClaimIds = new Set<string>();
+  for (const claim of objective.requiredClaims) {
+    if (seenClaimIds.has(claim.claimId)) continue;
+    seenClaimIds.add(claim.claimId);
+    requiredClaims.push({
+      claimId: claim.claimId,
+      text: claim.text,
+      requiredEvidencePaths: [...(claim.requiredEvidencePaths ?? [])],
+      ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+      ...(claim.evidenceNeedlesByPath
+        ? {
+            evidenceNeedlesByPath: Object.fromEntries(
+              Object.entries(claim.evidenceNeedlesByPath).map(
+                ([path, needles]) => [path, [...needles]],
+              ),
             ),
-          ),
-        }
-      : {}),
-  }));
+          }
+        : {}),
+    });
+  }
   const requiredEvidencePaths = [
     ...new Set([
       ...target.requiredEvidencePaths,

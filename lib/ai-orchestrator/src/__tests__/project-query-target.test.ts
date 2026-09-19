@@ -11,6 +11,7 @@ import {
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
+import { ObjectiveContractSchema } from "../schemas/chat.schema.js";
 import { deriveObjectiveRuntimeEdgesFromRetainedReads } from "../evidence-integrity.js";
 import type { EvidenceReference } from "../task-contracts.js";
 
@@ -117,6 +118,54 @@ describe("target-aware project queries", () => {
       ]),
     );
     expect(objective.scopePolicy?.forbiddenPaths).toContain("node_modules");
+  });
+
+  it("does not accumulate a dynamic weakness claim when a resumed target already contains it", () => {
+    const firstMessage = "اشرح آلية عمل وكيل الذكاء الاصطناعي المدمج وحدد نقاط الضعف";
+    const target = resolveProjectQueryTarget(firstMessage);
+    expect(target?.id).toBe("embedded-ai");
+    if (!target) return;
+
+    const firstObjective = buildProjectQueryObjective(target, firstMessage);
+    const resumedTarget = {
+      ...target,
+      requiredClaims: firstObjective.requiredClaims.map((claim) => ({
+        ...claim,
+        requiredEvidencePaths: [...(claim.requiredEvidencePaths ?? [])],
+      })),
+    };
+    const resumedObjective = buildProjectQueryObjective(
+      resumedTarget,
+      "حدد نقاط الضعف لدى الوكيل",
+    );
+
+    expect(resumedObjective.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "ai-routing",
+      "ai-tool-loop",
+      "ai-provider-dispatch",
+      "ai-weakness-analysis",
+    ]);
+    expect(new Set(resumedObjective.requiredClaims.map((claim) => claim.claimId)).size)
+      .toBe(resumedObjective.requiredClaims.length);
+    expect(Object.keys(Object.fromEntries(
+      resumedObjective.requiredClaims.map((claim) => [claim.claimId, claim]),
+    ))).toHaveLength(4);
+  });
+
+  it("rejects duplicate claim IDs at the objective boundary", () => {
+    const result = ObjectiveContractSchema.safeParse({
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredClaims: [
+        { claimId: "same", text: "first" },
+        { claimId: "same", text: "second" },
+      ],
+      requiredEvidenceEdges: [],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.some((issue) =>
+      issue.message.includes("claimId must be unique"),
+    )).toBe(true);
   });
 
   it("rejects a weakness conclusion that contradicts the accepted finish-reason guard", () => {

@@ -89,6 +89,17 @@ export const ObjectiveContractSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    const seenClaimIds = new Set<string>();
+    value.requiredClaims.forEach((claim, index) => {
+      if (seenClaimIds.has(claim.claimId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["requiredClaims", index, "claimId"],
+          message: `claimId must be unique within an objective: ${claim.claimId}`,
+        });
+      }
+      seenClaimIds.add(claim.claimId);
+    });
     // AI-OBJ-014: an edge-only reachability objective (requiredClaims: [] with
     // non-empty requiredEvidenceEdges) is legitimate — proving a caller->target
     // reachability edge does not need a natural-language claim. But an objective

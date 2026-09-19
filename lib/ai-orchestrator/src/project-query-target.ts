@@ -523,65 +523,44 @@ export function buildProjectQueryObjective(
   target: ProjectQueryTarget,
   goal: string,
 ): ObjectiveContract {
-  const requiredClaims: ProjectQueryTarget["requiredClaims"] = target.requiredClaims.map((claim) => ({
-    claimId: claim.claimId,
-    text: claim.text,
-    requiredEvidencePaths: [...claim.requiredEvidencePaths],
-    ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
-    ...(claim.evidenceNeedlesByPath
-      ? {
-          evidenceNeedlesByPath: Object.fromEntries(
-            Object.entries(claim.evidenceNeedlesByPath).map(
-              ([path, needles]) => [path, [...needles]],
+  const requiredClaims: ProjectQueryTarget["requiredClaims"] = [];
+  const seenClaimIds = new Set<string>();
+  const appendClaim = (claim: ProjectQueryTarget["requiredClaims"][number]): void => {
+    if (seenClaimIds.has(claim.claimId)) return;
+    seenClaimIds.add(claim.claimId);
+    requiredClaims.push({
+      claimId: claim.claimId,
+      text: claim.text,
+      requiredEvidencePaths: [...claim.requiredEvidencePaths],
+      ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
+      ...(claim.evidenceNeedlesByPath
+        ? {
+            evidenceNeedlesByPath: Object.fromEntries(
+              Object.entries(claim.evidenceNeedlesByPath).map(
+                ([path, needles]) => [path, [...needles]],
+              ),
             ),
-          ),
-        }
-      : {}),
-  }));
+          }
+        : {}),
+    });
+  };
+  for (const claim of target.requiredClaims) appendClaim(claim);
   if (isSessionQualityAuditRequest(goal)) {
     for (const claim of SESSION_QUALITY_CLAIMS) {
-      requiredClaims.push({
-        claimId: claim.claimId,
-        text: claim.text,
-        requiredEvidencePaths: [...claim.requiredEvidencePaths],
-        ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
-        ...(claim.evidenceNeedlesByPath
-          ? {
-              evidenceNeedlesByPath: Object.fromEntries(
-                Object.entries(claim.evidenceNeedlesByPath).map(
-                  ([path, needles]) => [path, [...needles]],
-                ),
-              ),
-            }
-          : {}),
-      });
+      appendClaim(claim);
     }
     if (
       SESSION_QUALITY_TRACE_RE.test(goal)
       && SESSION_QUALITY_DIVERGENCE_RE.test(goal)
     ) {
       for (const claim of SESSION_DIVERGENCE_CLAIMS) {
-        requiredClaims.push({
-          claimId: claim.claimId,
-          text: claim.text,
-          requiredEvidencePaths: [...claim.requiredEvidencePaths],
-          ...(claim.evidenceNeedles ? { evidenceNeedles: [...claim.evidenceNeedles] } : {}),
-          ...(claim.evidenceNeedlesByPath
-            ? {
-                evidenceNeedlesByPath: Object.fromEntries(
-                  Object.entries(claim.evidenceNeedlesByPath).map(
-                    ([path, needles]) => [path, [...needles]],
-                  ),
-                ),
-              }
-            : {}),
-        });
+        appendClaim(claim);
       }
     }
   }
   const weaknessRequested = target.id === "embedded-ai" && isGapAnalysisRequest(goal);
   if (weaknessRequested) {
-    requiredClaims.push({
+    appendClaim({
       claimId: EMBEDDED_AI_WEAKNESS_CLAIM.claimId,
       text: EMBEDDED_AI_WEAKNESS_CLAIM.text,
       requiredEvidencePaths: [...EMBEDDED_AI_WEAKNESS_CLAIM.requiredEvidencePaths],

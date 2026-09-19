@@ -410,6 +410,9 @@ export function resolveTurnIntent(
       }
     : baseClassification;
   const projectOrientation = options.projectOrientation === true;
+  const projectQueryExpansionRequest =
+    /(?:توسيع|وسّع|وسع)\s+(?:نطاق\s+)?(?:التحليل|التحليلات|المراجعة|التدقيق)|(?:expand|broaden)\s+(?:the\s+)?(?:analysis|review|audit)/iu
+      .test(normalizedMessage);
   const route = routeTask(classification.taskType);
   const planDelivery =
     !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
@@ -477,10 +480,15 @@ export function resolveTurnIntent(
     !options.resumed &&
     !planDelivery &&
     !implementationDelivery &&
-    broadForensicTask &&
-    BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) &&
-    !EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) &&
-    !hasExplicitAuditScope(normalizedMessage, classification);
+    (
+      (
+        broadForensicTask &&
+        BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) &&
+        !EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) &&
+        !hasExplicitAuditScope(normalizedMessage, classification)
+      )
+      || projectQueryExpansionRequest
+    );
   // A short approval/continuation inherits the already-approved forensic
   // contract. Its raw text ("ابدأ", "continue") does not repeat the audit
   // keywords, but it must still reach the read-only evidence path.
@@ -529,6 +537,8 @@ export function resolveTurnIntent(
         !scopeClarificationRequired &&
         !projectQueryEvidence
       ? "FORENSIC_AUDIT"
+      : projectQueryExpansionRequest && scopeClarificationRequired
+        ? "PROJECT_QUERY"
       : requiresTools
         ? "PROJECT_QUERY"
         : "CHAT";

@@ -417,6 +417,22 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it.each([
+    "قم بتوسيع نطاق التحليلات",
+    "وسّع نطاق التحليل",
+    "expand the analysis",
+  ])("requires explicit scope before expanding a project analysis: %s", (message) => {
+    const intent = resolveTurnIntent(message);
+
+    expect(intent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresTools: false,
+      requiresEvidence: false,
+      scopeClarificationRequired: true,
+      outputContract: "GENERIC_RESPONSE",
+    });
+  });
+
   it("resumes the verified prior classification for a real continuation", () => {
     const prior = classifyRequest(
       "Audit the entire repository and identify the root causes.",

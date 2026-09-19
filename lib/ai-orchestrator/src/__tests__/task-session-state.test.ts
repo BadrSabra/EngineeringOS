@@ -203,6 +203,31 @@ describe("active task session state", () => {
       .toEqual(state?.projectQuery?.requiredClaims);
   });
 
+  it("rejects resumable project state with duplicate claim IDs", () => {
+    const classification = classifyRequest("حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع");
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      projectQuery: classification.projectTarget,
+    });
+    if (!state?.projectQuery) return;
+
+    const duplicateState = {
+      ...state,
+      projectQuery: {
+        ...state.projectQuery,
+        requiredClaims: [
+          ...state.projectQuery.requiredClaims,
+          state.projectQuery.requiredClaims[0]!,
+        ],
+      },
+    };
+
+    expect(parseActiveTaskState(serializeActiveTaskState(duplicateState))).toBeNull();
+  });
+
   it("round-trips a validated resumable task state", () => {
     const state = buildActiveTaskState({
       classification: auditClassification,
