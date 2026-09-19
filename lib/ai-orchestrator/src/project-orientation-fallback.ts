@@ -6,10 +6,34 @@ export type ProjectOrientationFallbackResult = {
 };
 
 const ORIENTATION_ROLES = [
-  ["purpose", "Purpose", "الغرض"],
-  ["components", "Components", "المكونات"],
-  ["primaryFlow", "Primary flow", "التدفق الأساسي"],
-  ["uncertainty", "Uncertainty", "نقاط عدم اليقين"],
+  [
+    "purpose",
+    "Purpose",
+    "الغرض",
+    "This section records what the retained sources state about the project's purpose.",
+    "يوثق هذا القسم ما تذكره المصادر المحتفظ بها عن غرض المشروع.",
+  ],
+  [
+    "components",
+    "Components",
+    "المكونات",
+    "This section records the components named by the retained sources.",
+    "يوثق هذا القسم المكونات التي تسميها المصادر المحتفظ بها.",
+  ],
+  [
+    "primaryFlow",
+    "Primary flow",
+    "التدفق الأساسي",
+    "This section records the execution flow visible in the retained sources.",
+    "يوثق هذا القسم تدفق التنفيذ الظاهر في المصادر المحتفظ بها.",
+  ],
+  [
+    "uncertainty",
+    "Uncertainty",
+    "نقاط عدم اليقين",
+    "This section records boundaries or open points visible in the retained sources.",
+    "يوثق هذا القسم الحدود أو النقاط المفتوحة الظاهرة في المصادر المحتفظ بها.",
+  ],
 ] as const;
 
 function normalizePath(value: string): string {
@@ -68,7 +92,13 @@ export function buildDeterministicProjectOrientationResponse(params: {
   const roleBlocks: string[] = [];
   const sources: string[] = [];
 
-  for (const [role, englishLabel, arabicLabel] of ORIENTATION_ROLES) {
+  for (const [
+    role,
+    englishLabel,
+    arabicLabel,
+    englishDescription,
+    arabicDescription,
+  ] of ORIENTATION_ROLES) {
     const roleReads = [...new Set(params.orientationSources[role])]
       .map((path) => findRead(path, params.fileContents))
       .filter((entry): entry is [string, string] => Boolean(entry && entry[1].trim()));
@@ -80,6 +110,7 @@ export function buildDeterministicProjectOrientationResponse(params: {
     const label = language === "ar" ? arabicLabel : englishLabel;
     roleBlocks.push([
       `## ${label}`,
+      language === "ar" ? arabicDescription : englishDescription,
       language === "ar"
         ? `المصادر المثبتة: ${roleReads.map(([path]) => `\`${path}\``).join(", ")}`
         : `Verified sources: ${roleReads.map(([path]) => `\`${path}\``).join(", ")}`,
