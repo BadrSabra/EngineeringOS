@@ -989,6 +989,30 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(response).toContain("بعد ذلك");
   });
 
+  it("synthesizes the expanded Arabic AI-layer contract instead of listing only the original flow", async () => {
+    const { buildProjectQueryEvidenceSynthesis } = await import("../agents/chat-agent.js");
+    const message = "قم بتحليل طبقات الذكاء الاصطناعي داخل المشروع";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("embedded-ai");
+    const objective = buildProjectQueryObjective(target!, message);
+    const evidence = objective.requiredClaims.map((claim, index) => ({
+      claimId: claim.claimId,
+      source: claim.requiredEvidencePaths?.[0] ?? "embedded-ai-source.ts",
+      excerpt: `${claim.evidenceNeedles?.[0] ?? claim.text}\nlayer evidence ${index + 1}`,
+      sourceSpan: { startLine: index + 1, endLine: index + 2 },
+    }));
+
+    const response = buildProjectQueryEvidenceSynthesis(objective, evidence, "ar");
+
+    expect(response).toContain("claims ومسارات أدلة");
+    expect(response).toContain("بوابة الأدلة");
+    expect(response).toContain("هوية التنفيذ ونقاط checkpoint");
+    expect(response).toContain("JSON وSSE");
+    for (const claim of objective.requiredClaims) {
+      expect(response).toContain(claim.text);
+    }
+  });
+
   it("uses the gap-analysis shape for an Arabic gap objective", async () => {
     const { buildProjectQueryEvidenceSynthesis } = await import("../agents/chat-agent.js");
     const message = "ما هي نقاط الضعف لدى الوكيل؟";

@@ -5201,6 +5201,22 @@ export function buildProjectQueryEvidenceSynthesis(
       ar: "بعد ذلك، يرسل مسار الدردشة طلب المزود عبر `chatWithFallback`. هذا يتيح اختيار مزود بديل عند الحاجة، بينما تبقى القراءات المحتفظ بها هي الأساس الذي يجب أن يلتزم به الرد النهائي.",
       en: "After that, the chat route dispatches the provider request through `chatWithFallback`. This allows a fallback provider when needed, while the retained reads remain the source boundary the final answer must respect.",
     },
+    "ai-query-planning": {
+      ar: "وبالتوازي، يحول target الخاص باستعلام المشروع السؤال إلى claims ومسارات أدلة وأجزاء تحليل محددة قبل بدء قراءات المصدر، حتى لا يظل نطاق التحليل ضمنياً.",
+      en: "In parallel, the project-query target turns the request into explicit claims, evidence paths, and analysis parts before source reads begin, so the analysis scope is not implicit.",
+    },
+    "ai-evidence-acceptance": {
+      ar: "بعد جمع القراءات، تتحقق بوابة الأدلة من إغلاق كل claim ومن سلامة مسارات الإثبات ومن صحة الإجابة النهائية قبل إعلان التحليل مثبتاً.",
+      en: "After the reads are collected, the evidence gates require every claim and evidence edge to close and the final answer to validate before the analysis is marked proven.",
+    },
+    "ai-durable-execution": {
+      ar: "ويحفظ مسار API هوية التنفيذ ونقاط checkpoint في الحالة الدائمة، لذلك يمكن تتبع الأدلة واستئناف التنفيذ دون الاعتماد على استدعاء المزود وحده.",
+      en: "The API route also persists execution identity and checkpoints, allowing evidence and resumable state to survive beyond a single provider call.",
+    },
+    "ai-terminal-projection-parity": {
+      ar: "وأخيراً، تُسقط النتيجة النهائية نفسها عبر JSON وSSE والرسائل المحفوظة وإعادة تحميل السجل، مع الحفاظ على هوية الجلسة والتنفيذ والنتيجة الطرفية.",
+      en: "Finally, the same terminal outcome is projected through JSON, SSE, persisted messages, and history reloads while preserving session, execution, and outcome identity.",
+    },
   };
   const gapFlowByClaimId: Record<string, { ar: string; en: string }> = {
     "gap-routing": {
