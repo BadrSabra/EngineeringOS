@@ -26,3 +26,9 @@ Structured repair-plan metadata is execution context, not ordinary conversation 
 **Why:** A fresh Arabic explanation request correctly resolved as read-only but still received a prior repair plan through decorated history, allowing mutation-oriented context to cross the turn boundary.
 
 **How to apply:** Gate repair-plan history decoration on the current authoritative turn intent, and verify stored assistant metadata plus reconnect/history projections remain plan-free for fresh read-only questions.
+
+Project-query continuation state must not be used as the new turn's mutable target contract. Rebuilding a target from a prior objective and then appending current-turn claims can duplicate dynamic claims on every follow-up.
+
+**Why:** A real embedded-AI session produced 4, then 5, then 6 required claims for three different questions. The extra claims came from reusing the prior target's claims before `buildProjectQueryObjective` appended the current weakness claim; evidence and deterministic synthesis then repeated the same answer.
+
+**How to apply:** Treat a new project question as a fresh target/objective. For recognized continuations, preserve the original immutable objective; otherwise never merge prior required claims into the current target. Deduplicate by claim ID as a fail-closed invariant.
