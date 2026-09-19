@@ -106,10 +106,27 @@ import {
   hasAiExecutionResumeContract,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
+  shouldCreateAutonomousOperation,
   transitionAutonomousOperation,
   validateAutonomousOperationCompletion,
   validateAnalysisEvidenceCompletion,
 } from "./ai-execution-state.js";
+
+describe("shouldCreateAutonomousOperation", () => {
+  it("keeps a resumed project orientation operation when retry is classified as CHAT", () => {
+    expect(shouldCreateAutonomousOperation({
+      turnIntentKind: "CHAT",
+      projectOrientation: true,
+    })).toBe(true);
+  });
+
+  it("does not create an autonomous operation for ordinary chat", () => {
+    expect(shouldCreateAutonomousOperation({
+      turnIntentKind: "CHAT",
+      projectOrientation: false,
+    })).toBe(false);
+  });
+});
 
 describe("createAiExecution", () => {
   it("converges simultaneous first submissions on one execution", async () => {

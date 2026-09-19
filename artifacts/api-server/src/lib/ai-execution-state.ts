@@ -69,6 +69,17 @@ export type AutonomousOperationNodeKind =
   | "promote"
   | "delivery";
 
+/**
+ * A resumed project-orientation turn remains an autonomous evidence execution
+ * even when the raw retry message is classified as ordinary CHAT.
+ */
+export function shouldCreateAutonomousOperation(params: {
+  turnIntentKind: string;
+  projectOrientation: boolean;
+}): boolean {
+  return params.turnIntentKind !== "CHAT" || params.projectOrientation;
+}
+
 export type AutonomousOperationNode = {
   id: string;
   kind: AutonomousOperationNodeKind;

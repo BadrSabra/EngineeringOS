@@ -28,3 +28,9 @@ For resumed stream turns, build the provider-history exclusion policy only after
 **Why:** Constructing the policy before resume claim left the current execution identity unset and replayed both the persisted current prompt and an older identical prompt to the provider.
 
 **How to apply:** It is safe to fetch bounded history before claiming, but delay history projection/policy construction until the claimed execution ID is available. Keep this rule specific to resumed execution identity; do not broaden content-based filtering.
+
+Durable retry intent must also govern autonomous-operation creation. A retry message may classify as `CHAT` while the stored request remains a project-orientation evidence execution; the latter must keep its operation contract.
+
+**Why:** Gating operation creation on the raw retry classification left orientation reads complete but made acceptance fail because no operation reached the completion gate.
+
+**How to apply:** Use the restored execution intent/project-orientation state when creating or rehydrating the operation, while preserving ordinary CHAT as operation-free.

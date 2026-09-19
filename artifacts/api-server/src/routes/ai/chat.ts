@@ -178,6 +178,7 @@ import {
   reconcileAiExecutions,
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
+  shouldCreateAutonomousOperation,
   unregisterAiExecutionController,
   type AiExecutionCheckpoint,
   type AiOrientationRoleManifest,
@@ -7535,29 +7536,32 @@ export async function handleChatStream(req: Request, res: Response) {
     }
     executionNodeStates = reconciledExecutionNodes ?? persistedExecutionNodes;
     const checkpointOperation = resumeCheckpoint?.operation;
-     autonomousOperation = streamTurnIntent.kind === "CHAT"
-       ? undefined
-       : checkpointOperation ?? createAutonomousOperationContract({
-           operationId: aiExecution.operationId ?? aiExecution.id,
-            taskObjective: executionRequest.taskObjective,
-           objective: executionRequest.objective
-             ? JSON.stringify(executionRequest.objective)
-             : executionRequest.message,
-           revisionManifest: executionRequest.workspaceRevision,
-           targetPaths: executionRequest.validationTargetPaths,
-           expectedBehavior: executionRequest.message,
-           nodes: executionNodeStates.map((node) => ({
-             id: node.id,
-             kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" : "inspect",
-             dependencies: [...node.dependencies],
-             status: node.status,
-             attempts: node.attempts,
-             validationAttempts: node.validationAttempts,
-             allowedFiles: [...node.allowedFiles],
-             validationProfile: node.validationProfile,
-             evidenceRefs: [],
-           })),
-         });
+    autonomousOperation = shouldCreateAutonomousOperation({
+      turnIntentKind: streamTurnIntent.kind,
+      projectOrientation: projectOrientationExecution,
+    })
+      ? checkpointOperation ?? createAutonomousOperationContract({
+          operationId: aiExecution.operationId ?? aiExecution.id,
+          taskObjective: executionRequest.taskObjective,
+          objective: executionRequest.objective
+            ? JSON.stringify(executionRequest.objective)
+            : executionRequest.message,
+          revisionManifest: executionRequest.workspaceRevision,
+          targetPaths: executionRequest.validationTargetPaths,
+          expectedBehavior: executionRequest.message,
+          nodes: executionNodeStates.map((node) => ({
+            id: node.id,
+            kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" : "inspect",
+            dependencies: [...node.dependencies],
+            status: node.status,
+            attempts: node.attempts,
+            validationAttempts: node.validationAttempts,
+            allowedFiles: [...node.allowedFiles],
+            validationProfile: node.validationProfile,
+            evidenceRefs: [],
+          })),
+        })
+      : undefined;
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
     await registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
@@ -10107,6 +10111,11 @@ export async function handleChatStream(req: Request, res: Response) {
     const orientationAcceptanceEligible =
       orientationCoverageComplete === true
       && orientationTraceParityFailure === undefined;
+    if (orientationAcceptanceEligible) {
+      executionEvidenceVerdict = "PROVEN";
+      executionEvidenceReason =
+        "Project orientation was assembled from complete retained source coverage.";
+    }
     if (autonomousOperation) {
       const finalEvidenceRef = finalValidation?.kind === "validation"
         ? finalValidation.result.evidence.artifactRef
@@ -10359,7 +10368,7 @@ export async function handleChatStream(req: Request, res: Response) {
           error: acceptanceError,
           cancelled: false,
           nodeStates: executionNodeStates,
-          operation: undefined,
+          operation: operationForCompletion,
           acceptanceDisposition,
           evidenceVerdict: terminalEvidenceVerdict,
           evidenceReason: terminalEvidenceReason,
