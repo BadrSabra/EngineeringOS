@@ -402,8 +402,8 @@ test("the opt-in live journey requests and captures forensic proof", () => {
   );
   assert.match(
     journeySource,
-    /const validation = recentSteps\.filter/,
-    "The live report capture must include validation checkpoints.",
+    /const validation =[\s\S]*provenValidatorReceipts/,
+    "The live report capture must include trace or server-owned validation checkpoints.",
   );
 });
 

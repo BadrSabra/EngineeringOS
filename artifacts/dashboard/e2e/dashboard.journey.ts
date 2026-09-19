@@ -4163,16 +4163,55 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       execution.checkpoint && typeof execution.checkpoint === "object"
         ? (execution.checkpoint as Record<string, any>)
         : {};
-    const recentSteps = Array.isArray(checkpoint.recentSteps)
-      ? checkpoint.recentSteps
-      : [];
-    const validation = recentSteps.filter(
-      (step) => step?.kind === "validation",
-    );
     const projectRevision =
       typeof execution.projectRevision === "string"
         ? execution.projectRevision
         : undefined;
+    const recentSteps = Array.isArray(checkpoint.recentSteps)
+      ? checkpoint.recentSteps
+      : [];
+    const recentValidation = recentSteps.filter(
+      (step) => step?.kind === "validation",
+    );
+    /*
+     * Project-query acceptance stores proof in the server-owned checkpoint
+     * receipt rather than in the bounded delivery-oriented recentSteps trace.
+     * Prefer the trace when it exists, but do not discard an authoritative
+     * PROVEN validator receipt just because this execution had no validation
+     * step in recentSteps.
+     */
+    const evidenceProgress =
+      checkpoint.evidenceProgress &&
+      typeof checkpoint.evidenceProgress === "object"
+        ? checkpoint.evidenceProgress
+        : {};
+    const completedEvidencePaths = Array.isArray(evidenceProgress.completedPaths)
+      ? evidenceProgress.completedPaths.filter(
+          (path): path is string => typeof path === "string" && path.length > 0,
+        )
+      : [];
+    const evidenceRefs = Array.isArray(checkpoint.evidenceRefs)
+      ? checkpoint.evidenceRefs.filter(
+          (ref): ref is string => typeof ref === "string" && ref.length > 0,
+        )
+      : [];
+    const validatorReceipts = Array.isArray(checkpoint.validatorReceipts)
+      ? checkpoint.validatorReceipts
+      : [];
+    const provenValidatorReceipts = validatorReceipts.filter(
+      (receipt) =>
+        receipt?.status === "PROVEN" &&
+        typeof receipt?.validatorId === "string" &&
+        receipt?.workspaceRevision === projectRevision,
+    );
+    const validation =
+      recentValidation.length > 0
+        ? recentValidation
+        : provenValidatorReceipts.map((receipt) => ({
+            status: "passed",
+            validationProfile: receipt.validatorId,
+            projectRevision: receipt.workspaceRevision,
+          }));
     const candidateHash = validation
       .map((step) => step?.validation?.candidateHash ?? step?.candidateHash)
       .find((value): value is string => typeof value === "string" && value.length > 0);
@@ -4191,9 +4230,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ) {
       throw new Error("Live campaign requires operation, revision, and candidate correlation.");
     }
-    const evidenceCount = recentSteps.reduce(
+    const recentEvidenceCount = recentSteps.reduce(
       (count, step) => count + (Number(step?.acceptedEvidenceCount) || 0),
       0,
+    );
+    const evidenceCount = Math.max(
+      recentEvidenceCount,
+      completedEvidencePaths.length,
+      evidenceRefs.filter((ref) => ref.startsWith("source-read:")).length,
+      provenValidatorReceipts.length > 0 ? 1 : 0,
     );
     const terminalState = String(
       execution.flightState ?? execution.status,
