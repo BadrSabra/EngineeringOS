@@ -38,3 +38,14 @@ explicitly identified deterministic recovery and displayed raw source excerpts.
 **How to apply:** Keep the acceptance verdict evidence- and role-coverage-based,
 but report the synthesis/recovery mode separately when evaluating user-facing
 quality; do not turn that mode into a new acceptance gate.
+
+Live orientation quality checks must recognize bilingual concept equivalents,
+not only exact English tokens; otherwise a valid Arabic provider response can be
+reported as missing domain coverage.
+
+**Why:** A natural Arabic response described the required concepts correctly, but
+an English-only evaluator initially marked several terms absent.
+
+**How to apply:** Keep stable concept keys in receipts, match approved Arabic and
+English expressions, and keep language-quality checks separate from contract
+acceptance.

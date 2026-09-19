@@ -10,14 +10,14 @@ import {
 
 const message =
   "اشرح EngineeringOS كاملًا من منظور المستخدم والمكونات الداخلية، واشمل Dashboard وAuthentication وProject Discovery وKnowledge Graph وAI Execution وGovernance، مع ذكر المسارات العامة كاملة ببادئة /api والاستشهاد بالملفات التي تثبت كل جزء.";
-const requiredTerms = [
-  "dashboard",
-  "authentication",
-  "project discovery",
-  "knowledge graph",
-  "ai execution",
-  "governance",
-  "/api",
+const requiredConcepts = [
+  { key: "dashboard", patterns: ["dashboard", "لوحة التحكم"] },
+  { key: "authentication", patterns: ["authentication", "المصادقة"] },
+  { key: "project discovery", patterns: ["project discovery", "اكتشاف المشاريع"] },
+  { key: "knowledge graph", patterns: ["knowledge graph", "الرسم البياني للمعرفة", "الرسم البياني المعرفي"] },
+  { key: "ai execution", patterns: ["ai execution", "تنفيذ الذكاء الاصطناعي"] },
+  { key: "governance", patterns: ["governance", "الحوكمة"] },
+  { key: "/api", patterns: ["/api"] },
 ];
 const citationPaths = [
   "README.md",
@@ -88,7 +88,10 @@ function evaluateResponse(response, coverage, sourceCount) {
   const letters = response.match(/[a-z\u0600-\u06ff]/gi) ?? [];
   const arabicLetters = response.match(/[\u0600-\u06ff]/g) ?? [];
   const termHits = Object.fromEntries(
-    requiredTerms.map((term) => [term, normalized.includes(term)]),
+    requiredConcepts.map(({ key, patterns }) => [
+      key,
+      patterns.some((pattern) => normalized.includes(pattern.toLowerCase())),
+    ]),
   );
   const citationHits = Object.fromEntries(
     citationPaths.map((filePath) => [filePath, response.includes(filePath)]),
@@ -102,6 +105,10 @@ function evaluateResponse(response, coverage, sourceCount) {
     sourceCount,
     responseLength: response.length,
     responsePreview: response.replace(/\s+/g, " ").slice(0, 900),
+    presentationMode: response.includes("PROJECT ORIENTATION — استرداد حتمي")
+      || response.includes("PROJECT ORIENTATION — deterministic evidence recovery")
+      ? "deterministic_fallback"
+      : "provider_synthesis",
     arabicRatio:
       letters.length === 0 ? 0 : Number((arabicLetters.length / letters.length).toFixed(2)),
     termHits,
@@ -164,7 +171,6 @@ async function runCase({ name, files, orientationSources, timeoutMs }) {
             noIncompleteMarker: !evaluation.hasIncompleteMarker,
             broadDomainCoverage: evaluation.termCoverage >= 5,
             sourceCitations: evaluation.citationCoverage >= 3,
-            ArabicResponse: evaluation.arabicRatio >= 0.35,
           }
         : {
             detector: isProjectOrientationQuestion(message),
@@ -172,6 +178,15 @@ async function runCase({ name, files, orientationSources, timeoutMs }) {
             incompleteMarker: evaluation.hasIncompleteMarker,
             missingRoles: evaluation.missingRoles.length >= 1,
           };
+    const qualityChecks = name === "complete"
+      ? {
+          ArabicResponse: evaluation.arabicRatio >= 0.35,
+          providerOrReadableFallback:
+            evaluation.presentationMode === "provider_synthesis"
+            || response.includes("الدليل المباشر:")
+            || response.includes("Direct evidence:"),
+        }
+      : undefined;
     return {
       name,
       status: "completed",
@@ -181,6 +196,12 @@ async function runCase({ name, files, orientationSources, timeoutMs }) {
       evaluation,
       checks,
       passed: Object.values(checks).every(Boolean),
+      ...(qualityChecks
+        ? {
+            qualityChecks,
+            qualityPassed: Object.values(qualityChecks).every(Boolean),
+          }
+        : {}),
     };
   } catch (error) {
     return {
@@ -232,11 +253,15 @@ try {
       kind: "live-orientation-evaluation-receipt",
       provider: "openrouter",
       results,
-      overallStatus: results.some((result) => result.status === "inconclusive")
+        overallStatus: results.some((result) => result.status === "inconclusive")
         ? "inconclusive"
         : results.every((result) => result.passed)
           ? "passed"
           : "failed",
+        presentationQuality:
+          results.find((result) => result.name === "complete")?.qualityPassed === true
+            ? "passed"
+            : "fallback_or_needs_review",
     })}\n`,
   );
 } finally {
