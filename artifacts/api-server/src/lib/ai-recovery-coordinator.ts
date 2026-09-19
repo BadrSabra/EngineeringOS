@@ -130,14 +130,87 @@ export type ChatRecoveryPlan =
        | "automatic_recovery_exhausted";
   };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 function asDisposition(value: unknown): RecoveryDisposition {
-  return value && typeof value === "object" ? value as RecoveryDisposition : {};
+  return asRecord(value) as RecoveryDisposition;
 }
 
 function parseRetryAt(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+export function calculateRecoveryRetryAt(
+  retryAfterSec: number | undefined,
+  nowMs = Date.now(),
+): string | undefined {
+  if (!Number.isFinite(retryAfterSec)) return undefined;
+  const delayMs = Math.max(1, Math.ceil(retryAfterSec as number)) * 1_000;
+  return new Date(nowMs + delayMs).toISOString();
+}
+
+/**
+ * Rate-limit deferrals must be durable. Without this marker, the 10-second
+ * dispatcher sees the same FAILED/REQUIRED acceptance on every tick and keeps
+ * spending a database rate-limit check on work that cannot yet start.
+ */
+async function deferRecoveryForRateLimit(params: {
+  executionId: string;
+  executionAttempt: number;
+  action: string;
+  retryAfterSec?: number;
+}): Promise<void> {
+  const retryAt = calculateRecoveryRetryAt(params.retryAfterSec);
+  if (!retryAt) return;
+
+  try {
+    await db.transaction(async (tx) => {
+      const [acceptance] = await tx
+        .select({
+          id: aiExecutionAcceptancesTable.id,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          disposition: aiExecutionAcceptancesTable.disposition,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, params.executionId),
+          eq(aiExecutionAcceptancesTable.attempt, params.executionAttempt),
+        ))
+        .for("update");
+
+      if (
+        !acceptance
+        || acceptance.outcome !== "FAILED"
+        || acceptance.nextActionCode !== params.action
+      ) {
+        return;
+      }
+
+      await tx
+        .update(aiExecutionAcceptancesTable)
+        .set({
+          disposition: {
+            ...asRecord(acceptance.disposition),
+            retryAt,
+            retryAfterMs: Math.max(1, Math.ceil(params.retryAfterSec as number)) * 1_000,
+            retryAfterSource: "project_rate_limit",
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.id, acceptance.id));
+    });
+  } catch (error) {
+    logger.warn(
+      { error, executionId: params.executionId },
+      "automatic recovery rate-limit backoff could not be persisted",
+    );
+  }
 }
 
 /**
@@ -446,6 +519,12 @@ async function runRecovery(candidate: TaskRecoveryCandidate, plan: Extract<TaskR
 
   const rateLimit = await checkProjectRateLimitDb(candidate.taskProjectId);
   if (!rateLimit.allowed) {
+    await deferRecoveryForRateLimit({
+      executionId: candidate.executionId,
+      executionAttempt: candidate.executionAttempt,
+      action: candidate.action,
+      retryAfterSec: rateLimit.retryAfterSec,
+    });
     await writeRecoveryLog(candidate, "Automatic recovery deferred by the project rate limit.", "warn", {
       reason: "project_rate_limit",
       retryAfterSec: rateLimit.retryAfterSec,
@@ -531,6 +610,12 @@ async function runChatRecovery(
   }
   const rateLimit = await checkProjectRateLimitDb(candidate.executionProjectId);
   if (!rateLimit.allowed) {
+    await deferRecoveryForRateLimit({
+      executionId: candidate.executionId,
+      executionAttempt: candidate.executionAttempt,
+      action: candidate.action,
+      retryAfterSec: rateLimit.retryAfterSec,
+    });
     logger.warn(
       { executionId: candidate.executionId, retryAfterSec: rateLimit.retryAfterSec },
       "automatic chat recovery deferred by project rate limit",

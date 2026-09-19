@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateRecoveryRetryAt,
   planChatRecovery,
   planTaskRecovery,
   type ChatRecoveryCandidate,
@@ -55,6 +56,15 @@ function chatCandidate(overrides: Partial<ChatRecoveryCandidate> = {}): ChatReco
 }
 
 describe("automatic task recovery admission", () => {
+  it("calculates a durable retry timestamp from a rate-limit delay", () => {
+    expect(calculateRecoveryRetryAt(9, Date.parse("2026-09-19T16:00:00.000Z")))
+      .toBe("2026-09-19T16:00:09.000Z");
+    expect(calculateRecoveryRetryAt(0, Date.parse("2026-09-19T16:00:00.000Z")))
+      .toBe("2026-09-19T16:00:01.000Z");
+    expect(calculateRecoveryRetryAt(undefined, Date.parse("2026-09-19T16:00:00.000Z")))
+      .toBeUndefined();
+  });
+
   it("creates a stable retry identity and preserves the retry budget fence", () => {
     const first = planTaskRecovery(candidate(), 1_000);
     const second = planTaskRecovery(candidate(), 1_000);
