@@ -4958,6 +4958,12 @@ router.post("/ai/chat", async (req, res) => {
     implementationPlanResume,
     projectOrientation: resumableStateForTurn?.projectOrientation === true,
   });
+  const projectOrientationTurn =
+    turnIntent.kind === "PROJECT_QUERY"
+    && (
+      isProjectOrientationQuestion(message)
+      || resumableStateForTurn?.projectOrientation === true
+    );
   logger.info({
     scope: "chat-route",
     action: "continuation_decision",
@@ -5243,6 +5249,8 @@ router.post("/ai/chat", async (req, res) => {
     const retainedReadStatuses = new Map<string, ReadStatus>();
     let providerFailureAfterEvidence: GroqClientError | undefined;
     const sessionIdToUse = existingSession?.id ?? sessionId ?? randomUUID();
+    const sourceEvidenceRequiredForTurn =
+      turnIntent.requiresEvidence || projectOrientationTurn;
     try {
       const chatOut = await chatWithFallback(
         req.userId,
@@ -5283,6 +5291,7 @@ router.post("/ai/chat", async (req, res) => {
           analysisToolRunner,
           analysisCorrelation,
           executionLedger,
+          projectOrientation: projectOrientationTurn,
           onProviderAttempt: (attempt) => recordAiUsageAttempt({
             projectId,
             userId: req.userId,
@@ -5319,7 +5328,7 @@ router.post("/ai/chat", async (req, res) => {
           behaviorEvidence: undefined,
         };
       }
-      if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
+      if (sourceEvidenceRequiredForTurn && endedBeforeFirstSourceRead(traceSteps)) {
         result = {
           ...result,
           response: failClosedBeforeEvidenceResponse(message),
@@ -5337,7 +5346,7 @@ router.post("/ai/chat", async (req, res) => {
           retainedEvidence,
           retainedReadStatuses,
         );
-        if (turnIntent.requiresEvidence && providerEvidenceSummary.sourceReadCount > 0) {
+        if (sourceEvidenceRequiredForTurn && providerEvidenceSummary.sourceReadCount > 0) {
           providerFailureAfterEvidence = err;
           result = {
             response: buildProviderFailureEvidenceResponse(
@@ -5361,14 +5370,14 @@ router.post("/ai/chat", async (req, res) => {
         });
         const terminalOutcome = classifyAiTerminalOutcome({
           trace: traceSteps,
-          requiresEvidence: turnIntent.requiresEvidence,
+          requiresEvidence: sourceEvidenceRequiredForTurn,
           forensic: turnIntent.kind === "FORENSIC_AUDIT"
-            || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
+            || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn),
           cancelled: false,
-          endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+          endedBeforeEvidence: sourceEvidenceRequiredForTurn && endedBeforeFirstSourceRead(traceSteps),
           ...terminalEvidenceState(providerEvidenceSummary, failureEvidenceProgress),
           providerEmptyBeforeEvidence:
-            turnIntent.requiresEvidence
+            sourceEvidenceRequiredForTurn
             && err.code === "EMPTY_RESPONSE"
             && endedBeforeFirstSourceRead(traceSteps),
           providerError: {
@@ -5429,10 +5438,10 @@ router.post("/ai/chat", async (req, res) => {
     const terminalOutcome = classifyAiTerminalOutcome({
       result,
       trace: traceSteps,
-      requiresEvidence: turnIntent.requiresEvidence,
+      requiresEvidence: sourceEvidenceRequiredForTurn,
       forensic: turnIntent.kind === "FORENSIC_AUDIT"
-        || (isCapabilityProbeRequest(message) && turnIntent.requiresEvidence),
-      endedBeforeEvidence: turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps),
+        || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn),
+      endedBeforeEvidence: sourceEvidenceRequiredForTurn && endedBeforeFirstSourceRead(traceSteps),
       ...terminalEvidenceState(terminalEvidenceSummary, terminalEvidenceProgress),
       ...(providerFailureAfterEvidence
         ? {

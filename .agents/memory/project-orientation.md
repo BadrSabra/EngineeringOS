@@ -14,3 +14,16 @@ Orientation explanations also need a bounded, role-based source manifest coverin
 **Why:** Graph-selected files and provider prose can produce a plausible inventory without proving how the project works. A role-level complete-read gate prevents that inventory from being presented as a functional explanation.
 
 **How to apply:** Keep role selection in the existing query-planner/prefetch path, derive completion from server-owned read statuses, and carry the bounded coverage record through the trace, history, and execution projection. 
+
+Provider failure after partial orientation reads is still an incomplete orientation
+result on every transport. The route must derive source-evidence-required from the
+server-owned orientation decision separately from `TurnIntent.requiresEvidence`,
+because ordinary orientation intentionally remains a low-risk `PROJECT_QUERY`.
+
+**Why:** SSE already used the orientation execution flag, but the non-streaming
+route could otherwise classify the same retained partial reads as a generic provider
+failure and lose the orientation acceptance contract.
+
+**How to apply:** Reuse the existing orientation detector/resumable flag in both
+routes, feed it into terminal classification and retained-evidence failure
+projection, and do not add a citation or provider-prose gate.

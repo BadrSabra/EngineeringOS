@@ -1003,6 +1003,42 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(400);
   });
 
+  it("keeps non-streaming project orientation incomplete after provider failure with retained reads", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat, GroqClientError } = await import("@workspace/ai-orchestrator");
+
+    vi.mocked(mockChat).mockImplementation(async (input: Record<string, any>) => {
+      input.retainedEvidence?.set("README.md", "# EngineeringOS");
+      input.retainedReadStatuses?.set("README.md", "READ_COMPLETE");
+      input.onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: "README.md",
+        readStatus: "READ_COMPLETE",
+      });
+      throw new GroqClientError("SERVER_ERROR", "fixture provider failure");
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What is this project?" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "INCOMPLETE_AFTER_PROVIDER_FAILURE",
+      recoveryState: "INCOMPLETE",
+      message: {
+        content: expect.stringContaining("ANALYSIS_INCOMPLETE"),
+        outcome: "FAILED",
+      },
+      report: expect.stringContaining("ANALYSIS_INCOMPLETE"),
+    });
+    expect(res.body.message.content).not.toContain("fixture provider failure");
+  });
+
   it.each(["/api/ai/chat", "/api/ai/chat/stream"])(
     "returns a typed root-unavailable terminal response for analysis requests (%s)",
     async (endpoint) => {
