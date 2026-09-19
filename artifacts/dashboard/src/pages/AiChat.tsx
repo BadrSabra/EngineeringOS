@@ -9453,13 +9453,21 @@ export default function AiChat() {
     // Targeted PROJECT_QUERY runs are intentionally not resumable after an
     // incomplete proof result. They must create a fresh execution so the
     // server can rebuild the objective scope instead of replaying an
-    // evidence-incomplete attempt. General project orientation is the only
-    // project-query shape that resumes its original execution. Historical
-    // messages may omit projectQueryTarget, so use the server-owned
-    // acceptance disposition as the durable signal as well.
+    // evidence-incomplete attempt. General project orientation can resume
+    // only when the server-owned acceptance still authorizes it. Historical
+    // messages may omit projectQueryTarget or acceptanceDisposition, so use
+    // the durable execution status when it is available.
+    const durableNextActionCode =
+      failedMessage?.acceptanceDisposition?.nextActionCode
+      ?? (activeExecutionStatus?.id === executionId
+        ? activeExecutionStatus.acceptance?.nextActionCode
+        : undefined);
     const requiresFreshProjectQueryRun =
       Boolean(failedMessage?.projectQueryTarget)
-      || failedMessage?.acceptanceDisposition?.nextActionCode === 'START_NEW_PROBE';
+      || durableNextActionCode === 'START_NEW_PROBE'
+      || durableNextActionCode === 'REVIEW_INCOMPLETE_EVIDENCE'
+      || durableNextActionCode === 'ABANDON_EXECUTION'
+      || (activeExecutionStatus?.id === executionId && !executionCanResume(activeExecutionStatus));
     if (requiresFreshProjectQueryRun) {
       sendMessage('retry');
       return;

@@ -83,7 +83,7 @@ describe("project orientation source coverage", () => {
     })).toBe(true);
   });
 
-  it("requires complete reads for every orientation role", () => {
+  it("requires at least one complete read for every orientation role", () => {
     const plan = {
       originalIntent: "Explain the project",
       targetFiles: ["README.md", "src/App.tsx", "src/routes.ts", "tests/app.test.ts"],
@@ -114,6 +114,47 @@ describe("project orientation source coverage", () => {
       primaryFlow: { complete: false },
     });
     expect(deriveSourceSelectionRecord(plan, statuses).orientationCoverage).toEqual(coverage);
+  });
+
+  it("keeps a role complete when a supplemental source is skipped", () => {
+    const plan = {
+      originalIntent: "Explain the project",
+      targetFiles: [
+        "README.md",
+        "src/App.tsx",
+        "src/routes.ts",
+        "tests/app.test.ts",
+        "config/deployment.ts",
+      ],
+      targetEntities: [],
+      scopeEstimate: "medium" as const,
+      suggestedIterations: 20,
+      requiresToolUse: true,
+      subQueries: [],
+      compoundParts: [],
+      orientationSources: {
+        purpose: ["README.md"],
+        components: ["src/App.tsx"],
+        primaryFlow: ["src/routes.ts"],
+        uncertainty: ["tests/app.test.ts", "config/deployment.ts"],
+      },
+    };
+    const statuses = new Map<string, string>([
+      ["README.md", "READ_COMPLETE"],
+      ["src/App.tsx", "READ_COMPLETE"],
+      ["src/routes.ts", "READ_COMPLETE"],
+      ["tests/app.test.ts", "READ_COMPLETE"],
+      ["config/deployment.ts", "READ_SKIPPED"],
+    ]);
+
+    expect(deriveProjectOrientationCoverage(plan, statuses)).toMatchObject({
+      complete: true,
+      missingRoles: [],
+      uncertainty: {
+        complete: true,
+        plannedFiles: ["tests/app.test.ts", "config/deployment.ts"],
+      },
+    });
   });
 });
 

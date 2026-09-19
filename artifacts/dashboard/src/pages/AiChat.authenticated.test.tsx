@@ -4821,6 +4821,12 @@ it('shows Groq model readiness without requiring a personal key when the server 
         outcome: 'FAILED',
         errorCode: 'EXECUTION_PROVIDER_FAILURE',
         retryable: true,
+        acceptanceDisposition: {
+          reasonCodes: ['EXECUTION_PROVIDER_FAILURE'],
+          outcome: 'FAILED',
+          recoveryState: 'REQUIRED',
+          nextActionCode: 'RESUME_ALLOWED',
+        },
       },
     ] as typeof mocks.proposalMessages;
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
@@ -4848,6 +4854,55 @@ it('shows Groq model readiness without requiring a personal key when the server 
         resumeToken: 'orientation-resume-token',
       }));
     });
+    fetchSpy.mockRestore();
+  });
+
+  it('starts a fresh run when orientation acceptance requires incomplete-evidence review', async () => {
+    mocks.serverProposal = { proposalId: 'orientation-incomplete-retry', changes: [] };
+    mocks.proposalMessages = [
+      {
+        id: 'user-orientation-incomplete',
+        role: 'user',
+        content: 'What is this project?',
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+      {
+        ...mocks.proposalMessages[0],
+        id: 'assistant-orientation-incomplete',
+        content: 'ANALYSIS_INCOMPLETE',
+        turnIntent: 'PROJECT_QUERY',
+        executionId: 'execution-orientation-incomplete',
+        outcome: 'FAILED',
+        errorCode: 'EXECUTION_ACCEPTANCE_INCOMPLETE',
+        retryable: true,
+        acceptanceDisposition: {
+          reasonCodes: ['EXECUTION_ACCEPTANCE_INCOMPLETE'],
+          outcome: 'FAILED',
+          failureKind: 'INCOMPLETE',
+          recoveryState: 'INCOMPLETE',
+          nextActionCode: 'REVIEW_INCOMPLETE_EVIDENCE',
+          operatorAction: 'START_NEW_RUN',
+        },
+      },
+    ] as typeof mocks.proposalMessages;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry project analysis' }));
+
+    await waitFor(() => {
+      expect(fetchSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/resume-capability'),
+        expect.anything(),
+      );
+      expect(mocks.sentParams).toEqual(expect.objectContaining({
+        message: 'retry',
+      }));
+    });
+    expect(mocks.sentParams?.executionId).toBeUndefined();
+    expect(mocks.sentParams?.resumeToken).toBeUndefined();
     fetchSpy.mockRestore();
   });
 

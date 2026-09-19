@@ -1479,8 +1479,11 @@ function statusForPath(
 
 /**
  * Orientation is accepted only when every bounded role has at least one
- * complete source read. The role manifest is planner output, while completion
- * is derived exclusively from server-observed prefetch/tool read statuses.
+ * complete source read. A role may list supplemental candidates, but one
+ * skipped or failed candidate must not invalidate the role when another
+ * candidate supplied complete evidence. The role manifest is planner output,
+ * while completion is derived exclusively from server-observed
+ * prefetch/tool read statuses.
  */
 export function deriveProjectOrientationCoverage(
   plan: QueryPlan,
@@ -1494,7 +1497,7 @@ export function deriveProjectOrientationCoverage(
     const plannedFiles = [...new Set(roles[role].map(normalizePath).filter(Boolean))];
     const complete =
       plannedFiles.length > 0 &&
-      plannedFiles.every((path) => statusForPath(path, finalReadStatuses) === "READ_COMPLETE");
+      plannedFiles.some((path) => statusForPath(path, finalReadStatuses) === "READ_COMPLETE");
     return [role, { plannedFiles, complete }];
   })) as Pick<ProjectOrientationCoverage, typeof roleNames[number]>;
   const missingRoles = roleNames.filter((role) => !coverage[role].complete);
