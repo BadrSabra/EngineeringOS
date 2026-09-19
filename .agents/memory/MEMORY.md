@@ -156,3 +156,4 @@
 - [Live evaluation inconclusive outcomes](live-evaluation-inconclusive.md) — provider/runtime exceptions do not prove application contract success or failure; live receipts must mark them inconclusive.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Empty prefetch reads](empty-prefetch-reads.md) — prefetch must reject empty tool output before creating cache/messages; otherwise failed paths enter status telemetry without a traceable read event.
+- [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
