@@ -267,8 +267,15 @@ describe("target-aware project queries", () => {
     const message = "قم بتحليل طبقات الذكاء الاصطناعي داخل المشروع";
     const target = resolveProjectQueryTarget(message);
     const objective = buildProjectQueryObjective(target!, message);
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
 
     expect(target?.id).toBe("embedded-ai");
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    expect(classification.projectTargetResolution).toBe("resolved");
+    expect(intent.kind).toBe("PROJECT_QUERY");
+    expect(intent.requiresEvidence).toBe(true);
+    expect(target?.promptHint).toContain("query planning");
     expect(objective.requiredClaims.map((claim) => claim.claimId)).toEqual([
       "ai-routing",
       "ai-tool-loop",

@@ -172,6 +172,8 @@ const EMBEDDED_AI_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "provider dispatch, and acceptance with their source paths before synthesizing. " +
     "Prove the retained production execution edges for intent routing, tool execution, " +
     "provider dispatch, synthesis/finalization, and final validation before calling the answer proven. " +
+    "For an explicit layers or architecture request, also cover query planning, evidence acceptance, " +
+    "durable execution/checkpoints, and terminal projection across JSON, SSE, persistence, and history. " +
     "State each claim assertion verbatim, then explain the sequence in the requested language. " +
     "If the goal asks for weaknesses, also state the verified weakness claim about " +
     "finish_reason=\"error\" and explain why it must be rejected before tool execution. " +
