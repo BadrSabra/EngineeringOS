@@ -652,7 +652,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     const providerResponse = JSON.stringify({
       response: [
         ...objective.requiredClaims.map((claim) => claim.text),
-        "أولاً يجمع المسار الأدلة، ثم يمررها إلى التحقق، وأخيراً يغلق الادعاءات المطلوبة.",
+        "هذا تحليل لفجوات الوكيل: أولا يجمع المسار الأدلة، بعد ذلك يمررها إلى التحقق، وأخيرا يغلق الادعاءات المطلوبة. يوضح هذا التسلسل كيف تنتقل المطالبة من التوجيه إلى التخطيط ثم إلى قبول الأدلة، مع إبقاء أي استنتاج لا تدعمه القراءة التنفيذية خارج الحكم النهائي.",
       ].join("\n"),
       sources: requiredPaths,
     });
@@ -756,6 +756,9 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     });
     expect(deltas.join("")).toContain(objective.requiredClaims[0].text);
     expect(result.response).toContain(objective.requiredClaims[0].text);
+    expect(result.response).toContain("أولا يجمع المسار الأدلة");
+    expect(result.response).not.toContain("## تحليل الفجوات في الوكيل");
+    expect(result.projectQueryResponseSource).toBe("provider_synthesis");
     expect(result.response).not.toMatch(/محظور|غير مثبت/);
 
     const binding = steps.find(
@@ -765,6 +768,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       expect.arrayContaining([
         "overridePresent=true",
         "responseUsesOverride=true",
+        "responseSource=provider_synthesis",
         `materializedClaims=${objective.requiredClaims.length}`,
       ]),
     );
@@ -1217,6 +1221,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
 
       expect(result.response).toContain(objective.requiredClaims[0].text);
       expect(result.response).toContain("أولاً");
+      expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
 
       const materialization = steps.find(
         (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
@@ -1244,6 +1249,8 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         expect.arrayContaining([
           "overridePresent=true",
           "responseUsesOverride=true",
+          "responseSource=deterministic_fallback",
+          "fallbackReason=synthesis_failed",
           "responseClaims=ai-routing:true,ai-tool-loop:true,ai-provider-dispatch:true",
           "materializedClaims=3",
         ]),

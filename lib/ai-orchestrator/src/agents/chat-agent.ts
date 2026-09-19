@@ -5172,12 +5172,11 @@ function projectQueryAnswerHasBehavioralFlow(
 /**
  * Server-owned user-facing synthesis for targeted project objectives.
  *
- * The provider gets one no-tools opportunity first. Once every required claim
- * has materialized evidence, this deterministic response is authoritative:
- * it explains the verified execution flow in the user's language, then keeps
- * the exact claim text and source spans in a compact technical section so the
- * response-bound evidence gate can still close the objective without exposing
- * an internal audit report as the primary answer.
+ * The provider gets one no-tools opportunity first. The deterministic response
+ * is a server-owned fallback when that candidate is empty, malformed, or fails
+ * the language/claim/behavior contract. Whichever candidate is selected keeps
+ * the exact claim text and source spans available to the response-bound
+ * evidence gate without exposing an internal audit report as the primary answer.
  */
 export function buildProjectQueryEvidenceSynthesis(
   objective: ObjectiveContract,
@@ -5375,6 +5374,7 @@ function relayProjectQueryStreamAcceptance(
     materializedEvidence: readonly MaterializedObjectiveClaimEvidence[];
     evidence: readonly EvidenceReference[];
     gate: ObjectiveCompletionGateResult | null;
+    responseSource?: "provider_synthesis" | "deterministic_fallback";
   },
 ): void {
   if (!input.gate) return;
@@ -5389,6 +5389,7 @@ function relayProjectQueryStreamAcceptance(
       `overrideLength=${input.override.length}`,
       `finalResponseLength=${input.response.length}`,
       `responseUsesOverride=${input.response === input.override ? "true" : "false"}`,
+      ...(input.responseSource ? [`responseSource=${input.responseSource}`] : []),
       `responseClaims=${responseClaimMatches.join(",")}`,
       `materializedClaims=${input.materializedEvidence.length}`,
     ],
@@ -8432,13 +8433,17 @@ export async function chat(opts: {
   // Merge prefetch sources with the engine's ground-truth sources.
   // Prefetch sources are prepended since they were resolved first.
   const toolSources = [...prefetchSources, ...loopResult.toolSources];
-  // A targeted project-query synthesis is a server-owned replacement for the
-  // provider's candidate response. Keep it separate from loopResult because
-  // the response parser is created later in this function. Without this
-  // handoff, the deterministic synthesis can be stored in loopResult and then
-  // silently discarded when the later acceptance path reads the original
-  // provider result.
+  // A targeted project-query synthesis is a server-owned response candidate.
+  // Keep it separate from loopResult because the response parser is created
+  // later in this function. Without this handoff, a selected provider or
+  // deterministic candidate can be silently discarded when the later
+  // acceptance path reads the original provider result.
   let projectQueryEvidenceResponseOverride: string | undefined;
+  let projectQueryResponseSource:
+    | "provider_synthesis"
+    | "deterministic_fallback"
+    | undefined;
+  let projectQueryFallbackReason: string | undefined;
   // Keep both prefetch and in-loop read bodies available to the forensic gate.
   // The loop may read files that were not part of the initial plan.
   //
@@ -8538,6 +8543,11 @@ export async function chat(opts: {
             responseLanguage,
           )
         : "";
+    const isValidProjectQueryCandidate = (text: string): boolean =>
+      canSynthesizeProjectQuery &&
+      validateResponseLanguage(text, responseLanguage).valid &&
+      objectiveClaimsAreMentioned(objective, text) &&
+      projectQueryAnswerHasBehavioralFlow(objective, text);
     if (
       canSynthesizeProjectQuery &&
       (
@@ -8593,10 +8603,14 @@ export async function chat(opts: {
             objectiveClaimsAreMentioned(objective, recoveredText)
               ? "provider synthesis mentioned every required claim"
               : "provider synthesis was incomplete; deterministic claim assembly was used",
+            projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+              ? "provider synthesis included behavioral flow"
+              : "provider synthesis lacked behavioral flow",
           ],
         });
       } catch (error) {
         recoveredText = "";
+        projectQueryFallbackReason = "synthesis_failed";
         const providerOutcome =
           error &&
           typeof error === "object" &&
@@ -8616,22 +8630,27 @@ export async function chat(opts: {
     }
     if (
       canSynthesizeProjectQuery &&
-      (
-        !objectiveClaimsAreMentioned(objective, recoveredText)
-        || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
-      )
+      !isValidProjectQueryCandidate(recoveredText)
     ) {
       recoveredText = deterministicProjectQueryResponse;
+      projectQueryResponseSource = "deterministic_fallback";
+      projectQueryFallbackReason ??= "provider_candidate_incomplete";
+    } else if (isValidProjectQueryCandidate(recoveredText)) {
+      projectQueryResponseSource = "provider_synthesis";
     }
-    // Once every server-owned behavioral claim has a materialized source
-    // window, the final candidate must be deterministic and response-bound.
-    // Provider prose remains useful for telemetry and recovery decisions, but
-    // it cannot be the text later consumed by closeObjectiveClaimsFromEvidence.
-    if (
-      canSynthesizeProjectQuery &&
-      materializedProjectQueryEvidence.length === objective.requiredClaims.length
-    ) {
-      recoveredText = deterministicProjectQueryResponse;
+    if (canSynthesizeProjectQuery && projectQueryResponseSource) {
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_SOURCE",
+        details: [
+          `source=${projectQueryResponseSource}`,
+          ...(projectQueryFallbackReason
+            ? [`fallbackReason=${projectQueryFallbackReason}`]
+            : []),
+          `providerCandidateLength=${initialText.length}`,
+          `selectedResponseLength=${recoveredText.length}`,
+        ],
+      });
     }
     projectQueryEvidenceResponseOverride = recoveredText;
     const priorLoopResult = loopResult;
@@ -9659,6 +9678,7 @@ export async function chat(opts: {
           materializedEvidence: materializedProjectQueryEvidence,
           evidence: streamingBehaviorGated.evidence,
           gate: streamingObjectiveGate.gate,
+            responseSource: projectQueryResponseSource,
         });
       }
 
@@ -9778,6 +9798,7 @@ export async function chat(opts: {
         ...(repairPlanExecution && priorRepairPlanMetadata
           ? { repairPlan: priorRepairPlanMetadata }
           : {}),
+         ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
         ...(streamingTaskResult ? { taskResult: streamingTaskResult } : {}),
       };
     }
@@ -9983,6 +10004,7 @@ export async function chat(opts: {
           materializedEvidence: materializedProjectQueryEvidence,
           evidence: nativeSseBehaviorValidation.evidence,
           gate: nativeSseObjectiveGate.gate,
+            responseSource: projectQueryResponseSource,
         });
       }
       // AI-OBJ-010: native SSE reaches this seam before the non-streaming
@@ -10110,6 +10132,7 @@ export async function chat(opts: {
         ...(repairPlanExecution && priorRepairPlanMetadata
           ? { repairPlan: priorRepairPlanMetadata }
           : {}),
+         ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
         ...(nativeSseTaskResult ? { taskResult: nativeSseTaskResult } : {}),
       };
     }
@@ -12408,6 +12431,12 @@ export async function chat(opts: {
         `overrideLength=${projectQueryEvidenceResponseOverride.length}`,
         `finalResponseLength=${responseBeforeBehaviorEvidence.length}`,
         `responseUsesOverride=${responseBeforeBehaviorEvidence === projectQueryEvidenceResponseOverride ? "true" : "false"}`,
+        ...(projectQueryResponseSource
+          ? [`responseSource=${projectQueryResponseSource}`]
+          : []),
+        ...(projectQueryFallbackReason
+          ? [`fallbackReason=${projectQueryFallbackReason}`]
+          : []),
         `responseClaims=${responseClaimMatches.join(",")}`,
         `materializedClaims=${materializedProjectQueryEvidence.length}`,
       ],
@@ -13934,6 +13963,7 @@ export async function chat(opts: {
       : {}),
     ...(taskResult ? { taskResult } : {}),
     ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
+    ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
   };
   const check = ChatOutputSchema.safeParse(output);
   if (!check.success) {

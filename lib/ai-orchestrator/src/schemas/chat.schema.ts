@@ -383,6 +383,14 @@ export const ChatOutputSchema = ChatResponseSchema.extend({
    * and all other turn kinds.
    */
   sourceSelectionRecord: QuerySourceSelectionRecordSchema.optional(),
+  /**
+   * Server-owned provenance for the selected targeted project-query response.
+   * Evidence acceptance remains independent from this content-selection choice.
+   */
+  projectQueryResponseSource: z.enum([
+    "provider_synthesis",
+    "deterministic_fallback",
+  ]).optional(),
 });
 
 export type ChatOutput = z.infer<typeof ChatOutputSchema>;
