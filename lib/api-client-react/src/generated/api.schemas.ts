@@ -2161,6 +2161,28 @@ export const AiChatMessageRecoveryState = {
   INCOMPLETE: 'INCOMPLETE',
 } as const;
 
+/**
+ * Server-owned provenance for the selected PROJECT_QUERY response candidate.
+ */
+export type AiChatMessageProjectQueryResponseSource = typeof AiChatMessageProjectQueryResponseSource[keyof typeof AiChatMessageProjectQueryResponseSource] | null;
+
+
+export const AiChatMessageProjectQueryResponseSource = {
+  provider_synthesis: 'provider_synthesis',
+  deterministic_fallback: 'deterministic_fallback',
+} as const;
+
+/**
+ * Bounded reason present only when deterministic fallback synthesis was selected.
+ */
+export type AiChatMessageProjectQueryResponseFallbackReason = typeof AiChatMessageProjectQueryResponseFallbackReason[keyof typeof AiChatMessageProjectQueryResponseFallbackReason] | null;
+
+
+export const AiChatMessageProjectQueryResponseFallbackReason = {
+  synthesis_failed: 'synthesis_failed',
+  provider_candidate_incomplete: 'provider_candidate_incomplete',
+} as const;
+
 export type ExecutionLedgerSnapshotMode = typeof ExecutionLedgerSnapshotMode[keyof typeof ExecutionLedgerSnapshotMode];
 
 
@@ -2913,8 +2935,34 @@ export interface AiChatMessage {
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
   /** File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds. */
   sourceSelectionRecord?: QuerySourceSelectionRecord | null;
+  /** Server-owned provenance for the selected PROJECT_QUERY response candidate. */
+  projectQueryResponseSource?: AiChatMessageProjectQueryResponseSource;
+  /** Bounded reason present only when deterministic fallback synthesis was selected. */
+  projectQueryResponseFallbackReason?: AiChatMessageProjectQueryResponseFallbackReason;
   createdAt: string;
 }
+
+/**
+ * Server-owned provenance for the selected PROJECT_QUERY response candidate.
+ */
+export type ProjectQueryResponseSource = typeof ProjectQueryResponseSource[keyof typeof ProjectQueryResponseSource];
+
+
+export const ProjectQueryResponseSource = {
+  provider_synthesis: 'provider_synthesis',
+  deterministic_fallback: 'deterministic_fallback',
+} as const;
+
+/**
+ * Bounded reason present only when deterministic fallback synthesis was selected.
+ */
+export type ProjectQueryResponseFallbackReason = typeof ProjectQueryResponseFallbackReason[keyof typeof ProjectQueryResponseFallbackReason];
+
+
+export const ProjectQueryResponseFallbackReason = {
+  synthesis_failed: 'synthesis_failed',
+  provider_candidate_incomplete: 'provider_candidate_incomplete',
+} as const;
 
 export type AiExecutionDiagnosticsSchemaVersion = typeof AiExecutionDiagnosticsSchemaVersion[keyof typeof AiExecutionDiagnosticsSchemaVersion];
 

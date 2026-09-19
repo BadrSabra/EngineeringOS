@@ -5190,7 +5190,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
               complete: true,
               missingRoles: [],
             },
-          },
+           },
         },
         effectiveProvider: "groq" as const,
       };
@@ -8634,6 +8634,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
               missingRoles: [],
             },
           },
+          projectQueryResponseSource: "provider_synthesis",
         },
         effectiveProvider: "groq",
       };
@@ -8682,10 +8683,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       "tests/verified.test.ts",
     ];
     expect(jsonExplanation.body.sources).toEqual(expectedOrientationSources);
+    expect(jsonExplanation.body.projectQueryResponseSource).toBe("provider_synthesis");
     expect(explanationDone).toMatchObject({
       sources: expectedOrientationSources,
+      projectQueryResponseSource: "provider_synthesis",
       message: {
         sources: JSON.stringify(expectedOrientationSources),
+        projectQueryResponseSource: "provider_synthesis",
         sourceSelectionRecord: {
           orientationCoverage: {
             complete: true,
@@ -8771,6 +8775,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         // remain a redacted JSON string, unlike JSON/SSE response payloads.
         sources: JSON.stringify(expectedOrientationSources),
         turnIntent: "PROJECT_QUERY",
+        projectQueryResponseSource: "provider_synthesis",
       });
       expect(projectedExplanation).not.toHaveProperty("repairPlan");
     }

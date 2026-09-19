@@ -3772,6 +3772,8 @@ export const AiChatResponse = zod.object({
   "truncatedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneTruncatedPlannedCountMin).describe('Number of planned files whose bodies were truncated.'),
   "skippedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.')
 }),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.'),
+  "projectQueryResponseSource": zod.enum(['provider_synthesis', 'deterministic_fallback']).nullish().describe('Server-owned provenance for the selected PROJECT_QUERY response candidate.'),
+  "projectQueryResponseFallbackReason": zod.enum(['synthesis_failed', 'provider_candidate_incomplete']).nullish().describe('Bounded reason present only when deterministic fallback synthesis was selected.'),
   "createdAt": zod.coerce.date()
 }),
   "sources": zod.array(zod.string()),
@@ -6738,6 +6740,8 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "truncatedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneTruncatedPlannedCountMin).describe('Number of planned files whose bodies were truncated.'),
   "skippedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.')
 }),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.'),
+  "projectQueryResponseSource": zod.enum(['provider_synthesis', 'deterministic_fallback']).nullish().describe('Server-owned provenance for the selected PROJECT_QUERY response candidate.'),
+  "projectQueryResponseFallbackReason": zod.enum(['synthesis_failed', 'provider_candidate_incomplete']).nullish().describe('Bounded reason present only when deterministic fallback synthesis was selected.'),
   "createdAt": zod.coerce.date()
 })
 export const ListAiChatMessagesResponse = zod.array(ListAiChatMessagesResponseItem)

@@ -3636,6 +3636,78 @@ function projectQueryTargetFromTrace(raw: string | null | undefined): { mode: Pr
   }
 }
 
+type ProjectQueryResponseSource =
+  | "provider_synthesis"
+  | "deterministic_fallback";
+type ProjectQueryResponseFallbackReason =
+  | "synthesis_failed"
+  | "provider_candidate_incomplete";
+
+function projectQueryResponseProvenanceFromTrace(
+  raw: string | null | undefined,
+): {
+  source: ProjectQueryResponseSource;
+  fallbackReason?: ProjectQueryResponseFallbackReason;
+} | undefined {
+  if (!raw) return undefined;
+  try {
+    const entries = JSON.parse(raw);
+    if (!Array.isArray(entries)) return undefined;
+    const entry = [...entries].reverse().find((candidate) =>
+      candidate
+      && typeof candidate === "object"
+      && (candidate as { kind?: unknown }).kind === "diagnostic"
+      && (candidate as { code?: unknown }).code === "PROJECT_QUERY_RESPONSE_SOURCE",
+    ) as { details?: unknown } | undefined;
+    if (!entry || !Array.isArray(entry.details)) return undefined;
+    const details = entry.details.filter((detail): detail is string => typeof detail === "string");
+    const sourceDetail = details.find((detail) => detail.startsWith("source="));
+    const source = sourceDetail?.slice("source=".length);
+    if (source !== "provider_synthesis" && source !== "deterministic_fallback") {
+      return undefined;
+    }
+    const fallbackDetail = details.find((detail) => detail.startsWith("fallbackReason="));
+    const fallbackReason = fallbackDetail?.slice("fallbackReason=".length);
+    return source === "deterministic_fallback"
+      ? {
+          source,
+          ...(fallbackReason === "synthesis_failed" || fallbackReason === "provider_candidate_incomplete"
+            ? { fallbackReason }
+            : {}),
+        }
+      : { source };
+  } catch {
+    return undefined;
+  }
+}
+
+function appendProjectQueryResponseProvenanceTrace(
+  raw: string | null,
+  source: ProjectQueryResponseSource | undefined,
+  fallbackReason?: ProjectQueryResponseFallbackReason,
+): string | null {
+  if (!source) return raw;
+  try {
+    const entries = raw ? JSON.parse(raw) : [];
+    const trace = Array.isArray(entries) ? entries : [];
+    const existing = projectQueryResponseProvenanceFromTrace(JSON.stringify(trace));
+    if (existing?.source === source && existing.fallbackReason === fallbackReason) {
+      return JSON.stringify(trace);
+    }
+    trace.push({
+      kind: "diagnostic",
+      code: "PROJECT_QUERY_RESPONSE_SOURCE",
+      details: [
+        `source=${source}`,
+        ...(fallbackReason ? [`fallbackReason=${fallbackReason}`] : []),
+      ],
+    });
+    return JSON.stringify(trace);
+  } catch {
+    return raw;
+  }
+}
+
 /**
  * Keep execution observability separate from the assistant report. The trace
  * contains bounded metadata only — never the tool output body or model text.
@@ -3858,10 +3930,17 @@ function serializeToolTrace(
       case "diagnostic":
         {
           const safeDetails = safePublicDiagnosticDetails(step.details).slice(0, 4);
+          const responseSourceDetails = step.code === "PROJECT_QUERY_RESPONSE_SOURCE"
+            ? safeDetails.filter((detail) =>
+                detail.startsWith("source=") || detail.startsWith("fallbackReason="),
+              )
+            : [];
           return {
             kind: step.kind,
             code: step.code,
-            ...(includeDiagnosticDetails && safeDetails.length > 0 ? { details: safeDetails } : {}),
+            ...((includeDiagnosticDetails ? safeDetails : responseSourceDetails).length > 0
+              ? { details: includeDiagnosticDetails ? safeDetails : responseSourceDetails }
+              : {}),
           ...(step.code === "EXECUTION_PHASE_TOOL_REJECTED" && step.phase
             ? { phase: step.phase, tool: step.tool }
             : {}),
@@ -5813,7 +5892,11 @@ router.post("/ai/chat", async (req, res) => {
           sources: JSON.stringify(result.sources),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
-              serializeToolTrace(traceSteps),
+              appendProjectQueryResponseProvenanceTrace(
+                serializeToolTrace(traceSteps),
+                result.projectQueryResponseSource,
+                result.projectQueryResponseFallbackReason,
+              ),
               projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ),
             executionLedgerSnapshot!,
@@ -5937,6 +6020,14 @@ router.post("/ai/chat", async (req, res) => {
       : undefined;
     const projectQueryTarget = projectQueryTargetFromTrace(assistantMsg.toolTrace);
     const sourceSelectionRecord = result.sourceSelectionRecord ?? undefined;
+    const projectQueryResponseProvenance = result.projectQueryResponseSource
+      ? {
+          source: result.projectQueryResponseSource,
+          ...(result.projectQueryResponseFallbackReason
+            ? { fallbackReason: result.projectQueryResponseFallbackReason }
+            : {}),
+        }
+      : projectQueryResponseProvenanceFromTrace(assistantMsg.toolTrace);
     return res.json({
       sessionId: sessionIdToUse,
       message: {
@@ -5944,6 +6035,14 @@ router.post("/ai/chat", async (req, res) => {
         taskResult: parseTaskResult(assistantMsg.taskResult),
         ...(projectQueryTarget ? { projectQueryTarget } : {}),
         ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
+        ...(projectQueryResponseProvenance
+          ? {
+              projectQueryResponseSource: projectQueryResponseProvenance.source,
+              ...(projectQueryResponseProvenance.fallbackReason
+                ? { projectQueryResponseFallbackReason: projectQueryResponseProvenance.fallbackReason }
+                : {}),
+            }
+          : {}),
         contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
         ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       },
@@ -5955,6 +6054,14 @@ router.post("/ai/chat", async (req, res) => {
       toolTrace: assistantMsg.toolTrace,
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
       ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
+      ...(projectQueryResponseProvenance
+        ? {
+            projectQueryResponseSource: projectQueryResponseProvenance.source,
+            ...(projectQueryResponseProvenance.fallbackReason
+              ? { projectQueryResponseFallbackReason: projectQueryResponseProvenance.fallbackReason }
+              : {}),
+          }
+        : {}),
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       pendingChanges: proposalId
         ? proposalChanges
@@ -9876,7 +9983,11 @@ export async function handleChatStream(req: Request, res: Response) {
           sources: JSON.stringify(result.sources),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
-              serializeToolTrace(traceSteps, true, streamAuditScopeDescription, result.taskResult),
+              appendProjectQueryResponseProvenanceTrace(
+                serializeToolTrace(traceSteps, true, streamAuditScopeDescription, result.taskResult),
+                result.projectQueryResponseSource,
+                result.projectQueryResponseFallbackReason,
+              ),
               projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ),
             executionLedgerSnapshot,
@@ -10500,6 +10611,14 @@ export async function handleChatStream(req: Request, res: Response) {
         ? []
         : parsedAssistantSources ?? [];
     const publicExecutionSummary = projectPublicExecutionSummary(executionSummary, true);
+    const projectQueryResponseProvenance = result.projectQueryResponseSource
+      ? {
+          source: result.projectQueryResponseSource,
+          ...(result.projectQueryResponseFallbackReason
+            ? { fallbackReason: result.projectQueryResponseFallbackReason }
+            : {}),
+        }
+      : projectQueryResponseProvenanceFromTrace(assistantMsg.toolTrace);
     const publicAssistantMsg = {
       id: assistantMsg.id,
       sessionId: assistantMsg.sessionId,
@@ -10524,6 +10643,14 @@ export async function handleChatStream(req: Request, res: Response) {
       ...(forensicDiagnostic ? { forensicDiagnostic } : {}),
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
       ...(result.sourceSelectionRecord ? { sourceSelectionRecord: result.sourceSelectionRecord } : {}),
+      ...(projectQueryResponseProvenance
+        ? {
+            projectQueryResponseSource: projectQueryResponseProvenance.source,
+            ...(projectQueryResponseProvenance.fallbackReason
+              ? { projectQueryResponseFallbackReason: projectQueryResponseProvenance.fallbackReason }
+              : {}),
+          }
+        : {}),
     };
     sse({
       type: "done",
@@ -10535,6 +10662,14 @@ export async function handleChatStream(req: Request, res: Response) {
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
       ...(result.sourceSelectionRecord ? { sourceSelectionRecord: result.sourceSelectionRecord } : {}),
+      ...(projectQueryResponseProvenance
+        ? {
+            projectQueryResponseSource: projectQueryResponseProvenance.source,
+            ...(projectQueryResponseProvenance.fallbackReason
+              ? { projectQueryResponseFallbackReason: projectQueryResponseProvenance.fallbackReason }
+              : {}),
+          }
+        : {}),
       sources: publicAssistantSources,
       toolTrace: publicToolTrace,
       pendingChanges: proposalId
@@ -11767,6 +11902,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         .sort((left, right) => right.attempt - left.attempt)[0]
       : undefined;
     const projectedAcceptance = projectExecutionAcceptance(executionAcceptance);
+    const projectQueryResponseProvenance = projectQueryResponseProvenanceFromTrace(message.toolTrace);
     const terminalProjection = terminalProjectionByMessage.get(message.id);
     return {
       ...message,
@@ -11803,6 +11939,17 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         : {}),
       ...(sourceSelectionRecordFromTrace(message.toolTrace)
         ? { sourceSelectionRecord: sourceSelectionRecordFromTrace(message.toolTrace) }
+        : {}),
+      ...(projectQueryResponseProvenance
+        ? {
+            projectQueryResponseSource: projectQueryResponseProvenance.source,
+            ...(projectQueryResponseProvenance.fallbackReason
+              ? {
+                  projectQueryResponseFallbackReason:
+                    projectQueryResponseProvenance.fallbackReason,
+                }
+              : {}),
+          }
         : {}),
       ...(readContextProvenanceTrace(message.toolTrace)
         ? { contextProvenance: readContextProvenanceTrace(message.toolTrace) }

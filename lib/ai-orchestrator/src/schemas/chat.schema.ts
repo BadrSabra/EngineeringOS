@@ -391,6 +391,10 @@ export const ChatOutputSchema = ChatResponseSchema.extend({
     "provider_synthesis",
     "deterministic_fallback",
   ]).optional(),
+  projectQueryResponseFallbackReason: z.enum([
+    "synthesis_failed",
+    "provider_candidate_incomplete",
+  ]).optional(),
 });
 
 export type ChatOutput = z.infer<typeof ChatOutputSchema>;

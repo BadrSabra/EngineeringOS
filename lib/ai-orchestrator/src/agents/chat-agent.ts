@@ -8443,7 +8443,10 @@ export async function chat(opts: {
     | "provider_synthesis"
     | "deterministic_fallback"
     | undefined;
-  let projectQueryFallbackReason: string | undefined;
+  let projectQueryFallbackReason:
+    | "synthesis_failed"
+    | "provider_candidate_incomplete"
+    | undefined;
   // Keep both prefetch and in-loop read bodies available to the forensic gate.
   // The loop may read files that were not part of the initial plan.
   //
@@ -9799,6 +9802,9 @@ export async function chat(opts: {
           ? { repairPlan: priorRepairPlanMetadata }
           : {}),
          ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
+         ...(projectQueryFallbackReason
+           ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
+           : {}),
         ...(streamingTaskResult ? { taskResult: streamingTaskResult } : {}),
       };
     }
@@ -10133,6 +10139,9 @@ export async function chat(opts: {
           ? { repairPlan: priorRepairPlanMetadata }
           : {}),
          ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
+         ...(projectQueryFallbackReason
+           ? { projectQueryFallbackReason: projectQueryFallbackReason }
+           : {}),
         ...(nativeSseTaskResult ? { taskResult: nativeSseTaskResult } : {}),
       };
     }
@@ -13964,6 +13973,9 @@ export async function chat(opts: {
     ...(taskResult ? { taskResult } : {}),
     ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
     ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
+    ...(projectQueryFallbackReason
+      ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
+      : {}),
   };
   const check = ChatOutputSchema.safeParse(output);
   if (!check.success) {

@@ -5926,9 +5926,29 @@ components:
           nullable: true
           description: File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.
           $ref: "#/components/schemas/QuerySourceSelectionRecord"
+        projectQueryResponseSource:
+          type: string
+          nullable: true
+          enum: [provider_synthesis, deterministic_fallback]
+          description: Server-owned provenance for the selected PROJECT_QUERY response candidate.
+        projectQueryResponseFallbackReason:
+          type: string
+          nullable: true
+          enum: [synthesis_failed, provider_candidate_incomplete]
+          description: Bounded reason present only when deterministic fallback synthesis was selected.
         createdAt:
           type: string
           format: date-time
+
+    ProjectQueryResponseSource:
+      type: string
+      enum: [provider_synthesis, deterministic_fallback]
+      description: Server-owned provenance for the selected PROJECT_QUERY response candidate.
+
+    ProjectQueryResponseFallbackReason:
+      type: string
+      enum: [synthesis_failed, provider_candidate_incomplete]
+      description: Bounded reason present only when deterministic fallback synthesis was selected.
 
     ProviderFailureCategory:
       type: string

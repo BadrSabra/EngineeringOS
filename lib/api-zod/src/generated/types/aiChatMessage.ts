@@ -9,6 +9,8 @@ import type { AiAcceptanceDisposition } from './aiAcceptanceDisposition';
 import type { AiBehaviorAnswerResult } from './aiBehaviorAnswerResult';
 import type { AiChatMessageFailureKind } from './aiChatMessageFailureKind';
 import type { AiChatMessageOutcome } from './aiChatMessageOutcome';
+import type { AiChatMessageProjectQueryResponseFallbackReason } from './aiChatMessageProjectQueryResponseFallbackReason';
+import type { AiChatMessageProjectQueryResponseSource } from './aiChatMessageProjectQueryResponseSource';
 import type { AiChatMessageRecoveryState } from './aiChatMessageRecoveryState';
 import type { AiChatMessageRole } from './aiChatMessageRole';
 import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
@@ -72,5 +74,9 @@ export interface AiChatMessage {
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
   /** File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds. */
   sourceSelectionRecord?: QuerySourceSelectionRecord | null;
+  /** Server-owned provenance for the selected PROJECT_QUERY response candidate. */
+  projectQueryResponseSource?: AiChatMessageProjectQueryResponseSource;
+  /** Bounded reason present only when deterministic fallback synthesis was selected. */
+  projectQueryResponseFallbackReason?: AiChatMessageProjectQueryResponseFallbackReason;
   createdAt: Date;
 }
