@@ -8524,16 +8524,15 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         createdAt: new Date(seededAt.getTime() + 1),
       },
     ]);
-    let explanationInput:
-      | {
-          history: Array<{ role: string; content: string; repairPlan?: unknown }>;
-          activeTaskState?: unknown;
-          turnIntent?: { kind?: string; compoundWrite?: boolean };
-        }
-      | undefined;
+    const explanationInputs: Array<{
+      history: Array<{ role: string; content: string; repairPlan?: unknown }>;
+      activeTaskState?: unknown;
+      turnIntent?: { kind?: string; compoundWrite?: boolean };
+    }> = [];
 
-    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
-      explanationInput = args[1] as typeof explanationInput;
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const explanationInput = args[1] as typeof explanationInputs[number];
+      explanationInputs.push(explanationInput);
       const onStep = args[6] as ((step: unknown) => void) | undefined;
       const retainedEvidence = (args[1] as {
         retainedEvidence?: Map<string, string>;
@@ -8585,8 +8584,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       });
       return {
         result: {
-          response: "هذا شرح للمعمارية فقط.",
-          sources: orientationFiles,
+          // Deliberately omit two verified paths from the provider's prose
+          // metadata. Public source projection must use the server-owned read
+          // trace instead of requiring the model to repeat every path.
+          response: "هذا شرح يذكر src/verified.ts وsrc/flow.ts فقط.",
+          sources: ["src/verified.ts", "src/flow.ts"],
           pendingChanges: [],
           sourceSelectionRecord: {
             plannerTier: "targeted",
@@ -8613,6 +8615,16 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       };
     });
 
+    const jsonExplanation = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "اشرح المشروع",
+      });
+    expect(jsonExplanation.status).toBe(200);
+
     const explanation = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
@@ -8626,19 +8638,63 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     expect(explanation.status).toBe(200);
     expect(explanationDone).toBeDefined();
-    expect(explanationInput?.turnIntent).toMatchObject({
-      kind: "PROJECT_QUERY",
-      compoundWrite: false,
+    expect(explanationInputs).toHaveLength(2);
+    for (const explanationInput of explanationInputs) {
+      expect(explanationInput.turnIntent).toMatchObject({
+        kind: "PROJECT_QUERY",
+        compoundWrite: false,
+      });
+      expect(explanationInput.activeTaskState).toBeNull();
+      expect(explanationInput.history).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: "assistant", content: auditReport }),
+      ]));
+      expect(explanationInput.history.some((entry) => "repairPlan" in entry)).toBe(false);
+    }
+
+    const expectedOrientationSources = [
+      "src/verified.ts",
+      "src/components.ts",
+      "src/flow.ts",
+      "tests/verified.test.ts",
+    ];
+    expect(jsonExplanation.body.sources).toEqual(expectedOrientationSources);
+    expect(explanationDone).toMatchObject({
+      sources: expectedOrientationSources,
+      message: {
+        sources: JSON.stringify(expectedOrientationSources),
+        sourceSelectionRecord: {
+          orientationCoverage: {
+            complete: true,
+            missingRoles: [],
+          },
+        },
+      },
+      sourceSelectionRecord: {
+        orientationCoverage: {
+          complete: true,
+          missingRoles: [],
+        },
+      },
     });
-    expect(explanationInput?.activeTaskState).toBeNull();
-    expect(explanationInput?.history).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "assistant", content: auditReport }),
-    ]));
-    expect(explanationInput?.history.some((entry) => "repairPlan" in entry)).toBe(false);
+    const explanationMessage = (explanationDone as {
+      message?: { content?: unknown };
+    } | undefined)?.message;
+    expect(explanationMessage?.content).toContain("src/verified.ts");
+    expect(explanationMessage?.content).toContain("src/flow.ts");
+    expect(explanationMessage?.content).not.toContain("tests/verified.test.ts");
+
+    const jsonSourceSelection = jsonExplanation.body.sourceSelectionRecord as {
+      orientationCoverage?: { complete?: boolean; missingRoles?: string[] };
+    };
+    expect(jsonSourceSelection.orientationCoverage).toEqual(expect.objectContaining({
+      complete: true,
+      missingRoles: [],
+    }));
 
     const storedAssistants = await db
       .select({
         content: aiChatMessagesTable.content,
+        sources: aiChatMessagesTable.sources,
         turnIntent: aiChatMessagesTable.turnIntent,
         repairPlanMetadata: aiChatMessagesTable.repairPlanMetadata,
       })
@@ -8647,13 +8703,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         eq(aiChatMessagesTable.sessionId, String(sessionId)),
         eq(aiChatMessagesTable.role, "assistant"),
       ));
-    const storedExplanation = storedAssistants.find(
+    const storedExplanations = storedAssistants.filter(
       (message) => message.content === "هذا شرح للمعمارية فقط.",
     );
-    expect(storedExplanation).toMatchObject({
-      turnIntent: "PROJECT_QUERY",
-      repairPlanMetadata: null,
-    });
+    expect(storedExplanations).toHaveLength(0);
+
+    const storedOrientationExplanations = storedAssistants.filter(
+      (message) => message.content === "هذا شرح يذكر src/verified.ts وsrc/flow.ts فقط.",
+    );
+    expect(storedOrientationExplanations).toHaveLength(2);
+    for (const storedExplanation of storedOrientationExplanations) {
+      expect(storedExplanation).toMatchObject({
+        sources: JSON.stringify(expectedOrientationSources),
+        turnIntent: "PROJECT_QUERY",
+        repairPlanMetadata: null,
+      });
+    }
 
     const [storedSession] = await db
       .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
@@ -8673,12 +8738,18 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const history = await request(app)
       .get(`/api/ai/chat/${String(sessionId)}/messages`);
     expect(history.status).toBe(200);
-    const projectedExplanation = (history.body as Array<Record<string, unknown>>)
-      .find((message) => message.content === "هذا شرح للمعمارية فقط.");
-    expect(projectedExplanation).toMatchObject({
-      turnIntent: "PROJECT_QUERY",
-    });
-    expect(projectedExplanation).not.toHaveProperty("repairPlan");
+    const projectedExplanations = (history.body as Array<Record<string, unknown>>)
+      .filter((message) => message.content === "هذا شرح يذكر src/verified.ts وsrc/flow.ts فقط.");
+    expect(projectedExplanations).toHaveLength(2);
+    for (const projectedExplanation of projectedExplanations) {
+      expect(projectedExplanation).toMatchObject({
+        // History preserves the existing message-column contract: sources
+        // remain a redacted JSON string, unlike JSON/SSE response payloads.
+        sources: JSON.stringify(expectedOrientationSources),
+        turnIntent: "PROJECT_QUERY",
+      });
+      expect(projectedExplanation).not.toHaveProperty("repairPlan");
+    }
   });
 
   it("keeps stale repair-oriented memory untrusted and read-only on SSE", async () => {
