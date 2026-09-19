@@ -10247,13 +10247,6 @@ export async function handleChatStream(req: Request, res: Response) {
         executionEvidenceVerdict = "PROVEN";
         executionEvidenceReason = "Capability Probe C1–C7 report was assembled from complete retained source evidence.";
       }
-      const operationForCompletion = capabilityProbeAccepted && autonomousOperation
-        ? {
-            ...autonomousOperation,
-            state: "succeeded" as const,
-            updatedAt: new Date().toISOString(),
-          }
-        : autonomousOperation;
       const taskObjectiveValidated = Boolean(
         analysisEvidenceAccepted
         || (projectOrientationExecution && orientationCoverageComplete === true)
@@ -10344,7 +10337,7 @@ export async function handleChatStream(req: Request, res: Response) {
         finalMessageContent: sanitizeResponseText(result.response),
         workspaceRoot: validRootPath ?? null,
         proposalId,
-        operation: operationForCompletion,
+        operation: autonomousOperation,
         taskObjective: executionRequest.taskObjective,
         validatorReceipts: taskObjectiveValidatorReceipts,
         objectiveValidated: taskObjectiveValidated,
@@ -10383,7 +10376,7 @@ export async function handleChatStream(req: Request, res: Response) {
           error: acceptanceError,
           cancelled: false,
           nodeStates: executionNodeStates,
-          operation: operationForCompletion,
+          operation: autonomousOperation,
           acceptanceDisposition,
           evidenceVerdict: terminalEvidenceVerdict,
           evidenceReason: terminalEvidenceReason,

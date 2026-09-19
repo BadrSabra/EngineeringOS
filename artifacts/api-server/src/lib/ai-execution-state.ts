@@ -2597,10 +2597,21 @@ export async function completeAiExecution(params: {
     || Boolean(params.analysisEvidence)
     || Boolean(params.evidenceReads && params.evidenceReads.length > 0);
   const now = new Date();
+  const terminalOperation =
+    params.objectiveValidated === true
+    && operation?.state === "validating"
+    ? {
+        ...operation,
+        // Objective/evidence acceptance is server-owned. Only an accepted
+        // completion may close the operation; provider success never does.
+        state: "succeeded" as const,
+        updatedAt: now.toISOString(),
+      }
+    : operation;
   const checkpointEnvelope = {
     stage: "completed" as const,
     sequence: nextSequence,
-    ...(params.operation ? { operation: params.operation } : {}),
+    ...(terminalOperation ? { operation: terminalOperation } : {}),
     ...(params.nodeStates && params.nodeStates.length > 0
       ? {
           nodeStates: params.nodeStates,

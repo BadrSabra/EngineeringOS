@@ -8,3 +8,16 @@ Mission Control should receive the server-owned acceptance snapshot for each exe
 **Why:** The dashboard previously hid the acceptance region when the API ledger omitted the persisted acceptance row, and a successful provider response could be mistaken for accepted proof.
 
 **How to apply:** Keep the API projection and Dashboard status mapping aligned with the public acceptance contract, including `SUCCEEDED`, `FAILED`, `INTERRUPTED`, `NONE`, and incomplete next-action states.
+
+An accepted terminal execution must not retain a nested autonomous operation in
+`validating`; the server-owned completion finalizer must close it as
+`succeeded` only after objective/evidence acceptance passes.
+
+**Why:** A real proof-bearing project analysis reached `completed`,
+`SUCCEEDED`, and `PROVEN` while its checkpoint operation remained
+`validating`, so recovery phase and acceptance state could disagree after
+reload.
+
+**How to apply:** Normalize terminal operation state in the shared completion
+path, not in a new projection layer or provider callback, and cover project
+analysis through persisted checkpoint and public reload surfaces.

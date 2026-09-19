@@ -1382,10 +1382,14 @@ describe("Durable AI completion identity", () => {
       executionId: fixture.created.execution.id,
       workerId: fixture.workerId!,
       finalMessageId,
-      operation: fixture.operation,
+      operation: {
+        ...fixture.operation,
+        state: "validating",
+      },
       proofRequired: true,
       operationId,
       evidenceVerdict: "PROVEN",
+      objectiveValidated: true,
       evidenceReads: [{
         path: "src/proof-fixture.ts",
         readType: "source",
@@ -1433,7 +1437,7 @@ describe("Durable AI completion identity", () => {
     expect(parseAiExecutionCheckpoint(stored!.checkpoint)).toMatchObject({
       stage: "completed",
       evidenceVerdict: "PROVEN",
-      operation: { operationId },
+      operation: { operationId, state: "succeeded" },
     });
   });
 
