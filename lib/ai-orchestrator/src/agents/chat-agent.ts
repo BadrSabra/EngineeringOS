@@ -7241,11 +7241,14 @@ export async function chat(opts: {
   // Failures (timeout, parse error, model error) silently return null so the
   // tool loop continues with base defaults — planning never blocks the request.
   let queryPlan: QueryPlan | null = null;
+  const orientationFilesystemManifest =
+    projectOrientationMode && rootPath
+      ? await buildProjectFileManifest(rootPath)
+      : undefined;
   if (projectOrientationMode && orientationSourcesOverride) {
-    const targetFiles = [...new Set(Object.values(orientationSourcesOverride).flat())].slice(0, 8);
-    queryPlan = {
+    const overridePlan: QueryPlan = {
       originalIntent: message,
-      targetFiles,
+      targetFiles: [...new Set(Object.values(orientationSourcesOverride).flat())].slice(0, 8),
       targetEntities: [],
       scopeEstimate: "medium",
       suggestedIterations: 30,
@@ -7255,6 +7258,25 @@ export async function chat(opts: {
       planStatus: "valid",
       orientationSources: orientationSourcesOverride,
     };
+    queryPlan = reconcileProjectOrientationSources(
+      overridePlan,
+      orientationFilesystemManifest?.status === "VERIFIED"
+        ? orientationFilesystemManifest.files
+        : undefined,
+    );
+    const roleFiles = Object.values(queryPlan.orientationSources ?? {})
+      .flat()
+      .map((file) => file.replace(/\\/g, "/").replace(/^\.\/+/, ""));
+    orientationEvidencePaths = [...new Set(roleFiles)].slice(0, 8);
+    if (!hasCompleteProjectOrientationSources(queryPlan.orientationSources)) {
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "PROJECT_ORIENTATION_SOURCE_COVERAGE_INCOMPLETE",
+        details: [
+          "server-owned orientation manifest is incomplete after filesystem preflight; durable orientation scope was not persisted",
+        ],
+      });
+    }
   }
   // A short execution follow-up has already been planned. Do not spend an
   // additional model call re-planning "نفّذ الخطة"; use the concrete paths from
@@ -7276,10 +7298,6 @@ export async function chat(opts: {
     !generalTaskPlan.skipQueryPlanner &&
     !(projectOrientationMode && orientationSourcesOverride)
   ) {
-    const orientationFilesystemManifest =
-      projectOrientationMode && rootPath
-        ? await buildProjectFileManifest(rootPath)
-        : undefined;
     const orientationFallbackPaths =
       orientationFilesystemManifest?.status === "VERIFIED"
         ? orientationFilesystemManifest.files

@@ -643,6 +643,95 @@ describe("chat agent — ChatOutputSchema validation", () => {
     await fs.rm(rootPath, { recursive: true, force: true });
   });
 
+  it("reconciles an orientation override against the verified filesystem before reading", async () => {
+    const toolCalls: AgentStep[] = [];
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-preflight-"));
+    const sourceFiles = {
+      "README.md": "# Project\nA workspace application.",
+      "src/App.tsx": "export function App() { return null; }",
+      "src/routes.ts": "export const routes = [];",
+      "tests/app.test.ts": "describe('app', () => {});",
+    };
+    try {
+      for (const [relativePath, content] of Object.entries(sourceFiles)) {
+        const absolutePath = path.join(rootPath, relativePath);
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, content, "utf8");
+      }
+
+      vi.doMock("../model-selection/decision-engine.js", () => ({
+        resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+      }));
+      vi.doMock("../model-selection/provider-strategy.js", () => ({
+        resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+      }));
+      vi.doMock("../model-selection/model-resolver.js", () => ({
+        resolveExecutionModel: vi.fn(() => ({
+          model: "llama-3.1-8b-instant",
+          powerModel: "llama-3.3-70b-versatile",
+        })),
+      }));
+      vi.doMock("groq-sdk", () => ({
+        default: class {
+          chat = {
+            completions: {
+              create: vi.fn().mockResolvedValue({
+                choices: [{
+                  message: {
+                    content: JSON.stringify({
+                      response: "This is the verified project workspace.",
+                      sources: Object.keys(sourceFiles),
+                    }),
+                  },
+                }],
+                model: "m",
+                usage: {},
+              }),
+            },
+          };
+        },
+      }));
+
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: "What is this project?\n\nRESUME CONTEXT: use the retained orientation scope.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        projectOrientation: true,
+        orientationSourcesOverride: {
+          purpose: ["missing-purpose.md", "README.md"],
+          components: ["missing-components.tsx", "src/App.tsx"],
+          primaryFlow: ["missing-routes.ts", "src/routes.ts"],
+          uncertainty: ["missing-tests.ts", "tests/app.test.ts"],
+        },
+        onStep: (step) => toolCalls.push(step),
+      });
+
+      const sourceReadCalls = toolCalls.filter(
+        (step): step is Extract<AgentStep, { kind: "tool_call" }> => step.kind === "tool_call",
+      );
+      expect(sourceReadCalls.map((step) => step.args)).toEqual(
+        expect.arrayContaining(Object.keys(sourceFiles).map((file) => ({ path: file }))),
+      );
+      expect(sourceReadCalls.map((step) => step.args)).not.toEqual(
+        expect.arrayContaining([
+          { path: "missing-purpose.md" },
+          { path: "missing-components.tsx" },
+          { path: "missing-routes.ts" },
+          { path: "missing-tests.ts" },
+        ]),
+      );
+      expect(result.sourceSelectionRecord?.orientationCoverage).toMatchObject({
+        complete: true,
+        missingRoles: [],
+      });
+      expect(result.response).toBe("This is the verified project workspace.");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a complete orientation from retained reads after malformed synthesis", async () => {
     const toolCalls: AgentStep[] = [];
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "chat-orientation-complete-fallback-"));
