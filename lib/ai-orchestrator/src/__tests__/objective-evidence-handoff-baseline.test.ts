@@ -989,6 +989,29 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(response).toContain("بعد ذلك");
   });
 
+  it("uses the gap-analysis shape for an Arabic gap objective", async () => {
+    const { buildProjectQueryEvidenceSynthesis } = await import("../agents/chat-agent.js");
+    const message = "ما هي نقاط الضعف لدى الوكيل؟";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("gap-analysis");
+    const objective = buildProjectQueryObjective(target!, message);
+    const evidence = objective.requiredClaims.map((claim, index) => ({
+      claimId: claim.claimId,
+      source: claim.requiredEvidencePaths?.[0] ?? "gap-source.ts",
+      excerpt: `${claim.text}\nverified gap checkpoint ${index + 1}`,
+      sourceSpan: { startLine: index + 1, endLine: index + 2 },
+    }));
+
+    const response = buildProjectQueryEvidenceSynthesis(objective, evidence, "ar");
+
+    expect(response).toContain("## تحليل الفجوات في الوكيل");
+    expect(response).not.toContain("## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟");
+    expect(response).toContain("resolveTurnIntent");
+    expect(response).toContain("inferCompoundParts");
+    expect(response).toContain("validateAnalysisEvidenceCompletion");
+    expect(response).toContain("لا تثبت خللاً محدداً");
+  });
+
   it("keeps architecture-only answers incomplete when weaknesses are requested", () => {
     const message =
       "Explain how the embedded AI agent works and identify its weaknesses.";

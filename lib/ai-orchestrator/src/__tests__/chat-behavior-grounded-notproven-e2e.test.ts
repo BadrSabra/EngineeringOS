@@ -412,9 +412,12 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
       });
 
       expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("## Agent Gap Analysis");
+      expect(result.response).not.toContain("## How the embedded AI agent works");
       expect(result.response).toContain("resolveTurnIntent");
       expect(result.response).toContain("inferCompoundParts");
       expect(result.response).toContain("validateAnalysisEvidenceCompletion");
+      expect(result.response).toContain("do not prove a specific defect");
       expect(calls.count).toBeGreaterThan(1);
 
       const responseBindingStep = steps.find(

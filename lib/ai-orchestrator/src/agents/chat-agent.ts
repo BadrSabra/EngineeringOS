@@ -5138,7 +5138,11 @@ function projectQueryAnswerHasBehavioralFlow(
   objective: ObjectiveContract | undefined,
   response: string,
 ): boolean {
-  if (objective?.objectiveType !== "PROJECT_QUERY_EMBEDDED-AI") return true;
+  const objectiveType = objective?.objectiveType;
+  if (
+    objectiveType !== "PROJECT_QUERY_EMBEDDED-AI"
+    && objectiveType !== "PROJECT_QUERY_GAP-ANALYSIS"
+  ) return true;
   const normalized = response.trim();
   if (normalized.length < 240 || !objectiveClaimsAreMentioned(objective, normalized)) {
     return false;
@@ -5154,6 +5158,14 @@ function projectQueryAnswerHasBehavioralFlow(
     },
     0,
   );
+  if (objectiveType === "PROJECT_QUERY_GAP-ANALYSIS") {
+    // A gap objective must describe the gap-analysis boundary, not merely
+    // repeat the required symbols. Keep this permissive for provider prose,
+    // while rejecting the embedded-agent orientation fallback.
+    const gapSignal =
+      /(?:فجوات?|نقاط\s+ضعف|ضعف|خلل|لا\s+يثبت|gap|weakness|defect)/iu.test(normalized);
+    return gapSignal && flowSignalCount >= 2;
+  }
   return flowSignalCount >= 2;
 }
 
@@ -5190,6 +5202,20 @@ export function buildProjectQueryEvidenceSynthesis(
       en: "After that, the chat route dispatches the provider request through `chatWithFallback`. This allows a fallback provider when needed, while the retained reads remain the source boundary the final answer must respect.",
     },
   };
+  const gapFlowByClaimId: Record<string, { ar: string; en: string }> = {
+    "gap-routing": {
+      ar: "أولاً، يفحص تحليل الفجوات نقطة التوجيه عبر `resolveTurnIntent` لتحديد المسار الذي يستقبل السؤال قبل تقييم بقية التنفيذ.",
+      en: "First, the gap analysis checks the routing boundary through `resolveTurnIntent` to identify the path that receives the question before evaluating the rest of execution.",
+    },
+    "gap-planning": {
+      ar: "ثم، يفحص طبقة التخطيط عبر `inferCompoundParts` لمعرفة كيف تُجزّأ المطالب المركبة إلى أجزاء قابلة للقراءة والتحقق.",
+      en: "Then, it checks the planning boundary through `inferCompoundParts` to see how compound requests are split into units that can be read and verified.",
+    },
+    "gap-acceptance": {
+      ar: "بعد ذلك، يفحص مسار القبول عبر `validateAnalysisEvidenceCompletion` للتأكد من أن اكتمال القراءة لا يُعامل وحده كإجابة مثبتة.",
+      en: "After that, it checks the acceptance boundary through `validateAnalysisEvidenceCompletion` to ensure that completed reads alone are not treated as a proven answer.",
+    },
+  };
   const genericFlow = isArabic
     ? [
         "أولاً، يبدأ المسار بفهم السؤال وتحديد نوع التنفيذ المطلوب.",
@@ -5201,8 +5227,22 @@ export function buildProjectQueryEvidenceSynthesis(
         "Then, the agent gathers and retains the reads needed before composing the answer.",
         "Finally, the answer is written from the behavior established by those reads, while anything not read remains outside the conclusion.",
       ];
+  const isGapAnalysis = objective.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS";
+  const flowMap = isGapAnalysis ? gapFlowByClaimId : flowByClaimId;
+  const gapGenericFlow = isArabic
+    ? [
+        "أولاً، يبدأ التحليل من نقطة التوجيه، ثم ينتقل إلى التخطيط، ثم إلى بوابة قبول الأدلة.",
+        "بعد ذلك، تُقارن كل نقطة بما ظهر في القراءة المكتملة، ولا تُحوّل أسماء الرموز وحدها إلى حكم بوجود خلل.",
+        "وأخيراً، تبقى أي نقطة ضعف غير مدعومة بمقتطف تنفيذي صريح غير مثبتة.",
+      ]
+    : [
+        "First, the analysis starts at routing, then moves through planning, and finally reaches the evidence-acceptance gate.",
+        "Next, each checkpoint is compared with the completed read, and symbol names alone are not converted into a defect claim.",
+        "Finally, any weakness without a direct executable excerpt remains unproven.",
+      ];
+  const selectedGenericFlow = isGapAnalysis ? gapGenericFlow : genericFlow;
   const flow = evidence
-    .map((item) => flowByClaimId[item.claimId]?.[isArabic ? "ar" : "en"])
+    .map((item) => flowMap[item.claimId]?.[isArabic ? "ar" : "en"])
     .filter((sentence): sentence is string => Boolean(sentence));
   const claimLines = evidence.map((item) => {
     const claim = claimById.get(item.claimId);
@@ -5216,43 +5256,81 @@ export function buildProjectQueryEvidenceSynthesis(
       ? `- \`${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}\``
       : `- \`${item.source}:${item.sourceSpan.startLine}-${item.sourceSpan.endLine}\``,
   );
-  const lines = isArabic
-    ? [
-        "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟",
-        "",
-        "باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات.",
-        "",
-        "### الدورة العملية",
-        ...(flow.length > 0 ? flow : genericFlow),
-        "",
-        "### ماذا تم التحقق منه؟",
-        "النقاط التالية هي الأساس التقني للشرح، وقد تم ربط كل نقطة بقراءة مكتملة من المصدر:",
-        ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
-        "",
-        "### المصادر",
-        ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
-        "",
-        "### حدود الشرح",
-        "يثبت هذا التحليل سلوك الكود داخل نوافذ المصدر المقروءة. لا يثبت وحده قابلية الوصول الإنتاجية أو سلوكاً لم يظهر في هذه القراءات.",
-      ]
-    : [
-        "## How the embedded AI agent works",
-        "",
-        "In short, the agent interprets the question, selects an execution path, gathers source evidence, dispatches the provider request, and then writes an answer bounded by what was verified. No files were modified in this analysis.",
-        "",
-        "### The practical flow",
-        ...(flow.length > 0 ? flow : genericFlow),
-        "",
-        "### What was verified",
-        "The following technical points form the basis of the explanation, and each one is bound to a completed source read:",
-        ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
-        "",
-        "### Sources",
-        ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
-        "",
-        "### Scope of the explanation",
-        "This analysis proves code behavior within the retained source windows. It does not by itself prove production reachability or behavior not present in those reads.",
-      ];
+  const lines = isGapAnalysis
+    ? isArabic
+      ? [
+          "## تحليل الفجوات في الوكيل",
+          "",
+          "يعرض هذا التحليل نقاط الفحص المرتبطة بالتوجيه والتخطيط وقبول الأدلة. لا تُحوّل أسماء الدوال أو اكتمال القراءة وحدهما إلى ادعاء بوجود خلل.",
+          "",
+          "### مسار تحليل الفجوات",
+          ...(flow.length > 0 ? flow : selectedGenericFlow),
+          "",
+          "### ماذا أثبتت القراءات؟",
+          "النقاط التالية أُغلقت بأدلة مصدرية مكتملة، وهي تحدد حدود التحليل المطلوبة:",
+          ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
+          "",
+          "### المصادر",
+          ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
+          "",
+          "### حدود الحكم",
+          "القراءات الحالية تثبت نقاط الفحص ومسار قبول الأدلة، لكنها لا تثبت خللاً محدداً ما لم يظهر سلوك مخالف في المقتطف التنفيذي المحتفظ به.",
+        ]
+      : [
+          "## Agent Gap Analysis",
+          "",
+          "This analysis covers routing, planning, and evidence acceptance checkpoints. It does not convert symbol names or completed reads alone into a defect claim.",
+          "",
+          "### Gap-analysis flow",
+          ...(flow.length > 0 ? flow : selectedGenericFlow),
+          "",
+          "### What the reads proved",
+          "The following checkpoints were closed by complete source evidence:",
+          ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
+          "",
+          "### Sources",
+          ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
+          "",
+          "### Judgment boundary",
+          "The retained reads prove the checkpoints and evidence-acceptance path, but they do not prove a specific defect unless the retained executable excerpt shows contradictory behavior.",
+        ]
+    : isArabic
+      ? [
+          "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟",
+          "",
+          "باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات.",
+          "",
+          "### الدورة العملية",
+          ...(flow.length > 0 ? flow : selectedGenericFlow),
+          "",
+          "### ماذا تم التحقق منه؟",
+          "النقاط التالية هي الأساس التقني للشرح، وقد تم ربط كل نقطة بقراءة مكتملة من المصدر:",
+          ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
+          "",
+          "### المصادر",
+          ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
+          "",
+          "### حدود الشرح",
+          "يثبت هذا التحليل سلوك الكود داخل نوافذ المصدر المقروءة. لا يثبت وحده قابلية الوصول الإنتاجية أو سلوكاً لم يظهر في هذه القراءات.",
+        ]
+      : [
+          "## How the embedded AI agent works",
+          "",
+          "In short, the agent interprets the question, selects an execution path, gathers source evidence, dispatches the provider request, and then writes an answer bounded by what was verified. No files were modified in this analysis.",
+          "",
+          "### The practical flow",
+          ...(flow.length > 0 ? flow : selectedGenericFlow),
+          "",
+          "### What was verified",
+          "The following technical points form the basis of the explanation, and each one is bound to a completed source read:",
+          ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
+          "",
+          "### Sources",
+          ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
+          "",
+          "### Scope of the explanation",
+          "This analysis proves code behavior within the retained source windows. It does not by itself prove production reachability or behavior not present in those reads.",
+        ];
   return lines.join("\n");
 }
 
