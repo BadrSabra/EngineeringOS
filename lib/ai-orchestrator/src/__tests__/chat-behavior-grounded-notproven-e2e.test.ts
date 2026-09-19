@@ -417,6 +417,19 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
       expect(result.response).toContain("validateAnalysisEvidenceCompletion");
       expect(calls.count).toBeGreaterThan(1);
 
+      const responseBindingStep = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+      ) as Extract<AgentStep, { kind: "diagnostic" }> | undefined;
+      expect(responseBindingStep?.details).toEqual(
+        expect.arrayContaining(["responseUsesOverride=true", "materializedClaims=3"]),
+      );
+      const objectiveClosureStep = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+      ) as Extract<AgentStep, { kind: "diagnostic" }> | undefined;
+      expect(objectiveClosureStep?.details).toEqual(
+        expect.arrayContaining(["closedClaims=gap-routing,gap-planning,gap-acceptance", "gateStatus=PROVEN"]),
+      );
+
       const integrity = [...steps].reverse().find((step) => step.kind === "evidence_integrity");
       expect(integrity?.kind).toBe("evidence_integrity");
       if (integrity?.kind === "evidence_integrity") {

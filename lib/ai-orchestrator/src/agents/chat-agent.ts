@@ -8605,7 +8605,7 @@ export async function chat(opts: {
   // here would discard that server-owned proof and turn a complete objective
   // into OBJECTIVE_BLOCKED.
   const projectQueryHasCompleteEvidenceOverride =
-    objective?.objectiveType === "PROJECT_QUERY_EMBEDDED-AI"
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
     && projectQueryEvidenceResponseOverride !== undefined
     && objective?.requiredClaims.length !== undefined
     && objective.requiredClaims.length > 0
