@@ -6452,6 +6452,23 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       status: "completed",
     });
 
+    const executionDetail = await request(app)
+      .get(`/api/ai/executions/${execution!.id}`)
+      .expect(200);
+    expect(executionDetail.body).toMatchObject({
+      status: "completed",
+      evidenceVerdict: "PROVEN",
+      recovery: {
+        phase: "succeeded",
+      },
+      checkpoint: {
+        stage: "completed",
+        operation: {
+          state: "succeeded",
+        },
+      },
+    });
+
     const [acceptance] = await db
       .select({
         outcome: aiExecutionAcceptancesTable.outcome,
