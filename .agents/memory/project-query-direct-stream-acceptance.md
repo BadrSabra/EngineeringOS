@@ -14,3 +14,17 @@ The direct-stream seam must also preserve the server-owned project-query respons
 **Why:** A gap-analysis run materialized all three claims, but the direct-stream objective gate emitted the generic Arabic blocked response before the response-binding diagnostic. The final trace therefore recorded `responseUsesOverride=false`, zero closed claims, and an incomplete acceptance despite complete required paths.
 
 **How to apply:** Add a direct-stream regression that asserts the response passed into the objective gate remains the server-owned override, and record the pre-gate candidate plus closure IDs when it does not. Keep unrelated incomplete reads from silently replacing a complete required project-query projection.
+
+Evidence acceptance and response selection are separate contracts. Once a provider
+candidate satisfies the language, behavioral-flow, and required-claim checks,
+complete materialized evidence must not unconditionally replace that candidate
+with a shorter deterministic template.
+
+**Why:** The latest embedded-AI project query closed all seven claims and was
+accepted as PROVEN, but the final message was the fixed 3,423-character
+deterministic synthesis rather than the richer provider synthesis.
+
+**How to apply:** Use deterministic project-query text only as a classified
+fallback for empty, malformed, incomplete, or failed provider synthesis. Persist
+the selected response source and fallback reason across trace, SSE, message,
+and history projections.
