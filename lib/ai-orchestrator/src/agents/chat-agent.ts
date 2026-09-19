@@ -5311,6 +5311,24 @@ function relayProjectQueryStreamAcceptance(
 }
 
 /**
+ * Keep the server-owned project-query projection authoritative through the
+ * streaming gates. A telemetry-blocked run must still retain the gate's
+ * fail-closed response; when telemetry is consistent, generic behavioral
+ * gates must not replace a complete objective projection before objective
+ * closure sees its claim-bearing response.
+ */
+function selectProjectQueryStreamingResponse(input: {
+  hasProjection: boolean;
+  override: string | undefined;
+  telemetryBlocked: boolean;
+  gatedResponse: string;
+}): string {
+  return input.hasProjection && !input.telemetryBlocked && input.override !== undefined
+    ? input.override
+    : input.gatedResponse;
+}
+
+/**
  * Every forensic terminal must have the same six-section shape, including a
  * terminal reached before synthesis. This builder deliberately accepts only
  * retained server-owned evidence and a short allowlisted reason; provider
@@ -9461,6 +9479,12 @@ export async function chat(opts: {
           || (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested),
         behaviorSupported: hasProjectQueryAcceptanceProjection || streamingAcceptedFiles.length > 0,
       });
+      const streamingClaimGateResponse = selectProjectQueryStreamingResponse({
+        hasProjection: hasProjectQueryAcceptanceProjection,
+        override: projectQueryEvidenceResponseOverride,
+        telemetryBlocked: streamingGateResult.blocked,
+        gatedResponse: streamingGateResult.gatedResponse,
+      });
       // FEG-011/012: apply the SHARED required-claim gate on this direct-stream
       // path too — an evidence inventory alone is never a completed answer.
       const streamingRequiredClaimGate = applyRequiredClaimClosureGate({
@@ -9468,16 +9492,22 @@ export async function chat(opts: {
         evidence: streamingBehaviorGated.evidence,
         fileContents: forensicFileContents,
         shouldValidate: !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
-        response: streamingGateResult.gatedResponse,
+        response: streamingClaimGateResponse,
         relayAgentStep,
       });
       // AI-OBJ-005: apply the shared Objective Completion Gate on this
       // direct-stream path too — a BLOCKED objective must not be emitted.
+      const streamingObjectiveResponse = selectProjectQueryStreamingResponse({
+        hasProjection: hasProjectQueryAcceptanceProjection,
+        override: projectQueryEvidenceResponseOverride,
+        telemetryBlocked: streamingGateResult.blocked,
+        gatedResponse: streamingRequiredClaimGate.gatedResponse,
+      });
       const streamingObjectiveGate = applyObjectiveCompletionGate({
         objective,
         fileContents: forensicFileContents,
         objectiveEvidenceSources: prefetchTraceContents,
-        response: streamingRequiredClaimGate.gatedResponse,
+        response: streamingObjectiveResponse,
         message,
         evidence: streamingBehaviorGated.evidence,
         provenEdges: (productionTraceLinks ?? [])
@@ -9488,7 +9518,12 @@ export async function chat(opts: {
           })),
         relayAgentStep,
       });
-      const emittedGatedResponse = streamingObjectiveGate.gatedResponse;
+      const emittedGatedResponse = selectProjectQueryStreamingResponse({
+        hasProjection: hasProjectQueryAcceptanceProjection,
+        override: projectQueryEvidenceResponseOverride,
+        telemetryBlocked: streamingGateResult.blocked || streamingObjectiveGate.blocked,
+        gatedResponse: streamingObjectiveGate.gatedResponse,
+      });
       const streamingTelemetryLedger = attachObjectiveTelemetry(
         streamingGateResult.runtimeLedger,
         streamingObjectiveGate.gate,
@@ -9765,7 +9800,12 @@ export async function chat(opts: {
           || (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested),
         behaviorSupported: hasProjectQueryAcceptanceProjection || nativeSseAcceptedFiles.length > 0,
       });
-      nativeSseResponse = nativeSseGateResult.gatedResponse;
+      nativeSseResponse = selectProjectQueryStreamingResponse({
+        hasProjection: hasProjectQueryAcceptanceProjection,
+        override: projectQueryEvidenceResponseOverride,
+        telemetryBlocked: nativeSseGateResult.blocked,
+        gatedResponse: nativeSseGateResult.gatedResponse,
+      });
       // FEG-011/012: apply the SHARED required-claim gate on this native-SSE
       // path too — an evidence inventory alone is never a completed answer. Uses
       // the ORIGINAL evidence (above), NOT evidence re-derived from the possibly
@@ -9778,14 +9818,19 @@ export async function chat(opts: {
         response: nativeSseResponse,
         relayAgentStep,
       });
-      nativeSseResponse = nativeSseRequiredClaimGate.gatedResponse;
+      const nativeSseObjectiveResponse = selectProjectQueryStreamingResponse({
+        hasProjection: hasProjectQueryAcceptanceProjection,
+        override: projectQueryEvidenceResponseOverride,
+        telemetryBlocked: nativeSseGateResult.blocked,
+        gatedResponse: nativeSseRequiredClaimGate.gatedResponse,
+      });
       // AI-OBJ-005: apply the shared Objective Completion Gate on this
       // native-SSE path too — a BLOCKED objective must not be emitted.
       const nativeSseObjectiveGate = applyObjectiveCompletionGate({
         objective,
         fileContents: forensicFileContents,
         objectiveEvidenceSources: prefetchTraceContents,
-        response: nativeSseResponse,
+        response: nativeSseObjectiveResponse,
         message,
         evidence: nativeSseBehaviorValidation.evidence,
         provenEdges: (productionTraceLinks ?? [])
@@ -9796,7 +9841,12 @@ export async function chat(opts: {
           })),
         relayAgentStep,
       });
-      nativeSseResponse = nativeSseObjectiveGate.gatedResponse;
+      nativeSseResponse = selectProjectQueryStreamingResponse({
+        hasProjection: hasProjectQueryAcceptanceProjection,
+        override: projectQueryEvidenceResponseOverride,
+        telemetryBlocked: nativeSseGateResult.blocked || nativeSseObjectiveGate.blocked,
+        gatedResponse: nativeSseObjectiveGate.gatedResponse,
+      });
       const nativeSseTelemetryLedger = attachObjectiveTelemetry(
         nativeSseGateResult.runtimeLedger,
         nativeSseObjectiveGate.gate,
