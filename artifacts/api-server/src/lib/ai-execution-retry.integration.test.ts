@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiChatSessionsTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -159,6 +160,7 @@ describe("durable conversational retry authorization", () => {
   it("persists one verified orientation manifest and rejects drift or incomplete replacements", async () => {
     const projectId = randomUUID();
     const executionId = randomUUID();
+    const sessionId = randomUUID();
     const workerId = "orientation-manifest-worker";
     const now = new Date();
     const workspaceRevision = now.toISOString();
@@ -175,20 +177,27 @@ describe("durable conversational retry authorization", () => {
       createdAt: now,
       updatedAt: now,
     });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Orientation test",
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(aiExecutionsTable).values({
       id: executionId,
       projectId,
-      sessionId: randomUUID(),
+      sessionId,
       operationId: executionId,
       userId: "orientation-test-user",
       idempotencyKey: `${executionId}:orientation`,
       attempt: 0,
-      resumeTokenHash: null,
+      resumeTokenHash: "orientation-manifest-resume-hash",
       request: JSON.stringify({
         projectId,
         turnIntent: "PROJECT_QUERY",
         projectOrientation: true,
-        sessionId: randomUUID(),
+        sessionId,
         message: "Explain the project",
         modelMessage: "Explain the project",
         workspaceRevision,
@@ -199,7 +208,7 @@ describe("durable conversational retry authorization", () => {
           taskType: "BEHAVIOR_QUERY",
           outputContract: "BEHAVIOR_ANSWER",
           contextProfile: "project_query",
-          sessionId: randomUUID(),
+          sessionId,
           projectRevision: workspaceRevision,
           requiresEvidence: true,
           scope: { projectId, rootPath, linkedTaskId: null },
@@ -251,6 +260,7 @@ describe("durable conversational retry authorization", () => {
       })).resolves.toBe(false);
     } finally {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
