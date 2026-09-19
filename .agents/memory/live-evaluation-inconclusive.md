@@ -7,4 +7,4 @@ Treat a live provider or transport exception as inconclusive unless the applicat
 
 **Why:** Direct orchestrator calls can fail before finalization, while deterministic fixtures prove that the same incomplete source manifest reaches `ANALYSIS_INCOMPLETE` when provider output is available.
 
-**How to apply:** Evaluation receipts should use an explicit inconclusive status for provider/runtime failures and reserve passed/failed for completed application-level checks.
+**How to apply:** Evaluation receipts should use an explicit inconclusive status for provider/runtime failures and reserve passed/failed for completed application-level checks. After one bounded smoke and one or two bounded campaign attempts hit the same upstream transport/rate-limit class, stop rather than multiplying retries; report catalog/policy observations separately from model-quality evidence.
