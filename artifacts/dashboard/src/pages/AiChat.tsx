@@ -1555,6 +1555,7 @@ function evidenceAnchor(evidence: AiBehaviorEvidence): { label: string; copy: st
 
 type ToolTraceEntry = {
   kind: string;
+  taskType?: string;
   scopeDescription?: string;
   tool?: string;
   args?: Record<string, string>;
@@ -5338,11 +5339,23 @@ function MessageBubble({
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
+  // Older PROJECT_QUERY rows can retain a generic forensic diagnostic in their
+  // persisted trace. The source-selection/decision markers are server-owned
+  // and let history renders recognize those rows even when the top-level
+  // turnIntent was not present in the older API projection.
+  const isProjectQueryTurn = !isUser && (
+    msg.turnIntent === 'PROJECT_QUERY' ||
+    toolTrace.some((entry) =>
+      entry.kind === 'project_query_source_selection' ||
+      (entry.kind === 'decision_trace' && entry.taskType === 'PROJECT_QUERY') ||
+      (entry.kind === 'evidence_integrity' && entry.objectiveType?.startsWith('PROJECT_QUERY')),
+    )
+  );
   const capabilityProbeReport = !isUser
     ? parseCapabilityProbeReport(msg.content, toolTrace)
     : null;
   const activityTrace = toolTrace.filter((entry) => entry.kind !== 'execution_ledger');
-  const forensicDiagnostic = !isUser && !isChatTurn
+  const forensicDiagnostic = !isUser && !isChatTurn && !isProjectQueryTurn
     ? msg.forensicDiagnostic
       ?? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_diagnostic')?.forensicDiagnostic
     : undefined;

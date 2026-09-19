@@ -14,3 +14,9 @@ For project orientation, complete role coverage is the server-owned semantic clo
 **Why:** A real orientation execution completed all manifest reads and durable acceptance recorded `PROVEN`, but the earlier trace projection classified the generic objective gate as unproven, leaving a contradictory `RECOVERY_REQUIRED`/`ANALYSIS_INCOMPLETE` diagnostic in the persisted message.
 
 **How to apply:** Add an orientation-specific terminal projection or explicitly feed `orientationCoverage.complete` into the existing objective classifier, then assert the cross-layer invariant at the orchestrator and SSE/persistence boundaries.
+
+Historical dashboard projections must identify PROJECT_QUERY turns from the persisted turn intent or server-owned source-selection/decision markers before rendering any generic forensic diagnostic. Preserve the answer and source coverage while suppressing only the contradictory legacy diagnostic.
+
+**Why:** Older message rows cannot be rewritten by the backend projection fix, so reloads could still show `ANALYSIS_INCOMPLETE` beside a complete project-query answer.
+
+**How to apply:** Keep this normalization at the message-render boundary and cover both top-level `forensicDiagnostic` and `tool_trace` diagnostic entries in a history-render regression.

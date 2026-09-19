@@ -1939,6 +1939,76 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.queryByText(/Review the unread scope|Start a new audit|Retry/i)).not.toBeInTheDocument();
   });
 
+  it('does not render a historical generic forensic diagnostic for a project query', async () => {
+    mocks.serverProposal = { proposalId: 'historical-project-query', changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      turnIntent: 'PROJECT_QUERY',
+      content: 'The embedded AI is implemented in the server orchestration path.',
+      sourceSelectionRecord: {
+        plannerTier: 'targeted',
+        plannedFiles: ['artifacts/api-server/src/routes/ai/chat.ts'],
+        fileStatuses: [{
+          path: 'artifacts/api-server/src/routes/ai/chat.ts',
+          origin: 'planned',
+          readStatus: 'READ_COMPLETE',
+        }],
+        truncatedPlannedCount: 0,
+        skippedPlannedCount: 0,
+      },
+      forensicDiagnostic: {
+        version: 'v1',
+        verdict: 'ANALYSIS_INCOMPLETE',
+        reasonCode: 'NO_EVIDENCE_REACHED',
+        explanation: 'A stale generic diagnostic from the historical forensic projection.',
+        unreadFileCount: 0,
+        unreadFiles: [],
+        truncatedFileCount: 0,
+        truncatedFiles: [],
+        nextActionCode: 'REVIEW_SCOPE',
+        nextAction: 'Review the audit scope.',
+      },
+      toolTrace: JSON.stringify([
+        {
+          kind: 'project_query_source_selection',
+          plannerTier: 'targeted',
+          plannedFiles: ['artifacts/api-server/src/routes/ai/chat.ts'],
+          fileStatuses: [{
+            path: 'artifacts/api-server/src/routes/ai/chat.ts',
+            origin: 'planned',
+            readStatus: 'READ_COMPLETE',
+          }],
+          truncatedPlannedCount: 0,
+          skippedPlannedCount: 0,
+        },
+        {
+          kind: 'forensic_diagnostic',
+          forensicDiagnostic: {
+            version: 'v1',
+            verdict: 'ANALYSIS_INCOMPLETE',
+            reasonCode: 'NO_EVIDENCE_REACHED',
+            explanation: 'A stale generic diagnostic from the historical forensic projection.',
+            unreadFileCount: 0,
+            unreadFiles: [],
+            truncatedFileCount: 0,
+            truncatedFiles: [],
+            nextActionCode: 'REVIEW_SCOPE',
+            nextAction: 'Review the audit scope.',
+          },
+        },
+      ]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(screen.getByText(/The embedded AI is implemented/)).toBeInTheDocument();
+    expect(screen.getByText('Sources')).toBeInTheDocument();
+    expect(screen.queryByText('ANALYSIS_INCOMPLETE')).not.toBeInTheDocument();
+    expect(screen.queryByText(/stale generic forensic projection|Review the audit scope/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Forensic evidence/ })).not.toBeInTheDocument();
+  });
+
   it('applies a server-owned proposal with its project and proposal identity', async () => {
     mocks.serverProposal = {
       proposalId: 'proposal-1',
