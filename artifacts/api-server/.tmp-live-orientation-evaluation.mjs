@@ -101,6 +101,7 @@ function evaluateResponse(response, coverage, sourceCount) {
     missingRoles,
     sourceCount,
     responseLength: response.length,
+    responsePreview: response.replace(/\s+/g, " ").slice(0, 900),
     arabicRatio:
       letters.length === 0 ? 0 : Number((arabicLetters.length / letters.length).toFixed(2)),
     termHits,

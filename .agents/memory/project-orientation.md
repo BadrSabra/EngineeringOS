@@ -27,3 +27,14 @@ failure and lose the orientation acceptance contract.
 **How to apply:** Reuse the existing orientation detector/resumable flag in both
 routes, feed it into terminal classification and retained-evidence failure
 projection, and do not add a citation or provider-prose gate.
+
+Contract success and presentation quality are separate signals: a complete
+orientation may be assembled by the deterministic evidence fallback rather than
+provider-written functional prose.
+
+**Why:** A live complete-case receipt passed all evidence checks while its preview
+explicitly identified deterministic recovery and displayed raw source excerpts.
+
+**How to apply:** Keep the acceptance verdict evidence- and role-coverage-based,
+but report the synthesis/recovery mode separately when evaluating user-facing
+quality; do not turn that mode into a new acceptance gate.
