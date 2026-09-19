@@ -1361,6 +1361,12 @@ export function buildRuntimeLedger(input: {
    * which can inflate uniqueFilesRead and trip EI-026.
    */
   prefetchPaths?: readonly string[];
+  /**
+   * Bodies retained for partial-coverage diagnostics are not completed source
+   * reads. Keep them available to the caller, but exclude them from the
+   * completed evidence ledger and from the completed-read path count.
+   */
+  incompleteFiles?: readonly string[];
   recoveryAttempts?: number;
   finalResult?: BehaviorFindingStatus;
   /**
@@ -1389,14 +1395,17 @@ export function buildRuntimeLedger(input: {
     sourceRetrieval,
     prefetchReads = 0,
     prefetchPaths = [],
+    incompleteFiles = [],
     recoveryAttempts = 0,
     finalResult,
     scopedFindingStatusOverride,
     additionalRecoveryRecords = [],
     sourceCoverage,
   } = input;
+  const incompleteFileSet = new Set(incompleteFiles);
   const records: EvidenceRecord[] = [];
   for (const [file, content] of fileContents) {
+    if (incompleteFileSet.has(file)) continue;
     const isAccepted = acceptedFiles.includes(file);
     const record = createEvidenceRecord({
       runId,
@@ -1430,9 +1439,11 @@ export function buildRuntimeLedger(input: {
   // between evidenceFileCount and uniqueFilesRead is a real telemetry loss that
   // must fail closed — never masked by a silent evidence-derived fallback.
   const observedReadPaths = new Set([
-    ...(sourceRetrieval?.readPaths ?? []),
-    ...prefetchPaths,
-    ...additionalRecoveryRecords.map((record) => record.file),
+    ...(sourceRetrieval?.readPaths ?? []).filter((file) => !incompleteFileSet.has(file)),
+    ...prefetchPaths.filter((file) => !incompleteFileSet.has(file)),
+    ...additionalRecoveryRecords
+      .map((record) => record.file)
+      .filter((file) => !incompleteFileSet.has(file)),
   ]);
   const reconciledUniqueReads =
     observedReadPaths.size > 0

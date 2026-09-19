@@ -9109,6 +9109,7 @@ export async function chat(opts: {
     acceptedFiles?: string[];
     sourceRetrieval?: { readPaths?: string[]; uniqueReads?: number; readAttempts?: number } | null;
     prefetchPaths: string[];
+    incompleteFiles?: string[];
     sourceCoverage?: ForensicSourceCoverage;
     recoveryAttempts?: number;
     additionalRecoveryRecords?: readonly EvidenceRecord[];
@@ -9139,7 +9140,8 @@ export async function chat(opts: {
       prefetchReads: input.prefetchPaths.filter(
         (p) => !input.sourceRetrieval?.readPaths?.includes(p),
       ).length,
-         prefetchPaths: input.prefetchPaths,
+      prefetchPaths: input.prefetchPaths,
+      incompleteFiles: input.incompleteFiles,
       sourceCoverage: input.sourceCoverage
         ? {
             status: input.sourceCoverage.complete
@@ -9471,6 +9473,7 @@ export async function chat(opts: {
         acceptedFiles: streamingAcceptedFiles,
         sourceRetrieval: "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
         prefetchPaths: [...prefetchFileContents.keys()],
+        incompleteFiles: [...incompletePrefetchContents.keys()],
         sourceCoverage: forensicSourceCoverage,
         recoveryAttempts: 0,
         additionalRecoveryRecords: [],
@@ -9792,6 +9795,7 @@ export async function chat(opts: {
         acceptedFiles: nativeSseAcceptedFiles,
         sourceRetrieval: "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
         prefetchPaths: [...prefetchFileContents.keys()],
+        incompleteFiles: [...incompletePrefetchContents.keys()],
         sourceCoverage: forensicSourceCoverage,
         recoveryAttempts: 0,
         additionalRecoveryRecords: [],
@@ -12929,6 +12933,7 @@ export async function chat(opts: {
       (p) => !("sourceRetrieval" in loopResult && loopResult.sourceRetrieval?.readPaths?.includes(p)),
     ).length,
     prefetchPaths: [...prefetchFileContents.keys()],
+    incompleteFiles: [...incompletePrefetchContents.keys()],
     sourceCoverage: forensicSourceCoverage
       ? {
           status: forensicSourceCoverage.complete

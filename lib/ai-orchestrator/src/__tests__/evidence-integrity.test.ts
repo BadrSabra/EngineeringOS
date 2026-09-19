@@ -233,6 +233,28 @@ describe("EI-021 telemetry integrity test (1 evidence file / 0 reads)", () => {
     expect(validateTelemetry(ledger).consistent).toBe(true);
   });
 
+  it("excludes incomplete retained bodies from completed evidence telemetry", () => {
+    const ledger = buildRuntimeLedger({
+      runId: "run-incomplete-prefetch",
+      fileContents: new Map([
+        ["src/complete.ts", "export const complete = true;"],
+        ["src/large.ts", "partial body"],
+      ]),
+      sourceRetrieval: {
+        uniqueReads: 1,
+        readPaths: ["src/complete.ts"],
+      },
+      prefetchPaths: ["src/complete.ts"],
+      incompleteFiles: ["src/large.ts"],
+    });
+
+    expect(ledger.completedReadFiles).toEqual(["src/complete.ts"]);
+    expect(ledger.retainedBodyFiles).toEqual(["src/complete.ts"]);
+    expect(ledger.evidenceFileCount).toBe(1);
+    expect(ledger.uniqueFilesRead).toBe(1);
+    expect(validateTelemetry(ledger).consistent).toBe(true);
+  });
+
   it("reports consistent telemetry for a well-formed run", () => {
     const rec = createEvidenceRecord({
       runId: RUN,
