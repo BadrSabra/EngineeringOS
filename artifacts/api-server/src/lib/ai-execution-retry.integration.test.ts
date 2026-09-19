@@ -157,7 +157,7 @@ describe("durable conversational retry authorization", () => {
     },
   );
 
-  it("persists one verified orientation manifest and rejects drift or incomplete replacements", async () => {
+  it("persists one verified orientation manifest and rejects drift, incomplete, or stale replacements", async () => {
     const projectId = randomUUID();
     const executionId = randomUUID();
     const sessionId = randomUUID();
@@ -229,6 +229,21 @@ describe("durable conversational retry authorization", () => {
         manifest,
       })).resolves.toBe(true);
 
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId: "stale-orientation-worker",
+        manifest,
+      })).resolves.toBe(false);
+
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId,
+        manifest: {
+          ...manifest,
+          rootPath: `${rootPath}-drift`,
+        },
+      })).resolves.toBe(false);
+
       const [stored] = await db
         .select({ request: aiExecutionsTable.request })
         .from(aiExecutionsTable)
@@ -257,6 +272,16 @@ describe("durable conversational retry authorization", () => {
           ...manifest,
           paths: { ...manifest.paths, uncertainty: [] },
         },
+      })).resolves.toBe(false);
+
+      await db
+        .update(aiExecutionsTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000) })
+        .where(eq(aiExecutionsTable.id, executionId));
+      await expect(persistAiExecutionOrientationManifest({
+        executionId,
+        workerId,
+        manifest,
       })).resolves.toBe(false);
     } finally {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
