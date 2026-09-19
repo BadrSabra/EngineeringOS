@@ -39,6 +39,25 @@ describe("prefetchFileList", () => {
     expect(result.injectedMessages).toHaveLength(2);
   });
 
+  it("does not turn an empty source body into a cache entry or synthetic read", async () => {
+    const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-empty-"));
+    tempRoots.push(root);
+    await fs.writeFile(path.join(root, "empty.ts"), "", "utf8");
+
+    const result = await prefetchFileList({
+      files: ["empty.ts"],
+      rootPath: root,
+      pendingChanges: [],
+      toolCacheKeyFn: (name, args) => `${name}:${JSON.stringify(args)}`,
+      complete: true,
+    });
+
+    expect(result.sources).toEqual([]);
+    expect(result.cacheEntries).toEqual([]);
+    expect(result.injectedMessages).toEqual([]);
+    expect(result.failedFiles).toEqual(["empty.ts"]);
+  });
+
   it("honors the shared forensic file budget and excludes already-read files", async () => {
     const root = await fs.mkdtemp(path.join("/tmp", "engineeringos-prefetch-budget-"));
     tempRoots.push(root);

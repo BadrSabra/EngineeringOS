@@ -25,7 +25,7 @@
 
  import { promises as fs } from "node:fs";
  import path from "node:path";
- import { executeFileTool } from "../tools/file-tools.js";
+import { executeFileTool, stripReadFileWrapper } from "../tools/file-tools.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage } from "../groq-client.js";
 import { isForensicTestSourcePath } from "../forensic-source-policy.js";
@@ -155,7 +155,14 @@ async function readPrefetchFile(
       rootPath,
       pendingChanges,
     );
-    if (/^Error\b/i.test(raw.trim()) || raw.toLowerCase().startsWith("file not found")) {
+    const trimmed = raw.trim();
+    const unwrapped = stripReadFileWrapper(raw).trim();
+    if (
+      !trimmed
+      || !unwrapped
+      || /^Error\b/i.test(trimmed)
+      || trimmed.toLowerCase().startsWith("file not found")
+    ) {
       return null;
     }
     if (!complete) return raw;
