@@ -84,12 +84,14 @@ async function mockChatProviders(fakeStrategy: unknown, plan: unknown): Promise<
 
 const FILE = "src/loop.ts";
 const OTHER = "src/other.ts";
+const LARGE_FILE = "src/large.ts";
 const FILE_CONTENT = [
   "export const MAX_ITERATIONS = 20;",
   "export function run() {",
   "  return MAX_ITERATIONS;",
   "}",
 ].join("\n");
+const LARGE_FILE_CONTENT = "export const retainedLine = true;\n".repeat(12_000);
 const OTHER_CONTENT = [
   "export const OTHER = 7;",
   "export function helper() {",
@@ -102,6 +104,12 @@ async function makeRoot(): Promise<string> {
   await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
   await fs.writeFile(path.join(rootPath, FILE), FILE_CONTENT, "utf8");
   await fs.writeFile(path.join(rootPath, OTHER), OTHER_CONTENT, "utf8");
+  return rootPath;
+}
+
+async function makeLargeRoot(): Promise<string> {
+  const rootPath = await makeRoot();
+  await fs.writeFile(path.join(rootPath, LARGE_FILE), LARGE_FILE_CONTENT, "utf8");
   return rootPath;
 }
 
@@ -142,13 +150,21 @@ const MESSAGE = "Does the loop run at most 20 iterations?";
 
 /** Model that answers grounded on the prefetched file with no in-loop reads. */
 function groundedStrategy(modelResponse: string, calls: { count: number }): unknown {
+  return groundedStrategyForSource(modelResponse, FILE, calls);
+}
+
+function groundedStrategyForSource(
+  modelResponse: string,
+  source: string,
+  calls: { count: number },
+): unknown {
   return {
     providerId: "openrouter",
     supportsNativeStream: false,
     call: vi.fn(async () => {
       calls.count += 1;
       return {
-        content: JSON.stringify({ response: modelResponse, sources: [FILE] }),
+        content: JSON.stringify({ response: modelResponse, sources: [source] }),
         toolCalls: [],
         model: "initial-model",
         usage: {},
@@ -386,6 +402,49 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
         expect(result.taskResult.answer.evidence).toEqual([]);
         expect(result.taskResult.answer.sourceScope).toEqual([]);
       }
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not promote a truncated prefetch body into complete evidence telemetry", async () => {
+    const rootPath = await makeLargeRoot();
+    const response =
+      `Source: \`${LARGE_FILE}\`\n` +
+      "The retained preview is not enough to prove the requested behavior.";
+    const calls = { count: 0 };
+    await mockChatProviders(
+      groundedStrategyForSource(response, LARGE_FILE, calls),
+      plan([LARGE_FILE]),
+    );
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: `What is wrong with ${LARGE_FILE}?`,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(calls.count).toBeGreaterThan(0);
+      const integrity = [...steps].reverse().find((s) => s.kind === "evidence_integrity");
+      expect(integrity?.kind).toBe("evidence_integrity");
+      if (integrity?.kind !== "evidence_integrity") return;
+
+      // The partial body remains available to the coverage/report path, but it
+      // is not a completed source read and cannot inflate evidenceFileCount.
+      expect(integrity.code).toBe("TELEMETRY_CONSISTENT");
+      expect(integrity.consistent).toBe(true);
+      expect(integrity.uniqueFilesRead).toBe(0);
+      expect(integrity.evidenceFileCount).toBe(0);
+      expect(integrity.completedReadFiles ?? []).not.toContain(LARGE_FILE);
+      expect(integrity.retainedBodyFiles ?? []).not.toContain(LARGE_FILE);
+      expect(result.response).toMatch(/NOT PROVEN.*EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED/i);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
