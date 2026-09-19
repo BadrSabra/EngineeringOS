@@ -15,6 +15,7 @@ import {
   deriveProjectOrientationCoverage,
   deriveSourceSelectionRecord,
   hasCompleteProjectOrientationSources,
+  reconcileProjectOrientationSources,
 } from "../agents/query-planner.js";
 
 // ── vi.hoisted: shared mock state ─────────────────────────────────────────────
@@ -68,6 +69,83 @@ function makeContext(metricsVerified = true) {
 }
 
 describe("project orientation source coverage", () => {
+  it("drops missing planner candidates before orientation scope is admitted", () => {
+    const plan = {
+      originalIntent: "Explain the project",
+      targetFiles: [
+        "README.md",
+        "src/App.tsx",
+        "src/routes.ts",
+        "tests/app.test.ts",
+        "artifacts/api-server/.replit-artifact/artifact.toml",
+      ],
+      targetEntities: [],
+      scopeEstimate: "medium" as const,
+      suggestedIterations: 20,
+      requiresToolUse: true,
+      subQueries: [],
+      compoundParts: [],
+      orientationSources: {
+        purpose: ["README.md", "missing-purpose.md"],
+        components: ["src/App.tsx"],
+        primaryFlow: ["src/routes.ts"],
+        uncertainty: [
+          "tests/app.test.ts",
+          "artifacts/api-server/.replit-artifact/artifact.toml",
+        ],
+      },
+    };
+
+    const reconciled = reconcileProjectOrientationSources(plan, [
+      "README.md",
+      "src/App.tsx",
+      "src/routes.ts",
+      "tests/app.test.ts",
+    ]);
+
+    expect(reconciled.orientationSources).toEqual({
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    });
+    expect(reconciled.targetFiles).toEqual([
+      "README.md",
+      "src/App.tsx",
+      "src/routes.ts",
+      "tests/app.test.ts",
+    ]);
+    expect(reconciled.planDiagnostics).toEqual(expect.arrayContaining([
+      expect.stringContaining("orientationSources.purpose dropped 1"),
+      expect.stringContaining("orientationSources.uncertainty dropped 1"),
+    ]));
+  });
+
+  it("fails closed when the verified filesystem manifest is unavailable", () => {
+    const plan = {
+      originalIntent: "Explain the project",
+      targetFiles: ["README.md"],
+      targetEntities: [],
+      scopeEstimate: "narrow" as const,
+      suggestedIterations: 8,
+      requiresToolUse: true,
+      subQueries: [],
+      compoundParts: [],
+      orientationSources: {
+        purpose: ["README.md"],
+        components: ["src/App.tsx"],
+        primaryFlow: ["src/routes.ts"],
+        uncertainty: ["tests/app.test.ts"],
+      },
+    };
+
+    const reconciled = reconcileProjectOrientationSources(plan, undefined);
+
+    expect(reconciled.targetFiles).toEqual([]);
+    expect(hasCompleteProjectOrientationSources(reconciled.orientationSources)).toBe(false);
+    expect(Object.values(reconciled.orientationSources ?? {}).every((files) => files.length === 0)).toBe(true);
+  });
+
   it("does not admit a partial orientation manifest as durable scope", () => {
     expect(hasCompleteProjectOrientationSources({
       purpose: [],

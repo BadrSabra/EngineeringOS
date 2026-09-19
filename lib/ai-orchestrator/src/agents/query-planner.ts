@@ -144,6 +144,54 @@ export type QueryPlan = {
   graphEnriched?: boolean;
 };
 
+/**
+ * Remove planner candidates that are not present in the server-owned
+ * filesystem manifest before they become orientation evidence scope.
+ *
+ * The planner can only navigate from graph/provider hints; the manifest is
+ * the server-owned existence boundary. Keep the candidate order so a valid
+ * alternate remains preferred over an arbitrary replacement. When the
+ * manifest is unavailable, fail closed by admitting no orientation sources.
+ */
+export function reconcileProjectOrientationSources(
+  plan: QueryPlan,
+  availableFiles: readonly string[] | undefined,
+): QueryPlan {
+  if (!plan.orientationSources) return plan;
+
+  const available = new Set(
+    (availableFiles ?? []).map(normalizePlannerPath).filter(Boolean),
+  );
+  const diagnostics = [...(plan.planDiagnostics ?? [])];
+  const orientationSources = Object.fromEntries(
+    ORIENTATION_ROLES.map((role) => {
+      const original = plan.orientationSources?.[role] ?? [];
+      const valid = original.filter((file) => available.has(normalizePlannerPath(file)));
+      if (valid.length !== original.length) {
+        diagnostics.push(
+          `orientationSources.${role} dropped ${original.length - valid.length} candidate(s) not present in the verified filesystem manifest`,
+        );
+      }
+      return [role, [...new Set(valid.map(normalizePlannerPath))]];
+    }),
+  ) as ProjectOrientationSources;
+  const orientationFiles = new Set(
+    ORIENTATION_ROLES.flatMap((role) => orientationSources[role]),
+  );
+  const targetFiles = [...new Set(
+    plan.targetFiles
+      .map(normalizePlannerPath)
+      .filter((file) => available.has(file) || orientationFiles.has(file)),
+  )];
+
+  return {
+    ...plan,
+    targetFiles,
+    orientationSources,
+    planDiagnostics: diagnostics.slice(0, 8),
+  };
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PLANNER_TIMEOUT_MS = 5_000;

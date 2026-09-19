@@ -58,7 +58,10 @@ import {
   buildProjectFileManifest,
   type ProjectFileSource,
 } from "../filesystem-manifest.js";
-import { hasCompleteProjectOrientationSources } from "./query-planner.js";
+import {
+  hasCompleteProjectOrientationSources,
+  reconcileProjectOrientationSources,
+} from "./query-planner.js";
 import { buildDeterministicProjectOrientationResponse } from "../project-orientation-fallback.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
 import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
@@ -7273,9 +7276,13 @@ export async function chat(opts: {
     !generalTaskPlan.skipQueryPlanner &&
     !(projectOrientationMode && orientationSourcesOverride)
   ) {
-    const orientationFallbackPaths =
+    const orientationFilesystemManifest =
       projectOrientationMode && rootPath
-        ? (await buildProjectFileManifest(rootPath)).files
+        ? await buildProjectFileManifest(rootPath)
+        : undefined;
+    const orientationFallbackPaths =
+      orientationFilesystemManifest?.status === "VERIFIED"
+        ? orientationFilesystemManifest.files
         : [];
     queryPlan = await planQuery({
       message,
@@ -7292,6 +7299,12 @@ export async function chat(opts: {
     }).catch(() => null);
 
     if (projectOrientationMode && queryPlan) {
+      queryPlan = reconcileProjectOrientationSources(
+        queryPlan,
+        orientationFilesystemManifest?.status === "VERIFIED"
+          ? orientationFilesystemManifest.files
+          : undefined,
+      );
       const roleFiles = Object.values(queryPlan.orientationSources ?? {})
         .flat()
         .map((file) => file.replace(/\\/g, "/").replace(/^\.\/+/, ""));
