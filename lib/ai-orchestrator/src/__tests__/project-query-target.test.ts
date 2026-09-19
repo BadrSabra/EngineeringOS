@@ -263,6 +263,32 @@ describe("target-aware project queries", () => {
       .toBe("embedded-ai");
   });
 
+  it("expands explicit AI-layer analysis through the existing claim and evidence contract", () => {
+    const message = "قم بتحليل طبقات الذكاء الاصطناعي داخل المشروع";
+    const target = resolveProjectQueryTarget(message);
+    const objective = buildProjectQueryObjective(target!, message);
+
+    expect(target?.id).toBe("embedded-ai");
+    expect(objective.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "ai-routing",
+      "ai-tool-loop",
+      "ai-provider-dispatch",
+      "ai-query-planning",
+      "ai-evidence-acceptance",
+      "ai-durable-execution",
+      "ai-terminal-projection-parity",
+    ]);
+    expect(objective.requiredEvidencePaths).toEqual(
+      expect.arrayContaining([
+        "lib/ai-orchestrator/src/project-query-target.ts",
+        "lib/ai-orchestrator/src/agents/query-planner.ts",
+        "lib/ai-orchestrator/src/evidence-integrity.ts",
+        "artifacts/api-server/src/lib/ai-execution-state.ts",
+        "lib/db/src/schema/ai_chats.ts",
+      ]),
+    );
+  });
+
   it("routes the exact Arabic latest-session quality request to the bounded session contract", () => {
     const message =
       "تتبع مسار الجلسة الأخيرة وقم بتقييم مستوى الردود واتساقها لدى الوكيل الداخلى للمشروع";

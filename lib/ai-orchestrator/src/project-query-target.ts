@@ -194,6 +194,72 @@ const EMBEDDED_AI_WEAKNESS_CLAIM = {
   },
 };
 
+const EMBEDDED_AI_LAYER_ANALYSIS_RE =
+  /(?:طبقات\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|(?:AI|LLM)\s+(?:layers|architecture|stack)|(?:architecture|stack)\s+(?:of\s+)?(?:the\s+)?(?:embedded\s+)?AI)/iu;
+
+const EMBEDDED_AI_LAYER_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
+  {
+    claimId: "ai-query-planning",
+    text:
+      "The project-query target and planner turn the request into bounded required claims, evidence paths, and compound analysis parts before source reads.",
+    requiredEvidencePaths: [
+      "lib/ai-orchestrator/src/project-query-target.ts",
+      "lib/ai-orchestrator/src/agents/query-planner.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "lib/ai-orchestrator/src/project-query-target.ts": [
+        "buildProjectQueryObjective",
+        "requiredClaims",
+      ],
+      "lib/ai-orchestrator/src/agents/query-planner.ts": [
+        "compoundParts",
+        "subQueries",
+      ],
+    },
+  },
+  {
+    claimId: "ai-evidence-acceptance",
+    text:
+      "The server-owned evidence and objective gates require retained evidence, closed claims, and a validated final answer before the project analysis is proven.",
+    requiredEvidencePaths: [
+      "lib/ai-orchestrator/src/evidence-integrity.ts",
+      "artifacts/api-server/src/lib/ai-execution-state.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "lib/ai-orchestrator/src/evidence-integrity.ts": [
+        "objectiveCompletionGate",
+        "validateFinalAnswer",
+      ],
+      "artifacts/api-server/src/lib/ai-execution-state.ts": [
+        "validateAnalysisEvidenceCompletion",
+      ],
+    },
+  },
+  {
+    claimId: "ai-durable-execution",
+    text:
+      "The API route creates and checkpoints a durable AI execution so execution identity, evidence, and resumable state survive beyond the provider call.",
+    requiredEvidencePaths: [
+      "artifacts/api-server/src/routes/ai/chat.ts",
+      "artifacts/api-server/src/lib/ai-execution-state.ts",
+    ],
+    evidenceNeedlesByPath: {
+      "artifacts/api-server/src/routes/ai/chat.ts": [
+        "createAiExecution",
+        "checkpointAiExecution",
+      ],
+      "artifacts/api-server/src/lib/ai-execution-state.ts": [
+        "checkpointAiExecution",
+        "claimAiExecution",
+      ],
+    },
+  },
+];
+
+function isEmbeddedAiLayerAnalysisRequest(message: string): boolean {
+  return EMBEDDED_AI_LAYER_ANALYSIS_RE.test(message);
+}
+
 const SESSION_QUALITY_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
   {
     claimId: "ai-session-history-binding",
@@ -570,6 +636,13 @@ export function buildProjectQueryObjective(
         ),
       ),
     });
+  }
+  if (target.id === "embedded-ai" && isEmbeddedAiLayerAnalysisRequest(goal)) {
+    for (const claim of EMBEDDED_AI_LAYER_CLAIMS) appendClaim(claim);
+    const terminalProjectionClaim = SESSION_QUALITY_CLAIMS.find(
+      (claim) => claim.claimId === "ai-terminal-projection-parity",
+    );
+    if (terminalProjectionClaim) appendClaim(terminalProjectionClaim);
   }
   const requiredEvidencePaths = new Set(target.requiredEvidencePaths);
   for (const claim of requiredClaims) {
