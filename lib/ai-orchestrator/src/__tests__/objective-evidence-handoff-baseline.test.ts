@@ -627,6 +627,159 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     }
   });
 
+  it("keeps the Arabic gap objective projection on the direct-content streaming path", async () => {
+    const message = "ما هي نقاط الضعف لدى الوكيل";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("gap-analysis");
+    const objective = {
+      ...buildProjectQueryObjective(target!, message),
+      // Gap claim projection is the seam under test. Exclude the generic
+      // embedded-AI execution edges so this regression does not depend on a
+      // separate runtime reachability fixture.
+      requiredEvidenceEdges: [],
+    };
+    const requiredPaths = objective.requiredEvidencePaths ?? [];
+    const completeFileContents = new Map<string, string>(
+      requiredPaths.map((file) => [
+        file,
+        file.endsWith("/turn-intent.ts")
+          ? "export function resolveTurnIntent(message: string) { return message; }"
+          : file.endsWith("/query-planner.ts")
+            ? "export function inferCompoundParts(query: string) { return query.split(' and '); }"
+            : "export function validateAnalysisEvidenceCompletion(input: unknown) { return Boolean(input); }",
+      ]),
+    );
+    const providerResponse = JSON.stringify({
+      response: [
+        ...objective.requiredClaims.map((claim) => claim.text),
+        "أولاً يجمع المسار الأدلة، ثم يمررها إلى التحقق، وأخيراً يغلق الادعاءات المطلوبة.",
+      ].join("\n"),
+      sources: requiredPaths,
+    });
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "response" as const,
+          result: {
+            content: providerResponse,
+            toolCalls: [],
+            model: "arabic-gap-direct-model",
+            usage: {},
+          },
+          toolSources: requiredPaths,
+          fileContents: completeFileContents,
+          sourceRetrieval: {
+            readAttempts: requiredPaths.length,
+            readPaths: requiredPaths,
+            uniqueReads: requiredPaths.length,
+            truncatedReads: 0,
+            targetedReads: 0,
+            redundantReads: 0,
+            cachedReads: 0,
+            evidenceWindows: requiredPaths.length,
+            prefetchReads: requiredPaths.length,
+            dependencyReads: 0,
+            duplicateReads: 0,
+            firstEvidenceAcquired: true,
+            iterationsUntilFirstRead: 0,
+            iterationsWithoutEvidence: 0,
+            planningIterations: 0,
+            evidenceIterations: requiredPaths.length,
+            crossFileQueriesBeforeFirstRead: 0,
+            prefetchBeforeFirstRead: true,
+            iterationsUntilFirstSourceRead: 0,
+            progressForced: false,
+            budgetAllocation: { planning: 1, evidence: requiredPaths.length, reasoning: 1 },
+          },
+        })),
+      };
+    });
+
+    vi.doMock("../agents/query-planner.js", async () => {
+      const actual = await vi.importActual<typeof import("../agents/query-planner.js")>(
+        "../agents/query-planner.js",
+      );
+      return {
+        ...actual,
+        planQuery: vi.fn(() =>
+          Promise.resolve({
+            targetFiles: requiredPaths,
+            targetEntities: [],
+            scopeEstimate: "medium",
+            suggestedIterations: 8,
+            requiresToolUse: true,
+            subQueries: [],
+          }),
+        ),
+      };
+    });
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: providerResponse } }],
+              model: "arabic-gap-direct-model",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const classification = classifyRequest(message);
+    const turnIntent = resolveTurnIntent(message, {
+      classification,
+      resumed: false,
+    });
+    const deltas: string[] = [];
+    const steps: Array<Record<string, unknown>> = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message,
+      history: [],
+      projectContext: makeContext(),
+      rootPath: undefined,
+      provider: "openrouter",
+      apiKey: "test-key",
+      retainedEvidence: completeFileContents,
+      objective,
+      turnIntent,
+      onDelta: (chunk) => deltas.push(chunk),
+      onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+    });
+    expect(deltas.join("")).toContain(objective.requiredClaims[0].text);
+    expect(result.response).toContain(objective.requiredClaims[0].text);
+    expect(result.response).not.toMatch(/محظور|غير مثبت/);
+
+    const binding = steps.find(
+      (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+    );
+    expect(binding?.details).toEqual(
+      expect.arrayContaining([
+        "overridePresent=true",
+        "responseUsesOverride=true",
+        `materializedClaims=${objective.requiredClaims.length}`,
+      ]),
+    );
+
+    const closure = steps.find(
+      (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+    );
+    expect(closure?.details).toEqual(
+      expect.arrayContaining([
+        `closedClaims=${objective.requiredClaims.map((claim) => claim.claimId).join(",")}`,
+        "gateStatus=PROVEN",
+      ]),
+    );
+  });
+
   it("keeps the same objective projection on the native SSE path", async () => {
     const message = "Explain how the embedded AI agent works.";
     const target = resolveProjectQueryTarget(message);
