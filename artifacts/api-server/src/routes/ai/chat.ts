@@ -3941,9 +3941,16 @@ function serializeToolTrace(
     }
   });
   const isProjectQueryTrace = projectQuery || steps.some((step) =>
-    step.kind === "evidence_integrity"
-      && typeof step.objectiveType === "string"
-      && step.objectiveType.startsWith("PROJECT_QUERY"),
+    step.kind === "project_query_source_selection"
+      || (
+        step.kind === "evidence_integrity"
+        && typeof step.objectiveType === "string"
+        && step.objectiveType.startsWith("PROJECT_QUERY")
+      )
+      || (
+        step.kind === "decision_trace"
+        && step.trace.taskType === "PROJECT_QUERY"
+      ),
   );
   const forensicDiagnostic = isProjectQueryTrace
     ? undefined

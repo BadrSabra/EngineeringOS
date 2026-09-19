@@ -5913,7 +5913,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
     const done = events.find((event) => event.type === "done");
     expect(done?.message).not.toHaveProperty("forensicDiagnostic");
-    expect(done?.message?.toolTrace ?? "").not.toContain('"kind":"forensic_diagnostic"');
+    expect((done?.message as { toolTrace?: string } | undefined)?.toolTrace ?? "")
+      .not.toContain('"kind":"forensic_diagnostic"');
     const doneExecutionId = (done?.message as { executionId?: string } | undefined)?.executionId;
     const doneSessionId = done?.sessionId as string;
     expect(doneExecutionId).toEqual(expect.any(String));
