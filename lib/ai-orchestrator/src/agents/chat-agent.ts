@@ -6583,6 +6583,12 @@ export async function chat(opts: {
   const prefetchSources: string[] = [];
   /** Ground-truth read bodies from speculative/plan prefetch. */
   const prefetchTraceContents = new Map<string, string>(retainedEvidence ?? []);
+  /**
+   * Server-owned navigation bodies used only to locate objective evidence
+   * windows. Keep this separate from trace/evidence contents so a provider
+   * replay or evidence merge cannot evict or overwrite the locator state.
+   */
+  const objectiveLocatorSources = new Map<string, string>(prefetchTraceContents);
   /** Incomplete prefetch bodies used only to report partial source coverage. */
   const incompletePrefetchContents = new Map<string, string>();
   const prefetchReadStatuses =
@@ -6761,7 +6767,7 @@ export async function chat(opts: {
     await loadObjectiveEvidenceLocators(
       rootPath,
       [...objectiveSourcePaths],
-      prefetchTraceContents,
+      objectiveLocatorSources,
     );
   }
 
@@ -7758,7 +7764,7 @@ export async function chat(opts: {
       const hierarchicalObjectiveFinalized = finalizeObjectiveAndStream({
         objective,
         fileContents: forensicFileContents,
-        objectiveEvidenceSources: prefetchTraceContents,
+        objectiveEvidenceSources: objectiveLocatorSources,
         message,
         response: hierarchicalCandidate,
         provenEdges: objectiveRuntimeProvenEdges,
@@ -8224,7 +8230,7 @@ export async function chat(opts: {
     const coordinatedFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
-      objectiveEvidenceSources: prefetchTraceContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
       message,
       response: coordinatedResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8310,7 +8316,7 @@ export async function chat(opts: {
     // Truncated prefetch bodies are locator input only. The tool loop uses
     // objective evidence needles to choose a bounded read_file_range window;
     // the targeted result, not this map, becomes accepted evidence.
-    objectiveEvidenceSources: prefetchTraceContents,
+    objectiveEvidenceSources: objectiveLocatorSources,
     initialReadStatuses: prefetchReadStatuses,
     retainedReadStatuses: prefetchReadStatuses,
     evidenceRecoveryPaths,
@@ -8843,7 +8849,7 @@ export async function chat(opts: {
     const partialReportFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
-      objectiveEvidenceSources: prefetchTraceContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
       message,
       response: partialReport,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8896,7 +8902,7 @@ export async function chat(opts: {
     const stoppedFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
-      objectiveEvidenceSources: prefetchTraceContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
       message,
       response: stoppedResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -8945,7 +8951,7 @@ export async function chat(opts: {
     const repairPartialFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
-      objectiveEvidenceSources: prefetchTraceContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
       message,
       response: repairPartialResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -9028,7 +9034,7 @@ export async function chat(opts: {
     const exhaustionFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
-      objectiveEvidenceSources: prefetchTraceContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
       message,
       response: exhaustionFinalResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -9081,7 +9087,7 @@ export async function chat(opts: {
     const incompleteFinalized = finalizeObjectiveAndStream({
       objective,
       fileContents: forensicFileContents,
-      objectiveEvidenceSources: prefetchTraceContents,
+      objectiveEvidenceSources: objectiveLocatorSources,
       message,
       response: incompleteResponse,
       provenEdges: objectiveRuntimeProvenEdges,
@@ -9603,7 +9609,7 @@ export async function chat(opts: {
       const streamingObjectiveGate = applyObjectiveCompletionGate({
         objective,
         fileContents: forensicFileContents,
-        objectiveEvidenceSources: prefetchTraceContents,
+        objectiveEvidenceSources: objectiveLocatorSources,
         response: streamingObjectiveResponse,
         message,
         evidence: streamingBehaviorGated.evidence,
@@ -9634,7 +9640,7 @@ export async function chat(opts: {
       const streamingEdgeProof = buildObjectiveEdgeProofProjection({
         objective,
         fileContents: forensicFileContents,
-        objectiveEvidenceSources: prefetchTraceContents,
+        objectiveEvidenceSources: objectiveLocatorSources,
         productionTraceLinks,
       });
       relayObjectiveTelemetry(
@@ -9927,7 +9933,7 @@ export async function chat(opts: {
       const nativeSseObjectiveGate = applyObjectiveCompletionGate({
         objective,
         fileContents: forensicFileContents,
-        objectiveEvidenceSources: prefetchTraceContents,
+        objectiveEvidenceSources: objectiveLocatorSources,
         response: nativeSseObjectiveResponse,
         message,
         evidence: nativeSseBehaviorValidation.evidence,
@@ -9958,7 +9964,7 @@ export async function chat(opts: {
       const nativeEdgeProof = buildObjectiveEdgeProofProjection({
         objective,
         fileContents: forensicFileContents,
-        objectiveEvidenceSources: prefetchTraceContents,
+        objectiveEvidenceSources: objectiveLocatorSources,
         productionTraceLinks,
       });
       relayObjectiveTelemetry(
@@ -13093,7 +13099,7 @@ export async function chat(opts: {
   const objectiveEdgeProof = buildObjectiveEdgeProofProjection({
     objective,
     fileContents: forensicFileContents,
-    objectiveEvidenceSources: prefetchTraceContents,
+    objectiveEvidenceSources: objectiveLocatorSources,
     productionTraceLinks,
   });
   const objectiveProvenEdges = objectiveEdgeProof.provenEdges;

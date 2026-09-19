@@ -108,6 +108,13 @@ const SOFT_LIMIT_RATIO = 0.75;
 // logical fresh and cached read attempts, not to valid prefetch evidence.
 const BROAD_FORENSIC_SOURCE_READ_ATTEMPT_LIMIT = 64;
 const BROAD_FORENSIC_NON_PROGRESSING_READ_LIMIT = 4;
+/**
+ * A single objective path may support several claims whose executable
+ * assertions live in different functions in the same source file. Keep the
+ * locator cluster bounded, but allow the path-level window to span those
+ * related functions without exceeding read_file_range's 4,000-line limit.
+ */
+const MAX_OBJECTIVE_LOCATOR_SPAN = 2_400;
 
 function syntheticValidationResult(
   profile: string,
@@ -2179,7 +2186,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // independently can therefore span thousands of lines and fall back to
     // the file head. Prefer the strongest bounded cluster containing every
     // needle so the resulting window stays close to one executable path.
-    const maxLocatorSpan = 320;
+    const maxLocatorSpan = MAX_OBJECTIVE_LOCATOR_SPAN;
     const anchorLines = [...new Set(candidatesByNeedle.flat().map((candidate) => candidate.line))];
     let bestCluster:
       | { candidates: LocatorCandidate[]; score: number; span: number }
