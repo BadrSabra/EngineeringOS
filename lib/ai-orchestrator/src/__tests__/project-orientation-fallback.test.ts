@@ -28,6 +28,8 @@ describe("deterministic project orientation fallback", () => {
       "tests/app.test.ts",
     ]);
     expect(result?.response).toContain("PROJECT ORIENTATION — deterministic evidence recovery");
+    expect(result?.response).toContain("All four orientation roles are covered by 4 complete source reads.");
+    expect(result?.response).toContain("Direct evidence:");
     expect(result?.response).toContain("export function App()");
     expect(result?.response).toContain("createRoot");
     expect(result?.response).not.toContain("The project uses React");
@@ -60,5 +62,6 @@ describe("deterministic project orientation fallback", () => {
 
     expect(result?.response).toContain("استرداد حتمي من الأدلة");
     expect(result?.response).toContain("المكونات");
+    expect(result?.response).toContain("الدليل المباشر:");
   });
 });

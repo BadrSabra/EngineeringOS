@@ -78,29 +78,29 @@ export function buildDeterministicProjectOrientationResponse(params: {
       if (!sources.includes(path)) sources.push(path);
     }
     const label = language === "ar" ? arabicLabel : englishLabel;
-    const evidenceLabel = language === "ar"
-      ? "مقتطفات المصدر المقروءة بالكامل (دليل خام؛ دون استنتاجات إضافية):"
-      : "Complete source-read excerpts (raw evidence; no additional inference):";
     roleBlocks.push([
       `## ${label}`,
       language === "ar"
         ? `المصادر المثبتة: ${roleReads.map(([path]) => `\`${path}\``).join(", ")}`
         : `Verified sources: ${roleReads.map(([path]) => `\`${path}\``).join(", ")}`,
-      evidenceLabel,
+      language === "ar" ? "الدليل المباشر:" : "Direct evidence:",
       roleReads.map(([path, content]) => `- \`${path}\`\n${indentedSource(content)}`).join("\n"),
     ].join("\n\n"));
   }
 
+  const sourceCount = sources.length;
   const intro = language === "ar"
     ? [
         "PROJECT ORIENTATION — استرداد حتمي من الأدلة",
         "",
-        "تعذر توليد صياغة المزود، لذلك تعرض هذه الإجابة مقتطفات من القراءات المصدرية المكتملة فقط. لا تمثل العناوين أو أسماء الملفات استنتاجًا يتجاوز النص المعروض.",
+        `اكتملت تغطية أدوار الشرح الأربعة من ${sourceCount} مصدر${sourceCount === 1 ? " واحد" : "ًا"} مقروء بالكامل.`,
+        "تعذر توليد صياغة المزود، لذلك يعرض النظام الأدلة المباشرة المنظمة أدناه. لا تمثل العناوين أو أسماء الملفات استنتاجًا يتجاوز النص المعروض.",
       ].join("\n")
     : [
         "PROJECT ORIENTATION — deterministic evidence recovery",
         "",
-        "Provider synthesis was unavailable, so this answer contains only bounded excerpts from complete source reads. The headings and filenames do not claim more than the displayed evidence.",
+        `All four orientation roles are covered by ${sourceCount} complete source read${sourceCount === 1 ? "" : "s"}.`,
+        "Provider synthesis was unavailable, so the direct evidence is organized below. The headings and filenames do not claim more than the displayed evidence.",
       ].join("\n");
 
   return {
