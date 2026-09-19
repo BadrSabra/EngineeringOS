@@ -39,30 +39,6 @@ const HUNG_JOB_TIMEOUT_MS = Number(
   process.env.HUNG_JOB_TIMEOUT_MS ?? 10 * 60 * 1000,
 );
 
-/**
- * Races a job promise against a timeout. If the timeout fires first the slot
- * is freed by resolving — the job closure itself is not cancelled (JS has no
- * cooperative cancellation) but can no longer wedge the queue.
- */
-function raceWithTimeout(id: string | null, fn: JobFn): Promise<void> {
-  const jobPromise = fn();
-  const timeoutPromise = new Promise<void>((resolve) =>
-    setTimeout(() => {
-      logger.warn(
-        {
-          scope: "job-queue",
-          code: "HUNG_JOB_TIMEOUT",
-          jobId: id,
-          timeoutMs: HUNG_JOB_TIMEOUT_MS,
-        },
-        "job queue: job exceeded timeout watchdog — slot freed, job continues in background",
-      );
-      resolve();
-    }, HUNG_JOB_TIMEOUT_MS),
-  );
-  return Promise.race([jobPromise, timeoutPromise]);
-}
-
 interface QueueItem {
   /** DB row ID used for deduplication, or null for anonymous jobs. */
   id: string | null;
@@ -203,11 +179,38 @@ export class JobQueue {
       }
 
       this.running++;
-      // GAP-B1: race against a watchdog timer so a hung job can't hold a
-      // concurrency slot forever. raceWithTimeout resolves (never rejects)
-      // when the deadline fires, so .finally() runs and drains the queue.
-      raceWithTimeout(item.id, item.fn)
-        .catch((err) => {
+      /**
+       * GAP-B1: release a slot when the watchdog fires so one hung job cannot
+       * wedge the queue. The underlying closure is not cancellable, though, so
+       * its ID must remain in runningIds until that closure actually settles.
+       * Otherwise the durable dispatcher can enqueue the same DB-backed job
+       * again while the first recovery is still running.
+       */
+      let slotReleased = false;
+      let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+      const releaseSlot = () => {
+        if (slotReleased) return;
+        slotReleased = true;
+        this.running--;
+        this.drain();
+      };
+
+      let jobPromise: Promise<void>;
+      try {
+        jobPromise = Promise.resolve(item.fn());
+      } catch (error) {
+        jobPromise = Promise.reject(error);
+      }
+
+      void jobPromise.then(
+        () => {
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          if (item.id) this.runningIds.delete(item.id);
+          releaseSlot();
+        },
+        (err) => {
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          if (item.id) this.runningIds.delete(item.id);
           // Jobs are documented to handle their own errors internally, so
           // reaching here means a job broke that contract (missing top-level
           // try/catch). Log with queue depth for operational context so
@@ -217,12 +220,23 @@ export class JobQueue {
             { err, jobId: item.id, activeCount: this.running, pendingCount: this.queue.length },
             "job queue: job threw past its own error handling — ensure the job has a top-level try/catch",
           );
-        })
-        .finally(() => {
-          if (item.id) this.runningIds.delete(item.id);
-          this.running--;
-          this.drain();
-        });
+          releaseSlot();
+        },
+      );
+
+      watchdogTimer = setTimeout(() => {
+        logger.warn(
+          {
+            scope: "job-queue",
+            code: "HUNG_JOB_TIMEOUT",
+            jobId: item.id,
+            timeoutMs: HUNG_JOB_TIMEOUT_MS,
+          },
+          "job queue: job exceeded timeout watchdog — slot freed, job continues in background",
+        );
+        releaseSlot();
+      }, HUNG_JOB_TIMEOUT_MS);
+      watchdogTimer.unref?.();
     }
   }
 }

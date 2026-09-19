@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JobQueue } from "./job-queue.js";
 
 /** Resolves after `ms` milliseconds. */
@@ -22,6 +22,10 @@ async function waitUntilIdle(queue: JobQueue, timeoutMs = 1000): Promise<void> {
 }
 
 describe("JobQueue", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   // ── Original enqueue() behaviour ───────────────────────────────────────────
 
   it("never runs more jobs concurrently than the configured limit", async () => {
@@ -152,6 +156,34 @@ describe("JobQueue", () => {
     release();
     await waitUntilIdle(queue);
     expect(queue.has("running-job")).toBe(false);
+  });
+
+  it("keeps a timed-out job ID reserved until the underlying closure settles", async () => {
+    vi.useFakeTimers();
+    const queue = new JobQueue(1);
+    let release!: () => void;
+    const stuckJob = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    queue.enqueueWithId("stuck-job", () => stuckJob);
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    // The watchdog frees capacity, but the original closure still owns its ID.
+    expect(queue.activeCount).toBe(0);
+    expect(queue.has("stuck-job")).toBe(true);
+    expect(queue.enqueueWithId("stuck-job", async () => {})).toBe(false);
+
+    let otherJobRan = false;
+    queue.enqueueWithId("other-job", async () => {
+      otherJobRan = true;
+    });
+    await vi.runAllTicks();
+    expect(otherJobRan).toBe(true);
+
+    release();
+    await vi.runAllTicks();
+    expect(queue.has("stuck-job")).toBe(false);
   });
 
   it("allows re-enqueueing the same ID after it has completed", async () => {
