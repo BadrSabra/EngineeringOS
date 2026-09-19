@@ -79,7 +79,7 @@
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
 - [Chat message timeline semantics](chat-message-timeline-semantics.md) — assistant message timestamps can represent request-start ordering; audit terminal chronology from execution and acceptance timestamps.
 - [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
-- [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal and diagnostic projections must use one final trace snapshot.
+- [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal projections must preserve claim-closure diagnostics even when classified as PROJECT_QUERY.
 - [Prefetch evidence parity](prefetch-evidence-parity.md) — prefetch telemetry and persisted evidence must share size-aware read status; oversized bodies cannot appear complete in the trace.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
 - [Runtime restart validation](runtime-restart-validation.md) — API sessions use compiled output; restart the managed workflow before drawing conclusions about source fixes.

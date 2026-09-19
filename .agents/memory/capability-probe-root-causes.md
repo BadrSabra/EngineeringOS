@@ -81,6 +81,12 @@ Capability Probe and PROJECT_QUERY metadata may coexist in durable state for res
 
 **How to apply:** Preserve both durable fields when required for identity, but resolve an explicit active evidence contract per execution. Reuse the engine’s manifest-completeness logic at the chat handoff; do not add a second map-key-only predicate in `chat-agent`.
 
+Capability-probe requests can resolve to `PROJECT_QUERY` while still requiring the forensic terminal diagnostic contract. Preserve the derived claim-closure diagnostic in failed, incomplete, and successful terminal projections rather than using the generic project-query exclusion alone.
+
+**Why:** The classifier's project target does not change the capability probe's evidence semantics; omitting the diagnostic leaves users with only a generic incomplete outcome and hides the claim-closure reason.
+
+**How to apply:** When changing terminal SSE, history, or acceptance projections, treat an explicit capability-probe request as forensic for diagnostic derivation even when its resolved turn intent is `PROJECT_QUERY`.
+
 When a Capability Probe and PROJECT_QUERY metadata coexist, the First-Evidence Gate must use the probe manifest's first named source, never the generic project target's `firstEvidencePath`.
 
 **Why:** A live execution prefetched both required probe files but also admitted an unrelated project-route read; the extra incomplete read contaminated the durable snapshot and correctly forced acceptance to incomplete.

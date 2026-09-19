@@ -8207,7 +8207,10 @@ export async function handleChatStream(req: Request, res: Response) {
       } else if (step.kind === "audit_state") {
         sse({ type: "audit_state", ...step.state });
       } else if (step.kind === "forensic_terminal") {
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
+        const forensicDiagnostic = (
+          (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+          || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+        )
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         sse({
@@ -8814,7 +8817,10 @@ export async function handleChatStream(req: Request, res: Response) {
           executionLedgerSnapshot,
         );
         const projectQueryTarget = projectQueryTargetFromTrace(publicToolTrace);
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
+        const forensicDiagnostic = (
+          (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+          || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+        )
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         const persistedFailedMessage = await persistFailedChatTurn({
@@ -9365,7 +9371,10 @@ export async function handleChatStream(req: Request, res: Response) {
     if (result._qualityError) {
       const quality = publicQualityFailure(result._qualityError);
       const safeMessage = "The AI result did not meet the quality checks required for completion.";
-      const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
+      const forensicDiagnostic = (
+        (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+        || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+      )
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
       const persistedQualityFailure = await persistFailedChatTurn({
@@ -9450,7 +9459,10 @@ export async function handleChatStream(req: Request, res: Response) {
     }
 
     if (result._parseError) {
-      const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
+      const forensicDiagnostic = (
+        (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+        || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+      )
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
       const parserProjectQueryEvidence =
@@ -9681,7 +9693,10 @@ export async function handleChatStream(req: Request, res: Response) {
     } catch (error) {
       if (error instanceof MissionCorrelationReportValidationError) {
         const safeMessage = "The forensic report could not be validated and was not completed.";
-        const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
+        const forensicDiagnostic = (
+          (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+          || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+        )
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
         sse({
@@ -10381,6 +10396,12 @@ export async function handleChatStream(req: Request, res: Response) {
           fallbackMessageId: assistantMsg.id,
         });
         const acceptanceExecutionProjection = await loadExecutionProjectionById(aiExecution.id);
+        const acceptanceForensicDiagnostic = (
+          (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+          || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+        )
+          ? deriveForensicDiagnostic(traceSteps, { capabilityProbeResult: result.taskResult })
+          : undefined;
         executionTerminal = true;
         sse({
           type: "error",
@@ -10398,6 +10419,9 @@ export async function handleChatStream(req: Request, res: Response) {
           terminalProjection: acceptanceTerminalProjection,
           projection: acceptanceExecutionProjection,
           executionLedger: executionLedgerSnapshot,
+          ...(acceptanceForensicDiagnostic
+            ? { forensicDiagnostic: acceptanceForensicDiagnostic }
+            : {}),
         });
         // Do not fall through to the successful done envelope. The retained
         // assistant row is now explicitly failed and remains visible on reload.
@@ -10466,7 +10490,10 @@ export async function handleChatStream(req: Request, res: Response) {
           )
       : assistantMsg.toolTrace;
     const projectQueryTarget = projectQueryTargetFromTrace(publicToolTrace);
-    const forensicDiagnostic = streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY"
+    const forensicDiagnostic = (
+      (streamTurnIntent.requiresEvidence && streamTurnIntent.kind !== "PROJECT_QUERY")
+      || (isCapabilityProbeRequest(message) && sourceEvidenceRequiredForTurn)
+    )
       ? deriveForensicDiagnostic(traceSteps, { capabilityProbeResult: result.taskResult })
       : undefined;
     // The database row is intentionally retained with full diagnostics, but
