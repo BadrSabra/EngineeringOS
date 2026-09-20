@@ -5270,12 +5270,16 @@ function projectQueryAnswerHasBehavioralFlow(
 /**
  * A no-tools project-query synthesis response can be repaired when the
  * provider emitted an invalid tool-call-shaped response or when a free model
- * times out. Both failures are model-local here: the evidence lane is already
- * complete, so one bounded model change can produce a real provider synthesis
- * without changing the proof contract.
+ * times out or returned no content. All three failures are model-local here:
+ * the evidence lane is already complete, so one bounded model change can
+ * produce a real provider synthesis without changing the proof contract.
  */
 function isProjectQuerySynthesisRetryableFailure(code: string): boolean {
-  return code === "INVALID_TOOL_CALL" || code === "TIMEOUT";
+  return (
+    code === "INVALID_TOOL_CALL" ||
+    code === "TIMEOUT" ||
+    code === "EMPTY_RESPONSE"
+  );
 }
 
 function projectQuerySynthesisErrorCode(error: unknown): string {
