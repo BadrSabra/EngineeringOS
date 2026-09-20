@@ -149,7 +149,7 @@ export type ExecutionLedger = {
 };
 
 const DEFAULT_BUDGET: ExecutionLedgerBudget = {
-  deadlineMs: 120_000,
+  deadlineMs: 150_000,
   modelCalls: 128,
   providerAttempts: 192,
   toolCalls: 360,
