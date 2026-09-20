@@ -1031,6 +1031,34 @@ describe("OpenRouter tool selection", () => {
 
     expect(captured?.tool_choice).toBe("required");
   });
+
+  it("forces no tool choice for explicit no-tool synthesis", async () => {
+    let captured: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      captured = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "plain prose" } }],
+          model: "test-model",
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => "",
+      } as Response;
+    }));
+
+    await oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      baseUrl: "https://example.test/v1",
+      providerName: "OpenRouter",
+      model: "test-model",
+      toolChoice: "none",
+    });
+
+    expect(captured?.tool_choice).toBe("none");
+    expect(captured).not.toHaveProperty("tools");
+  });
 });
 
 // ── PR-007: provider error context preservation ───────────────────────────────

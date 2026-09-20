@@ -60,9 +60,10 @@ export type StrategyCallOptions = {
   toolManifest?: ToolDefinition[];
   /**
    * Tool selection policy for agentic execution. `required` is used only for
-   * an explicit repair-plan handoff that has concrete files to modify.
+   * an explicit repair-plan handoff that has concrete files to modify;
+   * `none` is used for no-tools synthesis.
    */
-  toolChoice?: "auto" | "required";
+  toolChoice?: "auto" | "required" | "none";
   responseFormat?: { type: "json_object" };
   /** Safe transition metadata for an explicitly enabled paid fallback. */
   onProviderFallback?: (event: {

@@ -56,7 +56,7 @@ export type OpenAICompatibleOptions = {
   tools?: ToolDefinition[];
   /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
   toolManifest?: ToolDefinition[];
-  toolChoice?: "auto" | "required";
+  toolChoice?: "auto" | "required" | "none";
   responseFormat?: { type: "json_object" };
   /** Override base URL (e.g. "https://openrouter.ai/api/v1"). */
   baseUrl: string;
@@ -760,8 +760,13 @@ async function oacCompleteRawUntracked(
   if (hasTools) {
     body.tools = tools;
     body.tool_choice = opts.toolChoice ?? "auto";
-  } else if (opts.responseFormat) {
-    body.response_format = opts.responseFormat;
+  } else {
+    if (!isGemini && opts.toolChoice === "none") {
+      body.tool_choice = "none";
+    }
+    if (opts.responseFormat) {
+      body.response_format = opts.responseFormat;
+    }
   }
 
   const controller = new AbortController();

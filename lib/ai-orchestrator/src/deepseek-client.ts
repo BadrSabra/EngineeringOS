@@ -91,7 +91,7 @@ export type DeepSeekCompleteOptions = {
   tools?:     ToolDefinition[];
   /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
   toolManifest?: ToolDefinition[];
-  toolChoice?: "auto" | "required";
+  toolChoice?: "auto" | "required" | "none";
   /**
    * Force a structured JSON response.
    * Mutually exclusive with `tools` — when both are present, tools take precedence

@@ -8734,6 +8734,7 @@ export async function chat(opts: {
               timeoutMs: 30_000,
               retryTransient: false,
               maxFallbackModels: 1,
+              toolChoice: "none",
               ...(providerId === "openrouter" && recoveryExcludedModels.size > 0
                 ? { excludeModels: [...recoveryExcludedModels] }
                 : {}),

@@ -56,7 +56,7 @@ export type CompleteOptions = {
   /** Shared request budget used for each network retry attempt. */
   executionLedger?: ExecutionLedger;
   /** Tool selection policy for explicit repair-plan execution. */
-  toolChoice?: "auto" | "required";
+  toolChoice?: "auto" | "required" | "none";
   /** Tool definitions for agentic calls. */
   tools?: ToolDefinition[];
   /** Full authorized execution manifest; omitted for no-tool synthesis calls. */
