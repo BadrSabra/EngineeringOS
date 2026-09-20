@@ -241,7 +241,9 @@ export function createExecutionLedger(options?: {
       const limit = budget[budgetKey];
       const reason = currentReason();
       if (reason || current >= limit || now >= deadlineAt) {
-        const terminal = reason ?? rejectReason(kind);
+        const terminal =
+          reason ??
+          (now >= deadlineAt ? "deadline" : rejectReason(kind));
         events.push({
           kind,
           status: "rejected",

@@ -10,3 +10,9 @@ Use one request-owned execution ledger across provider fallback, planning, tool 
 **How to apply:** Thread the same execution ledger through every nested AI phase and provider attempt. Provider clients should derive their signal from the ledger when no separate signal is supplied, and preserve completed evidence when a later retry is rejected; budget exhaustion must never become a proven outcome.
 
 Optional one-shot phases such as query planning must not poison later provider fallback: if planning was already admitted, a fallback attempt should reuse the bounded fallback plan or skip planning without terminalizing the shared ledger. A rejected optional planner admission must not be reported as a model-budget failure that blocks the next provider.
+
+An admission rejected after the absolute wall-clock deadline must be classified as `deadline` even if the abort timer has not fired yet; tool dispatch must project that state as incomplete evidence, not as a tool-budget failure.
+
+**Why:** A provider response can arrive just after the deadline and still contain a queued tool call. Misclassifying its admission rejection as `tool_budget` turns a time-bounded incomplete analysis into a misleading `TOOL_EXECUTION_FAILED`.
+
+**How to apply:** Check the ledger's terminal reason before converting a rejected tool admission into a failed tool result, and preserve the incomplete evidence state for the route's terminal projection.

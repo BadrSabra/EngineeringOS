@@ -5677,6 +5677,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
       // Guard 3: Registry check + dispatch via executeSingleTool.
       if (!executionLedger.admit("tool", { operation: tc.function.name })) {
+        const ledgerSnapshot = executionLedger.snapshot();
+        if (ledgerSnapshot.terminalReason === "cancelled") {
+          return cancelledResult();
+        }
+        if (ledgerSnapshot.terminalReason === "deadline") {
+          return incompleteResult("evidence_incomplete");
+        }
         messages.push({
           role: "tool",
           tool_call_id: tc.id,

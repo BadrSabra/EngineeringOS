@@ -4402,6 +4402,48 @@ describe("executeToolLoop", () => {
     expect(budgetMessage).toBeDefined();
   });
 
+  it("returns incomplete instead of a tool failure when the execution deadline wins during dispatch", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    vi.useFakeTimers({ now: 1_000 });
+    const executionLedger = createExecutionLedger({ budget: { deadlineMs: 1_000 } });
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("deadline-read", "read_file", { path: "src/late.ts" })]),
+    ]);
+
+    try {
+      (strategy.call as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+        // The provider response arrived, but the request deadline elapsed
+        // before the returned tool call could be admitted for execution.
+        vi.setSystemTime(2_001);
+        return makeResponse("", [
+          makeToolCall("deadline-read", "read_file", { path: "src/late.ts" }),
+        ]);
+      });
+
+      const result = await executeToolLoop({
+        messages: makeMessages(),
+        strategy,
+        model: "fast",
+        powerModel: "powerful",
+        provider: "test",
+        tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+        rootPath: "/project",
+        pendingChanges: [],
+        executionLedger,
+      });
+
+      expect(result.kind).toBe("incomplete");
+      if (result.kind === "incomplete") {
+        expect(result.reason).toBe("evidence_incomplete");
+      }
+      expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+      expect(executionLedger.snapshot().terminalReason).toBe("deadline");
+    } finally {
+      executionLedger.setTerminal("deadline");
+      vi.useRealTimers();
+    }
+  });
+
   it("returns kind:exhausted when maxIterations is reached with no text response", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     // Model always requests a tool call — never gives a text response.
