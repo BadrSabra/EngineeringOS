@@ -20,3 +20,9 @@ Structured-agent retries must exclude the model that returned malformed or schem
 **Why:** HTTP 200 from the previous OpenRouter model was followed by a repeated call to that same weak model, then a 429; the provider transport was successful but the structured contract was not.
 
 **How to apply:** Carry the actual response model through agent completion, pass an exclusion set into OpenRouter fallback, and emit bounded model-attempt telemetry without storing raw prompts or provider content.
+
+Targeted project-query runs may finish with a PROVEN acceptance after provider synthesis fails, because a server-owned deterministic response is assembled from retained claim evidence. That is safe for evidence closure, but it is not provider-synthesis success.
+
+**Why:** A completed project-query execution recorded fallback provenance and a successful evidence gate while every provider attempt retained `contractOutcome=not_applicable`, so acceptance alone could overstate model quality.
+
+**How to apply:** Use the persisted response-source/fallback provenance and phase-specific provider attempts when tracing these runs; do not infer provider-synthesis success from a PROVEN execution acceptance.
