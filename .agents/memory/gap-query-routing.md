@@ -9,8 +9,8 @@ Gap and weakness questions are proof-backed `PROJECT_QUERY` turns, not ordinary 
 
 **How to apply:** Keep the low-risk fast path explicitly excluded for gap signals, dedupe claims when constructing or merging resumable project-query objectives, and fail closed on duplicate IDs at schema/state boundaries. Reserve `FULL_FORENSIC_AUDIT` for explicit broad discovery/audit wording, and ask for a new boundary before expanding an existing analysis.
 
-Explicit short gap questions must not inherit an embedded-AI target merely because the session has one; if product semantics treats them as follow-ups, the new contract must carry gap-specific answer requirements rather than only the old target.
+Explicit short generic gap questions must not inherit an embedded-AI target merely because the session has one. A domain-qualified weakness follow-up may inherit the embedded target only when its wording carries the embedded-agent scope that the existing weakness claim is designed for; bare “gaps?” and generic project-gap wording must start the gap-analysis contract.
 
 **Why:** A live Arabic session stored the second `الفجوات؟` turn as `PROJECT_QUERY_EMBEDDED-AI`, accepted a general architecture explanation as `PROVEN`, and never applied the gap-language gate that exists for `PROJECT_QUERY_GAP-ANALYSIS`.
 
-**How to apply:** Distinguish explicit continuation markers from topical gap restatements at the routing boundary, then test the persisted request, target, objective type, and terminal semantic verdict together.
+**How to apply:** Keep explicit continuation markers and bounded same-topic follow-ups resumable; separate generic gap wording from domain-qualified embedded-agent weakness wording in one state-aware predicate. If inherited embedded scope remains supported, its answer contract must still require a gap-specific result rather than only the old architecture flow.
