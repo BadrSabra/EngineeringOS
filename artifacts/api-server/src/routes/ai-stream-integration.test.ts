@@ -5326,6 +5326,211 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(events.filter((event) => event.type === "error")).toHaveLength(0);
   });
 
+  it("preserves Arabic provider synthesis through SSE reset, terminal reconnect, and history reload", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const response =
+      "يبدأ التدفق بتحديد نية الطلب، ثم يقرأ الخادم الملفات المطلوبة ويثبت الأدلة، "
+      + "وبعد ذلك يمرر السياق إلى المزوّد، وأخيرًا يغلق الادعاءات ويتحقق من النتيجة "
+      + "قبل حفظها وإرسالها إلى الواجهة عبر SSE.";
+    const providerDiagnostic = "provider-internal-diagnostic /tmp/provider-secret";
+    let expectedClaimRefs: string[] = [];
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as {
+        objective?: {
+          requiredEvidencePaths?: string[];
+          requiredClaims?: Array<{ claimId?: string; text?: string; requiredEvidencePaths?: string[] }>;
+        };
+        retainedEvidence?: Map<string, string>;
+      };
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStreamReset = args[5] as (() => void) | undefined;
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      const claims = input.objective?.requiredClaims ?? [];
+      const sourcePaths = input.objective?.requiredEvidencePaths ?? [];
+      expectedClaimRefs = claims
+        .map((claim) => claim.claimId)
+        .filter((claimId): claimId is string => Boolean(claimId));
+      const sourceBody = claims
+        .map((claim) => claim.text)
+        .filter((text): text is string => Boolean(text))
+        .join("\n");
+
+      for (const source of sourcePaths) {
+        input.retainedEvidence?.set(source, sourceBody);
+        onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: sourceBody.length,
+        });
+      }
+      onStep?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: sourcePaths.length,
+        uniqueFilesRead: sourcePaths.length,
+        evidenceFileCount: sourcePaths.length,
+        acceptedEvidenceCount: sourcePaths.length,
+        acceptedClaimCount: claims.length,
+        completedReadFiles: sourcePaths,
+        retainedBodyFiles: sourcePaths,
+        acceptedEvidenceFiles: sourcePaths,
+        completionGateResult: "PROVEN",
+        finalAnswerType: "BEHAVIORAL_ANSWER",
+      });
+      onStep?.({
+        kind: "decision_trace",
+        trace: {
+          taskType: "PROJECT_QUERY",
+          allowedFiles: sourcePaths,
+          filesRead: sourcePaths,
+          evidenceSelected: sourcePaths.length,
+          claim: "embedded AI end-to-end behavior",
+          validator: "project-query",
+          rejectionReason: [],
+          recoveryAttempt: 0,
+          objectiveVerdict: "ANSWER_COMPLETE",
+          finalState: "VERIFIED",
+        },
+      });
+      onStep?.({
+        kind: "model_call",
+        model: "provider-synthesis-fixture",
+        provider: "openrouter",
+      });
+      onDelta?.("partial synthesis bubble");
+      onStreamReset?.();
+      onDelta?.(response);
+      onStep?.({
+        kind: "done",
+        iterations: 2,
+        maxIterations: 24,
+        toolCalls: sourcePaths.length,
+        prefetchToolCalls: sourcePaths.length,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: true,
+        synthesisAttempts: 1,
+        synthesisMaxAttempts: 2,
+        synthesisTimedOut: false,
+        diagnosticCodes: [],
+      });
+
+      return {
+        result: {
+          response,
+          sources: sourcePaths,
+          pendingChanges: [],
+          projectQueryResponseSource: "provider_synthesis",
+          // These fields represent the already-parsed provider envelope. The
+          // route must use them only for server-owned closure and provenance;
+          // they must not become public response fields.
+          claimRefs: expectedClaimRefs,
+          flowRefs: expectedClaimRefs.slice(0, 2),
+        },
+        effectiveProvider: "openrouter" as const,
+        providerDiagnostic,
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: "اشرح كيف يعمل تدفق الذكاء الاصطناعي داخل المشروع",
+      });
+
+    expect(stream.status).toBe(200);
+    const events = parseSseEvents(stream.text);
+    const done = events.find((event) => event.type === "done");
+    const message = done?.message as Record<string, unknown> | undefined;
+    const executionId = message?.executionId as string | undefined;
+    const sessionId = done?.sessionId as string | undefined;
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "stream_reset" }),
+      expect.objectContaining({ type: "done" }),
+    ]));
+    expect(done).toMatchObject({
+      projectQueryResponseSource: "provider_synthesis",
+      message: {
+        content: response,
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "provider_synthesis",
+      },
+    });
+    expect(executionId).toEqual(expect.any(String));
+    expect(sessionId).toEqual(expect.any(String));
+    expect(stream.text).not.toContain(providerDiagnostic);
+    expect(stream.text).not.toContain('"claimRefs"');
+    expect(stream.text).not.toContain('"flowRefs"');
+
+    const detail = await request(app)
+      .get(`/api/ai/executions/${executionId}`)
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      status: "completed",
+      evidenceVerdict: "PROVEN",
+      terminalProjection: {
+        executionId,
+        sessionId,
+        status: "completed",
+        outcome: "SUCCEEDED",
+      },
+    });
+    expect(JSON.stringify(detail.body)).not.toContain(providerDiagnostic);
+    expect(JSON.stringify(detail.body)).not.toContain('"claimRefs"');
+    expect(JSON.stringify(detail.body)).not.toContain('"flowRefs"');
+
+    const reconnect = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        executionId,
+        resumeToken: "stale-after-terminal-000000000000",
+        message: "اشرح كيف يعمل تدفق الذكاء الاصطناعي داخل المشروع",
+      });
+    expect(reconnect.status).toBe(200);
+    expect(parseSseEvents(reconnect.text)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "error",
+        code: "EXECUTION_NOT_RESUMABLE",
+        executionId,
+      }),
+    ]));
+    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    const assistant = (history.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
+    expect(assistant).toMatchObject({
+      content: response,
+      outcome: "SUCCEEDED",
+      projectQueryResponseSource: "provider_synthesis",
+      terminalProjection: {
+        executionId,
+        sessionId,
+        status: "completed",
+        outcome: "SUCCEEDED",
+      },
+    });
+    expect(JSON.stringify(assistant)).not.toContain(providerDiagnostic);
+    expect(JSON.stringify(assistant)).not.toContain('"claimRefs"');
+    expect(JSON.stringify(assistant)).not.toContain('"flowRefs"');
+    expect(message?.content).toBe(response);
+  });
+
   it("keeps successful ordinary CHAT outside the evidence snapshot ledger", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
