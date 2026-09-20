@@ -1633,7 +1633,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(recoveryCalls[1]?.options).toMatchObject({
         excludeModels: ["bad-model"],
         toolChoice: "none",
-        maxFallbackModels: 2,
+        maxFallbackModels: 3,
         capability: "chat",
         quality: "fast",
       });

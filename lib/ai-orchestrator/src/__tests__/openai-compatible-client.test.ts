@@ -626,7 +626,7 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       callCount++;
       seenModels.push(String(body.model));
-      if (callCount === 1) {
+      if (callCount <= 2) {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
           signal?.addEventListener(
@@ -654,12 +654,12 @@ describe("openrouterCompleteWithFallback — error classification", () => {
       maxTokens: 10,
       timeoutMs: 5,
       retryTransient: false,
-      maxFallbackModels: 2,
+      maxFallbackModels: 3,
     });
 
     expect(result.content).toBe("ok-after-timeout");
-    expect(callCount).toBe(2);
-    expect(seenModels[1]).not.toBe(seenModels[0]);
+    expect(callCount).toBe(3);
+    expect(new Set(seenModels).size).toBe(3);
   });
 
   it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {

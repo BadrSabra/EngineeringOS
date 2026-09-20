@@ -589,6 +589,8 @@ const RECOVERY_READ_TOOL_NAMES = new Set([
   "search_code",
   "list_directory",
 ]);
+/** Keep no-tools synthesis resilient without allowing an unbounded model fan-out. */
+const PROJECT_QUERY_SYNTHESIS_MAX_PROVIDER_MODELS = 3;
 /** Cap on recovery tool-call rounds so a confused recovery model cannot loop. */
 const MAX_RECOVERY_TOOL_ROUNDS = 2;
 /** Bound each recovery round-trip tool result so context stays bounded. */
@@ -8765,10 +8767,12 @@ export async function chat(opts: {
               maxTokens: 1600,
               timeoutMs: 30_000,
               retryTransient: false,
-              // Let OpenRouter try one additional free candidate in the same
+              // Let OpenRouter try two additional free candidates in the same
               // bounded synthesis attempt. A model that emits a tool call or
-              // times out must not make the next healthy candidate unreachable.
-              maxFallbackModels: providerId === "openrouter" ? 2 : 1,
+              // times out must not make the next healthy candidates unreachable.
+              maxFallbackModels: providerId === "openrouter"
+                ? PROJECT_QUERY_SYNTHESIS_MAX_PROVIDER_MODELS
+                : 1,
               ...(providerId === "openrouter"
                 ? { capability: "chat" as const, quality: "fast" as const }
                 : {}),
