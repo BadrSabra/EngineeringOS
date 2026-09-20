@@ -51,7 +51,11 @@ import { resolveExecutionProvider } from "../model-selection/provider-strategy.j
 import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
 import type { ModelCapability } from "../openrouter/model-catalog.js";
-import { GroqClientError, type AgentErrorCode, type QualityFailure } from "../errors.js";
+import {
+  GroqClientError,
+  type AgentErrorCode,
+  type QualityFailure,
+} from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import {
@@ -5215,6 +5219,29 @@ function projectQueryAnswerHasBehavioralFlow(
 }
 
 /**
+ * A no-tools project-query synthesis response can be repaired when the
+ * provider emitted an invalid tool-call-shaped response, but provider
+ * transport/availability failures should immediately use the already-built
+ * deterministic candidate. Retrying those failures only delays a response
+ * whose proof lane is already complete.
+ */
+function isProjectQuerySynthesisRetryableFailure(code: string): boolean {
+  return code === "INVALID_TOOL_CALL";
+}
+
+function projectQuerySynthesisErrorCode(error: unknown): string {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "string"
+  ) {
+    return (error as { code: string }).code;
+  }
+  return "PROVIDER_FAILURE";
+}
+
+/**
  * Server-owned user-facing synthesis for targeted project objectives.
  *
  * The provider gets one no-tools opportunity first. The deterministic response
@@ -8659,6 +8686,11 @@ export async function chat(opts: {
             responseLanguage,
           )
         : "";
+    const synthesisFailureChain: string[] = [];
+    const failureChainDetail = (): string =>
+      `failureChain=${synthesisFailureChain.length > 0
+        ? synthesisFailureChain.join(" -> ")
+        : "none"}`;
     const isValidProjectQueryCandidate = (text: string): boolean =>
       canSynthesizeProjectQuery &&
       validateResponseLanguage(text, responseLanguage).valid &&
@@ -8666,10 +8698,7 @@ export async function chat(opts: {
       projectQueryAnswerHasBehavioralFlow(objective, text);
     if (
       canSynthesizeProjectQuery &&
-      (
-        !objectiveClaimsAreMentioned(objective, recoveredText)
-        || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
-      )
+      !isValidProjectQueryCandidate(recoveredText)
     ) {
       const evidenceContext = materializedProjectQueryEvidence
         .map((item) => `Claim ${item.claimId} (${item.source}):\n${item.excerpt}`)
@@ -8757,6 +8786,11 @@ export async function chat(opts: {
             ? recoveredCandidate.data.response
             : normalizeRecoveryAssistantText(recovery.content ?? "");
           const candidateAccepted = isValidProjectQueryCandidate(recoveredText);
+          if (!candidateAccepted) {
+            synthesisFailureChain.push(
+              `${repairAttempt ? "repair" : "candidate"}:provider_candidate_incomplete`,
+            );
+          }
           relayAgentStep({
             kind: "diagnostic",
             code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
@@ -8771,6 +8805,7 @@ export async function chat(opts: {
                 ? "provider synthesis included behavioral flow"
                 : "provider synthesis lacked behavioral flow",
               candidateAccepted ? "provider candidate accepted" : "provider candidate rejected",
+              failureChainDetail(),
             ],
           });
           if (candidateAccepted) {
@@ -8792,14 +8827,13 @@ export async function chat(opts: {
           });
         } catch (error) {
           recoveredText = "";
-          recoveryFailureReason = "synthesis_failed";
+          recoveryFailureReason ??= "synthesis_failed";
           const providerOutcome =
-            error &&
-            typeof error === "object" &&
-            "code" in error &&
-            typeof (error as { code?: unknown }).code === "string"
-              ? (error as { code: string }).code
-              : "PROVIDER_FAILURE";
+            projectQuerySynthesisErrorCode(error);
+          const retryableFailure = isProjectQuerySynthesisRetryableFailure(providerOutcome);
+          synthesisFailureChain.push(
+            `${retryableFailure ? "repairable_provider" : "provider_failure"}:${providerOutcome}`,
+          );
           if (providerId === "openrouter") {
             const providerError =
               error && typeof error === "object"
@@ -8828,9 +8862,10 @@ export async function chat(opts: {
               `attempt=${recoveryAttempt + 1}`,
               repairAttempt ? "protocol repair attempt failed" : "provider synthesis failed",
               `provider outcome:${providerOutcome.slice(0, 48)}`,
-              recoveryAttempt + 1 < recoveryMaxAttempts
+              retryableFailure && recoveryAttempt + 1 < recoveryMaxAttempts
                 ? "retrying with an excluded model"
                 : "deterministic claim assembly will be used",
+              failureChainDetail(),
             ],
           });
           executionLedger.complete("recovery", {
@@ -8839,10 +8874,11 @@ export async function chat(opts: {
             status: "failed",
             reason: providerOutcome,
           });
+          if (!retryableFailure) break;
         }
       }
       if (!recoveryAccepted) {
-        projectQueryFallbackReason = recoveryFailureReason ?? "synthesis_failed";
+        projectQueryFallbackReason ??= recoveryFailureReason ?? "synthesis_failed";
       }
     }
     if (

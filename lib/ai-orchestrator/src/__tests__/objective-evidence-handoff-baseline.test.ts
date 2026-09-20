@@ -1202,17 +1202,18 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       };
     });
 
+    const providerCreate = vi.fn().mockRejectedValue(
+      Object.assign(new Error("fixture provider failure"), {
+        code: "FIXTURE_PROVIDER_FAILURE",
+        status: 401,
+        response: { status: 401 },
+      }),
+    );
     vi.doMock("groq-sdk", () => ({
       default: class {
         chat = {
           completions: {
-            create: vi.fn().mockRejectedValue(
-              Object.assign(new Error("fixture provider failure"), {
-                code: "FIXTURE_PROVIDER_FAILURE",
-                status: 401,
-                response: { status: 401 },
-              }),
-            ),
+            create: providerCreate,
           },
         };
       },
@@ -1252,6 +1253,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       expect(result.response).toContain(objective.requiredClaims[0].text);
       expect(result.response).toContain("أولاً");
       expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
+      expect(providerCreate).toHaveBeenCalledTimes(1);
 
       const materialization = steps.find(
         (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
@@ -1270,6 +1272,11 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       );
       expect(synthesisDiagnostics.some((step) =>
         (step.details as string[] | undefined)?.some((detail) => detail.includes("provider synthesis failed")),
+      )).toBe(true);
+      expect(synthesisDiagnostics.some((step) =>
+        (step.details as string[] | undefined)?.some((detail) =>
+          detail.includes("failureChain=provider_failure:AUTH_ERROR"),
+        ),
       )).toBe(true);
 
       const binding = steps.find(
