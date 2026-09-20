@@ -11,6 +11,11 @@ This is an evidence inventory, not a parity claim and not a product
 implementation plan. It does not modify product code, database schema, safety
 boundaries, or dashboard behavior.
 
+The machine-readable comparison contract is
+`CAPABILITY_PARITY_BASELINE_V1` in
+`lib/ai-orchestrator/src/parity-baseline.ts`; this report provides the human-readable
+evidence and recommendations behind that bounded manifest.
+
 ## 1. How to read this inventory
 
 ### Classification

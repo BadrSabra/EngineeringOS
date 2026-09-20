@@ -5,6 +5,7 @@ export const CapabilityParityClassificationSchema = z.enum([
   "SPECIALIZED_STRONGER",
   "PARTIAL",
   "VERIFIED_GAP",
+  "UNVERIFIED_RISK",
   "NOT_A_GAP",
   "UNKNOWN",
 ]);
@@ -98,6 +99,7 @@ export const CAPABILITY_PARITY_BASELINE_V1: CapabilityParityBaseline =
       "SPECIALIZED_STRONGER",
       "PARTIAL",
       "VERIFIED_GAP",
+      "UNVERIFIED_RISK",
       "NOT_A_GAP",
       "UNKNOWN",
     ],
@@ -231,6 +233,25 @@ export const CAPABILITY_PARITY_BASELINE_V1: CapabilityParityBaseline =
           "docs/replit-agent-parity-gaps.md",
         ],
         rationale: "The validation contract is provider-free verified and intentionally stricter than model narrative.",
+      },
+      {
+        id: "token-budget-admission",
+        outcome: "Token budget admission",
+        expectedOutcome: "A request that would exceed projected token usage is rejected before provider work, with conservative accounting for partial or unknown usage.",
+        classification: "VERIFIED_GAP",
+        evidenceState: "PROVEN",
+        priority: "P0",
+        dependencies: ["existing AI budget reservation and usage model"],
+        acceptanceCriteria: [
+          "Projected token exhaustion blocks provider work at the server-owned admission boundary.",
+          "Reservations are idempotent and crash reconciliation cannot reopen exhausted budget.",
+          "The API and operator projection expose a safe budget reason without provider diagnostics.",
+        ],
+        sourcePaths: [
+          "artifacts/api-server/src/lib/ai-budget.ts",
+          "docs/replit-platform-gap-inventory.md",
+        ],
+        rationale: "The project exposes a token limit but current admission enforces the daily attempt limit rather than projected token usage.",
       },
       {
         id: "apply-promotion",
@@ -396,6 +417,24 @@ export const CAPABILITY_PARITY_BASELINE_V1: CapabilityParityBaseline =
           "docs/replit-agent-parity-gaps.md",
         ],
         rationale: "Provider resilience is source-backed and tested, but live provider behavior is not a parity verdict.",
+      },
+      {
+        id: "live-provider-diagnostics",
+        outcome: "Live provider diagnostics",
+        expectedOutcome: "Live catalog, quota, rate-limit, outage, and fallback behavior are confirmed through a controlled provider campaign.",
+        classification: "UNVERIFIED_RISK",
+        evidenceState: "UNVERIFIED",
+        priority: "P1",
+        dependencies: ["controlled configured provider", "operator-safe diagnostic campaign"],
+        acceptanceCriteria: [
+          "Missing credential, authentication failure, stale catalog, rate limit, quota, and outage each produce one safe next action.",
+          "Provider diagnostics remain redacted and separate from source-backed capability proof.",
+        ],
+        sourcePaths: [
+          "lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts",
+          "docs/replit-platform-gap-inventory.md",
+        ],
+        rationale: "Provider-free fixtures prove classification shape, but live availability and quota behavior have not been observed.",
       },
       {
         id: "arbitrary-shell-execution",

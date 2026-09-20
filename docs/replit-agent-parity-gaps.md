@@ -24,6 +24,8 @@ of those outcomes. “Parity” below means parity with the relevant workflow, n
 feature-for-feature parity with a hosted IDE.
 
 The evidence baseline is [`actual-capability-baseline-v1.md`](actual-capability-baseline-v1.md).
+The machine-readable comparison contract is
+[`CAPABILITY_PARITY_BASELINE_V1`](../lib/ai-orchestrator/src/parity-baseline.ts).
 The latest provider-free release decision passed its enabled AI contracts
 (11 passed, 0 blocking failures), and the deterministic runtime-oracle blocker
 is closed. A controlled run on 2026-08-26 also recorded authenticated Clerk

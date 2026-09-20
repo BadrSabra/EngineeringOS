@@ -712,6 +712,24 @@ export type {
   ProjectQueryTargetDecision,
 } from "./project-query-target.js";
 export {
+  CAPABILITY_PARITY_BASELINE_V1,
+  CapabilityParityBaselineSchema,
+  CapabilityParityClassificationSchema,
+  CapabilityParityEvidenceStateSchema,
+  CapabilityParityItemSchema,
+  CapabilityParityPrioritySchema,
+  CapabilityParityUnknownSchema,
+  buildCapabilityParityObjectiveClaims,
+} from "./parity-baseline.js";
+export type {
+  CapabilityParityBaseline,
+  CapabilityParityClassification,
+  CapabilityParityEvidenceState,
+  CapabilityParityItem,
+  CapabilityParityObjectiveClaim,
+  CapabilityParityPriority,
+} from "./parity-baseline.js";
+export {
   resolveActiveEvidenceContract,
 } from "./active-evidence-contract.js";
 export type {

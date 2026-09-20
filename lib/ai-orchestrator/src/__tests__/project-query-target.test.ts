@@ -442,6 +442,7 @@ describe("target-aware project queries", () => {
       "gap-routing",
       "gap-planning",
       "gap-acceptance",
+      "gap-manifest-revision",
       "gap-baseline-contract",
       "gap-capability-inventory",
       "gap-verified-boundary",
