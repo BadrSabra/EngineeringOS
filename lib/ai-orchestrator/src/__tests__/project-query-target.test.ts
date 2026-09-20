@@ -8,6 +8,7 @@ import {
   deriveProjectQueryTargetMode,
   resolveActiveEvidenceContract,
   isAcceptanceCoverageRequest,
+  isCapabilityGapAuditRequest,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
@@ -423,6 +424,38 @@ describe("target-aware project queries", () => {
       "inferCompoundParts",
       "validateAnalysisEvidenceCompletion",
     ]);
+  });
+
+  it("adds the parity baseline claims only for a capability-gap comparison", () => {
+    const message =
+      "Compare the project's capabilities with Replit Agent and identify verified gaps.";
+    expect(isCapabilityGapAuditRequest(message)).toBe(true);
+
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("gap-analysis");
+    expect(target?.label).toBe("capability parity gaps");
+    expect(target?.promptHint).toContain("VERIFIED_GAP");
+
+    const objective = buildProjectQueryObjective(target!, message);
+    expect(objective.objectiveType).toBe("PROJECT_QUERY_GAP-ANALYSIS");
+    expect(objective.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "gap-routing",
+      "gap-planning",
+      "gap-acceptance",
+      "gap-baseline-contract",
+      "gap-capability-inventory",
+      "gap-verified-boundary",
+      "gap-classification",
+      "gap-prioritization",
+    ]);
+    expect(objective.requiredEvidencePaths).toEqual(
+      expect.arrayContaining([
+        "docs/replit-agent-parity-gaps.md",
+        "docs/actual-capability-baseline-v1.md",
+        "docs/replit-platform-gap-inventory.md",
+        "lib/ai-orchestrator/src/task-contracts.ts",
+      ]),
+    );
   });
 
   it("does not weaken broad-audit scope consent for generic gap language", () => {

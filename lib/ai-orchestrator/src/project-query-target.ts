@@ -1,8 +1,13 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
 import {
+  isCapabilityGapAuditRequest,
   isGapAnalysisRequest,
   type EvidenceReference,
 } from "./task-contracts.js";
+import {
+  buildCapabilityParityObjectiveClaims,
+  CAPABILITY_PARITY_BASELINE_V1,
+} from "./parity-baseline.js";
 
 export type ProjectQueryTargetId = "embedded-ai" | "gap-analysis";
 export type ProjectQueryTargetResolution =
@@ -450,6 +455,21 @@ const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "Separate verified gaps from unverified hypotheses and cite every gap to its source path.",
 };
 
+const CAPABILITY_GAP_AUDIT_CLAIMS = buildCapabilityParityObjectiveClaims(
+  CAPABILITY_PARITY_BASELINE_V1,
+);
+
+const CAPABILITY_GAP_AUDIT_PROMPT_HINT =
+  `Targeted capability-gap parity analysis using ${CAPABILITY_PARITY_BASELINE_V1.revision}: ` +
+  "compare the requested user-visible capability " +
+  "outcomes against the project's retained source and the existing parity baseline. " +
+  "Produce a capability inventory, classify each item as Parity, Partial, Gap, or Not a gap, " +
+  "and separate VERIFIED_GAP from UNVERIFIED_RISK and UNKNOWN. " +
+  "A verified gap requires source evidence, a capability criterion, and an observable missing " +
+  "or failing outcome. Preserve priority, dependency, acceptance criteria, and source paths. " +
+  "Do not treat provider availability, a route name, or an untested hypothesis as a verified gap. " +
+  "Use the requested language and return an incomplete result when any required baseline or source claim is unproven.";
+
 const BROAD_GAP_REQUEST_RE =
   /(?:\b(?:full|complete|comprehensive|entire|whole|repository|workspace|codebase|audit|review)\b|(?:تدقيق|دقق|شامل|بالكامل|كل\s+(?:المشروع|الكود)))/iu;
 
@@ -568,11 +588,55 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
     /(?:الذكاء\s+الاصطناعي|ذكاء\s+اصطناعي|طبقة\s+(?:ال)?الذكاء\s+الاصطناعي|بنية\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|معمارية\s+(?:(?:ال)?وكيل|(?:ال)?ذكاء\s+(?:ال)?اصطناعي)|\bAI\b|\bLLM\b|provider|orchestrator|chat\s+agent|نموذج\s+الذكاء)/iu;
   const targetScopeSignal =
     /(?:تحليل|حلل|طبقة|بنية|معمارية|داخل\s+المشروع|المشروع|embedded|integrated|architecture|layer|layers|stack|analy[sz]|trace|flow|وكيل|الوكيل|آلية\s+عمل|سلوك\s+الوكيل|كيف\s+يعمل)/iu;
+  const capabilityGapAudit = isCapabilityGapAuditRequest(message);
+  if (
+    capabilityGapAudit
+    && isGapAnalysisRequest(message)
+    && !BROAD_GAP_REQUEST_RE.test(message)
+  ) {
+    return materializeTarget(
+      {
+        ...GAP_ANALYSIS_TARGET,
+        label: "capability parity gaps",
+        firstEvidencePath: "docs/replit-agent-parity-gaps.md",
+        primaryPaths: [
+          "docs/replit-agent-parity-gaps.md",
+          "docs/actual-capability-baseline-v1.md",
+          "docs/replit-platform-gap-inventory.md",
+          ...GAP_ANALYSIS_TARGET.primaryPaths,
+        ],
+        allowedExpansionPaths: [
+          ...GAP_ANALYSIS_TARGET.allowedExpansionPaths,
+          "docs",
+        ],
+        requiredEvidencePaths: [
+          ...GAP_ANALYSIS_TARGET.requiredEvidencePaths,
+          "docs/replit-agent-parity-gaps.md",
+          "docs/actual-capability-baseline-v1.md",
+          "docs/replit-platform-gap-inventory.md",
+        ],
+        promptHint: CAPABILITY_GAP_AUDIT_PROMPT_HINT,
+      },
+      0.96,
+    );
+  }
   if (!aiSignal.test(message) || !targetScopeSignal.test(message)) {
-    if (!isGapAnalysisRequest(message) || BROAD_GAP_REQUEST_RE.test(message)) {
+    if (
+      (!isGapAnalysisRequest(message) && !isCapabilityGapAuditRequest(message))
+      || BROAD_GAP_REQUEST_RE.test(message)
+    ) {
       return undefined;
     }
-    return materializeTarget(GAP_ANALYSIS_TARGET, 0.9);
+    return materializeTarget(
+      isCapabilityGapAuditRequest(message)
+        ? {
+            ...GAP_ANALYSIS_TARGET,
+            label: "capability parity gaps",
+            promptHint: CAPABILITY_GAP_AUDIT_PROMPT_HINT,
+          }
+        : GAP_ANALYSIS_TARGET,
+      isCapabilityGapAuditRequest(message) ? 0.96 : 0.9,
+    );
   }
   return materializeTarget(EMBEDDED_AI_TARGET, 0.98);
 }
@@ -645,6 +709,9 @@ export function buildProjectQueryObjective(
       (claim) => claim.claimId === "ai-terminal-projection-parity",
     );
     if (terminalProjectionClaim) appendClaim(terminalProjectionClaim);
+  }
+  if (target.id === "gap-analysis" && isCapabilityGapAuditRequest(goal)) {
+    for (const claim of CAPABILITY_GAP_AUDIT_CLAIMS) appendClaim(claim);
   }
   const requiredEvidencePaths = new Set(target.requiredEvidencePaths);
   for (const claim of requiredClaims) {

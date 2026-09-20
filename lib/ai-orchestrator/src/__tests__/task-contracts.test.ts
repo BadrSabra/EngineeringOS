@@ -11,6 +11,7 @@ import {
   RepairAnalysisSchema,
   routeTask,
   extractQuestionCoverage,
+  isCapabilityGapAuditRequest,
   isGapAnalysisRequest,
   SemanticBehaviorAnswerSchema,
   validateBehaviorEvidence,
@@ -36,6 +37,20 @@ describe("task-aware contracts", () => {
     }
     expect(isGapAnalysisRequest("ما اسم المشروع؟")).toBe(false);
     expect(isGapAnalysisRequest("What is the current project state?")).toBe(false);
+  });
+
+  it("recognizes parity comparison as a capability-gap audit without broadening ordinary chat", () => {
+    for (const message of [
+      "Compare the project's capabilities with Replit Agent and identify verified gaps.",
+      "What capability gaps remain compared with the expected agent workflow?",
+      "حدد فجوات القدرات ومقارنة المشروع مع Replit Agent",
+      "ما الذي ينقص المشروع من الإمكانات المطلوبة؟",
+    ]) {
+      expect(isCapabilityGapAuditRequest(message), message).toBe(true);
+      expect(isGapAnalysisRequest(message), message).toBe(true);
+    }
+    expect(isCapabilityGapAuditRequest("What is the current project state?")).toBe(false);
+    expect(isCapabilityGapAuditRequest("Explain how the agent routes requests.")).toBe(false);
   });
 
   it("keeps the six task types explicit", () => {

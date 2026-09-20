@@ -1043,6 +1043,31 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     expect(response).toContain("لا تثبت خللاً محدداً");
   });
 
+  it("uses the parity deliverable shape for a capability-gap objective", async () => {
+    const { buildProjectQueryEvidenceSynthesis } = await import("../agents/chat-agent.js");
+    const message =
+      "Compare the project's capabilities with Replit Agent and identify verified gaps.";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.label).toBe("capability parity gaps");
+    const objective = buildProjectQueryObjective(target!, message);
+    const evidence = objective.requiredClaims.map((claim, index) => ({
+      claimId: claim.claimId,
+      source: claim.requiredEvidencePaths?.[0] ?? "gap-source.ts",
+      excerpt: `${claim.text}\nparity evidence checkpoint ${index + 1}`,
+      sourceSpan: { startLine: index + 1, endLine: index + 2 },
+    }));
+
+    const response = buildProjectQueryEvidenceSynthesis(objective, evidence, "en");
+
+    expect(response).toContain("## Capability Parity Gap Audit");
+    expect(response).toContain("VERIFIED_GAP");
+    expect(response).toContain("UNVERIFIED_RISK");
+    expect(response).toContain("UNKNOWN");
+    for (const claim of objective.requiredClaims) {
+      expect(response).toContain(claim.text);
+    }
+  });
+
   it("keeps architecture-only answers incomplete when weaknesses are requested", () => {
     const message =
       "Explain how the embedded AI agent works and identify its weaknesses.";

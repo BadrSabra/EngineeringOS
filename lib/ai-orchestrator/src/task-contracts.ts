@@ -647,11 +647,16 @@ const BEHAVIOR_QUERY_PATTERNS = [
 
 const GAP_ANALYSIS_PATTERNS = [
   /\b(?:gap|gaps|missing|weakness(?:es)?|deficien\w*|limitation\w*|blind\s+spots?|risks?)\b/iu,
+  /\b(?:capabilit(?:y|ies)|feature|outcome|workflow)s?\b[\s\S]{0,100}\b(?:gap|missing|parity|partial|unproven|unsupported)\b/iu,
+  /\b(?:gap|missing|parity|partial|unproven|unsupported)\b[\s\S]{0,100}\b(?:capabilit(?:y|ies)|feature|outcome|workflow)s?\b/iu,
+  /\b(?:compare|comparison|benchmark)\b[\s\S]{0,100}\b(?:capabilit(?:y|ies)|feature|outcome|workflow|agent)\b/iu,
+  /\b(?:capabilit(?:y|ies)|feature|outcome|workflow)s?\b[\s\S]{0,100}\b(?:compare|comparison|benchmark)\b/iu,
   /\bwhat\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:does\s+not|doesn't|doesnt)\s+(?:cover|handle|support|address)\b/iu,
   /\bwhat\s+does\s+(?:the\s+)?(?:agent|system|project|it)\s+not\s+(?:cover|handle|support|address)\b/iu,
   /\bwhere\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:fails?|breaks?)\b/iu,
   /\bwhere\s+does\s+(?:the\s+)?(?:agent|system|project|it)\s+(?:fail|break)\b/iu,
   /(?:ثغر|فجوات|نواقص|نقاط\s+(?:ال)?ضعف|القيود|قيود|نقاط\s+(?:عمياء|العمى))/u,
+  /(?:فجوات?\s+(?:ال)?قدرات|نواقص?\s+(?:ال)?قدرات|مقارن(?:ة|ه)\s+(?:ال)?قدرات|قدرات\s+(?:مفقودة|ناقصة|غير\s+مدعومة)|ما\s+(?:الذي\s+)?ينقص)/u,
   /(?:ما\s+لا\s+(?:يغطيه|يشمله|يدعمه|يعالجه)|اين\s+(?:يفشل|يتعطل))/u,
 ];
 
@@ -675,6 +680,25 @@ export type IntentMatch = {
   index: number;
   length: number;
 };
+
+const CAPABILITY_GAP_AUDIT_PATTERNS = [
+  /\b(?:parity|capability\s+gaps?|missing\s+capabilit(?:y|ies)|capability\s+comparison|benchmark)\b/iu,
+  /\breplit\s+agent\b[\s\S]{0,120}\b(?:gap|missing|parity|compare|comparison|capabilit(?:y|ies))\b/iu,
+  /\b(?:compare|comparison)\b[\s\S]{0,120}\b(?:capabilit(?:y|ies)|features?|outcomes?|workflow|agent)\b/iu,
+  /\b(?:capabilit(?:y|ies)|features?|outcomes?|workflow)s?\b[\s\S]{0,120}\b(?:compare|comparison|parity|benchmark)\b/iu,
+  /(?:فجوات?\s+(?:ال)?قدرات|نواقص?\s+(?:ال)?قدرات|مقارن(?:ة|ه)\s+(?:ال)?قدرات|قدرات\s+(?:مفقودة|ناقصة|غير\s+مدعومة)|إمكان(?:ات|ية)\s+(?:مفقودة|ناقصة)|ما\s+(?:الذي\s+)?ينقص\s+(?:المشروع|النظام|الوكيل))/u,
+  /(?:قارن|مقارنة)[\s\S]{0,120}(?:قدرات|إمكانات|ما\s+يدعمه|Replit\s+Agent)/iu,
+];
+
+/**
+ * A capability-gap audit compares observable user outcomes with a parity
+ * baseline. Keep it narrower than `isGapAnalysisRequest`: ordinary weakness
+ * questions should retain the existing compact gap contract.
+ */
+export function isCapabilityGapAuditRequest(message: string): boolean {
+  const normalized = normalizeIntentText(message);
+  return CAPABILITY_GAP_AUDIT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 
 /**
  * Return the first shared gap signal so callers that need decomposition can

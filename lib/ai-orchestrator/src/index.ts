@@ -783,6 +783,7 @@ export {
   classifyForensicTask,
   buildTaskValidationFallback,
   getTaskOutputContract,
+  isCapabilityGapAuditRequest,
   routeTask,
   scoreEvidenceRelevance,
   SemanticBehaviorAnswerSchema,

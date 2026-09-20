@@ -88,6 +88,7 @@ import {
   buildResponseLanguageFallback,
   buildTaskValidationFallback,
   capBudgetForTask,
+  isCapabilityGapAuditRequest,
   isExplicitBehaviorQueryRequest,
   isProductionReachabilityRequest,
   routeTask,
@@ -5274,6 +5275,26 @@ export function buildProjectQueryEvidenceSynthesis(
       ar: "بعد ذلك، يفحص مسار القبول عبر `validateAnalysisEvidenceCompletion` للتأكد من أن اكتمال القراءة لا يُعامل وحده كإجابة مثبتة.",
       en: "After that, it checks the acceptance boundary through `validateAnalysisEvidenceCompletion` to ensure that completed reads alone are not treated as a proven answer.",
     },
+    "gap-baseline-contract": {
+      ar: "ثم يثبت التحليل عقد baseline الذي يفرق بين Parity وPartial وGap وNot a gap، بدلاً من اعتبار اسم capability دليلاً كافياً.",
+      en: "It then applies the baseline contract that distinguishes Parity, Partial, Gap, and Not a gap instead of treating a capability name as proof.",
+    },
+    "gap-capability-inventory": {
+      ar: "بعد ذلك، يراجع inventory القدرات القابلة للملاحظة ويمنع استنتاج الدعم من وجود route أو اسم مكوّن فقط.",
+      en: "Next, it reviews the observable capability inventory and prevents support from being inferred from a route or component name alone.",
+    },
+    "gap-verified-boundary": {
+      ar: "ولا يُرفع العنصر إلى VERIFIED_GAP إلا إذا اجتمعت قراءة المصدر ومعيار capability ونتيجة مفقودة أو فاشلة قابلة للملاحظة؛ أما UNVERIFIED_RISK وUNKNOWN فيبقيان منفصلين.",
+      en: "An item becomes VERIFIED_GAP only when source evidence, a capability criterion, and an observable missing or failing outcome agree; UNVERIFIED_RISK and UNKNOWN remain separate.",
+    },
+    "gap-classification": {
+      ar: "ويحصل كل عنصر على تصنيف parity مبرر بالأدلة، مع عدم تحويل انقطاع المزود أو نقص الاختبار وحده إلى فجوة capability.",
+      en: "Each item receives an evidence-backed parity classification; provider outage or missing live testing alone is not converted into a capability gap.",
+    },
+    "gap-prioritization": {
+      ar: "وأخيراً، يحتفظ التقرير بالأولوية والاعتماديات ومعيار القبول لكل فجوة قابلة للتنفيذ، ويعرض ما بقي مجهولاً كـ UNKNOWN بدلاً من تخمينه.",
+      en: "Finally, the report retains priority, dependencies, and acceptance criteria for each actionable gap, while listing unresolved items as UNKNOWN instead of guessing.",
+    },
   };
   const genericFlow = isArabic
     ? [
@@ -5287,18 +5308,32 @@ export function buildProjectQueryEvidenceSynthesis(
         "Finally, the answer is written from the behavior established by those reads, while anything not read remains outside the conclusion.",
       ];
   const isGapAnalysis = objective.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS";
+  const isCapabilityGapAudit =
+    isGapAnalysis && isCapabilityGapAuditRequest(objective.goal ?? "");
   const flowMap = isGapAnalysis ? gapFlowByClaimId : flowByClaimId;
-  const gapGenericFlow = isArabic
-    ? [
-        "أولاً، يبدأ التحليل من نقطة التوجيه، ثم ينتقل إلى التخطيط، ثم إلى بوابة قبول الأدلة.",
-        "بعد ذلك، تُقارن كل نقطة بما ظهر في القراءة المكتملة، ولا تُحوّل أسماء الرموز وحدها إلى حكم بوجود خلل.",
-        "وأخيراً، تبقى أي نقطة ضعف غير مدعومة بمقتطف تنفيذي صريح غير مثبتة.",
-      ]
-    : [
-        "First, the analysis starts at routing, then moves through planning, and finally reaches the evidence-acceptance gate.",
-        "Next, each checkpoint is compared with the completed read, and symbol names alone are not converted into a defect claim.",
-        "Finally, any weakness without a direct executable excerpt remains unproven.",
-      ];
+  const gapGenericFlow = isCapabilityGapAudit
+    ? isArabic
+      ? [
+          "أولاً، يبدأ التدقيق من baseline القدرات والنتائج القابلة للملاحظة، ثم يربط كل عنصر بقراءة مصدرية ومعيار قبول.",
+          "بعد ذلك، تُصنف العناصر إلى Parity وPartial وVERIFIED_GAP وNot a gap، مع إبقاء UNVERIFIED_RISK وUNKNOWN خارج حكم الفجوة المؤكدة.",
+          "وأخيراً، تُرتب الفجوات المؤكدة حسب الأولوية والاعتماديات ومعيار القبول، دون اعتبار توفر المزود أو اسم route دليلاً كافياً.",
+        ]
+      : [
+          "First, the audit starts from the capability baseline and observable outcomes, then binds each item to source evidence and an acceptance criterion.",
+          "Next, items are classified as Parity, Partial, VERIFIED_GAP, or Not a gap, while UNVERIFIED_RISK and UNKNOWN stay outside the confirmed-gap verdict.",
+          "Finally, verified gaps are ordered by priority, dependencies, and acceptance criteria; provider availability or a route name is not sufficient evidence.",
+        ]
+    : isArabic
+      ? [
+          "أولاً، يبدأ التحليل من نقطة التوجيه، ثم ينتقل إلى التخطيط، ثم إلى بوابة قبول الأدلة.",
+          "بعد ذلك، تُقارن كل نقطة بما ظهر في القراءة المكتملة، ولا تُحوّل أسماء الرموز وحدها إلى حكم بوجود خلل.",
+          "وأخيراً، تبقى أي نقطة ضعف غير مدعومة بمقتطف تنفيذي صريح غير مثبتة.",
+        ]
+      : [
+          "First, the analysis starts at routing, then moves through planning, and finally reaches the evidence-acceptance gate.",
+          "Next, each checkpoint is compared with the completed read, and symbol names alone are not converted into a defect claim.",
+          "Finally, any weakness without a direct executable excerpt remains unproven.",
+        ];
   const selectedGenericFlow = isGapAnalysis ? gapGenericFlow : genericFlow;
   const isLayerAnalysis = !isGapAnalysis
     && objective.objectiveType === "PROJECT_QUERY_EMBEDDED-AI"
@@ -5328,15 +5363,21 @@ export function buildProjectQueryEvidenceSynthesis(
   const lines = isGapAnalysis
     ? isArabic
       ? [
-          "## تحليل الفجوات في الوكيل",
+          isCapabilityGapAudit
+            ? "## تدقيق فجوات القدرات ومقارنة parity"
+            : "## تحليل الفجوات في الوكيل",
           "",
-          "يعرض هذا التحليل نقاط الفحص المرتبطة بالتوجيه والتخطيط وقبول الأدلة. لا تُحوّل أسماء الدوال أو اكتمال القراءة وحدهما إلى ادعاء بوجود خلل.",
+          isCapabilityGapAudit
+            ? "يقارن هذا التدقيق القدرات والنتائج القابلة للملاحظة بالـ baseline الموجود، ويفصل VERIFIED_GAP عن UNVERIFIED_RISK وUNKNOWN. لا تُحوّل أسماء الدوال أو توفر المزود أو اكتمال القراءة وحدها إلى فجوة مؤكدة."
+            : "يعرض هذا التحليل نقاط الفحص المرتبطة بالتوجيه والتخطيط وقبول الأدلة. لا تُحوّل أسماء الدوال أو اكتمال القراءة وحدهما إلى ادعاء بوجود خلل.",
           "",
-          "### مسار تحليل الفجوات",
+          isCapabilityGapAudit ? "### مسار مقارنة القدرات" : "### مسار تحليل الفجوات",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
           "",
            "### الادعاء المثبت",
-           "النقاط التالية أُغلقت بأدلة مصدرية مكتملة، وهي تحدد حدود التحليل المطلوبة:",
+           isCapabilityGapAudit
+             ? "العناصر التالية أُغلقت بأدلة مصدرية مكتملة، وهي تحدد تصنيف parity وحدود الفجوات التي يمكن تأكيدها:"
+             : "النقاط التالية أُغلقت بأدلة مصدرية مكتملة، وهي تحدد حدود التحليل المطلوبة:",
           ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
           "",
            "### الشرح",
@@ -5349,15 +5390,19 @@ export function buildProjectQueryEvidenceSynthesis(
           "القراءات الحالية تثبت نقاط الفحص ومسار قبول الأدلة، لكنها لا تثبت خللاً محدداً ما لم يظهر سلوك مخالف في المقتطف التنفيذي المحتفظ به.",
         ]
       : [
-          "## Agent Gap Analysis",
+          isCapabilityGapAudit ? "## Capability Parity Gap Audit" : "## Agent Gap Analysis",
           "",
-          "This analysis covers routing, planning, and evidence acceptance checkpoints. It does not convert symbol names or completed reads alone into a defect claim.",
+          isCapabilityGapAudit
+            ? "This audit compares observable capability outcomes with the retained parity baseline and separates VERIFIED_GAP from UNVERIFIED_RISK and UNKNOWN. It does not convert provider availability, route names, or completed reads alone into a confirmed gap."
+            : "This analysis covers routing, planning, and evidence acceptance checkpoints. It does not convert symbol names or completed reads alone into a defect claim.",
           "",
-          "### Gap-analysis flow",
+          isCapabilityGapAudit ? "### Capability comparison flow" : "### Gap-analysis flow",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
           "",
-           "### Verified assertion",
-           "The following checkpoints were closed by complete source evidence:",
+            "### Verified assertion",
+            isCapabilityGapAudit
+              ? "The following capability and parity claims were closed by complete source evidence:"
+              : "The following checkpoints were closed by complete source evidence:",
           ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
           "",
            "### Explanation",
@@ -5367,7 +5412,9 @@ export function buildProjectQueryEvidenceSynthesis(
           ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
           "",
           "### Judgment boundary",
-          "The retained reads prove the checkpoints and evidence-acceptance path, but they do not prove a specific defect unless the retained executable excerpt shows contradictory behavior.",
+          isCapabilityGapAudit
+            ? "A VERIFIED_GAP requires an observable missing or failing outcome plus a capability criterion and source evidence. Unverified risks and unknowns remain separate from confirmed gaps."
+            : "The retained reads prove the checkpoints and evidence-acceptance path, but they do not prove a specific defect unless the retained executable excerpt shows contradictory behavior.",
         ]
     : isArabic
       ? [

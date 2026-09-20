@@ -154,3 +154,4 @@
 - [Empty prefetch reads](empty-prefetch-reads.md) — prefetch must reject empty tool output before creating cache/messages; otherwise failed paths enter status telemetry without a traceable read event.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.
+- [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
