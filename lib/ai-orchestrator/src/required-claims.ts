@@ -334,6 +334,12 @@ export function closeObjectiveClaimsFromEvidence(input: {
   objective: ObjectiveContract;
   /** Candidate answer text — the claim must be asserted here to close. */
   response: string;
+  /**
+   * Optional provider assertion projection for targeted project-query prose.
+   * When supplied, claim identity comes from these server-owned IDs rather
+   * than requiring the provider to repeat the canonical claim wording.
+   */
+  assertedClaimIds?: readonly string[];
   evidence?: readonly EvidenceReference[];
   fileContents?: ReadonlyMap<string, string>;
   /**
@@ -364,6 +370,9 @@ export function closeObjectiveClaimsFromEvidence(input: {
     bodies.set(rel, normalize(body));
   }
   const responseNorm = normalize(response);
+  const explicitAssertions = input.assertedClaimIds === undefined
+    ? undefined
+    : new Set(input.assertedClaimIds);
   return decomposeObjectiveClaims(objective).map((claim) => {
     if (claim.kind !== "objective") return claim; // not an objective claim
     if (claim.claimId.startsWith("edge:")) return claim; // edges handled separately
@@ -378,7 +387,12 @@ export function closeObjectiveClaimsFromEvidence(input: {
     const preferredPaths = (claimSpec?.requiredEvidencePaths ?? []).map((path: string) =>
       path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, ""),
     );
-    if (responseNeedle.length >= 3 && responseNorm.includes(responseNeedle)) {
+    const responseAssertsClaim = explicitAssertions === undefined
+      ? responseNorm.includes(responseNeedle)
+      : explicitAssertions.has(
+          claimSpec?.claimId ?? claim.claimId.replace(/^objective:/, ""),
+        );
+    if (responseAssertsClaim && (explicitAssertions !== undefined || responseNeedle.length >= 3)) {
       for (const [file, body] of bodies) {
         const sourceNeedles = claimSpec?.evidenceNeedlesByPath
           ? Object.entries(claimSpec.evidenceNeedlesByPath)

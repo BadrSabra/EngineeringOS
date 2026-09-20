@@ -1373,12 +1373,16 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-no-tools-recovery-"));
     const sourcePath = "src/pipeline.ts";
     const claimText = "The project pipeline reads source evidence before synthesis.";
-    const validResponse = [
-      claimText,
-      "First, the request enters the bounded project-query path and reads the declared source.",
-      "Then, the retained evidence is passed to the content-only synthesis phase.",
-      "Finally, the accepted answer is checked against the claim and behavioral flow before it is returned.",
-    ].join(" ");
+    const flowClaimText = "The pipeline passes retained evidence into the final answer.";
+    const validResponseText =
+      "First, the request enters the bounded project path and reads the declared source. " +
+      "Then, the retained evidence moves into synthesis before the answer is returned.";
+    const validResponse = JSON.stringify({
+      response: validResponseText,
+      sources: [sourcePath],
+      claimRefs: ["pipeline-evidence", "pipeline-flow"],
+      flowRefs: ["pipeline-evidence", "pipeline-flow"],
+    });
     await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
     await fs.writeFile(
       path.join(rootPath, sourcePath),
@@ -1483,6 +1487,11 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
             text: claimText,
             requiredEvidencePaths: [sourcePath],
             evidenceNeedles: ["runPipeline"],
+           }, {
+             claimId: "pipeline-flow",
+             text: flowClaimText,
+             requiredEvidencePaths: [sourcePath],
+             evidenceNeedles: ["runPipeline"],
           }],
           requiredEvidenceEdges: [],
         },
@@ -1504,7 +1513,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         toolChoice: "none",
       });
       expect(recoveryCalls[1]?.messages[0]?.content).toContain("plain prose only");
-      expect(result.response).toBe(validResponse);
+      expect(result.response).toBe(validResponseText);
       expect(result.projectQueryResponseSource).toBe("provider_synthesis");
       expect(result.projectQueryResponseFallbackReason).toBeUndefined();
       expect(executionLedger.snapshot().counts.recovery).toBe(2);

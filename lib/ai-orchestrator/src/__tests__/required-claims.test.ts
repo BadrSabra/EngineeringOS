@@ -23,7 +23,10 @@ import {
   materializeObjectiveClaimEvidence,
 } from "../required-claims.js";
 import type { EvidenceReference } from "../task-contracts.js";
-import type { ObjectiveContract } from "../schemas/chat.schema.js";
+import {
+  ProjectQuerySynthesisSchema,
+  type ObjectiveContract,
+} from "../schemas/chat.schema.js";
 
 const QUESTION = "Does the loop run at most 20 iterations?";
 // A question that explicitly names ONE source file.
@@ -293,6 +296,85 @@ describe("evaluateBehaviorRequiredClaims (task #53)", () => {
       requireAcceptedEvidence: true,
     });
     expect(inventoryOnlyClosure.every((claim) => claim.status === "UNCLOSED")).toBe(true);
+  });
+
+  it("closes natural-language project prose from complete server-owned claim references", () => {
+    const objective: ObjectiveContract = {
+      objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+      requiredEvidencePaths: ["src/chat.ts", "src/agent.ts"],
+      requiredClaims: [
+        {
+          claimId: "routing",
+          text: "The route resolves intent before selecting the execution path.",
+          requiredEvidencePaths: ["src/chat.ts"],
+          evidenceNeedles: ["resolveTurnIntent"],
+        },
+        {
+          claimId: "loop",
+          text: "The agent enters executeToolLoop and retains results before synthesis.",
+          requiredEvidencePaths: ["src/agent.ts"],
+          evidenceNeedles: ["executeToolLoop"],
+        },
+      ],
+      requiredEvidenceEdges: [],
+    };
+    const retained = new Map([
+      ["src/chat.ts", "const intent = resolveTurnIntent(message);\nreturn route(intent);"],
+      ["src/agent.ts", "const loopResult = await executeToolLoop(context);\nreturn synthesize(loopResult);"],
+    ]);
+    const evidence = [
+      ref({
+        source: "src/chat.ts",
+        excerpt: "const intent = resolveTurnIntent(message);",
+        supportsClaim: true,
+        relevance: 1,
+        directness: "DIRECT",
+        evidenceClass: "BEHAVIOR_PROVEN",
+      }),
+      ref({
+        source: "src/agent.ts",
+        excerpt: "const loopResult = await executeToolLoop(context);",
+        supportsClaim: true,
+        relevance: 1,
+        directness: "DIRECT",
+        evidenceClass: "BEHAVIOR_PROVEN",
+      }),
+    ];
+    const naturalArabicResponse =
+      "أولاً يحدد المسار النية، ثم يقرأ المصدر، وبعد ذلك يحتفظ بالنتائج قبل تركيب الإجابة.";
+
+    const complete = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: naturalArabicResponse,
+      assertedClaimIds: ["routing", "loop"],
+      evidence,
+      fileContents: retained,
+      requireAcceptedEvidence: true,
+    });
+    expect(complete.filter((claim) => claim.status === "CLOSED")).toHaveLength(2);
+
+    const incomplete = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: naturalArabicResponse,
+      assertedClaimIds: ["routing"],
+      evidence,
+      fileContents: retained,
+      requireAcceptedEvidence: true,
+    });
+    expect(incomplete.find((claim) => claim.claimId === "objective:routing")?.status)
+      .toBe("CLOSED");
+    expect(incomplete.find((claim) => claim.claimId === "objective:loop")?.status)
+      .toBe("UNCLOSED");
+  });
+
+  it("validates the optional project-query synthesis envelope without trusting its evidence", () => {
+    const parsed = ProjectQuerySynthesisSchema.safeParse({
+      response: "أولاً يحدد المسار النية، ثم يجمع الأدلة قبل تركيب الإجابة.",
+      sources: ["src/chat.ts"],
+      claimRefs: ["routing", "loop"],
+      flowRefs: ["routing", "loop"],
+    });
+    expect(parsed.success).toBe(true);
   });
 
   it("uses source-specific needles for a cross-file objective claim", () => {

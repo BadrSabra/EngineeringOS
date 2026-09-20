@@ -216,6 +216,20 @@ export const ChatResponseSchema = z.object({
 }).strict();
 
 /**
+ * Optional provider-facing envelope for targeted project-query synthesis.
+ *
+ * These references are assertions only. Evidence materialization and objective
+ * closure remain server-owned.
+ */
+export const ProjectQuerySynthesisSchema = ChatResponseSchema.extend({
+  claimRefs: z.array(z.string().min(1).max(120)).min(1).max(64).optional(),
+  /** Ordered objective claim IDs describing the behavioral flow in the prose. */
+  flowRefs: z.array(z.string().min(1).max(120)).min(2).max(64).optional(),
+}).strict();
+
+export type ProjectQuerySynthesis = z.infer<typeof ProjectQuerySynthesisSchema>;
+
+/**
  * ChatOutputSchema is the full return value of the chat agent. The LLM-authored
  * fields (response, sources) come from ChatResponseSchema. pendingChanges
  * is appended server-side after the tool loop — it is never written by the

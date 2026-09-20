@@ -156,3 +156,4 @@
 - [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
 - [Chat SSE fixture lifecycle](chat-sse-fixture-lifecycle.md) — SSE fixtures must expose running executions to controller registration and reset cancellation state between tests.
+- [Project-query synthesis references](project-query-synthesis-references.md) — provider prose may use server-owned claimRefs/flowRefs; evidence and closure stay server-owned.

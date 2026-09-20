@@ -103,7 +103,18 @@ import {
   type ForensicTaskType,
   type SemanticBehaviorAnswer,
 } from "../task-contracts.js";
-import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type ChatTaskResult, type PendingChange, type ResolvedModelInfo, type RepairPlanMetadata } from "../schemas/chat.schema.js";
+import {
+  ChatResponseSchema,
+  ChatOutputSchema,
+  PendingChangeSchema,
+  ProjectQuerySynthesisSchema,
+  type ChatOutput,
+  type ChatTaskResult,
+  type PendingChange,
+  type ProjectQuerySynthesis,
+  type ResolvedModelInfo,
+  type RepairPlanMetadata,
+} from "../schemas/chat.schema.js";
 import {
   CapabilityProbeClaimSchema,
   CapabilityProbeResponseSchema,
@@ -1768,6 +1779,7 @@ function applyObjectiveCompletionGate(opts: {
   fileContents: Map<string, string>;
   objectiveEvidenceSources?: ReadonlyMap<string, string>;
   response: string;
+  assertedClaimIds?: readonly string[];
   message: string;
   evidence?: readonly EvidenceReference[];
   provenEdges?: readonly { from?: string; to?: string }[];
@@ -1821,6 +1833,7 @@ function applyObjectiveCompletionGate(opts: {
   const closedByEvidence = closeObjectiveClaimsFromEvidence({
     objective,
     response: opts.response,
+    assertedClaimIds: opts.assertedClaimIds,
     evidence: opts.evidence,
     fileContents: opts.fileContents,
     requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
@@ -1982,6 +1995,7 @@ function finalizeObjectiveAndStream(opts: {
   objectiveEvidenceSources?: ReadonlyMap<string, string>;
   message: string;
   response: string;
+  assertedClaimIds?: readonly string[];
   evidence?: readonly EvidenceReference[];
   provenEdges?: readonly { from?: string; to?: string }[];
   relayAgentStep: (step: AgentStep) => void;
@@ -1992,6 +2006,7 @@ function finalizeObjectiveAndStream(opts: {
     fileContents: opts.fileContents,
     objectiveEvidenceSources: opts.objectiveEvidenceSources,
     response: opts.response,
+    assertedClaimIds: opts.assertedClaimIds,
     message: opts.message,
     evidence: opts.evidence,
     provenEdges: opts.provenEdges,
@@ -5226,6 +5241,65 @@ function objectiveClaimsAreMentioned(
   );
 }
 
+type ProjectQuerySynthesisCandidate = {
+  text: string;
+  claimRefs?: readonly string[];
+  flowRefs?: readonly string[];
+};
+
+function parseProjectQuerySynthesisCandidate(raw: string): ProjectQuerySynthesisCandidate {
+  const parsed = parseAgentResponse(
+    raw,
+    ProjectQuerySynthesisSchema,
+    fallbackChatOutput,
+  );
+  if (!parsed.ok) {
+    return { text: normalizeRecoveryAssistantText(raw) };
+  }
+  const data: ProjectQuerySynthesis = parsed.data;
+  return {
+    text: data.response,
+    ...(data.claimRefs ? { claimRefs: data.claimRefs } : {}),
+    ...(data.flowRefs ? { flowRefs: data.flowRefs } : {}),
+  };
+}
+
+function projectQueryClaimRefsAreComplete(
+  objective: ObjectiveContract | undefined,
+  claimRefs: readonly string[] | undefined,
+): boolean {
+  if (!objective || claimRefs === undefined) return false;
+  const required = objective.requiredClaims.map((claim) => claim.claimId);
+  const refs = [...claimRefs];
+  return (
+    refs.length === required.length
+    && new Set(refs).size === refs.length
+    && refs.every((claimId) => required.includes(claimId))
+  );
+}
+
+function projectQueryFlowRefsAreValid(
+  objective: ObjectiveContract | undefined,
+  flowRefs: readonly string[] | undefined,
+): boolean {
+  if (!objective || flowRefs === undefined || flowRefs.length < 2) return false;
+  const required = new Set(objective.requiredClaims.map((claim) => claim.claimId));
+  const refs = [...flowRefs];
+  return (
+    new Set(refs).size >= 2
+    && refs.every((claimId) => required.has(claimId))
+  );
+}
+
+function projectQueryCandidateClaimsAreAsserted(
+  objective: ObjectiveContract | undefined,
+  candidate: ProjectQuerySynthesisCandidate,
+): boolean {
+  return candidate.claimRefs !== undefined
+    ? projectQueryClaimRefsAreComplete(objective, candidate.claimRefs)
+    : objectiveClaimsAreMentioned(objective, candidate.text);
+}
+
 /**
  * A project-query objective asks for behavior, not a source inventory. Symbol
  * mentions are still useful for grounding, but they cannot close the answer
@@ -5235,12 +5309,16 @@ function objectiveClaimsAreMentioned(
 function projectQueryAnswerHasBehavioralFlow(
   objective: ObjectiveContract | undefined,
   response: string,
+  flowRefs?: readonly string[],
 ): boolean {
   const objectiveType = objective?.objectiveType;
   if (
     objectiveType !== "PROJECT_QUERY_EMBEDDED-AI"
     && objectiveType !== "PROJECT_QUERY_GAP-ANALYSIS"
   ) return true;
+  if (flowRefs !== undefined) {
+    return projectQueryFlowRefsAreValid(objective, flowRefs);
+  }
   const normalized = response.trim();
   if (normalized.length < 240 || !objectiveClaimsAreMentioned(objective, normalized)) {
     return false;
@@ -8632,6 +8710,8 @@ export async function chat(opts: {
   // deterministic candidate can be silently discarded when the later
   // acceptance path reads the original provider result.
   let projectQueryEvidenceResponseOverride: string | undefined;
+  let projectQueryAssertedClaimIds: readonly string[] | undefined;
+  let projectQueryFlowRefs: readonly string[] | undefined;
   let projectQueryResponseSource:
     | "provider_synthesis"
     | "deterministic_fallback"
@@ -8723,13 +8803,15 @@ export async function chat(opts: {
   ) {
     const initialCandidate =
       loopResult.kind === "response" || loopResult.kind === "partial"
-        ? parseAgentResponse(loopResult.result.content ?? "", ChatResponseSchema, fallbackChatOutput)
+        ? parseProjectQuerySynthesisCandidate(loopResult.result.content ?? "")
         : null;
-    const initialText = initialCandidate?.ok
-      ? initialCandidate.data.response
-      : loopResult.kind === "response" || loopResult.kind === "partial"
+    const initialText =
+      initialCandidate?.text ??
+      (loopResult.kind === "response" || loopResult.kind === "partial"
         ? normalizeRecoveryAssistantText(loopResult.result.content ?? "")
-        : "";
+        : "");
+    let recoveredCandidate: ProjectQuerySynthesisCandidate =
+      initialCandidate ?? { text: initialText };
     let recoveredText = initialText;
     const deterministicProjectQueryResponse =
       canSynthesizeProjectQuery
@@ -8744,11 +8826,18 @@ export async function chat(opts: {
       `failureChain=${synthesisFailureChain.length > 0
         ? synthesisFailureChain.join(" -> ")
         : "none"}`;
-    const isValidProjectQueryCandidate = (text: string): boolean =>
+    const isValidProjectQueryCandidate = (
+      text: string,
+      candidate: ProjectQuerySynthesisCandidate = recoveredCandidate,
+    ): boolean =>
       canSynthesizeProjectQuery &&
       validateResponseLanguage(text, responseLanguage).valid &&
-      objectiveClaimsAreMentioned(objective, text) &&
-      projectQueryAnswerHasBehavioralFlow(objective, text);
+      projectQueryCandidateClaimsAreAsserted(objective, { ...candidate, text }) &&
+      projectQueryAnswerHasBehavioralFlow(objective, text, candidate.flowRefs);
+    if (isValidProjectQueryCandidate(recoveredText)) {
+      projectQueryAssertedClaimIds = recoveredCandidate.claimRefs;
+      projectQueryFlowRefs = recoveredCandidate.flowRefs;
+    }
     if (
       canSynthesizeProjectQuery &&
       !isValidProjectQueryCandidate(recoveredText)
@@ -8792,13 +8881,17 @@ export async function chat(opts: {
             role: "system" as const,
             content:
               "Synthesize a scoped project answer from the retained evidence below. " +
-              "Do not call tools or request more files. State every server-owned behavioral claim " +
-              "assertion verbatim, then explain the execution sequence in the requested language. " +
-              "Do not replace a behavioral explanation with a symbol inventory." +
+              "Do not call tools or request more files. Return ONLY a JSON object with " +
+              'response, sources, claimRefs, and flowRefs. claimRefs must contain every ' +
+              "server-owned claimId exactly once; flowRefs must contain at least two " +
+              "ordered claimIds that the response explains as a behavioral sequence. " +
+              "Write natural prose in the requested language; do not repeat the canonical " +
+              "claim wording merely to satisfy the protocol. Do not replace a behavioral " +
+              "explanation with a symbol inventory." +
               (repairAttempt
-                ? " The previous model output violated the no-tools response contract. " +
-                  "Return plain prose only: do not emit JSON, XML, tool markers, function calls, " +
-                  "or executable-looking calls such as executeToolLoop(...)."
+                ? " The previous model output violated the synthesis response contract. " +
+                  "Do not return plain prose only; repair the JSON envelope and keep the prose natural; do not emit XML, " +
+                  "tool markers, function calls, or executable-looking calls such as executeToolLoop(...)."
                 : ""),
           },
           {
@@ -8852,15 +8945,24 @@ export async function chat(opts: {
           if (providerId === "openrouter" && recovery.model) {
             recoveryExcludedModels.add(recovery.model);
           }
-          const recoveredCandidate = parseAgentResponse(
-            recovery.content ?? "",
-            ChatResponseSchema,
-            fallbackChatOutput,
+          recoveredCandidate = parseProjectQuerySynthesisCandidate(recovery.content ?? "");
+          recoveredText = recoveredCandidate.text;
+          const candidateAccepted = isValidProjectQueryCandidate(recoveredText, recoveredCandidate);
+          if (candidateAccepted) {
+            projectQueryAssertedClaimIds = recoveredCandidate.claimRefs;
+            projectQueryFlowRefs = recoveredCandidate.flowRefs;
+          }
+          const candidateClaimsComplete = projectQueryCandidateClaimsAreAsserted(
+            objective,
+            recoveredCandidate,
           );
-          recoveredText = recoveredCandidate.ok
-            ? recoveredCandidate.data.response
-            : normalizeRecoveryAssistantText(recovery.content ?? "");
-          const candidateAccepted = isValidProjectQueryCandidate(recoveredText);
+          const candidateLanguageValid =
+            validateResponseLanguage(recoveredText, responseLanguage).valid;
+          const candidateFlowValid = projectQueryAnswerHasBehavioralFlow(
+            objective,
+            recoveredText,
+            recoveredCandidate.flowRefs,
+          );
           if (!candidateAccepted) {
             synthesisFailureChain.push(
               `${repairAttempt ? "repair" : "candidate"}:provider_candidate_incomplete`,
@@ -8873,12 +8975,10 @@ export async function chat(opts: {
               `attempt=${recoveryAttempt + 1}`,
               repairAttempt ? "protocol repair attempt" : "initial provider synthesis attempt",
               `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
-              objectiveClaimsAreMentioned(objective, recoveredText)
-                ? "provider synthesis mentioned every required claim"
-                : "provider synthesis was incomplete",
-              projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
-                ? "provider synthesis included behavioral flow"
-                : "provider synthesis lacked behavioral flow",
+              `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
+              `languageValid=${candidateLanguageValid ? "true" : "false"}`,
+              `flowValid=${candidateFlowValid ? "true" : "false"}`,
+              `assertionMode=${recoveredCandidate.claimRefs ? "claim_refs" : "canonical_text"}`,
               candidateAccepted ? "provider candidate accepted" : "provider candidate rejected",
               failureChainDetail(),
             ],
@@ -8893,6 +8993,9 @@ export async function chat(opts: {
             break;
           }
           recoveredText = "";
+          recoveredCandidate = { text: "" };
+          projectQueryAssertedClaimIds = undefined;
+          projectQueryFlowRefs = undefined;
           recoveryFailureReason = "provider_candidate_incomplete";
           executionLedger.complete("recovery", {
             provider,
@@ -8961,6 +9064,9 @@ export async function chat(opts: {
       !isValidProjectQueryCandidate(recoveredText)
     ) {
       recoveredText = deterministicProjectQueryResponse;
+      recoveredCandidate = { text: recoveredText };
+      projectQueryAssertedClaimIds = undefined;
+      projectQueryFlowRefs = undefined;
       projectQueryResponseSource = "deterministic_fallback";
       projectQueryFallbackReason ??= "provider_candidate_incomplete";
     } else if (isValidProjectQueryCandidate(recoveredText)) {
@@ -9083,7 +9189,11 @@ export async function chat(opts: {
     && objective !== undefined
     && projectQueryEvidenceResponseOverride !== undefined
     && validateResponseLanguage(projectQueryEvidenceResponseOverride, responseLanguage).valid
-    && projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride);
+    && projectQueryAnswerHasBehavioralFlow(
+      objective,
+      projectQueryEvidenceResponseOverride,
+      projectQueryFlowRefs,
+    );
   if (
     retainedEvidence
     && retainedEvidence.size > 0
@@ -9958,6 +10068,7 @@ export async function chat(opts: {
         fileContents: forensicFileContents,
         objectiveEvidenceSources: objectiveLocatorSources,
         response: streamingObjectiveResponse,
+        assertedClaimIds: projectQueryAssertedClaimIds,
         message,
         evidence: streamingBehaviorGated.evidence,
         provenEdges: (productionTraceLinks ?? [])
@@ -10287,6 +10398,7 @@ export async function chat(opts: {
         fileContents: forensicFileContents,
         objectiveEvidenceSources: objectiveLocatorSources,
         response: nativeSseObjectiveResponse,
+        assertedClaimIds: projectQueryAssertedClaimIds,
         message,
         evidence: nativeSseBehaviorValidation.evidence,
         provenEdges: (productionTraceLinks ?? [])
@@ -12633,7 +12745,11 @@ export async function chat(opts: {
     isTargetedProjectQueryObjective
     && projectQueryEvidenceResponseOverride
     && validateResponseLanguage(projectQueryEvidenceResponseOverride, responseLanguage).valid
-    && projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride)
+    && projectQueryAnswerHasBehavioralFlow(
+      objective,
+      projectQueryEvidenceResponseOverride,
+      projectQueryFlowRefs,
+    )
       ? projectQueryEvidenceResponseOverride
       : undefined;
   let responseBeforeBehaviorEvidence = validateResponseForTask(
@@ -12731,7 +12847,12 @@ export async function chat(opts: {
   if (
     isTargetedProjectQueryObjective &&
     materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
-    objectiveClaimsAreMentioned(objective, responseBeforeBehaviorEvidence)
+    projectQueryCandidateClaimsAreAsserted(objective, {
+      text: responseBeforeBehaviorEvidence,
+      ...(projectQueryAssertedClaimIds
+        ? { claimRefs: projectQueryAssertedClaimIds }
+        : {}),
+    })
   ) {
     const materializedEvidence = projectQueryEvidenceReferences;
     // Targeted project-query evidence is server-owned: it is materialized from
@@ -13300,7 +13421,11 @@ export async function chat(opts: {
     isTargetedProjectQueryObjective &&
     projectQueryEvidenceResponseOverride &&
     materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
-    projectQueryAnswerHasBehavioralFlow(objective, projectQueryEvidenceResponseOverride)
+    projectQueryAnswerHasBehavioralFlow(
+      objective,
+      projectQueryEvidenceResponseOverride,
+      projectQueryFlowRefs,
+    )
   ) {
     responseBeforeBehaviorEvidence = projectQueryEvidenceResponseOverride;
     const materializedEvidence = projectQueryEvidenceReferences;
@@ -13494,6 +13619,7 @@ export async function chat(opts: {
     ? closeObjectiveClaimsFromEvidence({
         objective,
         response: responseBeforeBehaviorEvidence,
+        assertedClaimIds: projectQueryAssertedClaimIds,
         evidence: evidenceForRun,
         fileContents: forensicFileContents,
         requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
@@ -13540,7 +13666,11 @@ export async function chat(opts: {
   }
   const projectQueryAnswerRejected =
     objective?.objectiveType.startsWith("PROJECT_QUERY_") === true
-    && !projectQueryAnswerHasBehavioralFlow(objective, responseBeforeBehaviorEvidence);
+    && !projectQueryAnswerHasBehavioralFlow(
+      objective,
+      responseBeforeBehaviorEvidence,
+      projectQueryFlowRefs,
+    );
   const objectiveBlocksVerdict =
     (objective !== undefined && objectiveGate !== null ? objectiveGate.blocked : false)
     || projectQueryAnswerRejected;
@@ -13626,6 +13756,7 @@ export async function chat(opts: {
     projectQueryAnswerHasBehavioralFlow(
       objective,
       projectQueryEvidenceResponseOverride,
+      projectQueryFlowRefs,
     ) &&
     objectiveGate?.status === "PROVEN" &&
     !objectiveBlocksVerdict &&
