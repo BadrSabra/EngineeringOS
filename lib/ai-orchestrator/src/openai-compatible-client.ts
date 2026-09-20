@@ -527,13 +527,27 @@ function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?:
     normalizedBody.includes("request parameter") ||
     normalizedBody.includes("invalid request") ||
     normalizedBody.includes("not supported") ||
+    looksLikeAgentHarnessRestriction(body, providerCode) ||
+    (providerCode?.includes("invalid_request") ?? false) ||
+    (providerCode?.includes("unsupported") ?? false)
+  );
+}
+
+/**
+ * A model can return 403 because the model is restricted to an agent harness,
+ * not because the OpenRouter credential is invalid. Keep this predicate narrow:
+ * real 401/403 credential failures must remain terminal and must not consume
+ * another model or provider attempt.
+ */
+function looksLikeAgentHarnessRestriction(body: string, providerCode?: string): boolean {
+  const normalizedBody = body.toLowerCase();
+  return (
     normalizedBody.includes("agent harness") ||
     normalizedBody.includes("requires an agent") ||
     normalizedBody.includes("only available through an agent") ||
     normalizedBody.includes("agent-only") ||
     normalizedBody.includes("agentic") ||
-    (providerCode?.includes("invalid_request") ?? false) ||
-    (providerCode?.includes("unsupported") ?? false)
+    (providerCode?.toLowerCase().includes("agent") ?? false)
   );
 }
 
@@ -583,6 +597,23 @@ function classifyStatus(
       bodyPreview: body.slice(0, 300),
     }),
   );
+
+  if (
+    providerName === "OpenRouter" &&
+    status === 403 &&
+    looksLikeAgentHarnessRestriction(body, providerCode)
+  ) {
+    return new GroqClientError(
+      "MODEL_UNAVAILABLE",
+      `OpenRouter model cannot satisfy this request outside an agent harness (403). ${body.slice(0, 200)}`,
+      {
+        context: {
+          ...ctx,
+          providerCode: "MODEL_CAPABILITY_MISMATCH",
+        },
+      },
+    );
+  }
 
   if (status === 401 || status === 403) {
     return new GroqClientError(

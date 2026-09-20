@@ -9,7 +9,8 @@
  *   • 422 → MODEL_UNAVAILABLE + fallback (PR-003)
  *   • 429 rate-limit → RATE_LIMITED
  *   • 429 quota/credits body → QUOTA (PR-008)
- *   • 401/403 → AUTH_ERROR
+ *   • 401/403 credential failures → AUTH_ERROR
+ *   • 403 agent-harness restriction → MODEL_UNAVAILABLE + fallback
  *   • 5xx → SERVER_ERROR
  *   • All fallback candidates exhausted → throws MODEL_NOT_FOUND
  *   • Provider error context preserved on error (PR-007)
@@ -954,6 +955,45 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     await expect(
       openrouterCompleteWithFallback(baseMessages as any, { apiKey: "bad-key", model: primaryModel, maxTokens: 10 }),
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "AUTH_ERROR");
+  });
+
+  it("403 agent-harness restriction → MODEL_UNAVAILABLE → triggers fallback", async () => {
+    let callCount = 0;
+    const seenModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      callCount++;
+      seenModels.push(String(body.model));
+      if (callCount === 1) {
+        return {
+          ok: false,
+          status: 403,
+          json: async () => ({}),
+          text: async () => '{"error":{"message":"This model is only available through an agent harness."}}',
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "ok-after-agent-harness-restriction" } }],
+          model: String(body.model),
+          usage: {},
+        }),
+        text: async () => "",
+      } as Response;
+    }));
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+    });
+
+    expect(result.content).toBe("ok-after-agent-harness-restriction");
+    expect(callCount).toBeGreaterThanOrEqual(2);
+    expect(seenModels[0]).toBe(primaryModel);
+    expect(seenModels[1]).not.toBe(primaryModel);
   });
 
   it("500 → SERVER_ERROR", async () => {
