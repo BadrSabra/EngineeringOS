@@ -619,6 +619,49 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(seenModels[1]).not.toBe(seenModels[0]);
   });
 
+  it("TIMEOUT with transient retries disabled → advances to the next model candidate", async () => {
+    let callCount = 0;
+    const seenModels: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      callCount++;
+      seenModels.push(String(body.model));
+      if (callCount === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("request aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "ok-after-timeout" } }],
+          model: body.model,
+          usage: {},
+        }),
+        text: async () => "",
+      } as Response);
+    }));
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      timeoutMs: 5,
+      retryTransient: false,
+      maxFallbackModels: 2,
+    });
+
+    expect(result.content).toBe("ok-after-timeout");
+    expect(callCount).toBe(2);
+    expect(seenModels[1]).not.toBe(seenModels[0]);
+  });
+
   it("429 with no quota keywords → RATE_LIMITED (not fallback-worthy)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: false, status: 429,

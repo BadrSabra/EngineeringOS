@@ -5220,13 +5220,13 @@ function projectQueryAnswerHasBehavioralFlow(
 
 /**
  * A no-tools project-query synthesis response can be repaired when the
- * provider emitted an invalid tool-call-shaped response, but provider
- * transport/availability failures should immediately use the already-built
- * deterministic candidate. Retrying those failures only delays a response
- * whose proof lane is already complete.
+ * provider emitted an invalid tool-call-shaped response or when a free model
+ * times out. Both failures are model-local here: the evidence lane is already
+ * complete, so one bounded model change can produce a real provider synthesis
+ * without changing the proof contract.
  */
 function isProjectQuerySynthesisRetryableFailure(code: string): boolean {
-  return code === "INVALID_TOOL_CALL";
+  return code === "INVALID_TOOL_CALL" || code === "TIMEOUT";
 }
 
 function projectQuerySynthesisErrorCode(error: unknown): string {
@@ -8759,10 +8759,19 @@ export async function chat(opts: {
             recoveryMessages,
             {
               model: providerId === "openrouter" ? undefined : (modelDecision.model || model),
-              maxTokens: 2400,
+              // This phase needs a concise claim-and-flow answer, not a full
+              // report. Keeping the output bounded also avoids spending the
+              // entire per-model timeout on an overloaded free-tier candidate.
+              maxTokens: 1600,
               timeoutMs: 30_000,
               retryTransient: false,
-              maxFallbackModels: 1,
+              // Let OpenRouter try one additional free candidate in the same
+              // bounded synthesis attempt. A model that emits a tool call or
+              // times out must not make the next healthy candidate unreachable.
+              maxFallbackModels: providerId === "openrouter" ? 2 : 1,
+              ...(providerId === "openrouter"
+                ? { capability: "chat" as const, quality: "fast" as const }
+                : {}),
               toolChoice: "none",
               ...(providerId === "openrouter" && recoveryExcludedModels.size > 0
                 ? { excludeModels: [...recoveryExcludedModels] }

@@ -1388,7 +1388,14 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
 
     const calls: Array<{
       messages: Array<{ role: string; content: string }>;
-      options: { excludeModels?: string[]; operation?: string; toolChoice?: string };
+      options: {
+        excludeModels?: string[];
+        operation?: string;
+        toolChoice?: string;
+        maxFallbackModels?: number;
+        capability?: string;
+        quality?: string;
+      };
     }> = [];
     const fakeStrategy = {
       providerId: "openrouter",
@@ -1397,7 +1404,14 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       stream: vi.fn(),
       call: vi.fn(async (
         messages: Array<{ role: string; content: string }>,
-        options: { excludeModels?: string[]; operation?: string; toolChoice?: string },
+        options: {
+          excludeModels?: string[];
+          operation?: string;
+          toolChoice?: string;
+          maxFallbackModels?: number;
+          capability?: string;
+          quality?: string;
+        },
       ) => {
         calls.push({ messages, options });
         const recoveryCallCount = calls.filter(
@@ -1619,6 +1633,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(recoveryCalls[1]?.options).toMatchObject({
         excludeModels: ["bad-model"],
         toolChoice: "none",
+        maxFallbackModels: 2,
+        capability: "chat",
+        quality: "fast",
       });
       expect(recoveryCalls[1]?.messages[0]?.content).toContain("plain prose only");
       expect(result.response).toContain(claimText);
