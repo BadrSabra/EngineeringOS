@@ -10167,6 +10167,110 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(executions.at(-1)?.status).toBe("failed");
   });
 
+  it("keeps a deadline-driven incomplete analysis consistent across SSE, detail, and history", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const source = "src/deadline-read.ts";
+    const incomplete = "ANALYSIS_INCOMPLETE — the request deadline ended before the required analysis could be completed.";
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        outputLength: 120,
+        readStatus: "READ_COMPLETE",
+        resultSummary: "Source read completed before the request deadline.",
+      });
+      onStep?.({
+        kind: "evidence_integrity",
+        completedReadFiles: [source],
+        retainedBodyFiles: [source],
+        acceptedEvidenceFiles: [],
+        acceptedEvidenceCount: 0,
+        acceptedClaimCount: 0,
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 4,
+        maxIterations: 24,
+        toolCalls: 4,
+        prefetchToolCalls: 0,
+        loopToolCalls: 4,
+        stopReason: "evidence_incomplete",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: incomplete,
+          sources: [source],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية",
+      });
+
+    const events = parseSseEvents(res.text);
+    const done = events.find((event) => event.type === "done");
+    const message = done?.message as Record<string, unknown> | undefined;
+    const terminalProjection = done?.terminalProjection as Record<string, unknown> | undefined;
+    const executionId = terminalProjection?.executionId as string | undefined;
+    const sessionId = done?.sessionId as string | undefined;
+
+    expect(res.status).toBe(200);
+    expect(done).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      errorCode: "INCOMPLETE_AFTER_EVIDENCE_ATTEMPT",
+    });
+    expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(res.text).not.toContain("TOOL_EXECUTION_FAILED");
+    expect(executionId).toEqual(expect.any(String));
+    expect(sessionId).toEqual(expect.any(String));
+
+    const detail = await request(app)
+      .get(`/api/ai/executions/${executionId}`)
+      .expect(200);
+    expect(detail.body.terminalProjection).toMatchObject({
+      executionId,
+      sessionId,
+      status: "failed",
+      outcome: "FAILED",
+      taskObjective: { status: "INCOMPLETE" },
+    });
+    expect(detail.body.projection.stopped).toMatchObject({
+      reason: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      outcome: "FAILED",
+    });
+    expect(JSON.stringify(detail.body)).not.toContain("TOOL_EXECUTION_FAILED");
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    const assistant = (history.body as Array<Record<string, unknown>>)
+      .find((message) => message.role === "assistant");
+    expect(assistant).toMatchObject({
+      outcome: "FAILED",
+      errorCode: "INCOMPLETE_AFTER_EVIDENCE_ATTEMPT",
+      failureKind: "INCOMPLETE",
+    });
+    expect(assistant?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(JSON.stringify(assistant)).not.toContain("TOOL_EXECUTION_FAILED");
+  });
+
   it("should reject execution without a session before opening an SSE/model turn", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
