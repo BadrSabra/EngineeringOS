@@ -1003,6 +1003,59 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(400);
   });
 
+  it("preserves deterministic PROJECT_QUERY provenance across JSON and history reload", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    const response = "The project answer was assembled from retained source evidence.";
+
+    vi.mocked(mockChat).mockImplementationOnce(async () => ({
+      response,
+      sources: ["src/project.ts"],
+      pendingChanges: [],
+      projectQueryResponseSource: "deterministic_fallback",
+      projectQueryResponseFallbackReason: "synthesis_failed",
+    }));
+
+    const json = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What is this project?" });
+
+    expect(json.status).toBe(200);
+    expect(json.body).toMatchObject({
+      outcome: "SUCCEEDED",
+      projectQueryResponseSource: "deterministic_fallback",
+      projectQueryResponseFallbackReason: "synthesis_failed",
+      message: {
+        content: response,
+        turnIntent: "PROJECT_QUERY",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      },
+    });
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${json.body.sessionId}/messages`);
+
+    expect(history.status).toBe(200);
+    expect(history.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "assistant",
+        content: response,
+        turnIntent: "PROJECT_QUERY",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      }),
+    ]));
+
+    const [session] = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, json.body.sessionId))
+      .limit(1);
+    expect(session?.activeTaskState).toBeNull();
+  });
+
   it("keeps non-streaming project orientation incomplete after provider failure with retained reads", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
