@@ -13285,6 +13285,27 @@ export async function chat(opts: {
   const telemetryRejectionReason = telemetryBlocksVerdict
     ? `telemetry:${telemetryReconciliation.violations[0] ?? "TELEMETRY_INCONSISTENT"}`
     : undefined;
+  // Once a targeted project-query projection has complete materialized claims,
+  // a valid behavioral flow, a PROVEN objective gate, and consistent
+  // telemetry, it is the authoritative answer. Older generic evidence flags
+  // describe an earlier provider attempt and must not replace this accepted
+  // projection during final response selection.
+  const projectQueryProjectionAuthoritative =
+    isTargetedProjectQueryObjective &&
+    projectQueryEvidenceResponseOverride !== undefined &&
+    materializedProjectQueryEvidence.length === objective.requiredClaims.length &&
+    validateResponseLanguage(
+      projectQueryEvidenceResponseOverride,
+      responseLanguage,
+    ).valid &&
+    projectQueryAnswerHasBehavioralFlow(
+      objective,
+      projectQueryEvidenceResponseOverride,
+    ) &&
+    objectiveGate?.status === "PROVEN" &&
+    !objectiveBlocksVerdict &&
+    !anyRequiredClaimUnclosed &&
+    !telemetryBlocksVerdict;
   // EI-029/030: when the run's evidence scope is not plain production, replace
   // every bare "FINDING PROVEN" / "FINDING_PROVEN" occurrence in the accepted
   // response with the appropriate scoped label (e.g. "FIXTURE-LOCAL FINDING
@@ -13323,13 +13344,17 @@ export async function chat(opts: {
       ? "ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven."
       : capabilityProbeClaimUnclosed
       ? "ANALYSIS_INCOMPLETE — the capability probe retained both named source bodies, but strict evidence validation could not close every C1–C7 claim."
-      : providerReturnedEmptyEvidenceResponse && !objectiveBlocksVerdict
+      : providerReturnedEmptyEvidenceResponse &&
+          !objectiveBlocksVerdict &&
+          !projectQueryProjectionAuthoritative
           ? buildBehaviorEvidenceIncompleteResponse(
               message,
               forensicFileContents,
               responseLanguage,
             )
-      : insufficientAcceptedBehaviorEvidence && !objectiveBlocksVerdict
+      : insufficientAcceptedBehaviorEvidence &&
+          !objectiveBlocksVerdict &&
+          !projectQueryProjectionAuthoritative
       ? buildBehaviorEvidenceIncompleteResponse(
           message,
           forensicFileContents,
@@ -13741,6 +13766,31 @@ export async function chat(opts: {
       details: [missingRoles],
     });
   }
+  if (
+    isTargetedProjectQueryObjective &&
+    projectQueryEvidenceResponseOverride !== undefined
+  ) {
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "PROJECT_QUERY_TERMINAL_BINDING",
+      details: [
+        `terminalResponseUsesOverride=${
+          terminalResponse === projectQueryEvidenceResponseOverride ? "true" : "false"
+        }`,
+        `projectionAuthoritative=${
+          projectQueryProjectionAuthoritative ? "true" : "false"
+        }`,
+        `objectiveGate=${objectiveGate?.status ?? "none"}`,
+        `telemetryBlocked=${telemetryBlocksVerdict ? "true" : "false"}`,
+        ...(projectQueryResponseSource
+          ? [`responseSource=${projectQueryResponseSource}`]
+          : []),
+        ...(projectQueryFallbackReason
+          ? [`fallbackReason=${projectQueryFallbackReason}`]
+          : []),
+      ],
+    });
+  }
   if (terminalResponse !== gateFinalResponse) {
     relayAgentStep({
       kind: "diagnostic",
@@ -14009,6 +14059,10 @@ export async function chat(opts: {
       pendingChanges: validChanges,
       _parseError: parseError,
       resolvedModel: resolvedModelInfo,
+      ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
+      ...(projectQueryFallbackReason
+        ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
+        : {}),
       ...(productionReachability ? { productionReachability } : {}),
       ...(graphGuidance?.crossFileTraces?.length
         ? { crossFileTraces: graphGuidance.crossFileTraces.slice(0, 12) }

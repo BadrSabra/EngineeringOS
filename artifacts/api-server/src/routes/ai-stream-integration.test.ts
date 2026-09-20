@@ -6368,6 +6368,14 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
       args[6]?.({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_SOURCE",
+        details: [
+          "source=deterministic_fallback",
+          "fallbackReason=synthesis_failed",
+        ],
+      });
+      args[6]?.({
         kind: "decision_trace",
         trace: {
           taskType: "PROJECT_QUERY",
@@ -6399,6 +6407,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           response,
           sources,
           pendingChanges: [],
+          // Model the server-owned deterministic fallback projection so this
+          // route journey covers public provenance, not only acceptance.
+          projectQueryResponseSource: "deterministic_fallback",
+          projectQueryResponseFallbackReason: "synthesis_failed",
         },
         effectiveProvider: "groq" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
@@ -6435,7 +6447,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       message: {
         content: response,
         outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
       },
+      projectQueryResponseSource: "deterministic_fallback",
+      projectQueryResponseFallbackReason: "synthesis_failed",
     });
 
     const [execution] = await db
@@ -6529,6 +6545,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         role: "assistant",
         content: response,
         outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
       }),
     ]));
   });

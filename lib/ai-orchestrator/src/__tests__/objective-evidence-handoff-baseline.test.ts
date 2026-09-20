@@ -1138,7 +1138,9 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
           kind: "partial" as const,
           reason: "provider_failure" as const,
           result: {
-            content: JSON.stringify({ response: "", sources: [] }),
+            // Exercise a genuinely empty provider body. A JSON wrapper with an
+            // empty response does not enter providerReturnedEmptyEvidenceResponse.
+            content: "",
             toolCalls: null,
             model: "provider-failure-model",
             usage: {},
@@ -1253,6 +1255,19 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
           "fallbackReason=synthesis_failed",
           "responseClaims=ai-routing:true,ai-tool-loop:true,ai-provider-dispatch:true",
           "materializedClaims=3",
+        ]),
+      );
+
+      const terminalBinding = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_TERMINAL_BINDING",
+      );
+      expect(terminalBinding?.details).toEqual(
+        expect.arrayContaining([
+          "terminalResponseUsesOverride=true",
+          "projectionAuthoritative=true",
+          "objectiveGate=PROVEN",
+          "responseSource=deterministic_fallback",
+          "fallbackReason=synthesis_failed",
         ]),
       );
 
