@@ -49,6 +49,8 @@ export type OpenAICompatibleOptions = {
   maxFallbackModels?: number;
   /** Skip models that already produced an unusable structured result. */
   excludeModels?: string[];
+  /** Request phase used for execution-ledger attribution. */
+  operation?: string;
   /** Bearer API key — required. */
   apiKey: string;
   tools?: ToolDefinition[];
@@ -356,9 +358,10 @@ function admitProviderAttempt(
   ledger: ExecutionLedger | undefined,
   provider: string,
   model: string,
+  operation = "provider_request",
 ): number {
   const startedAt = Date.now();
-  if (ledger && !ledger.admit("provider_attempt", { provider, model, operation: "provider_request" })) {
+  if (ledger && !ledger.admit("provider_attempt", { provider, model, operation })) {
     throw new GroqClientError("TIMEOUT", `${provider} request budget exhausted`);
   }
   return startedAt;
@@ -370,11 +373,12 @@ function completeProviderAttempt(
   model: string,
   startedAt: number,
   error?: unknown,
+  operation = "provider_request",
 ): void {
   ledger?.complete("provider_attempt", {
     provider,
     model,
-    operation: "provider_request",
+    operation,
     startedAt,
     status: error ? "failed" : "completed",
     ...(error
@@ -953,7 +957,12 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const model = opts.model ?? FALLBACK_DEFAULT_MODEL;
-  const startedAt = admitProviderAttempt(opts.executionLedger, opts.providerName, model);
+  const startedAt = admitProviderAttempt(
+    opts.executionLedger,
+    opts.providerName,
+    model,
+    opts.operation,
+  );
   let error: unknown;
   try {
     return await oacCompleteRawUntracked(messages, {
@@ -964,7 +973,14 @@ export async function oacCompleteRaw(
     error = err;
     throw err;
   } finally {
-    completeProviderAttempt(opts.executionLedger, opts.providerName, model, startedAt, error);
+    completeProviderAttempt(
+      opts.executionLedger,
+      opts.providerName,
+      model,
+      startedAt,
+      error,
+      opts.operation,
+    );
   }
 }
 

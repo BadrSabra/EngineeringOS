@@ -45,6 +45,10 @@ export type StrategyCallOptions = {
    * Used by bounded forensic Recovery; ordinary calls leave it unset.
    */
   maxFallbackModels?: number;
+  /** Models already rejected by this request phase and not safe to retry. */
+  excludeModels?: string[];
+  /** Request phase used for provider-attempt attribution. */
+  operation?: string;
   /** Per-user API key. Required for all providers except Groq (which falls back to env). */
   apiKey?: string;
   /** Caller-owned cancellation signal for the active provider request. */

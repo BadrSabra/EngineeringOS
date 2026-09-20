@@ -42,6 +42,8 @@ export type AiTelemetryContext = {
 
 export type AiTelemetryAttempt = {
   attemptId?: string;
+  /** Request phase is diagnostic identity, not persisted provider content. */
+  operation?: string;
   provider: ProviderId;
   model?: string | null;
   outcome: "success" | "failure" | "cancelled";

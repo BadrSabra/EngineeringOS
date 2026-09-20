@@ -959,6 +959,36 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(ledger.snapshot().counts.provider_attempt).toBe(2);
     expect(ledger.snapshot().providers).toContain("OpenRouter");
   });
+
+  it("attributes bounded no-tools provider attempts to their recovery phase", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: "plain answer" }, finish_reason: "stop" }],
+        model: primaryModel,
+        usage: {},
+      }),
+    } as Response)));
+    const ledger = createExecutionLedger();
+
+    await oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerName: "OpenRouter",
+      model: primaryModel,
+      operation: "project_query_no_tools_synthesis",
+      executionLedger: ledger,
+    });
+
+    expect(ledger.snapshot().events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "provider_attempt",
+        operation: "project_query_no_tools_synthesis",
+        status: "completed",
+      }),
+    ]));
+  });
 });
 
 describe("OpenRouter tool selection", () => {

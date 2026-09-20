@@ -581,6 +581,7 @@ export async function emitLedgerProviderAttempts(
     await onProviderAttempt?.({
       provider,
       model,
+      ...(event.operation ? { operation: event.operation } : {}),
       outcome,
       latencyMs: event.durationMs ?? 0,
       attemptNumber: state.attemptNumber,

@@ -8624,77 +8624,147 @@ export async function chat(opts: {
         || !projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
       )
     ) {
-      recoveryAttemptsUsed += 1;
       const evidenceContext = materializedProjectQueryEvidence
         .map((item) => `Claim ${item.claimId} (${item.source}):\n${item.excerpt}`)
         .join("\n\n");
-      try {
-        const recovery = await strategy.call(
-          [
-            {
-              role: "system",
-              content:
-                "Synthesize a scoped project answer from the retained evidence below. " +
+      // Recovery is deliberately bounded, but a malformed no-tools response
+      // should not make the first model the final authority. Exclude the
+      // failed model for the next OpenRouter attempt and ask for a
+      // content-only response using an explicit protocol-repair instruction.
+      const recoveryMaxAttempts = providerId === "openrouter" ? 2 : 1;
+      const recoveryExcludedModels = new Set<string>();
+      let recoveryAccepted = false;
+      let recoveryFailureReason:
+        | "synthesis_failed"
+        | "provider_candidate_incomplete"
+        | undefined;
+
+      for (let recoveryAttempt = 0; recoveryAttempt < recoveryMaxAttempts; recoveryAttempt += 1) {
+        const admitted = executionLedger.admit("recovery", {
+          provider,
+          operation: "project_query_no_tools_synthesis",
+        });
+        if (!admitted) {
+          recoveryFailureReason ??= "synthesis_failed";
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "PROJECT_QUERY_NO_TOOLS_RECOVERY_BUDGET_EXHAUSTED",
+            details: [
+              `attempt=${recoveryAttempt + 1}`,
+              "request execution ledger rejected the bounded no-tools recovery",
+            ],
+          });
+          break;
+        }
+        recoveryAttemptsUsed += 1;
+        const repairAttempt = recoveryAttempt > 0;
+        const recoveryMessages = [
+          {
+            role: "system" as const,
+            content:
+              "Synthesize a scoped project answer from the retained evidence below. " +
               "Do not call tools or request more files. State every server-owned behavioral claim " +
               "assertion verbatim, then explain the execution sequence in the requested language. " +
-              "Do not replace a behavioral explanation with a symbol inventory.",
-            },
-            {
-              role: "user",
-              content: `${message}\n\nServer-owned retained evidence:\n${evidenceContext}`,
-            },
-          ],
-          {
-            model: providerId === "openrouter" ? undefined : (modelDecision.model || model),
-            maxTokens: 2400,
-            timeoutMs: 30_000,
-            retryTransient: false,
-            maxFallbackModels: 1,
-            circuitFailurePolicy: "suppress",
-            apiKey,
-            signal,
-            executionLedger,
+              "Do not replace a behavioral explanation with a symbol inventory." +
+              (repairAttempt
+                ? " The previous model output violated the no-tools response contract. " +
+                  "Return plain prose only: do not emit JSON, XML, tool markers, function calls, " +
+                  "or executable-looking calls such as executeToolLoop(...)."
+                : ""),
           },
-        );
-        const recoveredCandidate = parseAgentResponse(
-          recovery.content ?? "",
-          ChatResponseSchema,
-          fallbackChatOutput,
-        );
-        recoveredText = recoveredCandidate.ok
-          ? recoveredCandidate.data.response
-          : normalizeRecoveryAssistantText(recovery.content ?? "");
-        relayAgentStep({
-          kind: "diagnostic",
-          code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
-          details: [
-            `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
-            objectiveClaimsAreMentioned(objective, recoveredText)
-              ? "provider synthesis mentioned every required claim"
-              : "provider synthesis was incomplete; deterministic claim assembly was used",
-            projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
-              ? "provider synthesis included behavioral flow"
-              : "provider synthesis lacked behavioral flow",
-          ],
-        });
-      } catch (error) {
-        recoveredText = "";
-        projectQueryFallbackReason = "synthesis_failed";
-        const providerOutcome =
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          typeof (error as { code?: unknown }).code === "string"
-            ? (error as { code: string }).code
-            : "PROVIDER_FAILURE";
-        relayAgentStep({
-          kind: "diagnostic",
-          code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
-          details: [
-            "provider synthesis failed; deterministic claim assembly was used",
-            `provider outcome:${providerOutcome.slice(0, 48)}`,
-          ],
-        });
+          {
+            role: "user" as const,
+            content: `${message}\n\nServer-owned retained evidence:\n${evidenceContext}`,
+          },
+        ];
+
+        try {
+          const recovery = await strategy.call(
+            recoveryMessages,
+            {
+              model: providerId === "openrouter" ? undefined : (modelDecision.model || model),
+              maxTokens: 2400,
+              timeoutMs: 30_000,
+              retryTransient: false,
+              maxFallbackModels: 1,
+              ...(providerId === "openrouter" && recoveryExcludedModels.size > 0
+                ? { excludeModels: [...recoveryExcludedModels] }
+                : {}),
+              operation: "project_query_no_tools_synthesis",
+              circuitFailurePolicy: "suppress",
+              apiKey,
+              signal,
+              executionLedger,
+            },
+          );
+          if (providerId === "openrouter" && recovery.model) {
+            recoveryExcludedModels.add(recovery.model);
+          }
+          const recoveredCandidate = parseAgentResponse(
+            recovery.content ?? "",
+            ChatResponseSchema,
+            fallbackChatOutput,
+          );
+          recoveredText = recoveredCandidate.ok
+            ? recoveredCandidate.data.response
+            : normalizeRecoveryAssistantText(recovery.content ?? "");
+          const candidateAccepted = isValidProjectQueryCandidate(recoveredText);
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+            details: [
+              `attempt=${recoveryAttempt + 1}`,
+              repairAttempt ? "protocol repair attempt" : "initial provider synthesis attempt",
+              `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
+              objectiveClaimsAreMentioned(objective, recoveredText)
+                ? "provider synthesis mentioned every required claim"
+                : "provider synthesis was incomplete",
+              projectQueryAnswerHasBehavioralFlow(objective, recoveredText)
+                ? "provider synthesis included behavioral flow"
+                : "provider synthesis lacked behavioral flow",
+              candidateAccepted ? "provider candidate accepted" : "provider candidate rejected",
+            ],
+          });
+          if (candidateAccepted) {
+            recoveryAccepted = true;
+            break;
+          }
+          recoveredText = "";
+          recoveryFailureReason = "provider_candidate_incomplete";
+        } catch (error) {
+          recoveredText = "";
+          recoveryFailureReason = "synthesis_failed";
+          const providerOutcome =
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            typeof (error as { code?: unknown }).code === "string"
+              ? (error as { code: string }).code
+              : "PROVIDER_FAILURE";
+          if (providerId === "openrouter" && error instanceof GroqClientError) {
+            for (const attemptedModel of [
+              ...(error.providerAttemptedModels ?? []),
+              error.providerModel ?? "",
+            ]) {
+              if (attemptedModel) recoveryExcludedModels.add(attemptedModel);
+            }
+          }
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+            details: [
+              `attempt=${recoveryAttempt + 1}`,
+              repairAttempt ? "protocol repair attempt failed" : "provider synthesis failed",
+              `provider outcome:${providerOutcome.slice(0, 48)}`,
+              recoveryAttempt + 1 < recoveryMaxAttempts
+                ? "retrying with an excluded model"
+                : "deterministic claim assembly will be used",
+            ],
+          });
+        }
+      }
+      if (!recoveryAccepted) {
+        projectQueryFallbackReason = recoveryFailureReason ?? "synthesis_failed";
       }
     }
     if (
