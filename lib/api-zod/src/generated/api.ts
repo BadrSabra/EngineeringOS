@@ -4624,6 +4624,26 @@ export const RecoverAiExecutionResumeCapabilityResponse = zod.object({
 
 
 /**
+ * Owner-scoped recovery for executions eligible for a checkpoint retry. The stored token hash and provider diagnostics are never returned.
+ * @summary Rotate and return a one-time checkpoint retry capability
+ */
+export const RecoverAiExecutionRetryCapabilityParams = zod.object({
+  "executionId": zod.coerce.string()
+})
+
+export const recoverAiExecutionRetryCapabilityResponseResumeTokenMin = 32;
+
+
+
+
+export const RecoverAiExecutionRetryCapabilityResponse = zod.object({
+  "executionId": zod.string(),
+  "resumeToken": zod.string().min(recoverAiExecutionRetryCapabilityResponseResumeTokenMin),
+  "attempt": zod.number().int().min(1)
+})
+
+
+/**
  * Owner-scoped, bounded recovery for an uncertain paused operation. The original operation, evidence, and user turn are retained.
  * @summary Resume or abandon an uncertain AI execution
  */

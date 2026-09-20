@@ -5452,6 +5452,14 @@ export type RecoverAiExecutionResumeCapability200 = {
   resumeToken: string;
 };
 
+export type RecoverAiExecutionRetryCapability200 = {
+  executionId: string;
+  /** @minLength 32 */
+  resumeToken: string;
+  /** @minimum 1 */
+  attempt: number;
+};
+
 export type RecoverAiExecution200Outcome = typeof RecoverAiExecution200Outcome[keyof typeof RecoverAiExecution200Outcome];
 
 

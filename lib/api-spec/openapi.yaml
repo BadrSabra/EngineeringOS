@@ -1886,6 +1886,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/retry-capability:
+    post:
+      operationId: recoverAiExecutionRetryCapability
+      summary: Rotate and return a one-time checkpoint retry capability
+      description: Owner-scoped recovery for executions eligible for a checkpoint retry. The stored token hash and provider diagnostics are never returned.
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Newly rotated checkpoint retry capability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [executionId, resumeToken, attempt]
+                properties:
+                  executionId: { type: string }
+                  resumeToken: { type: string, minLength: 32 }
+                  attempt: { type: integer, minimum: 1 }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Execution is not eligible for checkpoint retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /api/ai/executions/{executionId}/recovery:
     post:
       operationId: recoverAiExecution

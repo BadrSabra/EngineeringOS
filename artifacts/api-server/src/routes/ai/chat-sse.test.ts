@@ -132,7 +132,7 @@ vi.mock("@workspace/db", () => {
 
   return {
     db: {
-      select: () => ({
+      select: (fields?: Record<string, unknown>) => ({
         from: (table: unknown) => ({
           where: (predicate?: unknown) => ({
             limit: () => {
@@ -164,6 +164,12 @@ vi.mock("@workspace/db", () => {
               if (
                 (table as { _tag?: string })._tag === "aiExecutionsTable"
                 && (
+                  (
+                    Object.keys(fields ?? {}).length === 1
+                    && Object.prototype.hasOwnProperty.call(fields, "status")
+                    && (fixture.execution.status === "running" || fixture.execution.status === "cancelling")
+                  )
+                  ||
                   exposeExecutionForCancel
                   || (
                     (fixture.execution.status === "running" || fixture.execution.status === "cancelling")
@@ -788,6 +794,9 @@ beforeEach(async () => {
   dbFixture.messages.length = 0;
   dbFixture.execution.status = "queued";
   dbFixture.execution.finalMessageId = null;
+  dbFixture.execution.cancelRequestedAt = null;
+  dbFixture.execution.error = null;
+  dbFixture.execution.checkpoint = "{}";
   dbModule.__setExposeExecutionForCancel(false);
 
   // Each test owns the in-memory DB and the route-bound mocks it exercises.

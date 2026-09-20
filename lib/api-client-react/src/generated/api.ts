@@ -135,6 +135,7 @@ import type {
   RecordTaskVerificationInput,
   RecoverAiExecution200,
   RecoverAiExecutionResumeCapability200,
+  RecoverAiExecutionRetryCapability200,
   RegenerateMissionCorrelationReport200,
   ResumeAiDeliveryValidation200,
   RollbackWorkflowPhaseInput,
@@ -5564,6 +5565,81 @@ export const useRecoverAiExecutionResumeCapability = <TError = ErrorType<ApiErro
         TContext
       > => {
       return useMutation(getRecoverAiExecutionResumeCapabilityMutationOptions(options));
+    }
+
+export const getRecoverAiExecutionRetryCapabilityUrl = (executionId: string,) => {
+
+
+
+
+  return `/api/ai/executions/${executionId}/retry-capability`
+}
+
+/**
+ * Owner-scoped recovery for executions eligible for a checkpoint retry. The stored token hash and provider diagnostics are never returned.
+ * @summary Rotate and return a one-time checkpoint retry capability
+ */
+export const recoverAiExecutionRetryCapability = async (executionId: string, options?: Parameters<typeof customFetch>[1]): Promise<RecoverAiExecutionRetryCapability200> => {
+
+  return customFetch<RecoverAiExecutionRetryCapability200>(getRecoverAiExecutionRetryCapabilityUrl(executionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRecoverAiExecutionRetryCapabilityMutationKey = () => ['recoverAiExecutionRetryCapability'] as const;
+
+export const getRecoverAiExecutionRetryCapabilityMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecutionRetryCapability>>, TError,RecoverAiExecutionRetryCapabilityMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecutionRetryCapability>>, TError,RecoverAiExecutionRetryCapabilityMutationVariables, TContext> => {
+
+const mutationKey = getRecoverAiExecutionRetryCapabilityMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recoverAiExecutionRetryCapability>>, RecoverAiExecutionRetryCapabilityMutationVariables> = (props) => {
+          const {executionId} = props ?? {};
+
+          return  recoverAiExecutionRetryCapability(executionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecoverAiExecutionRetryCapabilityMutationResult = NonNullable<Awaited<ReturnType<typeof recoverAiExecutionRetryCapability>>>
+
+    export type RecoverAiExecutionRetryCapabilityMutationError = ErrorType<ApiError>
+    export type RecoverAiExecutionRetryCapabilityMutationVariables = {executionId: string}
+
+    /**
+ * @summary Rotate and return a one-time checkpoint retry capability
+ */
+export const useRecoverAiExecutionRetryCapability = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecutionRetryCapability>>, TError,RecoverAiExecutionRetryCapabilityMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recoverAiExecutionRetryCapability>>,
+        TError,
+        RecoverAiExecutionRetryCapabilityMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRecoverAiExecutionRetryCapabilityMutationOptions(options));
     }
 
 export const getRecoverAiExecutionUrl = (executionId: string,) => {

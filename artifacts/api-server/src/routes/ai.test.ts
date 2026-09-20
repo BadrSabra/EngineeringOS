@@ -3136,12 +3136,20 @@ describe("POST /api/ai/executions/:executionId/retry-capability", () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const executionId = randomUUID();
+    const sessionId = randomUUID();
     const now = new Date();
 
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Retry capability",
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(aiExecutionsTable).values({
       id: executionId,
       projectId,
-      sessionId: randomUUID(),
+      sessionId,
       operationId: executionId,
       userId: "test-user",
       idempotencyKey: randomUUID(),
@@ -4225,7 +4233,6 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       checkpoint: JSON.stringify({
         stage: "failed",
         sequence: 1,
-        providerAttempts: [{ provider: "Groq", code: "RATE_LIMITED" }],
         retryAfterMs: 30_000,
         retryAt,
         updatedAt: now.toISOString(),

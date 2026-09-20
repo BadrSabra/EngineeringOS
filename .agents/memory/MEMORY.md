@@ -155,3 +155,4 @@
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
+- [Chat SSE fixture lifecycle](chat-sse-fixture-lifecycle.md) — SSE fixtures must expose running executions to controller registration and reset cancellation state between tests.

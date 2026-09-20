@@ -472,6 +472,7 @@ export * from './recordTaskVerificationInput';
 export * from './recoverAiExecution200';
 export * from './recoverAiExecution200Outcome';
 export * from './recoverAiExecutionResumeCapability200';
+export * from './recoverAiExecutionRetryCapability200';
 export * from './regenerateMissionCorrelationReport200';
 export * from './remediationEvidence';
 export * from './remediationPlan';
