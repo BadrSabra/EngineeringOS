@@ -3942,6 +3942,49 @@ export type ChatResult = ChatOutput & {
   repairPlan?: RepairPlanMetadata[];
 };
 
+/**
+ * Keep the final server-owned projection intact when an unrelated optional
+ * field makes the assembled output fail ChatOutputSchema. Provider JSON is
+ * intentionally not used as the source of provenance here.
+ */
+export function salvageChatOutput(params: {
+  parsedData: Pick<ChatOutput, "response" | "sources"> & Partial<ChatOutput>;
+  terminalResponse: string;
+  mergedSources: string[];
+  pendingChanges: readonly unknown[];
+  parseError?: ChatResult["_parseError"];
+  resolvedModel?: ResolvedModelInfo;
+  projectQueryResponseSource?: ChatOutput["projectQueryResponseSource"];
+  projectQueryFallbackReason?: ChatOutput["projectQueryResponseFallbackReason"];
+  productionReachability?: ChatOutput["productionReachability"] | null;
+  crossFileTraces?: ChatOutput["crossFileTraces"];
+}): ChatResult {
+  const validChanges = params.pendingChanges.filter(
+    (pendingChange): pendingChange is PendingChange =>
+      PendingChangeSchema.safeParse(pendingChange).success,
+  );
+  return {
+    ...params.parsedData,
+    response: params.terminalResponse,
+    sources: params.mergedSources,
+    pendingChanges: validChanges,
+    ...(params.parseError ? { _parseError: params.parseError } : {}),
+    ...(params.resolvedModel ? { resolvedModel: params.resolvedModel } : {}),
+    ...(params.projectQueryResponseSource
+      ? { projectQueryResponseSource: params.projectQueryResponseSource }
+      : {}),
+    ...(params.projectQueryFallbackReason
+      ? { projectQueryResponseFallbackReason: params.projectQueryFallbackReason }
+      : {}),
+    ...(params.productionReachability
+      ? { productionReachability: params.productionReachability }
+      : {}),
+    ...(params.crossFileTraces?.length
+      ? { crossFileTraces: params.crossFileTraces.slice(0, 12) }
+      : {}),
+  } as ChatResult;
+}
+
 function buildRuntimeProductionTrace(
   baseLinks: readonly ProductionTraceLink[] | undefined,
   taskTelemetry: readonly AgentStep[],
@@ -14048,26 +14091,22 @@ export async function chat(opts: {
         droppedChanges: getExecutionPendingChanges().length - validChanges.length,
       }),
     );
-    return {
-      ...parsed.data,
-      // AI-OBJ-014: never leak the raw pre-gate answer through the salvage
-      // path. When the objective/final-answer gates blocked, the gated text is
-      // authoritative and must stay authoritative even if the output object
-      // fails ChatOutputSchema for an unrelated reason (e.g. a dropped change).
-      response: terminalResponse,
-      sources: mergedSources,
-      pendingChanges: validChanges,
-      _parseError: parseError,
+    // AI-OBJ-014: never leak the raw pre-gate answer through the salvage
+    // path. When the objective/final-answer gates blocked, the gated text is
+    // authoritative and must stay authoritative even if the output object
+    // fails ChatOutputSchema for an unrelated reason (e.g. a dropped change).
+    return salvageChatOutput({
+      parsedData: parsed.data,
+      terminalResponse,
+      mergedSources,
+      pendingChanges: getExecutionPendingChanges(),
+      parseError,
       resolvedModel: resolvedModelInfo,
-      ...(projectQueryResponseSource ? { projectQueryResponseSource } : {}),
-      ...(projectQueryFallbackReason
-        ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
-        : {}),
-      ...(productionReachability ? { productionReachability } : {}),
-      ...(graphGuidance?.crossFileTraces?.length
-        ? { crossFileTraces: graphGuidance.crossFileTraces.slice(0, 12) }
-        : {}),
-    };
+      projectQueryResponseSource,
+      projectQueryFallbackReason,
+      productionReachability,
+      crossFileTraces: graphGuidance?.crossFileTraces,
+    });
   }
   if (parseError) {
     // Generic non-streaming chat must not return the tolerant raw fallback as

@@ -7292,6 +7292,9 @@ export async function handleChatStream(req: Request, res: Response) {
     let orientationManifest: AiOrientationRoleManifest | undefined =
       executionRequest.resumeContract?.orientationManifest;
     let proofRequired = executionRequest.proofRequired === true;
+    sourceEvidenceRequiredForTurn =
+      sourceEvidenceRequiredForTurn
+      || (proofRequired && executionRequest.turnIntent === "PROJECT_QUERY");
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
     aiExecution = effectiveExecutionId
@@ -7469,7 +7472,9 @@ export async function handleChatStream(req: Request, res: Response) {
       projectOrientationExecution =
         projectOrientationTurn || executionRequest.projectOrientation === true;
       sourceEvidenceRequiredForTurn =
-        streamTurnIntent.requiresEvidence || projectOrientationExecution;
+        streamTurnIntent.requiresEvidence
+        || projectOrientationExecution
+        || (proofRequired && executionRequest.turnIntent === "PROJECT_QUERY");
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
       orientationManifest =

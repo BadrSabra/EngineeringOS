@@ -15,7 +15,6 @@
 - [AI fixture provider lifecycle](ai-fixture-provider-lifecycle.md) — deterministic chat fixtures must stub lifecycle selectability when fallback rechecks a dummy provider key.
 - [Arabic fixture guards](arabic-fixture-guards.md) — Arabic response fixtures must be checked at construction time so English-only regressions name the fixture before scenario assertions.
 - [Forensic fixture language](forensic-fixture-language.md) — deterministic forensic prompts and natural-language reports must use the same language.
-- [Preview port cleanup](preview-port-cleanup.md) — this environment provides lsof, not fuser; port cleanup must wait for listeners to disappear before startup.
 - [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
 - [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
 - [Forensic Recovery formatting](forensic-recovery-formatting.md) — tolerate harmless heading styles only; contract, coverage, Finding, and repair gates remain strict.
@@ -73,7 +72,6 @@
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
 - [Context slice health](context-slice-health.md) — keep empty, skipped, loaded, and failed reads distinct from freshness and admission state.
 - [Session memory lifecycle](session-memory-lifecycle.md) — memory is bounded untrusted navigation context with once-daily decay and durable idempotent delivery.
-- [Empirical corpus metadata](empirical-corpus-metadata.md) — traverse GitHub trees non-recursively; commit-SHA tree responses identify the commit, not its root tree SHA.
 - [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
 - [Live proposal hydration](live-proposal-hydration.md) — preserve a streamed pending proposal until the session query observes its durable approval record.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
@@ -139,7 +137,6 @@
 - [Git history evidence](git-history-retrieval.md) — bounded path history is optional and keeps Git revision separate from other revisions.
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
-- [Execution projection surfaces](execution-projection-surfaces.md) — Chat, Tasks, Mission Control, and Flight Deck share the server-owned read model; legacy controls remain bounded fallbacks.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
 - [Project orientation evidence scheduler](project-orientation-evidence-scheduler.md) — role paths must enter the server-owned evidence manifest, not remain a final coverage diagnostic.
@@ -150,10 +147,9 @@
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
- - [Operator alert campaign isolation](operator-alert-campaign-isolation.md) — controlled campaign assertions must scope alerts to campaign-owned kinds or fingerprints because shared fixtures retain unrelated active alerts.
  - [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
 - [Cancellation controller registration](cancellation-controller-registration.md) — durable cancellation must win even when a worker registers its AbortController after the cancel request.
-- [Live evaluation inconclusive outcomes](live-evaluation-inconclusive.md) — provider/runtime exceptions do not prove application contract success or failure; live receipts must mark them inconclusive.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Empty prefetch reads](empty-prefetch-reads.md) — prefetch must reject empty tool output before creating cache/messages; otherwise failed paths enter status telemetry without a traceable read event.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
+- [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.

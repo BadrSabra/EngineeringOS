@@ -1013,82 +1013,27 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.behaviorAnswer?.answer).toContain("maxIterations");
   });
 
-  it("drops pendingChanges when the assembled output fails ChatOutputSchema", async () => {
-    // Mock Groq: first call emits a write_file tool call, second is the final response.
-    vi.doMock("groq-sdk", () => ({
-      default: class {
-        chat = {
-          completions: {
-            create: vi
-              .fn()
-              .mockResolvedValueOnce({
-                choices: [
-                  {
-                    message: {
-                      content: "",
-                      tool_calls: [
-                        {
-                          id: "tc1",
-                          type: "function",
-                          function: { name: "write_file", arguments: '{"path":"src/foo.ts","content":"x"}' },
-                        },
-                      ],
-                    },
-                  },
-                ],
-                model: "m",
-                usage: {},
-              })
-              .mockResolvedValueOnce({
-                choices: [{ message: { content: '{"response":"done","sources":[]}' } }],
-                model: "m",
-                usage: {},
-              }),
-          },
-        };
-      },
-    }));
-
-    // Override executeFileTool to push a PendingChange with an invalid absolutePath.
-    vi.doMock("../tools/file-tools.js", async () => {
-      const actual = await vi.importActual<typeof import("../tools/file-tools.js")>("../tools/file-tools.js");
-      return {
-        ...actual,
-        executeFileTool: vi.fn(
-          async (
-            _name: string,
-            _args: unknown,
-            _root: string,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            pendingChanges: Array<any>,
-          ) => {
-            pendingChanges.push({
-              path: "src/foo.ts",
-              absolutePath: "relative/bad/path", // invalid — not absolute
-              newContent: "x",
-              originalContent: null,
-              reason: "injected bad change",
-            });
-            return "wrote file";
-          },
-        ),
-      };
+  it("preserves server-owned provenance when schema salvage drops malformed changes", async () => {
+    const { salvageChatOutput } = await import("../agents/chat-agent.js");
+    const result = salvageChatOutput({
+      parsedData: { response: "provider", sources: [] },
+      terminalResponse: "gated",
+      mergedSources: [],
+      pendingChanges: [{
+        path: "src/foo.ts",
+        absolutePath: "relative/bad/path",
+        newContent: "x",
+        originalContent: null,
+        reason: "injected bad change",
+      }],
+      projectQueryResponseSource: "deterministic_fallback",
+      projectQueryFallbackReason: "synthesis_failed",
     });
 
-    const { chat } = await import("../agents/chat-agent.js");
-    const result = await chat({
-      message: "write foo",
-      history: [],
-      projectContext: makeContext(),
-      rootPath: "/home/project",
-    });
-
-    expect(result.response).toBeDefined();
-    // Every surviving pendingChange must have a valid absolute path.
-    const changes = result.pendingChanges ?? [];
-    for (const c of changes) {
-      expect(c.absolutePath.startsWith("/")).toBe(true);
-    }
+    expect(result.response).toBe("gated");
+    expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
+    expect(result.projectQueryResponseFallbackReason).toBe("synthesis_failed");
+    expect(result.pendingChanges).toEqual([]);
   });
 });
 

@@ -6304,6 +6304,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       "artifacts/api-server/src/routes/ai/chat.ts",
       "lib/ai-orchestrator/src/turn-intent.ts",
       "lib/ai-orchestrator/src/agents/chat-agent.ts",
+      "lib/ai-orchestrator/src/project-query-target.ts",
+      "lib/ai-orchestrator/src/agents/query-planner.ts",
+      "lib/ai-orchestrator/src/evidence-integrity.ts",
+      "artifacts/api-server/src/lib/ai-execution-state.ts",
+      "artifacts/api-server/src/lib/ai-terminal-outcome.ts",
+      "lib/db/src/schema/ai_chats.ts",
     ];
     const sourceBodies = new Map<string, string>([
       [
@@ -6312,14 +6318,67 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           "const turnIntent = resolveTurnIntent(message);",
           "const provider = await requireProvider();",
           "return chatWithFallback(provider, turnIntent);",
+          "const execution = await createAiExecution();",
+          "await checkpointAiExecution(execution);",
+          "return serializeAiSseEvent({ terminalProjection });",
         ].join("\n"),
       ],
-      [sources[1], "export const turnIntent = resolveTurnIntent(message);"],
+      [
+        sources[1],
+        [
+          "export const turnIntent = resolveTurnIntent(message);",
+          "const turnIntent = resolveTurnIntent(message);",
+        ].join("\n"),
+      ],
       [
         sources[2],
         [
           "const loopResult = await executeToolLoop({ objective });",
           "return synthesize(loopResult);",
+        ].join("\n"),
+      ],
+      [
+        sources[3],
+        [
+          "const objective = buildProjectQueryObjective(target, goal);",
+          "const requiredClaims = objective.requiredClaims;",
+        ].join("\n"),
+      ],
+      [
+        sources[4],
+        [
+          "const compoundParts = plan.compoundParts;",
+          "const subQueries = plan.subQueries;",
+        ].join("\n"),
+      ],
+      [
+        sources[5],
+        [
+          "const gate = objectiveCompletionGate(ledger, objective);",
+          "return validateFinalAnswer(response, evidence);",
+        ].join("\n"),
+      ],
+      [
+        sources[6],
+        [
+          "await checkpointAiExecution(execution);",
+          "await claimAiExecution(execution);",
+          "return validateAnalysisEvidenceCompletion(state);",
+        ].join("\n"),
+      ],
+      [
+        sources[7],
+        [
+          "type AiTerminalProjection = { outcome: string };",
+          "const outcome = terminalProjection.outcome;",
+        ].join("\n"),
+      ],
+      [
+        sources[8],
+        [
+          "sessionId: string;",
+          "outcome: string;",
+          "executionId: string;",
         ].join("\n"),
       ],
     ]);
@@ -6328,6 +6387,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       "The chat route resolves the turn intent before selecting the execution path.",
       "The tool-enabled chat execution enters executeToolLoop and retains its tool results before synthesis.",
       "The route dispatches provider requests through chatWithFallback before final response validation.",
+      "The project-query target and planner turn the request into bounded required claims, evidence paths, and compound analysis parts before source reads.",
+      "The server-owned evidence and objective gates require retained evidence, closed claims, and a validated final answer before the project analysis is proven.",
+      "The API route creates and checkpoints a durable AI execution so execution identity, evidence, and resumable state survive beyond the provider call.",
+      "Direct JSON, streamed SSE, persisted messages, and history reloads use the same server-owned session and terminal outcome identity.",
     ].join("\n\n");
     let providerInput: {
       objective?: {
@@ -6363,7 +6426,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         completedReadFiles: sources,
         retainedBodyFiles: sources,
         acceptedEvidenceFiles: sources,
-        acceptedClaimCount: 3,
+         acceptedClaimCount: 7,
         completionGateResult: "PROVEN",
         finalAnswerType: "BEHAVIORAL_ANSWER",
       });
@@ -6419,7 +6482,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const stream = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
-      .send({ projectId, message: "حلل طبقة الذكاء الاصطناعي المدمج داخل المشروع" });
+      .send({ projectId, message: "اشرح وحلل طبقات الذكاء الاصطناعي داخل المشروع" });
 
     expect(stream.status).toBe(200);
     expect(providerInput?.objective).toMatchObject({
@@ -6437,6 +6500,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         {
           claimId: "ai-provider-dispatch",
           text: "The route dispatches provider requests through chatWithFallback before final response validation.",
+        },
+        {
+          claimId: "ai-query-planning",
+          text: "The project-query target and planner turn the request into bounded required claims, evidence paths, and compound analysis parts before source reads.",
+        },
+        {
+          claimId: "ai-evidence-acceptance",
+          text: "The server-owned evidence and objective gates require retained evidence, closed claims, and a validated final answer before the project analysis is proven.",
+        },
+        {
+          claimId: "ai-durable-execution",
+          text: "The API route creates and checkpoints a durable AI execution so execution identity, evidence, and resumable state survive beyond the provider call.",
+        },
+        {
+          claimId: "ai-terminal-projection-parity",
+          text: "Direct JSON, streamed SSE, persisted messages, and history reloads use the same server-owned session and terminal outcome identity.",
         },
       ],
     });
