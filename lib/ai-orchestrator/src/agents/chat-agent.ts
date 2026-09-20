@@ -260,6 +260,7 @@ import {
   type ActiveTaskState,
   type ExecutionNode,
 } from "../task-session-state.js";
+import { isEmbeddedAiLayerAnalysisRequest } from "../project-query-target.js";
 
 const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
   "read_file",
@@ -5299,6 +5300,16 @@ export function buildProjectQueryEvidenceSynthesis(
         "Finally, any weakness without a direct executable excerpt remains unproven.",
       ];
   const selectedGenericFlow = isGapAnalysis ? gapGenericFlow : genericFlow;
+  const isLayerAnalysis = !isGapAnalysis
+    && objective.objectiveType === "PROJECT_QUERY_EMBEDDED-AI"
+    && isEmbeddedAiLayerAnalysisRequest(objective.goal ?? "");
+  const projectQueryTitle = isLayerAnalysis
+    ? isArabic
+      ? "## طبقات الذكاء الاصطناعي داخل المشروع"
+      : "## AI layers inside the project"
+    : isArabic
+      ? "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟"
+      : "## How the embedded AI agent works";
   const flow = evidence
     .map((item) => flowMap[item.claimId]?.[isArabic ? "ar" : "en"])
     .filter((sentence): sentence is string => Boolean(sentence));
@@ -5324,11 +5335,14 @@ export function buildProjectQueryEvidenceSynthesis(
           "### مسار تحليل الفجوات",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
           "",
-          "### ماذا أثبتت القراءات؟",
-          "النقاط التالية أُغلقت بأدلة مصدرية مكتملة، وهي تحدد حدود التحليل المطلوبة:",
+           "### الادعاء المثبت",
+           "النقاط التالية أُغلقت بأدلة مصدرية مكتملة، وهي تحدد حدود التحليل المطلوبة:",
           ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
           "",
-          "### المصادر",
+           "### الشرح",
+           ...(flow.length > 0 ? flow : selectedGenericFlow),
+           "",
+           "### المصدر",
           ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
           "",
           "### حدود الحكم",
@@ -5342,11 +5356,14 @@ export function buildProjectQueryEvidenceSynthesis(
           "### Gap-analysis flow",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
           "",
-          "### What the reads proved",
-          "The following checkpoints were closed by complete source evidence:",
+           "### Verified assertion",
+           "The following checkpoints were closed by complete source evidence:",
           ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
           "",
-          "### Sources",
+           "### Explanation",
+           ...(flow.length > 0 ? flow : selectedGenericFlow),
+           "",
+           "### Source",
           ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
           "",
           "### Judgment boundary",
@@ -5354,36 +5371,42 @@ export function buildProjectQueryEvidenceSynthesis(
         ]
     : isArabic
       ? [
-          "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟",
+           projectQueryTitle,
           "",
           "باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات.",
           "",
           "### الدورة العملية",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
           "",
-          "### ماذا تم التحقق منه؟",
-          "النقاط التالية هي الأساس التقني للشرح، وقد تم ربط كل نقطة بقراءة مكتملة من المصدر:",
+           "### الادعاء المثبت",
+           "النقاط التالية هي الادعاءات server-owned التي أغلقتها القراءات المكتملة:",
           ...(claimLines.length > 0 ? claimLines : ["- لا توجد نافذة مصدر مكتملة مرتبطة بادعاء."]),
           "",
-          "### المصادر",
+           "### الشرح",
+           ...(flow.length > 0 ? flow : selectedGenericFlow),
+           "",
+           "### المصدر",
           ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
           "",
           "### حدود الشرح",
           "يثبت هذا التحليل سلوك الكود داخل نوافذ المصدر المقروءة. لا يثبت وحده قابلية الوصول الإنتاجية أو سلوكاً لم يظهر في هذه القراءات.",
         ]
       : [
-          "## How the embedded AI agent works",
+           projectQueryTitle,
           "",
           "In short, the agent interprets the question, selects an execution path, gathers source evidence, dispatches the provider request, and then writes an answer bounded by what was verified. No files were modified in this analysis.",
           "",
           "### The practical flow",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
           "",
-          "### What was verified",
-          "The following technical points form the basis of the explanation, and each one is bound to a completed source read:",
+           "### Verified assertion",
+           "The following server-owned assertions were closed by completed source reads:",
           ...(claimLines.length > 0 ? claimLines : ["- No completed source window is bound to a claim."]),
           "",
-          "### Sources",
+           "### Explanation",
+           ...(flow.length > 0 ? flow : selectedGenericFlow),
+           "",
+           "### Source",
           ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
           "",
           "### Scope of the explanation",

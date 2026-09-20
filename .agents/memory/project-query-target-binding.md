@@ -14,3 +14,9 @@ Analysis-backed project queries need their existing acceptance adapter: retained
 **Why:** A real embedded-AI run retained three complete reads and three accepted evidence files but still had `acceptedClaimCount=0`, `completionGateResult=BLOCKED`, and `finalAnswerType=NO_ANSWER`. The state and acceptance validators correctly rejected that projection; the defect was upstream evidence-window/candidate binding, not missing database acceptance logic.
 
 **How to apply:** Fix objective read-window ownership first and add a terminal regression that asserts the same candidate reaches `closeObjectiveClaimsFromEvidence` and `AnalysisEvidenceCompletion`. Only change the route projection if that test shows it drops already-closed claims; never add a parallel acceptance layer.
+
+Layer-analysis wording is an explicit bounded alias set, not a broad architecture synonym: support “layer(s)”, “AI architecture/stack”, “AI structure”, and “agent architecture” only when the project/AI scope is present.
+
+**Why:** Broad architecture orientation must remain separate from targeted embedded-AI evidence queries; widening every architecture synonym would silently reroute multi-domain orientation requests.
+
+**How to apply:** Add aliases through the dedicated layer detector and test both targeted routing and the broad-orientation conflict before changing claim expansion.

@@ -6100,7 +6100,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(res.status).toBe(200);
     expect(providerInput?.objective).toMatchObject({
       objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
-      requiredEvidencePaths: sources,
+      requiredEvidencePaths: expect.arrayContaining(sources),
     });
     const events = parseSseEvents(res.text);
     expect(events.find((event) => event.type === "execution_started")).toMatchObject({

@@ -133,6 +133,8 @@ export type AiStreamDoneEvent = {
     projectQueryTarget?: {
       mode: 'resolved_target' | 'bounded_unresolved_hint' | 'source_first_discovery';
     } | null;
+    projectQueryResponseSource?: 'provider_synthesis' | 'deterministic_fallback';
+    projectQueryResponseFallbackReason?: 'synthesis_failed' | 'provider_candidate_incomplete';
     outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
     errorCode?: string | null;
     errorMessage?: string | null;
@@ -199,6 +201,8 @@ export type AiStreamDoneEvent = {
        };
   _meta?: { rootPathFallback?: { used: boolean; original?: string } };
   forensicDiagnostic?: ForensicDiagnostic;
+  projectQueryResponseSource?: 'provider_synthesis' | 'deterministic_fallback';
+  projectQueryResponseFallbackReason?: 'synthesis_failed' | 'provider_candidate_incomplete';
 };
 
 export type AiStreamSessionStartedEvent = {

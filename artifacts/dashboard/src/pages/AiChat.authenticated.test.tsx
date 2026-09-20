@@ -399,6 +399,9 @@ beforeEach(() => {
     errorCode: undefined,
     errorMessage: undefined,
     executionLedger: undefined,
+    projectQueryResponseSource: undefined,
+    projectQueryResponseFallbackReason: undefined,
+    acceptanceDisposition: undefined,
     terminalProjection: undefined,
     forensicDiagnostic: undefined,
   };
@@ -2007,6 +2010,69 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.queryByText('ANALYSIS_INCOMPLETE')).not.toBeInTheDocument();
     expect(screen.queryByText(/stale generic forensic projection|Review the audit scope/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Forensic evidence/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: 'provider synthesis',
+      source: 'provider_synthesis' as const,
+      fallbackReason: undefined,
+      expectedSource: 'Provider synthesis',
+      expectedReason: undefined,
+    },
+    {
+      name: 'deterministic fallback',
+      source: 'deterministic_fallback' as const,
+      fallbackReason: 'synthesis_failed' as const,
+      expectedSource: 'Evidence-based fallback',
+      expectedReason: 'Synthesis failed',
+    },
+    {
+      name: 'fallback without a reason',
+      source: 'deterministic_fallback' as const,
+      fallbackReason: undefined,
+      expectedSource: 'Evidence-based fallback',
+      expectedReason: 'Not provided',
+    },
+    {
+      name: 'telemetry-blocked response',
+      source: undefined,
+      fallbackReason: undefined,
+      acceptanceDisposition: {
+        reasonCodes: ['EXECUTION_ACCEPTANCE_INCOMPLETE'],
+        outcome: 'FAILED',
+        failureKind: 'INCOMPLETE',
+        recoveryState: 'INCOMPLETE',
+        operatorAction: 'START_NEW_RUN',
+      },
+      expectedSource: 'Evidence validation blocked',
+      expectedReason: 'required objective evidence was not accepted',
+    },
+  ])('renders $name project-query provenance', async ({
+    source,
+    fallbackReason,
+    acceptanceDisposition,
+    expectedSource,
+    expectedReason,
+  }) => {
+    mocks.serverProposal = { proposalId: `provenance-${expectedSource}`, changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      turnIntent: 'PROJECT_QUERY',
+      content: 'Project query response',
+      projectQueryResponseSource: source,
+      projectQueryResponseFallbackReason: fallbackReason,
+      acceptanceDisposition,
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(screen.getByLabelText('Project query response provenance')).toBeInTheDocument();
+    expect(screen.getByText(expectedSource)).toBeInTheDocument();
+    if (expectedReason) {
+      expect(screen.getByText(new RegExp(expectedReason, 'i'))).toBeInTheDocument();
+    }
   });
 
   it('applies a server-owned proposal with its project and proposal identity', async () => {

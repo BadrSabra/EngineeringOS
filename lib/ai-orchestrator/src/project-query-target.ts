@@ -197,7 +197,7 @@ const EMBEDDED_AI_WEAKNESS_CLAIM = {
 };
 
 const EMBEDDED_AI_LAYER_ANALYSIS_RE =
-  /(?:طبقات\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|(?:AI|LLM)\s+(?:layers|architecture|stack)|(?:architecture|stack)\s+(?:of\s+)?(?:the\s+)?(?:embedded\s+)?AI)/iu;
+  /(?:(?:طبقة|طبقات)\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|بنية\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|معمارية\s+(?:(?:ال)?وكيل|(?:ال)?ذكاء\s+(?:ال)?اصطناعي)|(?:AI|LLM)\s+(?:layers|architecture|stack)|(?:architecture|stack)\s+(?:of\s+)?(?:the\s+)?(?:embedded\s+)?AI)/iu;
 
 const EMBEDDED_AI_LAYER_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
   {
@@ -258,7 +258,7 @@ const EMBEDDED_AI_LAYER_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
   },
 ];
 
-function isEmbeddedAiLayerAnalysisRequest(message: string): boolean {
+export function isEmbeddedAiLayerAnalysisRequest(message: string): boolean {
   return EMBEDDED_AI_LAYER_ANALYSIS_RE.test(message);
 }
 
@@ -565,9 +565,9 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
     );
   }
   const aiSignal =
-    /(?:الذكاء\s+الاصطناعي|ذكاء\s+اصطناعي|طبقة\s+(?:ال)?الذكاء\s+الاصطناعي|\bAI\b|\bLLM\b|provider|orchestrator|chat\s+agent|نموذج\s+الذكاء)/iu;
+    /(?:الذكاء\s+الاصطناعي|ذكاء\s+اصطناعي|طبقة\s+(?:ال)?الذكاء\s+الاصطناعي|بنية\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|معمارية\s+(?:(?:ال)?وكيل|(?:ال)?ذكاء\s+(?:ال)?اصطناعي)|\bAI\b|\bLLM\b|provider|orchestrator|chat\s+agent|نموذج\s+الذكاء)/iu;
   const targetScopeSignal =
-    /(?:تحليل|حلل|طبقة|داخل\s+المشروع|المشروع|embedded|integrated|architecture|layer|analy[sz]|trace|flow|وكيل|الوكيل|آلية\s+عمل|سلوك\s+الوكيل|كيف\s+يعمل)/iu;
+    /(?:تحليل|حلل|طبقة|بنية|معمارية|داخل\s+المشروع|المشروع|embedded|integrated|architecture|layer|layers|stack|analy[sz]|trace|flow|وكيل|الوكيل|آلية\s+عمل|سلوك\s+الوكيل|كيف\s+يعمل)/iu;
   if (!aiSignal.test(message) || !targetScopeSignal.test(message)) {
     if (!isGapAnalysisRequest(message) || BROAD_GAP_REQUEST_RE.test(message)) {
       return undefined;

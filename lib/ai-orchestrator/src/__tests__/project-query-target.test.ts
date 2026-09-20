@@ -296,6 +296,31 @@ describe("target-aware project queries", () => {
     );
   });
 
+  it.each([
+    "اشرح طبقة الذكاء الاصطناعي داخل المشروع",
+    "حلل طبقات الذكاء الاصطناعي داخل المشروع",
+    "اشرح بنية الذكاء الاصطناعي داخل المشروع",
+    "حلل معمارية الوكيل داخل المشروع",
+    "Explain the AI architecture inside the project",
+    "Explain the AI stack inside the project",
+  ])("accepts the bounded AI-layer wording %s", (message) => {
+    const target = resolveProjectQueryTarget(message);
+    const classification = classifyRequest(message);
+
+    expect(target?.id).toBe("embedded-ai");
+    expect(classification.projectTarget?.id).toBe("embedded-ai");
+    expect(resolveTurnIntent(message, { classification }).kind).toBe("PROJECT_QUERY");
+    expect(buildProjectQueryObjective(target!, message).requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "ai-routing",
+      "ai-tool-loop",
+      "ai-provider-dispatch",
+      "ai-query-planning",
+      "ai-evidence-acceptance",
+      "ai-durable-execution",
+      "ai-terminal-projection-parity",
+    ]);
+  });
+
   it("routes the exact Arabic latest-session quality request to the bounded session contract", () => {
     const message =
       "تتبع مسار الجلسة الأخيرة وقم بتقييم مستوى الردود واتساقها لدى الوكيل الداخلى للمشروع";

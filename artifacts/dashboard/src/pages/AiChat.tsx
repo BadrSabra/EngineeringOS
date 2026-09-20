@@ -161,6 +161,8 @@ type ChatMessage = {
   projectQueryTarget?: {
     mode: 'resolved_target' | 'bounded_unresolved_hint' | 'source_first_discovery';
   } | null;
+  projectQueryResponseSource?: 'provider_synthesis' | 'deterministic_fallback';
+  projectQueryResponseFallbackReason?: 'synthesis_failed' | 'provider_candidate_incomplete';
   executionId?: string | null;
   outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
   errorCode?: string | null;
@@ -266,6 +268,54 @@ function ProjectQueryTargetCard({ decision }: { decision: NonNullable<ChatMessag
     <div className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${copy.className}`}>
       <div className="font-medium">{copy.title}</div>
       <div className="mt-0.5 opacity-85">{copy.detail}</div>
+    </div>
+  );
+}
+
+function ProjectQueryResponseCard({
+  source,
+  fallbackReason,
+  acceptanceDisposition,
+}: {
+  source?: ChatMessage['projectQueryResponseSource'];
+  fallbackReason?: ChatMessage['projectQueryResponseFallbackReason'];
+  acceptanceDisposition?: ChatMessage['acceptanceDisposition'];
+}) {
+  const isFallback = source === 'deterministic_fallback';
+  const hasIncompleteAcceptance = Boolean(acceptanceDisposition);
+  if (!source && !hasIncompleteAcceptance) return null;
+  const sourceLabel = source === 'provider_synthesis'
+    ? 'Provider synthesis'
+    : source === 'deterministic_fallback'
+      ? 'Evidence-based fallback'
+      : 'Evidence validation blocked';
+  const reasonLabel = fallbackReason === 'synthesis_failed'
+    ? 'Synthesis failed'
+    : fallbackReason === 'provider_candidate_incomplete'
+      ? 'Provider candidate was incomplete'
+      : isFallback
+        ? 'Not provided'
+        : hasIncompleteAcceptance
+          ? 'The required objective evidence was not accepted'
+          : null;
+  const className = isFallback || hasIncompleteAcceptance
+    ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+    : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+  return (
+    <div className={`mt-2 w-full rounded-lg border px-3 py-2 text-[11px] ${className}`} aria-label="Project query response provenance">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="font-medium">{sourceLabel}</span>
+        {reasonLabel && (
+          <span className="text-current/75">
+            <span className="font-medium">Fallback reason:</span> {reasonLabel}
+          </span>
+        )}
+      </div>
+      {hasIncompleteAcceptance && (
+        <div className="mt-1 text-current/75">
+          The answer remains fail-closed until the objective evidence is complete.
+        </div>
+      )}
     </div>
   );
 }
@@ -5660,6 +5710,13 @@ function MessageBubble({
         )}
         {!isUser && msg.projectQueryTarget && (
           <ProjectQueryTargetCard decision={msg.projectQueryTarget} />
+        )}
+        {!isUser && isProjectQueryTurn && (
+          <ProjectQueryResponseCard
+            source={msg.projectQueryResponseSource}
+            fallbackReason={msg.projectQueryResponseFallbackReason}
+            acceptanceDisposition={msg.acceptanceDisposition}
+          />
         )}
         {!isUser && msg.sourceSelectionRecord && (
           <SourceCoveragePanel record={msg.sourceSelectionRecord} />
