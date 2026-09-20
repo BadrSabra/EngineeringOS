@@ -8727,10 +8727,21 @@ export async function chat(opts: {
           });
           if (candidateAccepted) {
             recoveryAccepted = true;
+            executionLedger.complete("recovery", {
+              provider,
+              operation: "project_query_no_tools_synthesis",
+              status: "completed",
+            });
             break;
           }
           recoveredText = "";
           recoveryFailureReason = "provider_candidate_incomplete";
+          executionLedger.complete("recovery", {
+            provider,
+            operation: "project_query_no_tools_synthesis",
+            status: "failed",
+            reason: "provider_candidate_incomplete",
+          });
         } catch (error) {
           recoveredText = "";
           recoveryFailureReason = "synthesis_failed";
@@ -8741,11 +8752,24 @@ export async function chat(opts: {
             typeof (error as { code?: unknown }).code === "string"
               ? (error as { code: string }).code
               : "PROVIDER_FAILURE";
-          if (providerId === "openrouter" && error instanceof GroqClientError) {
-            for (const attemptedModel of [
-              ...(error.providerAttemptedModels ?? []),
-              error.providerModel ?? "",
-            ]) {
+          if (providerId === "openrouter") {
+            const providerError =
+              error && typeof error === "object"
+                ? error as {
+                    providerAttemptedModels?: unknown;
+                    providerModel?: unknown;
+                  }
+                : undefined;
+            const attemptedModels = Array.isArray(providerError?.providerAttemptedModels)
+              ? providerError.providerAttemptedModels.filter(
+                  (value): value is string => typeof value === "string",
+                )
+              : [];
+            const providerModel =
+              typeof providerError?.providerModel === "string"
+                ? providerError.providerModel
+                : "";
+            for (const attemptedModel of [...attemptedModels, providerModel]) {
               if (attemptedModel) recoveryExcludedModels.add(attemptedModel);
             }
           }
@@ -8760,6 +8784,12 @@ export async function chat(opts: {
                 ? "retrying with an excluded model"
                 : "deterministic claim assembly will be used",
             ],
+          });
+          executionLedger.complete("recovery", {
+            provider,
+            operation: "project_query_no_tools_synthesis",
+            status: "failed",
+            reason: providerOutcome,
           });
         }
       }

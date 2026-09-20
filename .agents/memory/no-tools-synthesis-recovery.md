@@ -7,4 +7,4 @@ When a no-tools synthesis provider returns executable-looking or otherwise contr
 
 **Why:** A provider can return HTTP 200 while violating the no-tools protocol. Treating that as a successful synthesis is unsafe, while immediately falling back wastes an available alternate model and hides the phase where the failure occurred.
 
-**How to apply:** Keep the retry request- and ledger-bounded, attribute provider attempts to `project_query_no_tools_synthesis`, and never execute or reinterpret provider-emitted tool syntax.
+**How to apply:** Keep the retry request- and ledger-bounded, close every admitted recovery event as completed or failed, attribute provider attempts to `project_query_no_tools_synthesis`, and never execute or reinterpret provider-emitted tool syntax.

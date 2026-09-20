@@ -1369,6 +1369,147 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(result.response).not.toMatch(/^\{/);
   });
 
+  it("retries malformed project-query no-tools synthesis with an excluded model", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-no-tools-recovery-"));
+    const sourcePath = "src/pipeline.ts";
+    const claimText = "The project pipeline reads source evidence before synthesis.";
+    const validResponse = [
+      claimText,
+      "First, the request enters the bounded project-query path and reads the declared source.",
+      "Then, the retained evidence is passed to the content-only synthesis phase.",
+      "Finally, the accepted answer is checked against the claim and behavioral flow before it is returned.",
+    ].join(" ");
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootPath, sourcePath),
+      "export function runPipeline() { return 'evidence'; }\n",
+      "utf8",
+    );
+
+    const calls: Array<{
+      messages: Array<{ role: string; content: string }>;
+      options: { excludeModels?: string[]; operation?: string };
+    }> = [];
+    const fakeStrategy = {
+      providerId: "openrouter",
+      ownsModelFallback: true,
+      supportsNativeStream: false,
+      stream: vi.fn(),
+      call: vi.fn(async (
+        messages: Array<{ role: string; content: string }>,
+        options: { excludeModels?: string[]; operation?: string },
+      ) => {
+        calls.push({ messages, options });
+        const recoveryCallCount = calls.filter(
+          (call) => call.options.operation === "project_query_no_tools_synthesis",
+        ).length;
+        if (options.operation !== "project_query_no_tools_synthesis") {
+          return {
+            content: "The provider returned an incomplete project answer.",
+            toolCalls: [],
+            model: "bad-model",
+            usage: {},
+          };
+        }
+        if (recoveryCallCount === 1) {
+          throw new GroqClientError("INVALID_TOOL_CALL", "provider emitted an unknown tool", {
+            context: {
+              providerName: "OpenRouter",
+              providerModel: "bad-model",
+              providerAttemptedModels: ["bad-model"],
+            },
+          });
+        }
+        return {
+          content: validResponse,
+          toolCalls: [],
+          model: "good-model",
+          usage: {},
+        };
+      }),
+    };
+
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual<typeof import("../provider-registry.js")>(
+        "../provider-registry.js",
+      );
+      return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+    });
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "bad-model",
+        powerModel: "good-model",
+      })),
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const executionLedger = createExecutionLedger();
+      const result = await chat({
+        message: "Explain how the project pipeline works and analyze its behavior.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-openrouter-key",
+        turnIntent: resolveTurnIntent("Explain how the project pipeline works and analyze its behavior."),
+        objective: {
+          objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+          goal: "Explain the project pipeline behavior.",
+          requiredEvidencePaths: [sourcePath],
+          requiredClaims: [{
+            claimId: "pipeline-evidence",
+            text: claimText,
+            requiredEvidencePaths: [sourcePath],
+            evidenceNeedles: ["runPipeline"],
+          }],
+          requiredEvidenceEdges: [],
+        },
+        executionLedger,
+        onStep: (step) => steps.push(step),
+      });
+
+      const recoveryCalls = calls.filter(
+        (call) => call.options.operation === "project_query_no_tools_synthesis",
+      );
+      expect(recoveryCalls).toHaveLength(2);
+      expect(recoveryCalls[0]?.options).toMatchObject({
+        operation: "project_query_no_tools_synthesis",
+      });
+      expect(recoveryCalls[1]?.options).toMatchObject({
+        operation: "project_query_no_tools_synthesis",
+        excludeModels: ["bad-model"],
+      });
+      expect(recoveryCalls[1]?.messages[0]?.content).toContain("plain prose only");
+      expect(result.response).toBe(validResponse);
+      expect(result.projectQueryResponseSource).toBe("provider_synthesis");
+      expect(result.projectQueryResponseFallbackReason).toBeUndefined();
+      expect(executionLedger.snapshot().counts.recovery).toBe(2);
+      expect(executionLedger.snapshot().events).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "recovery",
+          operation: "project_query_no_tools_synthesis",
+          status: "completed",
+        }),
+      ]));
+      expect(steps).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "diagnostic",
+          code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+        }),
+      ]));
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("terminalizes the server-owned parser failure sentinel in direct CHAT streams", async () => {
     const nextResponse = vi.fn().mockResolvedValue({
       content: MODEL_OUTPUT_INVALID_MESSAGE,
