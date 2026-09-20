@@ -26,3 +26,9 @@ Targeted project-query runs may finish with a PROVEN acceptance after provider s
 **Why:** A completed project-query execution recorded fallback provenance and a successful evidence gate while every provider attempt retained `contractOutcome=not_applicable`, so acceptance alone could overstate model quality.
 
 **How to apply:** Use the persisted response-source/fallback provenance and phase-specific provider attempts when tracing these runs; do not infer provider-synthesis success from a PROVEN execution acceptance.
+
+Bounded no-tools project-query recovery must have its own phase-attributed provider attempt and a content-only output contract; a strict no-manifest parser can correctly reject a model's hallucinated executable call, but that rejection must not be indistinguishable from an ordinary tool-loop failure.
+
+**Why:** The recovered model returned a function-style `executeToolLoop(...)` call during a request sent with no tools. The provider call itself was HTTP-successful, but normalization raised `INVALID_TOOL_CALL`; deterministic claim assembly then produced the accepted answer.
+
+**How to apply:** Preserve the recovery phase, requested/actual model, and normalized failure kind in durable attempt telemetry. Keep no-tools normalization fail-closed, and use a bounded content-only retry or deterministic fallback without granting the model tools.
