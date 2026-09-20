@@ -706,6 +706,16 @@ afterEach(async () => {
   vi.useRealTimers();
   validationFixtures.length = 0;
   vi.restoreAllMocks();
+  // classifyRequest is a module-level vi.fn rather than a spy, so
+  // restoreAllMocks() does not clear mockReturnValueOnce/mockReturnValue
+  // fixtures installed by earlier continuation tests.
+  const mockedOrchestrator = await import("@workspace/ai-orchestrator");
+  const actualOrchestrator = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+    "@workspace/ai-orchestrator",
+  );
+  vi.mocked(mockedOrchestrator.classifyRequest)
+    .mockReset()
+    .mockImplementation(actualOrchestrator.classifyRequest);
   vi.mocked(chatWithFallback).mockReset();
   vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
   vi.mocked(requireProvider).mockReset();
@@ -8540,6 +8550,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   it("should carry the persisted audit report into a same-session execution follow-up", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
+    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const actualOrchestrator = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+      "@workspace/ai-orchestrator",
+    );
+    vi.mocked(mockClassifyRequest)
+      .mockReset()
+      .mockReturnValue(actualOrchestrator.classifyRequest("forensic audit"));
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => undefined as never);
     const auditReport = [
@@ -9213,6 +9230,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
   it("keeps forensic diagnostic details in metadata, not report content", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
+    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const actualOrchestrator = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+      "@workspace/ai-orchestrator",
+    );
+    vi.mocked(mockClassifyRequest)
+      .mockReset()
+      .mockReturnValue(actualOrchestrator.classifyRequest("forensic audit"));
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
 
     vi.mocked(chatWithFallback).mockImplementationOnce(
@@ -9861,8 +9885,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .from(aiChatSessionsTable)
       .where(eq(aiChatSessionsTable.id, String(sessionId)));
     expect(JSON.parse(persistedSession?.activeTaskState ?? "{}")).toMatchObject({
-      taskType: "FULL_FORENSIC_AUDIT",
-      outputContract: "FORENSIC_REPORT",
+      // Gap-analysis questions remain bounded PROJECT_QUERY executions; they
+      // must not be promoted to a broad forensic audit just because they
+      // contain investigation language.
+      taskType: "BEHAVIOR_QUERY",
+      outputContract: "BEHAVIOR_ANSWER",
       scope: {
         projectId,
         revision: expect.any(String),
@@ -9888,11 +9915,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       };
     };
     expect(continuedInput.activeTaskState).toMatchObject({
-      taskType: "FULL_FORENSIC_AUDIT",
+      taskType: "BEHAVIOR_QUERY",
       scope: { projectId },
     });
     expect(continuedInput.turnIntent).toMatchObject({
-      kind: "FORENSIC_AUDIT",
+      kind: "PROJECT_QUERY",
       requiresTools: true,
       requiresEvidence: true,
       resumed: true,
@@ -9932,7 +9959,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .from(aiChatSessionsTable)
       .where(eq(aiChatSessionsTable.id, sessionId));
     expect(JSON.parse(session?.activeTaskState ?? "{}")).toMatchObject({
-      taskType: "FULL_FORENSIC_AUDIT",
+      taskType: "BEHAVIOR_QUERY",
       scope: {
         projectId,
         revision: expect.any(String),
@@ -9945,11 +9972,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .send({ projectId, sessionId, message: "أكمل" });
     expect(continued.status).toBe(200);
     expect(seenInputs[1]?.["activeTaskState"]).toMatchObject({
-      taskType: "FULL_FORENSIC_AUDIT",
+      taskType: "BEHAVIOR_QUERY",
       scope: { projectId },
     });
     expect(seenInputs[1]?.["turnIntent"]).toMatchObject({
-      kind: "FORENSIC_AUDIT",
+      kind: "PROJECT_QUERY",
       requiresTools: true,
       requiresEvidence: true,
       resumed: true,
@@ -10247,7 +10274,7 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       .limit(1);
     expect(storedMessage).toMatchObject({
       outcome: "FAILED",
-      errorCode: "NON_200",
+      errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
     });
     expect(storedMessage?.content).toContain("قراءة مصدرية مكتملة");
     expect(storedMessage?.content).not.toContain("قبل قراءة الملفات المطلوبة");

@@ -14,3 +14,9 @@ Provider-failure fixtures that exercise the real fallback helper must fail every
 **Why:** The fallback helper intentionally continues after a provider error, so a single mocked rejection does not prove the terminal failure contract.
 
 **How to apply:** Match the fixture's configured provider count with rejected turns, or mock the fallback boundary directly when the scenario is not testing fallback traversal.
+
+Module-level classifier mocks in route integration suites must reset to the real classifier after every test; `restoreAllMocks()` alone does not clear `mockReturnValueOnce` or `mockReturnValue` state on a standalone `vi.fn`.
+
+**Why:** A leaked classification can change a later request's persisted task contract, making tests pass or fail based on file order rather than the request under test.
+
+**How to apply:** Reset the mocked classifier in teardown and set explicit forensic/project-query classifications inside tests that depend on one.
