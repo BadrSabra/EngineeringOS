@@ -5253,6 +5253,79 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(res.text).not.toMatch(/at\s+\w+\s+\(/); // stack trace pattern
   });
 
+  it("preserves bounded no-tools synthesis accounting and provenance in the terminal SSE event", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStep = args[6] as ((step: unknown) => void) | undefined;
+      onDelta?.("The verified project answer.");
+      onStep?.({
+        kind: "model_call",
+        model: "first-empty-model",
+        provider: "openrouter",
+      });
+      onStep?.({
+        kind: "model_call",
+        model: "second-valid-model",
+        provider: "openrouter",
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 3,
+        maxIterations: 24,
+        toolCalls: 1,
+        prefetchToolCalls: 1,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: true,
+        synthesisAttempts: 2,
+        synthesisMaxAttempts: 2,
+        synthesisTimeoutMs: 30_000,
+        synthesisElapsedMs: 125,
+        synthesisTimedOut: false,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: "The verified project answer.",
+          sources: ["src/pipeline.ts"],
+          pendingChanges: [],
+          projectQueryResponseSource: "provider_synthesis",
+        },
+        effectiveProvider: "openrouter" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: "Explain how the project pipeline works and analyze its behavior.",
+      });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const doneEvent = events.find((event) => event.type === "done");
+    expect(doneEvent).toBeDefined();
+    expect((doneEvent?.message as Record<string, unknown>)?.content)
+      .toBe("The verified project answer.");
+    expect(doneEvent).toMatchObject({
+      projectQueryResponseSource: "provider_synthesis",
+      execution: {
+        synthesisStarted: true,
+        synthesisAttempts: 2,
+        synthesisMaxAttempts: 2,
+        synthesisTimedOut: false,
+      },
+    });
+    expect(res.text).not.toContain("first-empty-model");
+    expect(res.text).not.toContain("second-valid-model");
+    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+  });
+
   it("keeps successful ordinary CHAT outside the evidence snapshot ledger", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
