@@ -275,6 +275,53 @@ const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
 ]);
 const MAX_COMPLETE_EVIDENCE_BYTES = 256 * 1024;
 
+export type ProjectQuerySynthesisPromptMetrics = {
+  messageCount: number;
+  inputChars: number;
+  estimatedInputTokens: number;
+  evidenceExcerptCount: number;
+  evidenceExcerptChars: number;
+  evidenceExcerpts: Array<{
+    claimId: string;
+    chars: number;
+    bytes: number;
+  }>;
+};
+
+/**
+ * Estimate prompt size without logging prompt content. The estimate is
+ * intentionally conservative and provider-neutral; OpenRouter's usage
+ * response remains authoritative when available.
+ */
+export function estimatePromptInputTokens(inputChars: number): number {
+  return Math.ceil(Math.max(0, inputChars) / 4);
+}
+
+export function buildProjectQuerySynthesisPromptMetrics(
+  messages: readonly RawMessage[],
+  evidence: readonly MaterializedObjectiveClaimEvidence[],
+): ProjectQuerySynthesisPromptMetrics {
+  const inputChars = messages.reduce(
+    (total, message) =>
+      total +
+      (typeof message.content === "string" ? message.content.length : 0),
+    0,
+  );
+  const evidenceExcerpts = evidence.map((item) => ({
+    claimId: item.claimId,
+    chars: item.excerpt.length,
+    bytes: Buffer.byteLength(item.excerpt, "utf8"),
+  }));
+  return {
+    messageCount: messages.length,
+    inputChars,
+    estimatedInputTokens: estimatePromptInputTokens(inputChars),
+    evidenceExcerptCount: evidenceExcerpts.length,
+    evidenceExcerptChars: evidenceExcerpts.reduce((total, item) => total + item.chars, 0),
+    evidenceExcerpts,
+  };
+}
+
 /**
  * Return the first server-declared evidence path that is not already retained.
  * This is intentionally independent of provider state: fallback and recovery
@@ -8755,6 +8802,17 @@ export async function chat(opts: {
             content: `${message}\n\nServer-owned retained evidence:\n${evidenceContext}`,
           },
         ];
+        const promptMetrics = buildProjectQuerySynthesisPromptMetrics(
+          recoveryMessages,
+          materializedProjectQueryEvidence,
+        );
+        console.info(JSON.stringify({
+          scope: "project-query-synthesis",
+          action: "prompt_metrics",
+          provider: providerId,
+          attempt: recoveryAttempt + 1,
+          ...promptMetrics,
+        }));
 
         try {
           const recovery = await strategy.call(

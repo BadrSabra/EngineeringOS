@@ -780,6 +780,12 @@ async function oacCompleteRawUntracked(
   };
 
   // Capture raw payload for diagnostics before the request is sent.
+  const inputChars = messages.reduce(
+    (total, message) =>
+      total +
+      (typeof message.content === "string" ? message.content.length : 0),
+    0,
+  );
   console.info(
     JSON.stringify({
       scope: "openai-compatible-client",
@@ -788,6 +794,8 @@ async function oacCompleteRawUntracked(
       model,
       baseUrl,
       messageCount: messages.length,
+      inputChars,
+      estimatedInputTokens: Math.ceil(inputChars / 4),
       hasTools: hasTools,
       toolCount: hasTools && Array.isArray(tools) ? tools.length : 0,
       responseFormatRequested: opts.responseFormat?.type ?? null,
