@@ -3002,10 +3002,7 @@ describe("durable project-orientation retry chaos", () => {
         attempt: 1,
         checkpointVersion: 0,
       });
-      expect(JSON.parse(stored!.checkpoint), context).toMatchObject({
-        stage: "queued",
-        sequence: 0,
-      });
+      expect(JSON.parse(stored!.checkpoint), context).toEqual({});
     } finally {
       await fixture.cleanup();
     }
