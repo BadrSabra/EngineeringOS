@@ -210,6 +210,7 @@ type Scenario = {
   synthesisFailure?: "throw" | "tool_call";
   abortAfterSubqueryTarget?: string;
   subqueryDelayMs?: number;
+  toolCallPathByTarget?: Record<string, string>;
 };
 
 async function configureChat(
@@ -291,6 +292,7 @@ function makeStrategy(options: {
   synthesisFailure?: "throw" | "tool_call";
   abortAfterSubqueryTarget?: string;
   subqueryDelayMs?: number;
+  toolCallPathByTarget?: Record<string, string>;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -411,7 +413,9 @@ function makeStrategy(options: {
               type: "function" as const,
               function: {
                 name: "read_file",
-                arguments: JSON.stringify({ path: target }),
+                  arguments: JSON.stringify({
+                    path: options.toolCallPathByTarget?.[target] ?? target,
+                  }),
               },
             },
           ],
@@ -462,6 +466,7 @@ async function runScenario(scenario: Scenario) {
     synthesisFailure: scenario.synthesisFailure,
     abortAfterSubqueryTarget: scenario.abortAfterSubqueryTarget,
     subqueryDelayMs: scenario.subqueryDelayMs,
+    toolCallPathByTarget: scenario.toolCallPathByTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -595,6 +600,33 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(wave?.tasks).toHaveLength(3);
     } finally {
       info.mockRestore();
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("executes independent adaptive sub-queries concurrently and synthesizes only after all receipts", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads, maxConcurrentSubqueries } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        subqueryDelayMs: 5,
+      });
+
+      expect(maxConcurrentSubqueries).toBeGreaterThan(1);
+      expect(subqueryReads).toEqual(new Map([
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery")).toHaveLength(6);
+      expect(providerCalls.at(-1)?.kind).toBe("synthesis");
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ADAPTER, CLIENT, CONNECTOR]),
+      );
+    } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
