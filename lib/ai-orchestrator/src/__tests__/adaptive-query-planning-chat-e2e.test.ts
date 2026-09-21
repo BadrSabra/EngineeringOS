@@ -1061,6 +1061,46 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("isolates a concurrent sibling failure after read while preserving the other siblings", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const {
+        result,
+        providerCalls,
+        subqueryReads,
+        maxConcurrentSubqueries,
+      } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        subqueryDelayMs: 5,
+        providerFailureAfterReadTarget: ADAPTER,
+        synthesisResponse:
+          "CURRENT_STATE: the client and connector are verified in `src/provider/client.ts` " +
+          "and `src/provider/connector.ts`.\n" +
+          "GAPS: NOT PROVEN — the provider adapter receipt failed after its read attempt.\n" +
+          "PRIORITIES: recover the adapter evidence before making a complete claim.",
+      });
+
+      expect(maxConcurrentSubqueries).toBeGreaterThan(1);
+      expect(subqueryReads).toEqual(new Map([
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ADAPTER))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("NOT PROVEN");
+      expect(result.response).not.toContain(ADAPTER);
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([CLIENT, CONNECTOR]));
+      expect(graphReads).not.toContain(ADAPTER);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("keeps mixed adaptive evidence incomplete when one sibling source remains unproven", async () => {
     const rootPath = await makeRoot();
     try {
