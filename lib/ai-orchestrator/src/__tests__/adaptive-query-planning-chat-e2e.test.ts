@@ -1425,6 +1425,36 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("stops fail-closed when cancellation wins during scope-correction recovery", async () => {
+    const rootPath = await makeRoot();
+    const abortController = new AbortController();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        abortController,
+        signal: abortController.signal,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallPathByTarget: { [ACCEPTANCE]: GENERAL },
+        correctAfterScopeBlock: true,
+        abortAfterScopeCorrection: true,
+        scopeCorrectionPathByTarget: { [ACCEPTANCE]: ACCEPTANCE },
+      });
+
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(0);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("PROVEN");
+      expect(result.evidenceGraph?.reads ?? []).toHaveLength(0);
+      expect(providerCalls.map((call) => call.target)).not.toContain(EVIDENCE);
+      expect(providerCalls.map((call) => call.target)).not.toContain(COUNTEREVIDENCE);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("bounds repeated invalid range corrections instead of allowing an adaptive loop", async () => {
     const rootPath = await makeRoot();
     try {
