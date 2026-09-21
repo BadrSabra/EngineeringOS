@@ -62,3 +62,9 @@ Every terminal acceptance must carry the worker's captured attempt identity and 
 **Why:** A delayed callback from an earlier retry can arrive after a new attempt is running. Without an attempt check, it can create a new acceptance and terminalize the wrong attempt even when its textual key says `attempt:0`.
 
 **How to apply:** Require `expectedAttempt` in all server-owned completion, failure, task, cancellation, and reconciliation paths; reject mismatches before any acceptance or side-effect write while preserving stale-snapshot diagnostics where applicable.
+
+Terminal failures for a `running` execution require an explicit worker identity unless they carry a matching server-owned reconciliation snapshot; attempt matching alone is not ownership proof.
+
+**Why:** A callback from the current attempt can still be stale after lease ownership changes. If its worker identity is omitted, accepting it can terminalize the replacement worker's live execution.
+
+**How to apply:** Require `workerId` for worker-originated failure/interruption callbacks, while allowing only reconciliation snapshots and non-running operator cancellation/abandon paths to omit it.

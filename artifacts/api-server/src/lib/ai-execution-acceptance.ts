@@ -869,6 +869,18 @@ export async function finalizeExecutionAcceptance(
       && execution.leaseUntil > now,
     );
     const cancellationWon = execution.status === "cancelling" || Boolean(execution.cancelRequestedAt);
+    if (
+      params.outcome !== "SUCCEEDED"
+      && execution.status === "running"
+      && !params.workerId
+      && !params.expectedExecutionState
+    ) {
+      return {
+        accepted: false,
+        duplicate: false,
+        reason: "A running execution requires worker ownership for terminal failure.",
+      };
+    }
     if (params.outcome === "SUCCEEDED" && (!workerOwnsLease || cancellationWon || execution.status !== "running")) {
       return { accepted: false, duplicate: false, reason: "The worker no longer owns a live execution lease." };
     }
