@@ -9093,9 +9093,9 @@ export async function chat(opts: {
   // forensicFileContents is declared at the top of chat() so every terminal
   // finalization path can route its candidate through the Objective Gate.
   // Populate it here from prefetch + tool-loop reads.
-  for (const [filePath, content] of incompletePrefetchContents) {
-    forensicFileContents.set(filePath, stripReadFileWrapper(content));
-  }
+  // Incomplete prefetch bodies remain diagnostic/recovery input only. They
+  // must never enter the proof map: objective materialization and claim
+  // closure are allowed to inspect retained complete/targeted reads only.
   for (const [filePath, content] of prefetchFileContents) {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
   }
@@ -14420,6 +14420,33 @@ export async function chat(opts: {
     !objectiveBlocksVerdict &&
     !anyRequiredClaimUnclosed &&
     !telemetryBlocksVerdict;
+  const projectQueryOverrideLanguageValid =
+    projectQueryEvidenceResponseOverride !== undefined
+    && validateResponseLanguage(
+      projectQueryEvidenceResponseOverride,
+      responseLanguage,
+    ).valid;
+  const projectQueryOverrideHasBehavioralFlow =
+    projectQueryEvidenceResponseOverride !== undefined
+    && projectQueryAnswerHasBehavioralFlow(
+      objective,
+      projectQueryEvidenceResponseOverride,
+      projectQueryFlowRefs,
+    );
+  const projectQueryProjectionRejectionReasons = [
+    projectQueryEvidenceResponseOverride === undefined ? "override_missing" : undefined,
+    materializedProjectQueryEvidence.length !== (objective?.requiredClaims.length ?? 0)
+      ? "materialized_claims_incomplete"
+      : undefined,
+    !projectQueryOverrideLanguageValid ? "override_language_invalid" : undefined,
+    !projectQueryOverrideHasBehavioralFlow ? "override_behavioral_flow_missing" : undefined,
+    objectiveGate?.status !== "PROVEN"
+      ? `objective_gate:${objectiveGate?.status ?? "missing"}`
+      : undefined,
+    objectiveBlocksVerdict ? "objective_blocked" : undefined,
+    anyRequiredClaimUnclosed ? "required_claim_unclosed" : undefined,
+    telemetryBlocksVerdict ? "telemetry_blocked" : undefined,
+  ].filter((reason): reason is string => reason !== undefined);
   // EI-029/030: when the run's evidence scope is not plain production, replace
   // every bare "FINDING PROVEN" / "FINDING_PROVEN" occurrence in the accepted
   // response with the appropriate scoped label (e.g. "FIXTURE-LOCAL FINDING
@@ -14899,6 +14926,9 @@ export async function chat(opts: {
         }`,
         `projectionAuthoritative=${
           projectQueryProjectionAuthoritative ? "true" : "false"
+        }`,
+        `projectionReasons=${
+          projectQueryProjectionRejectionReasons.join(",") || "none"
         }`,
         `objectiveGate=${objectiveGate?.status ?? "none"}`,
         `telemetryBlocked=${telemetryBlocksVerdict ? "true" : "false"}`,

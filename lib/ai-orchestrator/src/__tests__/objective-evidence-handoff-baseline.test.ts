@@ -166,6 +166,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       });
 
       const { chat } = await import("../agents/chat-agent.js");
+      const steps: Array<Record<string, unknown>> = [];
       await chat({
         message,
         history: [],
@@ -175,6 +176,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         apiKey: "test-key",
         objective: OBJECTIVE,
         turnIntent,
+        onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
       });
 
       expect(turnIntent.kind).toBe("PROJECT_QUERY");
@@ -197,6 +199,15 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
           requiredEvidencePaths: claim.requiredEvidencePaths,
         })),
       });
+      const materialization = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+      );
+      expect(materialization?.details).toEqual(
+        expect.arrayContaining([
+          "manifestComplete=false",
+          "materializedClaims=0",
+        ]),
+      );
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
@@ -1340,6 +1351,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         expect.arrayContaining([
           "terminalResponseUsesOverride=true",
           "projectionAuthoritative=true",
+          "projectionReasons=none",
           "objectiveGate=PROVEN",
           "responseSource=deterministic_fallback",
           "fallbackReason=synthesis_failed",

@@ -403,6 +403,51 @@ describe("autonomous operation contract", () => {
     });
   });
 
+  it("rejects accepted telemetry paths that are not backed by retained durable bodies", () => {
+    const result = validateAnalysisEvidenceCompletion({
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+      requiredPaths: ["src/chat.ts"],
+      completedReadFiles: ["src/chat.ts", "src/oversized.ts"],
+      acceptedEvidenceFiles: ["src/chat.ts", "src/oversized.ts"],
+      readManifest: [
+        {
+          path: "src/chat.ts",
+          status: "READ_COMPLETE",
+          operationId: "analysis-operation",
+          sourceRevision: "revision-current",
+          contentHash: "a".repeat(64),
+          byteLength: 1,
+        },
+        {
+          path: "src/oversized.ts",
+          status: "READ_TRUNCATED",
+          operationId: "analysis-operation",
+          sourceRevision: "revision-current",
+          contentHash: "b".repeat(64),
+          byteLength: 0,
+        },
+      ],
+      acceptedClaimCount: 1,
+      evidenceConsistent: false,
+      completionGateResult: "PROVEN",
+      objectiveVerdict: "ANSWER_COMPLETE",
+      finalState: "VERIFIED",
+      finalAnswerType: "BEHAVIORAL_ANSWER",
+    }, {
+      operationId: "analysis-operation",
+      sourceRevision: "revision-current",
+    });
+
+    expect(result).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining([
+        "accepted analysis evidence is not backed by complete reads: src/oversized.ts",
+        "analysis evidence telemetry is inconsistent",
+      ]),
+    });
+  });
+
   it("round-trips capability probe request and checkpoint metadata", () => {
     const capabilityProbe = {
       sourceFiles: [
