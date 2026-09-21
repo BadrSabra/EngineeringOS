@@ -144,3 +144,4 @@
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
 - [Go graph scan boundary](go-graph-scan-boundary.md) — internal Go imports need go.mod in the walk and file entities for path-based relationship endpoints.
+- [Graph insert batching](graph-insert-batching.md) — large graph scans must batch multi-column entity and relationship inserts below PostgreSQL's bind-parameter limit.

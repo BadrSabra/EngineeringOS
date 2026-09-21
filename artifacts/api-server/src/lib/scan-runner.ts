@@ -41,6 +41,11 @@ import {
   buildRemediationPrompt,
 } from "./remediation-plan.js";
 
+// PostgreSQL caps one prepared statement at 65,535 bind parameters. Graph
+// rows carry many columns, so large repositories must be inserted in bounded
+// batches while remaining inside the scan transaction.
+const GRAPH_INSERT_BATCH_SIZE = 500;
+
 /**
  * Thrown by performScan when the persisted project root cannot be
  * re-established (missing, not a directory, unreadable, or unsafe).
@@ -546,7 +551,11 @@ export async function performScan(
         : manualProvenance(e.sourceType ?? "typescript-ast", "ts-compiler-api", now, undefined, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION }),
       createdAt: now,
     }));
-    await tx.insert(graphEntitiesTable).values(entityRows);
+    for (let offset = 0; offset < entityRows.length; offset += GRAPH_INSERT_BATCH_SIZE) {
+      await tx
+        .insert(graphEntitiesTable)
+        .values(entityRows.slice(offset, offset + GRAPH_INSERT_BATCH_SIZE));
+    }
     for (const row of entityRows) {
       entityKeyToId.set(`${row.type}::${row.path ?? row.name}::${row.name}`, row.id);
       addToNameIndex(row.type, row.name, row.id);
@@ -612,7 +621,11 @@ export async function performScan(
     .filter((r): r is NonNullable<typeof r> => r !== null);
 
   if (relRows.length > 0) {
-    await tx.insert(graphRelationshipsTable).values(relRows);
+    for (let offset = 0; offset < relRows.length; offset += GRAPH_INSERT_BATCH_SIZE) {
+      await tx
+        .insert(graphRelationshipsTable)
+        .values(relRows.slice(offset, offset + GRAPH_INSERT_BATCH_SIZE));
+    }
   }
 
     // ── 6. Insert metrics record ──────────────────────────────────────────
