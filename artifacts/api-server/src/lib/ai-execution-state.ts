@@ -1303,6 +1303,15 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
   }
 }
 
+function recipeBindingMatches(
+  checkpointRaw: string,
+  requestedBinding: RecipeOperationBinding | undefined,
+): boolean {
+  const checkpoint = parseAiExecutionCheckpoint(checkpointRaw);
+  const storedBinding = checkpoint?.recipeBinding ?? checkpoint?.operation?.binding ?? null;
+  return JSON.stringify(storedBinding) === JSON.stringify(requestedBinding ?? null);
+}
+
 function parseEvidenceProgressCheckpoint(value: unknown): AiEvidenceProgressCheckpoint | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<AiEvidenceProgressCheckpoint>;
@@ -1605,6 +1614,7 @@ export async function createAiExecution(params: {
         && (row.baseRevision ?? storedRequest.workspaceRevision ?? null)
           !== (params.request.workspaceRevision ?? null)
       )
+      || !recipeBindingMatches(row.checkpoint, params.recipeBinding)
     ) {
       throw new Error("Execution idempotency key is bound to a different request");
     }
@@ -1697,6 +1707,7 @@ export async function createAiExecution(params: {
       && (racedExecution.baseRevision ?? racedRequest.workspaceRevision ?? null)
         !== (params.request.workspaceRevision ?? null)
     )
+      || !recipeBindingMatches(racedExecution.checkpoint, params.recipeBinding)
   ) {
     throw new Error("Execution idempotency key is bound to a different request");
   }

@@ -10,6 +10,8 @@ import {
 } from "@workspace/db";
 import {
   claimAiExecution,
+  createAiExecution,
+  createRecipeOperationBinding,
   persistAiExecutionOrientationManifest,
   recoverAiExecutionRetryToken,
   type AiOrientationRoleManifest,
@@ -29,6 +31,144 @@ function orientationManifest(projectRevision: string, rootPath: string): AiOrien
 }
 
 describe("durable conversational retry authorization", () => {
+  it("rejects idempotency-key reuse when the recipe candidate binding changes", async () => {
+    const projectId = randomUUID();
+    const userId = "recipe-idempotency-user";
+    const sessionId = randomUUID();
+    const operationId = randomUUID();
+    const idempotencyKey = `${operationId}:candidate-generation`;
+    const workspaceRevision = new Date().toISOString();
+    const rootPath = `/tmp/recipe-idempotency-${projectId}`;
+    const candidateA = `/tmp/eos-disposable/recipe-candidate-a-${projectId}`;
+    const candidateB = `/tmp/eos-disposable/recipe-candidate-b-${projectId}`;
+    const request = {
+      projectId,
+      sessionId,
+      operationId,
+      message: "Validate the approved candidate",
+      modelMessage: "Validate the approved candidate",
+      workspaceRevision,
+      workspaceRoot: rootPath,
+      validationTargetPaths: ["src/changed.ts"],
+      turnIntent: "DELIVERY" as const,
+    };
+    const bindingA = createRecipeOperationBinding({
+      projectId,
+      operationId,
+      sourceRevision: workspaceRevision,
+      candidateIdentity: "candidate-tree-a",
+      candidateWorkspace: candidateA,
+      approvedPaths: ["src/changed.ts"],
+      phase: "planned",
+      missionBudget: { maxProcessCount: 8 },
+    });
+    const bindingB = createRecipeOperationBinding({
+      projectId,
+      operationId,
+      sourceRevision: workspaceRevision,
+      candidateIdentity: "candidate-tree-b",
+      candidateWorkspace: candidateB,
+      approvedPaths: ["src/changed.ts"],
+      phase: "planned",
+      missionBudget: { maxProcessCount: 8 },
+    });
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `recipe-idempotency-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Recipe idempotency test",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    try {
+      const first = await createAiExecution({
+        userId,
+        request,
+        idempotencyKey,
+        projectId,
+        sessionId,
+        workspaceRoot: rootPath,
+        recipeBinding: bindingA,
+      });
+      expect(first.created).toBe(true);
+
+      const sameBindingReplay = await createAiExecution({
+        userId,
+        request,
+        idempotencyKey,
+        projectId,
+        sessionId,
+        workspaceRoot: rootPath,
+        recipeBinding: bindingA,
+      });
+      expect(sameBindingReplay, "the same recipe generation remains idempotent").toMatchObject({
+        created: false,
+        execution: { id: first.execution.id },
+      });
+
+      await expect(createAiExecution({
+        userId,
+        request,
+        idempotencyKey,
+        projectId,
+        sessionId,
+        workspaceRoot: rootPath,
+        recipeBinding: bindingB,
+      })).rejects.toThrow("Execution idempotency key is bound to a different request");
+
+      const raceKey = `${operationId}:candidate-generation-race`;
+      const raceResults = await Promise.allSettled([
+        createAiExecution({
+          userId,
+          request,
+          idempotencyKey: raceKey,
+          projectId,
+          sessionId,
+          workspaceRoot: rootPath,
+          recipeBinding: bindingA,
+        }),
+        createAiExecution({
+          userId,
+          request,
+          idempotencyKey: raceKey,
+          projectId,
+          sessionId,
+          workspaceRoot: rootPath,
+          recipeBinding: bindingB,
+        }),
+      ]);
+      expect(raceResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(raceResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const raceWinner = raceResults.find(
+        (result): result is PromiseFulfilledResult<{ execution: typeof first.execution; created: boolean }> =>
+          result.status === "fulfilled",
+      )!.value;
+      expect(raceWinner.created).toBe(true);
+
+      const [stored] = await db
+        .select({ checkpoint: aiExecutionsTable.checkpoint })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, first.execution.id))
+        .limit(1);
+      expect(JSON.parse(stored!.checkpoint).recipeBinding, "candidate binding must remain generation A").toEqual(bindingA);
+    } finally {
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.userId, userId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
   it.each(["PROJECT_QUERY", "CHAT"] as const)(
     "rotates a retry token and creates a new auditable attempt for %s",
     async (turnIntent) => {

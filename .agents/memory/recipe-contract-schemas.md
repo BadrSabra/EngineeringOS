@@ -14,3 +14,9 @@ Recipe execution scope must be revalidated at invocation time against canonical 
 **Why:** A compiled relative path can become unsafe through symlink changes, and a callback that merely returns `status: passed` is not proof that the required validation actually ran.
 
 **How to apply:** Keep recipe definitions server-owned; bind their approved paths and candidate identity durably, re-check the lease/scope before lifecycle transitions, and derive evidence references from validated capability output.
+
+An execution idempotency key must match the full durable recipe binding, including candidate identity and candidate workspace; a matching request envelope alone is insufficient.
+
+**Why:** Reusing a key for a different candidate can silently return the first execution and make validation or delivery evidence refer to the wrong isolated bytes.
+
+**How to apply:** Compare the stored checkpoint binding during both normal idempotency replay and the unique-key conflict reread; allow replay only for the same binding generation and reject candidate drift.
