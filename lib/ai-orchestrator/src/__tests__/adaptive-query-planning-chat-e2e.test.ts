@@ -1117,10 +1117,16 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       await fs.rm(path.join(rootPath, ACCEPTANCE));
       await fs.symlink(outsidePath, path.join(rootPath, ACCEPTANCE));
 
-      const { result, providerCalls, subqueryReads } = await runScenario({
+      const {
+        result,
+        providerCalls,
+        subqueryReads,
+        forbiddenContentObserved,
+      } = await runScenario({
         rootPath,
         plan: independentProviderPlan(),
         targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        forbiddenContent: "SYMLINK_ESCAPE_SECRET",
         synthesisResponse:
           "CURRENT_STATE: safe in-root provider evidence was retained while the symlink escape was rejected.\n" +
           "GAPS: the provider adapter source is NOT PROVEN because its resolved path left the project root.\n" +
