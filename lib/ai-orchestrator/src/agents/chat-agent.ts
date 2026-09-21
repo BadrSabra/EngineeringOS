@@ -290,6 +290,10 @@ import {
   buildGapFalsificationReport,
   type GapFalsificationReport,
 } from "../gap-falsification.js";
+import {
+  computeServerOwnedConfidence,
+  type ServerConfidence,
+} from "../confidence-projection.js";
 
 const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
   "read_file",
@@ -4124,6 +4128,7 @@ export function salvageChatOutput(params: {
   projectQueryFallbackReason?: ChatOutput["projectQueryResponseFallbackReason"];
   productionReachability?: ChatOutput["productionReachability"] | null;
   crossFileTraces?: ChatOutput["crossFileTraces"];
+  confidence?: ChatOutput["confidence"];
 }): ChatResult {
   const validChanges = params.pendingChanges.filter(
     (pendingChange): pendingChange is PendingChange =>
@@ -4145,6 +4150,7 @@ export function salvageChatOutput(params: {
     ...(params.productionReachability
       ? { productionReachability: params.productionReachability }
       : {}),
+    ...(params.confidence ? { confidence: params.confidence } : {}),
     ...(params.crossFileTraces?.length
       ? { crossFileTraces: params.crossFileTraces.slice(0, 12) }
       : {}),
@@ -10650,6 +10656,29 @@ export async function chat(opts: {
           scopedToolSources,
         );
       }
+      const streamingConfidence =
+        (objective !== undefined || explicitBehaviorQueryRequested)
+          ? computeServerOwnedConfidence({
+              objective,
+              gate: streamingObjectiveGate.gate,
+              evidence: streamingBehaviorGated.evidence,
+              requiredEvidencePaths: objective?.requiredEvidencePaths,
+              expectedRevision: projectContext.workspaceRevision,
+              observedRevision: analysisCorrelation?.projectRevision ?? projectContext.workspaceRevision,
+              contradictionCount: streamingObjectiveGate.gate?.contradictoryClaims.length,
+              objectiveClosure: objective
+                ? streamingObjectiveGate.gate?.status === "PROVEN"
+                : undefined,
+              projectionEvidence:
+                graphGuidance?.crossFileTraces?.some((trace) => trace.status === "PROVEN") === true,
+            })
+          : undefined;
+      if (streamingSemanticBehaviorAnswer && streamingConfidence) {
+        streamingSemanticBehaviorAnswer = {
+          ...streamingSemanticBehaviorAnswer,
+          confidence: streamingConfidence.score,
+        };
+      }
       // FEG-011/012 + AI-OBJ-005: mirror the non-streaming rejection trace so the
       // audit panel sees the same `claim:` and `objective:` reasons on the
       // streaming path too.
@@ -10723,6 +10752,7 @@ export async function chat(opts: {
          ...(projectQueryFallbackReason
            ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
            : {}),
+        ...(streamingConfidence ? { confidence: streamingConfidence } : {}),
         ...(streamingTaskResult ? { taskResult: streamingTaskResult } : {}),
       };
     }
@@ -10988,6 +11018,29 @@ export async function chat(opts: {
           nativeSseAcceptedFiles.length > 0 ? mergedSources : [],
         );
       }
+      const nativeSseConfidence =
+        (objective !== undefined || explicitBehaviorQueryRequested)
+          ? computeServerOwnedConfidence({
+              objective,
+              gate: nativeSseObjectiveGate.gate,
+              evidence: nativeSseBehaviorValidation.evidence,
+              requiredEvidencePaths: objective?.requiredEvidencePaths,
+              expectedRevision: projectContext.workspaceRevision,
+              observedRevision: analysisCorrelation?.projectRevision ?? projectContext.workspaceRevision,
+              contradictionCount: nativeSseObjectiveGate.gate?.contradictoryClaims.length,
+              objectiveClosure: objective
+                ? nativeSseObjectiveGate.gate?.status === "PROVEN"
+                : undefined,
+              projectionEvidence:
+                graphGuidance?.crossFileTraces?.some((trace) => trace.status === "PROVEN") === true,
+            })
+          : undefined;
+      if (nativeSseSemanticBehaviorAnswer && nativeSseConfidence) {
+        nativeSseSemanticBehaviorAnswer = {
+          ...nativeSseSemanticBehaviorAnswer,
+          confidence: nativeSseConfidence.score,
+        };
+      }
       // FEG-011/012 + AI-OBJ-005: mirror the non-streaming rejection trace so the
       // audit panel sees the same `claim:` and `objective:` reasons on the
       // native-SSE path too.
@@ -11061,6 +11114,7 @@ export async function chat(opts: {
          ...(projectQueryFallbackReason
            ? { projectQueryFallbackReason: projectQueryFallbackReason }
            : {}),
+        ...(nativeSseConfidence ? { confidence: nativeSseConfidence } : {}),
         ...(nativeSseTaskResult ? { taskResult: nativeSseTaskResult } : {}),
       };
     }
@@ -14135,6 +14189,23 @@ export async function chat(opts: {
         ],
       })
     : null;
+  const serverConfidence: ServerConfidence | undefined =
+    (objective !== undefined || explicitBehaviorQueryRequested || acceptedBehaviorEvidence.length > 0)
+      ? computeServerOwnedConfidence({
+          objective,
+          gate: objectiveGate,
+          evidence: acceptedBehaviorEvidence,
+          requiredEvidencePaths: objective?.requiredEvidencePaths,
+          expectedRevision: projectContext.workspaceRevision,
+          observedRevision: analysisCorrelation?.projectRevision ?? projectContext.workspaceRevision,
+          contradictionCount: objectiveGate?.contradictoryClaims.length,
+          objectiveClosure: objective
+            ? objectiveGate?.status === "PROVEN"
+            : undefined,
+          projectionEvidence:
+            graphGuidance?.crossFileTraces?.some((trace) => trace.status === "PROVEN") === true,
+        })
+      : undefined;
   if (isTargetedProjectQueryObjective && objectiveGate) {
     relayAgentStep({
       kind: "diagnostic",
@@ -14910,6 +14981,7 @@ export async function chat(opts: {
               graphGuidance?.crossFileTraces.find((trace) => trace.status === "PROVEN") ??
               graphGuidance?.crossFileTraces[0],
             productionReachability: productionReachability ?? undefined,
+            serverOwnedConfidence: serverConfidence?.score,
           },
         )
       : undefined;
@@ -14967,6 +15039,7 @@ export async function chat(opts: {
     ...(projectQueryFallbackReason
       ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
       : {}),
+    ...(serverConfidence ? { confidence: serverConfidence } : {}),
   };
   const check = ChatOutputSchema.safeParse(output);
   if (!check.success) {
@@ -15004,6 +15077,7 @@ export async function chat(opts: {
       projectQueryFallbackReason,
       productionReachability,
       crossFileTraces: graphGuidance?.crossFileTraces,
+      confidence: serverConfidence,
     });
   }
   if (parseError) {

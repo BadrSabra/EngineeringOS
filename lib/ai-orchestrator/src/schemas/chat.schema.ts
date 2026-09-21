@@ -10,6 +10,7 @@ import {
   CrossFileSemanticTraceSchema,
   ProductionReachabilityTraceSchema,
 } from "../semantic-trace.js";
+import { ServerConfidenceSchema } from "../confidence-projection.js";
 import { ImplementationPlanSchema } from "./implementation-plan.schema.js";
 
 export const ValidationProfileSchema = z.enum([
@@ -363,6 +364,8 @@ export const QuerySourceSelectionRecordSchema = z.object({
 export type QuerySourceSelectionRecord = z.infer<typeof QuerySourceSelectionRecordSchema>;
 
 export const ChatOutputSchema = ChatResponseSchema.extend({
+  /** Server-owned confidence projection; provider confidence is non-authoritative. */
+  confidence: ServerConfidenceSchema.optional(),
   /** Provider-reported usage for this final response, when available. */
   usage: z.object({
     promptTokens: z.number().int().nonnegative(),

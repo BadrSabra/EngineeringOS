@@ -6037,6 +6037,7 @@ router.post("/ai/chat", async (req, res) => {
       message: {
         ...assistantMsg,
         taskResult: parseTaskResult(assistantMsg.taskResult),
+        ...(result.confidence ? { confidence: result.confidence } : {}),
         ...(projectQueryTarget ? { projectQueryTarget } : {}),
         ...(sourceSelectionRecord ? { sourceSelectionRecord } : {}),
         ...(projectQueryResponseProvenance
@@ -6082,6 +6083,7 @@ router.post("/ai/chat", async (req, res) => {
       // Exact source line spans for each accepted behavior-evidence excerpt so the
       // dashboard can show where the proof comes from.
       behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
+      confidence: result.confidence,
       // AI-008: per-task typed result discriminated on `kind` by forensicTaskType
       taskResult: redactUserFacingValue(result.taskResult),
       _meta: rootFallbackUsed
@@ -10671,6 +10673,7 @@ export async function handleChatStream(req: Request, res: Response) {
       message: {
         ...publicAssistantMsg,
         taskResult: publicAssistantTaskResult,
+        ...(result.confidence ? { confidence: result.confidence } : {}),
       },
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       ...(projectQueryTarget ? { projectQueryTarget } : {}),
@@ -10702,6 +10705,7 @@ export async function handleChatStream(req: Request, res: Response) {
       // Exact source line spans for each accepted behavior-evidence excerpt so the
       // dashboard can show where the proof comes from.
       behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
+      confidence: result.confidence,
       // AI-008: per-task typed result discriminated on `kind` by forensicTaskType
       taskResult: redactUserFacingValue(result.taskResult),
       // PR-010: telemetry fields for client observability

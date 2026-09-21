@@ -907,6 +907,7 @@ export function buildSemanticBehaviorAnswer(
   traces: {
     crossFileTrace?: CrossFileSemanticTrace;
     productionReachability?: ProductionReachabilityTrace;
+    serverOwnedConfidence?: number;
   } = {},
 ): SemanticBehaviorAnswer {
   const acceptedEvidence = evidence.filter((item) => item.supportsClaim);
@@ -915,7 +916,7 @@ export function buildSemanticBehaviorAnswer(
     ? acceptedEvidence.reduce((sum, item) => sum + item.relevance, 0) /
       acceptedEvidence.length
     : 0;
-  const confidence = Math.round(
+  const confidence = traces.serverOwnedConfidence ?? Math.round(
     Math.min(1, evidenceConfidence * (coverage.complete ? 1 : 0.75)) * 100,
   ) / 100;
   return {
