@@ -56,3 +56,9 @@ Reconciliation can terminalize a cancellation after the worker has already enter
 **Why:** The reconciler may win after cancellation and before the worker's fallback. Without a guarded receipt handoff, the API reports an error for a correctly cancelled execution and reloads can lose the recipe result.
 
 **How to apply:** Let reconciliation replace a provisional cancellation acceptance, then allow the worker to persist its receipt only onto a cancelled execution with no existing receipt; never reopen or overwrite a terminal row.
+
+Every terminal acceptance must carry the worker's captured attempt identity and validate it after locking the execution row; a finalization key or optional worker ID is not an attempt fence.
+
+**Why:** A delayed callback from an earlier retry can arrive after a new attempt is running. Without an attempt check, it can create a new acceptance and terminalize the wrong attempt even when its textual key says `attempt:0`.
+
+**How to apply:** Require `expectedAttempt` in all server-owned completion, failure, task, cancellation, and reconciliation paths; reject mismatches before any acceptance or side-effect write while preserving stale-snapshot diagnostics where applicable.

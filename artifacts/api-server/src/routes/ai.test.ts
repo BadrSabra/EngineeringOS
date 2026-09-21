@@ -7245,6 +7245,7 @@ describe("autonomous task acceptance finalization races", () => {
 
     const first = await finalizeExecutionAcceptance({
       executionId: fixture.executionId,
+      expectedAttempt: fixture.attempt,
       workerId: fixture.workerId,
       finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:late-failure`,
       outcome: "FAILED",
@@ -7283,6 +7284,7 @@ describe("autonomous task acceptance finalization races", () => {
 
     const duplicate = await finalizeExecutionAcceptance({
       executionId: fixture.executionId,
+      expectedAttempt: fixture.attempt,
       workerId: fixture.workerId,
       finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:late-failure-retry`,
       outcome: "FAILED",
@@ -7495,6 +7497,7 @@ describe("autonomous task acceptance finalization races", () => {
 
     const staleWorker = await finalizeExecutionAcceptance({
       executionId: fixture.executionId,
+      expectedAttempt: fixture.attempt,
       workerId: fixture.workerId,
       finalizationKey: `execution:${fixture.executionId}:attempt:${fixture.attempt}:stale-worker`,
       outcome: "SUCCEEDED",

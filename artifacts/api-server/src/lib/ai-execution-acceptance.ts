@@ -85,6 +85,8 @@ export type NormalizedEvidenceSnapshot = {
 
 export type FinalizeExecutionAcceptanceParams = {
   executionId: string;
+  /** Attempt identity captured by the worker before it performed terminal work. */
+  expectedAttempt: number;
   workerId?: string | null;
   allowExpiredLease?: boolean;
   /**
@@ -664,6 +666,13 @@ export async function finalizeExecutionAcceptance(
           reason: "The reconciler snapshot is stale.",
         };
       }
+    }
+    if (execution.attempt !== params.expectedAttempt) {
+      return {
+        accepted: false,
+        duplicate: false,
+        reason: "The execution attempt is stale.",
+      };
     }
 
     const storedRequest = parseStoredExecutionRequest(execution.request);

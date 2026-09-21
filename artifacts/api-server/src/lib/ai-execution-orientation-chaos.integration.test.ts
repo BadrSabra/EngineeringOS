@@ -388,6 +388,7 @@ describe("durable project-orientation retry chaos", () => {
         const terminalResults = await Promise.all([
           finalizeExecutionAcceptance({
             executionId,
+            expectedAttempt: 1,
             workerId: activeWorker,
             finalizationKey: `${executionId}:attempt:1:provider-failure`,
             outcome: "FAILED",
@@ -398,6 +399,7 @@ describe("durable project-orientation retry chaos", () => {
           }),
           finalizeExecutionAcceptance({
             executionId,
+            expectedAttempt: 1,
             workerId: activeWorker,
             finalizationKey: `${executionId}:attempt:1:disconnect`,
             outcome: "INTERRUPTED",
@@ -1035,6 +1037,7 @@ describe("durable project-orientation retry chaos", () => {
           Array.from({ length: lateWriterCount }, (_, index) =>
             finalizeExecutionAcceptance({
               executionId: fixture.executionId,
+              expectedAttempt: 1,
               workerId: staleWorker,
               finalizationKey: `${fixture.executionId}:late-worker:${index}`,
               outcome: index % 2 === 0 ? "FAILED" : "SUCCEEDED",
@@ -1661,6 +1664,7 @@ describe("durable project-orientation retry chaos", () => {
           if (attempt + 1 < generationCount) {
             const finalized = await finalizeExecutionAcceptance({
               executionId: fixture.executionId,
+              expectedAttempt: attempt + 1,
               workerId: activeWorker,
               finalizationKey: `${fixture.executionId}:generation:${attempt + 1}`,
               outcome: "FAILED",
@@ -1801,6 +1805,7 @@ describe("durable project-orientation retry chaos", () => {
           if (attempt + 1 < widths.length) {
             const finalized = await finalizeExecutionAcceptance({
               executionId: fixture.executionId,
+              expectedAttempt: attempt + 1,
               workerId: winners[0]!.workerId,
               finalizationKey: `${fixture.executionId}:swarm-generation:${attempt + 1}`,
               outcome: "FAILED",
@@ -2699,6 +2704,7 @@ describe("durable project-orientation retry chaos", () => {
 
       const staleFinalization = await finalizeExecutionAcceptance({
         executionId: fixture.executionId,
+        expectedAttempt: 0,
         finalizationKey: `${fixture.executionId}:stale-reconciler`,
         outcome: "FAILED",
         terminalStatus: "paused",
@@ -2737,6 +2743,131 @@ describe("durable project-orientation retry chaos", () => {
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
       expect(acceptances, context).toEqual([{ attempt: 0 }]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects a late terminal callback from the previous attempt even without worker identity", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-late-callback-attempt");
+    const context = `adaptive late callback attempt fence; execution=${fixture.executionId}`;
+
+    try {
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "current-attempt-worker",
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "current-attempt-worker",
+      });
+
+      const lateCallback = await finalizeExecutionAcceptance({
+        executionId: fixture.executionId,
+        expectedAttempt: 0,
+        finalizationKey: `${fixture.executionId}:attempt:0:late-provider-callback`,
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        recoveryState: "REQUIRED",
+        resumable: true,
+        error: "late callback from attempt zero",
+      });
+      expect(lateCallback, context).toMatchObject({
+        accepted: false,
+        duplicate: false,
+      });
+
+      const [liveState] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(liveState, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "current-attempt-worker",
+      });
+
+      const acceptances = await db
+        .select({ attempt: aiExecutionAcceptancesTable.attempt })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .orderBy(aiExecutionAcceptancesTable.attempt);
+      expect(acceptances, context).toEqual([{ attempt: 0 }]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects an attempt-current terminal callback that omits worker identity while execution is running", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-missing-worker-identity");
+    const context = `adaptive missing worker identity fence; execution=${fixture.executionId}`;
+
+    try {
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "identity-bound-worker",
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "identity-bound-worker",
+      });
+
+      const missingIdentity = await finalizeExecutionAcceptance({
+        executionId: fixture.executionId,
+        expectedAttempt: 1,
+        finalizationKey: `${fixture.executionId}:attempt:1:missing-worker-identity`,
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        recoveryState: "REQUIRED",
+        resumable: true,
+        error: "terminal callback without worker identity",
+      });
+      expect(missingIdentity, context).toMatchObject({
+        accepted: false,
+        duplicate: false,
+      });
+
+      const [liveState] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(liveState, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "identity-bound-worker",
+      });
     } finally {
       await fixture.cleanup();
     }

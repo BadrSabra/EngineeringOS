@@ -279,6 +279,7 @@ async function finalizeTaskExecutionAcceptance(params: {
   };
   const finalized = await finalizeExecutionAcceptance({
     executionId: params.executionId,
+    expectedAttempt: params.receipt.attempt,
     workerId: params.workerId,
     finalizationKey: `execution:${params.executionId}:attempt:${params.receipt.attempt}:${params.reasonCode}`,
     outcome: params.outcome,

@@ -2189,6 +2189,7 @@ export async function requestAiExecutionRecovery(params: {
   };
   const finalized = await finalizeExecutionAcceptance({
     executionId: params.executionId,
+    expectedAttempt: current.attempt,
     finalizationKey: `execution:${params.executionId}:attempt:${current.attempt}:abandoned`,
     outcome: "INTERRUPTED",
     terminalStatus: "cancelled",
@@ -2699,6 +2700,7 @@ export async function completeAiExecution(params: {
   } satisfies AiExecutionCheckpoint;
   const result = await finalizeExecutionAcceptance({
     executionId: params.executionId,
+    expectedAttempt: current?.attempt ?? 0,
     workerId: params.workerId,
     finalMessageId: params.finalMessageId,
     finalMessageContent: params.finalMessageContent,
@@ -2819,6 +2821,7 @@ export async function failAiExecution(params: {
         : "EXECUTION_FAILED";
   const finalized = await finalizeExecutionAcceptance({
     executionId: params.executionId,
+    expectedAttempt: current.attempt,
     workerId: params.workerId,
     finalMessageId: params.finalMessageId,
     finalMessageErrorCode: params.finalMessageErrorCode,
@@ -2910,6 +2913,7 @@ export async function requestAiExecutionCancel(params: {
   if (current.status === "queued" || current.status === "paused") {
     const finalized = await finalizeExecutionAcceptance({
       executionId: current.id,
+      expectedAttempt: current.attempt,
       finalizationKey: `execution:${current.id}:attempt:${current.attempt}:cancelled`,
       outcome: "INTERRUPTED",
       terminalStatus: "cancelled",
@@ -3002,6 +3006,7 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
       });
       const finalized = await finalizeExecutionAcceptance({
         executionId: execution.id,
+        expectedAttempt: execution.attempt,
         finalizationKey: `execution:${execution.id}:attempt:${execution.attempt}:reconciled-cancel`,
         outcome: "INTERRUPTED",
         terminalStatus: "cancelled",
@@ -3041,6 +3046,7 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
       : undefined;
     const finalized = await finalizeExecutionAcceptance({
       executionId: execution.id,
+      expectedAttempt: execution.attempt,
       finalizationKey: `execution:${execution.id}:attempt:${execution.attempt}:lease-expired`,
       outcome: "FAILED",
       terminalStatus: "paused",

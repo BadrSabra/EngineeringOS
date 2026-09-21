@@ -1742,6 +1742,7 @@ describe("Durable AI completion identity", () => {
 
     const revisionDrift = await finalizeExecutionAcceptance({
       executionId: fixture.created.execution.id,
+      expectedAttempt: fixture.created.execution.attempt + 1,
       workerId: fixture.workerId,
       finalizationKey: `provenance-revision-${randomUUID()}`,
       outcome: "FAILED",
