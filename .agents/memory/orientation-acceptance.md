@@ -21,6 +21,12 @@ Acceptance must distinguish missing role coverage from missing source-selection 
 
 **How to apply:** At investigation and finalization boundaries, compare manifest/read completeness independently from source-selection presence and emit separate diagnostics for coverage failure versus telemetry loss.
 
+Orientation role coverage is not a behavioral claim, but a completed orientation must not project as generic verification with zero accepted evidence when the dashboard interprets that counter as incomplete verification.
+
+**Why:** The orientation acceptance branch correctly accepted complete role coverage and retained reads, while the shared evidence trace still emitted `acceptedEvidenceCount=0` and `evidenceSelected=0`; the live dashboard then labeled verification as incomplete despite the durable `PROVEN` result.
+
+**How to apply:** Keep orientation proof separate from targeted claim counts, but add an explicit orientation coverage projection (or an equivalent typed status) to every trace/UI verification surface instead of overloading behavioral counters.
+
 Provider-exhausted orientation fallback is a separate path from chat-agent finalization and can return a minimal answer before source-selection/evidence projections are emitted.
 
 **Why:** The all-provider fallback can assemble a correct response from the durable role manifest and retained reads while bypassing the late `ChatResult` provenance assembly, leaving acceptance without the coverage record.
