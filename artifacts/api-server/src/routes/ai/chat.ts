@@ -124,6 +124,7 @@ import type {
   ReadStatus,
   ProjectFileSource,
   ProjectQueryTargetMode,
+  EvidenceGraph,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
@@ -3357,7 +3358,7 @@ function makeSyntheticValidationResult(
 }
 
 type PersistedToolTraceEntry = {
-  kind: AgentStep["kind"] | "audit_scope" | "forensic_diagnostic";
+  kind: AgentStep["kind"] | "audit_scope" | "forensic_diagnostic" | "evidence_graph";
   scopeDescription?: string;
   tool?: string;
   args?: Record<string, string>;
@@ -3492,6 +3493,12 @@ type PersistedToolTraceEntry = {
   validator?: string;
   recoveryAttempt?: number;
   recoveryFailureKind?: string;
+  version?: 1;
+  sourceRevision?: string;
+  nodes?: EvidenceGraph["nodes"];
+  edges?: EvidenceGraph["edges"];
+  reads?: EvidenceGraph["reads"];
+  contradictionClaimIds?: string[];
   finalState?: "VERIFIED" | "NOT_PROVEN" | "RECOVERY_REQUIRED" | "FAILED";
   /** Task #46: verdict's proof scope persisted from the final runtime ledger. */
   verdictScope?: "PRODUCTION" | "FIXTURE_LOCAL" | "TEST_LOCAL" | "SPEC_LOCAL" | "MIXED" | "NOT_PROVEN";
@@ -3718,8 +3725,9 @@ function serializeToolTrace(
   scopeDescription?: string,
   capabilityProbeResult?: unknown,
   projectQuery = false,
+  evidenceGraph?: EvidenceGraph,
 ): string | null {
-  if (steps.length === 0 && !scopeDescription) return null;
+  if (steps.length === 0 && !scopeDescription && !evidenceGraph) return null;
   const diagnosticCodes = steps
     .filter((step): step is Extract<AgentStep, { kind: "diagnostic" }> => step.kind === "diagnostic")
     .map((step) => step.code)
@@ -4037,6 +4045,17 @@ function serializeToolTrace(
     : deriveForensicDiagnostic(steps, { capabilityProbeResult });
   if (forensicDiagnostic) {
     entries.push({ kind: "forensic_diagnostic", forensicDiagnostic });
+  }
+  if (evidenceGraph) {
+    entries.push({
+      kind: "evidence_graph",
+      version: evidenceGraph.version,
+      sourceRevision: evidenceGraph.sourceRevision,
+      nodes: evidenceGraph.nodes,
+      edges: evidenceGraph.edges,
+      reads: evidenceGraph.reads,
+      contradictionClaimIds: evidenceGraph.contradictionClaimIds,
+    } as PersistedToolTraceEntry);
   }
   if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
   return redactUserFacingText(JSON.stringify(entries));
@@ -9999,7 +10018,14 @@ export async function handleChatStream(req: Request, res: Response) {
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
               appendProjectQueryResponseProvenanceTrace(
-                serializeToolTrace(traceSteps, true, streamAuditScopeDescription, result.taskResult),
+                serializeToolTrace(
+                  traceSteps,
+                  true,
+                  streamAuditScopeDescription,
+                  result.taskResult,
+                  false,
+                  result.evidenceGraph,
+                ),
                 result.projectQueryResponseSource,
                 result.projectQueryResponseFallbackReason,
               ),
@@ -10602,7 +10628,14 @@ export async function handleChatStream(req: Request, res: Response) {
     const publicToolTrace = streamTurnIntent.requiresEvidence
         ? appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
-              serializeToolTrace(traceSteps, false, streamAuditScopeDescription, result.taskResult),
+              serializeToolTrace(
+                traceSteps,
+                false,
+                streamAuditScopeDescription,
+                result.taskResult,
+                false,
+                result.evidenceGraph,
+              ),
               projectContext.contextProvenance ?? projectContextProvenance(projectContext),
             ),
             executionLedgerSnapshot,

@@ -1174,6 +1174,30 @@ export {
   // AI-OBJ-010: final answer validator
   validateFinalAnswer,
 } from "./evidence-integrity.js";
+
+export {
+  buildEvidenceGraph,
+  EvidenceGraphNodeKindSchema,
+  EvidenceGraphVerdictSchema,
+  EvidenceGraphNodeSchema,
+  EvidenceGraphEdgeSchema,
+  EvidenceGraphReadSchema,
+  EvidenceGraphSchema,
+} from "./evidence-graph.js";
+export type {
+  EvidenceGraphNodeKind,
+  EvidenceGraphVerdict,
+  EvidenceGraphNode,
+  EvidenceGraphEdge,
+  EvidenceGraphRead,
+  EvidenceGraph,
+  EvidenceGraphSourceEvidence,
+  EvidenceGraphSubQuery,
+  EvidenceGraphClaim,
+  EvidenceGraphSymbol,
+  EvidenceGraphTrace,
+  BuildEvidenceGraphInput,
+} from "./evidence-graph.js";
 export type {
   EvidenceReadType,
   EvidenceSourceType,

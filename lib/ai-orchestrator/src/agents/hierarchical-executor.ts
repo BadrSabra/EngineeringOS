@@ -29,6 +29,10 @@ import { executeToolLoop } from "../tool-execution-engine.js";
 import { stripReadFileWrapper } from "../tools/file-tools.js";
 import type { CompoundQueryPart } from "./query-planner.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
+import {
+  buildEvidenceGraph,
+  type EvidenceGraph,
+} from "../evidence-graph.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -118,6 +122,7 @@ export type HierarchicalSubtaskReceipt = {
   text?: string;
   toolSources: string[];
   sourceEvidence: SourceEvidence[];
+  targetPaths?: string[];
 };
 
 export type HierarchicalResult = {
@@ -131,6 +136,7 @@ export type HierarchicalResult = {
   status: "complete" | "partial" | "failed" | "cancelled";
   synthesisStatus: "complete" | "failed" | "skipped";
   coverage?: CompoundSynthesisValidation;
+  evidenceGraph: EvidenceGraph;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -180,6 +186,7 @@ async function runSubTask(
         reason: "aggregate_request_budget_exhausted",
         toolSources: [],
         sourceEvidence: [],
+        targetPaths: [...task.targetPaths],
       };
     }
     const loopResult = await executeToolLoop({
@@ -254,6 +261,7 @@ async function runSubTask(
       ...(text ? { text } : {}),
       toolSources: loopResult.toolSources,
       sourceEvidence,
+      targetPaths: [...task.targetPaths],
     };
   } catch (err) {
     console.warn(
@@ -272,6 +280,7 @@ async function runSubTask(
       diagnosticCode: "SUBTASK_EXCEPTION",
       toolSources: [],
       sourceEvidence: [],
+      targetPaths: [...task.targetPaths],
     };
   }
 }
@@ -365,6 +374,7 @@ function dependencySkippedReceipt(task: HierarchicalTask, taskIndex: number): Su
     diagnosticCode: "SUBQUERY_DEPENDENCY_NOT_SATISFIED",
     toolSources: [],
     sourceEvidence: [],
+    targetPaths: [...task.targetPaths],
   };
 }
 
@@ -430,6 +440,7 @@ function cancelledReceipt(task: HierarchicalTask, taskIndex: number): Hierarchic
     reason: "cancelled_before_start",
     toolSources: [],
     sourceEvidence: [],
+      targetPaths: [...task.targetPaths],
   };
 }
 
@@ -659,6 +670,10 @@ export async function executeHierarchical(
     subResults.flatMap((r) => r.sourceEvidence)
       .map((item) => [`${item.file}:${item.startLine}:${item.endLine}`, item]),
   ).values()];
+  const evidenceGraph = buildEvidenceGraph({
+    sourceEvidence,
+    subQueries: subResults,
+  });
 
   // ── 3. Synthesis call (no tools) ─────────────────────────────────────────
   const aggregate = aggregateStatus(subResults);
@@ -671,6 +686,7 @@ export async function executeHierarchical(
       receipts: subResults,
       status: "cancelled",
       synthesisStatus: "skipped",
+      evidenceGraph,
     };
   }
   const synthesisMessages: RawMessage[] = [
@@ -778,5 +794,6 @@ export async function executeHierarchical(
     status: aggregate,
     synthesisStatus,
     ...(coverage ? { coverage } : {}),
+    evidenceGraph,
   };
 }

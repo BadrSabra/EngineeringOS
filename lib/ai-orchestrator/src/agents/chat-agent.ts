@@ -201,6 +201,7 @@ import {
 } from "../task-execution-partial-report.js";
 import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-executor.js";
 import { scheduleSubQueries } from "../subquery-scheduler.js";
+import { buildEvidenceGraph } from "../evidence-graph.js";
 import { executeExecutionNodePlan } from "../execution-node-coordinator.js";
 import { stripReadFileWrapper, executeFileTool } from "../tools/file-tools.js";
 import { hasDisplayTruncationMarker, hasToolAppendedTruncationMarker } from "../source-read-status.js";
@@ -8391,10 +8392,22 @@ export async function chat(opts: {
         structuredRepairPlan: undefined,
         acceptedBehaviorEvidence: [],
       });
+      const hierarchicalEvidenceGraph = buildEvidenceGraph({
+        sourceEvidence: hierarchicalResult.sourceEvidence,
+        subQueries: hierarchicalResult.receipts,
+        claims: objective?.requiredClaims.map((claim) => ({
+          claimId: claim.claimId,
+          text: claim.text,
+          requiredEvidencePaths: claim.requiredEvidencePaths,
+        })),
+        crossFileTraces: graphGuidance?.crossFileTraces,
+        sourceRevision: projectContext.workspaceRevision,
+      });
       return {
         response: hierarchicalResponse,
         sources: mergedSources,
         pendingChanges: getExecutionPendingChanges(),
+        evidenceGraph: hierarchicalEvidenceGraph,
         ...(hierarchicalTaskResult ? { taskResult: hierarchicalTaskResult } : {}),
       };
     } catch (hierarchicalErr) {
@@ -14214,6 +14227,55 @@ export async function chat(opts: {
         ],
       })
     : null;
+  const sharedEvidenceGraph = buildEvidenceGraph({
+    sourceEvidence: evidenceForRun.map((item) => ({
+      file: item.source,
+      startLine: item.sourceSpan?.startLine ?? 1,
+      endLine: item.sourceSpan?.endLine
+        ?? Math.max(1, item.excerpt?.split("\n").length ?? 1),
+      truncated: false,
+      taskIndex: 0,
+    })),
+    subQueries: [{
+      taskIndex: 0,
+      intent: message,
+      status: objectiveGate?.status === "PROVEN"
+        ? "complete"
+        : evidenceForRun.length > 0
+          ? "partial"
+          : "failed",
+      sourceEvidence: evidenceForRun.map((item) => ({
+        file: item.source,
+        startLine: item.sourceSpan?.startLine ?? 1,
+        endLine: item.sourceSpan?.endLine
+          ?? Math.max(1, item.excerpt?.split("\n").length ?? 1),
+        truncated: false,
+        taskIndex: 0,
+      })),
+      targetPaths: [
+        ...(objective?.requiredEvidencePaths ?? []),
+        ...(objective?.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []) ?? []),
+      ],
+    }],
+    claims: objective?.requiredClaims.map((claim) => ({
+      claimId: claim.claimId,
+      text: claim.text,
+      requiredEvidencePaths: claim.requiredEvidencePaths,
+    })),
+    claimStatuses: objectiveGate
+      ? Object.fromEntries(objectiveGate.requiredClaims.map((claimId) => [
+          claimId,
+          objectiveGate.contradictoryClaims.includes(claimId)
+            ? "CONTRADICTED"
+            : objectiveGate.completedClaims.includes(claimId)
+              ? "PROVEN"
+              : "NOT_PROVEN",
+        ]))
+      : undefined,
+    contradictionClaimIds: objectiveGate?.contradictoryClaims,
+    crossFileTraces: graphGuidance?.crossFileTraces,
+    sourceRevision: projectContext.workspaceRevision,
+  });
   const serverConfidence: ServerConfidence | undefined =
     (objective !== undefined || explicitBehaviorQueryRequested || acceptedBehaviorEvidence.length > 0)
       ? computeServerOwnedConfidence({
@@ -15065,6 +15127,7 @@ export async function chat(opts: {
       ? { projectQueryResponseFallbackReason: projectQueryFallbackReason }
       : {}),
     ...(serverConfidence ? { confidence: serverConfidence } : {}),
+    evidenceGraph: sharedEvidenceGraph,
   };
   const check = ChatOutputSchema.safeParse(output);
   if (!check.success) {

@@ -11,6 +11,7 @@ import {
   ProductionReachabilityTraceSchema,
 } from "../semantic-trace.js";
 import { ServerConfidenceSchema } from "../confidence-projection.js";
+import { EvidenceGraphSchema } from "../evidence-graph.js";
 import { ImplementationPlanSchema } from "./implementation-plan.schema.js";
 
 export const ValidationProfileSchema = z.enum([
@@ -366,6 +367,8 @@ export type QuerySourceSelectionRecord = z.infer<typeof QuerySourceSelectionReco
 export const ChatOutputSchema = ChatResponseSchema.extend({
   /** Server-owned confidence projection; provider confidence is non-authoritative. */
   confidence: ServerConfidenceSchema.optional(),
+  /** Canonical metadata-only evidence graph; source bodies remain in snapshots. */
+  evidenceGraph: EvidenceGraphSchema.optional(),
   /** Provider-reported usage for this final response, when available. */
   usage: z.object({
     promptTokens: z.number().int().nonnegative(),
