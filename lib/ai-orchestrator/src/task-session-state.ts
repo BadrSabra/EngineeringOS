@@ -570,10 +570,10 @@ export function isProjectQueryFollowUpRequest(message: string): boolean {
  * inherit an embedded-AI target; generic gap wording starts a new target.
  */
 export function isProjectQueryContinuationCandidate(message: string): boolean {
-  const normalized = normalizeContinuationMessage(message);
-  return !isAcceptanceCoverageRequest(normalized)
-    && normalized.length <= 120
-    && (isProjectQueryFollowUpRequest(normalized) || isGapAnalysisRequest(normalized));
+  const decision = resolveTaskContinuationDecision(message);
+  return decision.kind === "project-query-follow-up"
+    || decision.kind === "embedded-ai-weakness"
+    || decision.kind === "gap-analysis-candidate";
 }
 
 export function parseActiveTaskState(value: string | null | undefined): ActiveTaskState | null {

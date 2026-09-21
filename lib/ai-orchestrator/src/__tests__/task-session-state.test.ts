@@ -16,6 +16,7 @@ import {
   isTaskContinuationRequest,
   mergeActiveTaskEvidence,
   parseActiveTaskState,
+  resolveTaskContinuationDecision,
   resumeActiveTaskClassification,
   serializeActiveTaskState,
   transitionExecutionNode,
@@ -111,6 +112,12 @@ describe("active task session state", () => {
     });
 
     const followUp = "حدد نقاط الضعف لدى الوكيل";
+    expect(resolveTaskContinuationDecision(followUp)).toMatchObject({
+      kind: "gap-analysis-candidate",
+      candidate: true,
+      requested: false,
+      stateMatched: false,
+    });
     expect(isProjectQueryContinuationCandidate(followUp)).toBe(true);
     expect(isTaskContinuationRequest(followUp)).toBe(false);
     expect(isTaskContinuationRequest(followUp, state)).toBe(true);
@@ -149,6 +156,12 @@ describe("active task session state", () => {
     });
     const freshClassification = classifyRequest("الفجوات؟");
 
+    expect(resolveTaskContinuationDecision("الفجوات؟", state)).toEqual({
+      kind: "gap-analysis-candidate",
+      candidate: true,
+      requested: false,
+      stateMatched: false,
+    });
     expect(isProjectQueryContinuationCandidate("الفجوات؟")).toBe(true);
     expect(isTaskContinuationRequest("الفجوات؟", state)).toBe(false);
     expect(freshClassification.projectTarget?.id).toBe("gap-analysis");

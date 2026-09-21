@@ -61,12 +61,12 @@ import {
   buildIncompleteForensicReport,
   collectForensicEvidence,
   isTaskContinuationRequest,
+  resolveTaskContinuationDecision,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
   mergeProjectQueryObjective,
   buildActiveTaskExecutionPlan,
   isResumableTaskType,
-  isProjectQueryContinuationCandidate,
   isSessionQualityAuditRequest,
   parseActiveTaskState,
   resumeActiveTaskClassification,
@@ -5014,8 +5014,8 @@ router.post("/ai/chat", async (req, res) => {
   // messages reuse the verified contract stored on the session.
   const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
   const rawTurnClassification = classifyRequest(message);
-  const continuationCandidate = isTaskContinuationRequest(message)
-    || isProjectQueryContinuationCandidate(message);
+    const initialContinuationDecision = resolveTaskContinuationDecision(message);
+    const continuationCandidate = initialContinuationDecision.candidate;
   const recoveredActiveTaskState = !persistedActiveTaskState && continuationCandidate
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
@@ -5027,7 +5027,11 @@ router.post("/ai/chat", async (req, res) => {
   // Reuse session evidence only for a bounded continuation. A new project
   // question may still require tools, but it must begin with a fresh
   // server-owned evidence scope instead of inheriting the previous target.
-  const resumesSessionState = isTaskContinuationRequest(message, resumableStateCandidate);
+    const continuationDecision = resolveTaskContinuationDecision(
+      message,
+      resumableStateCandidate,
+    );
+    const resumesSessionState = continuationDecision.requested;
   const resumableStateForTurn = resumesSessionState ? resumableStateCandidate : null;
   const classificationResolution = resumeActiveTaskClassification(
     message,
@@ -5059,7 +5063,7 @@ router.post("/ai/chat", async (req, res) => {
     recoveredStateLoaded: Boolean(recoveredActiveTaskState),
     continuationCandidate,
     stateContinuationMatched: Boolean(
-      resumableStateCandidate && isTaskContinuationRequest(message, resumableStateCandidate),
+      continuationDecision.stateMatched,
     ),
     resumed: classificationResolution.resumed,
     rawTaskType: rawTurnClassification.taskType,
@@ -6423,8 +6427,8 @@ export async function handleChatStream(req: Request, res: Response) {
     existingSession?.activeTaskState,
     projectId,
   );
-  const continuationCandidate = isTaskContinuationRequest(message)
-    || isProjectQueryContinuationCandidate(message);
+  const initialContinuationDecision = resolveTaskContinuationDecision(message);
+  const continuationCandidate = initialContinuationDecision.candidate;
   const recoveredActiveTaskState = !persistedActiveTaskState && continuationCandidate
     ? await recoverSessionTaskStateFromExecution({
         sessionId: existingSession?.id,
@@ -6433,8 +6437,12 @@ export async function handleChatStream(req: Request, res: Response) {
       })
     : null;
   const streamResumableStateCandidate = persistedActiveTaskState ?? recoveredActiveTaskState;
+  const continuationDecision = resolveTaskContinuationDecision(
+    message,
+    streamResumableStateCandidate,
+  );
   const resumesSessionState =
-    isTaskContinuationRequest(message, streamResumableStateCandidate)
+    continuationDecision.requested
     || Boolean(effectiveExecutionId)
     || Boolean(effectiveBuildPlanMessageId);
   // A fresh project query remains tool-capable, but must not inherit the
@@ -6481,7 +6489,7 @@ export async function handleChatStream(req: Request, res: Response) {
     continuationCandidate,
     stateContinuationMatched: Boolean(
       streamResumableStateCandidate
-      && isTaskContinuationRequest(message, streamResumableStateCandidate),
+      && continuationDecision.stateMatched,
     ),
     resumed: streamClassificationResolution.resumed,
     rawTaskType: rawTurnClassification.taskType,
