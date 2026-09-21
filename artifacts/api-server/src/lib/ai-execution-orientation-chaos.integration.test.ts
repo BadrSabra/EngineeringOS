@@ -10,9 +10,11 @@ import {
 import {
   claimAiExecution,
   checkpointAiExecution,
+  createAutonomousOperationContract,
   failAiExecution,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
+  requestAiExecutionRecovery,
   recoverAiExecutionResumeToken,
   recoverAiExecutionRetryToken,
   requestAiExecutionCancel,
@@ -2729,6 +2731,184 @@ describe("durable project-orientation retry chaos", () => {
         terminalStatus: "cancelled",
         outcome: "INTERRUPTED",
         reasonCode: "EXECUTION_CANCELLED",
+        resumable: 0,
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("does not double-advance the attempt when operator recovery issues a token before claim", async () => {
+    const fixture = await createFailedOrientationFixture("operator-recovery-attempt");
+    const context = `operator recovery attempt fence; execution=${fixture.executionId}`;
+    const operation = {
+      ...createAutonomousOperationContract({
+        operationId: fixture.executionId,
+        objective: "Recover the interrupted orientation operation",
+        revisionManifest: fixture.manifest.projectRevision,
+      }),
+      state: "uncertain" as const,
+    };
+    const checkpoint = {
+      stage: "failed" as const,
+      sequence: 4,
+      operation,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await db
+        .update(aiExecutionsTable)
+        .set({
+          status: "paused",
+          checkpoint: JSON.stringify(checkpoint),
+          checkpointVersion: checkpoint.sequence,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db
+        .update(aiExecutionAcceptancesTable)
+        .set({
+          terminalStatus: "paused",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+          disposition: {
+            reasonCodes: ["EXECUTION_LEASE_EXPIRED"],
+            outcome: "FAILED",
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+            operatorAction: "RESUME_CHECKPOINT",
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const recovered = await requestAiExecutionRecovery({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        action: "resume",
+        revision: fixture.manifest.projectRevision,
+      });
+      expect(recovered, context).toMatchObject({
+        outcome: "resume_accepted",
+        execution: {
+          id: fixture.executionId,
+          status: "paused",
+          attempt: 0,
+        },
+        resumeToken: expect.any(String),
+      });
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "operator-recovery-worker",
+        resumeToken: recovered!.resumeToken,
+      });
+      expect(claimed, context).toMatchObject({
+        id: fixture.executionId,
+        status: "running",
+        attempt: 1,
+        workerId: "operator-recovery-worker",
+      });
+
+      const acceptances = await db
+        .select({ attempt: aiExecutionAcceptancesTable.attempt })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(acceptances, context).toEqual([{ attempt: 0 }]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("terminalizes operator abandon instead of treating an existing recovery acceptance as a duplicate", async () => {
+    const fixture = await createFailedOrientationFixture("operator-abandon-acceptance");
+    const context = `operator abandon acceptance fence; execution=${fixture.executionId}`;
+    const operation = {
+      ...createAutonomousOperationContract({
+        operationId: fixture.executionId,
+        objective: "Abandon the interrupted orientation operation",
+        revisionManifest: fixture.manifest.projectRevision,
+      }),
+      state: "uncertain" as const,
+    };
+    const checkpoint = {
+      stage: "failed" as const,
+      sequence: 7,
+      operation,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await db
+        .update(aiExecutionsTable)
+        .set({
+          status: "paused",
+          checkpoint: JSON.stringify(checkpoint),
+          checkpointVersion: checkpoint.sequence,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      await db
+        .update(aiExecutionAcceptancesTable)
+        .set({
+          terminalStatus: "paused",
+          nextActionCode: "RESUME_ALLOWED",
+          resumable: 1,
+          disposition: {
+            reasonCodes: ["EXECUTION_LEASE_EXPIRED"],
+            outcome: "FAILED",
+            recoveryState: "REQUIRED",
+            nextActionCode: "RESUME_ALLOWED",
+            operatorAction: "RESUME_CHECKPOINT",
+          },
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+      const abandoned = await requestAiExecutionRecovery({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        action: "abandon",
+        revision: fixture.manifest.projectRevision,
+      });
+      expect(abandoned, context).toMatchObject({
+        outcome: "abandoned",
+        execution: {
+          id: fixture.executionId,
+          status: "cancelled",
+          attempt: 0,
+        },
+      });
+
+      expect(await recoverAiExecutionResumeToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }), context).toBeUndefined();
+      expect(await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }), context).toBeUndefined();
+
+      const [acceptance] = await db
+        .select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .limit(1);
+      expect(acceptance, context).toMatchObject({
+        attempt: 0,
+        terminalStatus: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_ABANDONED",
+        nextActionCode: "ABANDON_EXECUTION",
         resumable: 0,
       });
     } finally {

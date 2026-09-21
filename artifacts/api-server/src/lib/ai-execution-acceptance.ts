@@ -92,11 +92,11 @@ export type FinalizeExecutionAcceptanceParams = {
   /** Preserve a bounded provider/validation code already persisted on the message. */
   finalMessageErrorCode?: string | null;
   /**
-   * A paused/queued cancellation may arrive after the attempt already has a
-   * retry acceptance. In that narrow case cancellation refines the existing
-   * row instead of being treated as an idempotent duplicate.
+   * A paused/queued cancellation or abandon may arrive after the attempt
+   * already has a retry acceptance. In that narrow case the interruption
+   * refines the existing row instead of being treated as a duplicate.
    */
-  replaceExistingCancellation?: boolean;
+  replaceExistingInterruption?: boolean;
   finalizationKey: string;
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   terminalStatus: "completed" | "failed" | "cancelled" | "paused";
@@ -719,19 +719,20 @@ export async function finalizeExecutionAcceptance(
       ))
       .limit(1);
     if (existing) {
-      const replaceExistingCancellation =
-        params.replaceExistingCancellation === true
+      const replaceExistingInterruption =
+        params.replaceExistingInterruption === true
         && params.outcome === "INTERRUPTED"
-        && params.reasonCode === "EXECUTION_CANCELLED"
+        && (params.reasonCode === "EXECUTION_CANCELLED"
+          || params.reasonCode === "EXECUTION_ABANDONED")
         && (execution.status === "queued" || execution.status === "paused")
         && !params.taskFinalization;
-      if (!replaceExistingCancellation) {
+      if (!replaceExistingInterruption) {
         return { accepted: true, duplicate: true, acceptance: existing };
       }
 
       const now = new Date();
       const cancellationDisposition = {
-        reasonCodes: ["EXECUTION_CANCELLED"],
+        reasonCodes: [params.reasonCode],
         outcome: "INTERRUPTED" as const,
         recoveryState: "INCOMPLETE" as const,
         nextActionCode: "ABANDON_EXECUTION" as const,
@@ -742,7 +743,7 @@ export async function finalizeExecutionAcceptance(
         .set({
           terminalStatus: "cancelled",
           outcome: "INTERRUPTED",
-          reasonCode: "EXECUTION_CANCELLED",
+          reasonCode: params.reasonCode,
           nextActionCode: "ABANDON_EXECUTION",
           disposition: cancellationDisposition,
           resumable: 0,

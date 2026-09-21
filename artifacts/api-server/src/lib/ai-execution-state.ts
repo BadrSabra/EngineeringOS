@@ -2143,7 +2143,6 @@ export async function requestAiExecutionRecovery(params: {
     };
     const [updated] = await db.update(aiExecutionsTable).set({
       resumeTokenHash: hashResumeToken(resumeToken),
-      attempt: sql`${aiExecutionsTable.attempt} + 1`,
       checkpoint: JSON.stringify(nextCheckpoint),
       updatedAt: new Date(),
     }).where(and(
@@ -2172,6 +2171,7 @@ export async function requestAiExecutionRecovery(params: {
     reasonCode: "EXECUTION_ABANDONED",
     recoveryState: "INCOMPLETE",
     resumable: false,
+    replaceExistingInterruption: true,
     error: "Execution abandoned by the operator.",
     checkpoint: JSON.stringify(nextCheckpoint),
   });
@@ -2868,7 +2868,7 @@ export async function requestAiExecutionCancel(params: {
       reasonCode: "EXECUTION_CANCELLED",
       recoveryState: "INCOMPLETE",
       resumable: false,
-      replaceExistingCancellation: true,
+      replaceExistingInterruption: true,
       error: "Execution cancelled before a worker started.",
       checkpoint: cancelledCheckpoint,
     });

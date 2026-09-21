@@ -9,7 +9,7 @@ When an execution is cancelled, the cancellation terminal outcome owns the persi
 
 **How to apply:** Resolve cancellation before selecting `content` for the terminal assistant message. Persist the bounded cancellation explanation and preserve the raw lower-level diagnostic only in redacted trace metadata. Also record who/what requested cancellation so a cancelled run can be distinguished from provider failure.
 
-If a queued or paused execution already has a retry acceptance for the current attempt, a later cancellation must refine that acceptance to `INTERRUPTED` inside the same transaction before clearing the lease and token. Treating the existing row as an idempotent duplicate leaves the execution resumable after cancellation.
+If a queued or paused execution already has a retry acceptance for the current attempt, a later cancellation or operator abandon must refine that acceptance to `INTERRUPTED` inside the same transaction before clearing the lease and token. Treating the existing row as an idempotent duplicate leaves the execution resumable or paused after the terminal interruption.
 
 **Why:** Acceptance rows are unique per execution/attempt, so a second cancellation row cannot represent the terminal outcome. The existing row is the authoritative projection for that attempt and must be updated atomically with the execution status.
 
