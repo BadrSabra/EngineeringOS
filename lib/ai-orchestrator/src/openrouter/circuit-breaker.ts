@@ -16,6 +16,7 @@
 
 const CIRCUIT_OPEN_THRESHOLD = 5; // consecutive failures before opening
 const COOLDOWN_MS = 2 * 60 * 1_000; // 2 minutes
+const MODEL_COOLDOWN_MS = 30 * 1_000; // short per-model admission cooldown
 
 type CircuitState = {
   consecutiveFailures: number;
@@ -28,6 +29,11 @@ type CircuitState = {
 };
 
 const _circuits = new Map<string, CircuitState>();
+const _modelCooldowns = new Map<string, { coolingUntil: number; failures: number }>();
+
+function modelKey(provider: string, model: string): string {
+  return `${provider}:${model}`;
+}
 
 function getOrCreate(provider: string): CircuitState {
   let s = _circuits.get(provider);
@@ -161,6 +167,64 @@ export function recordCircuitSuccess(provider: string): void {
 }
 
 /**
+ * Model-scoped admission used for throttled or temporarily unavailable
+ * OpenRouter slugs. This deliberately does not open the provider circuit:
+ * another model may still be healthy under the same credential.
+ */
+export function isModelCoolingDown(provider: string, model: string): boolean {
+  const key = modelKey(provider, model);
+  const state = _modelCooldowns.get(key);
+  if (!state) return false;
+  if (state.coolingUntil <= Date.now()) {
+    _modelCooldowns.delete(key);
+    return false;
+  }
+  return true;
+}
+
+export function getModelCooldownRemainingMs(provider: string, model: string): number | null {
+  const key = modelKey(provider, model);
+  const state = _modelCooldowns.get(key);
+  if (!state) return null;
+  const remaining = state.coolingUntil - Date.now();
+  if (remaining <= 0) {
+    _modelCooldowns.delete(key);
+    return null;
+  }
+  return remaining;
+}
+
+export function recordModelFailure(
+  provider: string,
+  model: string,
+  retryAfterMs?: number,
+): void {
+  const key = modelKey(provider, model);
+  const previous = _modelCooldowns.get(key);
+  const boundedRetryAfter = Number.isFinite(retryAfterMs)
+    ? Math.max(0, Math.min(60_000, Math.floor(retryAfterMs!)))
+    : 0;
+  const cooldownMs = Math.max(MODEL_COOLDOWN_MS, boundedRetryAfter);
+  const state = {
+    coolingUntil: Date.now() + cooldownMs,
+    failures: (previous?.failures ?? 0) + 1,
+  };
+  _modelCooldowns.set(key, state);
+  console.warn(JSON.stringify({
+    scope: "circuit-breaker",
+    code: "MODEL_COOLDOWN",
+    provider,
+    model,
+    cooldownMs,
+    failures: state.failures,
+  }));
+}
+
+export function recordModelSuccess(provider: string, model: string): void {
+  _modelCooldowns.delete(modelKey(provider, model));
+}
+
+/**
  * Return the current circuit state for a provider.
  * Used by /api/ai/metrics to expose runtime health.
  */
@@ -193,4 +257,5 @@ export function getCircuitState(provider: string): {
 /** Force-reset all circuit state (test helper only). */
 export function _resetCircuitsForTest(): void {
   _circuits.clear();
+  _modelCooldowns.clear();
 }

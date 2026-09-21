@@ -28,5 +28,9 @@ export {
   recordCircuitFailure,
   recordCircuitSuccess,
   getCircuitState,
+  isModelCoolingDown,
+  getModelCooldownRemainingMs,
+  recordModelFailure,
+  recordModelSuccess,
   _resetCircuitsForTest,
 } from "./circuit-breaker.js";

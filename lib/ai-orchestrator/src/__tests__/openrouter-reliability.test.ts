@@ -20,6 +20,10 @@ import {
   recordCircuitFailure,
   recordCircuitSuccess,
   getCircuitState,
+  isModelCoolingDown,
+  getModelCooldownRemainingMs,
+  recordModelFailure,
+  recordModelSuccess,
   _resetCircuitsForTest,
 } from "../openrouter/circuit-breaker.js";
 import {
@@ -90,6 +94,8 @@ function sseDelta(text: string): string {
   return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
 }
 
+beforeEach(() => _resetCircuitsForTest());
+
 // ── Circuit Breaker ───────────────────────────────────────────────────────────
 
 describe("circuit-breaker", () => {
@@ -140,6 +146,18 @@ describe("circuit-breaker", () => {
     expect(cooldownRemainingMs).not.toBeNull();
     expect(cooldownRemainingMs!).toBeGreaterThan(0);
     expect(cooldownRemainingMs!).toBeLessThanOrEqual(2 * 60 * 1_000);
+  });
+
+  it("keeps model cooldown separate from the provider circuit", () => {
+    recordModelFailure("openrouter", "fixture/model-a", 5_000);
+
+    expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(true);
+    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBeGreaterThan(0);
+    expect(isModelCoolingDown("openrouter", "fixture/model-b")).toBe(false);
+    expect(isCircuitOpen("openrouter")).toBe(false);
+
+    recordModelSuccess("openrouter", "fixture/model-a");
+    expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(false);
   });
 
   it("allows only one probe after cooldown and blocks concurrent callers", () => {

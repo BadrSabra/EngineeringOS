@@ -100,7 +100,7 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     // Let transient model-level failures advance immediately; OpenRouter can
     // rate-limit one upstream provider while other free candidates remain
     // usable.
-    return { maxFallbackModels: 3, retryTransient: false };
+    return { maxFallbackModels: 3, retryTransient: false, waitOnRateLimit: true };
   }
 
   protected fallbackOutput(): CodeReviewOutput {

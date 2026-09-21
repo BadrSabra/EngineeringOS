@@ -70,6 +70,17 @@ describe("extractJson", () => {
     expect(result).toEqual({ ok: true, data: { foo: "line1\nline2", count: 1 } });
   });
 
+  it("repairs one trailing comma without accepting truncated JSON", () => {
+    expect(extractJson('{"foo":"bar","items":[1,2,],}')).toEqual({
+      ok: true,
+      data: { foo: "bar", items: [1, 2] },
+    });
+    expect(extractJson('{"foo":"bar","items":')).toMatchObject({
+      ok: false,
+      code: "MALFORMED_JSON",
+    });
+  });
+
   it("parses multiline JSON wrapped in ```json fences (model output format)", () => {
     const fenced = "```json\n{\n  \"foo\": \"bar\",\n  \"count\": 42\n}\n```";
     const result = extractJson(fenced);

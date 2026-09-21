@@ -118,6 +118,18 @@ export function extractJson(raw: string): JsonExtractResult {
   try {
     return { ok: true, data: JSON.parse(sanitized) };
   } catch (err) {
+    // One bounded structural repair is safe here: models frequently emit a
+    // trailing comma before a closing object/array delimiter. Do not attempt
+    // to invent missing values or close truncated strings/objects; schema
+    // validation must remain authoritative for semantic completeness.
+    const repaired = sanitized.replace(/,\s*([}\]])/g, "$1");
+    if (repaired !== sanitized) {
+      try {
+        return { ok: true, data: JSON.parse(repaired) };
+      } catch {
+        // Fall through to the original parse diagnostic.
+      }
+    }
     return {
       ok: false,
       code: "MALFORMED_JSON",

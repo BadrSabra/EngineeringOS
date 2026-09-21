@@ -81,6 +81,7 @@ export type ApiEmpiricalQualityCampaignOptions = {
   caseTimeoutMs?: number;
   campaignTimeoutMs?: number;
   generatedAt?: string;
+  onProgress?: (scorecard: EmpiricalQualityScorecard) => void | Promise<void>;
   workspaceFactory?: EmpiricalCaseWorkspaceFactory;
   reviewCase?: EmpiricalCaseReview;
 };
@@ -271,6 +272,7 @@ export async function runApiEmpiricalQualityCampaign(
     caseTimeoutMs,
     campaignTimeoutMs: options.campaignTimeoutMs,
     generatedAt: options.generatedAt,
+    onProgress: options.onProgress,
     executeCase: async (testCase, signal) => {
       const startedAt = Date.now();
       let workspace: EmpiricalCaseWorkspace | undefined;
@@ -373,12 +375,16 @@ async function main(): Promise<void> {
   if (!outputPath) throw new Error("EMPIRICAL_QUALITY_SCORECARD_PATH is required for live campaign output.");
 
   const timeouts = parseEmpiricalQualityTimeouts();
+  const persistCheckpoint = async (scorecard: EmpiricalQualityScorecard): Promise<void> => {
+    await writeEmpiricalQualityScorecard(outputPath, scorecard);
+  };
   const scorecard = await runApiEmpiricalQualityCampaign({
     corpus: await loadEmpiricalQualityCorpus(corpusPath),
     provider,
     apiKey,
     model: process.env.EMPIRICAL_QUALITY_MODEL?.trim() || undefined,
     ...timeouts,
+    onProgress: persistCheckpoint,
   });
   await writeEmpiricalQualityScorecard(outputPath, scorecard);
   console.log(JSON.stringify({

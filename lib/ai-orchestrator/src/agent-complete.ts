@@ -58,6 +58,8 @@ export type AgentCompleteOpts = {
   maxFallbackModels?: number;
   /** For OpenRouter, advance to another model instead of retrying transient errors. */
   retryTransient?: boolean;
+  /** For OpenRouter, wait once for a server-provided Retry-After before failing. */
+  waitOnRateLimit?: boolean;
   /** OpenRouter models that already returned an unusable structured result. */
   excludeModels?: string[];
   /** Reports each completed model response after local contract parsing. */
@@ -241,6 +243,7 @@ export async function agentComplete(
         maxFallbackModels: opts.maxFallbackModels,
         excludeModels: opts.excludeModels,
         retryTransient: opts.retryTransient,
+        waitOnRateLimit: opts.waitOnRateLimit,
         allowPaidFallback: process.env.OPENROUTER_ALLOW_PAID_FALLBACK === "1",
         onProviderFallback: opts.onProviderFallback,
         responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,

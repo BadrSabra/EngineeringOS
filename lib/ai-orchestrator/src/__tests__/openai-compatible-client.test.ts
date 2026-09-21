@@ -25,6 +25,7 @@ import {
 import { GroqClientError } from "../errors.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
 import { _resetForTest } from "../openrouter/dynamic-catalog.js";
+import { _resetCircuitsForTest } from "../openrouter/circuit-breaker.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
@@ -32,6 +33,7 @@ const baseMessages = [{ role: "user", content: "hello" } as const];
 
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
+  _resetCircuitsForTest(); // clear provider and model admission state
 });
 
 afterEach(() => {

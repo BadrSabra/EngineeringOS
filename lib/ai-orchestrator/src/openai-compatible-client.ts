@@ -26,6 +26,12 @@ import {
 } from "./openrouter/model-resolver.js";
 import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
+import {
+  getModelCooldownRemainingMs,
+  isModelCoolingDown,
+  recordModelFailure,
+  recordModelSuccess,
+} from "./openrouter/circuit-breaker.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
 import { getPhaseBudget } from "./quality/execution-phases.js";
@@ -45,6 +51,12 @@ export type OpenAICompatibleOptions = {
   timeoutMs?: number;
   /** Disable transient retry when the caller owns bounded model fallback. */
   retryTransient?: boolean;
+  /**
+   * Honor a provider Retry-After once before surfacing a rate-limit failure.
+   * This is separate from retryTransient because provider throttling needs a
+   * bounded wait even when the caller owns model fallback.
+   */
+  waitOnRateLimit?: boolean;
   /** Cap provider-owned fallback candidates for bounded callers. */
   maxFallbackModels?: number;
   /** Skip models that already produced an unusable structured result. */
@@ -1251,8 +1263,47 @@ export async function openrouterCompleteRaw(
     if (
       err instanceof GroqClientError &&
       err.code === "RATE_LIMITED" &&
-      err.retryAfterMs !== undefined
+      err.retryAfterMs !== undefined &&
+      opts.waitOnRateLimit === true
     ) {
+      const remainingMs = opts.executionLedger
+        ? opts.executionLedger.timeoutMs()
+        : err.retryAfterMs;
+      const recoveryReserveMs = opts.executionLedger
+        ? Math.min(10_000, Math.floor(remainingMs / 4))
+        : 0;
+      const waitMs = Math.min(
+        err.retryAfterMs,
+        Math.max(0, remainingMs - recoveryReserveMs),
+      );
+      if (waitMs > 0) {
+        console.warn(
+          JSON.stringify({
+            scope: "openrouter-client",
+            code: "RATE_LIMIT_WAIT",
+            model: fullOpts.model,
+            waitMs,
+            retryAfterMs: err.retryAfterMs,
+            remainingMs,
+            recoveryReserveMs,
+          }),
+        );
+        await sleep(waitMs, retrySignal);
+        return oacCompleteRaw(trimmed, {
+          ...fullOpts,
+          waitOnRateLimit: false,
+        });
+      }
+      console.warn(
+        JSON.stringify({
+          scope: "openrouter-client",
+          code: "RATE_LIMIT_WAIT_SKIPPED",
+          model: fullOpts.model,
+          retryAfterMs: err.retryAfterMs,
+          remainingMs,
+          recoveryReserveMs,
+        }),
+      );
       throw err;
     }
     if (!isTransientError(err) || opts.retryTransient === false) throw err;
@@ -1367,7 +1418,37 @@ export async function openrouterCompleteWithFallback(
       .map((model) => model.trim())
       .filter(Boolean),
   );
-  const eligibleChain = resolvedChain.filter((model) => !excludedModels.has(model));
+  const coolingModels = resolvedChain.filter((model) =>
+    !excludedModels.has(model) && isModelCoolingDown("openrouter", model),
+  );
+  const eligibleChain = resolvedChain.filter((model) =>
+    !excludedModels.has(model) && !isModelCoolingDown("openrouter", model),
+  );
+  if (coolingModels.length > 0) {
+    console.info(JSON.stringify({
+      scope: "openrouter-fallback",
+      code: "MODELS_SKIPPED_COOLDOWN",
+      coolingModels,
+      remainingModels: eligibleChain,
+    }));
+  }
+  if (eligibleChain.length === 0 && coolingModels.length > 0) {
+    const retryAfterMs = Math.max(
+      ...coolingModels.map((model) => getModelCooldownRemainingMs("openrouter", model) ?? 0),
+    );
+    throw new GroqClientError(
+      "RATE_LIMITED",
+      "All eligible OpenRouter models are cooling down",
+      {
+        context: {
+          providerName: "OpenRouter",
+          providerCode: "MODEL_COOLDOWN",
+          retryAfterMs,
+          providerAttemptedModels: coolingModels,
+        },
+      },
+    );
+  }
   let chain = maxFallbackModels
     ? eligibleChain.slice(0, maxFallbackModels)
     : eligibleChain;
@@ -1446,7 +1527,9 @@ export async function openrouterCompleteWithFallback(
     const model = chain[i] as string;
     attemptedModels.push(model);
     try {
-      return await openrouterCompleteRaw(messages, { ...opts, model });
+      const response = await openrouterCompleteRaw(messages, { ...opts, model });
+      recordModelSuccess("openrouter", model);
+      return response;
     } catch (err) {
       // A rate limit is normally scoped to the provider credential/window, not
       // to the model slug. Do not turn one OpenRouter 429 into a burst of
@@ -1456,6 +1539,11 @@ export async function openrouterCompleteWithFallback(
         err instanceof GroqClientError &&
         (err.code === "RATE_LIMITED" || err.code === "QUOTA");
       if (providerScopedRateLimit) {
+        recordModelFailure(
+          "openrouter",
+          model,
+          err instanceof GroqClientError ? err.retryAfterMs : undefined,
+        );
         if (err instanceof GroqClientError && await appendPaidFallback(err, model)) {
           lastError = err;
           continue;

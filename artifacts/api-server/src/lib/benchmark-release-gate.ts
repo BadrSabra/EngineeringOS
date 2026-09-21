@@ -8,9 +8,13 @@ import {
   type CodeAgentBenchmarkBaseline,
 } from "@workspace/ai-orchestrator";
 import type { ApiCodeAgentRuntimeOraclePreflight } from "./ai-code-agent-benchmark.js";
+import {
+  APPROVED_BENCHMARK_SOURCE_REVISION,
+  isValidBenchmarkSourceRevision,
+} from "./benchmark-source-policy.js";
 
 export const BENCHMARK_RELEASE_GATE_VERSION = 1;
-export const APPROVED_BENCHMARK_SOURCE_REVISION = "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
+export { APPROVED_BENCHMARK_SOURCE_REVISION };
 
 export type BenchmarkReleaseGateDecision = {
   kind: "code-agent-benchmark-release-decision";
@@ -186,7 +190,7 @@ export function evaluateBenchmarkReleaseGate(args: {
   ] as const;
   for (const [artifact, revision] of revisions) {
     if (!revision) addBlocker(blockers, `${artifact} artifact is missing a server-owned source revision`);
-    else if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) addBlocker(blockers, `${artifact} artifact contains a malformed source revision`);
+    else if (!isValidBenchmarkSourceRevision(revision)) addBlocker(blockers, `${artifact} artifact contains a malformed source revision`);
     else if (revision !== APPROVED_BENCHMARK_SOURCE_REVISION) addBlocker(blockers, `${artifact} artifact contains a stale source revision`);
   }
   if (

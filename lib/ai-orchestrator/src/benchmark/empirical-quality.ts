@@ -616,12 +616,28 @@ export async function runEmpiricalQualityCampaign(args: {
   caseTimeoutMs?: number;
   campaignTimeoutMs?: number;
   generatedAt?: string;
+  /**
+   * Receives a redacted scorecard after every case. Callers can persist this
+   * checkpoint so a terminated campaign remains resumable and diagnosable.
+   */
+  onProgress?: (scorecard: EmpiricalQualityScorecard) => void | Promise<void>;
 }): Promise<EmpiricalQualityScorecard> {
   const results: EmpiricalCaseScore[] = [];
   const caseTimeoutMs = args.caseTimeoutMs ?? 90_000;
+  const generatedAt = args.generatedAt ?? new Date().toISOString();
   const campaignDeadline = args.campaignTimeoutMs === undefined
     ? undefined
     : Date.now() + args.campaignTimeoutMs;
+  const emitProgress = async (): Promise<void> => {
+    if (!args.onProgress) return;
+    await args.onProgress(buildEmpiricalQualityScorecard({
+      corpus: args.corpus,
+      results,
+      provider: args.provider,
+      model: args.model,
+      generatedAt,
+    }));
+  };
   for (const testCase of args.corpus.cases) {
     const controller = new AbortController();
     const startedAt = Date.now();
@@ -639,6 +655,7 @@ export async function runEmpiricalQualityCampaign(args: {
         errorCode: "TIMEOUT",
         latencyMs: 0,
       }));
+      await emitProgress();
       continue;
     }
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -657,6 +674,7 @@ export async function runEmpiricalQualityCampaign(args: {
         caseId: testCase.id,
         latencyMs: observation.latencyMs ?? Date.now() - startedAt,
       }));
+      await emitProgress();
     } catch (error) {
       const timedOut = controller.signal.aborted ||
         (error instanceof Error && error.message === "EMPIRICAL_CAMPAIGN_TIMEOUT");
@@ -670,6 +688,7 @@ export async function runEmpiricalQualityCampaign(args: {
         errorCode: timedOut ? "TIMEOUT" : "EXECUTION_ERROR",
         latencyMs: Date.now() - startedAt,
       }));
+      await emitProgress();
       void error;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -680,6 +699,6 @@ export async function runEmpiricalQualityCampaign(args: {
     results,
     provider: args.provider,
     model: args.model,
-    generatedAt: args.generatedAt,
+    generatedAt,
   });
 }

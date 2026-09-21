@@ -41,6 +41,10 @@ import {
   type ApiCodeAgentBenchmarkProvider,
 } from "./ai-code-agent-benchmark.js";
 import { createHostDisposableTempDirectory } from "./disposable-temp.js";
+import {
+  isApprovedBenchmarkSourceRevision,
+  isValidBenchmarkSourceRevision,
+} from "./benchmark-source-policy.js";
 
 const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
   openrouter: "OPENROUTER_API_KEY",
@@ -51,14 +55,13 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
 const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", ".engineeringos-delivery", ".engineeringos-projects", "docs", "coverage", "dist", ".vite"]);
 const sourceRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
 const execFileAsync = promisify(execFile);
-const APPROVED_SOURCE_REVISION = "b234a1970fcf2f9f47f742e8e7fd0bd47a9d226a";
 async function resolveSourceRevision(root: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "main"], { maxBuffer: 4096 });
   const revision = stdout.trim();
-  if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) {
+  if (!isValidBenchmarkSourceRevision(revision)) {
     throw new Error("SOURCE_REVISION_INVALID: server-observed main revision is malformed.");
   }
-  if (revision !== APPROVED_SOURCE_REVISION) {
+  if (!isApprovedBenchmarkSourceRevision(revision)) {
     throw new Error("SOURCE_REVISION_STALE: server-observed main revision is not the approved benchmark source.");
   }
   return revision;
