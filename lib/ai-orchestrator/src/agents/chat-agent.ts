@@ -96,6 +96,7 @@ import {
   isGapAnalysisRequest,
   isExplicitBehaviorQueryRequest,
   isProductionReachabilityRequest,
+  distinctExplicitSourcePaths,
   routeTask,
   validateBehaviorEvidence,
   validateResponseLanguage,
@@ -12963,6 +12964,10 @@ export async function chat(opts: {
           orientationSources: deterministicOrientationSources,
           fileContents: forensicFileContents,
           language: responseLanguage,
+          message,
+          projectTarget: turnIntent.projectTarget,
+          graphSummary: projectContext.graphSummary,
+          explicitPaths: distinctExplicitSourcePaths(message),
         })
       : undefined;
   if (deterministicOrientationFallback) {

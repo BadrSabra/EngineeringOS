@@ -1,4 +1,6 @@
 import type { ProjectOrientationSources } from "./agents/query-planner.js";
+import type { ProjectQueryTarget } from "./project-query-target.js";
+import { buildProjectAwareFallbackSection } from "./project-aware-fallback.js";
 
 export type ProjectOrientationFallbackResult = {
   response: string;
@@ -87,6 +89,10 @@ export function buildDeterministicProjectOrientationResponse(params: {
   orientationSources: ProjectOrientationSources;
   fileContents: ReadonlyMap<string, string>;
   language?: "ar" | "en";
+  message?: string;
+  projectTarget?: ProjectQueryTarget;
+  graphSummary?: string;
+  explicitPaths?: readonly string[];
 }): ProjectOrientationFallbackResult | undefined {
   const language = params.language ?? "en";
   const roleBlocks: string[] = [];
@@ -120,6 +126,13 @@ export function buildDeterministicProjectOrientationResponse(params: {
   }
 
   const sourceCount = sources.length;
+  const projectAwareSection = buildProjectAwareFallbackSection({
+    message: params.message,
+    projectTarget: params.projectTarget,
+    graphSummary: params.graphSummary,
+    explicitPaths: params.explicitPaths,
+    language,
+  });
   const intro = language === "ar"
     ? [
         "PROJECT ORIENTATION — استرداد حتمي من الأدلة",
@@ -135,7 +148,11 @@ export function buildDeterministicProjectOrientationResponse(params: {
       ].join("\n");
 
   return {
-    response: `${intro}\n\n${roleBlocks.join("\n\n")}`,
+    response: [
+      intro,
+      ...(projectAwareSection ? [projectAwareSection] : []),
+      roleBlocks.join("\n\n"),
+    ].join("\n\n"),
     sources,
   };
 }

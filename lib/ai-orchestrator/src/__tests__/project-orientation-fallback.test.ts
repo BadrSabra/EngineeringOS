@@ -66,4 +66,33 @@ describe("deterministic project orientation fallback", () => {
     expect(result?.response).toContain("يوثق هذا القسم المكونات التي تسميها المصادر المحتفظ بها.");
     expect(result?.response).toContain("الدليل المباشر:");
   });
+
+  it("adds project-aware navigation questions without treating graph hints as evidence", () => {
+    const result = buildDeterministicProjectOrientationResponse({
+      orientationSources: sources,
+      fileContents: new Map([
+        ["README.md", "# EngineeringOS"],
+        ["src/App.tsx", "export function App() {}"],
+        ["src/main.tsx", "createRoot(...)"],
+        ["tests/app.test.ts", "it('works', () => {});"],
+      ]),
+      message: "Explain the authentication flow and its boundary in src/App.tsx.",
+      graphSummary: [
+        "Graph entities:",
+        "  • AuthController <SERVICE> (src/auth.ts) [91%] {auth}",
+        "Graph relationships:",
+        "  • AuthController → calls → SessionStore [89%]",
+      ].join("\n"),
+      explicitPaths: ["src/App.tsx"],
+    });
+
+    expect(result?.response).toContain("## Project-aware sub-queries");
+    expect(result?.response).toContain(
+      "How does authentication move from request entry through identity/session to authorization?",
+    );
+    expect(result?.response).toContain("What is the integration point between");
+    expect(result?.response).toContain(
+      "Graph entities and relationships guide navigation only; they are not final evidence.",
+    );
+  });
 });
