@@ -222,6 +222,7 @@ type Scenario = {
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
   malformedMixedToolCallByTarget?: Record<string, boolean>;
+  invalidSiblingRangeByTarget?: Record<string, boolean>;
   adversarialAfterReadPathByTarget?: Record<string, string>;
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
@@ -316,6 +317,7 @@ function makeStrategy(options: {
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
   malformedMixedToolCallByTarget?: Record<string, boolean>;
+  invalidSiblingRangeByTarget?: Record<string, boolean>;
   adversarialAfterReadPathByTarget?: Record<string, string>;
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
@@ -570,7 +572,20 @@ function makeStrategy(options: {
                 arguments: JSON.stringify(toolArguments),
               },
             },
-            ...(options.malformedMixedToolCallByTarget?.[target]
+            ...(options.invalidSiblingRangeByTarget?.[target]
+              ? [{
+                  id: `invalid-range-${target}`,
+                  type: "function" as const,
+                  function: {
+                    name: "read_file_range",
+                    arguments: JSON.stringify({
+                      path: target,
+                      startLine: 5,
+                      endLine: 2,
+                    }),
+                  },
+                }]
+              : options.malformedMixedToolCallByTarget?.[target]
               ? [{
                   id: `malformed-read-${target}`,
                   type: "function" as const,
@@ -647,6 +662,7 @@ async function runScenario(scenario: Scenario) {
     scopeCorrectionPathByTarget: scenario.scopeCorrectionPathByTarget,
     additionalToolCallPathByTarget: scenario.additionalToolCallPathByTarget,
     malformedMixedToolCallByTarget: scenario.malformedMixedToolCallByTarget,
+    invalidSiblingRangeByTarget: scenario.invalidSiblingRangeByTarget,
     adversarialAfterReadPathByTarget: scenario.adversarialAfterReadPathByTarget,
     correctAfterRangeError: scenario.correctAfterRangeError,
     invalidRangeFirstByTarget: scenario.invalidRangeFirstByTarget,
@@ -1035,6 +1051,37 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
         expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
       );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the stronger full read when the same turn also requests an invalid range", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        invalidSiblingRangeByTarget: { [ACCEPTANCE]: true },
+        synthesisResponse:
+          "CURRENT_STATE: the full acceptance source remains retained after the invalid range request.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: preserve the strongest accepted read status.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
