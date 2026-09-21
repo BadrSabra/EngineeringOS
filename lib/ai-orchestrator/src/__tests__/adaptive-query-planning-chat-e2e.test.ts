@@ -91,6 +91,7 @@ type Scenario = {
   rootPath: string;
   missingTarget?: string;
   objective?: ObjectiveContract;
+  synthesisResponse?: string;
 };
 
 async function configureChat(
@@ -280,9 +281,10 @@ function makeStrategy(options: {
 async function runScenario(scenario: Scenario) {
   const fixture = makeStrategy({
     missingTarget: scenario.missingTarget,
-    synthesisResponse: scenario.objective
-      ? "PROVEN — every requested objective claim is complete."
-      : undefined,
+    synthesisResponse: scenario.synthesisResponse
+      ?? (scenario.objective
+        ? "PROVEN — every requested objective claim is complete."
+        : undefined),
   });
   const chat = await configureChat(
     fixture.strategy,
@@ -327,7 +329,7 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       const subqueryTargets = providerCalls
         .filter((call) => call.kind === "subquery")
         .map((call) => call.target);
-      expect(new Set(subqueryTargets)).toEqual(new Set([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
+      expect(subqueryTargets).toEqual([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]);
       expect(subqueryReads).toEqual(new Map([
         [ACCEPTANCE, 1],
         [EVIDENCE, 1],
@@ -336,6 +338,41 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
 
       expect(result.response).toContain("CURRENT_STATE");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a failed hierarchical sub-query bounded and carries its gap into synthesis", async () => {
+    const rootPath = await makeRoot();
+    await fs.rm(path.join(rootPath, EVIDENCE));
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        missingTarget: EVIDENCE,
+        synthesisResponse:
+          "CURRENT_STATE: acceptance and counterevidence were retained.\n" +
+          "GAPS: NOT PROVEN — the evidence producer source could not be read.\n" +
+          "PRIORITIES: recover the missing source before asserting completeness.",
+      });
+
+      const subqueryTargets = providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target);
+      expect(subqueryTargets).toEqual([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]);
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("NOT PROVEN");
+      expect(result.response).not.toContain("OBJECTIVE_BLOCKED");
+
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toContain(ACCEPTANCE);
+      expect(graphReads).toContain(COUNTEREVIDENCE);
+      expect(graphReads).not.toContain(EVIDENCE);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
