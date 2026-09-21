@@ -1016,9 +1016,10 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
         correctAfterRangeError: true,
         repeatInvalidRangeCorrection: true,
         synthesisResponse:
-          "CURRENT_STATE: the acceptance gate was not retained.\n" +
-          "GAPS: the targeted range contract remained invalid.\n" +
-          "PRIORITIES: retry only with a valid bounded range.",
+          "PROVEN — the acceptance gate is verified in `src/acceptance/gate.ts`.\n" +
+          "CURRENT_STATE: the requested source was inspected.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: ship the verified result.",
       });
 
       expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
