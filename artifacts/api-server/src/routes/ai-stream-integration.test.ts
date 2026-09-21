@@ -1779,6 +1779,78 @@ describe("Durable AI completion identity", () => {
     expect(stored?.acceptanceCount).toBeNull();
   });
 
+  it("rejects a terminal callback that points at another execution's assistant message", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const leftSessionId = await insertChatSession(projectId, "Foreign message owner");
+    const rightSessionId = await insertChatSession(projectId, "Terminal message owner");
+    const left = await createReconnectedProofFixture({
+      projectId,
+      sessionId: leftSessionId,
+      operationId: `foreign-message-left-${randomUUID()}`,
+    });
+    const right = await createReconnectedProofFixture({
+      projectId,
+      sessionId: rightSessionId,
+      operationId: `foreign-message-right-${randomUUID()}`,
+    });
+    const foreignMessageId = randomUUID();
+    await db.insert(aiChatMessagesTable).values({
+      id: foreignMessageId,
+      sessionId: leftSessionId,
+      executionId: left.created.execution.id,
+      role: "assistant",
+      content: "Message owned by the left execution.",
+      outcome: null,
+      createdAt: new Date(),
+    });
+
+    const result = await finalizeExecutionAcceptance({
+      executionId: right.created.execution.id,
+      expectedAttempt: right.created.execution.attempt + 1,
+      workerId: right.workerId,
+      finalMessageId: foreignMessageId,
+      finalMessageContent: "Foreign terminal projection",
+      finalizationKey: `foreign-message-${randomUUID()}`,
+      outcome: "FAILED",
+      terminalStatus: "failed",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      recoveryState: "REQUIRED",
+      resumable: true,
+      error: "message belongs to another execution",
+    });
+    expect(result.accepted).toBe(false);
+    expect(result.duplicate).toBe(false);
+
+    const [foreignMessage] = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        outcome: aiChatMessagesTable.outcome,
+        executionId: aiChatMessagesTable.executionId,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, foreignMessageId))
+      .limit(1);
+    expect(foreignMessage).toMatchObject({
+      content: "Message owned by the left execution.",
+      outcome: null,
+      executionId: left.created.execution.id,
+    });
+
+    const [rightExecution] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, right.created.execution.id))
+      .limit(1);
+    expect(rightExecution).toMatchObject({
+      status: "running",
+      finalMessageId: null,
+    });
+  });
+
   it("persists incomplete evidence progress when a provider fails after an oversized read", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

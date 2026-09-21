@@ -964,11 +964,26 @@ export async function finalizeExecutionAcceptance(
     let acceptedMessageId = params.finalMessageId ?? existing?.messageId ?? null;
     if (acceptedMessageId) {
       const [message] = await tx
-        .select({ id: aiChatMessagesTable.id })
+        .select({
+          id: aiChatMessagesTable.id,
+          executionId: aiChatMessagesTable.executionId,
+          sessionId: aiChatMessagesTable.sessionId,
+        })
         .from(aiChatMessagesTable)
         .where(eq(aiChatMessagesTable.id, acceptedMessageId))
         .limit(1);
-      if (!message) acceptedMessageId = existing?.messageId ?? null;
+      if (!message) {
+        acceptedMessageId = existing?.messageId ?? null;
+      } else if (
+        message.executionId !== execution.id
+        || message.sessionId !== execution.sessionId
+      ) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "Final message does not belong to the execution session.",
+        };
+      }
     }
 
     const disposition = {
@@ -1052,7 +1067,10 @@ export async function finalizeExecutionAcceptance(
               ?? sql`coalesce(${aiChatMessagesTable.errorCode}, ${reasonCode})`,
           errorMessage: outcome === "SUCCEEDED" ? null : safeError(params.error),
         })
-        .where(eq(aiChatMessagesTable.id, params.finalMessageId));
+        .where(and(
+          eq(aiChatMessagesTable.id, params.finalMessageId),
+          eq(aiChatMessagesTable.executionId, execution.id),
+        ));
     }
     if (params.taskFinalization && task) {
       const taskUpdate: Partial<typeof tasksTable.$inferInsert> = {
