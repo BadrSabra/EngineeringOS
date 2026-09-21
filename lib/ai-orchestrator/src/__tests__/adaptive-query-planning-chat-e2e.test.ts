@@ -217,6 +217,7 @@ type Scenario = {
   additionalToolCallPathByTarget?: Record<string, string>;
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
+  abortAfterRangeCorrection?: boolean;
 };
 
 async function configureChat(
@@ -305,6 +306,7 @@ function makeStrategy(options: {
   additionalToolCallPathByTarget?: Record<string, string>;
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
+  abortAfterRangeCorrection?: boolean;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -450,6 +452,9 @@ function makeStrategy(options: {
         !correctedRangeTargets.has(target)
       ) {
         correctedRangeTargets.add(target);
+        if (options.abortAfterRangeCorrection) {
+          options.abortController?.abort();
+        }
         return {
           content: "",
           toolCalls: [
@@ -560,6 +565,7 @@ async function runScenario(scenario: Scenario) {
     additionalToolCallPathByTarget: scenario.additionalToolCallPathByTarget,
     correctAfterRangeError: scenario.correctAfterRangeError,
     invalidRangeFirstByTarget: scenario.invalidRangeFirstByTarget,
+    abortAfterRangeCorrection: scenario.abortAfterRangeCorrection,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -956,6 +962,36 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
         expect.arrayContaining([ADAPTER, CLIENT, CONNECTOR]),
       );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("stops fail-closed when cancellation wins during targeted-range recovery", async () => {
+    const rootPath = await makeRoot();
+    const abortController = new AbortController();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        abortController,
+        signal: abortController.signal,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallNameByTarget: { [ACCEPTANCE]: "read_file_range" },
+        invalidRangeFirstByTarget: { [ACCEPTANCE]: true },
+        correctAfterRangeError: true,
+        abortAfterRangeCorrection: true,
+      });
+
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(0);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("PROVEN");
+      expect(result.evidenceGraph?.reads ?? []).toHaveLength(0);
+      expect(providerCalls.map((call) => call.target)).not.toContain(EVIDENCE);
+      expect(providerCalls.map((call) => call.target)).not.toContain(COUNTEREVIDENCE);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
