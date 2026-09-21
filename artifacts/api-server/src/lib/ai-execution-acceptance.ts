@@ -751,7 +751,11 @@ export async function finalizeExecutionAcceptance(
         && params.outcome === "INTERRUPTED"
         && (params.reasonCode === "EXECUTION_CANCELLED"
           || params.reasonCode === "EXECUTION_ABANDONED")
-        && (execution.status === "queued" || execution.status === "paused")
+          && (
+            execution.status === "queued"
+            || execution.status === "paused"
+            || execution.status === "cancelling"
+          )
         && !params.taskFinalization;
       if (!replaceExistingInterruption) {
         const reclaimOwnsLiveLease = Boolean(
@@ -812,6 +816,7 @@ export async function finalizeExecutionAcceptance(
           .set({
             status: "cancelled",
             finalMessageId: params.finalMessageId ?? execution.finalMessageId,
+            ...(params.recipeReceipt !== undefined ? { recipeReceipt: params.recipeReceipt } : {}),
             error: safeError(params.error),
             completedAt: now,
             updatedAt: now,

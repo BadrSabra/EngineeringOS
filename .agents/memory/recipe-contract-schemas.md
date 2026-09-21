@@ -44,3 +44,9 @@ An asynchronous checkpoint rejection is not automatically lease loss: a lower se
 **Why:** Recipe progress observers write without awaiting each other, so database ordering can legitimately reject an older snapshot while ownership remains valid.
 
 **How to apply:** After a rejected checkpoint, probe the durable lease; abort only when the worker no longer owns it, and preserve the newer checkpoint when ownership is still live.
+
+Cancellation can win after every recipe node passes but before terminal acceptance; the runner must finalize cancellation through the durable failure path and replace any provisional lease-expired acceptance, preserving the cancelled recipe receipt.
+
+**Why:** A reclaimed recipe may still have a prior pause acceptance. Treating the cancellation finalization as a duplicate leaves the execution in `cancelling`, and omitting the receipt from the replacement branch makes reloads lose the terminal result.
+
+**How to apply:** When completion loses to cancellation, call the server-owned cancelled finalizer, allow provisional acceptance replacement only for explicit cancellation, and persist the receipt in both insert and replacement paths.

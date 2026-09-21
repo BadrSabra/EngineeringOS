@@ -14,6 +14,7 @@ import {
   claimAiExecution,
   createAiExecution,
   reconcileAiExecutions,
+  requestAiExecutionCancel,
   type AiExecutionNodeCheckpoint,
 } from "./ai-execution-state.js";
 import * as aiExecutionState from "./ai-execution-state.js";
@@ -301,6 +302,76 @@ describe("recipe operation preparation", () => {
     } finally {
       releaseFirst();
       checkpointSpy.mockRestore();
+      completeSpy.mockRestore();
+      await fixture.cleanup();
+    }
+  });
+
+  it("exposes a cancellation race after all nodes pass but before terminal acceptance", async () => {
+    validationCalls.length = 0;
+    const fixture = await createReclaimedRecipeFixture();
+    const realComplete = aiExecutionState.completeAiExecution;
+    let signalCompletionEntered!: () => void;
+    let releaseCompletion!: () => void;
+    const completionEntered = new Promise<void>((resolve) => {
+      signalCompletionEntered = resolve;
+    });
+    const completionReleased = new Promise<void>((resolve) => {
+      releaseCompletion = resolve;
+    });
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+      signalCompletionEntered();
+      await completionReleased;
+      return realComplete(params);
+    });
+    try {
+      const running = runRecipeOperation(fixture.params);
+      await completionEntered;
+      const cancelling = await requestAiExecutionCancel({
+        executionId: fixture.executionId,
+        userId: fixture.params.userId,
+      });
+      expect(cancelling).toMatchObject({
+        id: fixture.executionId,
+        status: "cancelling",
+      });
+      releaseCompletion();
+
+      const result = await running;
+      expect(result.status).toBe("blocked");
+      expect(result.receipt.status).toBe("cancelled");
+      expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(execution?.status).toBe("cancelled");
+      expect(execution?.recipeReceipt).toMatchObject({ status: "cancelled" });
+      expect(JSON.parse(execution!.checkpoint ?? "{}")).toMatchObject({
+        stage: "cancelled",
+        detail: "Recipe execution was cancelled before terminal acceptance.",
+      });
+      const [acceptance] = await db
+        .select({
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        terminalStatus: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+      });
+    } finally {
+      releaseCompletion();
       completeSpy.mockRestore();
       await fixture.cleanup();
     }

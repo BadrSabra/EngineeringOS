@@ -498,6 +498,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       const receipt = buildRecipeReceipt(params, claimed.id, "blocked", result.nodes, outputs, result.completedNodeIds);
       return { executionId: claimed.id, status: "blocked", completedNodeIds: result.completedNodeIds, receipt };
     }
+    const completedReceipt = buildRecipeReceipt(params, claimed.id, "completed", result.nodes, outputs, result.completedNodeIds);
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -518,10 +519,49 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         evidenceRefs: evidence[node.id] ? [receiptIdForEvidence(evidence[node.id])]
           .filter((id): id is string => typeof id === "string") : [],
       })),
-      recipeReceipt: buildRecipeReceipt(params, claimed.id, "completed", result.nodes, outputs, result.completedNodeIds),
+      recipeReceipt: completedReceipt,
     });
-    if (!completed) throw new Error("Recipe completion lost its durable ownership fence.");
-    const receipt = buildRecipeReceipt(params, claimed.id, "completed", result.nodes, outputs, result.completedNodeIds);
+    if (!completed) {
+      const cancelledReceipt = buildRecipeReceipt(
+        params,
+        claimed.id,
+        "cancelled",
+        result.nodes,
+        outputs,
+        result.completedNodeIds,
+      );
+      const cancelled = await failAiExecution({
+        executionId: claimed.id,
+        workerId,
+        cancelled: true,
+        error: "Recipe execution was cancelled before terminal acceptance.",
+        nodeStates: result.nodes.map((node) => ({
+          id: node.id,
+          title: node.title,
+          kind: "inspect" as const,
+          dependencies: node.dependencies,
+          status: node.status,
+          attempts: node.attempts,
+          validationAttempts: node.validationAttempts,
+          allowedFiles: node.allowedFiles,
+          validationProfile: node.validationProfile,
+          evidenceRefs: evidence[node.id] ? [receiptIdForEvidence(evidence[node.id])]
+            .filter((id): id is string => typeof id === "string") : [],
+        })),
+        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+        recipeReceipt: cancelledReceipt,
+      });
+      if (cancelled) {
+        return {
+          executionId: claimed.id,
+          status: "blocked",
+          completedNodeIds: result.completedNodeIds,
+          receipt: cancelledReceipt,
+        };
+      }
+      throw new Error("Recipe completion lost its durable ownership fence.");
+    }
+    const receipt = completedReceipt;
     return { executionId: claimed.id, status: "completed", completedNodeIds: result.completedNodeIds, receipt };
   } finally {
     clearTimeout(totalTimer);

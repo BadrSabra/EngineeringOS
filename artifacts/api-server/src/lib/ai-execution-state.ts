@@ -2760,6 +2760,7 @@ export async function failAiExecution(params: {
   workspaceRoot?: string | null;
   evidenceReads?: readonly EvidenceReadInput[];
   orientationCoverageComplete?: boolean;
+  recipeReceipt?: RecipeReceipt;
 }): Promise<boolean> {
   const [current] = await db
     .select()
@@ -2825,6 +2826,7 @@ export async function failAiExecution(params: {
     outcome: params.cancelled ? "INTERRUPTED" : "FAILED",
     terminalStatus: params.cancelled ? "cancelled" : "failed",
     reasonCode,
+    replaceExistingInterruption: params.cancelled,
     failureKind: params.acceptanceDisposition?.failureKind
       ?? (params.cancelled ? "CANCELLATION" : providerFailure ? "PROVIDER_FAILURE" : "EXECUTION_FAILURE"),
     recoveryState: params.cancelled
@@ -2854,6 +2856,7 @@ export async function failAiExecution(params: {
       ),
     disposition: params.disposition ?? params.acceptanceDisposition,
     error: params.error,
+    recipeReceipt: params.recipeReceipt,
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)
       ? {
           operationId: current.operationId,
