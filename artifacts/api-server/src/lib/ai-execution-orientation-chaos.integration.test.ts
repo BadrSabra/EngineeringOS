@@ -2435,4 +2435,121 @@ describe("durable project-orientation retry chaos", () => {
       await fixture.cleanup();
     }
   });
+
+  it("rejects swapped adaptive identities across concurrent executions before accepting the correct pairings", async () => {
+    const left = await createFailedOrientationFixture("adaptive-identity-left");
+    const right = await createFailedOrientationFixture("adaptive-identity-right");
+    const context = `adaptive identity swap; left=${left.executionId}; right=${right.executionId}`;
+
+    try {
+      const leftToken = (await recoverAiExecutionRetryToken({
+        executionId: left.executionId,
+        userId: left.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      const rightToken = (await recoverAiExecutionRetryToken({
+        executionId: right.executionId,
+        userId: right.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(leftToken, context).toEqual(expect.any(String));
+      expect(rightToken, context).toEqual(expect.any(String));
+
+      // Swap the complete identity tuple, not just the token. Both requests
+      // must be rejected without consuming either execution's current token.
+      const [leftWithRightState, rightWithLeftState] = await Promise.all([
+        claimAiExecution({
+          executionId: left.executionId,
+          userId: right.userId,
+          workerId: "swapped-right-owner-on-left",
+          resumeToken: rightToken,
+        }),
+        claimAiExecution({
+          executionId: right.executionId,
+          userId: left.userId,
+          workerId: "swapped-left-owner-on-right",
+          resumeToken: leftToken,
+        }),
+      ]);
+      expect(leftWithRightState, context).toBeUndefined();
+      expect(rightWithLeftState, context).toBeUndefined();
+
+      const swappedStates = await db
+        .select({
+          id: aiExecutionsTable.id,
+          operationId: aiExecutionsTable.operationId,
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(inArray(aiExecutionsTable.id, [left.executionId, right.executionId]));
+      expect(swappedStates, context).toHaveLength(2);
+      expect(swappedStates).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: left.executionId,
+          operationId: left.executionId,
+          attempt: 0,
+          status: "failed",
+          workerId: null,
+        }),
+        expect.objectContaining({
+          id: right.executionId,
+          operationId: right.executionId,
+          attempt: 0,
+          status: "failed",
+          workerId: null,
+        }),
+      ]));
+
+      // The adaptive controller now rebinds each token to the identity it
+      // observed from the server instead of retrying the swapped tuple.
+      const [leftClaim, rightClaim] = await Promise.all([
+        claimAiExecution({
+          executionId: left.executionId,
+          userId: left.userId,
+          workerId: "correct-left-owner",
+          resumeToken: leftToken,
+        }),
+        claimAiExecution({
+          executionId: right.executionId,
+          userId: right.userId,
+          workerId: "correct-right-owner",
+          resumeToken: rightToken,
+        }),
+      ]);
+      expect(leftClaim, context).toMatchObject({
+        id: left.executionId,
+        operationId: left.executionId,
+        attempt: 1,
+        status: "running",
+        workerId: "correct-left-owner",
+      });
+      expect(rightClaim, context).toMatchObject({
+        id: right.executionId,
+        operationId: right.executionId,
+        attempt: 1,
+        status: "running",
+        workerId: "correct-right-owner",
+      });
+
+      const acceptances = await db
+        .select({
+          executionId: aiExecutionAcceptancesTable.executionId,
+          attempt: aiExecutionAcceptancesTable.attempt,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(inArray(aiExecutionAcceptancesTable.executionId, [
+          left.executionId,
+          right.executionId,
+        ]));
+      expect(acceptances, context).toEqual(expect.arrayContaining([
+        { executionId: left.executionId, attempt: 0 },
+        { executionId: right.executionId, attempt: 0 },
+      ]));
+      expect(acceptances).toHaveLength(2);
+    } finally {
+      await Promise.all([left.cleanup(), right.cleanup()]);
+    }
+  });
 });
