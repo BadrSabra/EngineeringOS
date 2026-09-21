@@ -38,3 +38,9 @@ An expired-lease pause acceptance is provisional and may be replaced only by the
 **Why:** Reclaiming the same execution attempt otherwise looks like a duplicate and leaves the execution running, while synthetic receipt IDs can violate the chat-message foreign key.
 
 **How to apply:** Allow the live reclaimed worker to update only the matching lease-expired pause acceptance in the same transaction, and downgrade missing message references to an existing valid ID or null.
+
+An asynchronous checkpoint rejection is not automatically lease loss: a lower sequence can arrive after a newer write from the same live worker.
+
+**Why:** Recipe progress observers write without awaiting each other, so database ordering can legitimately reject an older snapshot while ownership remains valid.
+
+**How to apply:** After a rejected checkpoint, probe the durable lease; abort only when the worker no longer owns it, and preserve the newer checkpoint when ownership is still live.

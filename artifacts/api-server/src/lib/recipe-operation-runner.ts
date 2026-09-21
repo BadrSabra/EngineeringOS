@@ -22,6 +22,7 @@ import {
   createRecipeOperationBinding,
   failAiExecution,
   heartbeatAiExecution,
+  ownsAiExecutionLease,
   parseAiExecutionCheckpoint,
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
@@ -439,8 +440,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             completedNodes: nodes.filter((node) => node.status === "passed").map((node) => node.id),
             updatedAt: new Date().toISOString(),
           },
-        }).then((ok) => {
-          if (!ok) overallController.abort();
+        }).then(async (ok) => {
+          if (ok) return;
+          const stillOwnsLease = await ownsAiExecutionLease({
+            executionId: claimed.id,
+            workerId,
+          });
+          if (!stillOwnsLease) overallController.abort();
         }).catch(() => overallController.abort());
       },
     });

@@ -16,6 +16,7 @@ import {
   reconcileAiExecutions,
   type AiExecutionNodeCheckpoint,
 } from "./ai-execution-state.js";
+import * as aiExecutionState from "./ai-execution-state.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import { prepareRecipeOperation, runRecipeOperation } from "./recipe-operation-runner.js";
 
@@ -254,6 +255,53 @@ describe("recipe operation preparation", () => {
         .limit(1);
       expect(execution?.status).toBe("failed");
     } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("does not abort a live worker when an older async checkpoint loses a sequence race", async () => {
+    validationCalls.length = 0;
+    const fixture = await createReclaimedRecipeFixture();
+    const realCheckpoint = aiExecutionState.checkpointAiExecution;
+    const realComplete = aiExecutionState.completeAiExecution;
+    let checkpointCalls = 0;
+    let releaseFirst!: () => void;
+    let resolveFirstFinished!: () => void;
+    let resolveSecondFinished!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirstFinished = resolve;
+    });
+    const secondFinished = new Promise<void>((resolve) => {
+      resolveSecondFinished = resolve;
+    });
+    const checkpointSpy = vi.spyOn(aiExecutionState, "checkpointAiExecution").mockImplementation(async (checkpoint) => {
+      const call = ++checkpointCalls;
+      if (call === 1) await firstBlocked;
+      const accepted = await realCheckpoint(checkpoint);
+      if (call === 1) resolveFirstFinished();
+      if (call === 2) {
+        resolveSecondFinished();
+        releaseFirst();
+      }
+      return accepted;
+    });
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+      await firstFinished;
+      return realComplete(params);
+    });
+    try {
+      const result = await runRecipeOperation(fixture.params);
+      await secondFinished;
+      expect(checkpointCalls).toBeGreaterThanOrEqual(2);
+      expect(result.status).toBe("completed");
+      expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+    } finally {
+      releaseFirst();
+      checkpointSpy.mockRestore();
+      completeSpy.mockRestore();
       await fixture.cleanup();
     }
   });
