@@ -38,3 +38,9 @@ Provider-exhausted orientation fallback is a separate path from chat-agent final
 **Why:** The all-provider fallback can assemble a correct response from the durable role manifest and retained reads while bypassing the late `ChatResult` provenance assembly, leaving acceptance without the coverage record.
 
 **How to apply:** Keep one ownership boundary for deterministic fallback provenance; do not add a second coverage calculator in acceptance or treat fallback prose as proof.
+
+During live verification, zero accepted behavioral evidence is a non-terminal state until the final server-owned source-selection or execution projection arrives. Final orientation coverage remains the authority for orientation turns.
+
+**Why:** Streaming verification telemetry is emitted before the terminal projection and can legitimately carry zero behavioral claims for a complete orientation read.
+
+**How to apply:** Render a neutral pending state during the stream; use the persisted source-selection record or execution projection for the terminal orientation status, without changing behavioral evidence counters.

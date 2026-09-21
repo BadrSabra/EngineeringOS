@@ -33,7 +33,10 @@ import { useState, useCallback, useRef } from 'react';
 import { parseAiSseDataLine } from '@workspace/api-zod';
 import type { BrowserValidationBlockReason, PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
 import type { ExecutionLedgerPublicSnapshot, ForensicDiagnostic } from '@workspace/ai-orchestrator';
-import type { AiExecutionProjection } from './generated/api.schemas';
+import type {
+  AiExecutionProjection,
+  QuerySourceSelectionRecord,
+} from './generated/api.schemas';
 
 // ── Event shapes ──────────────────────────────────────────────────────────────
 
@@ -135,6 +138,7 @@ export type AiStreamDoneEvent = {
     } | null;
     projectQueryResponseSource?: 'provider_synthesis' | 'deterministic_fallback';
     projectQueryResponseFallbackReason?: 'synthesis_failed' | 'provider_candidate_incomplete';
+    sourceSelectionRecord?: QuerySourceSelectionRecord | null;
     outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
     errorCode?: string | null;
     errorMessage?: string | null;
@@ -203,6 +207,7 @@ export type AiStreamDoneEvent = {
   forensicDiagnostic?: ForensicDiagnostic;
   projectQueryResponseSource?: 'provider_synthesis' | 'deterministic_fallback';
   projectQueryResponseFallbackReason?: 'synthesis_failed' | 'provider_candidate_incomplete';
+  sourceSelectionRecord?: QuerySourceSelectionRecord | null;
 };
 
 export type AiStreamSessionStartedEvent = {

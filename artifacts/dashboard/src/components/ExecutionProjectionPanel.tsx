@@ -436,6 +436,26 @@ export function ExecutionProjectionPanel({
         </div>
       </div>
 
+      {projection.orientation && (
+        <div
+          className={`mt-3 rounded-md border px-3 py-2 text-[10px] ${
+            projection.orientation.complete
+              ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+              : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+          }`}
+          data-testid="orientation-coverage"
+        >
+          <div className="font-semibold">
+            Project orientation: {projection.orientation.complete ? 'complete' : 'incomplete'}
+          </div>
+          {projection.orientation.missingRoles.length > 0 && (
+            <div className="mt-0.5 text-muted-foreground">
+              Missing roles: {projection.orientation.missingRoles.join(', ')}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-3 rounded-md border border-primary/35 bg-primary/10 px-3 py-2.5" data-testid="primary-next-action">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">

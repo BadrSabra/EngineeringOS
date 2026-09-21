@@ -82,6 +82,7 @@ import type {
   AiUsageSummary,
   AiExecutionProjection,
   EvidenceGraph,
+  QuerySourceSelectionRecord,
 } from '@workspace/api-client-react';
 type AcceptanceNextActionCode =
   | 'NONE'
@@ -227,17 +228,7 @@ type ChatMessage = {
   projection?: AiExecutionProjection | null;
   forensicDiagnostic?: ForensicDiagnostic | null;
   /** PR-011: file-level source plan vs actual coverage; present only for PROJECT_QUERY turns. */
-  sourceSelectionRecord?: {
-    plannerTier: 'targeted' | 'graph_enriched' | 'fallback';
-    plannedFiles: string[];
-    fileStatuses: Array<{
-      path: string;
-      origin: 'planned' | 'model_chosen';
-      readStatus: 'READ_COMPLETE' | 'READ_TRUNCATED' | 'READ_FAILED' | 'READ_SKIPPED';
-    }>;
-    truncatedPlannedCount: number;
-    skippedPlannedCount: number;
-  } | null;
+  sourceSelectionRecord?: QuerySourceSelectionRecord | null;
   createdAt: string;
 };
 
@@ -375,6 +366,25 @@ function SourceCoveragePanel({ record }: SourceCoveragePanelProps) {
       </button>
       {expanded && (
         <div className="border-t border-border/40 px-3 py-2 space-y-2">
+          {record.orientationCoverage && (
+            <div
+              className={`rounded border px-2 py-1 ${
+                record.orientationCoverage.complete
+                  ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+                  : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+              }`}
+              data-testid="orientation-coverage"
+            >
+              <div className="font-semibold">
+                Project orientation: {record.orientationCoverage.complete ? 'complete' : 'incomplete'}
+              </div>
+              {record.orientationCoverage.missingRoles.length > 0 && (
+                <div className="mt-0.5 text-[10px] text-amber-200">
+                  Missing roles: {record.orientationCoverage.missingRoles.join(', ')}
+                </div>
+              )}
+            </div>
+          )}
           {record.plannedFiles.length === 0 && (
             <div className="rounded border border-amber-500/30 bg-amber-500/8 px-2 py-1 text-amber-300">
               No files were selected by the planner. This answer used fallback source discovery; review coverage before relying on it.
@@ -11069,7 +11079,7 @@ export default function AiChat() {
            if (generation !== streamGenerationRef.current) return;
            const status = event.acceptedEvidenceCount > 0
              ? 'Evidence verification completed'
-             : 'Verification incomplete — no accepted evidence';
+             : 'Verification state recorded — final evidence pending';
            setAgentStage(status);
            appendLiveActivityEvent({
              kind: 'validation',

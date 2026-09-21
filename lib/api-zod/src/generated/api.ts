@@ -3445,6 +3445,8 @@ export const aiChatResponseMessageProjectionOneWorkspaceChangedFilesMax = 20;
 
 export const aiChatResponseMessageProjectionOneVerificationEvidenceVerdictMax = 40;
 
+export const aiChatResponseMessageProjectionOneOrientationMissingRolesMax = 4;
+
 export const aiChatResponseMessageProjectionOneTimelineItemLabelMax = 80;
 
 export const aiChatResponseMessageProjectionOneTimelineItemDetailMax = 240;
@@ -3541,6 +3543,16 @@ export const aiChatResponseMessageSourceSelectionRecordOneFileStatusesMax = 40;
 export const aiChatResponseMessageSourceSelectionRecordOneTruncatedPlannedCountMin = 0;
 
 export const aiChatResponseMessageSourceSelectionRecordOneSkippedPlannedCountMin = 0;
+
+export const aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOnePurposePlannedFilesMax = 20;
+
+export const aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOneComponentsPlannedFilesMax = 20;
+
+export const aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOnePrimaryFlowPlannedFilesMax = 20;
+
+export const aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOneUncertaintyPlannedFilesMax = 20;
+
+export const aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOneMissingRolesMax = 4;
 
 export const aiChatResponsePendingChangesItemBaseHashRegExp = new RegExp('^[a-f0-9]{64}$');
 
@@ -3704,6 +3716,10 @@ export const AiChatResponse = zod.object({
   "evidenceVerdict": zod.string().max(aiChatResponseMessageProjectionOneVerificationEvidenceVerdictMax),
   "proofRequired": zod.boolean()
 }),
+  "orientation": zod.object({
+  "complete": zod.boolean(),
+  "missingRoles": zod.array(zod.enum(['purpose', 'components', 'primaryFlow', 'uncertainty'])).max(aiChatResponseMessageProjectionOneOrientationMissingRolesMax)
+}).nullish().describe('Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.'),
   "approval": zod.object({
   "required": zod.boolean(),
   "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
@@ -3836,7 +3852,27 @@ export const AiChatResponse = zod.object({
   "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED']).describe('Server-classified read outcome; provider text is not used.')
 })).max(aiChatResponseMessageSourceSelectionRecordOneFileStatusesMax).describe('Up to 40 combined file statuses for planned and model-chosen files.'),
   "truncatedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneTruncatedPlannedCountMin).describe('Number of planned files whose bodies were truncated.'),
-  "skippedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.')
+  "skippedPlannedCount": zod.number().int().min(aiChatResponseMessageSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.'),
+  "orientationCoverage": zod.union([zod.object({
+  "purpose": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOnePurposePlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "components": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOneComponentsPlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "primaryFlow": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOnePrimaryFlowPlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "uncertainty": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOneUncertaintyPlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "complete": zod.boolean(),
+  "missingRoles": zod.array(zod.enum(['purpose', 'components', 'primaryFlow', 'uncertainty'])).max(aiChatResponseMessageSourceSelectionRecordOneOrientationCoverageOneMissingRolesMax)
+}),zod.null()]).optional().describe('Server-owned role coverage for project-orientation turns; never derived from behavioral evidence counters.')
 }),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.'),
   "projectQueryResponseSource": zod.enum(['provider_synthesis', 'deterministic_fallback']).nullish().describe('Server-owned provenance for the selected PROJECT_QUERY response candidate.'),
   "projectQueryResponseFallbackReason": zod.enum(['synthesis_failed', 'provider_candidate_incomplete']).nullish().describe('Bounded reason present only when deterministic fallback synthesis was selected.'),
@@ -4053,6 +4089,8 @@ export const getAiExecutionResponseProjectionWorkspaceChangedFilesMax = 20;
 
 export const getAiExecutionResponseProjectionVerificationEvidenceVerdictMax = 40;
 
+export const getAiExecutionResponseProjectionOrientationMissingRolesMax = 4;
+
 export const getAiExecutionResponseProjectionTimelineItemLabelMax = 80;
 
 export const getAiExecutionResponseProjectionTimelineItemDetailMax = 240;
@@ -4232,6 +4270,10 @@ export const GetAiExecutionResponse = zod.object({
   "evidenceVerdict": zod.string().max(getAiExecutionResponseProjectionVerificationEvidenceVerdictMax),
   "proofRequired": zod.boolean()
 }),
+  "orientation": zod.object({
+  "complete": zod.boolean(),
+  "missingRoles": zod.array(zod.enum(['purpose', 'components', 'primaryFlow', 'uncertainty'])).max(getAiExecutionResponseProjectionOrientationMissingRolesMax)
+}).nullish().describe('Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.'),
   "approval": zod.object({
   "required": zod.boolean(),
   "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
@@ -4324,6 +4366,8 @@ export const listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesItemMa
 export const listAiExecutionHistoryResponseProjectionWorkspaceChangedFilesMax = 20;
 
 export const listAiExecutionHistoryResponseProjectionVerificationEvidenceVerdictMax = 40;
+
+export const listAiExecutionHistoryResponseProjectionOrientationMissingRolesMax = 4;
 
 export const listAiExecutionHistoryResponseProjectionTimelineItemLabelMax = 80;
 
@@ -4426,6 +4470,10 @@ export const ListAiExecutionHistoryResponseItem = zod.object({
   "evidenceVerdict": zod.string().max(listAiExecutionHistoryResponseProjectionVerificationEvidenceVerdictMax),
   "proofRequired": zod.boolean()
 }),
+  "orientation": zod.object({
+  "complete": zod.boolean(),
+  "missingRoles": zod.array(zod.enum(['purpose', 'components', 'primaryFlow', 'uncertainty'])).max(listAiExecutionHistoryResponseProjectionOrientationMissingRolesMax)
+}).nullish().describe('Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.'),
   "approval": zod.object({
   "required": zod.boolean(),
   "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
@@ -6545,6 +6593,8 @@ export const listAiChatMessagesResponseProjectionOneWorkspaceChangedFilesMax = 2
 
 export const listAiChatMessagesResponseProjectionOneVerificationEvidenceVerdictMax = 40;
 
+export const listAiChatMessagesResponseProjectionOneOrientationMissingRolesMax = 4;
+
 export const listAiChatMessagesResponseProjectionOneTimelineItemLabelMax = 80;
 
 export const listAiChatMessagesResponseProjectionOneTimelineItemDetailMax = 240;
@@ -6641,6 +6691,16 @@ export const listAiChatMessagesResponseSourceSelectionRecordOneFileStatusesMax =
 export const listAiChatMessagesResponseSourceSelectionRecordOneTruncatedPlannedCountMin = 0;
 
 export const listAiChatMessagesResponseSourceSelectionRecordOneSkippedPlannedCountMin = 0;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOnePurposePlannedFilesMax = 20;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOneComponentsPlannedFilesMax = 20;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOnePrimaryFlowPlannedFilesMax = 20;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOneUncertaintyPlannedFilesMax = 20;
+
+export const listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOneMissingRolesMax = 4;
 
 
 
@@ -6758,6 +6818,10 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "evidenceVerdict": zod.string().max(listAiChatMessagesResponseProjectionOneVerificationEvidenceVerdictMax),
   "proofRequired": zod.boolean()
 }),
+  "orientation": zod.object({
+  "complete": zod.boolean(),
+  "missingRoles": zod.array(zod.enum(['purpose', 'components', 'primaryFlow', 'uncertainty'])).max(listAiChatMessagesResponseProjectionOneOrientationMissingRolesMax)
+}).nullish().describe('Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.'),
   "approval": zod.object({
   "required": zod.boolean(),
   "status": zod.enum(['NOT_REQUIRED', 'PENDING', 'APPROVED']),
@@ -6890,7 +6954,27 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "readStatus": zod.enum(['READ_COMPLETE', 'READ_TRUNCATED', 'READ_FAILED', 'READ_SKIPPED']).describe('Server-classified read outcome; provider text is not used.')
 })).max(listAiChatMessagesResponseSourceSelectionRecordOneFileStatusesMax).describe('Up to 40 combined file statuses for planned and model-chosen files.'),
   "truncatedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneTruncatedPlannedCountMin).describe('Number of planned files whose bodies were truncated.'),
-  "skippedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.')
+  "skippedPlannedCount": zod.number().int().min(listAiChatMessagesResponseSourceSelectionRecordOneSkippedPlannedCountMin).describe('Number of planned files that were never read.'),
+  "orientationCoverage": zod.union([zod.object({
+  "purpose": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOnePurposePlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "components": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOneComponentsPlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "primaryFlow": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOnePrimaryFlowPlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "uncertainty": zod.object({
+  "plannedFiles": zod.array(zod.string()).max(listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOneUncertaintyPlannedFilesMax),
+  "complete": zod.boolean()
+}),
+  "complete": zod.boolean(),
+  "missingRoles": zod.array(zod.enum(['purpose', 'components', 'primaryFlow', 'uncertainty'])).max(listAiChatMessagesResponseSourceSelectionRecordOneOrientationCoverageOneMissingRolesMax)
+}),zod.null()]).optional().describe('Server-owned role coverage for project-orientation turns; never derived from behavioral evidence counters.')
 }),zod.null()]).optional().describe('File-level source plan vs actual coverage; present only for PROJECT_QUERY turns. Absent for CHAT, FORENSIC_AUDIT, task execution, and all other turn kinds.'),
   "projectQueryResponseSource": zod.enum(['provider_synthesis', 'deterministic_fallback']).nullish().describe('Server-owned provenance for the selected PROJECT_QUERY response candidate.'),
   "projectQueryResponseFallbackReason": zod.enum(['synthesis_failed', 'provider_candidate_incomplete']).nullish().describe('Bounded reason present only when deterministic fallback synthesis was selected.'),

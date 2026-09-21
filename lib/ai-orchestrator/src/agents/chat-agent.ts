@@ -174,6 +174,7 @@ import {
   type AgentStep,
   type AgentDiagnosticCode,
   type ReadStatus,
+  mergeReadStatus,
   EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
   type SourceRetrievalTelemetry,
   type ToolLoopResult,
@@ -7185,7 +7186,10 @@ export async function chat(opts: {
     if (!projectOrientationMode || !queryPlan?.orientationSources) return false;
     const readStatuses = new Map(prefetchReadStatuses);
     for (const filePath of forensicFileContents.keys()) {
-      readStatuses.set(filePath, "READ_COMPLETE");
+      readStatuses.set(
+        filePath,
+        mergeReadStatus(readStatuses.get(filePath), "READ_COMPLETE"),
+      );
     }
     return deriveSourceSelectionRecord(queryPlan, readStatuses)
       .orientationCoverage?.complete === true;
@@ -14757,7 +14761,13 @@ export async function chat(opts: {
       prefetchReadStatuses as Map<string, string>,
     );
     for (const filePath of (loopResult.fileContents ?? new Map<string, string>()).keys()) {
-      if (!combined.has(filePath)) combined.set(filePath, "READ_COMPLETE");
+      combined.set(
+        filePath,
+        mergeReadStatus(
+          combined.get(filePath) as ReadStatus | undefined,
+          "READ_COMPLETE",
+        ),
+      );
     }
     return deriveSourceSelectionRecord(queryPlan, combined);
   })();

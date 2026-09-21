@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { ProjectOrientationCoverage } from './projectOrientationCoverage';
 import type { QuerySourceFileStatus } from './querySourceFileStatus';
 import type { QuerySourceSelectionRecordPlannerTier } from './querySourceSelectionRecordPlannerTier';
 
@@ -31,4 +32,6 @@ export interface QuerySourceSelectionRecord {
      * @minimum 0
      */
   skippedPlannedCount: number;
+  /** Server-owned role coverage for project-orientation turns; never derived from behavioral evidence counters. */
+  orientationCoverage?: ProjectOrientationCoverage | null;
 }

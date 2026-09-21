@@ -6105,6 +6105,41 @@ components:
           enum: [READ_COMPLETE, READ_TRUNCATED, READ_FAILED, READ_SKIPPED]
           description: Server-classified read outcome; provider text is not used.
 
+    ProjectOrientationCoverage:
+      type: object
+      additionalProperties: false
+      required: [purpose, components, primaryFlow, uncertainty, complete, missingRoles]
+      properties:
+        purpose:
+          $ref: "#/components/schemas/ProjectOrientationCoverageRole"
+        components:
+          $ref: "#/components/schemas/ProjectOrientationCoverageRole"
+        primaryFlow:
+          $ref: "#/components/schemas/ProjectOrientationCoverageRole"
+        uncertainty:
+          $ref: "#/components/schemas/ProjectOrientationCoverageRole"
+        complete:
+          type: boolean
+        missingRoles:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+            enum: [purpose, components, primaryFlow, uncertainty]
+
+    ProjectOrientationCoverageRole:
+      type: object
+      additionalProperties: false
+      required: [plannedFiles, complete]
+      properties:
+        plannedFiles:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        complete:
+          type: boolean
+
     QuerySourceSelectionRecord:
       type: object
       additionalProperties: false
@@ -6134,6 +6169,10 @@ components:
           type: integer
           minimum: 0
           description: Number of planned files that were never read.
+        orientationCoverage:
+          nullable: true
+          description: Server-owned role coverage for project-orientation turns; never derived from behavioral evidence counters.
+          $ref: "#/components/schemas/ProjectOrientationCoverage"
 
     AiExecutionDiagnostics:
       type: object
@@ -6248,6 +6287,20 @@ components:
             status: { type: string, enum: [pending, running, passed, failed, unavailable] }
             evidenceVerdict: { type: string, maxLength: 40 }
             proofRequired: { type: boolean }
+        orientation:
+          nullable: true
+          description: Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.
+          type: object
+          additionalProperties: false
+          required: [complete, missingRoles]
+          properties:
+            complete: { type: boolean }
+            missingRoles:
+              type: array
+              maxItems: 4
+              items:
+                type: string
+                enum: [purpose, components, primaryFlow, uncertainty]
         approval:
           type: object
           additionalProperties: false

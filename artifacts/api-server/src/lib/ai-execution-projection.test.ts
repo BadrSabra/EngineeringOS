@@ -97,4 +97,46 @@ describe("buildAiExecutionProjection", () => {
     expect(blocked.timeline.find((item) => item.id === "validate")?.status).toBe("blocked");
     expect(blocked.timeline.find((item) => item.id === "deliver")?.status).toBe("not_applicable");
   });
+
+  it("projects orientation coverage without using behavioral evidence counters", () => {
+    const projection = buildAiExecutionProjection({
+      execution: { id: "exec-orientation", status: "completed" },
+      request: { message: "Explain the project" },
+      checkpoint: {
+        stage: "review",
+        recentSteps: [{
+          kind: "project_query_source_selection",
+          plannerTier: "targeted",
+          plannedFiles: ["README.md"],
+          fileStatuses: [{
+            path: "README.md",
+            origin: "planned",
+            readStatus: "READ_COMPLETE",
+          }],
+          truncatedPlannedCount: 0,
+          skippedPlannedCount: 0,
+          orientationCoverage: {
+            purpose: { plannedFiles: ["README.md"], complete: true },
+            components: { plannedFiles: [], complete: true },
+            primaryFlow: { plannedFiles: [], complete: true },
+            uncertainty: { plannedFiles: [], complete: false },
+            complete: false,
+            missingRoles: ["uncertainty"],
+          },
+        }],
+      },
+      evidenceVerdict: "PROVEN",
+      proofRequired: true,
+      terminalReason: null,
+      hasAppliedChanges: false,
+      hasCommittedChanges: false,
+      hasPushedChanges: false,
+    });
+
+    expect(projection.orientation).toEqual({
+      complete: false,
+      missingRoles: ["uncertainty"],
+    });
+    expect(projection.verification.evidenceVerdict).toBe("PROVEN");
+  });
 });

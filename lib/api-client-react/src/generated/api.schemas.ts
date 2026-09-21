@@ -2517,6 +2517,16 @@ export const AiExecutionProjectionVerificationStatus = {
   unavailable: 'unavailable',
 } as const;
 
+export type AiExecutionProjectionOrientationMissingRolesItem = typeof AiExecutionProjectionOrientationMissingRolesItem[keyof typeof AiExecutionProjectionOrientationMissingRolesItem];
+
+
+export const AiExecutionProjectionOrientationMissingRolesItem = {
+  purpose: 'purpose',
+  components: 'components',
+  primaryFlow: 'primaryFlow',
+  uncertainty: 'uncertainty',
+} as const;
+
 export type AiExecutionProjectionApprovalStatus = typeof AiExecutionProjectionApprovalStatus[keyof typeof AiExecutionProjectionApprovalStatus];
 
 
@@ -2644,6 +2654,15 @@ export type AiExecutionProjectionVerification = {
   proofRequired: boolean;
 };
 
+/**
+ * Server-owned project-orientation role coverage. This is separate from behavioral evidence counters.
+ */
+export type AiExecutionProjectionOrientation = {
+  complete: boolean;
+  /** @maxItems 4 */
+  missingRoles: AiExecutionProjectionOrientationMissingRolesItem[];
+} | null;
+
 export type AiExecutionProjectionApproval = {
   required: boolean;
   status: AiExecutionProjectionApprovalStatus;
@@ -2679,6 +2698,8 @@ export interface AiExecutionProjection {
   tools: AiExecutionProjectionTools;
   workspace: AiExecutionProjectionWorkspace;
   verification: AiExecutionProjectionVerification;
+  /** Server-owned project-orientation role coverage. This is separate from behavioral evidence counters. */
+  orientation?: AiExecutionProjectionOrientation;
   approval: AiExecutionProjectionApproval;
   stopped: AiExecutionProjectionStopped;
   /** @maxItems 8 */
@@ -2994,6 +3015,32 @@ export interface QuerySourceFileStatus {
   readStatus: QuerySourceFileStatusReadStatus;
 }
 
+export interface ProjectOrientationCoverageRole {
+  /** @maxItems 20 */
+  plannedFiles: string[];
+  complete: boolean;
+}
+
+export type ProjectOrientationCoverageMissingRolesItem = typeof ProjectOrientationCoverageMissingRolesItem[keyof typeof ProjectOrientationCoverageMissingRolesItem];
+
+
+export const ProjectOrientationCoverageMissingRolesItem = {
+  purpose: 'purpose',
+  components: 'components',
+  primaryFlow: 'primaryFlow',
+  uncertainty: 'uncertainty',
+} as const;
+
+export interface ProjectOrientationCoverage {
+  purpose: ProjectOrientationCoverageRole;
+  components: ProjectOrientationCoverageRole;
+  primaryFlow: ProjectOrientationCoverageRole;
+  uncertainty: ProjectOrientationCoverageRole;
+  complete: boolean;
+  /** @maxItems 4 */
+  missingRoles: ProjectOrientationCoverageMissingRolesItem[];
+}
+
 export interface QuerySourceSelectionRecord {
   /** Server-derived planner quality tier; never contains provider text. */
   plannerTier: QuerySourceSelectionRecordPlannerTier;
@@ -3017,6 +3064,8 @@ export interface QuerySourceSelectionRecord {
      * @minimum 0
      */
   skippedPlannedCount: number;
+  /** Server-owned role coverage for project-orientation turns; never derived from behavioral evidence counters. */
+  orientationCoverage?: ProjectOrientationCoverage | null;
 }
 
 export interface AiChatMessage {

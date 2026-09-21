@@ -32,6 +32,7 @@ import {
   isCapabilityProbeRequest,
   deriveOrientationSourceSelectionRecord,
   buildDeterministicProjectOrientationResponse,
+  mergeReadStatus,
 } from "@workspace/ai-orchestrator";
 import type {
   ProviderId,
@@ -108,9 +109,10 @@ function deriveOrientationFallbackReadStatuses(
 ): ReadonlyMap<string, ReadStatus> {
   const readStatuses = new Map(retainedReadStatuses);
   for (const filePath of retainedEvidence.keys()) {
-    if (!readStatuses.has(filePath)) {
-      readStatuses.set(filePath, "READ_COMPLETE");
-    }
+    readStatuses.set(
+      filePath,
+      mergeReadStatus(readStatuses.get(filePath), "READ_COMPLETE"),
+    );
   }
   return readStatuses;
 }

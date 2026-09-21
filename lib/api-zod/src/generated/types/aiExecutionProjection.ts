@@ -8,6 +8,7 @@
 import type { AiExecutionProjectionAllowedActionsItem } from './aiExecutionProjectionAllowedActionsItem';
 import type { AiExecutionProjectionApproval } from './aiExecutionProjectionApproval';
 import type { AiExecutionProjectionKind } from './aiExecutionProjectionKind';
+import type { AiExecutionProjectionOrientation } from './aiExecutionProjectionOrientation';
 import type { AiExecutionProjectionPlan } from './aiExecutionProjectionPlan';
 import type { AiExecutionProjectionProgress } from './aiExecutionProjectionProgress';
 import type { AiExecutionProjectionSchemaVersion } from './aiExecutionProjectionSchemaVersion';
@@ -32,6 +33,8 @@ export interface AiExecutionProjection {
   tools: AiExecutionProjectionTools;
   workspace: AiExecutionProjectionWorkspace;
   verification: AiExecutionProjectionVerification;
+  /** Server-owned project-orientation role coverage. This is separate from behavioral evidence counters. */
+  orientation?: AiExecutionProjectionOrientation;
   approval: AiExecutionProjectionApproval;
   stopped: AiExecutionProjectionStopped;
   /** @maxItems 8 */
