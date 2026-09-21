@@ -26,6 +26,7 @@ const MISSING = "src/evidence/missing-producer.ts";
 const ADAPTER = "src/provider/adapter.ts";
 const CLIENT = "src/provider/client.ts";
 const CONNECTOR = "src/provider/connector.ts";
+const GENERAL = "docs/system-overview.md";
 
 type TargetMap = readonly (readonly [string, string])[];
 
@@ -39,6 +40,13 @@ const INDEPENDENT_TARGET_BY_INTENT = [
   ["Inspect the provider adapter transport.", ADAPTER],
   ["Inspect the provider adapter client.", CLIENT],
   ["Inspect the provider adapter connector.", CONNECTOR],
+] as const satisfies TargetMap;
+
+const CASCADE_TARGET_BY_INTENT = [
+  ["Inspect the acceptance gate contract.", ACCEPTANCE],
+  ["Inspect the evidence producer flow.", EVIDENCE],
+  ["Inspect deployment notes.", GENERAL],
+  ["Inspect counterevidence tests.", COUNTEREVIDENCE],
 ] as const satisfies TargetMap;
 
 const OBJECTIVE_REPORT = [
@@ -99,6 +107,21 @@ function independentProviderPlan(): QueryPlan {
   };
 }
 
+function dependencyCascadePlan(): QueryPlan {
+  return {
+    originalIntent: "Review the acceptance, evidence, deployment, and counterevidence paths.",
+    targetFiles: [ACCEPTANCE, EVIDENCE, GENERAL, COUNTEREVIDENCE],
+    targetEntities: [],
+    scopeEstimate: "broad",
+    suggestedIterations: 40,
+    requiresToolUse: true,
+    subQueries: CASCADE_TARGET_BY_INTENT.map(([intent]) => intent),
+    compoundParts: [],
+    planStatus: "fallback",
+    planDiagnostics: ["planner timed out or returned no response"],
+  };
+}
+
 function compoundFallbackPlan(): QueryPlan {
   return {
     originalIntent: "Summarize the current state, gaps, and priorities.",
@@ -142,6 +165,7 @@ async function makeRoot(): Promise<string> {
     [ADAPTER, "PROVIDER_ADAPTER_EVIDENCE"],
     [CLIENT, "PROVIDER_CLIENT_EVIDENCE"],
     [CONNECTOR, "PROVIDER_CONNECTOR_EVIDENCE"],
+    [GENERAL, "SYSTEM_OVERVIEW_EVIDENCE"],
   ] as const) {
     const fullPath = path.join(rootPath, file);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -160,6 +184,7 @@ type Scenario = {
   signal?: AbortSignal;
   abortController?: AbortController;
   providerFailureTarget?: string;
+  providerFailureAfterReadTarget?: string;
 };
 
 async function configureChat(
@@ -236,6 +261,7 @@ function makeStrategy(options: {
   targetByIntent?: TargetMap;
   abortController?: AbortController;
   providerFailureTarget?: string;
+  providerFailureAfterReadTarget?: string;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -314,6 +340,10 @@ function makeStrategy(options: {
       const hasToolOutput = serialized.includes('"role":"tool"');
       providerCalls.push({ kind: "subquery", target });
 
+      if (options.providerFailureAfterReadTarget === target && hasToolOutput) {
+        throw new Error(`simulated provider failure after reading ${target}`);
+      }
+
       if (!hasToolOutput && reads === 0) {
         subqueryReads.set(target, reads + 1);
         return {
@@ -364,6 +394,7 @@ async function runScenario(scenario: Scenario) {
     targetByIntent: scenario.targetByIntent,
     abortController: scenario.abortController,
     providerFailureTarget: scenario.providerFailureTarget,
+    providerFailureAfterReadTarget: scenario.providerFailureAfterReadTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -648,6 +679,102 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(graphReads).toContain(CLIENT);
       expect(graphReads).toContain(CONNECTOR);
       expect(graphReads).not.toContain(ADAPTER);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("runs an independent second-wave branch while transitively skipping dependent sub-queries", async () => {
+    const rootPath = await makeRoot();
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await fs.rm(path.join(rootPath, EVIDENCE));
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        missingTarget: EVIDENCE,
+        plan: dependencyCascadePlan(),
+        targetByIntent: CASCADE_TARGET_BY_INTENT,
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate was retained in `src/acceptance/gate.ts`; " +
+          "the deployment notes were also inspected.\n" +
+          "GAPS: NOT PROVEN — the evidence producer failed before it could provide a usable source.\n" +
+          "PRIORITIES: rerun the evidence and counterevidence checks after recovery.",
+      });
+
+      const subqueryTargets = providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target);
+      expect([...new Set(subqueryTargets)]).toEqual([ACCEPTANCE, EVIDENCE, GENERAL]);
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [GENERAL, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("NOT PROVEN");
+
+      const events = info.mock.calls
+        .map(([message]) => {
+          if (typeof message !== "string") return undefined;
+          try {
+            return JSON.parse(message) as {
+              code?: string;
+              taskCount?: number;
+              reason?: string;
+              intent?: string;
+            };
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((event): event is NonNullable<typeof event> => Boolean(event));
+      const skipped = events.filter((event) => event.code === "SUBTASK_SKIPPED");
+      expect(skipped).toHaveLength(1);
+      expect(skipped[0]?.reason).toBe("dependency_not_satisfied");
+      expect(skipped[0]?.intent).toContain("counterevidence");
+      expect(events.some((event) => event.code === "SCHEDULING_WAVE_STARTED" && event.taskCount === 2)).toBe(true);
+
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, GENERAL]));
+      expect(graphReads).not.toContain(EVIDENCE);
+      expect(graphReads).not.toContain(COUNTEREVIDENCE);
+    } finally {
+      info.mockRestore();
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not promote a provider-failed sub-query's read attempt into synthesis evidence", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        providerFailureAfterReadTarget: ADAPTER,
+        synthesisResponse:
+          "CURRENT_STATE: the adapter is complete in `src/provider/adapter.ts`, " +
+          "and the client and connector are complete in `src/provider/client.ts` " +
+          "and `src/provider/connector.ts`.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: ship the provider integration.",
+      });
+
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ADAPTER)).toHaveLength(2);
+      expect(subqueryReads).toEqual(new Map([
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("citation is not a retained source window");
+      expect(result.response).not.toContain(ADAPTER);
+
+      const adapterClaim = result.evidenceGraph?.nodes.find((node) => node.id === "claim:subquery:0");
+      expect(adapterClaim?.status).not.toBe("PROVEN");
+      expect(result.evidenceGraph?.nodes.some((node) =>
+        node.kind === "VERDICT" && node.status === "PROVEN",
+      )).toBe(false);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
