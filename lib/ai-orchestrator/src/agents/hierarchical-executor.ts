@@ -51,6 +51,14 @@ export type HierarchicalTask = {
    * targetPaths provide a known, disjoint scope.
    */
   readOnly?: boolean;
+  /**
+   * Original task indexes that must produce usable retained evidence before
+   * this task is admitted. Dependencies are server-owned scheduling metadata,
+   * not provider instructions.
+   */
+  dependsOn?: number[];
+  scheduleRole?: string;
+  scheduleScore?: number;
 };
 
 export type HierarchicalExecutorOpts = {
@@ -323,6 +331,43 @@ function takeSchedulingWave(
   return { wave, rest };
 }
 
+function hasUsableDependencyEvidence(receipt: SubResult | undefined): boolean {
+  return Boolean(
+    receipt
+    && (receipt.status === "complete" || receipt.status === "partial")
+    && receipt.sourceEvidence.length > 0,
+  );
+}
+
+function dependencyBlocked(
+  task: HierarchicalTask,
+  completed: ReadonlyMap<number, SubResult>,
+): boolean {
+  return (task.dependsOn ?? []).some((dependency) => {
+    const receipt = completed.get(dependency);
+    return receipt !== undefined && !hasUsableDependencyEvidence(receipt);
+  });
+}
+
+function dependenciesReady(
+  task: HierarchicalTask,
+  completed: ReadonlyMap<number, SubResult>,
+): boolean {
+  return (task.dependsOn ?? []).every((dependency) => hasUsableDependencyEvidence(completed.get(dependency)));
+}
+
+function dependencySkippedReceipt(task: HierarchicalTask, taskIndex: number): SubResult {
+  return {
+    taskIndex,
+    intent: task.intent,
+    status: "exhausted",
+    reason: "dependency_not_satisfied",
+    diagnosticCode: "SUBQUERY_DEPENDENCY_NOT_SATISFIED",
+    toolSources: [],
+    sourceEvidence: [],
+  };
+}
+
 /**
  * Build the user turn that is passed to the synthesis model call.
  * Includes all sub-results separated by section headers so the model can
@@ -528,6 +573,7 @@ export async function executeHierarchical(
   const subResults: SubResult[] = [];
   let pendingTasks = [...tasks];
   const taskIndexes = new Map(tasks.map((task, index) => [task, index]));
+  const completedTasks = new Map<number, SubResult>();
   const maxParallelTasks = Math.max(
     1,
     Math.min(opts.maxParallelTasks ?? DEFAULT_MAX_PARALLEL_TASKS, 8),
@@ -538,14 +584,46 @@ export async function executeHierarchical(
       pendingTasks = [];
       break;
     }
-    const { wave, rest } = takeSchedulingWave(pendingTasks, maxParallelTasks);
-    pendingTasks = rest;
+    const blockedTasks = pendingTasks.filter((task) =>
+      dependencyBlocked(task, completedTasks),
+    );
+    if (blockedTasks.length > 0) {
+      for (const task of blockedTasks) {
+        const taskIndex = taskIndexes.get(task) ?? 0;
+        const skipped = dependencySkippedReceipt(task, taskIndex);
+        pendingTasks = pendingTasks.filter((candidate) => candidate !== task);
+        subResults.push(skipped);
+        completedTasks.set(taskIndex, skipped);
+        console.info(JSON.stringify({
+          scope: "hierarchical-executor",
+          code: "SUBTASK_SKIPPED",
+          taskIndex,
+          role: task.scheduleRole,
+          reason: skipped.reason,
+          intent: task.intent.slice(0, 100),
+        }));
+      }
+      continue;
+    }
+    const readyTasks = pendingTasks.filter((task) => dependenciesReady(task, completedTasks));
+    // A malformed dependency graph must not deadlock the request. Admit the
+    // first pending task alone; its receipt becomes the durable diagnostic.
+    const schedulableTasks = readyTasks.length > 0 ? readyTasks : [pendingTasks[0]!];
+    const { wave } = takeSchedulingWave(schedulableTasks, maxParallelTasks);
+    const waveSet = new Set(wave);
+    pendingTasks = pendingTasks.filter((task) => waveSet.has(task) ? false : true);
     console.info(JSON.stringify({
       scope: "hierarchical-executor",
       code: "SCHEDULING_WAVE_STARTED",
       taskCount: wave.length,
       maxParallelTasks,
       readOnlyTasks: wave.filter((task) => task.readOnly).length,
+          tasks: wave.map((task) => ({
+            taskIndex: taskIndexes.get(task) ?? 0,
+            role: task.scheduleRole,
+            priorityScore: task.scheduleScore,
+            dependsOn: task.dependsOn ?? [],
+          })),
     }));
 
     const waveResults = await Promise.all(wave.map((task) =>
@@ -556,6 +634,7 @@ export async function executeHierarchical(
     for (const [index, sub] of waveResults.entries()) {
       const task = wave[index];
       subResults.push(sub);
+      completedTasks.set(taskIndexes.get(task) ?? 0, sub);
       console.info(
         JSON.stringify({
           scope: "hierarchical-executor",

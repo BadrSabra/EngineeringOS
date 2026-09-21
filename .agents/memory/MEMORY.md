@@ -141,3 +141,4 @@
 - [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.
 - [Gap falsification](gap-falsification.md) — gap candidates require bounded counterevidence checks; missing probes stay UNPROVEN and provider prose cannot set the verdict.
 - [Server-owned confidence](server-owned-confidence.md) — confidence is computed from accepted evidence, claim closure, source diversity, revision, and contradictions; provider scores are non-authoritative.
+- [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.

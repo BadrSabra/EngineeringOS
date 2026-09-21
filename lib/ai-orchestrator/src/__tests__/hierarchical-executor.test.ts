@@ -274,6 +274,38 @@ describe("executeHierarchical — core behaviour", () => {
     expect(result.toolSources).toContain("lib/db/schema.ts");
     expect(result.toolSources).toContain("src/routes.ts");
   });
+
+  it("skips dependent sub-queries when the prerequisite produced no retained evidence", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const mockLoop = vi.mocked(executeToolLoop);
+    mockLoop.mockResolvedValueOnce({
+      kind: "response",
+      result: mockResponse("The gate could not be verified."),
+      toolSources: [],
+      fileContents: new Map(),
+    });
+
+    const strategy = makeStrategy("synthesis");
+    const { executeHierarchical } = await import("../agents/hierarchical-executor.js");
+    const result = await executeHierarchical(
+      [
+        { intent: "acceptance gate", targetPaths: [], maxIter: 7 },
+        {
+          intent: "provider adapter",
+          targetPaths: [],
+          maxIter: 7,
+          dependsOn: [0],
+          scheduleRole: "PROVIDER_ADAPTER",
+        },
+      ],
+      makeOpts(strategy),
+    );
+
+    expect(mockLoop).toHaveBeenCalledTimes(1);
+    expect(result.receipts.map((receipt) => receipt.reason)).toContain("dependency_not_satisfied");
+    expect(result.receipts.find((receipt) => receipt.taskIndex === 1)?.diagnosticCode)
+      .toBe("SUBQUERY_DEPENDENCY_NOT_SATISFIED");
+  });
 });
 
 describe("executeHierarchical — resilience", () => {

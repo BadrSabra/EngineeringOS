@@ -200,6 +200,7 @@ import {
   type TaskExecutionPartialReason,
 } from "../task-execution-partial-report.js";
 import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-executor.js";
+import { scheduleSubQueries } from "../subquery-scheduler.js";
 import { executeExecutionNodePlan } from "../execution-node-coordinator.js";
 import { stripReadFileWrapper, executeFileTool } from "../tools/file-tools.js";
 import { hasDisplayTruncationMarker, hasToolAppendedTruncationMarker } from "../source-read-status.js";
@@ -8272,14 +8273,38 @@ export async function chat(opts: {
     !isBehaviorVerdictRequest
   ) {
     try {
-      const hierarchicalTasks = queryPlan.subQueries.map((q) => ({
-        intent: q,
-        targetPaths: queryPlan.targetFiles,
+      const scheduledSubQueries = scheduleSubQueries({
+        subQueries: queryPlan.subQueries,
+        targetFiles: queryPlan.targetFiles,
+        objectiveText: objective?.goal ?? message,
+        requiredEvidencePaths: objective?.requiredEvidencePaths,
+      });
+      console.info(JSON.stringify({
+        scope: "chat-agent",
+        code: "SUBQUERY_SCHEDULE_READY",
+        taskCount: scheduledSubQueries.length,
+        schedule: scheduledSubQueries.map((item) => ({
+          originalIndex: item.originalIndex,
+          role: item.role,
+          priorityScore: Number(item.priorityScore.toFixed(3)),
+          objectiveProximity: Number(item.objectiveProximity.toFixed(3)),
+          readCost: Number(item.readCost.toFixed(3)),
+          gapLikelihood: Number(item.gapLikelihood.toFixed(3)),
+          dependsOn: item.dependsOn,
+          targetPathCount: item.targetPaths.length,
+        })),
+      }));
+      const hierarchicalTasks = scheduledSubQueries.map((item) => ({
+        intent: item.intent,
+        targetPaths: item.targetPaths,
         maxIter: 10,
         // This path is only used for broad analysis, never an approved repair
         // handoff. Keep it explicitly read-only so independent analyses can
         // share a scheduling wave without racing pending writes.
         readOnly: true,
+        dependsOn: item.dependsOn,
+        scheduleRole: item.role,
+        scheduleScore: item.priorityScore,
       }));
 
       const hierarchicalResult = await executeHierarchical(hierarchicalTasks, {
