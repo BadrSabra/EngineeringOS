@@ -87,6 +87,17 @@ export type FinalizeExecutionAcceptanceParams = {
   executionId: string;
   workerId?: string | null;
   allowExpiredLease?: boolean;
+  /**
+   * Reconciliation may begin from an unlocked lease snapshot. When it later
+   * finalizes that snapshot, require the locked row to still have the exact
+   * ownership tuple that was observed; otherwise a renewal or terminal write
+   * has already won the race.
+   */
+  expectedExecutionState?: {
+    status: "queued" | "running" | "paused" | "cancelling" | "failed" | "completed" | "cancelled";
+    workerId: string | null;
+    leaseUntil: Date | null;
+  };
   finalMessageId?: string | null;
   finalMessageContent?: string | null;
   /** Preserve a bounded provider/validation code already persisted on the message. */
@@ -640,6 +651,20 @@ export async function finalizeExecutionAcceptance(
       .where(eq(aiExecutionsTable.id, params.executionId))
       .for("update");
     if (!execution) return { accepted: false, duplicate: false, reason: "Execution was not found." };
+    if (params.expectedExecutionState) {
+      const expected = params.expectedExecutionState;
+      if (
+        execution.status !== expected.status
+        || execution.workerId !== expected.workerId
+        || (execution.leaseUntil?.getTime() ?? null) !== (expected.leaseUntil?.getTime() ?? null)
+      ) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "The reconciler snapshot is stale.",
+        };
+      }
+    }
 
     const storedRequest = parseStoredExecutionRequest(execution.request);
     const taskObjective = params.taskObjective

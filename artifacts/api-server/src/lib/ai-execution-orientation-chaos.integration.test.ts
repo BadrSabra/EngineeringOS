@@ -2640,6 +2640,108 @@ describe("durable project-orientation retry chaos", () => {
     }
   });
 
+  it("rejects a stale reconciliation snapshot after a worker renewal wins the lease race", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-reconcile-renewal");
+    const context = `adaptive reconcile renewal fence; execution=${fixture.executionId}`;
+
+    try {
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "renewing-worker",
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        id: fixture.executionId,
+        attempt: 1,
+        status: "running",
+        workerId: "renewing-worker",
+      });
+
+      const expiredLease = new Date(Date.now() - 1_000);
+      await db
+        .update(aiExecutionsTable)
+        .set({ leaseUntil: expiredLease, updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const [staleSnapshot] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(staleSnapshot, context).toMatchObject({
+        status: "running",
+        workerId: "renewing-worker",
+        leaseUntil: expiredLease,
+      });
+
+      // Model the heartbeat transaction committing after the reconciler's
+      // unlocked read but before its terminalization transaction.
+      const renewedLease = new Date(Date.now() + 60_000);
+      await db
+        .update(aiExecutionsTable)
+        .set({
+          leaseUntil: renewedLease,
+          lastHeartbeatAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      const staleFinalization = await finalizeExecutionAcceptance({
+        executionId: fixture.executionId,
+        finalizationKey: `${fixture.executionId}:stale-reconciler`,
+        outcome: "FAILED",
+        terminalStatus: "paused",
+        reasonCode: "EXECUTION_LEASE_EXPIRED",
+        recoveryState: "REQUIRED",
+        resumable: true,
+        expectedExecutionState: staleSnapshot,
+        error: "Stale reconciliation snapshot must not stop a renewed worker.",
+      });
+      expect(staleFinalization, context).toMatchObject({
+        accepted: false,
+        duplicate: false,
+        reason: "The reconciler snapshot is stale.",
+      });
+
+      const [liveState] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(liveState, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "renewing-worker",
+        leaseUntil: renewedLease,
+      });
+      expect(await reconcileAiExecutions({ expiredOnly: true }), context).toBe(0);
+
+      const acceptances = await db
+        .select({ attempt: aiExecutionAcceptancesTable.attempt })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+      expect(acceptances, context).toEqual([{ attempt: 0 }]);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("keeps claim-before-cancel owned by the worker until cancellation finalization", async () => {
     const fixture = await createFailedOrientationFixture("adaptive-claim-before-cancel");
     const context = `adaptive claim-before-cancel fence; execution=${fixture.executionId}`;

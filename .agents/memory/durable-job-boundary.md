@@ -14,6 +14,8 @@ lease can interrupt a healthy worker on another instance or let two reconcilers
 apply duplicate side effects.
 
 **How to apply:** Keep claims, heartbeats, terminal writes, and reconciliation
-fenced by worker identity plus status/lease predicates. Treat discovery as
+fenced by worker identity plus status/lease predicates. Any reconciler that starts
+from an unlocked lease snapshot must compare that snapshot again under the
+terminal row lock before applying a recovery transition. Treat discovery as
 non-checkpointable and retryable AI tasks as explicit re-trigger states rather
 than silently replaying unknown work.

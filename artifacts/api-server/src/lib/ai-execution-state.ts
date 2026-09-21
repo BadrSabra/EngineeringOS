@@ -2960,6 +2960,11 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
         reasonCode: "EXECUTION_CANCELLED",
         recoveryState: "INCOMPLETE",
         resumable: false,
+        expectedExecutionState: {
+          status: execution.status,
+          workerId: execution.workerId,
+          leaseUntil: execution.leaseUntil,
+        },
         error: "Execution cancelled by the user.",
         checkpoint: JSON.stringify(terminalCheckpoint),
       });
@@ -2995,6 +3000,11 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
       // A plain CHAT turn is retriable by starting a new turn, but it is not
       // resumable through the forensic/task recovery contract.
       resumable: !ordinaryChat,
+      expectedExecutionState: {
+        status: execution.status,
+        workerId: execution.workerId,
+        leaseUntil: execution.leaseUntil,
+      },
       error: "Execution interrupted; operator recovery is required.",
       checkpoint: nextCheckpoint ? JSON.stringify(nextCheckpoint) : undefined,
     });
