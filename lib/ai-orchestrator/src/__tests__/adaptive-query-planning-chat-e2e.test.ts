@@ -99,6 +99,40 @@ function independentProviderPlan(): QueryPlan {
   };
 }
 
+function compoundFallbackPlan(): QueryPlan {
+  return {
+    originalIntent: "Summarize the current state, gaps, and priorities.",
+    targetFiles: [ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE],
+    targetEntities: [],
+    scopeEstimate: "broad",
+    suggestedIterations: 40,
+    requiresToolUse: true,
+    subQueries: TARGET_BY_INTENT.map(([intent]) => intent),
+    compoundParts: [
+      {
+        id: "current-state",
+        kind: "CURRENT_STATE",
+        question: "What is the current verified state?",
+        requiresCitation: true,
+      },
+      {
+        id: "gaps",
+        kind: "GAPS",
+        question: "Which gaps remain unproven?",
+        requiresCitation: true,
+      },
+      {
+        id: "priorities",
+        kind: "PRIORITIES",
+        question: "What should be prioritized next?",
+        requiresCitation: true,
+      },
+    ],
+    planStatus: "fallback",
+    planDiagnostics: ["planner timed out or returned no response"],
+  };
+}
+
 async function makeRoot(): Promise<string> {
   const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-adaptive-query-"));
   for (const [file, marker] of [
@@ -482,6 +516,33 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(graphReads).toContain(CLIENT);
       expect(graphReads).toContain(CONNECTOR);
       expect(graphReads).not.toContain(ADAPTER);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves every compound coverage part through fallback synthesis", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: compoundFallbackPlan(),
+        synthesisResponse:
+          "CURRENT_STATE: the verified current state is recorded in `src/acceptance/gate.ts`.\n" +
+          "GAPS: the remaining evidence gap is recorded in `src/evidence/producer.ts`.\n" +
+          "PRIORITIES: prioritize the counterevidence scenarios in `tests/counterevidence.test.ts`.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).toContain("GAPS");
+      expect(result.response).toContain("PRIORITIES");
+      expect(result.response).not.toContain("the compound answer could not close every requested part");
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
