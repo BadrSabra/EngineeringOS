@@ -141,7 +141,10 @@ import {
 import { CapabilityRegistry } from "../capability-contract.js";
 import type { AnalysisCorrelation, AnalysisToolRunner } from "../tools/analysis-tools.js";
 import type { StrategyCallOptions } from "../provider-strategy.js";
-import { createExecutionLedger, type ExecutionLedger } from "../execution-ledger.js";
+import {
+  createExecutionLedger,
+  type ExecutionLedger,
+} from "../execution-ledger.js";
 import {
   speculativePrefetch,
   prefetchFileList,
@@ -170,8 +173,11 @@ import {
   type AgentStep,
   type AgentDiagnosticCode,
   type ReadStatus,
+  EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
+  type SourceRetrievalTelemetry,
   type ToolLoopResult,
 } from "../tool-execution-engine.js";
+import { deriveObjectiveReplanTargets } from "../objective-replanning.js";
 import {
   executeValidationTool,
   MAX_REPAIR_ATTEMPTS,
@@ -357,6 +363,89 @@ export function nextObjectiveEvidenceTarget(
     [...retainedPaths].map((value) => canonicalRelativePath(value)),
   );
   return requiredPaths.find((value) => !retained.has(value));
+}
+
+function mergeSourceRetrievalTelemetry(
+  base: SourceRetrievalTelemetry,
+  extra: SourceRetrievalTelemetry,
+): SourceRetrievalTelemetry {
+  const firstNonNull = (
+    left: number | null,
+    right: number | null,
+  ): number | null => left ?? right;
+  return {
+    ...base,
+    readAttempts: base.readAttempts + extra.readAttempts,
+    readPaths: [...new Set([...base.readPaths, ...extra.readPaths])],
+    uniqueReads: new Set([...base.readPaths, ...extra.readPaths]).size,
+    truncatedReads: base.truncatedReads + extra.truncatedReads,
+    targetedReads: base.targetedReads + extra.targetedReads,
+    redundantReads: base.redundantReads + extra.redundantReads,
+    cachedReads: base.cachedReads + extra.cachedReads,
+    evidenceWindows: base.evidenceWindows + extra.evidenceWindows,
+    prefetchReads: base.prefetchReads + extra.prefetchReads,
+    dependencyReads: base.dependencyReads + extra.dependencyReads,
+    duplicateReads: base.duplicateReads + extra.duplicateReads,
+    firstEvidenceAcquired:
+      base.firstEvidenceAcquired || extra.firstEvidenceAcquired,
+    iterationsUntilFirstRead: firstNonNull(
+      base.iterationsUntilFirstRead,
+      extra.iterationsUntilFirstRead,
+    ),
+    iterationsWithoutEvidence: Math.max(
+      base.iterationsWithoutEvidence,
+      extra.iterationsWithoutEvidence,
+    ),
+    planningIterations: base.planningIterations + extra.planningIterations,
+    evidenceIterations: base.evidenceIterations + extra.evidenceIterations,
+    crossFileQueriesBeforeFirstRead:
+      base.crossFileQueriesBeforeFirstRead +
+      extra.crossFileQueriesBeforeFirstRead,
+    prefetchBeforeFirstRead:
+      base.prefetchBeforeFirstRead || extra.prefetchBeforeFirstRead,
+    iterationsUntilFirstSourceRead: firstNonNull(
+      base.iterationsUntilFirstSourceRead,
+      extra.iterationsUntilFirstSourceRead,
+    ),
+    progressForced: base.progressForced || extra.progressForced,
+    investigationStartSla:
+      base.investigationStartSla ?? extra.investigationStartSla,
+    budgetAllocation: base.budgetAllocation ?? extra.budgetAllocation,
+    synthesisAttempts:
+      (base.synthesisAttempts ?? 0) + (extra.synthesisAttempts ?? 0),
+    synthesisMaxAttempts:
+      (base.synthesisMaxAttempts ?? 0) + (extra.synthesisMaxAttempts ?? 0),
+    synthesisTimeoutMs: Math.max(
+      base.synthesisTimeoutMs ?? 0,
+      extra.synthesisTimeoutMs ?? 0,
+    ),
+    synthesisElapsedMs:
+      (base.synthesisElapsedMs ?? 0) + (extra.synthesisElapsedMs ?? 0),
+    synthesisTimedOut: base.synthesisTimedOut || extra.synthesisTimedOut,
+    incompleteBeforeEvidence:
+      base.incompleteBeforeEvidence || extra.incompleteBeforeEvidence,
+    scopeExpansions: [
+      ...base.scopeExpansions,
+      ...extra.scopeExpansions.filter(
+        (candidate) =>
+          !base.scopeExpansions.some(
+            (existing) =>
+              existing.kind === candidate.kind &&
+              existing.path === candidate.path,
+          ),
+      ),
+    ],
+    sourceReadAttemptLimit:
+      base.sourceReadAttemptLimit ?? extra.sourceReadAttemptLimit,
+    nonProgressingReadRepeats: Math.max(
+      base.nonProgressingReadRepeats ?? 0,
+      extra.nonProgressingReadRepeats ?? 0,
+    ),
+    nonProgressingReadLimit:
+      base.nonProgressingReadLimit ?? extra.nonProgressingReadLimit,
+    readBoundTriggered:
+      base.readBoundTriggered || extra.readBoundTriggered,
+  };
 }
 
 export type ChatMessage = {
@@ -8718,7 +8807,7 @@ export async function chat(opts: {
 
   // Merge prefetch sources with the engine's ground-truth sources.
   // Prefetch sources are prepended since they were resolved first.
-  const toolSources = [...prefetchSources, ...loopResult.toolSources];
+  let toolSources = [...prefetchSources, ...loopResult.toolSources];
   // A targeted project-query synthesis is a server-owned response candidate.
   // Keep it separate from loopResult because the response parser is created
   // later in this function. Without this handoff, a selected provider or
@@ -8756,6 +8845,159 @@ export async function chat(opts: {
   }
   for (const [filePath, content] of loopResult.fileContents ?? []) {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
+  }
+
+  // Closed-loop objective planning: inspect only the server-owned evidence
+  // manifest before synthesis and perform at most two read-only replans for
+  // declared paths that are still missing or truncated. The replan never owns
+  // final-answer authority; the existing claim/edge gates remain authoritative.
+  const objectiveReplanEvidenceWindows: Array<{
+    file: string;
+    content: string;
+    startLine: number;
+    endLine: number;
+  }> = [];
+  let accumulatedSourceRetrieval = loopResult.sourceRetrieval;
+  const attemptedObjectiveReplanPaths = new Set<string>();
+  const objectiveReplanMaxAttempts = 2;
+  let objectiveReplanAttempts = 0;
+  const objectiveReplanTools = (toolManifest ?? tools ?? []).filter((tool) =>
+    tool.function.name === "read_file" || tool.function.name === "read_file_range",
+  );
+
+  if (
+    objective &&
+    loopObjective &&
+    rootPath &&
+    objectiveReplanTools.length > 0 &&
+    !signal?.aborted
+  ) {
+    while (objectiveReplanAttempts < objectiveReplanMaxAttempts) {
+      const target = deriveObjectiveReplanTargets({
+        objective,
+        retainedPaths: forensicFileContents.keys(),
+        readStatuses: prefetchReadStatuses,
+        maxTargets: objectiveReplanMaxAttempts,
+      }).find((candidate) => !attemptedObjectiveReplanPaths.has(candidate.path));
+      if (!target) break;
+      attemptedObjectiveReplanPaths.add(target.path);
+
+      if (executionLedger.isExhausted() || signal?.aborted) break;
+      if (
+        !executionLedger.admit("hierarchical_task", {
+          operation: "objective_replan",
+        })
+      ) {
+        break;
+      }
+
+      objectiveReplanAttempts += 1;
+      const replanStartedAt = Date.now();
+      let replanStatus: "completed" | "failed" = "failed";
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "OBJECTIVE_REPLAN",
+        details: [
+          `attempt=${objectiveReplanAttempts}`,
+          `target=${target.path}`,
+          `reason=${target.reason}`,
+          ...(target.claimIds.length > 0
+            ? [`claims=${target.claimIds.slice(0, 4).join(",")}`]
+            : []),
+          ...(target.edgeKeys.length > 0
+            ? [`edges=${target.edgeKeys.slice(0, 2).join(",")}`]
+            : []),
+        ],
+      });
+
+      try {
+        const replanMessages: RawMessage[] = [
+          ...messages,
+          {
+            role: "user",
+            content: [
+              "Run one bounded objective-evidence replan.",
+              "Do not change the declared objective, claims, edges, or evidence scope.",
+              `Read only the server-declared target path: ${target.path}`,
+              "Use read_file or read_file_range to acquire source evidence.",
+              "Do not execute tools, edit files, broaden the scope, or provide a final answer.",
+            ].join("\n"),
+          },
+        ];
+        const replanResult = await executeToolLoop({
+          messages: replanMessages,
+          strategy,
+          model,
+          powerModel,
+          provider: providerId,
+          apiKey,
+          capability: modelDecision.capability,
+          tools: objectiveReplanTools,
+          toolManifest: objectiveReplanTools,
+          rootPath,
+          pendingChanges,
+          initialFileContents: new Map(forensicFileContents),
+          initialReadStatuses: prefetchReadStatuses,
+          retainedReadStatuses: prefetchReadStatuses,
+          retainedFileContents: retainedEvidence,
+          objectiveEvidenceSources: objectiveLocatorSources,
+          objective: loopObjective,
+          allowedToolNames: ["read_file", "read_file_range"],
+          allowedReadPaths: [target.path],
+          firstEvidenceTargetPath: target.path,
+          objectiveScopePolicy: objective.scopePolicy,
+          orderedForensicRoots:
+            orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
+          allowTestSources: includeTestSources,
+          allowExecutionTools: false,
+          requireDependencyProof: true,
+          toolChoice: "required",
+          maxIterations: 2,
+          maxToolCalls: 4,
+          completeReads: true,
+          executionMode: "forensic",
+          executionLedger,
+          signal,
+          assertExecutionOwned,
+          onStep: relayAgentStep,
+        });
+
+        for (const [filePath, content] of replanResult.fileContents ?? []) {
+          forensicFileContents.set(filePath, stripReadFileWrapper(content));
+        }
+        toolSources = [...toolSources, ...replanResult.toolSources];
+        objectiveReplanEvidenceWindows.push(
+          ...(replanResult.evidenceWindows ?? []),
+        );
+        if (replanResult.sourceRetrieval) {
+          accumulatedSourceRetrieval = mergeSourceRetrievalTelemetry(
+            accumulatedSourceRetrieval ?? EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
+            replanResult.sourceRetrieval,
+          );
+        }
+        replanStatus =
+          (replanResult.fileContents?.has(target.path) ?? false)
+            ? "completed"
+            : "failed";
+      } catch (error) {
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "OBJECTIVE_REPLAN",
+          details: [
+            `attempt=${objectiveReplanAttempts}`,
+            "status=failed",
+            `error=${error instanceof Error ? error.name : "unknown"}`,
+          ],
+        });
+      } finally {
+        executionLedger.complete("hierarchical_task", {
+          operation: "objective_replan",
+          startedAt: replanStartedAt,
+          status: replanStatus,
+          ...(replanStatus === "failed" ? { reason: "NO_NEW_EVIDENCE" } : {}),
+        });
+      }
+    }
   }
 
   // Targeted PROJECT_QUERY objectives have a stronger recovery contract than
@@ -13522,8 +13764,7 @@ export async function chat(opts: {
     taskId: executionPlan?.taskProfile?.taskType,
     fileContents: forensicFileContents,
     acceptedFiles: acceptedBehaviorEvidence.map((item) => item.source),
-    sourceRetrieval:
-      "sourceRetrieval" in loopResult ? loopResult.sourceRetrieval : undefined,
+    sourceRetrieval: accumulatedSourceRetrieval,
     // EI-011: prefetch completed reads participate explicitly in the reconciled
     // telemetry. Prefetch bodies are genuine completed reads the loop account
     // (recordRead) never sees, so fold their distinct count in — otherwise a
