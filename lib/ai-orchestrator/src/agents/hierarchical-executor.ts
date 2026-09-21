@@ -203,6 +203,10 @@ async function runSubTask(
       maxIterations: task.maxIter,
       maxToolCalls,
       signal,
+      // Each adaptive sub-query owns a server-declared source scope. The
+      // provider-facing tool list is not an authorization boundary by itself:
+      // enforce the task's target paths inside the dispatcher as well.
+      allowedReadPaths: task.targetPaths,
       executionLedger: opts.executionLedger,
       onStep: (step) => {
         if (step.kind !== "tool_call" || step.tool !== "read_file_range") return;

@@ -631,6 +631,37 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("rejects a sub-query tool read outside its server-declared target scope", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, subqueryReads, providerCalls } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallPathByTarget: { [ACCEPTANCE]: GENERAL },
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate is verified in `src/acceptance/gate.ts`, " +
+          "the evidence producer is verified in `src/evidence/producer.ts`, and the " +
+          "counterevidence tests are verified in `src/evidence/counterevidence.test.ts`.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: ship the verified implementation.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("citation is not a retained source window");
+      expect(result.response).not.toContain(GENERAL);
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).not.toContain(GENERAL);
+      expect(graphReads).not.toContain(ACCEPTANCE);
+      expect(graphReads).not.toContain(EVIDENCE);
+      expect(graphReads).not.toContain(COUNTEREVIDENCE);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("continues independent siblings when one fallback source is missing", async () => {
     const rootPath = await makeRoot();
     await fs.rm(path.join(rootPath, ADAPTER));
