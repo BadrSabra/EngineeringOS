@@ -1386,7 +1386,7 @@ function goEntity(
 
 function goFileEntity(
   file: ScannedFile,
-  sourceType: "go-parser-failed" | "go-parser-unavailable",
+  sourceType: "go-ast" | "go-parser-failed" | "go-parser-unavailable",
   parseError?: string,
 ): ExtractedEntity {
   return {
@@ -1424,7 +1424,13 @@ function toGoPartialResult(
     };
   }
 
-  const entities = parsed.entities.map((entity) => goEntity(file, entity, "go-ast"));
+  // Keep a file-level entity for valid Go files as well as parser failures.
+  // Relationship endpoints for Go imports are file paths; scan-runner resolves
+  // those endpoints through file entities before persisting graph edges.
+  const entities = [
+    goFileEntity(file, "go-ast"),
+    ...parsed.entities.map((entity) => goEntity(file, entity, "go-ast")),
+  ];
   const relationships: ExtractedRelationship[] = [];
   for (const imp of parsed.imports) {
     const targetName = matchGoImportToEntity(imp.path, modulePath, goFiles);

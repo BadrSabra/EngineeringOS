@@ -457,6 +457,7 @@ describe("extractGraph", () => {
       expect(result.entities.some((entity) => entity.type === "module" && entity.name === "package mathx")).toBe(true);
       expect(result.entities.some((entity) => entity.type === "class" && entity.name === "Calculator")).toBe(true);
       expect(result.entities.some((entity) => entity.type === "function" && entity.name === "Add")).toBe(true);
+      expect(result.entities.some((entity) => entity.type === "file" && entity.name === "cmd/app/main.go")).toBe(true);
 
       const importRelationship = result.relationships.find(
         (relationship) => relationship.sourceName === "cmd/app/main.go",
