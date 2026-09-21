@@ -104,6 +104,14 @@ export type BuildEvidenceGraphInput = {
   sourceRevision?: string;
 };
 
+const EVIDENCE_GRAPH_LABEL_MAX = 500;
+
+function boundedNodeLabel(value: string): string {
+  return value.length <= EVIDENCE_GRAPH_LABEL_MAX
+    ? value
+    : `${value.slice(0, EVIDENCE_GRAPH_LABEL_MAX - 1)}…`;
+}
+
 function normalizePath(value: string): string {
   return value.trim().replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+/, "");
 }
@@ -126,7 +134,12 @@ function addNode(
   nodes: Map<string, EvidenceGraphNode>,
   node: EvidenceGraphNode,
 ): void {
-  if (!nodes.has(node.id)) nodes.set(node.id, node);
+  if (!nodes.has(node.id)) {
+    nodes.set(node.id, {
+      ...node,
+      label: boundedNodeLabel(node.label),
+    });
+  }
 }
 
 function addEdge(

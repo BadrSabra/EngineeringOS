@@ -62,6 +62,7 @@
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
 - [Context slice health](context-slice-health.md) — keep empty, skipped, loaded, and failed reads distinct from freshness and admission state.
 - [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
+- [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
 - [Chat message timeline semantics](chat-message-timeline-semantics.md) — assistant message timestamps can represent request-start ordering; audit terminal chronology from execution and acceptance timestamps.
 - [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
@@ -145,3 +146,4 @@
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
 - [Go graph scan boundary](go-graph-scan-boundary.md) — internal Go imports need go.mod in the walk and file entities for path-based relationship endpoints.
 - [Graph insert batching](graph-insert-batching.md) — large graph scans must batch multi-column entity and relationship inserts below PostgreSQL's bind-parameter limit.
+- [Evidence graph label bounds](evidence-graph-label-bounds.md) — graph labels are presentation fields; bound them at materialization while preserving IDs and source reads.

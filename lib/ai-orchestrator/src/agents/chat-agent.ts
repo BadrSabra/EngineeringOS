@@ -8115,8 +8115,12 @@ export async function chat(opts: {
       `source=${generalTaskPlan.source}`,
       `steps=${generalTaskPlan.steps.length}`,
       `plan=${generalTaskPlan.planHash.slice(0, 12)}`,
+      `queryPlanStatus=${queryPlan?.planStatus ?? "none"}`,
       ...(generalTaskPlan.conflicts.length > 0
         ? [`notes=${generalTaskPlan.conflicts.join("; ")}`]
+        : []),
+      ...(queryPlan?.planDiagnostics?.length
+        ? [`queryPlanDiagnostics=${queryPlan.planDiagnostics.slice(0, 2).join("; ")}`]
         : []),
     ].join(" | "),
     nextStepTitle: generalTaskPlan.steps[0]?.title,
