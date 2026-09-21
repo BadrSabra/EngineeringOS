@@ -2053,4 +2053,126 @@ describe("durable project-orientation retry chaos", () => {
       }
     },
   );
+
+  it.each([
+    {
+      label: "drift then recover",
+      steps: ["rotate", "drift", "claim-first", "restore", "claim-first"] as const,
+      expectedClaims: [false, true] as const,
+    },
+    {
+      label: "rotate then reject retired generation",
+      steps: ["rotate", "rotate", "claim-first", "claim-latest"] as const,
+      expectedClaims: [false, true] as const,
+    },
+    {
+      label: "drift, restore, then retire the restored generation",
+      steps: ["rotate", "drift", "restore", "rotate", "claim-first", "claim-latest"] as const,
+      expectedClaims: [false, true] as const,
+    },
+    {
+      label: "request drift after rotation does not select a token",
+      steps: ["rotate", "rotate", "drift", "claim-latest", "restore", "claim-latest"] as const,
+      expectedClaims: [false, true] as const,
+    },
+  ] as const)(
+    "adapts across $label without mixing token and request generations",
+    async ({ label, steps, expectedClaims }) => {
+      const fixture = await createFailedOrientationFixture(`adaptive-generations-${label}`);
+      const context = `adaptive generations=${label}; execution=${fixture.executionId}`;
+      const tokens: string[] = [];
+      const [original] = await db
+        .select({ request: aiExecutionsTable.request })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      const parsedOriginal = JSON.parse(original!.request) as Record<string, unknown>;
+      const driftedRequest = JSON.stringify({
+        ...parsedOriginal,
+        resumeContract: {
+          ...(parsedOriginal.resumeContract as Record<string, unknown>),
+          orientationManifest: {
+            ...fixture.manifest,
+            paths: {
+              ...fixture.manifest.paths,
+              uncertainty: ["tests/adaptive-generation-drift.test.ts"],
+            },
+          },
+        },
+      });
+      const claimResults: boolean[] = [];
+      let claimNumber = 0;
+
+      try {
+        for (const [stepIndex, step] of steps.entries()) {
+          const stepContext = `${context}; step=${stepIndex}; action=${step}`;
+          if (step === "rotate") {
+            const recovered = await recoverAiExecutionRetryToken({
+              executionId: fixture.executionId,
+              userId: fixture.userId,
+              expectedAttempt: 0,
+            });
+            expect(recovered?.resumeToken, stepContext).toEqual(expect.any(String));
+            tokens.push(recovered!.resumeToken);
+            continue;
+          }
+
+          if (step === "drift" || step === "restore") {
+            await db
+              .update(aiExecutionsTable)
+              .set({ request: step === "drift" ? driftedRequest : original!.request })
+              .where(eq(aiExecutionsTable.id, fixture.executionId));
+            continue;
+          }
+
+          const tokenIndex = step === "claim-first" ? 0 : tokens.length - 1;
+          const result = await claimAiExecution({
+            executionId: fixture.executionId,
+            userId: fixture.userId,
+            workerId: `adaptive-generation-worker-${label}-${claimNumber}`,
+            resumeToken: tokens[tokenIndex],
+          });
+          claimNumber += 1;
+          claimResults.push(result !== undefined);
+          if (result) {
+            expect(result, stepContext).toMatchObject({
+              id: fixture.executionId,
+              attempt: 1,
+              status: "running",
+            });
+          } else {
+            const [unchanged] = await db
+              .select({
+                attempt: aiExecutionsTable.attempt,
+                status: aiExecutionsTable.status,
+              })
+              .from(aiExecutionsTable)
+              .where(eq(aiExecutionsTable.id, fixture.executionId))
+              .limit(1);
+            expect(unchanged, stepContext).toMatchObject({
+              attempt: 0,
+              status: "failed",
+            });
+          }
+        }
+
+        expect(claimResults, context).toEqual(expectedClaims);
+        const [stored] = await db
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            status: aiExecutionsTable.status,
+            request: aiExecutionsTable.request,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, fixture.executionId))
+          .limit(1);
+        expect(stored, context).toMatchObject({
+          attempt: expectedClaims.includes(true) ? 1 : 0,
+          status: expectedClaims.includes(true) ? "running" : "failed",
+        });
+      } finally {
+        await fixture.cleanup();
+      }
+    },
+  );
 });

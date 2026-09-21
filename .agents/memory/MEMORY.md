@@ -109,6 +109,7 @@
 - [Orientation deterministic fallback](project-orientation-deterministic-fallback.md) — complete role reads can produce a bounded server-owned answer when provider synthesis fails; missing roles remain incomplete.
  - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
+- [Retry generation coherence](retry-generation-coherence.md) — adaptive retry tests must track token and request generations independently; only the current token bound to the current request may claim.
  - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
 - [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.
