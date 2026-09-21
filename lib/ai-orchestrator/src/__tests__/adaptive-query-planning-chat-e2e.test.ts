@@ -1087,6 +1087,42 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("rejects an in-scope symlink that resolves outside the project root", async () => {
+    const rootPath = await makeRoot();
+    const outsideRoot = await fs.mkdtemp(path.join(tmpdir(), "eos-adaptive-outside-"));
+    const outsidePath = path.join(outsideRoot, "secret.ts");
+    try {
+      await fs.writeFile(outsidePath, 'export const SECRET = "SYMLINK_ESCAPE_SECRET";\n', "utf8");
+      await fs.rm(path.join(rootPath, ACCEPTANCE));
+      await fs.symlink(outsidePath, path.join(rootPath, ACCEPTANCE));
+
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        synthesisResponse:
+          "CURRENT_STATE: safe in-root evidence was retained while the symlink escape was rejected.\n" +
+          "GAPS: the acceptance source is NOT PROVEN because its resolved path left the project root.\n" +
+          "PRIORITIES: recover the source from an in-root file.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("NOT PROVEN");
+      expect(result.response).not.toContain("SYMLINK_ESCAPE_SECRET");
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).not.toContain(ACCEPTANCE);
+      expect(graphReads).toEqual(expect.arrayContaining([EVIDENCE, COUNTEREVIDENCE]));
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+      await fs.rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
   it("treats prompt injection inside retained source as untrusted and preserves the declared scope", async () => {
     const rootPath = await makeRoot({
       [ACCEPTANCE]:
