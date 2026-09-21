@@ -26,3 +26,9 @@ Recipe binding identity must exclude transient lifecycle fields such as phase, l
 **Why:** Reconciliation intentionally clears worker ownership and pauses an expired execution; including stale lease state in identity prevents a new worker from reclaiming the unchanged candidate.
 
 **How to apply:** Compare project, operation, revision, candidate, approved scope, and budgets for identity, then let the claim transition rewrite the current phase and lease atomically.
+
+Recipe runner recovery must reconcile the server-owned plan with checkpointed node states, retain evidence refs for passed nodes, and keep checkpoint versions within the database integer range.
+
+**Why:** Rebuilding a fresh plan reruns completed validation, dropping evidence refs makes a passed node impossible to include in the final receipt, and wall-clock sequence values can abort the first progress write.
+
+**How to apply:** Resume only validated checkpoint nodes, persist each passed node's receipt ref in every progress snapshot, hydrate retained refs before continuing, and advance from the claimed durable checkpoint version.

@@ -22,6 +22,8 @@ import {
   createRecipeOperationBinding,
   failAiExecution,
   heartbeatAiExecution,
+  parseAiExecutionCheckpoint,
+  reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
   unregisterAiExecutionController,
   type RecipeOperationBinding,
@@ -278,6 +280,32 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     };
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
+  const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
+  const resumedNodes = reconcileExecutionNodeCheckpoint(prepared.plan.nodes, checkpoint?.nodeStates);
+  if (!resumedNodes) {
+    await failAiExecution({
+      executionId: claimed.id,
+      workerId,
+      error: "Recipe checkpoint does not match the server-owned recipe plan.",
+      recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+    });
+    throw new Error("Recipe checkpoint could not be reconciled with the server-owned plan.");
+  }
+  const outputs = new Map<string, Record<string, unknown>>();
+  for (const node of checkpoint?.nodeStates ?? []) {
+    if (node.status !== "passed") continue;
+    const evidenceId = node.evidenceRefs?.find((value): value is string => typeof value === "string" && value.length > 0);
+    if (!evidenceId) {
+      await failAiExecution({
+        executionId: claimed.id,
+        workerId,
+        error: "Recipe checkpoint passed node has no retained evidence receipt.",
+        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+      });
+      throw new Error("Recipe checkpoint passed node is missing retained evidence.");
+    }
+    outputs.set(node.id, { evidence: { evidenceId } });
+  }
 
   const registry = createServerCapabilityRegistry({
     validationRunner: async (profile, targetPaths, signal) =>
@@ -303,11 +331,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   }, 30_000);
   const abortOverall = () => overallController.abort();
   const totalTimer = setTimeout(abortOverall, prepared.binding.missionBudget.maxTotalTimeoutMs);
-  let checkpointSequence = Date.now();
-  const outputs = new Map<string, Record<string, unknown>>();
+  // checkpoint_version is a PostgreSQL integer. Continue from the durable
+  // version claimed above instead of using wall-clock milliseconds, which
+  // overflow the column on the first progress checkpoint.
+  let checkpointSequence = claimed.checkpointVersion;
   try {
     const result = await executeExecutionNodePlan({
-      nodes: prepared.plan.nodes,
+      nodes: resumedNodes,
       maxParallelNodes: prepared.binding.concurrencyBudget.maxInFlightNodes,
       signal: overallController.signal,
       authorizeNodeExecution: ({ phase }) => authorizeRecipeNodeExecution({
@@ -392,7 +422,14 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           checkpoint: {
             stage: "running",
             sequence: ++checkpointSequence,
-            nodeStates: nodes.map((node) => ({ ...node })),
+            recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+            nodeStates: nodes.map((node) => ({
+              ...node,
+              evidenceRefs: node.status === "passed"
+                ? [receiptIdForEvidence({ status: node.status, outputs: outputs.get(node.id) })]
+                  .filter((id): id is string => typeof id === "string")
+                : [],
+            })),
             completedNodes: nodes.filter((node) => node.status === "passed").map((node) => node.id),
             updatedAt: new Date().toISOString(),
           },
@@ -406,7 +443,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         executionId: claimed.id,
         workerId,
         error: overallController.signal.aborted ? "Recipe execution exceeded its overall deadline." : "Recipe node execution was blocked.",
-        nodeStates: result.nodes.map((node) => ({ ...node, evidenceRefs: [] })),
+        nodeStates: result.nodes.map((node) => ({
+          ...node,
+          evidenceRefs: node.status === "passed"
+            ? [receiptIdForEvidence({ status: node.status, outputs: outputs.get(node.id) })]
+              .filter((id): id is string => typeof id === "string")
+            : [],
+        })),
         recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
       });
       const receipt = buildRecipeReceipt(params, claimed.id, "blocked", result.nodes, outputs, result.completedNodeIds);
