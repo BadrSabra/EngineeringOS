@@ -157,6 +157,8 @@ type Scenario = {
   synthesisResponse?: string;
   plan?: QueryPlan;
   targetByIntent?: TargetMap;
+  signal?: AbortSignal;
+  abortController?: AbortController;
 };
 
 async function configureChat(
@@ -231,6 +233,7 @@ function makeStrategy(options: {
   missingTarget?: string;
   synthesisResponse?: string;
   targetByIntent?: TargetMap;
+  abortController?: AbortController;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -245,6 +248,10 @@ function makeStrategy(options: {
       const synthesis = serialized.includes("You are a synthesis agent.");
       if (synthesis) {
         providerCalls.push({ kind: "synthesis" });
+        if (options.abortController) {
+          options.abortController.abort();
+          throw new Error("simulated adaptive synthesis cancellation");
+        }
         return {
           content:
             options.synthesisResponse ??
@@ -349,6 +356,7 @@ async function runScenario(scenario: Scenario) {
   const fixture = makeStrategy({
     missingTarget: scenario.missingTarget,
     targetByIntent: scenario.targetByIntent,
+    abortController: scenario.abortController,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -367,6 +375,7 @@ async function runScenario(scenario: Scenario) {
     provider: "openrouter",
     apiKey: "test-or-key",
     objective: scenario.objective,
+    signal: scenario.signal,
     onStep: (step: AgentStep) => steps.push(step),
   });
   return { ...fixture, result, steps };
@@ -543,6 +552,33 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.response).toContain("GAPS");
       expect(result.response).toContain("PRIORITIES");
       expect(result.response).not.toContain("the compound answer could not close every requested part");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves collected subtask evidence when adaptive synthesis is cancelled", async () => {
+    const rootPath = await makeRoot();
+    const controller = new AbortController();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        signal: controller.signal,
+        abortController: controller,
+      });
+
+      expect(controller.signal.aborted).toBe(true);
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toMatch(/ANALYSIS_INCOMPLETE|NOT PROVEN|Verified/);
+      expect(result.response).not.toContain("CURRENT_STATE: verified acceptance and evidence reads are available.");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
+      );
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
