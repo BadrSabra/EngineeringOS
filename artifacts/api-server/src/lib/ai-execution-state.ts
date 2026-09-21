@@ -910,6 +910,10 @@ export function hashResumeToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function hashResumeTokenForRequest(token: string, request: string): string {
+  return createHash("sha256").update(token).update("\0").update(request).digest("hex");
+}
+
 export function createResumeToken(): string {
   return randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
 }
@@ -1835,7 +1839,7 @@ export async function recoverAiExecutionResumeToken(params: {
   const [execution] = await db
     .update(aiExecutionsTable)
     .set({
-      resumeTokenHash: hashResumeToken(resumeToken),
+      resumeTokenHash: hashResumeTokenForRequest(resumeToken, candidate.request),
       updatedAt: new Date(),
     })
     .where(and(
@@ -1882,6 +1886,9 @@ export async function recoverAiExecutionRetryToken(params: {
 
   const [priorAcceptance] = await db
     .select({
+      projectId: aiExecutionAcceptancesTable.projectId,
+      operationId: aiExecutionAcceptancesTable.operationId,
+      sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
       reasonCode: aiExecutionAcceptancesTable.reasonCode,
       resumable: aiExecutionAcceptancesTable.resumable,
       nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
@@ -1895,6 +1902,12 @@ export async function recoverAiExecutionRetryToken(params: {
     .limit(1);
   if (
     !priorAcceptance
+    || priorAcceptance.projectId !== candidate.projectId
+    || priorAcceptance.operationId !== candidate.operationId
+    || (
+      typeof request?.workspaceRevision === "string"
+      && priorAcceptance.sourceRevision !== request.workspaceRevision
+    )
     || (ordinaryChat
       && priorAcceptance.reasonCode !== "EXECUTION_PROVIDER_FAILURE")
     || (priorAcceptance.nextActionCode !== "RETRY_AFTER_TIMEOUT"
@@ -1912,12 +1925,16 @@ export async function recoverAiExecutionRetryToken(params: {
     ? (disposition as { retryAt?: unknown }).retryAt
     : undefined;
   if (recoveryState !== "REQUIRED") return undefined;
-  if (typeof retryAt === "string" && Date.parse(retryAt) > Date.now()) return undefined;
+  if (retryAt !== undefined) {
+    if (typeof retryAt !== "string") return undefined;
+    const retryAtMs = Date.parse(retryAt);
+    if (!Number.isFinite(retryAtMs) || retryAtMs > Date.now()) return undefined;
+  }
 
   const [execution] = await db
     .update(aiExecutionsTable)
     .set({
-      resumeTokenHash: hashResumeToken(resumeToken),
+      resumeTokenHash: hashResumeTokenForRequest(resumeToken, candidate.request),
       updatedAt: new Date(),
     })
     .where(and(
@@ -2174,6 +2191,20 @@ export async function claimAiExecution(params: {
   recipeBinding?: RecipeOperationBinding;
 }): Promise<AiExecution | undefined> {
   const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+  const [tokenState] = params.resumeToken
+    ? await db
+        .select({ request: aiExecutionsTable.request })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.userId, params.userId),
+        ))
+        .limit(1)
+    : [];
+  if (params.resumeToken && !tokenState) return undefined;
+  const requestBoundTokenHash = params.resumeToken && tokenState
+    ? hashResumeTokenForRequest(params.resumeToken, tokenState.request)
+    : undefined;
   const existing = params.recipeBinding
     ? await getAiExecutionForUser(params.executionId, params.userId)
     : undefined;
@@ -2238,7 +2269,15 @@ export async function claimAiExecution(params: {
         eq(aiExecutionsTable.operationId, params.recipeBinding.operationId),
       ] : []),
       inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
-      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+      ...(tokenHash && requestBoundTokenHash && tokenState
+        ? [
+            eq(aiExecutionsTable.request, tokenState.request),
+            or(
+              eq(aiExecutionsTable.resumeTokenHash, tokenHash),
+              eq(aiExecutionsTable.resumeTokenHash, requestBoundTokenHash),
+            ),
+          ]
+        : []),
     ))
     .returning();
   return claimed;

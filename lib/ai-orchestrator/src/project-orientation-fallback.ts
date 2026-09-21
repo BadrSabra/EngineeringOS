@@ -40,6 +40,7 @@ const ORIENTATION_ROLES = [
 
 const MAX_ORIENTATION_ROLE_READS = 3;
 const UNSAFE_DISPLAY_CONTROL_RE = /[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u;
+const UNSAFE_EVIDENCE_CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/gu;
 
 function normalizePath(value: string): string {
   return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
@@ -69,17 +70,24 @@ function findRead(
 }
 
 function sourceExcerpt(content: string): string {
-  const normalized = content.replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim();
+  const normalized = content
+    .replaceAll("\r\n", "\n")
+    .replaceAll("\r", "\n")
+    .replace(UNSAFE_EVIDENCE_CONTROL_RE, "�")
+    .trim();
   if (!normalized) return "";
   const maxLines = 12;
   const maxChars = 720;
-  const lines = normalized.split("\n").slice(0, maxLines);
+  const allLines = normalized.split("\n");
+  const lines = allLines.slice(0, maxLines);
   let excerpt = lines.join("\n");
-  const truncated = excerpt.length < normalized.length;
-  if (excerpt.length > maxChars) {
-    excerpt = excerpt.slice(0, maxChars).trimEnd();
+  const excerptCodePoints = Array.from(excerpt);
+  const truncatedByLines = allLines.length > maxLines;
+  const truncatedByCharacters = excerptCodePoints.length > maxChars;
+  if (truncatedByCharacters) {
+    excerpt = excerptCodePoints.slice(0, maxChars).join("").trimEnd();
   }
-  if (truncated || excerpt.length < normalized.length) {
+  if (truncatedByLines || truncatedByCharacters) {
     excerpt += "\n… [bounded excerpt; complete read retained by the server]";
   }
   return excerpt;
