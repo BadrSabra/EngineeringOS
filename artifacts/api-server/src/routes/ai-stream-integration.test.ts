@@ -2770,6 +2770,137 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(completed[0]?.finalMessageId).toBeTruthy();
   });
 
+  it("restores the authoritative orientation contract across a noisy durable resume", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-orientation-resume-");
+    rootPaths.push(rootPath);
+    const orientationPaths = {
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    };
+    for (const [relativePath, content] of Object.entries({
+      "README.md": "# Project\nA workspace application.",
+      "src/App.tsx": "export function App() { return null; }",
+      "src/routes.ts": "export const routes = [];",
+      "tests/app.test.ts": "describe('app', () => {});",
+    })) {
+      const absolutePath = path.join(rootPath, relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, content, "utf8");
+    }
+
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Durable project orientation");
+    const [project] = await db
+      .select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const workspaceRevision = project!.updatedAt.toISOString();
+    const orientationManifest = {
+      projectRevision: workspaceRevision,
+      rootPath,
+      paths: orientationPaths,
+    };
+    const requestEnvelope = {
+      projectId,
+      sessionId,
+      message: "What is this project?",
+      modelMessage: "What is this project?",
+      turnIntent: "PROJECT_QUERY",
+      projectOrientation: true,
+      workspaceRevision,
+      workspaceRoot: rootPath,
+      validationTargetPaths: [],
+      proofRequired: false,
+      resumeContract: {
+        taskType: "tool_chat",
+        outputContract: "GENERIC_RESPONSE",
+        contextProfile: "project",
+        sessionId,
+        projectRevision: workspaceRevision,
+        requiresEvidence: false,
+        orientationManifest,
+        scope: {
+          projectId,
+          rootPath,
+          linkedTaskId: null,
+        },
+      },
+    };
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: requestEnvelope,
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+      workspaceRoot: rootPath,
+    });
+    const workerId = randomUUID();
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId,
+    }))?.status).toBe("running");
+    await checkpointAiExecution({
+      executionId: created.execution.id,
+      workerId,
+      checkpoint: {
+        stage: "tool_loop",
+        sequence: 1,
+        recentSteps: [],
+        detail: "Previous behavior-evidence validation was rejected; resume the retained orientation reads.",
+        orientationManifest,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+
+    let resumedInput: {
+      message?: string;
+      turnIntent?: { kind?: string };
+      projectOrientation?: boolean;
+      orientationSourcesOverride?: typeof orientationPaths;
+    } | undefined;
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      resumedInput = args[1] as typeof resumedInput;
+      return {
+        result: {
+          response: "This is the resumed project workspace.",
+          sources: Object.values(orientationPaths).flat(),
+          pendingChanges: [],
+          sourceSelectionRecord: {
+            orientationCoverage: {
+              complete: true,
+              missingRoles: [],
+            },
+          },
+          projectQueryResponseSource: "provider_synthesis",
+        },
+        effectiveProvider: "groq",
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: requestEnvelope.message,
+        executionId: created.execution.id,
+        resumeToken: created.resumeToken,
+      });
+
+    expect(resumed.status).toBe(200);
+    expect(resumedInput?.message).toContain("SERVER-OWNED DURABLE RESUME CONTEXT");
+    expect(resumedInput?.message).toContain("behavior-evidence validation was rejected");
+    expect(resumedInput?.turnIntent).toMatchObject({ kind: "PROJECT_QUERY" });
+    expect(resumedInput?.projectOrientation).toBe(true);
+    expect(resumedInput?.orientationSourcesOverride).toEqual(orientationPaths);
+  });
+
   it("cancels a queued execution as a terminal state with a durable checkpoint", async () => {
     const rootPath = await fs.mkdtemp("/tmp/stream-cancel-queued-");
     rootPaths.push(rootPath);

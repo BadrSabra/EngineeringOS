@@ -50,10 +50,11 @@ function findRead(
   const entries = [...fileContents.entries()];
   const exact = entries.find(([path]) => normalizePath(path) === requested);
   if (exact) return exact;
-  return entries.find(([path]) => {
+  const suffixMatches = entries.filter(([path]) => {
     const normalized = normalizePath(path);
     return normalized.endsWith(`/${requested}`);
   });
+  return suffixMatches.length === 1 ? suffixMatches[0] : undefined;
 }
 
 function sourceExcerpt(content: string): string {
@@ -105,7 +106,7 @@ export function buildDeterministicProjectOrientationResponse(params: {
     englishDescription,
     arabicDescription,
   ] of ORIENTATION_ROLES) {
-    const roleReads = [...new Set(params.orientationSources[role])]
+    const roleReads = [...new Set(params.orientationSources[role].map(normalizePath))]
       .map((path) => findRead(path, params.fileContents))
       .filter((entry): entry is [string, string] => Boolean(entry && entry[1].trim()));
     if (roleReads.length === 0) return undefined;
