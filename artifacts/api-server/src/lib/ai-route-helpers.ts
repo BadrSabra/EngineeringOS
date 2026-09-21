@@ -30,6 +30,7 @@ import {
   getCapabilityProbePreflightTools,
   toPublicExecutionLedgerSnapshot,
   isCapabilityProbeRequest,
+  deriveOrientationSourceSelectionRecord,
   buildDeterministicProjectOrientationResponse,
 } from "@workspace/ai-orchestrator";
 import type {
@@ -96,6 +97,23 @@ type ProviderSelectionOptions = {
   /** Force a fresh provider lifecycle/catalog check for bounded fallback recovery. */
   refreshLifecycle?: boolean;
 };
+
+/**
+ * Evidence bodies are authoritative when a retry has retained a complete
+ * read before its status projection was copied into the shared map.
+ */
+function deriveOrientationFallbackReadStatuses(
+  retainedEvidence: ReadonlyMap<string, string>,
+  retainedReadStatuses: ReadonlyMap<string, ReadStatus>,
+): ReadonlyMap<string, ReadStatus> {
+  const readStatuses = new Map(retainedReadStatuses);
+  for (const filePath of retainedEvidence.keys()) {
+    if (!readStatuses.has(filePath)) {
+      readStatuses.set(filePath, "READ_COMPLETE");
+    }
+  }
+  return readStatuses;
+}
 
 /**
  * Explain why provider selection returned no candidate.
@@ -1246,6 +1264,10 @@ export async function chatWithFallback(
       language: /[\u0600-\u06FF]/.test(baseParams.message) ? "ar" : "en",
     });
     if (deterministicOrientationFallback) {
+      const sourceSelectionRecord = deriveOrientationSourceSelectionRecord(
+        baseParams.orientationSourcesOverride,
+        deriveOrientationFallbackReadStatuses(retainedEvidence, retainedReadStatuses),
+      );
       onStep?.({
         kind: "diagnostic",
         code: "PROJECT_ORIENTATION_DETERMINISTIC_FALLBACK",
@@ -1253,6 +1275,17 @@ export async function chatWithFallback(
           "all provider synthesis attempts failed; response assembled from complete retained role reads",
           `sources=${deterministicOrientationFallback.sources.join(",")}`,
         ],
+      });
+      onStep?.({
+        kind: "project_query_source_selection",
+        plannerTier: sourceSelectionRecord.plannerTier,
+        plannedFiles: sourceSelectionRecord.plannedFiles,
+        fileStatuses: sourceSelectionRecord.fileStatuses,
+        truncatedPlannedCount: sourceSelectionRecord.truncatedPlannedCount,
+        skippedPlannedCount: sourceSelectionRecord.skippedPlannedCount,
+        ...(sourceSelectionRecord.orientationCoverage
+          ? { orientationCoverage: sourceSelectionRecord.orientationCoverage }
+          : {}),
       });
       return {
         result: {
@@ -1262,6 +1295,9 @@ export async function chatWithFallback(
           repairPlan: undefined,
           taskResult: undefined,
           behaviorEvidence: undefined,
+          sourceSelectionRecord,
+          projectQueryResponseSource: "deterministic_fallback",
+          projectQueryResponseFallbackReason: "synthesis_failed",
         } as Awaited<ReturnType<typeof chat>>,
         effectiveProvider: initialProvider.provider,
       };

@@ -195,3 +195,53 @@ describe("deriveSourceSelectionRecord — path normalization", () => {
     expect(entry?.readStatus).toBe("READ_COMPLETE");
   });
 });
+
+describe("deriveOrientationSourceSelectionRecord — provider fallback", () => {
+  const ORIENTATION_SOURCES = {
+    purpose: ["README.md"],
+    components: ["src/App.tsx"],
+    primaryFlow: ["src/main.tsx"],
+    uncertainty: ["docs/architecture.md"],
+  };
+
+  it("preserves complete role coverage when provider synthesis is exhausted", async () => {
+    const { deriveOrientationSourceSelectionRecord } = await import(
+      "../agents/query-planner.js"
+    );
+    const result = deriveOrientationSourceSelectionRecord(
+      ORIENTATION_SOURCES,
+      new Map([
+        ["README.md", "READ_COMPLETE"],
+        ["src/App.tsx", "READ_COMPLETE"],
+        ["src/main.tsx", "READ_COMPLETE"],
+        ["docs/architecture.md", "READ_COMPLETE"],
+      ]),
+    );
+
+    expect(result.plannerTier).toBe("fallback");
+    expect(result.orientationCoverage).toMatchObject({
+      complete: true,
+      missingRoles: [],
+    });
+  });
+
+  it("keeps provider fallback incomplete when a durable role has no complete read", async () => {
+    const { deriveOrientationSourceSelectionRecord } = await import(
+      "../agents/query-planner.js"
+    );
+    const result = deriveOrientationSourceSelectionRecord(
+      ORIENTATION_SOURCES,
+      new Map([
+        ["README.md", "READ_COMPLETE"],
+        ["src/App.tsx", "READ_COMPLETE"],
+        ["src/main.tsx", "READ_TRUNCATED"],
+        ["docs/architecture.md", "READ_FAILED"],
+      ]),
+    );
+
+    expect(result.orientationCoverage).toMatchObject({
+      complete: false,
+      missingRoles: ["primaryFlow", "uncertainty"],
+    });
+  });
+});

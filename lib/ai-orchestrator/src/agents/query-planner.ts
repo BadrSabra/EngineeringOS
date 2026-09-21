@@ -1552,6 +1552,35 @@ export function deriveSourceSelectionRecord(
   };
 }
 
+/**
+ * Build source-selection provenance when provider exhaustion bypasses the
+ * normal query-plan finalization seam but a durable orientation manifest still
+ * exists. The manifest is the server-owned plan for this bounded fallback.
+ */
+export function deriveOrientationSourceSelectionRecord(
+  orientationSources: ProjectOrientationSources,
+  finalReadStatuses: ReadonlyMap<string, string>,
+): QuerySourceSelectionRecord {
+  const targetFiles = [
+    ...new Set(PROJECT_ORIENTATION_ROLES.flatMap((role) => orientationSources[role])),
+  ];
+  return deriveSourceSelectionRecord(
+    {
+      originalIntent: "project orientation fallback",
+      targetFiles,
+      targetEntities: [],
+      scopeEstimate: "medium",
+      suggestedIterations: 30,
+      requiresToolUse: true,
+      subQueries: [],
+      compoundParts: [],
+      planStatus: "fallback",
+      orientationSources,
+    },
+    finalReadStatuses,
+  );
+}
+
 export type ProjectOrientationCoverage = {
   purpose: { plannedFiles: string[]; complete: boolean };
   components: { plannedFiles: string[]; complete: boolean };
