@@ -14,3 +14,9 @@ The orientation verdict must be derived from the same role-coverage closure at e
 **Why:** Orientation may not carry a structured target objective, so generic objective-gate telemetry can remain incomplete even after all server-owned role reads are complete; allowing that stale trace beside `PROVEN` creates public parity contradictions.
 
 **How to apply:** Treat complete orientation coverage as `ANSWER_COMPLETE` evidence without requiring an inferred objective, and keep the acceptance projection incomplete if its persisted decision trace explicitly reports recovery or non-verification.
+
+Acceptance must distinguish missing role coverage from missing source-selection telemetry. A durable role manifest plus complete revision-bound reads proves coverage; an absent optional trace should be reported as an observability gap, not silently reclassified as missing source evidence.
+
+**Why:** A real orientation execution persisted all seven manifest paths and complete read bodies, but no source-selection record reached the terminal projection, so the acceptance layer produced `PARTIAL` without evidence loss.
+
+**How to apply:** At investigation and finalization boundaries, compare manifest/read completeness independently from source-selection presence and emit separate diagnostics for coverage failure versus telemetry loss.
