@@ -159,6 +159,7 @@ type Scenario = {
   targetByIntent?: TargetMap;
   signal?: AbortSignal;
   abortController?: AbortController;
+  providerFailureTarget?: string;
 };
 
 async function configureChat(
@@ -234,6 +235,7 @@ function makeStrategy(options: {
   synthesisResponse?: string;
   targetByIntent?: TargetMap;
   abortController?: AbortController;
+  providerFailureTarget?: string;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -304,6 +306,10 @@ function makeStrategy(options: {
       const target = plannedTarget === EVIDENCE
         ? (options.missingTarget ?? plannedTarget)
         : plannedTarget;
+      if (options.providerFailureTarget === target) {
+        providerCalls.push({ kind: "subquery", target });
+        throw new Error(`simulated provider failure for ${target}`);
+      }
       const reads = subqueryReads.get(target) ?? 0;
       const hasToolOutput = serialized.includes('"role":"tool"');
       providerCalls.push({ kind: "subquery", target });
@@ -357,6 +363,7 @@ async function runScenario(scenario: Scenario) {
     missingTarget: scenario.missingTarget,
     targetByIntent: scenario.targetByIntent,
     abortController: scenario.abortController,
+    providerFailureTarget: scenario.providerFailureTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -579,6 +586,68 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
         expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
       );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects adaptive synthesis that cites a source outside retained evidence", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, subqueryReads } = await runScenario({
+        rootPath,
+        synthesisResponse:
+          "CURRENT_STATE: FACT — the unverified implementation in `src/unverified.ts` is complete.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: ship the change immediately.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("citation is not a retained source window");
+      expect(result.response).not.toContain("src/unverified.ts");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
+      );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps independent siblings running after a provider sub-query fails", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        providerFailureTarget: ADAPTER,
+        synthesisResponse:
+          "CURRENT_STATE: client and connector behavior were verified in " +
+          "`src/provider/client.ts` and `src/provider/connector.ts`.\n" +
+          "GAPS: NOT PROVEN — the provider adapter sub-analysis failed before a source read.\n" +
+          "PRIORITIES: retry the adapter analysis before making a complete claim.",
+      });
+
+      const subqueryTargets = providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target);
+      expect([...new Set(subqueryTargets)]).toEqual([ADAPTER, CLIENT, CONNECTOR]);
+      expect(subqueryReads).toEqual(new Map([
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("NOT PROVEN");
+
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toContain(CLIENT);
+      expect(graphReads).toContain(CONNECTOR);
+      expect(graphReads).not.toContain(ADAPTER);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
