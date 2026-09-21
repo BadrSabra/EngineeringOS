@@ -9,6 +9,7 @@ import {
   resolveActiveEvidenceContract,
   isAcceptanceCoverageRequest,
   isCapabilityGapAuditRequest,
+  isEmbeddedAiWeaknessRequest,
   resolveProjectQueryTarget,
   resolveTurnIntent,
 } from "../index.js";
@@ -424,6 +425,12 @@ describe("target-aware project queries", () => {
       "inferCompoundParts",
       "validateAnalysisEvidenceCompletion",
     ]);
+  });
+
+  it("keeps domain-qualified weakness requests distinct from generic gaps", () => {
+    expect(isEmbeddedAiWeaknessRequest("حدد نقاط الضعف لدى الوكيل")).toBe(true);
+    expect(isEmbeddedAiWeaknessRequest("الفجوات؟")).toBe(false);
+    expect(isEmbeddedAiWeaknessRequest("ما هي الفجوات المتبقية؟")).toBe(false);
   });
 
   it("adds the parity baseline claims only for a capability-gap comparison", () => {

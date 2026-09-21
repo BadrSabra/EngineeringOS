@@ -7,6 +7,7 @@ import {
   type OutputContract,
 } from "./task-contracts.js";
 import type { ClassifiedRequest } from "./prompts/profile-classifier.js";
+import { isEmbeddedAiWeaknessRequest } from "./project-query-target.js";
 import {
   RepairPlanMetadataSchema,
   ValidationProfileSchema,
@@ -563,10 +564,10 @@ export function isProjectQueryFollowUpRequest(message: string): boolean {
 }
 
 /**
- * Gap requests can be a continuation of an embedded-AI analysis even when
- * they restate the desired finding instead of saying "continue". This signal
- * is only a recovery candidate; the state-aware check below still requires
- * the saved target to be the embedded-AI contract before inheriting it.
+ * Gap requests are recovery candidates even when they restate the desired
+ * finding instead of saying "continue". The state-aware check below is
+ * narrower: only a domain-qualified embedded-agent weakness request may
+ * inherit an embedded-AI target; generic gap wording starts a new target.
  */
 export function isProjectQueryContinuationCandidate(message: string): boolean {
   const normalized = normalizeContinuationMessage(message);
@@ -667,7 +668,7 @@ export function isTaskContinuationRequest(
       isProjectQueryFollowUpRequest(normalized)
       || (
         state.projectQuery.id === "embedded-ai"
-        && isGapAnalysisRequest(normalized)
+        && isEmbeddedAiWeaknessRequest(normalized)
       )
     ),
   );

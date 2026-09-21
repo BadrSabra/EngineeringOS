@@ -204,6 +204,18 @@ const EMBEDDED_AI_WEAKNESS_CLAIM = {
 const EMBEDDED_AI_LAYER_ANALYSIS_RE =
   /(?:(?:طبقة|طبقات)\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|بنية\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|معمارية\s+(?:(?:ال)?وكيل|(?:ال)?ذكاء\s+(?:ال)?اصطناعي)|(?:AI|LLM)\s+(?:layers|architecture|stack)|(?:architecture|stack)\s+(?:of\s+)?(?:the\s+)?(?:embedded\s+)?AI)/iu;
 
+/**
+ * A weakness request can remain scoped to the embedded-agent contract only
+ * when it names that domain. Generic gap wording must not inherit an older
+ * embedded-AI target merely because the session happens to contain one.
+ */
+const EMBEDDED_AI_TARGET_SCOPE_RE =
+  /(?:الذكاء\s+(?:ال)?اصطناعي|ذكاء\s+اصطناعي|(?:\bAI\b|\bLLM\b)|provider|orchestrator|chat\s+agent|embedded|integrated|وكيل|الوكيل|آلية\s+عمل|سلوك\s+الوكيل|embedded\s+agent|AI\s+agent)/iu;
+
+export function isEmbeddedAiWeaknessRequest(message: string): boolean {
+  return isGapAnalysisRequest(message) && EMBEDDED_AI_TARGET_SCOPE_RE.test(message);
+}
+
 const EMBEDDED_AI_LAYER_CLAIMS: ProjectQueryTarget["requiredClaims"] = [
   {
     claimId: "ai-query-planning",

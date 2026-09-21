@@ -93,6 +93,7 @@ import {
   buildTaskValidationFallback,
   capBudgetForTask,
   isCapabilityGapAuditRequest,
+  isGapAnalysisRequest,
   isExplicitBehaviorQueryRequest,
   isProductionReachabilityRequest,
   routeTask,
@@ -5334,7 +5335,7 @@ function projectQueryAnswerHasBehavioralFlow(
     },
     0,
   );
-  if (objectiveType === "PROJECT_QUERY_GAP-ANALYSIS") {
+  if (isGapAnalysisObjective(objective)) {
     // A gap objective must describe the gap-analysis boundary, not merely
     // repeat the required symbols. Keep this permissive for provider prose,
     // while rejecting the embedded-agent orientation fallback.
@@ -5343,6 +5344,20 @@ function projectQueryAnswerHasBehavioralFlow(
     return gapSignal && flowSignalCount >= 2;
   }
   return flowSignalCount >= 2;
+}
+
+/**
+ * Gap semantics can be carried by the embedded-AI objective when a
+ * domain-qualified weakness follow-up intentionally remains in that target.
+ * Keep this derived from the server-owned objective goal rather than the raw
+ * request at validation time.
+ */
+function isGapAnalysisObjective(objective: ObjectiveContract | undefined): boolean {
+  return objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS"
+    || (
+      objective?.objectiveType === "PROJECT_QUERY_EMBEDDED-AI"
+      && isGapAnalysisRequest(objective.goal ?? "")
+    );
 }
 
 /**
@@ -5465,7 +5480,7 @@ export function buildProjectQueryEvidenceSynthesis(
         "Then, the agent gathers and retains the reads needed before composing the answer.",
         "Finally, the answer is written from the behavior established by those reads, while anything not read remains outside the conclusion.",
       ];
-  const isGapAnalysis = objective.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS";
+  const isGapAnalysis = isGapAnalysisObjective(objective);
   const isCapabilityGapAudit =
     isGapAnalysis && isCapabilityGapAuditRequest(objective.goal ?? "");
   const flowMap = isGapAnalysis ? gapFlowByClaimId : flowByClaimId;
@@ -8758,12 +8773,12 @@ export async function chat(opts: {
     isTargetedProjectQueryObjective &&
     (objective?.requiredClaims.length ?? 0) > 0 &&
     objective!.requiredClaims.every((claim) => claim.text.trim().split(/\s+/u).length >= 5);
-  // Gap analysis keeps its older symbol-backed project-query contract. Unlike
-  // embedded-AI, it does not require a prose behavioral-flow assertion before
-  // the retained-read synthesis fallback can run. Keep this exception explicit
-  // so arbitrary symbol-only objectives remain fail-closed.
-  const isGapAnalysisProjectQueryObjective =
-    objective?.objectiveType === "PROJECT_QUERY_GAP-ANALYSIS";
+  // Generic gap analysis keeps its older symbol-backed project-query contract.
+  // Domain-qualified embedded-AI weakness objectives use the same gap-specific
+  // synthesis mode because their server-owned goal carries the same semantics.
+  // Keep this exception explicit so arbitrary symbol-only objectives remain
+  // fail-closed.
+  const isGapAnalysisProjectQueryObjective = isGapAnalysisObjective(objective);
   const canSynthesizeProjectQuery =
     hasBehavioralProjectQueryContract || isGapAnalysisProjectQueryObjective;
   const projectQueryManifestComplete =

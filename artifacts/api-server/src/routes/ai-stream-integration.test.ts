@@ -7351,13 +7351,30 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       scope: { projectId },
     });
 
+    const genericGap = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "الفجوات؟" });
+    expect(genericGap.status).toBe(200);
+    expect(seenInputs[4]?.activeTaskState).toBeNull();
+    expect(seenInputs[4]?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: false,
+      projectTarget: { id: "gap-analysis" },
+    });
+    expect(seenInputs[4]?.objective).toMatchObject({
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+    });
+
     const unrelated = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
       .send({ projectId, sessionId, message: "What is the timeout behavior?" });
     expect(unrelated.status).toBe(200);
-    expect(seenInputs[4]?.activeTaskState).toBeNull();
-    expect(seenInputs[4]?.turnIntent).toMatchObject({
+    expect(seenInputs[5]?.activeTaskState).toBeNull();
+    expect(seenInputs[5]?.turnIntent).toMatchObject({
       kind: "FORENSIC_AUDIT",
       requiresTools: true,
       requiresEvidence: true,
@@ -7369,8 +7386,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .set("Content-Type", "application/json")
       .send({ projectId, message: "and what happens after that?" });
     expect(noTarget.status).toBe(200);
-    expect(seenInputs[5]?.activeTaskState).toBeNull();
-    expect(seenInputs[5]?.turnIntent).toMatchObject({
+    expect(seenInputs[6]?.activeTaskState).toBeNull();
+    expect(seenInputs[6]?.turnIntent).toMatchObject({
       kind: "CHAT",
       requiresTools: false,
       requiresEvidence: false,

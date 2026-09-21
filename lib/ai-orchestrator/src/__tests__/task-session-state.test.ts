@@ -137,6 +137,39 @@ describe("active task session state", () => {
     });
   });
 
+  it("does not inherit embedded-AI state for a generic gap question", () => {
+    const classification = classifyRequest("اشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع");
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      revision: "revision-a",
+      projectQuery: classification.projectTarget,
+    });
+    const freshClassification = classifyRequest("الفجوات؟");
+
+    expect(isProjectQueryContinuationCandidate("الفجوات؟")).toBe(true);
+    expect(isTaskContinuationRequest("الفجوات؟", state)).toBe(false);
+    expect(freshClassification.projectTarget?.id).toBe("gap-analysis");
+
+    const resumed = resumeActiveTaskClassification(
+      "الفجوات؟",
+      freshClassification,
+      state,
+    );
+    expect(resumed.resumed).toBe(false);
+    expect(resumed.classification.projectTarget?.id).toBe("gap-analysis");
+    expect(resolveTurnIntent("الفجوات؟", {
+      classification: resumed.classification,
+      resumed: resumed.resumed,
+    })).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresEvidence: true,
+      projectTarget: { id: "gap-analysis" },
+    });
+  });
+
   it("persists and resumes a general project-orientation contract without enabling forensic mode", () => {
     const classification = classifyRequest("ما هذا المشروع؟");
     const state = buildActiveTaskState({

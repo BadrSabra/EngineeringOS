@@ -699,6 +699,7 @@ export {
   isProjectArchitectureOrientationRequest,
   isSessionQualityAuditRequest,
   isAcceptanceCoverageRequest,
+  isEmbeddedAiWeaknessRequest,
   buildProjectQueryObjective,
   detectProjectQueryClaimContradictions,
   deriveProjectQueryTargetMode,
