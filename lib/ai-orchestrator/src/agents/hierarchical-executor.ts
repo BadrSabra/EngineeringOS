@@ -477,6 +477,9 @@ function publicSynthesisViolation(violation: string): string {
   if (violation === "a FACT was synthesized without retained source evidence") {
     return violation;
   }
+  if (violation === "synthesis asserted claims without retained source evidence") {
+    return "synthesis asserted claims without retained source evidence";
+  }
   return "synthesis validation failed";
 }
 
@@ -489,6 +492,7 @@ export function validateSynthesisSafety(
   response: string,
   receipts: readonly HierarchicalSubtaskReceipt[],
   sourceEvidence: readonly SourceEvidence[],
+  options: { requireRetainedEvidence?: boolean } = {},
 ): SynthesisSafetyValidation {
   const violations: string[] = [];
   const evidenceByFile = new Map<string, SourceEvidence[]>();
@@ -533,6 +537,14 @@ export function validateSynthesisSafety(
   }
   if (/\bfact\b|حقيقة مؤكدة/iu.test(response) && sourceEvidence.length === 0) {
     violations.push("a FACT was synthesized without retained source evidence");
+  }
+  const explicitIncompleteSignal =
+    /\b(?:analysis_incomplete|not\s+proven|unproven|no\s+(?:completed|retained|supporting)\s+(?:source|evidence)|could\s+not\s+be\s+verified|insufficient\s+evidence)\b/iu
+    .test(response)
+    || /غير\s+(?:مثبت|مكتمل|موثق)/u.test(response)
+    || /لا\s+يوجد\s+دليل/u.test(response);
+  if (options.requireRetainedEvidence && sourceEvidence.length === 0 && !explicitIncompleteSignal) {
+    violations.push("synthesis asserted claims without retained source evidence");
   }
   return { valid: violations.length === 0, violations: [...new Set(violations)] };
 }
@@ -784,7 +796,11 @@ export async function executeHierarchical(
     ].join("\n");
   }
 
-  const safety = validateSynthesisSafety(synthesisText, subResults, sourceEvidence);
+  const safety = validateSynthesisSafety(synthesisText, subResults, sourceEvidence, {
+    // Adaptive sub-query tasks have an explicit server-owned target manifest.
+    // Their synthesis must therefore fail closed when every read was rejected.
+    requireRetainedEvidence: tasks.some((task) => task.targetPaths.length > 0),
+  });
   if (!safety.valid) {
     synthesisStatus = "failed";
     synthesisText = [

@@ -213,6 +213,8 @@ type Scenario = {
   toolCallPathByTarget?: Record<string, string>;
   toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
   correctAfterScopeBlock?: boolean;
+  scopeCorrectionPathByTarget?: Record<string, string>;
+  additionalToolCallPathByTarget?: Record<string, string>;
 };
 
 async function configureChat(
@@ -297,6 +299,8 @@ function makeStrategy(options: {
   toolCallPathByTarget?: Record<string, string>;
   toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
   correctAfterScopeBlock?: boolean;
+  scopeCorrectionPathByTarget?: Record<string, string>;
+  additionalToolCallPathByTarget?: Record<string, string>;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -423,7 +427,9 @@ function makeStrategy(options: {
               type: "function" as const,
               function: {
                 name: "read_file",
-                arguments: JSON.stringify({ path: target }),
+                arguments: JSON.stringify({
+                  path: options.scopeCorrectionPathByTarget?.[target] ?? target,
+                }),
               },
             },
           ],
@@ -448,10 +454,22 @@ function makeStrategy(options: {
               id: `read-${target}`,
               type: "function" as const,
               function: {
-                  name: toolName,
-                  arguments: JSON.stringify(toolArguments),
+                name: toolName,
+                arguments: JSON.stringify(toolArguments),
               },
             },
+            ...(options.additionalToolCallPathByTarget?.[target]
+              ? [{
+                  id: `out-of-scope-read-${target}`,
+                  type: "function" as const,
+                  function: {
+                    name: "read_file",
+                    arguments: JSON.stringify({
+                      path: options.additionalToolCallPathByTarget[target],
+                    }),
+                  },
+                }]
+              : []),
           ],
           model: "adaptive-test-model",
           usage: {},
@@ -503,6 +521,8 @@ async function runScenario(scenario: Scenario) {
     toolCallPathByTarget: scenario.toolCallPathByTarget,
     toolCallNameByTarget: scenario.toolCallNameByTarget,
     correctAfterScopeBlock: scenario.correctAfterScopeBlock,
+    scopeCorrectionPathByTarget: scenario.scopeCorrectionPathByTarget,
+    additionalToolCallPathByTarget: scenario.additionalToolCallPathByTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -748,6 +768,70 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       ]));
       expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
         .toHaveLength(3);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain(GENERAL);
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
+      expect(graphReads).not.toContain(GENERAL);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the provider's one scope correction is still outside the task boundary", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallPathByTarget: { [ACCEPTANCE]: GENERAL },
+        correctAfterScopeBlock: true,
+        scopeCorrectionPathByTarget: { [ACCEPTANCE]: ADAPTER },
+        synthesisResponse:
+          "CURRENT_STATE: every requested source is verified.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: ship the verified implementation.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(3);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain(GENERAL);
+      expect(result.response).not.toContain(ADAPTER);
+      expect(result.response).not.toContain("PROVEN");
+      expect(result.evidenceGraph?.reads ?? []).toEqual([]);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates mixed valid and out-of-scope tool calls from the same provider turn", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        additionalToolCallPathByTarget: { [ACCEPTANCE]: GENERAL },
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate is verified in `src/acceptance/gate.ts`, " +
+          "the evidence producer is verified in `src/evidence/producer.ts`, and the " +
+          "counterevidence tests are verified in `tests/counterevidence.test.ts`.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: retain only the accepted evidence before shipping.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(2);
       expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
       expect(result.response).toContain("CURRENT_STATE");
       expect(result.response).not.toContain(GENERAL);
