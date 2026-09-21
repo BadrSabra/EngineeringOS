@@ -433,6 +433,7 @@ async function createReconnectedProofFixture(params: {
   reclaimAfterReconciliation?: boolean;
   proofRequired?: boolean;
   projectOrientation?: boolean;
+  message?: string;
 }) {
   const [project] = await db
     .select({ updatedAt: projectsTable.updatedAt })
@@ -474,8 +475,8 @@ async function createReconnectedProofFixture(params: {
     projectId: params.projectId,
     sessionId: params.sessionId,
     operationId: params.operationId,
-    message: "Execute the durable proof fixture.",
-    modelMessage: "Execute the durable proof fixture.",
+    message: params.message ?? "Execute the durable proof fixture.",
+    modelMessage: params.message ?? "Execute the durable proof fixture.",
     workspaceRevision,
     workspaceRoot,
     validationTargetPaths: ["src/proof-fixture.ts"],
@@ -922,6 +923,189 @@ describe("AI execution resume-capability recovery", () => {
     expect(terminal.status).toBe(409);
     expect(terminal.body).toMatchObject({ code: "EXECUTION_NOT_RESUMABLE", status: "completed" });
     expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
+  });
+
+  it("linearizes concurrent capability refreshes and reconnect streams into one identity-preserving resume", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Concurrent orientation reconnect");
+    const operationId = `concurrent-orientation-resume-${randomUUID()}`;
+    const fixture = await createReconnectedProofFixture({
+      projectId,
+      sessionId,
+      operationId,
+      includeNodeState: false,
+      reclaimAfterReconciliation: false,
+    });
+    const capabilityCount = 7;
+    const providerResponse = "The same orientation execution completed after reconnect.";
+    let providerCalls = 0;
+
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      providerCalls += 1;
+      retainProofFixtureEvidence(args, fixture);
+      args[6]?.({
+        kind: "validation",
+        status: "passed",
+        result: {
+          profile: "workspace-typecheck",
+          status: "passed",
+          scenario: "Concurrent orientation reconnect",
+          exitCode: 0,
+          command: "fixture-validation",
+          stdout: "passed",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            ...fixture.evidence,
+            observedAt: "2026-09-02T00:00:00.000Z",
+          },
+          detail: "The deterministic orientation reconnect fixture passed.",
+        },
+      } as never);
+      args[3]?.(providerResponse);
+      args[6]?.({
+        kind: "forensic_status",
+        sourceCoverage: "COMPLETE",
+        behavioralAssessment: "COMPLETE",
+        findingStatus: "PROVEN",
+      } as never);
+      return {
+        result: {
+          response: providerResponse,
+          sources: ["src/proof-fixture.ts"],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq",
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const capabilities = await Promise.all(
+      Array.from({ length: capabilityCount }, () =>
+        request(app)
+          .post(`/api/ai/executions/${fixture.created.execution.id}/resume-capability`)),
+    );
+    expect(capabilities.every((response) => response.status === 200)).toBe(true);
+    const staleTokens = capabilities.map((response) => response.body.resumeToken as string);
+    expect(staleTokens.every((token) => /^[a-f0-9]{64}$/u.test(token))).toBe(true);
+    expect(new Set(staleTokens).size).toBe(capabilityCount);
+
+    // The response order above is not a commit-order oracle. Ask the
+    // server for one final capability after the rotation storm; this token
+    // is the only one whose hash can be current without guessing a database
+    // interleaving.
+    const currentCapability = await request(app)
+      .post(`/api/ai/executions/${fixture.created.execution.id}/resume-capability`);
+    expect(currentCapability.status).toBe(200);
+    const currentToken = currentCapability.body.resumeToken as string;
+    expect(currentToken).toMatch(/^[a-f0-9]{64}$/u);
+    expect(staleTokens).not.toContain(currentToken);
+    const streamWithToken = (resumeToken: string) => request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: fixture.request.message,
+        executionId: fixture.created.execution.id,
+        resumeToken,
+      });
+    const winningStream = await streamWithToken(currentToken);
+    const staleStreams = await Promise.all(staleTokens.map(streamWithToken));
+    const streams = [winningStream, ...staleStreams];
+    const streamCount = streams.length;
+    const parsedStreams = streams.map((response) => ({
+      status: response.status,
+      events: parseSseEvents(response.text),
+    }));
+    const doneEvents = parsedStreams.flatMap(({ events }) =>
+      events.filter((event) => event.type === "done"));
+    expect(doneEvents).toHaveLength(1);
+    expect(providerCalls).toBe(1);
+    const staleReplayResults = parsedStreams.slice(1);
+    expect(staleReplayResults).toHaveLength(streamCount - 1);
+    expect(staleReplayResults.every(({ status, events }) =>
+      status === 409
+      || (
+        status === 200
+        && !events.some((event) => event.type === "done")
+        && events.some((event) =>
+          event.type === "error"
+          && (event.code === "EXECUTION_CLAIM_CONFLICT"
+            || event.code === "EXECUTION_NOT_RESUMABLE"))
+      ),
+    )).toBe(true);
+
+    const winningDone = doneEvents[0]!;
+    expect(winningDone).toMatchObject({
+      sessionId,
+      operationId,
+      message: {
+        executionId: fixture.created.execution.id,
+        content: providerResponse,
+        terminalProjection: {
+          executionId: fixture.created.execution.id,
+          sessionId,
+          operationId,
+          attempt: 1,
+          status: "completed",
+          outcome: "SUCCEEDED",
+          messageId: expect.any(String),
+          acceptanceId: expect.any(String),
+        },
+      },
+    });
+
+    const [execution] = await db
+      .select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        operationId: aiExecutionsTable.operationId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.created.execution.id))
+      .limit(1);
+    expect(execution).toMatchObject({
+      attempt: 1,
+      status: "completed",
+      operationId,
+      finalMessageId: (winningDone.message as { id?: string }).id,
+    });
+
+    const acceptances = await db
+      .select({
+        attempt: aiExecutionAcceptancesTable.attempt,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        messageId: aiExecutionAcceptancesTable.messageId,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.created.execution.id));
+    expect(acceptances).toHaveLength(2);
+    expect(acceptances).toEqual(expect.arrayContaining([
+      expect.objectContaining({ attempt: 0, outcome: "FAILED" }),
+      expect.objectContaining({
+        attempt: 1,
+        outcome: "SUCCEEDED",
+        messageId: (winningDone.message as { id?: string }).id,
+      }),
+    ]));
+
+    const messages = await db
+      .select({
+        role: aiChatMessagesTable.role,
+        executionId: aiChatMessagesTable.executionId,
+        outcome: aiChatMessagesTable.outcome,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.executionId, fixture.created.execution.id));
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(messages.filter((message) => message.role === "assistant")).toEqual([
+      expect.objectContaining({
+        executionId: fixture.created.execution.id,
+        outcome: "SUCCEEDED",
+      }),
+    ]);
   });
 
   it("release-smoke-resumable-failure: preserves both terminal attempts across provider failure, resume, REST history, and chat history", async () => {
