@@ -1,4 +1,5 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
+import { buildObjectiveClaimPlan } from "./objective-claim-plan.js";
 
 export type ObjectiveReplanReadStatus =
   | "READ_COMPLETE"
@@ -53,6 +54,11 @@ export function deriveObjectiveReplanTargets(input: {
   objective: ObjectiveContract;
   retainedPaths: Iterable<string>;
   readStatuses?: ReadonlyMap<string, ObjectiveReplanReadStatus>;
+  claimState?: ReadonlyArray<{
+    claimId: string;
+    status: "PENDING" | "PROVEN" | "BLOCKED";
+    evidenceRefs: readonly string[];
+  }>;
   maxTargets?: number;
 }): ObjectiveReplanTarget[] {
   const retainedPaths = new Set(
@@ -66,6 +72,11 @@ export function deriveObjectiveReplanTargets(input: {
   const maxTargets = Math.max(0, Math.min(2, Math.floor(input.maxTargets ?? 2)));
   const targets: ObjectiveReplanTarget[] = [];
   const byPath = new Map<string, ObjectiveReplanTarget>();
+  const plan = buildObjectiveClaimPlan({
+    objective: input.objective,
+    retainedPaths: [...retainedPaths].filter((path) => isCompletePath(path, retainedPaths, readStatuses)),
+    claimState: input.claimState,
+  });
 
   const add = (
     rawPath: string,
@@ -92,12 +103,12 @@ export function deriveObjectiveReplanTargets(input: {
     byPath.set(path, target);
   };
 
-  for (const path of input.objective.requiredEvidencePaths ?? []) {
+  for (const path of plan.missingObjectiveEvidencePaths) {
     add(path, "MISSING_REQUIRED_EVIDENCE_PATH");
   }
 
-  for (const claim of input.objective.requiredClaims) {
-    for (const path of claim.requiredEvidencePaths ?? []) {
+  for (const claim of plan.claims) {
+    for (const path of claim.missingEvidencePaths) {
       add(path, "MISSING_CLAIM_EVIDENCE_PATH", claim.claimId);
     }
   }

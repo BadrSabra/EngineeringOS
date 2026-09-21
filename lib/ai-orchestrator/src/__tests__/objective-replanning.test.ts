@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveObjectiveReplanTargets } from "../objective-replanning.js";
+import { buildObjectiveClaimPlan } from "../objective-claim-plan.js";
 import type { ObjectiveContract } from "../schemas/chat.schema.js";
 
 function objective(
@@ -16,6 +17,90 @@ function objective(
 }
 
 describe("deriveObjectiveReplanTargets", () => {
+  it("projects coverage per claim and schedules only the missing path", () => {
+    const plan = buildObjectiveClaimPlan({
+      objective: {
+        requiredEvidencePaths: ["src/shared.ts"],
+        requiredClaims: [
+          {
+            claimId: "shared-behavior",
+            requiredEvidencePaths: ["src/shared.ts", "src/handler.ts"],
+          },
+          {
+            claimId: "other-behavior",
+            requiredEvidencePaths: ["src/other.ts"],
+          },
+        ],
+      },
+      retainedPaths: ["src/shared.ts", "src/other.ts"],
+    });
+
+    expect(plan.claims).toEqual([
+      {
+        claimId: "shared-behavior",
+        requiredEvidencePaths: ["src/shared.ts", "src/handler.ts"],
+        evidenceRefs: ["src/shared.ts"],
+        missingEvidencePaths: ["src/handler.ts"],
+        status: "PENDING",
+      },
+      {
+        claimId: "other-behavior",
+        requiredEvidencePaths: ["src/other.ts"],
+        evidenceRefs: ["src/other.ts"],
+        missingEvidencePaths: [],
+        status: "PROVEN",
+      },
+    ]);
+    expect(plan.missingEvidencePaths).toEqual(["src/handler.ts"]);
+  });
+
+  it("attaches a pending claim to its missing path without rereading complete evidence", () => {
+    const result = deriveObjectiveReplanTargets({
+      objective: objective({
+        requiredClaims: [
+          {
+            claimId: "multi-file-behavior",
+            text: "The handler delegates to the service.",
+            requiredEvidencePaths: ["src/handler.ts", "src/service.ts"],
+          },
+        ],
+      }),
+      retainedPaths: ["src/handler.ts"],
+      readStatuses: new Map([["src/handler.ts", "READ_COMPLETE"]]),
+    });
+
+    expect(result).toEqual([
+      {
+        path: "src/service.ts",
+        claimIds: ["multi-file-behavior"],
+        edgeKeys: [],
+        reason: "MISSING_CLAIM_EVIDENCE_PATH",
+      },
+    ]);
+  });
+
+  it("does not reopen a claim whose accepted evidence refs are still retained", () => {
+    const result = deriveObjectiveReplanTargets({
+      objective: objective({
+        requiredClaims: [
+          {
+            claimId: "accepted-behavior",
+            text: "The retained handler evidence proves the behavior.",
+            requiredEvidencePaths: ["src/handler.ts", "src/service.ts"],
+          },
+        ],
+      }),
+      retainedPaths: ["src/handler.ts"],
+      claimState: [{
+        claimId: "accepted-behavior",
+        status: "PROVEN",
+        evidenceRefs: ["src/handler.ts"],
+      }],
+    });
+
+    expect(result).toEqual([]);
+  });
+
   it("returns only missing declared paths in contract order and caps them", () => {
     const result = deriveObjectiveReplanTargets({
       objective: objective({

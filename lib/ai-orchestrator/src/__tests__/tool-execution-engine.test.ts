@@ -663,6 +663,14 @@ describe("executeToolLoop", () => {
     );
     expect(result.fileContents?.has(requiredPaths[1])).toBe(true);
     expect(result.fileContents?.has(requiredPaths[2])).toBe(true);
+    expect(result.objectiveState?.claims[0]).toMatchObject({
+      claimId: "agent-routing",
+      status: "PROVEN",
+      requiredEvidencePaths: requiredPaths,
+      missingEvidencePaths: [],
+      evidenceRefs: requiredPaths,
+    });
+    expect(result.objectiveState?.missingEvidencePaths).toEqual([]);
   });
 
   it("dispatches a server-owned read when the provider returns text before evidence", async () => {

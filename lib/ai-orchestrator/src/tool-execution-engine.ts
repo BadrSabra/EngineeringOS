@@ -75,6 +75,10 @@ import type { ValidationResult } from "./validation-result.js";
 import { formatUntrustedContent } from "./untrusted-content.js";
 import { hasToolAppendedTruncationMarker } from "./source-read-status.js";
 import type { ProjectQueryTargetMode } from "./project-query-target.js";
+import {
+  buildObjectiveClaimPlan,
+  type ObjectiveClaimPlan,
+} from "./objective-claim-plan.js";
 
 // ── Defaults ────────────────────────
 
@@ -1146,6 +1150,9 @@ export type AgentLoopClaimState = {
   claimId: string;
   status: "PENDING" | "PROVEN" | "BLOCKED";
   evidenceRefs: string[];
+  /** Claim-level planning projection; absent on legacy state snapshots. */
+  requiredEvidencePaths?: string[];
+  missingEvidencePaths?: string[];
 };
 
 export type AgentLoopState = {
@@ -2754,21 +2761,25 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
    * satisfying the first-evidence latch repeatedly while leaving a required
    * claim source unread.
    */
-  const nextMissingObjectiveEvidencePath = (): string | null => {
-    if (!objective) return null;
-    const verified = new Set(
-      [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
-        .map((value) => canonicalRel(value)),
-    );
-    return objectiveRequiredEvidencePaths
-      .find((value) => value.length > 0 && !verified.has(value)) ?? null;
-  };
   const objectiveRequiredEvidencePaths = objective
     ? [
         ...(objective.requiredEvidencePaths ?? []),
         ...objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
       ].map((value) => canonicalRel(value))
     : [];
+  const currentObjectiveClaimPlan = (): ObjectiveClaimPlan | undefined => {
+    if (!objective) return undefined;
+    return buildObjectiveClaimPlan({
+      objective,
+      retainedPaths: [
+        ...fileContents.keys(),
+        ...sourceEvidenceByCanonical.keys(),
+      ].map((value) => canonicalRel(value)),
+      claimState,
+    });
+  };
+  const nextMissingObjectiveEvidencePath = (): string | null =>
+    currentObjectiveClaimPlan()?.missingEvidencePaths[0] ?? null;
   const evidenceRecoveryPaths = [...new Set(
     (opts.evidenceRecoveryPaths ?? [])
       .map((value) => canonicalRel(value))
@@ -2783,7 +2794,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
         .map((value) => canonicalRel(value)),
     );
-    return serverOwnedEvidencePaths
+    const objectiveMissing = currentObjectiveClaimPlan()?.missingEvidencePaths ?? [];
+    const orderedPaths = [
+      ...objectiveMissing,
+      ...serverOwnedEvidencePaths,
+    ].filter((value, index, all) => all.indexOf(value) === index);
+    return orderedPaths
       .find((value) => value.length > 0 && !verified.has(value)) ?? null;
   };
   const objectiveEvidenceManifestComplete = (): boolean =>
@@ -3373,34 +3389,51 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   };
   let currentIteration = 0;
   let loopPhase: AgentLoopPhase = "planning";
-  const normalizedObjectivePath = (value: string): string =>
-    value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
   const verifiedPathSet = (): Set<string> => new Set(
     [...fileContents.keys(), ...sourceEvidenceByCanonical.keys()]
-      .map(normalizedObjectivePath),
+      .map((value) => canonicalRel(value)),
   );
   const buildObjectiveState = (
     terminalReason?: AgentLoopState["terminalReason"],
   ): AgentLoopState | undefined => {
     if (!objective) return undefined;
     const verifiedPaths = verifiedPathSet();
-    const missingEvidencePaths = (objective.requiredEvidencePaths ?? [])
-      .map(normalizedObjectivePath)
-      .filter((path) => !verifiedPaths.has(path));
+    const plan = buildObjectiveClaimPlan({
+      objective,
+      retainedPaths: verifiedPaths,
+      claimState,
+    });
+    const missingEvidencePaths = plan.missingEvidencePaths;
     const restored = new Map((claimState ?? []).map((claim) => [claim.claimId, claim]));
     const claims = objective.requiredClaims.map((claim) => {
       const prior = restored.get(claim.claimId);
-      if (prior?.status === "PROVEN" || prior?.status === "BLOCKED") {
-        return { ...prior, evidenceRefs: prior.evidenceRefs.slice(0, 12) };
-      }
-      const requiredPaths = (claim.requiredEvidencePaths ?? []).map(normalizedObjectivePath);
-      const evidenceRefs = requiredPaths.filter((path) => verifiedPaths.has(path));
-      return {
+      const planned = plan.claims.find((candidate) => candidate.claimId === claim.claimId);
+      const requiredPaths = planned?.requiredEvidencePaths ?? [];
+      const evidenceRefs = planned?.evidenceRefs ?? [];
+      const restoredEvidenceRefs = (prior?.evidenceRefs ?? [])
+        .map((path) => canonicalRel(path))
+        .filter((path) => path.length > 0 && verifiedPaths.has(path));
+      const restoredClaimIsProven =
+        prior?.status === "PROVEN" &&
+        prior.evidenceRefs.length > 0 &&
+        restoredEvidenceRefs.length === prior.evidenceRefs.length;
+      const base = {
         claimId: claim.claimId,
-        status: requiredPaths.length > 0 && evidenceRefs.length === requiredPaths.length
-          ? "PROVEN" as const
-          : "PENDING" as const,
-        evidenceRefs,
+        evidenceRefs: (restoredClaimIsProven ? restoredEvidenceRefs : evidenceRefs).slice(0, 12),
+        ...(requiredPaths.length > 0 ? {
+          requiredEvidencePaths: requiredPaths,
+          missingEvidencePaths: (planned?.missingEvidencePaths ?? []).slice(0, 24),
+        } : {}),
+      };
+      return {
+        ...base,
+        status: prior?.status === "BLOCKED"
+          ? "BLOCKED" as const
+          : restoredClaimIsProven
+            ? "PROVEN" as const
+          : planned?.status === "PROVEN"
+            ? "PROVEN" as const
+            : "PENDING" as const,
       };
     });
     return {

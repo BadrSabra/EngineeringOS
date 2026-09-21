@@ -844,6 +844,14 @@ export type {
   RequiredClaimStatus,
 } from "./required-claims.js";
 export {
+  buildObjectiveClaimPlan,
+} from "./objective-claim-plan.js";
+export type {
+  ObjectiveClaimPlan,
+  ObjectiveClaimPlanClaim,
+  ObjectiveClaimPlanObjective,
+} from "./objective-claim-plan.js";
+export {
   ScopeExpansionKindSchema,
   ObjectiveScopePolicySchema,
   classifyObjectiveScopePath,

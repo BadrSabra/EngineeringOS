@@ -138,3 +138,4 @@
 - [Chat SSE fixture lifecycle](chat-sse-fixture-lifecycle.md) — SSE fixtures must expose running executions to controller registration and reset cancellation state between tests.
 - [Project-query synthesis references](project-query-synthesis-references.md) — provider prose may use server-owned claimRefs/flowRefs; evidence and closure stay server-owned.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
+- [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.

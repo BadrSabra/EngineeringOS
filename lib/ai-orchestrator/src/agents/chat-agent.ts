@@ -8955,6 +8955,7 @@ export async function chat(opts: {
         objective,
         retainedPaths: forensicFileContents.keys(),
         readStatuses: prefetchReadStatuses,
+        claimState: loopResult.objectiveState?.claims,
         maxTargets: objectiveReplanMaxAttempts,
       }).find((candidate) => !attemptedObjectiveReplanPaths.has(candidate.path));
       if (!target) break;
