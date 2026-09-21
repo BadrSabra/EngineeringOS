@@ -49,6 +49,12 @@ const CASCADE_TARGET_BY_INTENT = [
   ["Inspect counterevidence tests.", COUNTEREVIDENCE],
 ] as const satisfies TargetMap;
 
+const PARTIAL_OBJECTIVE_TARGET_BY_INTENT = [
+  ["Inspect the acceptance gate contract.", ACCEPTANCE],
+  ["Inspect the evidence producer flow.", EVIDENCE],
+  ["Inspect supporting implementation source.", MISSING],
+] as const satisfies TargetMap;
+
 const OBJECTIVE_REPORT = [
   "## 1) Executive Verdict",
   "The provider adapter is present.",
@@ -122,6 +128,21 @@ function dependencyCascadePlan(): QueryPlan {
   };
 }
 
+function partialObjectivePlan(): QueryPlan {
+  return {
+    originalIntent: "Prove that the evidence producer and supporting implementation are present.",
+    targetFiles: [ACCEPTANCE, EVIDENCE, MISSING],
+    targetEntities: [],
+    scopeEstimate: "broad",
+    suggestedIterations: 40,
+    requiresToolUse: true,
+    subQueries: PARTIAL_OBJECTIVE_TARGET_BY_INTENT.map(([intent]) => intent),
+    compoundParts: [],
+    planStatus: "fallback",
+    planDiagnostics: ["planner timed out or returned no response"],
+  };
+}
+
 function compoundFallbackPlan(): QueryPlan {
   return {
     originalIntent: "Summarize the current state, gaps, and priorities.",
@@ -185,6 +206,7 @@ type Scenario = {
   abortController?: AbortController;
   providerFailureTarget?: string;
   providerFailureAfterReadTarget?: string;
+  remapEvidenceTarget?: boolean;
 };
 
 async function configureChat(
@@ -262,6 +284,7 @@ function makeStrategy(options: {
   abortController?: AbortController;
   providerFailureTarget?: string;
   providerFailureAfterReadTarget?: string;
+  remapEvidenceTarget?: boolean;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -329,7 +352,7 @@ function makeStrategy(options: {
       }
 
       const [intent, plannedTarget] = targetEntry;
-      const target = plannedTarget === EVIDENCE
+      const target = plannedTarget === EVIDENCE && options.remapEvidenceTarget !== false
         ? (options.missingTarget ?? plannedTarget)
         : plannedTarget;
       if (options.providerFailureTarget === target) {
@@ -395,6 +418,7 @@ async function runScenario(scenario: Scenario) {
     abortController: scenario.abortController,
     providerFailureTarget: scenario.providerFailureTarget,
     providerFailureAfterReadTarget: scenario.providerFailureAfterReadTarget,
+    remapEvidenceTarget: scenario.remapEvidenceTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -775,6 +799,39 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.evidenceGraph?.nodes.some((node) =>
         node.kind === "VERDICT" && node.status === "PROVEN",
       )).toBe(false);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps mixed adaptive evidence incomplete when one sibling source remains unproven", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        missingTarget: MISSING,
+        plan: partialObjectivePlan(),
+        targetByIntent: PARTIAL_OBJECTIVE_TARGET_BY_INTENT,
+        remapEvidenceTarget: false,
+        synthesisResponse:
+          "CURRENT_STATE: the evidence producer is verified in `src/evidence/producer.ts`.\n" +
+          "GAPS: NOT PROVEN — the supporting implementation source could not be read.\n" +
+          "PRIORITIES: recover the missing source before making a complete claim.",
+      });
+
+      const subqueryTargets = providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target);
+      expect([...new Set(subqueryTargets)]).toEqual([ACCEPTANCE, EVIDENCE, MISSING]);
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [MISSING, 1],
+      ]));
+      expect(result.response).toContain("NOT PROVEN");
+      expect(result.response).not.toMatch(/^\s*PROVEN\b/im);
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toContain(EVIDENCE);
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).not.toContain(MISSING);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
