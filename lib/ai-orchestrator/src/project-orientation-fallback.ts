@@ -1,6 +1,7 @@
 import type { ProjectOrientationSources } from "./agents/query-planner.js";
 import type { ProjectQueryTarget } from "./project-query-target.js";
 import { buildProjectAwareFallbackSection } from "./project-aware-fallback.js";
+import { MAX_PROJECT_ORIENTATION_ROLE_FILES } from "./project-orientation-contract.js";
 
 export type ProjectOrientationFallbackResult = {
   response: string;
@@ -38,7 +39,6 @@ const ORIENTATION_ROLES = [
   ],
 ] as const;
 
-const MAX_ORIENTATION_ROLE_READS = 3;
 const UNSAFE_DISPLAY_CONTROL_RE = /[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u;
 const UNSAFE_EVIDENCE_CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u202A-\u202E\u2066-\u2069]/gu;
 
@@ -127,7 +127,7 @@ export function buildDeterministicProjectOrientationResponse(params: {
   ] of ORIENTATION_ROLES) {
     const roleReads = [...new Set(params.orientationSources[role].map(normalizePath))]
       .filter(isSafeProjectRelativePath)
-      .slice(0, MAX_ORIENTATION_ROLE_READS)
+      .slice(0, MAX_PROJECT_ORIENTATION_ROLE_FILES)
       .map((path) => findRead(path, params.fileContents))
       .filter((entry): entry is [string, string] => Boolean(entry && entry[1].trim()));
     if (roleReads.length === 0) return undefined;

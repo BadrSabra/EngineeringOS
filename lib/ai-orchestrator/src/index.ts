@@ -45,6 +45,11 @@ export {
   deriveSourceSelectionRecord,
   hasCompleteProjectOrientationSources,
 } from "./agents/query-planner.js";
+export {
+  MAX_PROJECT_ORIENTATION_ROLE_FILES,
+  MAX_PROJECT_ORIENTATION_SOURCE_FILES,
+  PROJECT_ORIENTATION_ROLES,
+} from "./project-orientation-contract.js";
 export type {
   QuerySourceSelectionRecord,
   ProjectOrientationSources,

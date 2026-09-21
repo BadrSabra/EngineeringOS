@@ -527,6 +527,111 @@ describe("autonomous operation contract", () => {
     });
   });
 
+  it("accepts a proof-required orientation manifest with three files in two roles", () => {
+    const request = parseExecutionRequest(JSON.stringify({
+      projectId: "project-1",
+      turnIntent: "PROJECT_QUERY",
+      projectOrientation: true,
+      sessionId: "session-1",
+      message: "Explain the project",
+      modelMessage: "Explain the project",
+      workspaceRevision: "revision-1",
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "GENERIC_RESPONSE",
+        contextProfile: "project",
+        sessionId: "session-1",
+        projectRevision: "revision-1",
+        requiresEvidence: true,
+        orientationManifest: {
+          projectRevision: "revision-1",
+          rootPath: "/workspace/project-1",
+          paths: {
+            purpose: ["README.md"],
+            components: ["src/App.tsx"],
+            primaryFlow: ["src/routes.ts", "src/server.ts", "src/index.ts"],
+            uncertainty: ["tests/app.test.ts", "tests/server.test.ts", "docs/known-gaps.md"],
+          },
+        },
+        scope: {
+          projectId: "project-1",
+          rootPath: "/workspace/project-1",
+          linkedTaskId: null,
+        },
+      },
+    }));
+
+    expect(request?.proofRequired).toBe(true);
+    expect(request?.resumeContract?.orientationManifest?.paths).toEqual({
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts", "src/server.ts", "src/index.ts"],
+      uncertainty: ["tests/app.test.ts", "tests/server.test.ts", "docs/known-gaps.md"],
+    });
+  });
+
+  it("rejects orientation manifests that exceed the shared role or total source limits", () => {
+    const base = {
+      projectId: "project-1",
+      turnIntent: "PROJECT_QUERY",
+      projectOrientation: true,
+      message: "Explain the project",
+      modelMessage: "Explain the project",
+      workspaceRevision: "revision-1",
+      validationTargetPaths: [],
+      proofRequired: true,
+      resumeContract: {
+        taskType: "BEHAVIOR_QUERY",
+        outputContract: "GENERIC_RESPONSE",
+        contextProfile: "project",
+        sessionId: "session-1",
+        projectRevision: "revision-1",
+        requiresEvidence: true,
+        scope: {
+          projectId: "project-1",
+          rootPath: "/workspace/project-1",
+          linkedTaskId: null,
+        },
+      },
+    };
+
+    expect(parseExecutionRequest(JSON.stringify({
+      ...base,
+      resumeContract: {
+        ...base.resumeContract,
+        orientationManifest: {
+          projectRevision: "revision-1",
+          rootPath: "/workspace/project-1",
+          paths: {
+            purpose: ["README.md", "docs/purpose.md", "docs/about.md", "docs/overview.md"],
+            components: [],
+            primaryFlow: [],
+            uncertainty: [],
+          },
+        },
+      },
+    }))).toBeUndefined();
+
+    expect(parseExecutionRequest(JSON.stringify({
+      ...base,
+      resumeContract: {
+        ...base.resumeContract,
+        orientationManifest: {
+          projectRevision: "revision-1",
+          rootPath: "/workspace/project-1",
+          paths: {
+            purpose: ["README.md", "docs/purpose.md", "docs/overview.md"],
+            components: ["src/App.tsx", "src/main.tsx"],
+            primaryFlow: ["src/routes.ts", "src/server.ts"],
+            uncertainty: ["tests/app.test.ts", "docs/known-gaps.md"],
+          },
+        },
+      },
+    }))).toBeUndefined();
+  });
+
   it("enforces the server-owned stage graph and evidence gate", () => {
     const planned = createAutonomousOperationContract({
       operationId: "operation-1",

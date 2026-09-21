@@ -11,6 +11,8 @@ import type {
 import {
   formatUntrustedContent,
   hasCompleteProjectOrientationSources,
+  MAX_PROJECT_ORIENTATION_ROLE_FILES,
+  MAX_PROJECT_ORIENTATION_SOURCE_FILES,
 } from "@workspace/ai-orchestrator";
 import type { AiAcceptanceDisposition } from "./ai-terminal-outcome.js";
 import {
@@ -1032,7 +1034,7 @@ function parseOrientationRoleManifest(value: unknown): AiOrientationRoleManifest
     const values = source[role];
     if (
       !Array.isArray(values)
-      || values.length > 2
+      || values.length > MAX_PROJECT_ORIENTATION_ROLE_FILES
       || values.some((path) =>
         typeof path !== "string"
         || path.trim().length === 0
@@ -1045,7 +1047,7 @@ function parseOrientationRoleManifest(value: unknown): AiOrientationRoleManifest
     paths[role] = [...new Set(values.map((path) => path.trim().replace(/\\/g, "/")))];
     allPaths.push(...paths[role]);
   }
-  if (new Set(allPaths).size > 8) return undefined;
+  if (new Set(allPaths).size > MAX_PROJECT_ORIENTATION_SOURCE_FILES) return undefined;
   return {
     projectRevision: candidate.projectRevision.trim(),
     rootPath: candidate.rootPath === null ? null : candidate.rootPath,
@@ -2400,13 +2402,15 @@ export async function persistAiExecutionOrientationManifest(params: {
     || !request.resumeContract
   ) return false;
   if (!hasCompleteProjectOrientationSources(params.manifest.paths)) return false;
+  const normalizedManifest = parseOrientationRoleManifest(params.manifest);
+  if (!normalizedManifest) return false;
   const existing = request.resumeContract.orientationManifest;
-  if (existing) return JSON.stringify(existing) === JSON.stringify(params.manifest);
+  if (existing) return JSON.stringify(existing) === JSON.stringify(normalizedManifest);
   const nextRequest: AiExecutionRequestEnvelope = {
     ...request,
     resumeContract: {
       ...request.resumeContract,
-      orientationManifest: params.manifest,
+      orientationManifest: normalizedManifest,
     },
   };
   const [updated] = await db

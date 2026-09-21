@@ -57,6 +57,11 @@ import {
   type ProjectQueryTargetMode,
   type ProjectQueryTargetResolution,
 } from "../project-query-target.js";
+import {
+  MAX_PROJECT_ORIENTATION_ROLE_FILES,
+  MAX_PROJECT_ORIENTATION_SOURCE_FILES,
+  PROJECT_ORIENTATION_ROLES,
+} from "../project-orientation-contract.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -81,7 +86,7 @@ export function hasCompleteProjectOrientationSources(
 ): sources is ProjectOrientationSources {
   return Boolean(
     sources
-    && ORIENTATION_ROLES.every((role) =>
+    && PROJECT_ORIENTATION_ROLES.every((role) =>
       sources[role].some((file) => typeof file === "string" && file.trim().length > 0),
     ),
   );
@@ -165,7 +170,7 @@ export function reconcileProjectOrientationSources(
   );
   const diagnostics = [...(plan.planDiagnostics ?? [])];
   const orientationSources = Object.fromEntries(
-    ORIENTATION_ROLES.map((role) => {
+    PROJECT_ORIENTATION_ROLES.map((role) => {
       const original = plan.orientationSources?.[role] ?? [];
       const valid = original.filter((file) => available.has(normalizePlannerPath(file)));
       if (valid.length !== original.length) {
@@ -177,7 +182,7 @@ export function reconcileProjectOrientationSources(
     }),
   ) as ProjectOrientationSources;
   const orientationFiles = new Set(
-    ORIENTATION_ROLES.flatMap((role) => orientationSources[role]),
+    PROJECT_ORIENTATION_ROLES.flatMap((role) => orientationSources[role]),
   );
   const targetFiles = [...new Set(
     plan.targetFiles
@@ -199,7 +204,6 @@ const PLANNER_TIMEOUT_MS = 5_000;
 const MAX_GRAPH_CHARS = 3_000;
 const MAX_TARGET_FILES = 10;
 const MAX_SUBQUERIES = 5;
-const MAX_ORIENTATION_ROLE_FILES = 3;
 /** Hard cap on files added by graph enrichment (task spec: ≤ 15 total). */
 const MAX_GRAPH_FILES = 15;
 /** Hard timeout for the graph enrichment step (task spec: ≤ 2 seconds). */
@@ -210,7 +214,6 @@ const MAX_GRAPH_GUIDED_ROOTS = 4;
 const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
 const MAX_UNRESOLVED_TARGET_FILES = 4;
 const MIN_UNRESOLVED_TARGET_CONFIDENCE = 0.75;
-const ORIENTATION_ROLES = ["purpose", "components", "primaryFlow", "uncertainty"] as const;
 const BROAD_FALLBACK_REQUEST_RE =
   /\b(?:architecture|architectural|codebase(?:-wide)?|entire|whole|system(?:-wide)?|all\s+layers|review|audit|overview|summari[sz]e|analy[sz]e)\b|(?:المعمارية|معمارية|المشروع\s+بالكامل|كامل\s+المشروع|النظام|طبقات|مراجعة\s+شاملة|تحليل\s+شامل|نظرة\s+عامة|ملخص\s+المشروع)/iu;
 const GRAPH_PATH_PATTERN =
@@ -275,7 +278,7 @@ function pickOrientationPaths(
   paths: readonly string[],
   pattern: RegExp,
 ): string[] {
-  return paths.filter((path) => pattern.test(path)).slice(0, MAX_ORIENTATION_ROLE_FILES);
+  return paths.filter((path) => pattern.test(path)).slice(0, MAX_PROJECT_ORIENTATION_ROLE_FILES);
 }
 
 /**
@@ -345,9 +348,9 @@ function fallbackPlanFor(opts: {
       ? deriveFallbackOrientationSources(opts.graphSummary ?? "")
       : undefined;
   const targetFiles = orientationSources
-    ? [...new Set(ORIENTATION_ROLES.flatMap((role) => orientationSources[role]))].slice(0, MAX_TARGET_FILES)
+    ? [...new Set(PROJECT_ORIENTATION_ROLES.flatMap((role) => orientationSources[role]))].slice(0, MAX_TARGET_FILES)
     : broadNavigationSources
-      ? [...new Set(ORIENTATION_ROLES.flatMap((role) => broadNavigationSources[role]))].slice(0, MAX_TARGET_FILES)
+      ? [...new Set(PROJECT_ORIENTATION_ROLES.flatMap((role) => broadNavigationSources[role]))].slice(0, MAX_TARGET_FILES)
       : [];
   return {
     ...FALLBACK_PLAN,
@@ -535,15 +538,15 @@ export function validateQueryPlanShape(
     if (!isRecord(value.orientationSources)) {
       diagnostics.push("orientationSources must be an object");
     } else {
-      for (const role of ["purpose", "components", "primaryFlow", "uncertainty"] as const) {
+      for (const role of PROJECT_ORIENTATION_ROLES) {
         const files = value.orientationSources[role];
         if (!Array.isArray(files)) {
           diagnostics.push(`orientationSources.${role} must be an array`);
           continue;
         }
-        if (files.length > MAX_ORIENTATION_ROLE_FILES) {
+        if (files.length > MAX_PROJECT_ORIENTATION_ROLE_FILES) {
           diagnostics.push(
-            `orientationSources.${role} exceeds the maximum of ${MAX_ORIENTATION_ROLE_FILES}`,
+            `orientationSources.${role} exceeds the maximum of ${MAX_PROJECT_ORIENTATION_ROLE_FILES}`,
           );
         }
         if (files.some((file) =>
@@ -563,13 +566,13 @@ export function validateQueryPlanShape(
       diagnostics.push("project_orientation requires orientationSources");
     } else {
       const orientationSources = value.orientationSources as Record<string, unknown>;
-      const roleFiles = ORIENTATION_ROLES.flatMap((role) => {
+      const roleFiles = PROJECT_ORIENTATION_ROLES.flatMap((role) => {
         const files = orientationSources[role];
         return Array.isArray(files)
           ? files.filter((file): file is string => typeof file === "string" && file.trim().length > 0)
           : [];
       });
-      if (ORIENTATION_ROLES.some((role) => {
+      if (PROJECT_ORIENTATION_ROLES.some((role) => {
         const files = orientationSources[role];
         return !Array.isArray(files) || files.length === 0;
       })) {
@@ -581,8 +584,10 @@ export function validateQueryPlanShape(
       if (roleFiles.some((file) => !targetFileSet.has(normalizePlannerPath(file)))) {
         diagnostics.push("orientationSources files must also appear in targetFiles");
       }
-      if (new Set(roleFiles.map(normalizePlannerPath)).size > 10) {
-        diagnostics.push("project_orientation source union exceeds the maximum of 10 files");
+      if (new Set(roleFiles.map(normalizePlannerPath)).size > MAX_PROJECT_ORIENTATION_SOURCE_FILES) {
+        diagnostics.push(
+          `project_orientation source union exceeds the maximum of ${MAX_PROJECT_ORIENTATION_SOURCE_FILES} files`,
+        );
       }
     }
   }
@@ -684,22 +689,22 @@ function parsePlannerResponse(
               purpose: Array.isArray(parsed.orientationSources.purpose)
                 ? parsed.orientationSources.purpose
                     .filter((file): file is string => typeof file === "string")
-                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                    .slice(0, MAX_PROJECT_ORIENTATION_ROLE_FILES)
                 : [],
               components: Array.isArray(parsed.orientationSources.components)
                 ? parsed.orientationSources.components
                     .filter((file): file is string => typeof file === "string")
-                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                    .slice(0, MAX_PROJECT_ORIENTATION_ROLE_FILES)
                 : [],
               primaryFlow: Array.isArray(parsed.orientationSources.primaryFlow)
                 ? parsed.orientationSources.primaryFlow
                     .filter((file): file is string => typeof file === "string")
-                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                    .slice(0, MAX_PROJECT_ORIENTATION_ROLE_FILES)
                 : [],
               uncertainty: Array.isArray(parsed.orientationSources.uncertainty)
                 ? parsed.orientationSources.uncertainty
                     .filter((file): file is string => typeof file === "string")
-                    .slice(0, MAX_ORIENTATION_ROLE_FILES)
+                    .slice(0, MAX_PROJECT_ORIENTATION_ROLE_FILES)
                 : [],
             },
           }

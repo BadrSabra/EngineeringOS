@@ -80,8 +80,8 @@ function orientationManifest(
     paths: {
       purpose: ["README.md"],
       components: ["src/App.tsx"],
-      primaryFlow: ["src/routes.ts"],
-      uncertainty: ["tests/app.test.ts"],
+      primaryFlow: ["src/routes.ts", "src/server.ts", "src/index.ts"],
+      uncertainty: ["tests/app.test.ts", "tests/server.test.ts", "docs/known-gaps.md"],
     },
   };
 }
