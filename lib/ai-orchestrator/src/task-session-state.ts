@@ -654,24 +654,94 @@ export function mergeProjectQueryObjective(
   };
 }
 
+export type TaskContinuationKind =
+  | "none"
+  | "explicit"
+  | "project-query-follow-up"
+  | "embedded-ai-weakness"
+  | "gap-analysis-candidate";
+
+export type TaskContinuationDecision = {
+  kind: TaskContinuationKind;
+  candidate: boolean;
+  requested: boolean;
+  stateMatched: boolean;
+};
+
+/**
+ * Resolve continuation once at the session boundary. `candidate` means the
+ * message is worth using for execution recovery; `requested` preserves the
+ * existing distinction between an explicit continuation with no loaded state
+ * and a continuation that can actually reuse state; `stateMatched` records
+ * whether the persisted target is authorized for this message.
+ */
+export function resolveTaskContinuationDecision(
+  message: string,
+  state?: ActiveTaskState | null,
+): TaskContinuationDecision {
+  const normalized = normalizeContinuationMessage(message);
+  if (normalized.length > 120) {
+    return {
+      kind: "none",
+      candidate: false,
+      requested: false,
+      stateMatched: false,
+    };
+  }
+  if (CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      kind: "explicit",
+      candidate: true,
+      requested: true,
+      stateMatched: Boolean(state),
+    };
+  }
+  if (isAcceptanceCoverageRequest(normalized)) {
+    return {
+      kind: "none",
+      candidate: false,
+      requested: false,
+      stateMatched: false,
+    };
+  }
+  if (isProjectQueryFollowUpRequest(normalized)) {
+    const stateMatched = Boolean(state?.projectQuery);
+    return {
+      kind: "project-query-follow-up",
+      candidate: true,
+      requested: stateMatched,
+      stateMatched,
+    };
+  }
+  if (state?.projectQuery?.id === "embedded-ai" && isEmbeddedAiWeaknessRequest(normalized)) {
+    return {
+      kind: "embedded-ai-weakness",
+      candidate: true,
+      requested: true,
+      stateMatched: true,
+    };
+  }
+  if (isGapAnalysisRequest(normalized)) {
+    return {
+      kind: "gap-analysis-candidate",
+      candidate: true,
+      requested: false,
+      stateMatched: false,
+    };
+  }
+  return {
+    kind: "none",
+    candidate: false,
+    requested: false,
+    stateMatched: false,
+  };
+}
+
 export function isTaskContinuationRequest(
   message: string,
   state?: ActiveTaskState | null,
 ): boolean {
-  const normalized = normalizeContinuationMessage(message);
-  if (normalized.length > 120) return false;
-  if (CONTINUATION_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
-  return Boolean(
-    state?.projectQuery
-    && !isAcceptanceCoverageRequest(normalized)
-    && (
-      isProjectQueryFollowUpRequest(normalized)
-      || (
-        state.projectQuery.id === "embedded-ai"
-        && isEmbeddedAiWeaknessRequest(normalized)
-      )
-    ),
-  );
+  return resolveTaskContinuationDecision(message, state).requested;
 }
 
 export function isResumableTaskType(taskType: ForensicTaskType): boolean {

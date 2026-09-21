@@ -521,6 +521,7 @@ export {
   isResumableTaskType,
   isProjectQueryFollowUpRequest,
   isProjectQueryContinuationCandidate,
+  resolveTaskContinuationDecision,
   isTaskContinuationRequest,
   parseActiveTaskState,
   resumeActiveTaskClassification,
@@ -530,6 +531,8 @@ export {
 export type {
   ActiveTaskExecutionPlan,
   ActiveTaskState,
+  TaskContinuationDecision,
+  TaskContinuationKind,
   ExecutionPlanClaim,
   ExecutionPlanBoundaries,
   ExecutionNode,
