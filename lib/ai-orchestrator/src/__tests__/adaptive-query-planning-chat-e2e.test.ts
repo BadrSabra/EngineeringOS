@@ -708,6 +708,45 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("keeps failed-subquery diagnostics out of synthesis evidence and rejects fact claims about them", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads, strategy } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        providerFailureTarget: ADAPTER,
+        synthesisResponse:
+          "CURRENT_STATE: FACT — Inspect the provider adapter transport. The adapter is complete.\n" +
+          "GAPS: the client and connector were verified in `src/provider/client.ts` " +
+          "and `src/provider/connector.ts`.\n" +
+          "PRIORITIES: ship the provider integration.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+
+      const synthesisMessages = strategy.call.mock.calls
+        .map(([messages]) => messages)
+        .find((messages) => JSON.stringify(messages).includes("You are a synthesis agent."));
+      const serializedSynthesis = JSON.stringify(synthesisMessages);
+      expect(serializedSynthesis).toContain("(No candidate findings; this receipt is diagnostic only.)");
+      expect(serializedSynthesis).not.toContain("simulated provider failure");
+
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("a failed subtask was presented as a fact");
+      expect(result.response).not.toContain(ADAPTER);
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([CLIENT, CONNECTOR]));
+      expect(graphReads).not.toContain(ADAPTER);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("runs an independent second-wave branch while transitively skipping dependent sub-queries", async () => {
     const rootPath = await makeRoot();
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
