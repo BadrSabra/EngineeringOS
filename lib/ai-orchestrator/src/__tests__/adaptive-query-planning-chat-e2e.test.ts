@@ -208,6 +208,8 @@ type Scenario = {
   providerFailureAfterReadTarget?: string;
   remapEvidenceTarget?: boolean;
   synthesisFailure?: "throw" | "tool_call";
+  abortAfterSubqueryTarget?: string;
+  subqueryDelayMs?: number;
 };
 
 async function configureChat(
@@ -287,9 +289,13 @@ function makeStrategy(options: {
   providerFailureAfterReadTarget?: string;
   remapEvidenceTarget?: boolean;
   synthesisFailure?: "throw" | "tool_call";
+  abortAfterSubqueryTarget?: string;
+  subqueryDelayMs?: number;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
+  let activeSubqueries = 0;
+  let maxConcurrentSubqueries = 0;
   const targetByIntent = options.targetByIntent ?? TARGET_BY_INTENT;
 
   const strategy = {
@@ -377,6 +383,12 @@ function makeStrategy(options: {
       const target = plannedTarget === EVIDENCE && options.remapEvidenceTarget !== false
         ? (options.missingTarget ?? plannedTarget)
         : plannedTarget;
+      if (options.subqueryDelayMs) {
+        activeSubqueries += 1;
+        maxConcurrentSubqueries = Math.max(maxConcurrentSubqueries, activeSubqueries);
+        await new Promise((resolve) => setTimeout(resolve, options.subqueryDelayMs));
+        activeSubqueries -= 1;
+      }
       if (options.providerFailureTarget === target) {
         providerCalls.push({ kind: "subquery", target });
         throw new Error(`simulated provider failure for ${target}`);
@@ -420,17 +432,23 @@ function makeStrategy(options: {
         };
       }
 
-      return {
+      const completedResponse = {
         content: `Verified ${intent} from ${target}.`,
         toolCalls: [],
         model: "adaptive-test-model",
         usage: {},
       };
+      if (options.abortAfterSubqueryTarget === target && hasToolOutput) {
+        options.abortController?.abort();
+      }
+      return completedResponse;
     }),
     stream: vi.fn(),
   };
 
-  return { strategy, subqueryReads, providerCalls };
+  return { strategy, subqueryReads, providerCalls, get maxConcurrentSubqueries() {
+    return maxConcurrentSubqueries;
+  } };
 }
 
 async function runScenario(scenario: Scenario) {
@@ -442,6 +460,8 @@ async function runScenario(scenario: Scenario) {
     providerFailureAfterReadTarget: scenario.providerFailureAfterReadTarget,
     remapEvidenceTarget: scenario.remapEvidenceTarget,
     synthesisFailure: scenario.synthesisFailure,
+    abortAfterSubqueryTarget: scenario.abortAfterSubqueryTarget,
+    subqueryDelayMs: scenario.subqueryDelayMs,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -664,6 +684,33 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
         expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
       );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("stops wave advancement when cancellation arrives after a completed sub-query", async () => {
+    const rootPath = await makeRoot();
+    const controller = new AbortController();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        signal: controller.signal,
+        abortController: controller,
+        abortAfterSubqueryTarget: ACCEPTANCE,
+      });
+
+      expect(controller.signal.aborted).toBe(true);
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      expect(providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target)).toEqual([ACCEPTANCE, ACCEPTANCE]);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(0);
+      expect(result.response).toMatch(/ANALYSIS_INCOMPLETE|cancelled|NOT PROVEN/i);
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toContain(ACCEPTANCE);
+      expect(graphReads).not.toContain(EVIDENCE);
+      expect(graphReads).not.toContain(COUNTEREVIDENCE);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
