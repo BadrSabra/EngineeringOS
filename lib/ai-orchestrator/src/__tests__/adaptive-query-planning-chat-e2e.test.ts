@@ -23,12 +23,23 @@ const ACCEPTANCE = "src/acceptance/gate.ts";
 const EVIDENCE = "src/evidence/producer.ts";
 const COUNTEREVIDENCE = "tests/counterevidence.test.ts";
 const MISSING = "src/evidence/missing-producer.ts";
+const ADAPTER = "src/provider/adapter.ts";
+const CLIENT = "src/provider/client.ts";
+const CONNECTOR = "src/provider/connector.ts";
+
+type TargetMap = readonly (readonly [string, string])[];
 
 const TARGET_BY_INTENT = [
   ["Inspect the acceptance gate contract.", ACCEPTANCE],
   ["Inspect the evidence producer flow.", EVIDENCE],
   ["Inspect counterevidence tests.", COUNTEREVIDENCE],
-] as const;
+] as const satisfies TargetMap;
+
+const INDEPENDENT_TARGET_BY_INTENT = [
+  ["Inspect the provider adapter transport.", ADAPTER],
+  ["Inspect the provider adapter client.", CLIENT],
+  ["Inspect the provider adapter connector.", CONNECTOR],
+] as const satisfies TargetMap;
 
 const OBJECTIVE_REPORT = [
   "## 1) Executive Verdict",
@@ -73,12 +84,30 @@ function fallbackPlan(missingTarget?: string): QueryPlan {
   };
 }
 
+function independentProviderPlan(): QueryPlan {
+  return {
+    originalIntent: "Inspect independent provider adapter surfaces.",
+    targetFiles: [ADAPTER, CLIENT, CONNECTOR],
+    targetEntities: [],
+    scopeEstimate: "broad",
+    suggestedIterations: 40,
+    requiresToolUse: true,
+    subQueries: INDEPENDENT_TARGET_BY_INTENT.map(([intent]) => intent),
+    compoundParts: [],
+    planStatus: "fallback",
+    planDiagnostics: ["planner timed out or returned no response"],
+  };
+}
+
 async function makeRoot(): Promise<string> {
   const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-adaptive-query-"));
   for (const [file, marker] of [
     [ACCEPTANCE, "ACCEPTANCE_GATE_EVIDENCE"],
     [EVIDENCE, "EVIDENCE_PRODUCER_EVIDENCE"],
     [COUNTEREVIDENCE, "COUNTEREVIDENCE_TEST_EVIDENCE"],
+    [ADAPTER, "PROVIDER_ADAPTER_EVIDENCE"],
+    [CLIENT, "PROVIDER_CLIENT_EVIDENCE"],
+    [CONNECTOR, "PROVIDER_CONNECTOR_EVIDENCE"],
   ] as const) {
     const fullPath = path.join(rootPath, file);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -92,6 +121,8 @@ type Scenario = {
   missingTarget?: string;
   objective?: ObjectiveContract;
   synthesisResponse?: string;
+  plan?: QueryPlan;
+  targetByIntent?: TargetMap;
 };
 
 async function configureChat(
@@ -165,9 +196,11 @@ async function configureChat(
 function makeStrategy(options: {
   missingTarget?: string;
   synthesisResponse?: string;
+  targetByIntent?: TargetMap;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
+  const targetByIntent = options.targetByIntent ?? TARGET_BY_INTENT;
 
   const strategy = {
     providerId: "openrouter",
@@ -190,7 +223,7 @@ function makeStrategy(options: {
         };
       }
 
-      const targetEntry = TARGET_BY_INTENT.find(([intent]) => serialized.includes(intent));
+      const targetEntry = targetByIntent.find(([intent]) => serialized.includes(intent));
       if (!targetEntry) {
         if (!options.missingTarget) {
           throw new Error("adaptive fixture received an unexpected sub-query prompt");
@@ -281,6 +314,7 @@ function makeStrategy(options: {
 async function runScenario(scenario: Scenario) {
   const fixture = makeStrategy({
     missingTarget: scenario.missingTarget,
+    targetByIntent: scenario.targetByIntent,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -288,7 +322,7 @@ async function runScenario(scenario: Scenario) {
   });
   const chat = await configureChat(
     fixture.strategy,
-    fallbackPlan(scenario.missingTarget),
+    scenario.plan ?? fallbackPlan(scenario.missingTarget),
   );
   const steps: AgentStep[] = [];
   const result = await chat({
@@ -373,6 +407,46 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(graphReads).not.toContain(EVIDENCE);
       expect(graphReads).not.toContain(COUNTEREVIDENCE);
     } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("runs independent fallback sub-queries in one scheduler wave", async () => {
+    const rootPath = await makeRoot();
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+      });
+
+      const subqueryTargets = providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target);
+      expect([...new Set(subqueryTargets)]).toEqual([ADAPTER, CLIENT, CONNECTOR]);
+      expect(subqueryReads).toEqual(new Map([
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+
+      const wave = info.mock.calls
+        .map(([message]) => {
+          if (typeof message !== "string") return undefined;
+          try {
+            return JSON.parse(message) as { code?: string; taskCount?: number; tasks?: unknown[] };
+          } catch {
+            return undefined;
+          }
+        })
+        .find((event) => event?.code === "SCHEDULING_WAVE_STARTED");
+      expect(wave?.taskCount).toBe(3);
+      expect(wave?.tasks).toHaveLength(3);
+    } finally {
+      info.mockRestore();
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
