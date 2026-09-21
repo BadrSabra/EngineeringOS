@@ -54,6 +54,7 @@ import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
 import { CapabilityGapNotice } from '@/components/CapabilityGapNotice';
 import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
+import { EvidenceGraphPanel } from '@/components/EvidenceGraphPanel';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
@@ -80,6 +81,7 @@ import type {
   AiProviderMetric,
   AiUsageSummary,
   AiExecutionProjection,
+  EvidenceGraph,
 } from '@workspace/api-client-react';
 type AcceptanceNextActionCode =
   | 'NONE'
@@ -156,6 +158,7 @@ type ChatMessage = {
   content: string;
   sources?: string;
   toolTrace?: string | null;
+  evidenceGraph?: EvidenceGraph | null;
   executionLedger?: ExecutionLedgerPublicSnapshot | null;
   turnIntent?: string | null;
   projectQueryTarget?: {
@@ -1786,6 +1789,27 @@ function parseToolTrace(raw: string | undefined | null): ToolTraceEntry[] {
   } catch {
     return [];
   }
+}
+
+function parseEvidenceGraph(raw: string | undefined | null): EvidenceGraph | undefined {
+  const entry = [...parseToolTrace(raw)].reverse().find((candidate) => candidate.kind === 'evidence_graph');
+  if (!entry || !Array.isArray((entry as { nodes?: unknown }).nodes) || !Array.isArray((entry as { edges?: unknown }).edges)) {
+    return undefined;
+  }
+  const graph = entry as unknown as EvidenceGraph & { kind?: string };
+  if (
+    graph.version !== 1
+    || !Array.isArray(graph.reads)
+    || !Array.isArray(graph.contradictionClaimIds)
+  ) return undefined;
+  return {
+    version: 1,
+    ...(typeof graph.sourceRevision === 'string' ? { sourceRevision: graph.sourceRevision } : {}),
+    nodes: graph.nodes,
+    edges: graph.edges,
+    reads: graph.reads,
+    contradictionClaimIds: graph.contradictionClaimIds,
+  };
 }
 
 function parseExecutionLedger(trace: ToolTraceEntry[]): ExecutionLedgerPublicSnapshot | null {
@@ -5389,6 +5413,7 @@ function MessageBubble({
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
+  const evidenceGraph = msg.evidenceGraph ?? parseEvidenceGraph(msg.toolTrace);
   // Older PROJECT_QUERY rows can retain a generic forensic diagnostic in their
   // persisted trace. The source-selection/decision markers are server-owned
   // and let history renders recognize those rows even when the top-level
@@ -5721,6 +5746,7 @@ function MessageBubble({
         {!isUser && msg.sourceSelectionRecord && (
           <SourceCoveragePanel record={msg.sourceSelectionRecord} />
         )}
+        {!isUser && evidenceGraph && <EvidenceGraphPanel graph={evidenceGraph} />}
         {!isUser && <BehaviorEvidencePanel evidence={parseBehaviorEvidence(msg.behaviorEvidence)} projectId={projectId} />}
         {!isUser && (
           <TaskResultPanel

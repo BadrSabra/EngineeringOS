@@ -135,6 +135,7 @@ import {
   type RepairPlanMetadata,
   EvidenceReferenceSchema,
   type EvidenceReference,
+  EvidenceGraphSchema,
   ChatTaskResultSchema,
   type ChatTaskResult,
   ObjectiveContractSchema,
@@ -2037,6 +2038,20 @@ function historicalEvidenceRevision(toolTrace: string | null | undefined): strin
         return revision;
       }
     }
+  }
+  return undefined;
+}
+
+function historicalEvidenceGraph(toolTrace: string | null | undefined): EvidenceGraph | undefined {
+  const parsed = parseStoredJson(toolTrace);
+  if (!Array.isArray(parsed)) return undefined;
+  for (const entry of [...parsed].reverse()) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as Record<string, unknown>;
+    if (candidate.kind !== "evidence_graph") continue;
+    const { kind: _kind, ...graph } = candidate;
+    const result = EvidenceGraphSchema.safeParse(graph);
+    if (result.success) return result.data;
   }
   return undefined;
 }
@@ -12003,6 +12018,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         : {}),
       ...(readContextProvenanceTrace(message.toolTrace)
         ? { contextProvenance: readContextProvenanceTrace(message.toolTrace) }
+        : {}),
+      ...(historicalEvidenceGraph(message.toolTrace)
+        ? { evidenceGraph: historicalEvidenceGraph(message.toolTrace) }
         : {}),
     };
   }));

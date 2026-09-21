@@ -3469,6 +3469,44 @@ export const aiChatResponseMessageForensicDiagnosticOneTruncatedFilesMax = 12;
 
 export const aiChatResponseMessageForensicDiagnosticOneTruncatedFileCountMin = 0;
 
+export const aiChatResponseMessageEvidenceGraphOneSourceRevisionMax = 240;
+
+export const aiChatResponseMessageEvidenceGraphOneNodesItemIdMax = 300;
+
+export const aiChatResponseMessageEvidenceGraphOneNodesItemLabelMax = 500;
+
+export const aiChatResponseMessageEvidenceGraphOneNodesItemPathMax = 500;
+
+export const aiChatResponseMessageEvidenceGraphOneNodesMax = 400;
+
+export const aiChatResponseMessageEvidenceGraphOneEdgesItemIdMax = 500;
+
+export const aiChatResponseMessageEvidenceGraphOneEdgesItemFromMax = 300;
+
+export const aiChatResponseMessageEvidenceGraphOneEdgesItemToMax = 300;
+
+export const aiChatResponseMessageEvidenceGraphOneEdgesItemEvidenceKeysItemMax = 500;
+
+export const aiChatResponseMessageEvidenceGraphOneEdgesItemEvidenceKeysMax = 24;
+
+export const aiChatResponseMessageEvidenceGraphOneEdgesMax = 800;
+
+export const aiChatResponseMessageEvidenceGraphOneReadsItemKeyMax = 500;
+
+export const aiChatResponseMessageEvidenceGraphOneReadsItemPathMax = 500;
+
+
+
+export const aiChatResponseMessageEvidenceGraphOneReadsItemTaskIndexesItemMin = 0;
+
+export const aiChatResponseMessageEvidenceGraphOneReadsItemTaskIndexesMax = 32;
+
+export const aiChatResponseMessageEvidenceGraphOneReadsMax = 240;
+
+export const aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsItemMax = 240;
+
+export const aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsMax = 64;
+
 
 
 export const aiChatResponseMessageBehaviorEvidenceMax = 8;
@@ -3695,6 +3733,34 @@ export const AiChatResponse = zod.object({
   "truncatedFiles": zod.array(zod.string().min(1).max(aiChatResponseMessageForensicDiagnosticOneTruncatedFilesItemMax)).max(aiChatResponseMessageForensicDiagnosticOneTruncatedFilesMax),
   "truncatedFileCount": zod.number().int().min(aiChatResponseMessageForensicDiagnosticOneTruncatedFileCountMin)
 }),zod.null()]).optional().describe('Server-owned, bounded forensic verdict shared by live and historical responses.'),
+  "evidenceGraph": zod.union([zod.object({
+  "version": zod.literal(1),
+  "sourceRevision": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneSourceRevisionMax).optional(),
+  "nodes": zod.array(zod.object({
+  "id": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneNodesItemIdMax),
+  "kind": zod.enum(['FILE', 'SYMBOL', 'CLAIM', 'SUB_QUERY', 'VERDICT']),
+  "label": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneNodesItemLabelMax),
+  "path": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneNodesItemPathMax).optional(),
+  "status": zod.enum(['PROVEN', 'CONTRADICTED', 'INCOMPLETE', 'NOT_PROVEN']).optional(),
+  "synthetic": zod.boolean().optional()
+})).max(aiChatResponseMessageEvidenceGraphOneNodesMax),
+  "edges": zod.array(zod.object({
+  "id": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneEdgesItemIdMax),
+  "from": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneEdgesItemFromMax),
+  "to": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneEdgesItemToMax),
+  "relation": zod.enum(['CONTAINS', 'SUPPORTS', 'INVESTIGATED_BY', 'CONTRIBUTES_TO', 'CONTRADICTS']),
+  "evidenceKeys": zod.array(zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneEdgesItemEvidenceKeysItemMax)).max(aiChatResponseMessageEvidenceGraphOneEdgesItemEvidenceKeysMax).optional()
+})).max(aiChatResponseMessageEvidenceGraphOneEdgesMax),
+  "reads": zod.array(zod.object({
+  "key": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneReadsItemKeyMax),
+  "path": zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneReadsItemPathMax),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
+  "truncated": zod.boolean(),
+  "taskIndexes": zod.array(zod.number().int().min(aiChatResponseMessageEvidenceGraphOneReadsItemTaskIndexesItemMin)).max(aiChatResponseMessageEvidenceGraphOneReadsItemTaskIndexesMax)
+})).max(aiChatResponseMessageEvidenceGraphOneReadsMax),
+  "contradictionClaimIds": zod.array(zod.string().min(1).max(aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsItemMax)).max(aiChatResponseMessageEvidenceGraphOneContradictionClaimIdsMax)
+}),zod.null()]).optional().describe('Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),
@@ -6503,6 +6569,44 @@ export const listAiChatMessagesResponseForensicDiagnosticOneTruncatedFilesMax = 
 
 export const listAiChatMessagesResponseForensicDiagnosticOneTruncatedFileCountMin = 0;
 
+export const listAiChatMessagesResponseEvidenceGraphOneSourceRevisionMax = 240;
+
+export const listAiChatMessagesResponseEvidenceGraphOneNodesItemIdMax = 300;
+
+export const listAiChatMessagesResponseEvidenceGraphOneNodesItemLabelMax = 500;
+
+export const listAiChatMessagesResponseEvidenceGraphOneNodesItemPathMax = 500;
+
+export const listAiChatMessagesResponseEvidenceGraphOneNodesMax = 400;
+
+export const listAiChatMessagesResponseEvidenceGraphOneEdgesItemIdMax = 500;
+
+export const listAiChatMessagesResponseEvidenceGraphOneEdgesItemFromMax = 300;
+
+export const listAiChatMessagesResponseEvidenceGraphOneEdgesItemToMax = 300;
+
+export const listAiChatMessagesResponseEvidenceGraphOneEdgesItemEvidenceKeysItemMax = 500;
+
+export const listAiChatMessagesResponseEvidenceGraphOneEdgesItemEvidenceKeysMax = 24;
+
+export const listAiChatMessagesResponseEvidenceGraphOneEdgesMax = 800;
+
+export const listAiChatMessagesResponseEvidenceGraphOneReadsItemKeyMax = 500;
+
+export const listAiChatMessagesResponseEvidenceGraphOneReadsItemPathMax = 500;
+
+
+
+export const listAiChatMessagesResponseEvidenceGraphOneReadsItemTaskIndexesItemMin = 0;
+
+export const listAiChatMessagesResponseEvidenceGraphOneReadsItemTaskIndexesMax = 32;
+
+export const listAiChatMessagesResponseEvidenceGraphOneReadsMax = 240;
+
+export const listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsItemMax = 240;
+
+export const listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsMax = 64;
+
 
 
 export const listAiChatMessagesResponseBehaviorEvidenceMax = 8;
@@ -6683,6 +6787,34 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "truncatedFiles": zod.array(zod.string().min(1).max(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFilesItemMax)).max(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFilesMax),
   "truncatedFileCount": zod.number().int().min(listAiChatMessagesResponseForensicDiagnosticOneTruncatedFileCountMin)
 }),zod.null()]).optional().describe('Server-owned, bounded forensic verdict shared by live and historical responses.'),
+  "evidenceGraph": zod.union([zod.object({
+  "version": zod.literal(1),
+  "sourceRevision": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneSourceRevisionMax).optional(),
+  "nodes": zod.array(zod.object({
+  "id": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneNodesItemIdMax),
+  "kind": zod.enum(['FILE', 'SYMBOL', 'CLAIM', 'SUB_QUERY', 'VERDICT']),
+  "label": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneNodesItemLabelMax),
+  "path": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneNodesItemPathMax).optional(),
+  "status": zod.enum(['PROVEN', 'CONTRADICTED', 'INCOMPLETE', 'NOT_PROVEN']).optional(),
+  "synthetic": zod.boolean().optional()
+})).max(listAiChatMessagesResponseEvidenceGraphOneNodesMax),
+  "edges": zod.array(zod.object({
+  "id": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneEdgesItemIdMax),
+  "from": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneEdgesItemFromMax),
+  "to": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneEdgesItemToMax),
+  "relation": zod.enum(['CONTAINS', 'SUPPORTS', 'INVESTIGATED_BY', 'CONTRIBUTES_TO', 'CONTRADICTS']),
+  "evidenceKeys": zod.array(zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneEdgesItemEvidenceKeysItemMax)).max(listAiChatMessagesResponseEvidenceGraphOneEdgesItemEvidenceKeysMax).optional()
+})).max(listAiChatMessagesResponseEvidenceGraphOneEdgesMax),
+  "reads": zod.array(zod.object({
+  "key": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneReadsItemKeyMax),
+  "path": zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneReadsItemPathMax),
+  "startLine": zod.number().int().min(1),
+  "endLine": zod.number().int().min(1),
+  "truncated": zod.boolean(),
+  "taskIndexes": zod.array(zod.number().int().min(listAiChatMessagesResponseEvidenceGraphOneReadsItemTaskIndexesItemMin)).max(listAiChatMessagesResponseEvidenceGraphOneReadsItemTaskIndexesMax)
+})).max(listAiChatMessagesResponseEvidenceGraphOneReadsMax),
+  "contradictionClaimIds": zod.array(zod.string().min(1).max(listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsItemMax)).max(listAiChatMessagesResponseEvidenceGraphOneContradictionClaimIdsMax)
+}),zod.null()]).optional().describe('Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store.'),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),

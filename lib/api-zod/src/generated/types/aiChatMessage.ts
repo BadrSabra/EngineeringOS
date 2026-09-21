@@ -22,6 +22,7 @@ import type { AiRepairResult } from './aiRepairResult';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
 import type { BehaviorEvidence } from './behaviorEvidence';
+import type { EvidenceGraph } from './evidenceGraph';
 import type { ExecutionLedgerSnapshot } from './executionLedgerSnapshot';
 import type { ForensicDiagnostic } from './forensicDiagnostic';
 import type { MissionCorrelationReport } from './missionCorrelationReport';
@@ -63,6 +64,8 @@ export interface AiChatMessage {
   projection?: AiExecutionProjection | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
+  /** Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store. */
+  evidenceGraph?: EvidenceGraph | null;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

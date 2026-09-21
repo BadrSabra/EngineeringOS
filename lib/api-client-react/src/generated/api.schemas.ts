@@ -2687,6 +2687,135 @@ export interface AiExecutionProjection {
   allowedActions: AiExecutionProjectionAllowedActionsItem[];
 }
 
+export type EvidenceGraphVersion = typeof EvidenceGraphVersion[keyof typeof EvidenceGraphVersion];
+
+
+export const EvidenceGraphVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type EvidenceGraphNodeKind = typeof EvidenceGraphNodeKind[keyof typeof EvidenceGraphNodeKind];
+
+
+export const EvidenceGraphNodeKind = {
+  FILE: 'FILE',
+  SYMBOL: 'SYMBOL',
+  CLAIM: 'CLAIM',
+  SUB_QUERY: 'SUB_QUERY',
+  VERDICT: 'VERDICT',
+} as const;
+
+export type EvidenceGraphNodeStatus = typeof EvidenceGraphNodeStatus[keyof typeof EvidenceGraphNodeStatus];
+
+
+export const EvidenceGraphNodeStatus = {
+  PROVEN: 'PROVEN',
+  CONTRADICTED: 'CONTRADICTED',
+  INCOMPLETE: 'INCOMPLETE',
+  NOT_PROVEN: 'NOT_PROVEN',
+} as const;
+
+export interface EvidenceGraphNode {
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  id: string;
+  kind: EvidenceGraphNodeKind;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  label: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  path?: string;
+  status?: EvidenceGraphNodeStatus;
+  synthetic?: boolean;
+}
+
+export type EvidenceGraphEdgeRelation = typeof EvidenceGraphEdgeRelation[keyof typeof EvidenceGraphEdgeRelation];
+
+
+export const EvidenceGraphEdgeRelation = {
+  CONTAINS: 'CONTAINS',
+  SUPPORTS: 'SUPPORTS',
+  INVESTIGATED_BY: 'INVESTIGATED_BY',
+  CONTRIBUTES_TO: 'CONTRIBUTES_TO',
+  CONTRADICTS: 'CONTRADICTS',
+} as const;
+
+export interface EvidenceGraphEdge {
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  from: string;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  to: string;
+  relation: EvidenceGraphEdgeRelation;
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 500
+     */
+  evidenceKeys?: string[];
+}
+
+export interface EvidenceGraphRead {
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  key: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  path: string;
+  /** @minimum 1 */
+  startLine: number;
+  /** @minimum 1 */
+  endLine: number;
+  truncated: boolean;
+  /**
+     * @maxItems 32
+     * @items.minimum 0
+     */
+  taskIndexes: number[];
+}
+
+export interface EvidenceGraph {
+  version: EvidenceGraphVersion;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  sourceRevision?: string;
+  /** @maxItems 400 */
+  nodes: EvidenceGraphNode[];
+  /** @maxItems 800 */
+  edges: EvidenceGraphEdge[];
+  /** @maxItems 240 */
+  reads: EvidenceGraphRead[];
+  /**
+     * @maxItems 64
+     * @items.minLength 1
+     * @items.maxLength 240
+     */
+  contradictionClaimIds: string[];
+}
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -2924,6 +3053,8 @@ export interface AiChatMessage {
   projection?: AiExecutionProjection | null;
   /** Server-owned, bounded forensic verdict shared by live and historical responses. */
   forensicDiagnostic?: ForensicDiagnostic | null;
+  /** Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store. */
+  evidenceGraph?: EvidenceGraph | null;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

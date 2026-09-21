@@ -5930,6 +5930,10 @@ components:
           nullable: true
           description: Server-owned, bounded forensic verdict shared by live and historical responses.
           $ref: "#/components/schemas/ForensicDiagnostic"
+        evidenceGraph:
+          nullable: true
+          description: Canonical metadata-only evidence graph. Source bodies remain in the durable evidence store.
+          $ref: "#/components/schemas/EvidenceGraph"
         behaviorEvidence:
           description: Parsed accepted behavior-evidence references, each with an optional exact source line span
           type: array
@@ -6001,6 +6005,88 @@ components:
           type: string
           enum: [resolved_target, bounded_unresolved_hint, source_first_discovery]
           description: Allowlisted server-owned source-targeting mode; no planner or provider text is included.
+
+    EvidenceGraph:
+      type: object
+      additionalProperties: false
+      required: [version, nodes, edges, reads, contradictionClaimIds]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        sourceRevision:
+          type: string
+          minLength: 1
+          maxLength: 240
+        nodes:
+          type: array
+          maxItems: 400
+          items:
+            $ref: "#/components/schemas/EvidenceGraphNode"
+        edges:
+          type: array
+          maxItems: 800
+          items:
+            $ref: "#/components/schemas/EvidenceGraphEdge"
+        reads:
+          type: array
+          maxItems: 240
+          items:
+            $ref: "#/components/schemas/EvidenceGraphRead"
+        contradictionClaimIds:
+          type: array
+          maxItems: 64
+          items:
+            type: string
+            minLength: 1
+            maxLength: 240
+
+    EvidenceGraphNode:
+      type: object
+      additionalProperties: false
+      required: [id, kind, label]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 300 }
+        kind:
+          type: string
+          enum: [FILE, SYMBOL, CLAIM, SUB_QUERY, VERDICT]
+        label: { type: string, minLength: 1, maxLength: 500 }
+        path: { type: string, minLength: 1, maxLength: 500 }
+        status:
+          type: string
+          enum: [PROVEN, CONTRADICTED, INCOMPLETE, NOT_PROVEN]
+        synthetic: { type: boolean }
+
+    EvidenceGraphEdge:
+      type: object
+      additionalProperties: false
+      required: [id, from, to, relation]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 500 }
+        from: { type: string, minLength: 1, maxLength: 300 }
+        to: { type: string, minLength: 1, maxLength: 300 }
+        relation:
+          type: string
+          enum: [CONTAINS, SUPPORTS, INVESTIGATED_BY, CONTRIBUTES_TO, CONTRADICTS]
+        evidenceKeys:
+          type: array
+          maxItems: 24
+          items: { type: string, minLength: 1, maxLength: 500 }
+
+    EvidenceGraphRead:
+      type: object
+      additionalProperties: false
+      required: [key, path, startLine, endLine, truncated, taskIndexes]
+      properties:
+        key: { type: string, minLength: 1, maxLength: 500 }
+        path: { type: string, minLength: 1, maxLength: 500 }
+        startLine: { type: integer, minimum: 1 }
+        endLine: { type: integer, minimum: 1 }
+        truncated: { type: boolean }
+        taskIndexes:
+          type: array
+          maxItems: 32
+          items: { type: integer, minimum: 0 }
 
     QuerySourceFileStatus:
       type: object
