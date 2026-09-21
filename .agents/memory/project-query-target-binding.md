@@ -20,3 +20,9 @@ Layer-analysis wording is an explicit bounded alias set, not a broad architectur
 **Why:** Broad architecture orientation must remain separate from targeted embedded-AI evidence queries; widening every architecture synonym would silently reroute multi-domain orientation requests.
 
 **How to apply:** Add aliases through the dedicated layer detector and test both targeted routing and the broad-orientation conflict before changing claim expansion.
+
+Delivery and authentication project queries use independent server-owned target contracts with bounded source scopes and claims. They must not inherit embedded-AI runtime edges; their proof boundary is their declared source claims, while generic exploration and bare auth/session wording remain outside the target resolver.
+
+**Why:** Reusing embedded-AI edges for another subsystem can make acceptance demand unrelated execution relationships, while broad exploration must not silently become proof-required because it mentions a subsystem word.
+
+**How to apply:** Add new target IDs to the resolver, resumable session schema, and intent evidence boundary together; give each target domain-specific deterministic synthesis and keep unrelated target edges empty.

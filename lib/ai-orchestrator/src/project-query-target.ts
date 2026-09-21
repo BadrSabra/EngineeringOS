@@ -9,7 +9,11 @@ import {
   CAPABILITY_PARITY_BASELINE_V1,
 } from "./parity-baseline.js";
 
-export type ProjectQueryTargetId = "embedded-ai" | "gap-analysis";
+export type ProjectQueryTargetId =
+  | "embedded-ai"
+  | "gap-analysis"
+  | "delivery"
+  | "auth";
 export type ProjectQueryTargetResolution =
   | "resolved"
   | "unresolved"
@@ -467,6 +471,205 @@ const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "Separate verified gaps from unverified hypotheses and cite every gap to its source path.",
 };
 
+const DELIVERY_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
+  id: "delivery",
+  label: "validated delivery and promotion",
+  firstEvidencePath: "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+  primaryPaths: [
+    "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+    "artifacts/api-server/src/lib/ai-release-quality-gate.ts",
+    "artifacts/api-server/src/lib/delivery-workspace.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+  ],
+  allowedExpansionPaths: [
+    "artifacts/api-server/src/lib",
+    "artifacts/api-server/src/routes/ai",
+    "artifacts/api-server/src/middlewares",
+  ],
+  forbiddenPaths: [
+    "node_modules",
+    "dist",
+    "build",
+    ".engineeringos-delivery",
+  ],
+  requiredEvidencePaths: [
+    "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+    "artifacts/api-server/src/lib/ai-release-quality-gate.ts",
+    "artifacts/api-server/src/lib/delivery-workspace.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+  ],
+  requiredClaims: [
+    {
+      claimId: "delivery-candidate-integrity",
+      text:
+        "Delivery promotion compares the candidate tree and change-set evidence before a candidate can become eligible.",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+        "artifacts/api-server/src/lib/delivery-workspace.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "artifacts/api-server/src/lib/ai-promotion-decision.ts": [
+          "decideDeliveryPromotion",
+          "candidateTreeHash",
+          "changeSetHash",
+        ],
+        "artifacts/api-server/src/lib/delivery-workspace.ts": [
+          "hashDeliveryTree",
+          "candidateTreeHash",
+          "DeliveryWorkspace",
+        ],
+      },
+    },
+    {
+      claimId: "delivery-validation-gate",
+      text:
+        "Release quality checks produce a server-owned decision before delivery promotion proceeds.",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/lib/ai-release-quality-gate.ts",
+        "artifacts/api-server/src/routes/ai/chat.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "artifacts/api-server/src/lib/ai-release-quality-gate.ts": [
+          "runAiReleaseQualityGate",
+          "evaluateAiReleaseQuality",
+          "blocking",
+        ],
+        "artifacts/api-server/src/routes/ai/chat.ts": [
+          "validation",
+          "candidateHash",
+          "promotion",
+        ],
+      },
+    },
+    {
+      claimId: "delivery-promotion-boundary",
+      text:
+        "A promotion decision does not itself grant write authority; approval, scope, validation, and candidate-integrity gates remain required.",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+        "artifacts/api-server/src/routes/ai/chat.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "artifacts/api-server/src/lib/ai-promotion-decision.ts": [
+          "approvalRequired",
+          "AUTO_PROMOTE_ELIGIBLE",
+          "scope_not_auto_promotable",
+        ],
+        "artifacts/api-server/src/routes/ai/chat.ts": [
+          "approval",
+          "candidateChangedBeforePromotion",
+          "automaticPromotionBlockedReason",
+        ],
+      },
+    },
+  ],
+  promptHint:
+    "Targeted delivery analysis: explain the server-owned path from candidate materialization " +
+    "through tree/change-set integrity, release validation, and the guarded promotion decision. " +
+    "Keep eligibility, approval, and actual write authority separate. Do not treat a provider " +
+    "proposal or a successful narrative response as proof that delivery occurred. Return " +
+    "ANALYSIS_INCOMPLETE when any required candidate, validation, or promotion claim is not proven.",
+};
+
+const AUTH_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
+  id: "auth",
+  label: "authentication and project authorization",
+  firstEvidencePath: "artifacts/api-server/src/middlewares/requireAuth.ts",
+  primaryPaths: [
+    "artifacts/api-server/src/middlewares/requireAuth.ts",
+    "artifacts/api-server/src/middlewares/requireProjectAccess.ts",
+    "artifacts/api-server/src/types/express.d.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+  ],
+  allowedExpansionPaths: [
+    "artifacts/api-server/src/middlewares",
+    "artifacts/api-server/src/types",
+    "artifacts/api-server/src/routes",
+  ],
+  forbiddenPaths: [
+    "node_modules",
+    "dist",
+    "build",
+  ],
+  requiredEvidencePaths: [
+    "artifacts/api-server/src/middlewares/requireAuth.ts",
+    "artifacts/api-server/src/middlewares/requireProjectAccess.ts",
+    "artifacts/api-server/src/types/express.d.ts",
+    "artifacts/api-server/src/routes/ai/chat.ts",
+  ],
+  requiredClaims: [
+    {
+      claimId: "auth-identity-context",
+      text:
+        "Authentication middleware establishes a server-owned identity and session context before protected route work.",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/middlewares/requireAuth.ts",
+        "artifacts/api-server/src/types/express.d.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "artifacts/api-server/src/middlewares/requireAuth.ts": [
+          "requireAuth",
+          "getAuth",
+          "attachAuthContext",
+        ],
+        "artifacts/api-server/src/types/express.d.ts": [
+          "AuthContext",
+          "authContext",
+          "isAuthenticated",
+        ],
+      },
+    },
+    {
+      claimId: "auth-project-access",
+      text:
+        "Project authorization separately verifies project existence and ownership instead of treating authentication as project access.",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/middlewares/requireProjectAccess.ts",
+        "artifacts/api-server/src/types/express.d.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "artifacts/api-server/src/middlewares/requireProjectAccess.ts": [
+          "loadOwnedProject",
+          "ownerId",
+          "requireProjectAccess",
+        ],
+        "artifacts/api-server/src/types/express.d.ts": [
+          "project",
+          "authorization",
+          "ownership",
+        ],
+      },
+    },
+    {
+      claimId: "auth-route-binding",
+      text:
+        "Routes that receive a project identifier bind it to the authenticated user through the project-access loader before using project data.",
+      requiredEvidencePaths: [
+        "artifacts/api-server/src/middlewares/requireProjectAccess.ts",
+        "artifacts/api-server/src/routes/ai/chat.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "artifacts/api-server/src/middlewares/requireProjectAccess.ts": [
+          "loadProjectByIdForUser",
+          "userId",
+          "projectId",
+        ],
+        "artifacts/api-server/src/routes/ai/chat.ts": [
+          "loadProjectByIdForUser",
+          "projectId",
+          "userId",
+        ],
+      },
+    },
+  ],
+  promptHint:
+    "Targeted authentication analysis: separate request authentication, identity/session context, " +
+    "project ownership authorization, and route-level project binding. Explain the handoff between " +
+    "these layers only from retained source evidence. Do not infer permissions, roles, or provider " +
+    "behavior that the source does not implement. Return ANALYSIS_INCOMPLETE when any identity, " +
+    "authorization, or route-binding claim is not proven.",
+};
+
 const CAPABILITY_GAP_AUDIT_CLAIMS = buildCapabilityParityObjectiveClaims(
   CAPABILITY_PARITY_BASELINE_V1,
 );
@@ -484,6 +687,12 @@ const CAPABILITY_GAP_AUDIT_PROMPT_HINT =
 
 const BROAD_GAP_REQUEST_RE =
   /(?:\b(?:full|complete|comprehensive|entire|whole|repository|workspace|codebase|audit|review)\b|(?:تدقيق|دقق|شامل|بالكامل|كل\s+(?:المشروع|الكود)))/iu;
+const DELIVERY_TARGET_RE =
+  /(?:\b(?:delivery|deliver|promotion|promote|release|candidate|publish)\b|التسليم|التوصيل|الترقية|الإصدار|النشر|المرشح)/iu;
+const AUTH_TARGET_RE =
+  /(?:\b(?:authentication|authorization|identity|permissions?)\b|مصادقة|توثيق|تفويض|هوية|صلاحيات)/iu;
+const TARGETED_DOMAIN_ANALYSIS_RE =
+  /(?:\b(?:analy[sz]e|analysis|explain|describe|understand|trace|follow|flow|architecture|how|what|why|where)\b|تحليل|حلل|اشرح|صف|افهم|تتبع|مسار|تدفق|معمارية|كيف|ماذا|لماذا|أين)/iu;
 
 const AMBIGUOUS_PROJECT_SCOPE_RE =
   /(?:\b(?:project|workspace|repository|repo|codebase|system|architecture|module|service|component|layer|workflow|pipeline|flow|function|class|handler|endpoint|implementation|source|code)\b|مشروع|المشروع|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر)|النظام|المعمارية|الهندسة|الوحدة|الخدمة|المكوّن|المكون|الطبقة|سير\s+العمل|التدفق|الدالة|الفئة|المعالج|النقطة|التنفيذ|المصدر|الكود|الشفرة)/iu;
@@ -595,6 +804,12 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
       },
       0.99,
     );
+  }
+  if (TARGETED_DOMAIN_ANALYSIS_RE.test(message) && DELIVERY_TARGET_RE.test(message)) {
+    return materializeTarget(DELIVERY_TARGET, 0.95);
+  }
+  if (TARGETED_DOMAIN_ANALYSIS_RE.test(message) && AUTH_TARGET_RE.test(message)) {
+    return materializeTarget(AUTH_TARGET, 0.95);
   }
   const aiSignal =
     /(?:الذكاء\s+الاصطناعي|ذكاء\s+اصطناعي|طبقة\s+(?:ال)?الذكاء\s+الاصطناعي|بنية\s+(?:ال)?ذكاء\s+(?:ال)?اصطناعي|معمارية\s+(?:(?:ال)?وكيل|(?:ال)?ذكاء\s+(?:ال)?اصطناعي)|\bAI\b|\bLLM\b|provider|orchestrator|chat\s+agent|نموذج\s+الذكاء)/iu;
@@ -733,7 +948,10 @@ export function buildProjectQueryObjective(
     objectiveType: `PROJECT_QUERY_${target.id.toUpperCase()}`,
     requiredEvidencePaths: [...requiredEvidencePaths],
     requiredClaims,
-    requiredEvidenceEdges: EMBEDDED_AI_EXECUTION_EDGES.map((edge) => ({ ...edge })),
+    requiredEvidenceEdges:
+      target.id === "delivery" || target.id === "auth"
+        ? []
+        : EMBEDDED_AI_EXECUTION_EDGES.map((edge) => ({ ...edge })),
     scopePolicy: {
       primaryPaths: [...target.primaryPaths],
       allowedExpansionPaths: [...target.allowedExpansionPaths],

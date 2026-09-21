@@ -252,6 +252,7 @@ type EvidenceRoutingSignals = {
   normalizedMessage: string;
   gapAnalysisProjectQuery: boolean;
   targetedProjectQuery: boolean;
+  serverBoundTargetedProjectQuery: boolean;
   unresolvedProjectQuery: boolean;
   resumedForensicContinuation: boolean;
   projectOrientation: boolean;
@@ -285,6 +286,7 @@ function resolveEvidenceIntent({
   normalizedMessage,
   gapAnalysisProjectQuery,
   targetedProjectQuery,
+  serverBoundTargetedProjectQuery,
   unresolvedProjectQuery,
   resumedForensicContinuation,
   projectOrientation,
@@ -295,7 +297,7 @@ function resolveEvidenceIntent({
   // These are hard boundaries, not competing scores.
   if (
     isLowRiskChat ||
-    isExploration ||
+    (isExploration && !serverBoundTargetedProjectQuery) ||
     implementationDelivery ||
     planDelivery ||
     implementationPlanResume ||
@@ -304,7 +306,11 @@ function resolveEvidenceIntent({
     return false;
   }
 
-  const evidenceCapable = routeRequiresEvidence || isDeepAnalysis;
+  const evidenceCapable =
+    routeRequiresEvidence
+    || isDeepAnalysis
+    || serverBoundTargetedProjectQuery
+    || unresolvedProjectQuery;
   if (!evidenceCapable) return false;
 
   const categoryEvidence =
@@ -322,8 +328,9 @@ function resolveEvidenceIntent({
     isExplicitBehaviorQueryRequest(message);
   const projectEvidence =
     gapAnalysisProjectQuery ||
-    targetedProjectQuery ||
-    unresolvedProjectQuery;
+    serverBoundTargetedProjectQuery ||
+    unresolvedProjectQuery ||
+    (targetedProjectQuery && !isExploration);
 
   return (
     explicitEvidence ||
@@ -427,6 +434,9 @@ export function resolveTurnIntent(
       )
     );
   const targetedProjectQuery = Boolean(classification.projectTarget);
+  const serverBoundTargetedProjectQuery =
+    classification.projectTarget?.id === "delivery"
+    || classification.projectTarget?.id === "auth";
   const unresolvedProjectQuery =
     classification.projectTargetResolution === "unresolved";
   const projectQueryTargetMode: ProjectQueryTargetMode | undefined =
@@ -450,6 +460,7 @@ export function resolveTurnIntent(
     classification.orderedForensicRoots.length === 0 &&
     isLowRiskChatQuestion(message) &&
     !isGapAnalysisRequest(message) &&
+    !classification.projectTarget &&
     !implementationDelivery &&
     !classification.implementationTaskMode &&
     !classification.implementationPlanMode;
@@ -514,6 +525,7 @@ export function resolveTurnIntent(
     normalizedMessage,
     gapAnalysisProjectQuery,
     targetedProjectQuery,
+    serverBoundTargetedProjectQuery,
     unresolvedProjectQuery,
     resumedForensicContinuation,
     projectOrientation,

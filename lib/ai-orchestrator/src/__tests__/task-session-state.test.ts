@@ -99,6 +99,38 @@ describe("active task session state", () => {
     expect(resumed.classification.projectTarget?.id).toBe("embedded-ai");
   });
 
+  it.each([
+    [
+      "delivery",
+      "Explain how candidate validation moves through release quality and promotion.",
+      "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+    ],
+    [
+      "auth",
+      "Trace authentication, identity context, and project authorization in the API.",
+      "artifacts/api-server/src/middlewares/requireAuth.ts",
+    ],
+  ])("persists the %s target contract across a session resume", (targetId, message, evidencePath) => {
+    const classification = classifyRequest(message);
+    expect(classification.projectTarget?.id).toBe(targetId);
+    const state = buildActiveTaskState({
+      classification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      revision: "revision-target-contract",
+      projectQuery: classification.projectTarget,
+    });
+
+    expect(state?.projectQuery).toMatchObject({
+      id: targetId,
+      requiredEvidencePaths: expect.arrayContaining([evidencePath]),
+    });
+    const restored = parseActiveTaskState(serializeActiveTaskState(state!));
+    expect(restored?.projectQuery?.id).toBe(targetId);
+    expect(restored?.projectQuery?.requiredEvidencePaths).toContain(evidencePath);
+  });
+
   it("inherits the embedded-AI evidence contract for a weakness follow-up", () => {
     const classification = classifyRequest("اشرح آلية عمل وكيل الذكاء الاصطناعي المدمج داخل المشروع");
     expect(classification.projectTarget?.id).toBe("embedded-ai");

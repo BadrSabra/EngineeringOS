@@ -1068,6 +1068,46 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     }
   });
 
+  it.each([
+    [
+      "delivery",
+      "Explain how candidate validation moves through release quality and promotion.",
+      "## Delivery, validation, and promotion flow",
+      "candidate integrity",
+    ],
+    [
+      "auth",
+      "Trace authentication, identity context, and project authorization in the API.",
+      "## Authentication and project-authorization flow",
+      "request identity",
+    ],
+  ])("uses the %s target shape for deterministic evidence synthesis", async (
+    _targetId,
+    message,
+    title,
+    flowSignal,
+  ) => {
+    const { buildProjectQueryEvidenceSynthesis } = await import("../agents/chat-agent.js");
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe(_targetId);
+    const objective = buildProjectQueryObjective(target!, message);
+    const evidence = objective.requiredClaims.map((claim, index) => ({
+      claimId: claim.claimId,
+      source: claim.requiredEvidencePaths?.[0] ?? "target-source.ts",
+      excerpt: `${claim.text}\ntarget evidence checkpoint ${index + 1}`,
+      sourceSpan: { startLine: index + 1, endLine: index + 2 },
+    }));
+
+    const response = buildProjectQueryEvidenceSynthesis(objective, evidence, "en");
+
+    expect(response).toContain(title);
+    expect(response).toContain(flowSignal);
+    expect(response).not.toContain("## How the embedded AI agent works");
+    for (const claim of objective.requiredClaims) {
+      expect(response).toContain(claim.text);
+    }
+  });
+
   it("keeps architecture-only answers incomplete when weaknesses are requested", () => {
     const message =
       "Explain how the embedded AI agent works and identify its weaknesses.";

@@ -90,6 +90,72 @@ describe("target-aware project queries", () => {
     );
   });
 
+  it("resolves delivery and authentication as independent server-owned targets", () => {
+    const delivery = resolveProjectQueryTarget(
+      "Explain how candidate validation moves through release quality and promotion.",
+    );
+    const auth = resolveProjectQueryTarget(
+      "Trace authentication, identity context, and project authorization in the API.",
+    );
+
+    expect(delivery?.id).toBe("delivery");
+    expect(delivery?.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "delivery-candidate-integrity",
+      "delivery-validation-gate",
+      "delivery-promotion-boundary",
+    ]);
+    expect(delivery?.requiredEvidencePaths).toEqual(expect.arrayContaining([
+      "artifacts/api-server/src/lib/ai-promotion-decision.ts",
+      "artifacts/api-server/src/lib/ai-release-quality-gate.ts",
+      "artifacts/api-server/src/lib/delivery-workspace.ts",
+    ]));
+
+    expect(auth?.id).toBe("auth");
+    expect(auth?.requiredClaims.map((claim) => claim.claimId)).toEqual([
+      "auth-identity-context",
+      "auth-project-access",
+      "auth-route-binding",
+    ]);
+    expect(auth?.requiredEvidencePaths).toEqual(expect.arrayContaining([
+      "artifacts/api-server/src/middlewares/requireAuth.ts",
+      "artifacts/api-server/src/middlewares/requireProjectAccess.ts",
+      "artifacts/api-server/src/types/express.d.ts",
+    ]));
+
+    const deliveryObjective = buildProjectQueryObjective(
+      delivery!,
+      "Explain how candidate validation moves through release quality and promotion.",
+    );
+    const authObjective = buildProjectQueryObjective(
+      auth!,
+      "Trace authentication, identity context, and project authorization in the API.",
+    );
+    expect(deliveryObjective.requiredEvidenceEdges).toEqual([]);
+    expect(authObjective.requiredEvidenceEdges).toEqual([]);
+
+    const deliveryClassification = classifyRequest(
+      "Explain how candidate validation moves through release quality and promotion.",
+    );
+    const deliveryIntent = resolveTurnIntent(
+      "Explain how candidate validation moves through release quality and promotion.",
+      { classification: deliveryClassification },
+    );
+    expect(deliveryClassification.projectTarget?.id).toBe("delivery");
+    expect(deliveryIntent.kind).toBe("PROJECT_QUERY");
+    expect(deliveryIntent.requiresEvidence).toBe(true);
+
+    const authClassification = classifyRequest(
+      "Trace authentication, identity context, and project authorization in the API.",
+    );
+    const authIntent = resolveTurnIntent(
+      "Trace authentication, identity context, and project authorization in the API.",
+      { classification: authClassification },
+    );
+    expect(authClassification.projectTarget?.id).toBe("auth");
+    expect(authIntent.kind).toBe("PROJECT_QUERY");
+    expect(authIntent.requiresEvidence).toBe(true);
+  });
+
   it("builds a server-owned objective with required claims and scope", () => {
     const target = resolveProjectQueryTarget("analyze the embedded AI layer");
     expect(target).toBeDefined();

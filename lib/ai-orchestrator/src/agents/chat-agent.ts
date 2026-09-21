@@ -5559,6 +5559,34 @@ export function buildProjectQueryEvidenceSynthesis(
       en: "Finally, the report retains priority, dependencies, and acceptance criteria for each actionable gap, while listing unresolved items as UNKNOWN instead of guessing.",
     },
   };
+  const deliveryFlowByClaimId: Record<string, { ar: string; en: string }> = {
+    "delivery-candidate-integrity": {
+      ar: "أولاً، يثبت المسار سلامة candidate عبر tree hash وchange-set hash قبل اعتبار التغيير مؤهلاً للترقية.",
+      en: "First, the path proves candidate integrity through the tree hash and change-set hash before treating the change as promotion-eligible.",
+    },
+    "delivery-validation-gate": {
+      ar: "ثم تمر الحالة عبر release quality gate، ولا تكفي نتيجة provider أو قراءة غير مكتملة لإغلاق بوابة التحقق.",
+      en: "Then the candidate passes through the release quality gate; provider success or an incomplete read cannot close that validation gate.",
+    },
+    "delivery-promotion-boundary": {
+      ar: "وأخيراً، تبقى promotion مشروطة بالموافقة والنطاق وسلامة candidate؛ قرار الأهلية وحده لا يمنح write authority.",
+      en: "Finally, promotion remains conditional on approval, scope, and candidate integrity; eligibility alone does not grant write authority.",
+    },
+  };
+  const authFlowByClaimId: Record<string, { ar: string; en: string }> = {
+    "auth-identity-context": {
+      ar: "أولاً، يثبت requireAuth هوية الطلب وسياق الجلسة قبل تمرير المسار المحمي.",
+      en: "First, requireAuth establishes the request identity and session context before protected route work continues.",
+    },
+    "auth-project-access": {
+      ar: "ثم تفصل طبقة project access بين وجود جلسة صالحة وبين امتلاك المشروع، وتتحقق من ownership بشكل مستقل.",
+      en: "Then the project-access layer separates a valid session from project ownership and verifies ownership independently.",
+    },
+    "auth-route-binding": {
+      ar: "وأخيراً، تربط route التي تستقبل projectId هذا المعرف بالمستخدم المصادق عليه قبل استخدام بيانات المشروع.",
+      en: "Finally, routes receiving a projectId bind it to the authenticated user before using project data.",
+    },
+  };
   const genericFlow = isArabic
     ? [
         "أولاً، يبدأ المسار بفهم السؤال وتحديد نوع التنفيذ المطلوب.",
@@ -5571,9 +5599,17 @@ export function buildProjectQueryEvidenceSynthesis(
         "Finally, the answer is written from the behavior established by those reads, while anything not read remains outside the conclusion.",
       ];
   const isGapAnalysis = isGapAnalysisObjective(objective);
+  const isDeliveryAnalysis = objective.objectiveType === "PROJECT_QUERY_DELIVERY";
+  const isAuthAnalysis = objective.objectiveType === "PROJECT_QUERY_AUTH";
   const isCapabilityGapAudit =
     isGapAnalysis && isCapabilityGapAuditRequest(objective.goal ?? "");
-  const flowMap = isGapAnalysis ? gapFlowByClaimId : flowByClaimId;
+  const flowMap = isGapAnalysis
+    ? gapFlowByClaimId
+    : isDeliveryAnalysis
+      ? deliveryFlowByClaimId
+      : isAuthAnalysis
+        ? authFlowByClaimId
+        : flowByClaimId;
   const gapGenericFlow = isCapabilityGapAudit
     ? isArabic
       ? [
@@ -5597,7 +5633,33 @@ export function buildProjectQueryEvidenceSynthesis(
           "Next, each checkpoint is compared with the completed read, and symbol names alone are not converted into a defect claim.",
           "Finally, any weakness without a direct executable excerpt remains unproven.",
         ];
-  const selectedGenericFlow = isGapAnalysis ? gapGenericFlow : genericFlow;
+  const selectedGenericFlow = isGapAnalysis
+    ? gapGenericFlow
+    : isDeliveryAnalysis
+      ? isArabic
+        ? [
+            "أولاً، يبدأ التحليل من materialized candidate، ثم يتحقق من سلامة الشجرة ومجموعة التغييرات.",
+            "بعد ذلك، تمر الحالة عبر release validation، ولا تُحوّل الأهلية أو provider response وحدهما إلى إثبات للتسليم.",
+            "وأخيراً، لا تحدث promotion إلا داخل حدود الموافقة والنطاق والـcandidate integrity المثبتة.",
+          ]
+        : [
+            "First, the analysis starts from the materialized candidate, then checks tree and change-set integrity.",
+            "Next, the candidate passes release validation; eligibility or a provider response alone does not prove delivery.",
+            "Finally, promotion stays inside the proven approval, scope, and candidate-integrity boundaries.",
+          ]
+      : isAuthAnalysis
+        ? isArabic
+          ? [
+              "أولاً، يحدد مسار المصادقة هوية الطلب وسياق الجلسة.",
+              "ثم يتحقق مسار authorization من ownership والوصول إلى المشروع بشكل مستقل.",
+              "وأخيراً، تستخدم routes هذا السياق لربط projectId بالمستخدم قبل الوصول إلى البيانات.",
+            ]
+          : [
+              "First, the authentication path establishes request identity and session context.",
+              "Next, authorization verifies project ownership and access independently.",
+              "Finally, routes use that context to bind projectId to the authenticated user before reading project data.",
+            ]
+        : genericFlow;
   const isLayerAnalysis = !isGapAnalysis
     && objective.objectiveType === "PROJECT_QUERY_EMBEDDED-AI"
     && isEmbeddedAiLayerAnalysisRequest(objective.goal ?? "");
@@ -5605,9 +5667,24 @@ export function buildProjectQueryEvidenceSynthesis(
     ? isArabic
       ? "## طبقات الذكاء الاصطناعي داخل المشروع"
       : "## AI layers inside the project"
-    : isArabic
-      ? "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟"
-      : "## How the embedded AI agent works";
+    : isDeliveryAnalysis
+      ? isArabic ? "## مسار التسليم والتحقق والترقية" : "## Delivery, validation, and promotion flow"
+      : isAuthAnalysis
+        ? isArabic ? "## مسار المصادقة وتفويض الوصول إلى المشروع" : "## Authentication and project-authorization flow"
+        : isArabic
+          ? "## كيف يعمل وكيل الذكاء الاصطناعي داخل المشروع؟"
+          : "## How the embedded AI agent works";
+  const projectQuerySummary = isDeliveryAnalysis
+    ? isArabic
+      ? "باختصار، يمر التسليم من candidate materialized إلى فحص integrity، ثم release validation، ثم قرار promotion محكوم بالموافقة والنطاق. لا يثبت هذا التحليل أن التسليم حدث فعلاً خارج ما تظهره القراءات."
+      : "In short, delivery moves from a materialized candidate through integrity checks and release validation to a promotion decision bounded by approval and scope. This analysis does not prove that delivery occurred beyond the retained reads."
+    : isAuthAnalysis
+      ? isArabic
+        ? "باختصار، تفصل البنية بين authentication التي تثبت هوية الطلب، وauthorization التي تتحقق من ملكية المشروع، ثم route binding الذي يربط projectId بالمستخدم. لا تُستنتج صلاحيات إضافية من هذه القراءات."
+        : "In short, the system separates authentication, which establishes request identity, from authorization, which verifies project ownership, followed by route binding for projectId. Additional permissions are not inferred from these reads."
+      : isArabic
+        ? "باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات."
+        : "In short, the agent interprets the question, selects an execution path, gathers source evidence, dispatches the provider request, and then writes an answer bounded by what was verified. No files were modified in this analysis.";
   const flow = evidence
     .map((item) => flowMap[item.claimId]?.[isArabic ? "ar" : "en"])
     .filter((sentence): sentence is string => Boolean(sentence));
@@ -5683,7 +5760,7 @@ export function buildProjectQueryEvidenceSynthesis(
       ? [
            projectQueryTitle,
           "",
-          "باختصار، يمر الوكيل من فهم السؤال إلى اختيار مسار التنفيذ، ثم جمع الأدلة من الكود، ثم إرسال الطلب للمزود، وأخيراً صياغة إجابة مرتبطة بما تم التحقق منه. في هذا التحليل لم تُعدّل أي ملفات.",
+          projectQuerySummary,
           "",
           "### الدورة العملية",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
@@ -5704,7 +5781,7 @@ export function buildProjectQueryEvidenceSynthesis(
       : [
            projectQueryTitle,
           "",
-          "In short, the agent interprets the question, selects an execution path, gathers source evidence, dispatches the provider request, and then writes an answer bounded by what was verified. No files were modified in this analysis.",
+          projectQuerySummary,
           "",
           "### The practical flow",
           ...(flow.length > 0 ? flow : selectedGenericFlow),
