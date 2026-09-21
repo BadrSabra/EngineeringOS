@@ -133,6 +133,13 @@ describe("target-aware project queries", () => {
     expect(deliveryObjective.requiredEvidenceEdges).toEqual([]);
     expect(authObjective.requiredEvidenceEdges).toEqual([]);
 
+    const gapTarget = resolveProjectQueryTarget("identify verified gaps in the project");
+    expect(gapTarget?.id).toBe("gap-analysis");
+    expect(buildProjectQueryObjective(
+      gapTarget!,
+      "identify verified gaps in the project",
+    ).requiredEvidenceEdges).toEqual([]);
+
     const deliveryClassification = classifyRequest(
       "Explain how candidate validation moves through release quality and promotion.",
     );

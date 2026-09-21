@@ -3545,6 +3545,7 @@ function gateForensicResponse(
 export function isUsableObjectiveLocatorBody(body: string): boolean {
   const trimmed = body.trim();
   if (!trimmed) return false;
+  if (Buffer.byteLength(body, "utf8") > MAX_COMPLETE_EVIDENCE_BYTES) return false;
   if (/^Error\b/i.test(trimmed)) return false;
   if (/^Contents of\s+/i.test(trimmed)) return false;
   if (/^Synthesis phase is active\./i.test(trimmed)) return false;

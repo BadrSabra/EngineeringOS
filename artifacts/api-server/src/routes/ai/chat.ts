@@ -386,12 +386,26 @@ function deriveProjectQueryAnalysisEvidence(params: {
     .filter((path) => path.length > 0)
     .filter((path) => readStatuses.get(path) !== "READ_TRUNCATED"
       && readStatuses.get(path) !== "READ_FAILED");
-  const retainedBodies = new Map(
-    [...params.retainedEvidence.entries()].map(([filePath, body]) => [
-      normalizePath(filePath),
-      body,
-    ]),
+  // The orchestrator trace is navigation/diagnostic telemetry. Durable
+  // project-query proof must use the same bounded retained-read projection
+  // that terminal snapshots use; otherwise an accepted trace path can appear
+  // complete here even though its body was evicted or rejected as oversized.
+  const retainedReads = new Map(
+    (collectRetainedEvidenceReads(
+      params.retainedEvidence,
+      true,
+      readStatuses,
+      params.traceSteps,
+    ) ?? []).map((read) => [normalizePath(read.path), read] as const),
   );
+  const integrityEvidencePaths = [
+    ...(integrity.completedReadFiles ?? []),
+    ...(integrity.acceptedEvidenceFiles ?? []),
+  ].map(normalizePath).filter(Boolean);
+  const durableEvidenceMismatch = [...new Set(integrityEvidencePaths)].some((path) => {
+    const read = retainedReads.get(path);
+    return !read || !read.complete || read.truncated;
+  });
   const manifestPaths = new Set([
     ...(objective.data.requiredEvidencePaths ?? []),
     ...completedReadFiles,
@@ -401,23 +415,28 @@ function deriveProjectQueryAnalysisEvidence(params: {
   const readManifest: AnalysisEvidenceRead[] = [...manifestPaths]
     .sort()
     .map((filePath) => {
-      const body = retainedBodies.get(filePath);
+      const retainedRead = retainedReads.get(filePath);
+      const body = retainedRead?.complete && !retainedRead.truncated
+        ? retainedRead.body
+        : "";
       const observedStatus = readStatuses.get(filePath)
         ?? (completedReadFiles.some((path) => normalizePath(path) === filePath)
           ? "READ_COMPLETE"
           : "READ_FAILED");
-      const status = observedStatus === "READ_CACHED"
-        ? "READ_COMPLETE"
-        : observedStatus;
+      const status = retainedRead?.truncated
+        ? "READ_TRUNCATED"
+        : !retainedRead?.complete
+          ? (observedStatus === "READ_FAILED" ? "READ_FAILED" : "READ_TRUNCATED")
+          : observedStatus === "READ_CACHED"
+            ? "READ_COMPLETE"
+            : observedStatus;
       return {
         path: filePath,
         status,
         operationId: params.operationId,
         sourceRevision: params.sourceRevision,
-        contentHash: body === undefined
-          ? ""
-          : createHash("sha256").update(body).digest("hex"),
-        byteLength: body === undefined ? 0 : Buffer.byteLength(body, "utf8"),
+        contentHash: createHash("sha256").update(body).digest("hex"),
+        byteLength: Buffer.byteLength(body, "utf8"),
       };
     });
   const objectiveVerdict = decision.trace.objectiveVerdict;
@@ -429,7 +448,7 @@ function deriveProjectQueryAnalysisEvidence(params: {
     acceptedEvidenceFiles: integrity.acceptedEvidenceFiles ?? [],
     readManifest,
     acceptedClaimCount: integrity.acceptedClaimCount ?? 0,
-    evidenceConsistent: integrity.consistent,
+    evidenceConsistent: integrity.consistent && !durableEvidenceMismatch,
     ...(integrity.completionGateResult
       ? { completionGateResult: integrity.completionGateResult }
       : {}),

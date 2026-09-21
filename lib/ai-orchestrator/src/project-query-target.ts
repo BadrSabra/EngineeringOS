@@ -957,9 +957,9 @@ export function buildProjectQueryObjective(
     requiredEvidencePaths: [...requiredEvidencePaths],
     requiredClaims,
     requiredEvidenceEdges:
-      target.id === "delivery" || target.id === "auth"
-        ? []
-        : EMBEDDED_AI_EXECUTION_EDGES.map((edge) => ({ ...edge })),
+      target.id === "embedded-ai"
+        ? EMBEDDED_AI_EXECUTION_EDGES.map((edge) => ({ ...edge }))
+        : [],
     scopePolicy: {
       primaryPaths: [...target.primaryPaths],
       allowedExpansionPaths: [...target.allowedExpansionPaths],

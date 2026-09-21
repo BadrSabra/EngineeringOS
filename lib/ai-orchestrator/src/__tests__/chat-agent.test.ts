@@ -337,6 +337,13 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(incompleteContents.get("src/oversized.ts")).toHaveLength(256 * 1024 + 1);
   });
 
+  it("does not treat a marker-free oversized locator body as usable objective evidence", async () => {
+    const { isUsableObjectiveLocatorBody } = await import("../agents/chat-agent.js");
+
+    expect(isUsableObjectiveLocatorBody("x".repeat(256 * 1024 + 1))).toBe(false);
+    expect(isUsableObjectiveLocatorBody("export const answer = true;\n")).toBe(true);
+  });
+
   it("does not repeat a truncated eager read across provider attempts", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "prefetch-fallback-dedup-"));
     const relativePath = "src/large.ts";
