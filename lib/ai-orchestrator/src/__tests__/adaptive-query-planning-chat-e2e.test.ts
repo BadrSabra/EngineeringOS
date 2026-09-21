@@ -968,6 +968,43 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("rejects traversal aliases that canonicalize outside the declared sub-query scope", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallPathByTarget: {
+          [ACCEPTANCE]: "src/acceptance/../../docs/system-overview.md",
+        },
+        correctAfterScopeBlock: true,
+        scopeCorrectionPathByTarget: { [ACCEPTANCE]: ACCEPTANCE },
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate, evidence producer, and counterevidence tests " +
+          "were retained after canonical scope validation.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: keep path ownership canonical.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(3);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toContain(ACCEPTANCE);
+      expect(graphReads).not.toContain(GENERAL);
+      expect(graphReads).not.toContain("src/acceptance/../../docs/system-overview.md");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("repairs an invalid targeted range after the tool reports its argument contract", async () => {
     const rootPath = await makeRoot();
     try {
