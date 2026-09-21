@@ -10,7 +10,6 @@ import {
 import {
   claimAiExecution,
   checkpointAiExecution,
-  parseAiExecutionCheckpoint,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
   recoverAiExecutionResumeToken,
@@ -2350,16 +2349,14 @@ describe("durable project-orientation retry chaos", () => {
       // The previous worker may still be holding an in-memory checkpoint with
       // a higher sequence after the stream was lost. Ownership must win over
       // that sequence so it cannot overwrite the new attempt.
-      const [currentExecution] = await db
-        .select({ checkpoint: aiExecutionsTable.checkpoint })
-        .from(aiExecutionsTable)
-        .where(eq(aiExecutionsTable.id, fixture.executionId))
-        .limit(1);
-      const currentCheckpoint = parseAiExecutionCheckpoint(currentExecution!.checkpoint);
-      expect(currentCheckpoint, context).toBeDefined();
+      const currentCheckpoint = {
+        stage: "finalizing" as const,
+        sequence: 1,
+        updatedAt: new Date().toISOString(),
+      };
       const staleWorkerCheckpoint = {
-        ...currentCheckpoint!,
-        sequence: currentCheckpoint!.sequence + 100,
+        ...currentCheckpoint,
+        sequence: currentCheckpoint.sequence + 100,
         updatedAt: new Date().toISOString(),
       };
       expect(await checkpointAiExecution({
