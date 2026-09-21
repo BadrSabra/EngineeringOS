@@ -1004,6 +1004,41 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("bounds repeated invalid range corrections instead of allowing an adaptive loop", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallNameByTarget: { [ACCEPTANCE]: "read_file_range" },
+        invalidRangeFirstByTarget: { [ACCEPTANCE]: true },
+        correctAfterRangeError: true,
+        repeatInvalidRangeCorrection: true,
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate was not retained.\n" +
+          "GAPS: the targeted range contract remained invalid.\n" +
+          "PRIORITIES: retry only with a valid bounded range.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      const acceptanceCalls = providerCalls.filter(
+        (call) => call.kind === "subquery" && call.target === ACCEPTANCE,
+      );
+      expect(acceptanceCalls.length).toBeGreaterThanOrEqual(3);
+      expect(acceptanceCalls.length).toBeLessThanOrEqual(5);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("PROVEN");
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).not.toContain(ACCEPTANCE);
+      expect(graphReads).not.toContain(EVIDENCE);
+      expect(graphReads).not.toContain(COUNTEREVIDENCE);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("continues independent siblings when one fallback source is missing", async () => {
     const rootPath = await makeRoot();
     await fs.rm(path.join(rootPath, ADAPTER));
