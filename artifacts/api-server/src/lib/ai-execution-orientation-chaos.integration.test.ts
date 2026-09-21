@@ -2873,6 +2873,74 @@ describe("durable project-orientation retry chaos", () => {
     }
   });
 
+  it("does not treat a finalization key from another execution as an idempotent duplicate", async () => {
+    const left = await createFailedOrientationFixture("adaptive-finalization-key-left");
+    const right = await createFailedOrientationFixture("adaptive-finalization-key-right");
+    const context = `adaptive finalization-key namespace; left=${left.executionId}; right=${right.executionId}`;
+
+    try {
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: right.executionId,
+        userId: right.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: right.executionId,
+        userId: right.userId,
+        workerId: "right-execution-worker",
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "right-execution-worker",
+      });
+
+      const collision = await finalizeExecutionAcceptance({
+        executionId: right.executionId,
+        expectedAttempt: 1,
+        workerId: "right-execution-worker",
+        finalizationKey: `${left.executionId}:attempt:0`,
+        outcome: "FAILED",
+        terminalStatus: "failed",
+        reasonCode: "EXECUTION_PROVIDER_FAILURE",
+        recoveryState: "REQUIRED",
+        resumable: true,
+        error: "finalization key was copied from another execution",
+      });
+      expect(collision, context).toMatchObject({
+        accepted: false,
+        duplicate: false,
+      });
+
+      const [rightState] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, right.executionId))
+        .limit(1);
+      expect(rightState, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "right-execution-worker",
+      });
+
+      const rightAcceptances = await db
+        .select({ attempt: aiExecutionAcceptancesTable.attempt })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, right.executionId));
+      expect(rightAcceptances, context).toEqual([{ attempt: 0 }]);
+    } finally {
+      await left.cleanup();
+      await right.cleanup();
+    }
+  });
+
   it("keeps claim-before-cancel owned by the worker until cancellation finalization", async () => {
     const fixture = await createFailedOrientationFixture("adaptive-claim-before-cancel");
     const context = `adaptive claim-before-cancel fence; execution=${fixture.executionId}`;

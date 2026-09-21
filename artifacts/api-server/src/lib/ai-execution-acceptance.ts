@@ -743,7 +743,19 @@ export async function finalizeExecutionAcceptance(
       .from(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.finalizationKey, params.finalizationKey))
       .limit(1);
-    if (existingByKey) return { accepted: true, duplicate: true, acceptance: existingByKey };
+    if (existingByKey) {
+      if (
+        existingByKey.executionId !== params.executionId
+        || existingByKey.attempt !== execution.attempt
+      ) {
+        return {
+          accepted: false,
+          duplicate: false,
+          reason: "Finalization key belongs to another execution attempt.",
+        };
+      }
+      return { accepted: true, duplicate: true, acceptance: existingByKey };
+    }
 
     const [existing] = await tx
       .select()

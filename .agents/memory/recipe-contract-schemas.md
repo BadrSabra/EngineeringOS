@@ -68,3 +68,9 @@ Terminal failures for a `running` execution require an explicit worker identity 
 **Why:** A callback from the current attempt can still be stale after lease ownership changes. If its worker identity is omitted, accepting it can terminalize the replacement worker's live execution.
 
 **How to apply:** Require `workerId` for worker-originated failure/interruption callbacks, while allowing only reconciliation snapshots and non-running operator cancellation/abandon paths to omit it.
+
+Finalization idempotency is scoped to both execution and attempt; a key found on another execution or an older attempt must be rejected, not reported as an accepted duplicate.
+
+**Why:** A copied or malformed provider callback can reuse a valid key from another execution. Global key lookup otherwise returns the wrong acceptance and hides that the target execution was never terminalized.
+
+**How to apply:** When a key already exists, compare its execution and attempt to the locked target before returning `duplicate`; reject cross-scope collisions before any insert can hit the global unique constraint.
