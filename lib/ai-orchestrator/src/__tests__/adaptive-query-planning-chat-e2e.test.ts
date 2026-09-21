@@ -220,6 +220,7 @@ type Scenario = {
   toolCallPathByTarget?: Record<string, string>;
   toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
   correctAfterScopeBlock?: boolean;
+  abortAfterScopeCorrection?: boolean;
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
   malformedMixedToolCallByTarget?: Record<string, boolean>;
@@ -316,6 +317,7 @@ function makeStrategy(options: {
   toolCallPathByTarget?: Record<string, string>;
   toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
   correctAfterScopeBlock?: boolean;
+  abortAfterScopeCorrection?: boolean;
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
   malformedMixedToolCallByTarget?: Record<string, boolean>;
@@ -502,6 +504,9 @@ function makeStrategy(options: {
         !correctedScopeTargets.has(target)
       ) {
         correctedScopeTargets.add(target);
+        if (options.abortAfterScopeCorrection) {
+          options.abortController?.abort();
+        }
         return {
           content: "",
           toolCalls: [
@@ -674,6 +679,7 @@ async function runScenario(scenario: Scenario) {
     toolCallPathByTarget: scenario.toolCallPathByTarget,
     toolCallNameByTarget: scenario.toolCallNameByTarget,
     correctAfterScopeBlock: scenario.correctAfterScopeBlock,
+    abortAfterScopeCorrection: scenario.abortAfterScopeCorrection,
     scopeCorrectionPathByTarget: scenario.scopeCorrectionPathByTarget,
     additionalToolCallPathByTarget: scenario.additionalToolCallPathByTarget,
     malformedMixedToolCallByTarget: scenario.malformedMixedToolCallByTarget,
