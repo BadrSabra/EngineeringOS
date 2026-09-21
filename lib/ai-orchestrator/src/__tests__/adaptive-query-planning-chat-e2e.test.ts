@@ -211,6 +211,7 @@ type Scenario = {
   abortAfterSubqueryTarget?: string;
   subqueryDelayMs?: number;
   toolCallPathByTarget?: Record<string, string>;
+  toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
 };
 
 async function configureChat(
@@ -293,6 +294,7 @@ function makeStrategy(options: {
   abortAfterSubqueryTarget?: string;
   subqueryDelayMs?: number;
   toolCallPathByTarget?: Record<string, string>;
+  toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -405,6 +407,13 @@ function makeStrategy(options: {
 
       if (!hasToolOutput && reads === 0) {
         subqueryReads.set(target, reads + 1);
+          const toolName = options.toolCallNameByTarget?.[target] ?? "read_file";
+          const toolArguments = {
+            path: options.toolCallPathByTarget?.[target] ?? target,
+            ...(toolName === "read_file_range"
+              ? { start_line: 1, end_line: 5 }
+              : {}),
+          };
         return {
           content: "",
           toolCalls: [
@@ -412,10 +421,8 @@ function makeStrategy(options: {
               id: `read-${target}`,
               type: "function" as const,
               function: {
-                name: "read_file",
-                  arguments: JSON.stringify({
-                    path: options.toolCallPathByTarget?.[target] ?? target,
-                  }),
+                  name: toolName,
+                  arguments: JSON.stringify(toolArguments),
               },
             },
           ],
@@ -467,6 +474,7 @@ async function runScenario(scenario: Scenario) {
     abortAfterSubqueryTarget: scenario.abortAfterSubqueryTarget,
     subqueryDelayMs: scenario.subqueryDelayMs,
     toolCallPathByTarget: scenario.toolCallPathByTarget,
+    toolCallNameByTarget: scenario.toolCallNameByTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -657,6 +665,32 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(graphReads).not.toContain(ACCEPTANCE);
       expect(graphReads).not.toContain(EVIDENCE);
       expect(graphReads).not.toContain(COUNTEREVIDENCE);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("applies the same target boundary to out-of-scope read_file_range calls", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallNameByTarget: { [ACCEPTANCE]: "read_file_range" },
+        toolCallPathByTarget: { [ACCEPTANCE]: GENERAL },
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate is verified in `src/acceptance/gate.ts`.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: ship the verified implementation.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([[ACCEPTANCE, 1]]));
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("citation is not a retained source window");
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual([]);
+      expect(result.response).not.toContain(GENERAL);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
