@@ -212,6 +212,7 @@ type Scenario = {
   subqueryDelayMs?: number;
   toolCallPathByTarget?: Record<string, string>;
   toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
+  correctAfterScopeBlock?: boolean;
 };
 
 async function configureChat(
@@ -295,9 +296,11 @@ function makeStrategy(options: {
   subqueryDelayMs?: number;
   toolCallPathByTarget?: Record<string, string>;
   toolCallNameByTarget?: Record<string, "read_file" | "read_file_range">;
+  correctAfterScopeBlock?: boolean;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
+  const correctedScopeTargets = new Set<string>();
   let activeSubqueries = 0;
   let maxConcurrentSubqueries = 0;
   const targetByIntent = options.targetByIntent ?? TARGET_BY_INTENT;
@@ -405,6 +408,30 @@ function makeStrategy(options: {
         throw new Error(`simulated provider failure after reading ${target}`);
       }
 
+      if (
+        options.correctAfterScopeBlock &&
+        hasToolOutput &&
+        serialized.includes("explicitly named target file") &&
+        !correctedScopeTargets.has(target)
+      ) {
+        correctedScopeTargets.add(target);
+        return {
+          content: "",
+          toolCalls: [
+            {
+              id: `corrected-read-${target}`,
+              type: "function" as const,
+              function: {
+                name: "read_file",
+                arguments: JSON.stringify({ path: target }),
+              },
+            },
+          ],
+          model: "adaptive-test-model",
+          usage: {},
+        };
+      }
+
       if (!hasToolOutput && reads === 0) {
         subqueryReads.set(target, reads + 1);
           const toolName = options.toolCallNameByTarget?.[target] ?? "read_file";
@@ -475,6 +502,7 @@ async function runScenario(scenario: Scenario) {
     subqueryDelayMs: scenario.subqueryDelayMs,
     toolCallPathByTarget: scenario.toolCallPathByTarget,
     toolCallNameByTarget: scenario.toolCallNameByTarget,
+    correctAfterScopeBlock: scenario.correctAfterScopeBlock,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
