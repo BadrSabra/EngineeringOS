@@ -460,6 +460,22 @@ export type SynthesisSafetyValidation = {
   violations: string[];
 };
 
+function publicSynthesisViolation(violation: string): string {
+  if (violation.startsWith("citation is not a retained source window:")) {
+    return "citation is not a retained source window";
+  }
+  if (violation.startsWith("citation belongs only to an incomplete subtask:")) {
+    return "citation belongs only to an incomplete subtask";
+  }
+  if (violation.startsWith("failed subtask ")) {
+    return "a failed subtask was presented as a fact";
+  }
+  if (violation === "a FACT was synthesized without retained source evidence") {
+    return violation;
+  }
+  return "synthesis validation failed";
+}
+
 /**
  * Validate the synthesis boundary independently of the model's wording.
  * Diagnostics from failed receipts are not evidence, and citations must point
@@ -769,7 +785,7 @@ export async function executeHierarchical(
     synthesisStatus = "failed";
     synthesisText = [
       "ANALYSIS_INCOMPLETE — synthesis was rejected because its claims were not safely bound to completed evidence.",
-      ...safety.violations.slice(0, 4).map((violation) => `- ${violation}`),
+      ...safety.violations.slice(0, 4).map((violation) => `- ${publicSynthesisViolation(violation)}`),
     ].join("\n");
   }
 
