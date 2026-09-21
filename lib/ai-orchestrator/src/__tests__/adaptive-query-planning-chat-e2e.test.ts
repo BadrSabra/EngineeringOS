@@ -215,6 +215,8 @@ type Scenario = {
   correctAfterScopeBlock?: boolean;
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
+  correctAfterRangeError?: boolean;
+  invalidRangeFirstByTarget?: Record<string, boolean>;
 };
 
 async function configureChat(
@@ -301,10 +303,13 @@ function makeStrategy(options: {
   correctAfterScopeBlock?: boolean;
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
+  correctAfterRangeError?: boolean;
+  invalidRangeFirstByTarget?: Record<string, boolean>;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
   const correctedScopeTargets = new Set<string>();
+  const correctedRangeTargets = new Set<string>();
   let activeSubqueries = 0;
   let maxConcurrentSubqueries = 0;
   const targetByIntent = options.targetByIntent ?? TARGET_BY_INTENT;
@@ -438,13 +443,43 @@ function makeStrategy(options: {
         };
       }
 
+      if (
+        options.correctAfterRangeError &&
+        hasToolOutput &&
+        serialized.includes("must be positive integers with startLine <= endLine") &&
+        !correctedRangeTargets.has(target)
+      ) {
+        correctedRangeTargets.add(target);
+        return {
+          content: "",
+          toolCalls: [
+            {
+              id: `corrected-range-read-${target}`,
+              type: "function" as const,
+              function: {
+                name: "read_file_range",
+                arguments: JSON.stringify({
+                  path: target,
+                  startLine: 1,
+                  endLine: 5,
+                }),
+              },
+            },
+          ],
+          model: "adaptive-test-model",
+          usage: {},
+        };
+      }
+
       if (!hasToolOutput && reads === 0) {
         subqueryReads.set(target, reads + 1);
           const toolName = options.toolCallNameByTarget?.[target] ?? "read_file";
           const toolArguments = {
             path: options.toolCallPathByTarget?.[target] ?? target,
             ...(toolName === "read_file_range"
-              ? { start_line: 1, end_line: 5 }
+              ? (options.invalidRangeFirstByTarget?.[target]
+                ? { startLine: 5, endLine: 2 }
+                : { startLine: 1, endLine: 5 })
               : {}),
           };
         return {
@@ -523,6 +558,8 @@ async function runScenario(scenario: Scenario) {
     correctAfterScopeBlock: scenario.correctAfterScopeBlock,
     scopeCorrectionPathByTarget: scenario.scopeCorrectionPathByTarget,
     additionalToolCallPathByTarget: scenario.additionalToolCallPathByTarget,
+    correctAfterRangeError: scenario.correctAfterRangeError,
+    invalidRangeFirstByTarget: scenario.invalidRangeFirstByTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -838,6 +875,41 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
       expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
       expect(graphReads).not.toContain(GENERAL);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs an invalid targeted range after the tool reports its argument contract", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        toolCallNameByTarget: { [ACCEPTANCE]: "read_file_range" },
+        invalidRangeFirstByTarget: { [ACCEPTANCE]: true },
+        correctAfterRangeError: true,
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate is verified in `src/acceptance/gate.ts`, " +
+          "the evidence producer is verified in `src/evidence/producer.ts`, and the " +
+          "counterevidence tests are verified in `tests/counterevidence.test.ts`.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: preserve the bounded targeted evidence.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(3);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
