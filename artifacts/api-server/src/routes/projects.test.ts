@@ -10,6 +10,7 @@ import {
   tasksTable,
   auditLogsTable,
   scanJobsTable,
+  graphRelationshipsTable,
   browserValidationProfilesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
@@ -268,6 +269,58 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
     expect(scanAudit).toBeDefined();
     expect(scanAudit?.entityType).toBe("project");
     expect(scanAudit?.projectId).toBe(projectId);
+  });
+
+  it("persists graph relationships during a scan", async () => {
+    const scanDir = makeTempScanDir();
+    mkdirSync(join(scanDir, "internal", "mathx"), { recursive: true });
+    tempDirs.push(scanDir);
+    writeFileSync(
+      join(scanDir, "go.mod"),
+      "module example.com/scanfixture\n\ngo 1.22\n",
+    );
+    writeFileSync(
+      join(scanDir, "main.go"),
+      [
+        "package main",
+        "",
+        'import "example.com/scanfixture/internal/mathx"',
+        "",
+        "func main() {",
+        "  mathx.Add(1, 2)",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(scanDir, "internal", "mathx", "math.go"),
+      [
+        "package mathx",
+        "",
+        "func Add(left int, right int) int {",
+        "  return left + right",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    const projectId = await insertProject(scanDir);
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).post(`/api/projects/${projectId}/scan`);
+    expect(res.status).toBe(202);
+
+    const job = await waitForScanJob(res.body.id);
+    expect(job.status).toBe("completed");
+
+    const relationships = await db
+      .select({
+        sourceType: graphRelationshipsTable.sourceType,
+        relationType: graphRelationshipsTable.relationType,
+      })
+      .from(graphRelationshipsTable)
+      .where(eq(graphRelationshipsTable.projectId, projectId));
+    expect(relationships.length).toBeGreaterThan(0);
+    expect(relationships.some((row) => row.sourceType === "go-ast")).toBe(true);
   });
 
   it("marks the job failed and resets project status to active when the scan pipeline throws mid-scan", async () => {

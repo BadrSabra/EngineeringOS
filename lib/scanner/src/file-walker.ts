@@ -192,7 +192,9 @@ async function walkDir(
         }
 
         const ext = extname(entry.name).toLowerCase();
-        const language = LANGUAGE_MAP[ext];
+        // Go module metadata is required by graph extraction to resolve
+        // internal import paths, but it has no extension in the language map.
+        const language = entry.name === "go.mod" ? "go-module" : LANGUAGE_MAP[ext];
         if (!language) return;
 
         const absPath = join(dir, entry.name);
@@ -267,7 +269,8 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
       f.language !== "markdown" &&
       f.language !== "json" &&
       f.language !== "yaml" &&
-      f.language !== "toml",
+      f.language !== "toml" &&
+      f.language !== "go-module",
   ).length;
   const revisionHash = createHash("sha256");
   const manifestFiles: RevisionManifestFile[] = [];

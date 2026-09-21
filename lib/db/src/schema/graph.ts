@@ -33,6 +33,9 @@ export const entityTypeEnum = pgEnum("entity_type", [
  * Valid values:
  *   typescript-ast           — TypeScript compiler API (highest confidence)
  *   python-ast               — Python AST subprocess
+ *   go-ast                   — Go parser (highest confidence)
+ *   go-parser-failed         — Go parser rejected a file
+ *   go-parser-unavailable    — Go parser was unavailable in the runtime
  *   regex-fallback           — regex heuristic (lowest confidence)
  *   manual                   — hand-authored or seeded entry
  *   discovery-import         — imported via discovery pipeline
@@ -41,6 +44,9 @@ export const entityTypeEnum = pgEnum("entity_type", [
 export const graphSourceTypeEnum = pgEnum("graph_source_type", [
   "typescript-ast",
   "python-ast",
+  "go-ast",
+  "go-parser-failed",
+  "go-parser-unavailable",
   "regex-fallback",
   "manual",
   "discovery-import",

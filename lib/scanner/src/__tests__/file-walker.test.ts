@@ -12,6 +12,7 @@ beforeAll(async () => {
   await mkdir(join(TEST_DIR, "node_modules", "pkg"), { recursive: true });
 
   await writeFile(join(TEST_DIR, "package.json"), JSON.stringify({ name: "test-project" }));
+  await writeFile(join(TEST_DIR, "go.mod"), "module example.com/test-project\n\ngo 1.22\n");
   await writeFile(join(TEST_DIR, "src", "index.ts"), 'export const hello = "world";');
   await writeFile(join(TEST_DIR, "src", "utils.ts"), "export function add(a: number, b: number) { return a + b; }");
   await writeFile(join(TEST_DIR, "src", "__tests__", "utils.test.ts"), 'import { add } from "../utils.js";\nconsole.log(add(1, 2));');
@@ -63,6 +64,19 @@ describe("walkProject", () => {
 
     const jsonFiles = result.files.filter((f) => f.path === "package.json");
     expect(jsonFiles.length).toBe(1);
+  });
+
+  it("includes go.mod as module metadata without counting it as source code", async () => {
+    const result = await walkProject(TEST_DIR);
+
+    const goMod = result.files.find((file) => file.path === "go.mod");
+    expect(goMod?.language).toBe("go-module");
+    expect(goMod?.content).toContain("module example.com/test-project");
+    expect(result.sourceFiles).toBe(
+      result.files.filter((file) =>
+        !["markdown", "json", "yaml", "toml", "go-module"].includes(file.language),
+      ).length,
+    );
   });
 
   it("changes the revision when a file is added or removed", async () => {
