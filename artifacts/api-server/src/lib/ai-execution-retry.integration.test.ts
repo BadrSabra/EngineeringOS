@@ -10,9 +10,12 @@ import {
 } from "@workspace/db";
 import {
   claimAiExecution,
+  checkpointAiExecution,
+  completeAiExecution,
   createAiExecution,
   createRecipeOperationBinding,
   persistAiExecutionOrientationManifest,
+  reconcileAiExecutions,
   recoverAiExecutionRetryToken,
   type AiOrientationRoleManifest,
 } from "./ai-execution-state.js";
@@ -164,6 +167,192 @@ describe("durable conversational retry authorization", () => {
       expect(JSON.parse(stored!.checkpoint).recipeBinding, "candidate binding must remain generation A").toEqual(bindingA);
     } finally {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.userId, userId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("reclaims an expired recipe lease with a new worker without accepting stale binding state", async () => {
+    const projectId = randomUUID();
+    const userId = "recipe-reclaim-user";
+    const sessionId = randomUUID();
+    const operationId = randomUUID();
+    const sourceRevision = new Date().toISOString();
+    const rootPath = `/tmp/recipe-reclaim-${projectId}`;
+    const candidateWorkspace = `/tmp/eos-disposable/recipe-reclaim-candidate-${projectId}`;
+    const workerA = "recipe-reclaim-worker-a";
+    const workerB = "recipe-reclaim-worker-b";
+    const binding = createRecipeOperationBinding({
+      projectId,
+      operationId,
+      sourceRevision,
+      candidateIdentity: "candidate-reclaim-generation",
+      candidateWorkspace,
+      approvedPaths: ["src/changed.ts"],
+      phase: "planned",
+      missionBudget: { maxProcessCount: 8 },
+    });
+    const request = {
+      projectId,
+      sessionId,
+      operationId,
+      message: `recipe:${operationId}`,
+      modelMessage: `recipe:${operationId}`,
+      workspaceRevision: sourceRevision,
+      validationTargetPaths: ["src/changed.ts"],
+    };
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: userId,
+      name: `recipe-reclaim-${projectId.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Recipe reclaim test",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    let createdExecutionId: string | undefined;
+    try {
+      const created = await createAiExecution({
+        userId,
+        request,
+        idempotencyKey: `${operationId}:reclaim`,
+        projectId,
+        sessionId,
+        recipeBinding: binding,
+      });
+      createdExecutionId = created.execution.id;
+      const firstClaim = await claimAiExecution({
+        executionId: created.execution.id,
+        userId,
+        workerId: workerA,
+        recipeBinding: binding,
+      });
+      expect(firstClaim).toMatchObject({
+        id: created.execution.id,
+        status: "running",
+        workerId: workerA,
+      });
+      const replayAfterClaim = await createAiExecution({
+        userId,
+        request,
+        idempotencyKey: `${operationId}:reclaim`,
+        projectId,
+        sessionId,
+        recipeBinding: binding,
+      });
+      expect(replayAfterClaim, "lifecycle fields must not break same-generation idempotency").toMatchObject({
+        created: false,
+        execution: { id: created.execution.id },
+      });
+
+      const firstWorkerBinding = {
+        ...binding,
+        phase: "running" as const,
+        leaseOwner: workerA,
+        leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+      };
+      expect(await checkpointAiExecution({
+        executionId: created.execution.id,
+        workerId: workerA,
+        recipeBinding: firstWorkerBinding,
+        checkpoint: {
+          stage: "tool_loop",
+          sequence: 2,
+          recipeBinding: firstWorkerBinding,
+          completedNodes: [],
+          updatedAt: new Date().toISOString(),
+        },
+      })).toBe(true);
+
+      await db
+        .update(aiExecutionsTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000) })
+        .where(eq(aiExecutionsTable.id, created.execution.id));
+
+      expect(await reconcileAiExecutions({ expiredOnly: true })).toBe(1);
+
+      const [reconciled] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, created.execution.id))
+        .limit(1);
+      expect(reconciled).toMatchObject({
+        status: "paused",
+        workerId: null,
+      });
+      expect(JSON.parse(reconciled!.checkpoint).recipeBinding).toMatchObject({
+        candidateIdentity: binding.candidateIdentity,
+        candidateWorkspace: binding.candidateWorkspace,
+        phase: "running",
+        leaseOwner: workerA,
+      });
+
+      const secondClaim = await claimAiExecution({
+        executionId: created.execution.id,
+        userId,
+        workerId: workerB,
+        recipeBinding: binding,
+      });
+      expect(secondClaim, "a new worker must reclaim the same candidate generation").toMatchObject({
+        id: created.execution.id,
+        status: "running",
+        workerId: workerB,
+      });
+
+      expect(await checkpointAiExecution({
+        executionId: created.execution.id,
+        workerId: workerA,
+        recipeBinding: firstWorkerBinding,
+        checkpoint: {
+          stage: "tool_loop",
+          sequence: 3,
+          recipeBinding: firstWorkerBinding,
+          completedNodes: ["stale-worker-node"],
+          updatedAt: new Date().toISOString(),
+        },
+      })).toBe(false);
+      expect(await completeAiExecution({
+        executionId: created.execution.id,
+        workerId: workerA,
+        finalMessageId: `recipe-receipt:stale-${operationId}`,
+        evidenceVerdict: "PROVEN",
+        evidenceRefs: ["evidence:stale-reclaim"],
+        recipeBinding: firstWorkerBinding,
+      })).toBe(false);
+
+      const secondWorkerBinding = {
+        ...binding,
+        phase: "running" as const,
+        leaseOwner: workerB,
+        leaseUntil: new Date(Date.now() + 60_000).toISOString(),
+      };
+      expect(await completeAiExecution({
+        executionId: created.execution.id,
+        workerId: workerB,
+        finalMessageId: `recipe-receipt:${operationId}`,
+        evidenceVerdict: "PROVEN",
+        evidenceRefs: ["evidence:reclaim"],
+        recipeBinding: secondWorkerBinding,
+      })).toBe(true);
+    } finally {
+      if (createdExecutionId) {
+        await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, createdExecutionId));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, createdExecutionId));
+      }
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }

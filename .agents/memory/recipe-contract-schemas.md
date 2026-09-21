@@ -20,3 +20,9 @@ An execution idempotency key must match the full durable recipe binding, includi
 **Why:** Reusing a key for a different candidate can silently return the first execution and make validation or delivery evidence refer to the wrong isolated bytes.
 
 **How to apply:** Compare the stored checkpoint binding during both normal idempotency replay and the unique-key conflict reread; allow replay only for the same binding generation and reject candidate drift.
+
+Recipe binding identity must exclude transient lifecycle fields such as phase, lease owner, and lease expiry when replaying or reclaiming the same candidate generation.
+
+**Why:** Reconciliation intentionally clears worker ownership and pauses an expired execution; including stale lease state in identity prevents a new worker from reclaiming the unchanged candidate.
+
+**How to apply:** Compare project, operation, revision, candidate, approved scope, and budgets for identity, then let the claim transition rewrite the current phase and lease atomically.

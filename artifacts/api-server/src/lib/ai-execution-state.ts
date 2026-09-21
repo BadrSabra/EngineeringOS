@@ -1309,7 +1309,20 @@ function recipeBindingMatches(
 ): boolean {
   const checkpoint = parseAiExecutionCheckpoint(checkpointRaw);
   const storedBinding = checkpoint?.recipeBinding ?? checkpoint?.operation?.binding ?? null;
-  return JSON.stringify(storedBinding) === JSON.stringify(requestedBinding ?? null);
+  const bindingIdentity = (binding: RecipeOperationBinding | null | undefined) => {
+    if (!binding) return null;
+    const {
+      phase: _phase,
+      leaseOwner: _leaseOwner,
+      leaseUntil: _leaseUntil,
+      ...identity
+    } = binding;
+    return identity;
+  };
+  // Phase and lease fields are worker lifecycle state, not idempotency
+  // identity. A replay or reclaim must be able to bind the same candidate
+  // after a prior worker advanced the phase or lost its lease.
+  return JSON.stringify(bindingIdentity(storedBinding)) === JSON.stringify(bindingIdentity(requestedBinding));
 }
 
 function parseEvidenceProgressCheckpoint(value: unknown): AiEvidenceProgressCheckpoint | undefined {
@@ -2222,7 +2235,7 @@ export async function claimAiExecution(params: {
   if (params.recipeBinding) {
     if (!existing) return undefined;
     const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
-    if (!storedBinding || JSON.stringify(storedBinding) !== JSON.stringify(params.recipeBinding)) return undefined;
+    if (!storedBinding || !recipeBindingMatches(existing.checkpoint, params.recipeBinding)) return undefined;
     try {
       assertRecipeOperationBinding(params.recipeBinding, {
         projectId: existing.projectId,
