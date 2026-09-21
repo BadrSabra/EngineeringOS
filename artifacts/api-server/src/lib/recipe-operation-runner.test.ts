@@ -149,6 +149,7 @@ async function createReclaimedRecipeFixture(options: {
     }));
     expect(await checkpointAiExecution({
       executionId,
+      expectedAttempt: 0,
       workerId: workerA,
       recipeBinding: firstBinding,
       checkpoint: {

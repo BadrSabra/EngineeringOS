@@ -410,6 +410,7 @@ export async function startStructuredExecution(params: {
       };
       const saved = await checkpointAiExecution({
         executionId: execution!.id,
+        expectedAttempt: execution!.attempt,
         workerId,
         checkpoint: payload,
       });
@@ -423,6 +424,7 @@ export async function startStructuredExecution(params: {
     if (terminal || controller.signal.aborted) return;
     void heartbeatAiExecution({
       executionId: execution!.id,
+      expectedAttempt: execution!.attempt,
       workerId,
     }).then((renewed) => {
       if (!renewed && !terminal) controller.abort();

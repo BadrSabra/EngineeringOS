@@ -299,12 +299,14 @@ describe("durable project-orientation retry chaos", () => {
           } else if (action === "persist-from-stale-worker") {
             await expect(persistAiExecutionOrientationManifest({
               executionId,
+              expectedAttempt: 0,
               workerId: `stale-worker-${seed}`,
               manifest,
             }), context).resolves.toBe(false);
           } else {
             await expect(persistAiExecutionOrientationManifest({
               executionId,
+              expectedAttempt: 0,
               workerId: `drift-worker-${seed}`,
               manifest: {
                 ...manifest,
@@ -350,11 +352,13 @@ describe("durable project-orientation retry chaos", () => {
         }), context).resolves.toBeUndefined();
         await expect(persistAiExecutionOrientationManifest({
           executionId,
+          expectedAttempt: 1,
           workerId: activeWorker,
           manifest,
         }), context).resolves.toBe(true);
         await expect(persistAiExecutionOrientationManifest({
           executionId,
+          expectedAttempt: 1,
           workerId: activeWorker,
           manifest: {
             ...manifest,
@@ -615,6 +619,7 @@ describe("durable project-orientation retry chaos", () => {
         }), context).resolves.toBeUndefined();
         await expect(persistAiExecutionOrientationManifest({
           executionId,
+          expectedAttempt: 1,
           workerId: expectedWorker,
           manifest,
         }), context).resolves.toBe(true);
@@ -1008,6 +1013,7 @@ describe("durable project-orientation retry chaos", () => {
         });
         await expect(persistAiExecutionOrientationManifest({
           executionId: fixture.executionId,
+          expectedAttempt: 1,
           workerId: staleWorker,
           manifest: fixture.manifest,
         }), context).resolves.toBe(true);
@@ -1021,6 +1027,7 @@ describe("durable project-orientation retry chaos", () => {
           Array.from({ length: lateWriterCount }, (_, index) =>
             persistAiExecutionOrientationManifest({
               executionId: fixture.executionId,
+              expectedAttempt: 1,
               workerId: staleWorker,
               manifest: index % 2 === 0
                 ? fixture.manifest
@@ -1109,6 +1116,7 @@ describe("durable project-orientation retry chaos", () => {
         ]);
         await expect(persistAiExecutionOrientationManifest({
           executionId: fixture.executionId,
+          expectedAttempt: 1,
           workerId: staleWorker,
           manifest: fixture.manifest,
         }), context).resolves.toBe(false);
@@ -1656,6 +1664,7 @@ describe("durable project-orientation retry chaos", () => {
           });
           await expect(persistAiExecutionOrientationManifest({
             executionId: fixture.executionId,
+            expectedAttempt: attempt + 1,
             workerId: activeWorker,
             manifest: fixture.manifest,
           }), `${context}; manifest attempt=${attempt + 1}`).resolves.toBe(true);
@@ -1797,6 +1806,7 @@ describe("durable project-orientation retry chaos", () => {
 
           await expect(persistAiExecutionOrientationManifest({
             executionId: fixture.executionId,
+            expectedAttempt: attempt + 1,
             workerId: winners[0]!.workerId,
             manifest: fixture.manifest,
           }), `${context}; manifest attempt=${attempt + 1}`).resolves.toBe(true);
@@ -2370,6 +2380,7 @@ describe("durable project-orientation retry chaos", () => {
       };
       expect(await checkpointAiExecution({
         executionId: fixture.executionId,
+        expectedAttempt: 2,
         workerId: "adaptive-attempt-one-worker",
         checkpoint: staleWorkerCheckpoint,
       }), context).toBe(false);
@@ -2381,6 +2392,7 @@ describe("durable project-orientation retry chaos", () => {
       };
       expect(await checkpointAiExecution({
         executionId: fixture.executionId,
+        expectedAttempt: 2,
         workerId: "adaptive-attempt-two-worker",
         checkpoint: currentWorkerCheckpoint,
       }), context).toBe(true);
@@ -2967,6 +2979,7 @@ describe("durable project-orientation retry chaos", () => {
 
       const staleCheckpoint = await checkpointAiExecution({
         executionId: fixture.executionId,
+        expectedAttempt: 1,
         workerId: "reused-worker-id",
         checkpoint: {
           stage: "tool_loop",

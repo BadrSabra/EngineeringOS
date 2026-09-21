@@ -334,7 +334,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const overallController = new AbortController();
   await registerAiExecutionController(claimed.id, overallController);
   const heartbeatTimer = setInterval(() => {
-    void heartbeatAiExecution({ executionId: claimed.id, workerId }).then((ok) => {
+    void heartbeatAiExecution({
+      executionId: claimed.id,
+      expectedAttempt: claimed.attempt,
+      workerId,
+    }).then((ok) => {
       if (!ok) overallController.abort();
     }).catch(() => overallController.abort());
   }, 30_000);
@@ -426,6 +430,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       onChange: ({ nodes }) => {
         void checkpointAiExecution({
           executionId: claimed.id,
+          expectedAttempt: claimed.attempt,
           workerId,
           recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
           checkpoint: {

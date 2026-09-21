@@ -159,6 +159,7 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       operation = transitionAutonomousOperation(operation, "inspecting");
       await checkpointAiExecution({
         executionId: operationExecution.id,
+        expectedAttempt: operationExecution.attempt,
         workerId,
         checkpoint: {
           stage: "model_call",

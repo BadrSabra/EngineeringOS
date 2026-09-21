@@ -2310,6 +2310,7 @@ export async function claimAiExecution(params: {
 
 export async function checkpointAiExecution(params: {
   executionId: string;
+  expectedAttempt: number;
   workerId: string;
   checkpoint: AiExecutionCheckpoint;
   recipeBinding?: RecipeOperationBinding;
@@ -2353,6 +2354,7 @@ export async function checkpointAiExecution(params: {
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
       gt(aiExecutionsTable.leaseUntil, new Date()),
@@ -2371,6 +2373,7 @@ export async function checkpointAiExecution(params: {
  */
 export async function persistAiExecutionOrientationManifest(params: {
   executionId: string;
+  expectedAttempt: number;
   workerId: string;
   manifest: AiOrientationRoleManifest;
 }): Promise<boolean> {
@@ -2382,6 +2385,7 @@ export async function persistAiExecutionOrientationManifest(params: {
     .from(aiExecutionsTable)
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
       gt(aiExecutionsTable.leaseUntil, new Date()),
@@ -2413,6 +2417,7 @@ export async function persistAiExecutionOrientationManifest(params: {
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
       gt(aiExecutionsTable.leaseUntil, new Date()),
@@ -2423,6 +2428,7 @@ export async function persistAiExecutionOrientationManifest(params: {
 
 export async function heartbeatAiExecution(params: {
   executionId: string;
+  expectedAttempt: number;
   workerId: string;
 }): Promise<boolean> {
   const [updated] = await db
@@ -2434,6 +2440,7 @@ export async function heartbeatAiExecution(params: {
     })
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
       eq(aiExecutionsTable.workerId, params.workerId),
       eq(aiExecutionsTable.status, "running"),
       gt(aiExecutionsTable.leaseUntil, new Date()),

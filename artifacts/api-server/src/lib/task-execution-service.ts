@@ -458,7 +458,7 @@ export async function executeTaskLifecycle(params: {
   await progress.start("acquisition", "Execution acquired.", 8, 1);
   await progress.finish("acquisition", "completed", "Execution is owned by the active worker.", 12, 1);
   const initialCheckpointed = await checkpointAiExecution({
-    executionId, workerId,
+    executionId, expectedAttempt: executionAttempt, workerId,
     checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
   });
   if (!initialCheckpointed) {
@@ -495,7 +495,7 @@ export async function executeTaskLifecycle(params: {
     return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
   }
   const heartbeat = setInterval(() => {
-    void heartbeatAiExecution({ executionId, workerId });
+    void heartbeatAiExecution({ executionId, expectedAttempt: executionAttempt, workerId });
     void db.update(tasksTable).set({
       leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
       lastHeartbeatAt: new Date(),
@@ -518,7 +518,7 @@ export async function executeTaskLifecycle(params: {
     const projectContext = await buildProjectContext(before.projectId, { sections: [...CONTEXT_SECTIONS] });
     await progress.finish("context", "completed", "Project context is ready.", 24, 2);
     await checkpointAiExecution({
-      executionId, workerId,
+      executionId, expectedAttempt: executionAttempt, workerId,
       checkpoint: { stage: "model_call", sequence: 2, detail: "Project context built.", updatedAt: new Date().toISOString() },
     });
     const progressMessage = async (message: string) => log("info", message, { stage: "progress" });

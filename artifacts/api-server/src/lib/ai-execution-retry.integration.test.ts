@@ -263,6 +263,7 @@ describe("durable conversational retry authorization", () => {
       };
       expect(await checkpointAiExecution({
         executionId: created.execution.id,
+        expectedAttempt: 0,
         workerId: workerA,
         recipeBinding: firstWorkerBinding,
         checkpoint: {
@@ -315,6 +316,7 @@ describe("durable conversational retry authorization", () => {
 
       expect(await checkpointAiExecution({
         executionId: created.execution.id,
+        expectedAttempt: 0,
         workerId: workerA,
         recipeBinding: firstWorkerBinding,
         checkpoint: {
@@ -554,18 +556,21 @@ describe("durable conversational retry authorization", () => {
     try {
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId,
         manifest,
       })).resolves.toBe(true);
 
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId: "stale-orientation-worker",
         manifest,
       })).resolves.toBe(false);
 
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId,
         manifest: {
           ...manifest,
@@ -581,12 +586,14 @@ describe("durable conversational retry authorization", () => {
 
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId,
         manifest,
       })).resolves.toBe(true);
 
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId,
         manifest: {
           ...manifest,
@@ -596,6 +603,7 @@ describe("durable conversational retry authorization", () => {
 
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId,
         manifest: {
           ...manifest,
@@ -609,6 +617,7 @@ describe("durable conversational retry authorization", () => {
         .where(eq(aiExecutionsTable.id, executionId));
       await expect(persistAiExecutionOrientationManifest({
         executionId,
+        expectedAttempt: 0,
         workerId,
         manifest,
       })).resolves.toBe(false);

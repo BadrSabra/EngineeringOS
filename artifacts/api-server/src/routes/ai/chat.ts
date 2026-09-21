@@ -7004,6 +7004,7 @@ export async function handleChatStream(req: Request, res: Response) {
         scanCheckpointSequence += 1;
         const accepted = await checkpointAiExecution({
           executionId: scanExecution.id,
+          expectedAttempt: scanExecution.attempt,
           workerId: executionWorkerId!,
           checkpoint: {
             stage,
@@ -7044,6 +7045,7 @@ export async function handleChatStream(req: Request, res: Response) {
         if (Date.now() - lastExecutionHeartbeatAt >= AI_EXECUTION_HEARTBEAT_INTERVAL_MS) {
           const heartbeatAccepted = await heartbeatAiExecution({
             executionId: scanExecution.id,
+            expectedAttempt: scanExecution.attempt,
             workerId: executionWorkerId!,
           });
           if (!heartbeatAccepted) {
@@ -7737,6 +7739,7 @@ export async function handleChatStream(req: Request, res: Response) {
       if (executionTerminal || activeExecutionAbortController.signal.aborted) return;
       void heartbeatAiExecution({
         executionId: aiExecution!.id,
+        expectedAttempt: aiExecution!.attempt,
         workerId: executionWorkerId!,
       }).then((renewed) => {
         if (!renewed && !executionTerminal && !activeExecutionAbortController.signal.aborted) {
@@ -7908,6 +7911,7 @@ export async function handleChatStream(req: Request, res: Response) {
         .then(async () => {
           const persisted = await checkpointAiExecution({
             executionId: aiExecution!.id,
+            expectedAttempt: aiExecution!.attempt,
             workerId: executionWorkerId!,
             checkpoint: completeCheckpoint,
           });
@@ -8829,6 +8833,7 @@ export async function handleChatStream(req: Request, res: Response) {
                    };
                    const persisted = await persistAiExecutionOrientationManifest({
                      executionId: aiExecution!.id,
+                     expectedAttempt: aiExecution!.attempt,
                      workerId: executionWorkerId!,
                      manifest: nextManifest,
                    });

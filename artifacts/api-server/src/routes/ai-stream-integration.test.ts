@@ -527,6 +527,7 @@ async function createReconnectedProofFixture(params: {
   };
   expect(await checkpointAiExecution({
     executionId: created.execution.id,
+    expectedAttempt: 0,
     workerId: initialWorkerId,
     checkpoint,
   })).toBe(true);
@@ -2842,6 +2843,7 @@ describe("Durable AI execution crash/reconnect", () => {
     }))?.status).toBe("running");
     await checkpointAiExecution({
       executionId: created.execution.id,
+      expectedAttempt: 0,
       workerId,
       checkpoint: {
         stage: "tool_loop",
@@ -2981,6 +2983,7 @@ describe("Durable AI execution crash/reconnect", () => {
 
     await checkpointAiExecution({
       executionId: created.execution.id,
+      expectedAttempt: 0,
       workerId,
       checkpoint: {
         stage: "tool_loop",
@@ -3137,6 +3140,7 @@ describe("Durable AI execution crash/reconnect", () => {
     }))?.status).toBe("running");
     await checkpointAiExecution({
       executionId: created.execution.id,
+      expectedAttempt: 0,
       workerId,
       checkpoint: {
         stage: "tool_loop",
@@ -3409,6 +3413,7 @@ describe("Durable AI execution crash/reconnect", () => {
     });
     await checkpointAiExecution({
       executionId: created.execution.id,
+      expectedAttempt: 0,
       workerId,
       checkpoint: {
         stage: "tool_loop",
@@ -8248,6 +8253,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     const attemptedOverwrite = await checkpointAiExecution({
       executionId: terminal!.id,
+      expectedAttempt: terminal?.attempt ?? 0,
       workerId: terminal?.workerId ?? "",
       checkpoint: {
         stage: "completed",

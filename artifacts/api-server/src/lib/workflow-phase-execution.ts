@@ -135,6 +135,7 @@ export async function executeWorkflowPhase(params: {
     operation = transitionAutonomousOperation(operation, "inspecting");
     const checkpointed = await checkpointAiExecution({
       executionId: claimed.id,
+      expectedAttempt: claimed.attempt,
       workerId,
       checkpoint: {
         stage: "model_call",
