@@ -451,6 +451,42 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("continues independent siblings when one fallback source is missing", async () => {
+    const rootPath = await makeRoot();
+    await fs.rm(path.join(rootPath, ADAPTER));
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        missingTarget: ADAPTER,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        synthesisResponse:
+          "CURRENT_STATE: client and connector evidence were retained.\n" +
+          "GAPS: NOT PROVEN — the provider adapter source could not be read.\n" +
+          "PRIORITIES: recover the missing adapter source before asserting completeness.",
+      });
+
+      const subqueryTargets = providerCalls
+        .filter((call) => call.kind === "subquery")
+        .map((call) => call.target);
+      expect([...new Set(subqueryTargets)]).toEqual([ADAPTER, CLIENT, CONNECTOR]);
+      expect(subqueryReads).toEqual(new Map([
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("NOT PROVEN");
+
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toContain(CLIENT);
+      expect(graphReads).toContain(CONNECTOR);
+      expect(graphReads).not.toContain(ADAPTER);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("keeps a missing sub-query bounded and refuses PROVEN when its required claim is incomplete", async () => {
     const rootPath = await makeRoot();
     try {
