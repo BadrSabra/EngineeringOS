@@ -151,3 +151,4 @@
 - [Go graph scan boundary](go-graph-scan-boundary.md) — internal Go imports need go.mod in the walk and file entities for path-based relationship endpoints.
 - [Graph insert batching](graph-insert-batching.md) — large graph scans must batch multi-column entity and relationship inserts below PostgreSQL's bind-parameter limit.
 - [Evidence graph label bounds](evidence-graph-label-bounds.md) — graph labels are presentation fields; bound them at materialization while preserving IDs and source reads.
+- [Route fallback fixtures](route-fallback-fixtures.md) — route-level provider-exhaustion tests must isolate lifecycle candidates and avoid pre-resume acceptance rows.

@@ -3101,8 +3101,8 @@ describe("Durable AI execution crash/reconnect", () => {
     const requestEnvelope = {
       projectId,
       sessionId,
-      message: "What is this project?",
-      modelMessage: "What is this project?",
+      message: "Explain this project",
+      modelMessage: "Explain this project",
       turnIntent: "PROJECT_QUERY",
       projectOrientation: true,
       workspaceRevision,
@@ -11031,6 +11031,215 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 // ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
 
 describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+  it("persists accepted orientation provenance when the real helper exhausts providers", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-orientation-provider-exhaustion-");
+    rootPaths.push(rootPath);
+    const orientationPaths = {
+      purpose: ["README.md"],
+      components: ["src/App.tsx"],
+      primaryFlow: ["src/routes.ts"],
+      uncertainty: ["tests/app.test.ts"],
+    };
+    const sourceBodies = new Map([
+      ["README.md", "# Project\nA workspace application.\n"],
+      ["src/App.tsx", "export function App() { return null; }\n"],
+      ["src/routes.ts", "export const routes = [];\n"],
+      ["tests/app.test.ts", "describe('app', () => {});\n"],
+    ]);
+    for (const [relativePath, body] of sourceBodies) {
+      const absolutePath = path.join(rootPath, relativePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, body, "utf8");
+    }
+
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "Provider-exhausted orientation");
+    const [project] = await db
+      .select({ updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const workspaceRevision = project!.updatedAt.toISOString();
+    const orientationManifest = {
+      projectRevision: workspaceRevision,
+      rootPath,
+      paths: orientationPaths,
+    };
+    const requestEnvelope = {
+      projectId,
+      sessionId,
+      message: "What is this project?",
+      modelMessage: "What is this project?",
+      turnIntent: "PROJECT_QUERY",
+      projectOrientation: true,
+      workspaceRevision,
+      workspaceRoot: rootPath,
+      validationTargetPaths: [],
+      proofRequired: false,
+      resumeContract: {
+        taskType: "tool_chat",
+        outputContract: "GENERIC_RESPONSE",
+        contextProfile: "project",
+        sessionId,
+        projectRevision: workspaceRevision,
+        requiresEvidence: true,
+        orientationManifest,
+        scope: {
+          projectId,
+          rootPath,
+          linkedTaskId: null,
+        },
+      },
+    };
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: requestEnvelope,
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+      workspaceRoot: rootPath,
+    });
+
+    const actualHelpers = await vi.importActual<typeof import("../lib/ai-route-helpers.js")>(
+      "../lib/ai-route-helpers.js",
+    );
+    const mockedOrchestrator = await import("@workspace/ai-orchestrator");
+    const lifecycleSpy = vi.spyOn(mockedOrchestrator, "getProviderLifecycleSnapshot")
+      .mockImplementation(async ({ provider }) => ({
+        provider,
+        source: "server",
+        keyIdentity: "fixture",
+        revision: 1,
+        generation: 1,
+        checkedAt: null,
+        expiresAt: null,
+        lastKnownGoodAt: null,
+        lastKnownGoodExpiresAt: null,
+        credentialStatus: "credentials_valid",
+        modelStatus: provider === "groq" ? "model_healthy" : "catalog_temporarily_unavailable",
+        capabilityStatus: provider === "groq" ? "capability_healthy" : "capability_not_checked",
+        overallStatus: provider === "groq" ? "ready" : "unavailable",
+        selectable: provider === "groq",
+        roles: [],
+        capabilities: [],
+        reasonCodes: provider === "groq"
+          ? ["model_healthy"]
+          : ["catalog_temporarily_unavailable"],
+      }));
+
+    vi.mocked(mockedOrchestrator.chat).mockImplementationOnce(async (input) => {
+      const retainedEvidence = input.retainedEvidence as Map<string, string> | undefined;
+      const retainedReadStatuses = input.retainedReadStatuses as Map<string, string> | undefined;
+      for (const [sourcePath, body] of sourceBodies) {
+        retainedEvidence?.set(sourcePath, body);
+        retainedReadStatuses?.set(sourcePath, "READ_COMPLETE");
+        input.onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source: sourcePath,
+          cached: false,
+          readStatus: "READ_COMPLETE",
+          outputLength: body.length,
+          resultSummary: "Complete orientation source retained before provider failure.",
+        });
+      }
+      throw new GroqClientError("NON_200", "deterministic provider failure", {
+        context: { providerStatus: 503 },
+      });
+    });
+    vi.mocked(chatWithFallback).mockImplementationOnce((...args) =>
+      actualHelpers.chatWithFallback(...args),
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        executionId: created.execution.id,
+        resumeToken: created.resumeToken,
+        message: requestEnvelope.message,
+      });
+
+    lifecycleSpy.mockRestore();
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const done = events.find((event) => event.type === "done");
+    const error = events.find((event) => event.type === "error");
+    expect(error).toBeUndefined();
+    expect(done).toMatchObject({
+      projectQueryResponseSource: "deterministic_fallback",
+      sourceSelectionRecord: {
+        orientationCoverage: {
+          complete: true,
+          missingRoles: [],
+        },
+      },
+      message: {
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        sourceSelectionRecord: {
+          orientationCoverage: {
+            complete: true,
+            missingRoles: [],
+          },
+        },
+      },
+    });
+
+    const [execution] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .limit(1);
+    expect(execution).toMatchObject({
+      status: "completed",
+      finalMessageId: done?.message && (done.message as { id?: string }).id,
+    });
+
+    const acceptances = await db
+      .select({
+        id: aiExecutionAcceptancesTable.id,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, created.execution.id));
+    expect(acceptances).toHaveLength(1);
+    expect(acceptances[0]).toMatchObject({
+      outcome: "SUCCEEDED",
+      evidenceComplete: 1,
+    });
+
+    const [storedAssistant] = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        toolTrace: aiChatMessagesTable.toolTrace,
+      })
+      .from(aiChatMessagesTable)
+      .where(and(
+        eq(aiChatMessagesTable.sessionId, sessionId),
+        eq(aiChatMessagesTable.role, "assistant"),
+      ))
+      .limit(1);
+    const storedTrace = JSON.parse(storedAssistant?.toolTrace ?? "[]") as Array<Record<string, unknown>>;
+    expect(storedTrace).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "project_query_source_selection",
+        orientationCoverage: expect.objectContaining({
+          complete: true,
+          missingRoles: [],
+        }),
+      }),
+    ]));
+    expect(storedAssistant?.content).toContain("deterministic evidence recovery");
+  });
+
   it("describes retained partial evidence accurately when all providers fail", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
