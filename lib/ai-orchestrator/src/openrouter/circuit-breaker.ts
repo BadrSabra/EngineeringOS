@@ -16,7 +16,11 @@
 
 const CIRCUIT_OPEN_THRESHOLD = 5; // consecutive failures before opening
 const COOLDOWN_MS = 2 * 60 * 1_000; // 2 minutes
-const MODEL_COOLDOWN_MS = 30 * 1_000; // short per-model admission cooldown
+// Keep a throttled slug out for longer than a typical empirical case. A
+// 30-second cooldown can expire while the current case is still falling
+// through its bounded model chain, causing the next case to immediately
+// re-admit the same upstream-throttled slug.
+const MODEL_COOLDOWN_MS = 90 * 1_000;
 
 type CircuitState = {
   consecutiveFailures: number;

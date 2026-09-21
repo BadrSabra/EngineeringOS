@@ -152,7 +152,7 @@ describe("circuit-breaker", () => {
     recordModelFailure("openrouter", "fixture/model-a", 5_000);
 
     expect(isModelCoolingDown("openrouter", "fixture/model-a")).toBe(true);
-    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBeGreaterThan(0);
+    expect(getModelCooldownRemainingMs("openrouter", "fixture/model-a")).toBeGreaterThan(30_000);
     expect(isModelCoolingDown("openrouter", "fixture/model-b")).toBe(false);
     expect(isCircuitOpen("openrouter")).toBe(false);
 
