@@ -915,6 +915,52 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     }
   });
 
+  it("repairs one concurrent sibling's range contract without delaying the rest of the wave", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const {
+        result,
+        providerCalls,
+        subqueryReads,
+        maxConcurrentSubqueries,
+      } = await runScenario({
+        rootPath,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        toolCallNameByTarget: { [ADAPTER]: "read_file_range" },
+        invalidRangeFirstByTarget: { [ADAPTER]: true },
+        correctAfterRangeError: true,
+        subqueryDelayMs: 5,
+        synthesisResponse:
+          "CURRENT_STATE: the adapter, client, and connector are verified in " +
+          "`src/provider/adapter.ts`, `src/provider/client.ts`, and `src/provider/connector.ts`.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: preserve all three bounded evidence receipts.",
+      });
+
+      expect(maxConcurrentSubqueries).toBeGreaterThan(1);
+      expect(subqueryReads).toEqual(new Map([
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ADAPTER))
+        .toHaveLength(3);
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === CLIENT))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === CONNECTOR))
+        .toHaveLength(2);
+      expect(providerCalls.at(-1)?.kind).toBe("synthesis");
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ADAPTER, CLIENT, CONNECTOR]),
+      );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("continues independent siblings when one fallback source is missing", async () => {
     const rootPath = await makeRoot();
     await fs.rm(path.join(rootPath, ADAPTER));
