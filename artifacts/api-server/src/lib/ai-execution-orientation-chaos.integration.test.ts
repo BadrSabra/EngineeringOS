@@ -10,10 +10,12 @@ import {
 import {
   claimAiExecution,
   checkpointAiExecution,
+  failAiExecution,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
   recoverAiExecutionResumeToken,
   recoverAiExecutionRetryToken,
+  requestAiExecutionCancel,
   type AiOrientationRoleManifest,
 } from "./ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "./ai-execution-acceptance.js";
@@ -2550,6 +2552,187 @@ describe("durable project-orientation retry chaos", () => {
       expect(acceptances).toHaveLength(2);
     } finally {
       await Promise.all([left.cleanup(), right.cleanup()]);
+    }
+  });
+
+  it("does not let a pre-cancel retry token revive a paused execution with an existing failure acceptance", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-cancel-after-failure");
+    const context = `adaptive cancellation fence; execution=${fixture.executionId}`;
+
+    try {
+      await db
+        .update(aiExecutionsTable)
+        .set({ status: "paused", updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const cancelled = await requestAiExecutionCancel({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+      });
+      expect(cancelled, context).toMatchObject({
+        id: fixture.executionId,
+        status: "cancelled",
+      });
+
+      expect(await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "pre-cancel-token-worker",
+        resumeToken: retryToken,
+      }), context).toBeUndefined();
+      expect(await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }), context).toBeUndefined();
+      expect(await recoverAiExecutionResumeToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }), context).toBeUndefined();
+
+      const [terminal] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(terminal, context).toMatchObject({
+        attempt: 0,
+        status: "cancelled",
+        workerId: null,
+      });
+
+      const [acceptance] = await db
+        .select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          nextActionCode: aiExecutionAcceptancesTable.nextActionCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .limit(1);
+      expect(acceptance, context).toMatchObject({
+        attempt: 0,
+        terminalStatus: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+        nextActionCode: "ABANDON_EXECUTION",
+        resumable: 0,
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("keeps claim-before-cancel owned by the worker until cancellation finalization", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-claim-before-cancel");
+    const context = `adaptive claim-before-cancel fence; execution=${fixture.executionId}`;
+    const workerId = "claim-before-cancel-worker";
+
+    try {
+      await db
+        .update(aiExecutionsTable)
+        .set({ status: "paused", updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId,
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        id: fixture.executionId,
+        attempt: 1,
+        status: "running",
+        workerId,
+      });
+      expect(await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "replay-worker",
+        resumeToken: retryToken,
+      }), context).toBeUndefined();
+
+      const cancellationRequested = await requestAiExecutionCancel({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+      });
+      expect(cancellationRequested, context).toMatchObject({
+        id: fixture.executionId,
+        attempt: 1,
+        status: "cancelling",
+        workerId,
+      });
+      expect(cancellationRequested?.cancelRequestedAt).toEqual(expect.any(Date));
+
+      expect(await failAiExecution({
+        executionId: fixture.executionId,
+        workerId,
+        cancelled: true,
+        error: "Execution cancelled by the user.",
+      }), context).toBe(true);
+
+      const [terminal] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(terminal, context).toMatchObject({
+        attempt: 1,
+        status: "cancelled",
+        workerId: null,
+        cancelRequestedAt: null,
+      });
+
+      const [acceptance] = await db
+        .select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+          resumable: aiExecutionAcceptancesTable.resumable,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .orderBy(aiExecutionAcceptancesTable.attempt)
+        .offset(1)
+        .limit(1);
+      expect(acceptance, context).toMatchObject({
+        attempt: 1,
+        terminalStatus: "cancelled",
+        outcome: "INTERRUPTED",
+        reasonCode: "EXECUTION_CANCELLED",
+        resumable: 0,
+      });
+    } finally {
+      await fixture.cleanup();
     }
   });
 });

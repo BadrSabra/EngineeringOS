@@ -2868,6 +2868,7 @@ export async function requestAiExecutionCancel(params: {
       reasonCode: "EXECUTION_CANCELLED",
       recoveryState: "INCOMPLETE",
       resumable: false,
+      replaceExistingCancellation: true,
       error: "Execution cancelled before a worker started.",
       checkpoint: cancelledCheckpoint,
     });

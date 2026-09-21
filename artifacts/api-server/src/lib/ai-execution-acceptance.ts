@@ -91,6 +91,12 @@ export type FinalizeExecutionAcceptanceParams = {
   finalMessageContent?: string | null;
   /** Preserve a bounded provider/validation code already persisted on the message. */
   finalMessageErrorCode?: string | null;
+  /**
+   * A paused/queued cancellation may arrive after the attempt already has a
+   * retry acceptance. In that narrow case cancellation refines the existing
+   * row instead of being treated as an idempotent duplicate.
+   */
+  replaceExistingCancellation?: boolean;
   finalizationKey: string;
   outcome: "SUCCEEDED" | "FAILED" | "INTERRUPTED";
   terminalStatus: "completed" | "failed" | "cancelled" | "paused";
@@ -712,7 +718,73 @@ export async function finalizeExecutionAcceptance(
         eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
       ))
       .limit(1);
-    if (existing) return { accepted: true, duplicate: true, acceptance: existing };
+    if (existing) {
+      const replaceExistingCancellation =
+        params.replaceExistingCancellation === true
+        && params.outcome === "INTERRUPTED"
+        && params.reasonCode === "EXECUTION_CANCELLED"
+        && (execution.status === "queued" || execution.status === "paused")
+        && !params.taskFinalization;
+      if (!replaceExistingCancellation) {
+        return { accepted: true, duplicate: true, acceptance: existing };
+      }
+
+      const now = new Date();
+      const cancellationDisposition = {
+        reasonCodes: ["EXECUTION_CANCELLED"],
+        outcome: "INTERRUPTED" as const,
+        recoveryState: "INCOMPLETE" as const,
+        nextActionCode: "ABANDON_EXECUTION" as const,
+        operatorAction: "ABANDON_EXECUTION",
+      };
+      const [cancelledAcceptance] = await tx
+        .update(aiExecutionAcceptancesTable)
+        .set({
+          terminalStatus: "cancelled",
+          outcome: "INTERRUPTED",
+          reasonCode: "EXECUTION_CANCELLED",
+          nextActionCode: "ABANDON_EXECUTION",
+          disposition: cancellationDisposition,
+          resumable: 0,
+          workerId: params.workerId ?? existing.workerId,
+        })
+        .where(eq(aiExecutionAcceptancesTable.id, existing.id))
+        .returning();
+      if (!cancelledAcceptance) {
+        return { accepted: false, duplicate: false, reason: "Cancellation acceptance update failed." };
+      }
+
+      if (existing.messageId) {
+        await tx.update(aiChatMessagesTable)
+          .set({
+            outcome: "INTERRUPTED",
+            errorCode: "EXECUTION_CANCELLED",
+            errorMessage: safeError(params.error),
+          })
+          .where(and(
+            eq(aiChatMessagesTable.id, existing.messageId),
+            eq(aiChatMessagesTable.executionId, execution.id),
+          ));
+      }
+
+      await tx.update(aiExecutionsTable)
+        .set({
+          status: "cancelled",
+          finalMessageId: params.finalMessageId ?? execution.finalMessageId,
+          error: safeError(params.error),
+          completedAt: now,
+          updatedAt: now,
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
+          cancelRequestedAt: null,
+          checkpoint: params.checkpoint ?? execution.checkpoint,
+          checkpointVersion: execution.checkpointVersion + 1,
+        })
+        .where(eq(aiExecutionsTable.id, execution.id));
+
+      return { accepted: true, duplicate: false, acceptance: cancelledAcceptance };
+    }
 
     const now = new Date();
     let task: typeof tasksTable.$inferSelect | undefined;
@@ -978,6 +1050,7 @@ export async function finalizeExecutionAcceptance(
         workerId: null,
         leaseUntil: null,
         lastHeartbeatAt: null,
+        cancelRequestedAt: null,
         checkpoint,
         checkpointVersion: execution.checkpointVersion + 1,
       })

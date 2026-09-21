@@ -8,3 +8,9 @@ When an execution is cancelled, the cancellation terminal outcome owns the persi
 **Why:** A provider can return transport-level success while producing an empty or unusable response, and a client cancellation can arrive during finalization. If the terminal classifier marks the execution `INTERRUPTED` but persistence keeps the lower-level fallback text, history shows a misleading explanation such as a language mismatch instead of the actual cancellation.
 
 **How to apply:** Resolve cancellation before selecting `content` for the terminal assistant message. Persist the bounded cancellation explanation and preserve the raw lower-level diagnostic only in redacted trace metadata. Also record who/what requested cancellation so a cancelled run can be distinguished from provider failure.
+
+If a queued or paused execution already has a retry acceptance for the current attempt, a later cancellation must refine that acceptance to `INTERRUPTED` inside the same transaction before clearing the lease and token. Treating the existing row as an idempotent duplicate leaves the execution resumable after cancellation.
+
+**Why:** Acceptance rows are unique per execution/attempt, so a second cancellation row cannot represent the terminal outcome. The existing row is the authoritative projection for that attempt and must be updated atomically with the execution status.
+
+**How to apply:** Scope the refinement to server-owned cancellation parameters only; preserve the attempt identity, set `resumable=0` and `ABANDON_EXECUTION`, clear worker/lease and `cancelRequestedAt` fields, and reject all capabilities after the transaction commits.
