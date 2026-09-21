@@ -1098,25 +1098,25 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
 
       const { result, providerCalls, subqueryReads } = await runScenario({
         rootPath,
-        plan: fallbackPlan(),
-        targetByIntent: TARGET_BY_INTENT,
+        plan: independentProviderPlan(),
+        targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
         synthesisResponse:
-          "CURRENT_STATE: safe in-root evidence was retained while the symlink escape was rejected.\n" +
-          "GAPS: the acceptance source is NOT PROVEN because its resolved path left the project root.\n" +
+          "CURRENT_STATE: safe in-root provider evidence was retained while the symlink escape was rejected.\n" +
+          "GAPS: the provider adapter source is NOT PROVEN because its resolved path left the project root.\n" +
           "PRIORITIES: recover the source from an in-root file.",
       });
 
       expect(subqueryReads).toEqual(new Map([
-        [ACCEPTANCE, 1],
-        [EVIDENCE, 1],
-        [COUNTEREVIDENCE, 1],
+        [ADAPTER, 1],
+        [CLIENT, 1],
+        [CONNECTOR, 1],
       ]));
       expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
       expect(result.response).toContain("NOT PROVEN");
       expect(result.response).not.toContain("SYMLINK_ESCAPE_SECRET");
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
-      expect(graphReads).not.toContain(ACCEPTANCE);
-      expect(graphReads).toEqual(expect.arrayContaining([EVIDENCE, COUNTEREVIDENCE]));
+      expect(graphReads).not.toContain(ADAPTER);
+      expect(graphReads).toEqual(expect.arrayContaining([CLIENT, CONNECTOR]));
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
       await fs.rm(outsideRoot, { recursive: true, force: true });
