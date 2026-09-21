@@ -1,4 +1,9 @@
-import { GroqClientError, redactProviderErrorText, type GroqErrorCode } from "../errors.js";
+import {
+  GroqClientError,
+  redactProviderErrorText,
+  type GroqErrorCode,
+  type ProviderRateLimitScope,
+} from "../errors.js";
 import { getProvider, getStrategy, type ProviderId } from "../provider-registry.js";
 import type { ExecutionLedger } from "../execution-ledger.js";
 import type { OpenRouterFailureAction } from "../openai-compatible-client.js";
@@ -75,6 +80,10 @@ export type ProviderHealthProbeResult = {
   latencyMs: number;
   failureCode?: ProviderHealthFailureCode;
   failureReason?: string;
+  /** Present only when a typed provider error identifies a rate-limit scope. */
+  rateLimitScope?: ProviderRateLimitScope;
+  /** Bounded upstream label used only for server-owned quarantine decisions. */
+  upstreamProvider?: string;
   /** Bounded operator-facing summary; it intentionally excludes provider text. */
   report?: ProviderHealthReport;
 };
@@ -228,7 +237,10 @@ export function projectSafeProviderHealth(
 function unavailableResult(
   options: ProviderHealthProbeOptions,
   startedAt: number,
-  fields: Pick<ProviderHealthProbeResult, "model" | "failureCode" | "failureReason">,
+  fields: Pick<
+    ProviderHealthProbeResult,
+    "model" | "failureCode" | "failureReason" | "rateLimitScope" | "upstreamProvider"
+  >,
 ): ProviderHealthProbeResult {
   const model = safeProviderModel(fields.model ?? options.model);
   const attemptedModels = model ? [model] : [];
@@ -243,6 +255,10 @@ function unavailableResult(
     latencyMs: Math.max(0, Date.now() - startedAt),
     ...(fields.failureCode ? { failureCode: safeFailureCode(fields.failureCode) } : {}),
     failureReason: safeFailureReason(fields.failureCode, fields.failureReason),
+    ...(fields.rateLimitScope ? { rateLimitScope: fields.rateLimitScope } : {}),
+    ...(fields.upstreamProvider
+      ? { upstreamProvider: redactProviderErrorText(fields.upstreamProvider).slice(0, 120) }
+      : {}),
     model,
     report: {
       kind: "provider-health-report",
@@ -583,6 +599,12 @@ export async function probeProviderHealth(
         failureReason: isProviderError
           ? `Provider probe failed with ${error.code}.`
           : "Provider probe failed before a capability response.",
+          ...(isProviderError && error.rateLimitScope
+            ? { rateLimitScope: error.rateLimitScope }
+            : {}),
+          ...(isProviderError && error.upstreamProvider
+            ? { upstreamProvider: error.upstreamProvider }
+            : {}),
         },
       );
       const providerModels = isProviderError ? error.providerAttemptedModels : undefined;

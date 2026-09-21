@@ -327,16 +327,21 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     let selectedProvider: BenchmarkAirlockProvider | undefined;
     let telemetry: CodeAgentExecutionTelemetry | undefined;
     let providerAttempts = 0;
-    const availableProviders = healthyProviders.filter((provider) => !quarantinedProviders.has(provider));
-    const attempts = availableProviders.length;
-     if (attempts === 0 && campaignMode === "clean-witness") {
+    if (
+      healthyProviders.every((provider) => quarantinedProviders.has(provider)) &&
+      campaignMode === "clean-witness"
+    ) {
       runtimePreflightBlockers = [
         "provider lanes exhausted after runtime unavailability; resume from the saved checkpoint",
       ];
       break;
     }
 
-    for (let attempt = 0; attempt < attempts; attempt++) {
+    for (let attempt = 0; attempt < healthyProviders.length; attempt++) {
+      const availableProviders = healthyProviders.filter(
+        (provider) => !quarantinedProviders.has(provider),
+      );
+      if (availableProviders.length === 0) break;
       const provider = availableProviders[providerCursor % availableProviders.length]!;
       providerCursor += 1;
       providerAttempts += 1;
@@ -348,9 +353,21 @@ export async function runCodeAgentBenchmarkAirlock(args: {
       telemetry = candidate;
       if (!candidate.providerUnavailable) break;
       // A runtime U is isolated for the remainder of this rolling window.
-      // Other lanes can continue, but this failing lane must not cascade U
-      // across every later case.
-      quarantinedProviders.add(provider);
+      // A typed shared-pool or credential rate limit quarantines every lane
+      // owned by that provider: trying another same-provider lane would
+      // duplicate the provider fallback that the strategy already owns.
+      const providerScopedRateLimit =
+        candidate.providerRateLimitScope === "upstream_shared_pool" ||
+        candidate.providerRateLimitScope === "provider_credential";
+      if (providerScopedRateLimit) {
+        for (const lane of healthyProviders) {
+          if (lane.provider === provider.provider) quarantinedProviders.add(lane);
+        }
+      } else {
+        // Model/capability/runtime failures remain lane-scoped so a distinct
+        // preflighted lane can still produce evidence for this case.
+        quarantinedProviders.add(provider);
+      }
     }
 
     if (!telemetry || telemetry.providerUnavailable) {

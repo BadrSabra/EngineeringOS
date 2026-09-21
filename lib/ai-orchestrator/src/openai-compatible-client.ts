@@ -17,7 +17,11 @@
  * PR-008: QUOTA code for billing exhaustion; MODEL_UNAVAILABLE for 410/422.
  */
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
-import { GroqClientError, type GroqErrorCode } from "./errors.js";
+import {
+  GroqClientError,
+  type GroqErrorCode,
+  type ProviderRateLimitScope,
+} from "./errors.js";
 import {
   buildFallbackChainFromId,
   isCatalogFreeModelForCapability,
@@ -494,18 +498,29 @@ function isModelUnavailableError(err: unknown): err is GroqClientError {
  * response body string. Returns { code, message } where code is the provider's
  * own error tag (e.g. "model_not_found") and message is the human text.
  */
-function extractProviderError(body: string): { code?: string; message?: string } {
+function extractProviderError(body: string): {
+  code?: string;
+  message?: string;
+  limitSource?: string;
+  upstreamProvider?: string;
+} {
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const error = parsed.error;
 
     if (typeof error === "object" && error !== null) {
       const errorObj = error as Record<string, unknown>;
+      const metadata =
+        errorObj.metadata && typeof errorObj.metadata === "object"
+          ? errorObj.metadata as Record<string, unknown>
+          : undefined;
       return {
         code:    asString(errorObj.code)
           ?? asString(errorObj.status)
           ?? asString(errorObj.type),
         message: asString(errorObj.message),
+        limitSource: asString(metadata?.limit_source),
+        upstreamProvider: asString(metadata?.provider_name),
       };
     }
 
@@ -521,6 +536,36 @@ function extractProviderError(body: string): { code?: string; message?: string }
     // not JSON
   }
   return {};
+}
+
+function classifyRateLimitScope(
+  body: string,
+  limitSource?: string,
+): ProviderRateLimitScope {
+  const normalizedSource = limitSource?.trim().toLowerCase() ?? "";
+  const normalizedBody = body.toLowerCase();
+  if (
+    normalizedSource.includes("upstream_provider_shared_pool") ||
+    normalizedBody.includes("upstream_provider_shared_pool")
+  ) {
+    return "upstream_shared_pool";
+  }
+  if (
+    normalizedSource.includes("credential") ||
+    normalizedSource.includes("provider_rate") ||
+    normalizedSource.includes("rate_limit")
+  ) {
+    return "provider_credential";
+  }
+  if (
+    normalizedBody.includes("quota") ||
+    normalizedBody.includes("credits") ||
+    normalizedBody.includes("billing") ||
+    normalizedBody.includes("insufficient")
+  ) {
+    return "account_quota";
+  }
+  return "unknown";
 }
 
 /**
@@ -585,8 +630,13 @@ function classifyStatus(
   model?: string,
   headers?: Headers,
 ): GroqClientError {
-  const { code: pCode, message: pMessage } = extractProviderError(body);
+  const providerDetails = extractProviderError(body);
+  const { code: pCode, message: pMessage } = providerDetails;
   const providerCode = asString(pCode);
+  const rateLimitScope =
+    status === 429
+      ? classifyRateLimitScope(body, providerDetails.limitSource)
+      : undefined;
   const ctx = {
     providerStatus:  status,
     providerCode,
@@ -594,6 +644,10 @@ function classifyStatus(
     providerName,
     providerModel:   model,
     retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
+    ...(rateLimitScope ? { rateLimitScope } : {}),
+    ...(providerDetails.upstreamProvider
+      ? { upstreamProvider: providerDetails.upstreamProvider.slice(0, 120) }
+      : {}),
   };
 
   // Log the classification decision so errors can be traced back to their root cause.

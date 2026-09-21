@@ -254,6 +254,12 @@ export function createChatCodeAgentBenchmarkExecutor(
         testsPassed: null,
         latencyMs: Math.round(performance.now() - startedAt),
         providerUnavailable: true,
+        ...(providerHealth.rateLimitScope
+          ? { providerRateLimitScope: providerHealth.rateLimitScope }
+          : {}),
+        ...(providerHealth.upstreamProvider
+          ? { providerUpstreamProvider: providerHealth.upstreamProvider }
+          : {}),
       };
     }
     await opts.prepareCase?.(testCase);
@@ -414,7 +420,13 @@ export function createChatCodeAgentBenchmarkExecutor(
         typecheckPassed: null,
         testsPassed: null,
         latencyMs: Math.round(performance.now() - startedAt),
-        ...(providerUnavailable ? { providerUnavailable: true } : { executorFailed: true }),
+         ...(providerUnavailable ? { providerUnavailable: true } : { executorFailed: true }),
+         ...(error instanceof GroqClientError && error.rateLimitScope
+           ? { providerRateLimitScope: error.rateLimitScope }
+           : {}),
+         ...(error instanceof GroqClientError && error.upstreamProvider
+           ? { providerUpstreamProvider: error.upstreamProvider }
+           : {}),
       };
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);

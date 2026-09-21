@@ -7,6 +7,8 @@
  * Results contain bounded metadata only — never model responses or source text.
  */
 
+import type { ProviderRateLimitScope } from "../errors.js";
+
 /** Wave 1 remains preserved as flight-deck-v1; this expanded follow-up is v2. */
 export const CODE_AGENT_BENCHMARK_VERSION = "flight-deck-v2";
 export const CODE_AGENT_BENCHMARK_CASE_COUNT = 34;
@@ -161,6 +163,10 @@ export type CodeAgentExecutionTelemetry = {
   executorFailed?: boolean;
   /** Provider/network/case-timeout failure prevented a quality observation. */
   providerUnavailable?: boolean;
+  /** Internal attribution for provider-lane quarantine; not quality evidence. */
+  providerRateLimitScope?: ProviderRateLimitScope;
+  /** Internal bounded upstream label for provider-lane quarantine. */
+  providerUpstreamProvider?: string;
   /** Bounded provider attribution for free-only scorecards. */
   providerAttemptedModels?: string[];
   providerFinalModel?: string;

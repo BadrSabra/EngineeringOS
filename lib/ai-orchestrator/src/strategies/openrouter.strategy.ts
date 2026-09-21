@@ -49,6 +49,10 @@ export function shouldRecordCircuitFailure(error: unknown): boolean {
   return !(
     error.code === "INVALID_CONFIG" ||
     error.providerCode === "MODEL_CAPABILITY_MISMATCH" ||
+    // An upstream shared-pool throttle is narrower than OpenRouter provider
+    // health. The benchmark/strategy lane quarantine owns this signal; do not
+    // open the broader provider circuit after unrelated pool throttles.
+    error.rateLimitScope === "upstream_shared_pool" ||
     // These are model/contract failures. A healthy OpenRouter endpoint can
     // return either when one free-tier candidate cannot honor this request.
     error.code === "EMPTY_RESPONSE" ||

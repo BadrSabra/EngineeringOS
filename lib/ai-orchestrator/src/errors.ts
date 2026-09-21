@@ -80,6 +80,17 @@ export type GroqErrorCode =
   // configuration
   | "INVALID_CONFIG";
 
+/**
+ * Bounded scope for HTTP 429 diagnostics. This is deliberately narrower than
+ * the provider's raw metadata so callers can make retry/quarantine decisions
+ * without depending on provider-specific text.
+ */
+export type ProviderRateLimitScope =
+  | "upstream_shared_pool"
+  | "provider_credential"
+  | "account_quota"
+  | "unknown";
+
 /** PR-007: structured fields carried alongside the error message. */
 export type ProviderErrorContext = {
   /** Raw HTTP status code from the provider. */
@@ -94,6 +105,10 @@ export type ProviderErrorContext = {
   providerModel?: string;
   /** Bounded provider retry hint, in milliseconds, when supplied by HTTP. */
   retryAfterMs?: number;
+  /** Server-owned classification of the provider's rate-limit scope. */
+  rateLimitScope?: ProviderRateLimitScope;
+  /** Bounded upstream provider label, when the provider exposes one. */
+  upstreamProvider?: string;
   /** Every provider-owned fallback model attempted before this error surfaced. */
   providerAttemptedModels?: string[];
   /** Safe OpenRouter catalog diagnostics for model-resolution failures. */
@@ -141,6 +156,8 @@ export class GroqClientError extends Error {
   readonly providerName?: string;
   readonly providerModel?: string;
   readonly retryAfterMs?: number;
+  readonly rateLimitScope?: ProviderRateLimitScope;
+  readonly upstreamProvider?: string;
   readonly providerAttemptedModels?: string[];
   readonly catalogLoaded?: boolean;
   readonly catalogUsable?: boolean;
@@ -162,6 +179,8 @@ export class GroqClientError extends Error {
       this.providerName    = options.context.providerName;
       this.providerModel   = options.context.providerModel;
       this.retryAfterMs    = options.context.retryAfterMs;
+      this.rateLimitScope  = options.context.rateLimitScope;
+      this.upstreamProvider = options.context.upstreamProvider;
       this.providerAttemptedModels = options.context.providerAttemptedModels;
       this.catalogLoaded = options.context.catalogLoaded;
       this.catalogUsable = options.context.catalogUsable;
@@ -179,6 +198,8 @@ export class GroqClientError extends Error {
       providerName:    this.providerName,
       providerModel:   this.providerModel,
       retryAfterMs:    this.retryAfterMs,
+      rateLimitScope:  this.rateLimitScope,
+      upstreamProvider: this.upstreamProvider,
       providerAttemptedModels: this.providerAttemptedModels,
       catalogLoaded: this.catalogLoaded,
       catalogUsable: this.catalogUsable,

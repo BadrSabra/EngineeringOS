@@ -76,7 +76,9 @@ function passedTelemetry(): CodeAgentExecutionTelemetry {
   };
 }
 
-function unavailableTelemetry(): CodeAgentExecutionTelemetry {
+function unavailableTelemetry(
+  providerRateLimitScope?: "upstream_shared_pool" | "provider_credential",
+): CodeAgentExecutionTelemetry {
   return {
     actualTerminal: "BLOCKED",
     validationStatus: "unavailable",
@@ -90,6 +92,7 @@ function unavailableTelemetry(): CodeAgentExecutionTelemetry {
     typecheckPassed: null,
     testsPassed: null,
     providerUnavailable: true,
+    ...(providerRateLimitScope ? { providerRateLimitScope } : {}),
   };
 }
 
@@ -217,6 +220,27 @@ describe("Benchmark Airlock", () => {
       providerAttempts: 2,
     });
     expect(run.observations[0]?.observation.grade).toBe("A");
+  });
+
+  it("quarantines every same-provider lane after a shared-pool runtime U", async () => {
+    const sharedPoolLane = vi.fn(async () => unavailableTelemetry("upstream_shared_pool"));
+    const duplicateOpenRouterLane = vi.fn(async () => passedTelemetry());
+    const crossProviderLane = vi.fn(async () => passedTelemetry());
+
+    const run = await runCodeAgentBenchmarkAirlock({
+      runId: "airlock-shared-pool-quarantine",
+      cases,
+      providers: [
+        provider("openrouter", health("openrouter", "usable", "model-a"), sharedPoolLane, "model-a"),
+        provider("openrouter", health("openrouter", "usable", "model-b"), duplicateOpenRouterLane, "model-b"),
+        provider("gemini", health("gemini", "usable"), crossProviderLane),
+      ],
+    });
+
+    expect(sharedPoolLane).toHaveBeenCalledTimes(1);
+    expect(duplicateOpenRouterLane).not.toHaveBeenCalled();
+    expect(crossProviderLane).toHaveBeenCalledTimes(2);
+    expect(run.observations.every((entry) => entry.provider === "gemini")).toBe(true);
   });
 
   it("quarantines a runtime-U lane for later cases in the same window", async () => {

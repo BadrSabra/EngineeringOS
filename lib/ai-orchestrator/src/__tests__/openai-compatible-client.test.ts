@@ -677,6 +677,39 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
   });
 
+  it("classifies OpenRouter shared-pool metadata without changing same-provider fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({}),
+      text: async () => JSON.stringify({
+        error: {
+          code: 429,
+          message: "Provider returned error",
+          metadata: {
+            limit_source: "upstream_provider_shared_pool",
+            provider_name: "Poolside",
+          },
+        },
+      }),
+    } as Response)));
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        retryTransient: false,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        err.rateLimitScope === "upstream_shared_pool" &&
+        err.upstreamProvider === "Poolside",
+    );
+  });
+
   it("429 stops same-provider fallback when transient retry is disabled", async () => {
     let callCount = 0;
     const seenModels: string[] = [];
