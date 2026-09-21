@@ -207,6 +207,7 @@ type Scenario = {
   providerFailureTarget?: string;
   providerFailureAfterReadTarget?: string;
   remapEvidenceTarget?: boolean;
+  synthesisFailure?: "throw" | "tool_call";
 };
 
 async function configureChat(
@@ -285,6 +286,7 @@ function makeStrategy(options: {
   providerFailureTarget?: string;
   providerFailureAfterReadTarget?: string;
   remapEvidenceTarget?: boolean;
+  synthesisFailure?: "throw" | "tool_call";
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -302,6 +304,26 @@ function makeStrategy(options: {
         if (options.abortController) {
           options.abortController.abort();
           throw new Error("simulated adaptive synthesis cancellation");
+        }
+        if (options.synthesisFailure === "throw") {
+          throw new Error("simulated adaptive synthesis provider failure");
+        }
+        if (options.synthesisFailure === "tool_call") {
+          return {
+            content: "",
+            toolCalls: [
+              {
+                id: "synthesis-tool-call",
+                type: "function" as const,
+                function: {
+                  name: "read_file",
+                  arguments: JSON.stringify({ path: ADAPTER }),
+                },
+              },
+            ],
+            model: "adaptive-test-model",
+            usage: {},
+          };
         }
         return {
           content:
@@ -419,6 +441,7 @@ async function runScenario(scenario: Scenario) {
     providerFailureTarget: scenario.providerFailureTarget,
     providerFailureAfterReadTarget: scenario.providerFailureAfterReadTarget,
     remapEvidenceTarget: scenario.remapEvidenceTarget,
+    synthesisFailure: scenario.synthesisFailure,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -641,6 +664,57 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
         expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
       );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds a synthesis provider failure without replaying completed sub-queries", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, strategy, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        synthesisFailure: "throw",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery")).toHaveLength(6);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(strategy.call).toHaveBeenCalledTimes(7);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE — synthesis did not complete.");
+      expect(result.response).not.toContain("CURRENT_STATE: verified acceptance and evidence reads are available.");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
+      );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a synthesis tool call and preserves the completed evidence boundary", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, strategy, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        synthesisFailure: "tool_call",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(strategy.call).toHaveBeenCalledTimes(7);
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE — synthesis returned no usable report.");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
+      );
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).not.toContain(ADAPTER);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
