@@ -280,6 +280,131 @@ describe("query-planner — knowledge-graph enrichment", () => {
     expect(result.planDiagnostics).toContain("planner response was not a valid plan");
   });
 
+  it("recovers compound coverage and broad execution shape when planning fails", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Review the current features and verified gaps",
+      projectContext: makeContext(false),
+      model: "mock-model",
+      strategy: {
+        call: vi.fn().mockResolvedValue({
+          content: "not valid planner JSON",
+          model: "mock-model",
+          usage: {},
+        }),
+      } as never,
+    });
+
+    expect(result.planStatus).toBe("invalid");
+    expect(result.scopeEstimate).toBe("broad");
+    expect(result.suggestedIterations).toBe(40);
+    expect(result.compoundParts.map((part) => part.kind)).toEqual([
+      "CURRENT_STATE",
+      "FEATURES",
+      "GAPS",
+    ]);
+    expect(result.subQueries).toEqual([
+      "What is the current project state?",
+      "What features or capabilities currently exist?",
+      "What verified gaps or missing capabilities exist?",
+    ]);
+    expect(result.planDiagnostics).toContain("planner response was not a valid plan");
+  });
+
+  it("keeps a broad architecture fallback guided without treating hints as evidence", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Review the project architecture",
+      projectContext: {
+        ...makeContext(false),
+        graphSummary: [
+          "README.md",
+          "src/App.tsx",
+          "src/routes.ts",
+          "tests/app.test.ts",
+        ].join(" "),
+      },
+      model: "mock-model",
+      strategy: {
+        call: vi.fn().mockResolvedValue({
+          content: "not valid planner JSON",
+          model: "mock-model",
+          usage: {},
+        }),
+      } as never,
+    });
+
+    expect(result.planStatus).toBe("invalid");
+    expect(result.scopeEstimate).toBe("broad");
+    expect(result.subQueries).toHaveLength(4);
+    expect(result.targetFiles).toEqual([
+      "README.md",
+      "src/App.tsx",
+      "src/routes.ts",
+      "tests/app.test.ts",
+    ]);
+    expect(result.targetConfidence).toBeUndefined();
+    expect(result.orientationSources).toBeUndefined();
+  });
+
+  it("keeps unresolved targets source-first during broad fallback", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Review the project architecture",
+      projectContext: {
+        ...makeContext(false),
+        graphSummary: "README.md src/App.tsx src/routes.ts tests/app.test.ts",
+      },
+      model: "mock-model",
+      targetResolution: "unresolved",
+      strategy: {
+        call: vi.fn().mockResolvedValue({
+          content: "not valid planner JSON",
+          model: "mock-model",
+          usage: {},
+        }),
+      } as never,
+    });
+
+    expect(result.scopeEstimate).toBe("broad");
+    expect(result.subQueries).toHaveLength(4);
+    expect(result.targetFiles).toEqual([]);
+  });
+
+  it("preserves a valid broad target set when decomposition is incomplete", async () => {
+    const { planQuery } = await import("../agents/query-planner.js");
+    const result = await planQuery({
+      message: "Review the architecture",
+      projectContext: makeContext(false),
+      model: "mock-model",
+      strategy: {
+        call: vi.fn().mockResolvedValue({
+          content: JSON.stringify({
+            targetFiles: ["src/auth.ts", "src/routes.ts"],
+            targetEntities: ["AuthService"],
+            scopeEstimate: "broad",
+            suggestedIterations: 40,
+            requiresToolUse: true,
+            subQueries: [],
+            compoundParts: [],
+          }),
+          model: "mock-model",
+          usage: {},
+        }),
+      } as never,
+    });
+
+    expect(result.planStatus).toBe("invalid");
+    expect(result.scopeEstimate).toBe("broad");
+    expect(result.suggestedIterations).toBe(40);
+    expect(result.targetFiles).toEqual(["src/auth.ts", "src/routes.ts"]);
+    expect(result.targetEntities).toEqual(["AuthService"]);
+    expect(result.subQueries).toEqual([]);
+    expect(result.planDiagnostics).toContain(
+      "broad plans require at least two focused subQueries",
+    );
+  });
+
   it("uses the bounded filesystem inventory when graph summary paths are unavailable", async () => {
     const { planQuery } = await import("../agents/query-planner.js");
     const result = await planQuery({

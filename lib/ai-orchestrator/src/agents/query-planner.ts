@@ -48,6 +48,7 @@ import {
   type SemanticGraphNode,
 } from "../semantic-trace.js";
 import {
+  distinctExplicitSourcePaths,
   findGapAnalysisMatch,
   normalizeIntentText,
 } from "../task-contracts.js";
@@ -210,6 +211,8 @@ const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
 const MAX_UNRESOLVED_TARGET_FILES = 4;
 const MIN_UNRESOLVED_TARGET_CONFIDENCE = 0.75;
 const ORIENTATION_ROLES = ["purpose", "components", "primaryFlow", "uncertainty"] as const;
+const BROAD_FALLBACK_REQUEST_RE =
+  /\b(?:architecture|architectural|codebase(?:-wide)?|entire|whole|system(?:-wide)?|all\s+layers|review|audit|overview|summari[sz]e|analy[sz]e)\b|(?:المعمارية|معمارية|المشروع\s+بالكامل|كامل\s+المشروع|النظام|طبقات|مراجعة\s+شاملة|تحليل\s+شامل|نظرة\s+عامة|ملخص\s+المشروع)/iu;
 const GRAPH_PATH_PATTERN =
   /(?:^|[\s"'`([{,])((?:[A-Za-z0-9_.@-]+\/)*[A-Za-z0-9_.@-]+\.(?:md|json|yaml|yml|toml|ts|tsx|js|jsx|mjs|cjs|py|go|rs|sql|css|html))(?=$|[\s"'`)\]},;:])/g;
 
@@ -241,6 +244,31 @@ function graphSummaryPaths(graphSummary: string): string[] {
     if (path && !path.startsWith("/") && !path.split("/").includes("..")) paths.add(path);
   }
   return [...paths];
+}
+
+function isBroadFallbackRequest(message: string): boolean {
+  // A single explicit file is a bounded read even when the user says
+  // "review" or "analyze"; never widen that request during degradation.
+  if (distinctExplicitSourcePaths(message).length === 1) return false;
+  return BROAD_FALLBACK_REQUEST_RE.test(normalizeIntentText(message));
+}
+
+function fallbackBroadSubQueries(message: string): string[] {
+  if (!isBroadFallbackRequest(message)) return [];
+  const arabic = /[\u0600-\u06FF]/u.test(message);
+  return arabic
+    ? [
+        "ما البنية الحالية والمكونات الرئيسية؟",
+        "كيف يمر التدفق الرئيسي بين الطبقات؟",
+        "ما نقاط الضعف والفجوات المؤكدة؟",
+        "ما الأولويات التالية بناءً على الأدلة؟",
+      ]
+    : [
+        "What is the current architecture and its main components?",
+        "How does the primary flow move across the layers?",
+        "What verified weaknesses and gaps exist?",
+        "What should be prioritized next based on evidence?",
+      ];
 }
 
 function pickOrientationPaths(
@@ -298,6 +326,11 @@ function fallbackPlanFor(opts: {
   planStatus?: QueryPlanStatus;
   diagnostics?: string[];
 }): QueryPlan {
+  const compoundParts = inferCompoundParts(opts.message);
+  const subQueries = compoundParts.length >= 2
+    ? compoundParts.map((part) => part.question).slice(0, MAX_SUBQUERIES)
+    : fallbackBroadSubQueries(opts.message).slice(0, MAX_SUBQUERIES);
+  const compoundFallback = subQueries.length >= 2;
   const orientationSources =
     opts.profile === "project_orientation"
       ? deriveFallbackOrientationSources(
@@ -305,15 +338,27 @@ function fallbackPlanFor(opts: {
           opts.orientationFallbackPaths ?? [],
         )
       : undefined;
+  const broadNavigationSources =
+    compoundFallback &&
+    opts.profile !== "project_orientation" &&
+    opts.targetResolution !== "unresolved"
+      ? deriveFallbackOrientationSources(opts.graphSummary ?? "")
+      : undefined;
   const targetFiles = orientationSources
     ? [...new Set(ORIENTATION_ROLES.flatMap((role) => orientationSources[role]))].slice(0, MAX_TARGET_FILES)
-    : [];
+    : broadNavigationSources
+      ? [...new Set(ORIENTATION_ROLES.flatMap((role) => broadNavigationSources[role]))].slice(0, MAX_TARGET_FILES)
+      : [];
   return {
     ...FALLBACK_PLAN,
     originalIntent: opts.message,
     targetResolution: opts.targetResolution,
     planStatus: opts.planStatus ?? "fallback",
+    scopeEstimate: compoundFallback ? "broad" : FALLBACK_PLAN.scopeEstimate,
+    suggestedIterations: compoundFallback ? 40 : FALLBACK_PLAN.suggestedIterations,
     targetFiles,
+    compoundParts,
+    subQueries,
     ...(orientationSources ? { orientationSources } : {}),
     planDiagnostics: (opts.diagnostics ?? FALLBACK_PLAN.planDiagnostics ?? []).slice(0, 4),
   };
@@ -1360,15 +1405,12 @@ export async function planQuery(opts: {
     constrainedPlan.subQueries.length < 2
   ) {
     return {
-      ...fallbackPlanFor({
-        message,
-        targetResolution,
-        profile,
-        graphSummary: projectContext.graphSummary,
-        orientationFallbackPaths,
-        planStatus: "invalid",
-        diagnostics: ["broad plans require at least two focused subQueries"],
-      }),
+      ...constrainedPlan,
+      planStatus: "invalid",
+      planDiagnostics: [
+        ...(constrainedPlan.planDiagnostics ?? []),
+        "broad plans require at least two focused subQueries",
+      ].slice(0, 4),
       ...(deriveProjectQueryTargetMode({ targetResolution })
         ? { targetMode: deriveProjectQueryTargetMode({ targetResolution }) }
         : {}),
