@@ -2941,6 +2941,63 @@ describe("durable project-orientation retry chaos", () => {
     }
   });
 
+  it("rejects a checkpoint from a retired attempt when the worker identity is reused", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-reused-worker-checkpoint");
+    const context = `adaptive reused worker checkpoint fence; execution=${fixture.executionId}`;
+
+    try {
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "reused-worker-id",
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId: "reused-worker-id",
+      });
+
+      const staleCheckpoint = await checkpointAiExecution({
+        executionId: fixture.executionId,
+        workerId: "reused-worker-id",
+        checkpoint: {
+          stage: "tool_loop",
+          sequence: 100,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      expect(staleCheckpoint, context).toBe(false);
+
+      const [stored] = await db
+        .select({
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+          checkpoint: aiExecutionsTable.checkpoint,
+          attempt: aiExecutionsTable.attempt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(stored, context).toMatchObject({
+        attempt: 1,
+        checkpointVersion: 0,
+      });
+      expect(JSON.parse(stored!.checkpoint), context).toMatchObject({
+        stage: "queued",
+        sequence: 0,
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   it("keeps claim-before-cancel owned by the worker until cancellation finalization", async () => {
     const fixture = await createFailedOrientationFixture("adaptive-claim-before-cancel");
     const context = `adaptive claim-before-cancel fence; execution=${fixture.executionId}`;

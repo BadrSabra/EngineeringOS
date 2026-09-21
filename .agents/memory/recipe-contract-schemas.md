@@ -74,3 +74,9 @@ Finalization idempotency is scoped to both execution and attempt; a key found on
 **Why:** A copied or malformed provider callback can reuse a valid key from another execution. Global key lookup otherwise returns the wrong acceptance and hides that the target execution was never terminalized.
 
 **How to apply:** When a key already exists, compare its execution and attempt to the locked target before returning `duplicate`; reject cross-scope collisions before any insert can hit the global unique constraint.
+
+Terminal `finalMessageId` must belong to the locked execution and its session before acceptance or message projection is written.
+
+**Why:** A valid message ID from another execution was otherwise enough to rewrite a foreign assistant message and attach it as the target execution's final projection.
+
+**How to apply:** Load the message's `executionId` and `sessionId`, reject cross-execution/session references, and keep the message update predicate execution-scoped.
