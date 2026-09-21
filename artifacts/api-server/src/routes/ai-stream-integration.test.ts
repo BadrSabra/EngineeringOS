@@ -1037,6 +1037,8 @@ describe("AI execution resume-capability recovery", () => {
     )).toBe(true);
 
     const winningDone = doneEvents[0]!;
+    const winningMessage = winningDone.message as Record<string, unknown>;
+    const winningProjection = winningMessage.terminalProjection as Record<string, unknown>;
     expect(winningDone).toMatchObject({
       sessionId,
       operationId,
@@ -1106,6 +1108,38 @@ describe("AI execution resume-capability recovery", () => {
         outcome: "SUCCEEDED",
       }),
     ]);
+
+    const detail = await request(app)
+      .get(`/api/ai/executions/${fixture.created.execution.id}`)
+      .expect(200);
+    expect(detail.body).toMatchObject({
+      id: fixture.created.execution.id,
+      status: "completed",
+      attempt: 1,
+      operationId,
+      terminalProjection: winningProjection,
+    });
+
+    const executionHistory = await request(app)
+      .get(`/api/ai/executions/history?projectId=${encodeURIComponent(projectId)}`)
+      .expect(200);
+    expect(executionHistory.body.some(
+      (item: { id: string }) => item.id === fixture.created.execution.id,
+    )).toBe(false);
+
+    const chatHistory = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    expect(chatHistory.body.filter((item: { role: string }) => item.role === "user"))
+      .toHaveLength(1);
+    expect(chatHistory.body.filter((item: { role: string }) => item.role === "assistant"))
+      .toEqual([
+        expect.objectContaining({
+          executionId: fixture.created.execution.id,
+          outcome: "SUCCEEDED",
+          terminalProjection: winningProjection,
+        }),
+      ]);
   });
 
   it("release-smoke-resumable-failure: preserves both terminal attempts across provider failure, resume, REST history, and chat history", async () => {
