@@ -221,6 +221,7 @@ type Scenario = {
   correctAfterScopeBlock?: boolean;
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
+  malformedMixedToolCallByTarget?: Record<string, boolean>;
   adversarialAfterReadPathByTarget?: Record<string, string>;
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
@@ -314,6 +315,7 @@ function makeStrategy(options: {
   correctAfterScopeBlock?: boolean;
   scopeCorrectionPathByTarget?: Record<string, string>;
   additionalToolCallPathByTarget?: Record<string, string>;
+  malformedMixedToolCallByTarget?: Record<string, boolean>;
   adversarialAfterReadPathByTarget?: Record<string, string>;
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
@@ -568,7 +570,16 @@ function makeStrategy(options: {
                 arguments: JSON.stringify(toolArguments),
               },
             },
-            ...(options.additionalToolCallPathByTarget?.[target]
+            ...(options.malformedMixedToolCallByTarget?.[target]
+              ? [{
+                  id: `malformed-read-${target}`,
+                  type: "function" as const,
+                  function: {
+                    name: "read_file",
+                    arguments: '{"path":',
+                  },
+                }]
+              : options.additionalToolCallPathByTarget?.[target]
               ? [{
                   id: options.duplicateMixedToolCallIdByTarget?.[target]
                     ? `read-${target}`
@@ -635,6 +646,7 @@ async function runScenario(scenario: Scenario) {
     correctAfterScopeBlock: scenario.correctAfterScopeBlock,
     scopeCorrectionPathByTarget: scenario.scopeCorrectionPathByTarget,
     additionalToolCallPathByTarget: scenario.additionalToolCallPathByTarget,
+    malformedMixedToolCallByTarget: scenario.malformedMixedToolCallByTarget,
     adversarialAfterReadPathByTarget: scenario.adversarialAfterReadPathByTarget,
     correctAfterRangeError: scenario.correctAfterRangeError,
     invalidRangeFirstByTarget: scenario.invalidRangeFirstByTarget,
@@ -991,6 +1003,38 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
       expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
       expect(graphReads).not.toContain(GENERAL);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a valid read when a sibling tool call has malformed JSON arguments", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        malformedMixedToolCallByTarget: { [ACCEPTANCE]: true },
+        synthesisResponse:
+          "CURRENT_STATE: all requested source windows were retained despite one malformed tool call.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: keep malformed calls isolated from accepted evidence.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
+      );
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
