@@ -790,12 +790,10 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
         result,
         providerCalls,
         subqueryReads,
-        forbiddenContentObserved,
       } = await runScenario({
         rootPath,
         plan: independentProviderPlan(),
         targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
-        forbiddenContent: "SYMLINK_ESCAPE_SECRET",
       });
 
       const subqueryTargets = providerCalls
