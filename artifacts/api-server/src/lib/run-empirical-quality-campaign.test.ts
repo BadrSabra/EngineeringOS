@@ -134,6 +134,30 @@ describe("empirical provider campaign adapter", () => {
     expect(JSON.stringify(scorecard)).not.toContain("provider response");
   });
 
+  it("quarantines remaining empirical cases after a typed shared-pool limit", async () => {
+    const reviewed: string[] = [];
+    const scorecard = await runApiEmpiricalQualityCampaign({
+      corpus,
+      provider: "openrouter",
+      apiKey: "provider-key-is-test-only",
+      workspaceFactory: workspaceFor,
+      reviewCase: async ({ testCase }) => {
+        reviewed.push(testCase.id);
+        throw new GroqClientError("RATE_LIMITED", "provider response must not escape", {
+          context: {
+            rateLimitScope: "upstream_shared_pool",
+          },
+        });
+      },
+    });
+
+    expect(scorecard.status).toBe("UNAVAILABLE");
+    expect(scorecard.metrics.providerUnavailableCount).toBe(2);
+    expect(reviewed).toEqual(["defect-001"]);
+    expect(scorecard.cases.every((entry) => entry.errorCode === "PROVIDER_UNAVAILABLE")).toBe(true);
+    expect(JSON.stringify(scorecard)).not.toContain("upstream_shared_pool");
+  });
+
   it("records oversized selected-file evidence as incomplete instead of scoring it", async () => {
     const reviewed: string[] = [];
     const scorecard = await runApiEmpiricalQualityCampaign({

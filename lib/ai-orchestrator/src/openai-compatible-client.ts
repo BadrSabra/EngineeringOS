@@ -1318,7 +1318,9 @@ export async function openrouterCompleteRaw(
       err instanceof GroqClientError &&
       err.code === "RATE_LIMITED" &&
       err.retryAfterMs !== undefined &&
-      opts.waitOnRateLimit === true
+      opts.waitOnRateLimit === true &&
+      err.rateLimitScope !== "upstream_shared_pool" &&
+      err.rateLimitScope !== "provider_credential"
     ) {
       const remainingMs = opts.executionLedger
         ? opts.executionLedger.timeoutMs()
@@ -1593,12 +1595,24 @@ export async function openrouterCompleteWithFallback(
         err instanceof GroqClientError &&
         (err.code === "RATE_LIMITED" || err.code === "QUOTA");
       if (providerScopedRateLimit) {
-        recordModelFailure(
-          "openrouter",
-          model,
-          err instanceof GroqClientError ? err.retryAfterMs : undefined,
-        );
-        if (err instanceof GroqClientError && await appendPaidFallback(err, model)) {
+        const providerRateLimitScope =
+          err instanceof GroqClientError ? err.rateLimitScope : undefined;
+        const modelScopedRateLimit =
+          providerRateLimitScope !== "upstream_shared_pool" &&
+          providerRateLimitScope !== "provider_credential";
+        if (modelScopedRateLimit) {
+          recordModelFailure(
+            "openrouter",
+            model,
+            err instanceof GroqClientError ? err.retryAfterMs : undefined,
+          );
+        }
+        if (
+          err instanceof GroqClientError &&
+          providerRateLimitScope !== "upstream_shared_pool" &&
+          providerRateLimitScope !== "provider_credential" &&
+          await appendPaidFallback(err, model)
+        ) {
           lastError = err;
           continue;
         }

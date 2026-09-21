@@ -291,6 +291,12 @@ export async function runApiEmpiricalQualityCampaign(
         return projectReviewObservation(testCase, result, Date.now() - startedAt);
       } catch (error) {
         const errorCode = classifyProviderError(error);
+        const providerRateLimitScope =
+          error instanceof GroqClientError &&
+          (error.rateLimitScope === "upstream_shared_pool" ||
+            error.rateLimitScope === "provider_credential")
+            ? error.rateLimitScope
+            : undefined;
         return {
           outcome: errorCode === "TIMEOUT" ? "TIMEOUT" : errorCode === "PROVIDER_UNAVAILABLE" ? "PROVIDER_UNAVAILABLE" : "ERROR",
           contractPassed: false,
@@ -298,6 +304,7 @@ export async function runApiEmpiricalQualityCampaign(
           semanticVerdict: "unknown",
           observedFindings: [],
           errorCode,
+          ...(providerRateLimitScope ? { providerRateLimitScope } : {}),
           latencyMs: Date.now() - startedAt,
         };
       } finally {

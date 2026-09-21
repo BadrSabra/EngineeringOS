@@ -710,6 +710,41 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     );
   });
 
+  it("does not spend a Retry-After wait on an upstream shared-pool limit", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      headers: new Headers({ "Retry-After": "120" }),
+      json: async () => ({}),
+      text: async () => JSON.stringify({
+        error: {
+          message: "Provider returned error",
+          metadata: {
+            limit_source: "upstream_provider_shared_pool",
+          },
+        },
+      }),
+    } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        waitOnRateLimit: true,
+        baseUrl: "https://example.test/v1",
+        providerName: "OpenRouter",
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        err.rateLimitScope === "upstream_shared_pool",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("429 stops same-provider fallback when transient retry is disabled", async () => {
     let callCount = 0;
     const seenModels: string[] = [];

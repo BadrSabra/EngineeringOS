@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ProviderRateLimitScope } from "../errors.js";
 
 export const EMPIRICAL_QUALITY_VERSION = "empirical-quality-v1";
 export const EMPIRICAL_QUALITY_CORPUS_VERSION = 2 as const;
@@ -100,6 +101,8 @@ export type EmpiricalCaseObservation = {
   normalization?: Partial<EmpiricalNormalizationCounters>;
   latencyMs?: number;
   errorCode?: "PROVIDER_UNAVAILABLE" | "RATE_LIMITED" | "TIMEOUT" | "EXECUTION_ERROR" | "INCOMPLETE_EVIDENCE";
+  /** Internal provider-lane signal; it is not emitted in the quality score. */
+  providerRateLimitScope?: Extract<ProviderRateLimitScope, "upstream_shared_pool" | "provider_credential">;
 };
 
 export type EmpiricalCaseScore = {
@@ -628,6 +631,9 @@ export async function runEmpiricalQualityCampaign(args: {
   const campaignDeadline = args.campaignTimeoutMs === undefined
     ? undefined
     : Date.now() + args.campaignTimeoutMs;
+  let providerRateLimitScope:
+    | Extract<ProviderRateLimitScope, "upstream_shared_pool" | "provider_credential">
+    | undefined;
   const emitProgress = async (): Promise<void> => {
     if (!args.onProgress) return;
     await args.onProgress(buildEmpiricalQualityScorecard({
@@ -639,6 +645,21 @@ export async function runEmpiricalQualityCampaign(args: {
     }));
   };
   for (const testCase of args.corpus.cases) {
+    if (providerRateLimitScope) {
+      results.push(scoreEmpiricalQualityCase(testCase, {
+        caseId: testCase.id,
+        outcome: "PROVIDER_UNAVAILABLE",
+        contractPassed: false,
+        qualityGateAccepted: false,
+        semanticVerdict: "unknown",
+        observedFindings: [],
+        errorCode: "PROVIDER_UNAVAILABLE",
+        providerRateLimitScope,
+        latencyMs: 0,
+      }));
+      await emitProgress();
+      continue;
+    }
     const controller = new AbortController();
     const startedAt = Date.now();
     const remainingCampaignMs = campaignDeadline === undefined
@@ -674,6 +695,9 @@ export async function runEmpiricalQualityCampaign(args: {
         caseId: testCase.id,
         latencyMs: observation.latencyMs ?? Date.now() - startedAt,
       }));
+      if (observation.providerRateLimitScope) {
+        providerRateLimitScope = observation.providerRateLimitScope;
+      }
       await emitProgress();
     } catch (error) {
       const timedOut = controller.signal.aborted ||
