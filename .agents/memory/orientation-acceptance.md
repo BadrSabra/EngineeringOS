@@ -20,3 +20,9 @@ Acceptance must distinguish missing role coverage from missing source-selection 
 **Why:** A real orientation execution persisted all seven manifest paths and complete read bodies, but no source-selection record reached the terminal projection, so the acceptance layer produced `PARTIAL` without evidence loss.
 
 **How to apply:** At investigation and finalization boundaries, compare manifest/read completeness independently from source-selection presence and emit separate diagnostics for coverage failure versus telemetry loss.
+
+Provider-exhausted orientation fallback is a separate path from chat-agent finalization and can return a minimal answer before source-selection/evidence projections are emitted.
+
+**Why:** The all-provider fallback can assemble a correct response from the durable role manifest and retained reads while bypassing the late `ChatResult` provenance assembly, leaving acceptance without the coverage record.
+
+**How to apply:** Keep one ownership boundary for deterministic fallback provenance; do not add a second coverage calculator in acceptance or treat fallback prose as proof.
