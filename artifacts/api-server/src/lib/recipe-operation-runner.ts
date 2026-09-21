@@ -281,13 +281,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
   const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
+  const runningRecipeBinding = checkpoint?.recipeBinding ?? {
+    ...prepared.binding,
+    phase: "running" as const,
+    leaseOwner: workerId,
+    leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+  };
   const resumedNodes = reconcileExecutionNodeCheckpoint(prepared.plan.nodes, checkpoint?.nodeStates);
   if (!resumedNodes) {
     await failAiExecution({
       executionId: claimed.id,
       workerId,
       error: "Recipe checkpoint does not match the server-owned recipe plan.",
-      recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+      recipeBinding: runningRecipeBinding,
     });
     throw new Error("Recipe checkpoint could not be reconciled with the server-owned plan.");
   }
@@ -300,7 +306,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         executionId: claimed.id,
         workerId,
         error: "Recipe checkpoint passed node has no retained evidence receipt.",
-        recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+        recipeBinding: runningRecipeBinding,
       });
       throw new Error("Recipe checkpoint passed node is missing retained evidence.");
     }

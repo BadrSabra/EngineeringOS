@@ -728,6 +728,7 @@ export async function finalizeExecutionAcceptance(
       return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
     }
 
+    const now = new Date();
     const [existingByKey] = await tx
       .select()
       .from(aiExecutionAcceptancesTable)
@@ -743,6 +744,7 @@ export async function finalizeExecutionAcceptance(
         eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
       ))
       .limit(1);
+    let replaceExistingLeasePause = false;
     if (existing) {
       const replaceExistingInterruption =
         params.replaceExistingInterruption === true
@@ -752,67 +754,80 @@ export async function finalizeExecutionAcceptance(
         && (execution.status === "queued" || execution.status === "paused")
         && !params.taskFinalization;
       if (!replaceExistingInterruption) {
-        return { accepted: true, duplicate: true, acceptance: existing };
+        const reclaimOwnsLiveLease = Boolean(
+          params.workerId
+          && execution.status === "running"
+          && execution.workerId === params.workerId
+          && execution.leaseUntil
+          && execution.leaseUntil > now
+          && existing.outcome === "FAILED"
+          && existing.reasonCode === "EXECUTION_LEASE_EXPIRED"
+          && existing.terminalStatus === "paused",
+        );
+        if (!reclaimOwnsLiveLease) {
+          return { accepted: true, duplicate: true, acceptance: existing };
+        }
+        replaceExistingLeasePause = true;
       }
-
-      const now = new Date();
-      const cancellationDisposition = {
-        reasonCodes: [params.reasonCode],
-        outcome: "INTERRUPTED" as const,
-        recoveryState: "INCOMPLETE" as const,
-        nextActionCode: "ABANDON_EXECUTION" as const,
-        operatorAction: "ABANDON_EXECUTION",
-      };
-      const [cancelledAcceptance] = await tx
-        .update(aiExecutionAcceptancesTable)
-        .set({
-          terminalStatus: "cancelled",
-          outcome: "INTERRUPTED",
-          reasonCode: params.reasonCode,
-          nextActionCode: "ABANDON_EXECUTION",
-          disposition: cancellationDisposition,
-          resumable: 0,
-          workerId: params.workerId ?? existing.workerId,
-        })
-        .where(eq(aiExecutionAcceptancesTable.id, existing.id))
-        .returning();
-      if (!cancelledAcceptance) {
-        return { accepted: false, duplicate: false, reason: "Cancellation acceptance update failed." };
-      }
-
-      if (existing.messageId) {
-        await tx.update(aiChatMessagesTable)
+      if (replaceExistingInterruption) {
+        const now = new Date();
+        const cancellationDisposition = {
+          reasonCodes: [params.reasonCode],
+          outcome: "INTERRUPTED" as const,
+          recoveryState: "INCOMPLETE" as const,
+          nextActionCode: "ABANDON_EXECUTION" as const,
+          operatorAction: "ABANDON_EXECUTION",
+        };
+        const [cancelledAcceptance] = await tx
+          .update(aiExecutionAcceptancesTable)
           .set({
+            terminalStatus: "cancelled",
             outcome: "INTERRUPTED",
-            errorCode: "EXECUTION_CANCELLED",
-            errorMessage: safeError(params.error),
+            reasonCode: params.reasonCode,
+            nextActionCode: "ABANDON_EXECUTION",
+            disposition: cancellationDisposition,
+            resumable: 0,
+            workerId: params.workerId ?? existing.workerId,
           })
-          .where(and(
-            eq(aiChatMessagesTable.id, existing.messageId),
-            eq(aiChatMessagesTable.executionId, execution.id),
-          ));
+          .where(eq(aiExecutionAcceptancesTable.id, existing.id))
+          .returning();
+        if (!cancelledAcceptance) {
+          return { accepted: false, duplicate: false, reason: "Cancellation acceptance update failed." };
+        }
+
+        if (existing.messageId) {
+          await tx.update(aiChatMessagesTable)
+            .set({
+              outcome: "INTERRUPTED",
+              errorCode: "EXECUTION_CANCELLED",
+              errorMessage: safeError(params.error),
+            })
+            .where(and(
+              eq(aiChatMessagesTable.id, existing.messageId),
+              eq(aiChatMessagesTable.executionId, execution.id),
+            ));
+        }
+
+        await tx.update(aiExecutionsTable)
+          .set({
+            status: "cancelled",
+            finalMessageId: params.finalMessageId ?? execution.finalMessageId,
+            error: safeError(params.error),
+            completedAt: now,
+            updatedAt: now,
+            workerId: null,
+            leaseUntil: null,
+            lastHeartbeatAt: null,
+            cancelRequestedAt: null,
+            checkpoint: params.checkpoint ?? execution.checkpoint,
+            checkpointVersion: execution.checkpointVersion + 1,
+          })
+          .where(eq(aiExecutionsTable.id, execution.id));
+
+        return { accepted: true, duplicate: false, acceptance: cancelledAcceptance };
       }
-
-      await tx.update(aiExecutionsTable)
-        .set({
-          status: "cancelled",
-          finalMessageId: params.finalMessageId ?? execution.finalMessageId,
-          error: safeError(params.error),
-          completedAt: now,
-          updatedAt: now,
-          workerId: null,
-          leaseUntil: null,
-          lastHeartbeatAt: null,
-          cancelRequestedAt: null,
-          checkpoint: params.checkpoint ?? execution.checkpoint,
-          checkpointVersion: execution.checkpointVersion + 1,
-        })
-        .where(eq(aiExecutionsTable.id, execution.id));
-
-      return { accepted: true, duplicate: false, acceptance: cancelledAcceptance };
     }
 
-    const now = new Date();
     let task: typeof tasksTable.$inferSelect | undefined;
     if (params.taskFinalization) {
       task = (await tx
@@ -908,6 +923,16 @@ export async function finalizeExecutionAcceptance(
       }
     }
 
+    let acceptedMessageId = params.finalMessageId ?? existing?.messageId ?? null;
+    if (acceptedMessageId) {
+      const [message] = await tx
+        .select({ id: aiChatMessagesTable.id })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, acceptedMessageId))
+        .limit(1);
+      if (!message) acceptedMessageId = existing?.messageId ?? null;
+    }
+
     const disposition = {
       reasonCodes: [reasonCode],
       outcome,
@@ -929,11 +954,7 @@ export async function finalizeExecutionAcceptance(
       ...(params.retryAfterMs !== undefined ? { retryAfterMs: params.retryAfterMs } : {}),
       ...(params.retryAt ? { retryAt: params.retryAt } : {}),
     };
-    const [acceptance] = await tx.insert(aiExecutionAcceptancesTable).values({
-      id: acceptanceId,
-      executionId: execution.id,
-      projectId: execution.projectId,
-      attempt: execution.attempt,
+    const acceptanceValues = {
       finalizationKey: params.finalizationKey,
       operationId: execution.operationId,
       workerId: params.workerId ?? execution.workerId,
@@ -946,14 +967,26 @@ export async function finalizeExecutionAcceptance(
       evidenceRequired: evidenceRequired ? 1 : 0,
       evidenceComplete: evidence.complete ? 1 : 0,
       resumable: params.resumable === true ? 1 : 0,
-      messageId: params.finalMessageId ?? null,
+      messageId: acceptedMessageId,
       sourceRevision: params.sourceRevision
         ?? (typeof storedRequest?.workspaceRevision === "string"
           ? storedRequest.workspaceRevision
           : null),
       candidateIdentity: params.candidateIdentity ?? effectiveEvidence?.candidateIdentity ?? null,
-      createdAt: now,
-    }).onConflictDoNothing().returning();
+    };
+    const [acceptance] = replaceExistingLeasePause && existing
+      ? await tx.update(aiExecutionAcceptancesTable)
+          .set(acceptanceValues)
+          .where(eq(aiExecutionAcceptancesTable.id, existing.id))
+          .returning()
+      : await tx.insert(aiExecutionAcceptancesTable).values({
+          id: acceptanceId,
+          executionId: execution.id,
+          projectId: execution.projectId,
+          attempt: execution.attempt,
+          ...acceptanceValues,
+          createdAt: now,
+        }).onConflictDoNothing().returning();
     if (!acceptance) {
       const [concurrentAcceptance] = await tx
         .select()

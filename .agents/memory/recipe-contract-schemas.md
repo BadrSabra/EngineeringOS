@@ -32,3 +32,9 @@ Recipe runner recovery must reconcile the server-owned plan with checkpointed no
 **Why:** Rebuilding a fresh plan reruns completed validation, dropping evidence refs makes a passed node impossible to include in the final receipt, and wall-clock sequence values can abort the first progress write.
 
 **How to apply:** Resume only validated checkpoint nodes, persist each passed node's receipt ref in every progress snapshot, hydrate retained refs before continuing, and advance from the claimed durable checkpoint version.
+
+An expired-lease pause acceptance is provisional and may be replaced only by the currently claimed worker while its live lease is valid; terminal acceptance message IDs must be verified before persistence.
+
+**Why:** Reclaiming the same execution attempt otherwise looks like a duplicate and leaves the execution running, while synthetic receipt IDs can violate the chat-message foreign key.
+
+**How to apply:** Allow the live reclaimed worker to update only the matching lease-expired pause acceptance in the same transaction, and downgrade missing message references to an existing valid ID or null.
