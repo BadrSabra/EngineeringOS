@@ -1124,6 +1124,7 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
         rootPath,
         plan: independentProviderPlan(),
         targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        toolCallNameByTarget: { [CLIENT]: "read_file_range" },
         forbiddenContent: "SYMLINK_ESCAPE_SECRET",
         synthesisResponse:
           "CURRENT_STATE: safe in-root provider evidence was retained while the symlink escape was rejected.\n" +
