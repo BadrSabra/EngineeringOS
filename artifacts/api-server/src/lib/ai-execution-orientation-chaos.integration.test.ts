@@ -9,8 +9,11 @@ import {
 } from "@workspace/db";
 import {
   claimAiExecution,
+  checkpointAiExecution,
+  parseAiExecutionCheckpoint,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
+  recoverAiExecutionResumeToken,
   recoverAiExecutionRetryToken,
   type AiOrientationRoleManifest,
 } from "./ai-execution-state.js";
@@ -2175,4 +2178,264 @@ describe("durable project-orientation retry chaos", () => {
       }
     },
   );
+
+  it("adapts across request-byte generations and lease-expired attempts without reviving stale tokens", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-request-bytes-and-attempts");
+    const context = `adaptive request generations; execution=${fixture.executionId}`;
+    const [originalRow] = await db
+      .select({ request: aiExecutionsTable.request })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, fixture.executionId))
+      .limit(1);
+    const parsedOriginal = JSON.parse(originalRow!.request) as Record<string, unknown>;
+    const reorderedRequest = JSON.stringify(
+      Object.fromEntries(Object.entries(parsedOriginal).reverse()),
+    );
+    expect(reorderedRequest, context).not.toBe(originalRow!.request);
+
+    try {
+      // Generation A issues a token, then generation B replaces it while the
+      // request bytes are reordered. Neither token may win after the request
+      // returns to generation A: one is retired by rotation and the other is
+      // bound to the wrong request bytes.
+      const generationAToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(generationAToken, context).toEqual(expect.any(String));
+
+      await db
+        .update(aiExecutionsTable)
+        .set({ request: reorderedRequest })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      const generationBToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(generationBToken, context).toEqual(expect.any(String));
+      expect(generationBToken).not.toBe(generationAToken);
+
+      await db
+        .update(aiExecutionsTable)
+        .set({ request: originalRow!.request })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      const [retiredClaim, wrongRequestClaim] = await Promise.all([
+        claimAiExecution({
+          executionId: fixture.executionId,
+          userId: fixture.userId,
+          workerId: "adaptive-generation-a-worker",
+          resumeToken: generationAToken,
+        }),
+        claimAiExecution({
+          executionId: fixture.executionId,
+          userId: fixture.userId,
+          workerId: "adaptive-generation-b-worker",
+          resumeToken: generationBToken,
+        }),
+      ]);
+      expect(retiredClaim, context).toBeUndefined();
+      expect(wrongRequestClaim, context).toBeUndefined();
+
+      const [afterGenerationRejection] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          request: aiExecutionsTable.request,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(afterGenerationRejection, context).toMatchObject({
+        attempt: 0,
+        status: "failed",
+        request: originalRow!.request,
+      });
+
+      // The controller observes the unchanged failed state and asks the
+      // server for a token bound to the restored request before claiming.
+      const currentAttemptZeroToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(currentAttemptZeroToken, context).toEqual(expect.any(String));
+      const firstClaim = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "adaptive-attempt-one-worker",
+        resumeToken: currentAttemptZeroToken,
+      });
+      expect(firstClaim, context).toMatchObject({
+        id: fixture.executionId,
+        operationId: fixture.executionId,
+        attempt: 1,
+        status: "running",
+        workerId: "adaptive-attempt-one-worker",
+      });
+
+      // Simulate a lost stream/worker lease. Reconciliation creates the next
+      // durable acceptance, but keeps the same execution and operation.
+      await db
+        .update(aiExecutionsTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      expect(await reconcileAiExecutions({ expiredOnly: true }), context).toBeGreaterThanOrEqual(1);
+
+      const [afterLeaseExpiry] = await db
+        .select({
+          operationId: aiExecutionsTable.operationId,
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          request: aiExecutionsTable.request,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(afterLeaseExpiry, context).toMatchObject({
+        operationId: fixture.executionId,
+        attempt: 1,
+        status: "paused",
+        request: originalRow!.request,
+      });
+
+      // Issue a token from a second request-byte generation on attempt 1, then
+      // restore the request. It must fail even though the semantic JSON value
+      // is equivalent; the token is bound to the exact durable request bytes.
+      await db
+        .update(aiExecutionsTable)
+        .set({ request: reorderedRequest })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+      const attemptOneWrongGenerationToken = (await recoverAiExecutionResumeToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 1,
+      }))?.resumeToken;
+      expect(attemptOneWrongGenerationToken, context).toEqual(expect.any(String));
+      await db
+        .update(aiExecutionsTable)
+        .set({ request: originalRow!.request })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      await expect(claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "stale-attempt-one-worker",
+        resumeToken: attemptOneWrongGenerationToken,
+      }), context).resolves.toBeUndefined();
+
+      const currentAttemptOneToken = (await recoverAiExecutionResumeToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 1,
+      }))?.resumeToken;
+      expect(currentAttemptOneToken, context).toEqual(expect.any(String));
+      const secondClaim = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId: "adaptive-attempt-two-worker",
+        resumeToken: currentAttemptOneToken,
+      });
+      expect(secondClaim, context).toMatchObject({
+        id: fixture.executionId,
+        operationId: fixture.executionId,
+        attempt: 2,
+        status: "running",
+        workerId: "adaptive-attempt-two-worker",
+      });
+
+      // The previous worker may still be holding an in-memory checkpoint with
+      // a higher sequence after the stream was lost. Ownership must win over
+      // that sequence so it cannot overwrite the new attempt.
+      const [currentExecution] = await db
+        .select({ checkpoint: aiExecutionsTable.checkpoint })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      const currentCheckpoint = parseAiExecutionCheckpoint(currentExecution!.checkpoint);
+      expect(currentCheckpoint, context).toBeDefined();
+      const staleWorkerCheckpoint = {
+        ...currentCheckpoint!,
+        sequence: currentCheckpoint!.sequence + 100,
+        updatedAt: new Date().toISOString(),
+      };
+      expect(await checkpointAiExecution({
+        executionId: fixture.executionId,
+        workerId: "adaptive-attempt-one-worker",
+        checkpoint: staleWorkerCheckpoint,
+      }), context).toBe(false);
+
+      const currentWorkerCheckpoint = {
+        ...staleWorkerCheckpoint,
+        sequence: staleWorkerCheckpoint.sequence + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      expect(await checkpointAiExecution({
+        executionId: fixture.executionId,
+        workerId: "adaptive-attempt-two-worker",
+        checkpoint: currentWorkerCheckpoint,
+      }), context).toBe(true);
+
+      const [checkpointState] = await db
+        .select({
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+          workerId: aiExecutionsTable.workerId,
+          attempt: aiExecutionsTable.attempt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(checkpointState, context).toMatchObject({
+        checkpointVersion: currentWorkerCheckpoint.sequence,
+        workerId: "adaptive-attempt-two-worker",
+        attempt: 2,
+      });
+      expect(JSON.parse(checkpointState!.checkpoint), context).toMatchObject({
+        sequence: currentWorkerCheckpoint.sequence,
+      });
+
+      const acceptances = await db
+        .select({
+          attempt: aiExecutionAcceptancesTable.attempt,
+          outcome: aiExecutionAcceptancesTable.outcome,
+          reasonCode: aiExecutionAcceptancesTable.reasonCode,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .orderBy(aiExecutionAcceptancesTable.attempt);
+      expect(acceptances, context).toEqual([
+        expect.objectContaining({ attempt: 0, outcome: "FAILED" }),
+        expect.objectContaining({
+          attempt: 1,
+          outcome: "FAILED",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+        }),
+      ]);
+
+      const [finalState] = await db
+        .select({
+          operationId: aiExecutionsTable.operationId,
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          request: aiExecutionsTable.request,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(finalState, context).toMatchObject({
+        operationId: fixture.executionId,
+        attempt: 2,
+        status: "running",
+        workerId: "adaptive-attempt-two-worker",
+        request: originalRow!.request,
+      });
+    } finally {
+      await fixture.cleanup();
+    }
+  });
 });
