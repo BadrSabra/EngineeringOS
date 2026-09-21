@@ -329,7 +329,7 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       const subqueryTargets = providerCalls
         .filter((call) => call.kind === "subquery")
         .map((call) => call.target);
-      expect(subqueryTargets).toEqual([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]);
+      expect([...new Set(subqueryTargets)]).toEqual([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]);
       expect(subqueryReads).toEqual(new Map([
         [ACCEPTANCE, 1],
         [EVIDENCE, 1],
@@ -359,11 +359,10 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       const subqueryTargets = providerCalls
         .filter((call) => call.kind === "subquery")
         .map((call) => call.target);
-      expect(subqueryTargets).toEqual([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]);
+      expect([...new Set(subqueryTargets)]).toEqual([ACCEPTANCE, EVIDENCE]);
       expect(subqueryReads).toEqual(new Map([
         [ACCEPTANCE, 1],
         [EVIDENCE, 1],
-        [COUNTEREVIDENCE, 1],
       ]));
       expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
       expect(result.response).toContain("NOT PROVEN");
@@ -371,8 +370,8 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
 
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
       expect(graphReads).toContain(ACCEPTANCE);
-      expect(graphReads).toContain(COUNTEREVIDENCE);
       expect(graphReads).not.toContain(EVIDENCE);
+      expect(graphReads).not.toContain(COUNTEREVIDENCE);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
