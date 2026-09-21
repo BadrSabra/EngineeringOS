@@ -227,6 +227,7 @@ type Scenario = {
   abortAfterRangeCorrection?: boolean;
   repeatInvalidRangeCorrection?: boolean;
   repeatReadAfterEvidenceByTarget?: Record<string, boolean>;
+  duplicateMixedToolCallIdByTarget?: Record<string, boolean>;
 };
 
 async function configureChat(
@@ -319,6 +320,7 @@ function makeStrategy(options: {
   abortAfterRangeCorrection?: boolean;
   repeatInvalidRangeCorrection?: boolean;
   repeatReadAfterEvidenceByTarget?: Record<string, boolean>;
+  duplicateMixedToolCallIdByTarget?: Record<string, boolean>;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -568,7 +570,9 @@ function makeStrategy(options: {
             },
             ...(options.additionalToolCallPathByTarget?.[target]
               ? [{
-                  id: `out-of-scope-read-${target}`,
+                  id: options.duplicateMixedToolCallIdByTarget?.[target]
+                    ? `read-${target}`
+                    : `out-of-scope-read-${target}`,
                   type: "function" as const,
                   function: {
                     name: "read_file",
@@ -637,6 +641,7 @@ async function runScenario(scenario: Scenario) {
     abortAfterRangeCorrection: scenario.abortAfterRangeCorrection,
     repeatInvalidRangeCorrection: scenario.repeatInvalidRangeCorrection,
     repeatReadAfterEvidenceByTarget: scenario.repeatReadAfterEvidenceByTarget,
+    duplicateMixedToolCallIdByTarget: scenario.duplicateMixedToolCallIdByTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -949,6 +954,40 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
       expect(result.response).toContain("CURRENT_STATE");
       expect(result.response).not.toContain(GENERAL);
+      const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
+      expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
+      expect(graphReads).not.toContain(GENERAL);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps mixed-call evidence isolated when the provider reuses a tool-call id", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        additionalToolCallPathByTarget: { [ACCEPTANCE]: GENERAL },
+        duplicateMixedToolCallIdByTarget: { [ACCEPTANCE]: true },
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate, evidence producer, and counterevidence tests " +
+          "are verified from retained source windows.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: preserve only server-accepted evidence.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(2);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
       expect(graphReads).toEqual(expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]));
       expect(graphReads).not.toContain(GENERAL);
