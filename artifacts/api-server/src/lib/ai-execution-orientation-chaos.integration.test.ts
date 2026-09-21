@@ -2979,7 +2979,7 @@ describe("durable project-orientation retry chaos", () => {
 
       const staleCheckpoint = await checkpointAiExecution({
         executionId: fixture.executionId,
-        expectedAttempt: 1,
+        expectedAttempt: 0,
         workerId: "reused-worker-id",
         checkpoint: {
           stage: "tool_loop",

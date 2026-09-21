@@ -8215,6 +8215,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         id: aiExecutionsTable.id,
         status: aiExecutionsTable.status,
         workerId: aiExecutionsTable.workerId,
+        attempt: aiExecutionsTable.attempt,
         checkpoint: aiExecutionsTable.checkpoint,
         checkpointVersion: aiExecutionsTable.checkpointVersion,
       })
