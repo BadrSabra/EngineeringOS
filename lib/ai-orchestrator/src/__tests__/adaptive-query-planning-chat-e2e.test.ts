@@ -218,6 +218,7 @@ type Scenario = {
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
   abortAfterRangeCorrection?: boolean;
+  repeatInvalidRangeCorrection?: boolean;
 };
 
 async function configureChat(
@@ -307,6 +308,7 @@ function makeStrategy(options: {
   correctAfterRangeError?: boolean;
   invalidRangeFirstByTarget?: Record<string, boolean>;
   abortAfterRangeCorrection?: boolean;
+  repeatInvalidRangeCorrection?: boolean;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
@@ -445,14 +447,17 @@ function makeStrategy(options: {
         };
       }
 
+      const hasRangeContractError =
+        hasToolOutput &&
+        serialized.includes("must be positive integers with startLine <= endLine");
       if (
         options.correctAfterRangeError &&
-        hasToolOutput &&
-        serialized.includes("must be positive integers with startLine <= endLine") &&
-        !correctedRangeTargets.has(target)
+        hasRangeContractError &&
+        (!correctedRangeTargets.has(target) || options.repeatInvalidRangeCorrection)
       ) {
+        const firstCorrection = !correctedRangeTargets.has(target);
         correctedRangeTargets.add(target);
-        if (options.abortAfterRangeCorrection) {
+        if (firstCorrection && options.abortAfterRangeCorrection) {
           options.abortController?.abort();
         }
         return {
@@ -465,8 +470,9 @@ function makeStrategy(options: {
                 name: "read_file_range",
                 arguments: JSON.stringify({
                   path: target,
-                  startLine: 1,
-                  endLine: 5,
+                    ...(options.repeatInvalidRangeCorrection
+                      ? { startLine: 5, endLine: 2 }
+                      : { startLine: 1, endLine: 5 }),
                 }),
               },
             },
@@ -566,6 +572,7 @@ async function runScenario(scenario: Scenario) {
     correctAfterRangeError: scenario.correctAfterRangeError,
     invalidRangeFirstByTarget: scenario.invalidRangeFirstByTarget,
     abortAfterRangeCorrection: scenario.abortAfterRangeCorrection,
+    repeatInvalidRangeCorrection: scenario.repeatInvalidRangeCorrection,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
