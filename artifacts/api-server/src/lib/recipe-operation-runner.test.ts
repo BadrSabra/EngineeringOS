@@ -376,4 +376,44 @@ describe("recipe operation preparation", () => {
       await fixture.cleanup();
     }
   });
+
+  it("returns the cancelled receipt when reconciliation terminalizes cancellation before the worker fallback", async () => {
+    validationCalls.length = 0;
+    const fixture = await createReclaimedRecipeFixture();
+    const realComplete = aiExecutionState.completeAiExecution;
+    const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution").mockImplementation(async (params) => {
+      const cancelling = await requestAiExecutionCancel({
+        executionId: fixture.executionId,
+        userId: fixture.params.userId,
+      });
+      expect(cancelling).toMatchObject({
+        id: fixture.executionId,
+        status: "cancelling",
+      });
+      expect(await reconcileAiExecutions({ expiredOnly: true })).toBe(1);
+      return realComplete(params);
+    });
+    try {
+      const result = await runRecipeOperation(fixture.params);
+      expect(result.status).toBe("blocked");
+      expect(result.receipt.status).toBe("cancelled");
+      expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          recipeReceipt: aiExecutionsTable.recipeReceipt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(execution).toMatchObject({
+        status: "cancelled",
+        recipeReceipt: { status: "cancelled" },
+      });
+    } finally {
+      completeSpy.mockRestore();
+      await fixture.cleanup();
+    }
+  });
 });

@@ -50,3 +50,9 @@ Cancellation can win after every recipe node passes but before terminal acceptan
 **Why:** A reclaimed recipe may still have a prior pause acceptance. Treating the cancellation finalization as a duplicate leaves the execution in `cancelling`, and omitting the receipt from the replacement branch makes reloads lose the terminal result.
 
 **How to apply:** When completion loses to cancellation, call the server-owned cancelled finalizer, allow provisional acceptance replacement only for explicit cancellation, and persist the receipt in both insert and replacement paths.
+
+Reconciliation can terminalize a cancellation after the worker has already entered its completion fallback; a recipe runner must treat an already-cancelled durable row as a successful cancellation handoff, not as a lease-loss exception.
+
+**Why:** The reconciler may win after cancellation and before the worker's fallback. Without a guarded receipt handoff, the API reports an error for a correctly cancelled execution and reloads can lose the recipe result.
+
+**How to apply:** Let reconciliation replace a provisional cancellation acceptance, then allow the worker to persist its receipt only onto a cancelled execution with no existing receipt; never reopen or overwrite a terminal row.

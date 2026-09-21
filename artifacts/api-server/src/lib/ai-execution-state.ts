@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import type {
@@ -2874,6 +2874,27 @@ export async function failAiExecution(params: {
   return finalized.accepted;
 }
 
+export async function persistCancelledRecipeReceipt(params: {
+  executionId: string;
+  userId: string;
+  recipeReceipt: RecipeReceipt;
+}): Promise<boolean> {
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      recipeReceipt: params.recipeReceipt,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.status, "cancelled"),
+      isNull(aiExecutionsTable.recipeReceipt),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
 export async function requestAiExecutionCancel(params: {
   executionId: string;
   userId: string;
@@ -2987,6 +3008,7 @@ export async function reconcileAiExecutions(params: { expiredOnly?: boolean } = 
         reasonCode: "EXECUTION_CANCELLED",
         recoveryState: "INCOMPLETE",
         resumable: false,
+        replaceExistingInterruption: true,
         expectedExecutionState: {
           status: execution.status,
           workerId: execution.workerId,

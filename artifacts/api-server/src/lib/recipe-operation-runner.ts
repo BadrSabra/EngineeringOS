@@ -21,9 +21,11 @@ import {
   createAiExecution,
   createRecipeOperationBinding,
   failAiExecution,
+  getAiExecutionForUser,
   heartbeatAiExecution,
   ownsAiExecutionLease,
   parseAiExecutionCheckpoint,
+  persistCancelledRecipeReceipt,
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
   unregisterAiExecutionController,
@@ -552,6 +554,20 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         recipeReceipt: cancelledReceipt,
       });
       if (cancelled) {
+        return {
+          executionId: claimed.id,
+          status: "blocked",
+          completedNodeIds: result.completedNodeIds,
+          receipt: cancelledReceipt,
+        };
+      }
+      const terminalExecution = await getAiExecutionForUser(claimed.id, params.userId);
+      if (terminalExecution?.status === "cancelled") {
+        await persistCancelledRecipeReceipt({
+          executionId: claimed.id,
+          userId: params.userId,
+          recipeReceipt: cancelledReceipt,
+        });
         return {
           executionId: claimed.id,
           status: "blocked",
