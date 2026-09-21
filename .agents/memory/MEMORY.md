@@ -51,6 +51,7 @@
 - [Dashboard journey stream fixtures](dashboard-journey-stream-fixtures.md) — one-shot SSE fixtures can reconnect after delivery; assert the rendered activity message as the stable success signal.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable terminal writes and follow-on mutations must verify the current worker owns the live row.
+- [Periodic write attempt fences](periodic-write-attempt-fence.md) — checkpoints, orientation manifests, and heartbeats must bind worker identity to the durable attempt, not worker ID alone.
 - [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.

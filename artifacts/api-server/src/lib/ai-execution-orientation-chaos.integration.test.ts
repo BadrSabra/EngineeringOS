@@ -12,6 +12,7 @@ import {
   checkpointAiExecution,
   createAutonomousOperationContract,
   failAiExecution,
+  heartbeatAiExecution,
   persistAiExecutionOrientationManifest,
   reconcileAiExecutions,
   requestAiExecutionRecovery,
@@ -3003,6 +3004,71 @@ describe("durable project-orientation retry chaos", () => {
         checkpointVersion: 0,
       });
       expect(JSON.parse(stored!.checkpoint), context).toEqual({});
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects retired-attempt heartbeat and manifest writes when the worker identity is reused", async () => {
+    const fixture = await createFailedOrientationFixture("adaptive-reused-worker-periodic-writes");
+    const context = `adaptive reused worker periodic-write fence; execution=${fixture.executionId}`;
+    const workerId = "reused-periodic-worker-id";
+    const sentinelHeartbeat = new Date(Date.now() - 15_000);
+    const sentinelLease = new Date(Date.now() + 120_000);
+
+    try {
+      const retryToken = (await recoverAiExecutionRetryToken({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        expectedAttempt: 0,
+      }))?.resumeToken;
+      expect(retryToken, context).toEqual(expect.any(String));
+
+      const claimed = await claimAiExecution({
+        executionId: fixture.executionId,
+        userId: fixture.userId,
+        workerId,
+        resumeToken: retryToken,
+      });
+      expect(claimed, context).toMatchObject({
+        attempt: 1,
+        status: "running",
+        workerId,
+      });
+
+      await db
+        .update(aiExecutionsTable)
+        .set({
+          lastHeartbeatAt: sentinelHeartbeat,
+          leaseUntil: sentinelLease,
+        })
+        .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+      await expect(heartbeatAiExecution({
+        executionId: fixture.executionId,
+        expectedAttempt: 0,
+        workerId,
+      }), context).resolves.toBe(false);
+
+      await expect(persistAiExecutionOrientationManifest({
+        executionId: fixture.executionId,
+        expectedAttempt: 0,
+        workerId,
+        manifest: fixture.manifest,
+      }), context).resolves.toBe(false);
+
+      const [stored] = await db
+        .select({
+          attempt: aiExecutionsTable.attempt,
+          lastHeartbeatAt: aiExecutionsTable.lastHeartbeatAt,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      expect(stored, context).toMatchObject({ attempt: 1 });
+      expect(stored?.lastHeartbeatAt?.getTime(), context).toBe(sentinelHeartbeat.getTime());
+      expect(stored?.leaseUntil?.getTime(), context).toBe(sentinelLease.getTime());
     } finally {
       await fixture.cleanup();
     }
