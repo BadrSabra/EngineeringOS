@@ -210,6 +210,7 @@ type Scenario = {
   targetByIntent?: TargetMap;
   signal?: AbortSignal;
   abortController?: AbortController;
+  forbiddenContent?: string;
   providerFailureTarget?: string;
   providerFailureAfterReadTarget?: string;
   remapEvidenceTarget?: boolean;
@@ -305,6 +306,7 @@ function makeStrategy(options: {
   synthesisResponse?: string;
   targetByIntent?: TargetMap;
   abortController?: AbortController;
+  forbiddenContent?: string;
   providerFailureTarget?: string;
   providerFailureAfterReadTarget?: string;
   remapEvidenceTarget?: boolean;
@@ -332,6 +334,7 @@ function makeStrategy(options: {
   const correctedRangeTargets = new Set<string>();
   const adversarialTargets = new Set<string>();
   const replayedReadTargets = new Set<string>();
+  let forbiddenContentObserved = false;
   let activeSubqueries = 0;
   let maxConcurrentSubqueries = 0;
   const targetByIntent = options.targetByIntent ?? TARGET_BY_INTENT;
@@ -342,6 +345,9 @@ function makeStrategy(options: {
     ownsModelFallback: true,
     call: vi.fn(async (messages: unknown[]) => {
       const serialized = JSON.stringify(messages);
+      if (options.forbiddenContent && serialized.includes(options.forbiddenContent)) {
+        forbiddenContentObserved = true;
+      }
       const synthesis = serialized.includes("You are a synthesis agent.");
       if (synthesis) {
         providerCalls.push({ kind: "synthesis" });
@@ -640,9 +646,17 @@ function makeStrategy(options: {
     stream: vi.fn(),
   };
 
-  return { strategy, subqueryReads, providerCalls, get maxConcurrentSubqueries() {
-    return maxConcurrentSubqueries;
-  } };
+  return {
+    strategy,
+    subqueryReads,
+    providerCalls,
+    get maxConcurrentSubqueries() {
+      return maxConcurrentSubqueries;
+    },
+    get forbiddenContentObserved() {
+      return forbiddenContentObserved;
+    },
+  };
 }
 
 async function runScenario(scenario: Scenario) {
@@ -687,6 +701,9 @@ async function runScenario(scenario: Scenario) {
     rootPath: scenario.rootPath,
     provider: "openrouter",
     apiKey: "test-or-key",
+    // The fixture uses this only as a non-user-facing leak detector. It never
+    // changes provider output or execution decisions.
+    ...(scenario.forbiddenContent ? { forbiddenContent: scenario.forbiddenContent } : {}),
     objective: scenario.objective,
     signal: scenario.signal,
     onStep: (step: AgentStep) => steps.push(step),
