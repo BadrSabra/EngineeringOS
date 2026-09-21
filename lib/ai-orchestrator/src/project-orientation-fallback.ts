@@ -38,8 +38,19 @@ const ORIENTATION_ROLES = [
   ],
 ] as const;
 
+const MAX_ORIENTATION_ROLE_READS = 3;
+const UNSAFE_DISPLAY_CONTROL_RE = /[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u;
+
 function normalizePath(value: string): string {
   return value.trim().replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
+}
+
+function isSafeProjectRelativePath(value: string): boolean {
+  return Boolean(value)
+    && !value.startsWith("/")
+    && !/^[A-Za-z]:\//u.test(value)
+    && !value.split("/").includes("..")
+    && !UNSAFE_DISPLAY_CONTROL_RE.test(value);
 }
 
 function findRead(
@@ -107,6 +118,8 @@ export function buildDeterministicProjectOrientationResponse(params: {
     arabicDescription,
   ] of ORIENTATION_ROLES) {
     const roleReads = [...new Set(params.orientationSources[role].map(normalizePath))]
+      .filter(isSafeProjectRelativePath)
+      .slice(0, MAX_ORIENTATION_ROLE_READS)
       .map((path) => findRead(path, params.fileContents))
       .filter((entry): entry is [string, string] => Boolean(entry && entry[1].trim()));
     if (roleReads.length === 0) return undefined;
