@@ -226,6 +226,7 @@ type Scenario = {
   invalidRangeFirstByTarget?: Record<string, boolean>;
   abortAfterRangeCorrection?: boolean;
   repeatInvalidRangeCorrection?: boolean;
+  repeatReadAfterEvidenceByTarget?: Record<string, boolean>;
 };
 
 async function configureChat(
@@ -317,12 +318,14 @@ function makeStrategy(options: {
   invalidRangeFirstByTarget?: Record<string, boolean>;
   abortAfterRangeCorrection?: boolean;
   repeatInvalidRangeCorrection?: boolean;
+  repeatReadAfterEvidenceByTarget?: Record<string, boolean>;
 }) {
   const subqueryReads = new Map<string, number>();
   const providerCalls: Array<{ kind: "subquery" | "synthesis"; target?: string }> = [];
   const correctedScopeTargets = new Set<string>();
   const correctedRangeTargets = new Set<string>();
   const adversarialTargets = new Set<string>();
+  const replayedReadTargets = new Set<string>();
   let activeSubqueries = 0;
   let maxConcurrentSubqueries = 0;
   const targetByIntent = options.targetByIntent ?? TARGET_BY_INTENT;
@@ -428,6 +431,30 @@ function makeStrategy(options: {
 
       if (options.providerFailureAfterReadTarget === target && hasToolOutput) {
         throw new Error(`simulated provider failure after reading ${target}`);
+      }
+
+      if (
+        options.repeatReadAfterEvidenceByTarget?.[target] &&
+        hasToolOutput &&
+        serialized.includes(`File: ${target}`) &&
+        !replayedReadTargets.has(target)
+      ) {
+        replayedReadTargets.add(target);
+        return {
+          content: "",
+          toolCalls: [
+            {
+              id: `replayed-read-${target}`,
+              type: "function" as const,
+              function: {
+                name: "read_file",
+                arguments: JSON.stringify({ path: target }),
+              },
+            },
+          ],
+          model: "adaptive-test-model",
+          usage: {},
+        };
       }
 
       if (
@@ -609,6 +636,7 @@ async function runScenario(scenario: Scenario) {
     invalidRangeFirstByTarget: scenario.invalidRangeFirstByTarget,
     abortAfterRangeCorrection: scenario.abortAfterRangeCorrection,
     repeatInvalidRangeCorrection: scenario.repeatInvalidRangeCorrection,
+    repeatReadAfterEvidenceByTarget: scenario.repeatReadAfterEvidenceByTarget,
     synthesisResponse: scenario.synthesisResponse
       ?? (scenario.objective
         ? "PROVEN — every requested objective claim is complete."
@@ -1050,6 +1078,39 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
         expect.arrayContaining([ADAPTER, CLIENT, CONNECTOR]),
       );
       expect(result.evidenceGraph?.reads.map((read) => read.path)).not.toContain(GENERAL);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks a replayed completed read while preserving its original evidence", async () => {
+    const rootPath = await makeRoot();
+    try {
+      const { result, providerCalls, subqueryReads } = await runScenario({
+        rootPath,
+        plan: fallbackPlan(),
+        targetByIntent: TARGET_BY_INTENT,
+        repeatReadAfterEvidenceByTarget: { [ACCEPTANCE]: true },
+        synthesisResponse:
+          "CURRENT_STATE: the acceptance gate, evidence producer, and counterevidence tests " +
+          "are verified from retained source windows.\n" +
+          "GAPS: none.\n" +
+          "PRIORITIES: proceed without replaying completed reads.",
+      });
+
+      expect(subqueryReads).toEqual(new Map([
+        [ACCEPTANCE, 1],
+        [EVIDENCE, 1],
+        [COUNTEREVIDENCE, 1],
+      ]));
+      expect(providerCalls.filter((call) => call.kind === "subquery" && call.target === ACCEPTANCE))
+        .toHaveLength(3);
+      expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
+      expect(result.response).toContain("CURRENT_STATE");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toEqual(
+        expect.arrayContaining([ACCEPTANCE, EVIDENCE, COUNTEREVIDENCE]),
+      );
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
