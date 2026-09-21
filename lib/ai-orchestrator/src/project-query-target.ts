@@ -468,6 +468,9 @@ const GAP_ANALYSIS_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
   promptHint:
     "Targeted project gap analysis: identify only gaps supported by retained source evidence. " +
     "Read the routing, query-planning, and semantic-acceptance paths before synthesizing. " +
+    "For every candidate gap, run bounded server-side falsification probes: search for an " +
+    "alternative adapter or recovery path, related tests, and implementations behind another " +
+    "interface; read matching source bodies before treating a search result as evidence. " +
     "Separate verified gaps from unverified hypotheses and cite every gap to its source path.",
 };
 
@@ -682,6 +685,11 @@ const CAPABILITY_GAP_AUDIT_PROMPT_HINT =
   "and separate VERIFIED_GAP from UNVERIFIED_RISK and UNKNOWN. " +
   "A verified gap requires source evidence, a capability criterion, and an observable missing " +
   "or failing outcome. Preserve priority, dependency, acceptance criteria, and source paths. " +
+  "Before accepting any candidate gap, run bounded server-side falsification probes for an " +
+  "alternative adapter/recovery path, test counterevidence, and an implementation behind a " +
+  "different interface. Search results alone are not evidence; read every matching source body. " +
+  "Use the server-owned classifications CONFIRMED_GAP, PARTIALLY_COVERED, CONTRADICTED, or " +
+  "UNPROVEN for the falsification result, and do not let provider prose override them. " +
   "Do not treat provider availability, a route name, or an untested hypothesis as a verified gap. " +
   "Use the requested language and return an incomplete result when any required baseline or source claim is unproven.";
 

@@ -725,6 +725,21 @@ export {
   CapabilityParityUnknownSchema,
   buildCapabilityParityObjectiveClaims,
 } from "./parity-baseline.js";
+export {
+  GapFalsificationClassificationSchema,
+  GapFalsificationProbeKindSchema,
+  buildGapFalsificationPlan,
+  classifyGapFalsification,
+  buildGapFalsificationReport,
+} from "./gap-falsification.js";
+export type {
+  GapFalsificationClassification,
+  GapFalsificationProbeKind,
+  GapFalsificationProbe,
+  GapFalsificationProbeObservation,
+  GapFalsificationResult,
+  GapFalsificationReport,
+} from "./gap-falsification.js";
 export type {
   CapabilityParityBaseline,
   CapabilityParityClassification,

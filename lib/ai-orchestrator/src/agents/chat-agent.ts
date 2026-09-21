@@ -285,6 +285,11 @@ import {
   type ExecutionNode,
 } from "../task-session-state.js";
 import { isEmbeddedAiLayerAnalysisRequest } from "../project-query-target.js";
+import {
+  buildGapFalsificationPlan,
+  buildGapFalsificationReport,
+  type GapFalsificationReport,
+} from "../gap-falsification.js";
 
 const PROJECT_CHAT_READ_TOOL_NAMES = new Set([
   "read_file",
@@ -5490,6 +5495,7 @@ export function buildProjectQueryEvidenceSynthesis(
   objective: ObjectiveContract,
   evidence: readonly MaterializedObjectiveClaimEvidence[],
   responseLanguage: "ar" | "en",
+  falsificationReport?: GapFalsificationReport,
 ): string {
   const isArabic = responseLanguage === "ar";
   const claimById = new Map(
@@ -5603,6 +5609,21 @@ export function buildProjectQueryEvidenceSynthesis(
   const isAuthAnalysis = objective.objectiveType === "PROJECT_QUERY_AUTH";
   const isCapabilityGapAudit =
     isGapAnalysis && isCapabilityGapAuditRequest(objective.goal ?? "");
+  const falsificationLines = isGapAnalysis && falsificationReport
+    ? falsificationReport.results.flatMap((result) => [
+        isArabic
+          ? `- \`${result.claimId}\`: **${result.classification}** — ${result.reason}${
+              result.counterEvidencePaths.length > 0
+                ? `؛ أدلة مضادة: ${result.counterEvidencePaths.map((path) => `\`${path}\``).join(", ")}`
+                : ""
+            }`
+          : `- \`${result.claimId}\`: **${result.classification}** — ${result.reason}${
+              result.counterEvidencePaths.length > 0
+                ? `; counterevidence: ${result.counterEvidencePaths.map((path) => `\`${path}\``).join(", ")}`
+                : ""
+            }`,
+      ])
+    : [];
   const flowMap = isGapAnalysis
     ? gapFlowByClaimId
     : isDeliveryAnalysis
@@ -5727,7 +5748,14 @@ export function buildProjectQueryEvidenceSynthesis(
           ...(sourceLines.length > 0 ? sourceLines : ["- لا توجد مصادر مكتملة."]),
           "",
           "### حدود الحكم",
-          "القراءات الحالية تثبت نقاط الفحص ومسار قبول الأدلة، لكنها لا تثبت خللاً محدداً ما لم يظهر سلوك مخالف في المقتطف التنفيذي المحتفظ به.",
+           ...(falsificationLines.length > 0
+             ? [
+                 "### اختبار مقاومة التأكيد",
+                 "لكل ادعاء فجوة، فُحصت مسارات بديلة واختبارات وتنفيذات خلف interfaces. التصنيف server-owned ولا يغيره نص المزود:",
+                 ...falsificationLines,
+               ]
+             : []),
+           "القراءات الحالية تثبت نقاط الفحص ومسار قبول الأدلة، لكنها لا تثبت خللاً محدداً ما لم يظهر سلوك مخالف في المقتطف التنفيذي المحتفظ به.",
         ]
       : [
           isCapabilityGapAudit ? "## Capability Parity Gap Audit" : "## Agent Gap Analysis",
@@ -5752,6 +5780,13 @@ export function buildProjectQueryEvidenceSynthesis(
           ...(sourceLines.length > 0 ? sourceLines : ["- No completed sources."]),
           "",
           "### Judgment boundary",
+           ...(falsificationLines.length > 0
+             ? [
+                 "### Falsification checks",
+                 "Each gap claim receives bounded server-owned checks for alternative recovery, tests, and implementations behind another interface. Provider prose cannot change these classifications:",
+                 ...falsificationLines,
+               ]
+             : []),
           isCapabilityGapAudit
             ? "A VERIFIED_GAP requires an observable missing or failing outcome plus a capability criterion and source evidence. Unverified risks and unknowns remain separate from confirmed gaps."
             : "The retained reads prove the checkpoints and evidence-acceptance path, but they do not prove a specific defect unless the retained executable excerpt shows contradictory behavior.",
@@ -5800,6 +5835,96 @@ export function buildProjectQueryEvidenceSynthesis(
           "This analysis proves code behavior within the retained source windows. It does not by itself prove production reachability or behavior not present in those reads.",
         ];
   return lines.join("\n");
+}
+
+/**
+ * Falsification is a server-owned bounded supplement to the provider's
+ * investigation. The provider may still search for more context, but a gap
+ * run always performs one search per probe kind and directly reads a small
+ * number of matching files before its verdict is materialized.
+ */
+async function collectServerFalsificationEvidence(input: {
+  objective: ObjectiveContract;
+  rootPath: string;
+  fileContents: Map<string, string>;
+  toolSources: string[];
+  pendingChanges: PendingChange[];
+  onStep?: (step: AgentStep) => void;
+}): Promise<void> {
+  const plan = buildGapFalsificationPlan({
+    objective: input.objective,
+    maxClaims: 3,
+  });
+  const probesByKind = new Map(plan.map((probe) => [probe.kind, probe]));
+  const firstAllowedRoot =
+    input.objective.scopePolicy?.allowedExpansionPaths?.find(Boolean)
+    ?? plan
+      .flatMap((probe) => probe.allowedRoots)
+      .find((root) => root && !/\.[^/]+$/u.test(root))
+    ?? ".";
+  const readPaths = new Set<string>();
+  for (const probe of probesByKind.values()) {
+    const pattern = probe.searchTerms[0];
+    if (!pattern) continue;
+    const searchSource = `search: ${pattern}`;
+    let searchOutput: string;
+    if (input.toolSources.includes(searchSource)) {
+      continue;
+    }
+    try {
+      searchOutput = await executeFileTool(
+        "search_code",
+        { pattern, path: firstAllowedRoot },
+        input.rootPath,
+        input.pendingChanges,
+      );
+    } catch {
+      searchOutput = "";
+    }
+    const searchSucceeded =
+      searchOutput.trim().length > 0 && !/^Error\b/iu.test(searchOutput.trim());
+    if (searchSucceeded) input.toolSources.push(searchSource);
+    if (!searchSucceeded) continue;
+    const matches = searchOutput
+      .split("\n")
+      .map((line) => line.match(/^(.+?):\d+:/u)?.[1]?.trim() ?? "")
+      .filter(Boolean)
+      .filter((path, index, all) => all.indexOf(path) === index)
+      .slice(0, 2);
+    for (const path of matches) {
+      if (readPaths.has(path)) continue;
+      readPaths.add(path);
+      let sourceOutput: string;
+      try {
+        sourceOutput = await executeFileTool(
+          "read_file",
+          { path, complete: "true" },
+          input.rootPath,
+          input.pendingChanges,
+        );
+      } catch {
+        continue;
+      }
+      if (
+        sourceOutput.trim()
+        && !/^Error\b/iu.test(sourceOutput.trim())
+        && !sourceOutput.includes("project root path does not exist")
+      ) {
+        input.fileContents.set(path, stripReadFileWrapper(sourceOutput));
+        input.toolSources.push(`read: ${path}`);
+      }
+    }
+    input.onStep?.({
+      kind: "diagnostic",
+      code: "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+      details: [
+        "gap falsification probe",
+        `kind=${probe.kind}`,
+        `pattern=${pattern}`,
+        `matchesRead=${matches.filter((path) => input.fileContents.has(path)).length}`,
+      ],
+    });
+  }
 }
 
 function toProjectQueryEvidenceReferences(
@@ -9113,6 +9238,26 @@ export async function chat(opts: {
           sourceWindows: loopResult.evidenceWindows,
         })
       : [];
+  const gapFalsificationReport =
+    objective && isGapAnalysisProjectQueryObjective
+      ? (
+          rootPath
+            ? await collectServerFalsificationEvidence({
+                objective,
+                rootPath,
+                fileContents: forensicFileContents,
+                toolSources,
+                pendingChanges,
+                onStep: relayAgentStep,
+              })
+            : undefined,
+          buildGapFalsificationReport({
+            objective,
+            fileContents: forensicFileContents,
+            toolSources,
+          })
+        )
+      : undefined;
   if (isTargetedProjectQueryObjective) {
     const materializedClaimIds = new Set(
       materializedProjectQueryEvidence.map((item) => item.claimId),
@@ -9155,6 +9300,7 @@ export async function chat(opts: {
             objective,
             materializedProjectQueryEvidence,
             responseLanguage,
+             gapFalsificationReport,
           )
         : "";
     const synthesisFailureChain: string[] = [];

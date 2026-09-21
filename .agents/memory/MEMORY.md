@@ -139,3 +139,4 @@
 - [Project-query synthesis references](project-query-synthesis-references.md) — provider prose may use server-owned claimRefs/flowRefs; evidence and closure stay server-owned.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
 - [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.
+- [Gap falsification](gap-falsification.md) — gap candidates require bounded counterevidence checks; missing probes stay UNPROVEN and provider prose cannot set the verdict.
