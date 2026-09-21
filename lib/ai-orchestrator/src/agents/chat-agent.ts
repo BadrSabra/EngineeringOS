@@ -9287,7 +9287,10 @@ export async function chat(opts: {
       ? materializeObjectiveClaimEvidence({
           objective,
           fileContents: forensicFileContents,
-          sourceWindows: loopResult.evidenceWindows,
+          sourceWindows: [
+            ...(loopResult.evidenceWindows ?? []),
+            ...objectiveReplanEvidenceWindows,
+          ],
         })
       : [];
   const gapFalsificationReport =
@@ -9641,7 +9644,10 @@ export async function chat(opts: {
       },
       toolSources: priorLoopResult.toolSources,
       fileContents: priorLoopResult.fileContents,
-      evidenceWindows: priorLoopResult.evidenceWindows,
+      evidenceWindows: [
+        ...(priorLoopResult.evidenceWindows ?? []),
+        ...objectiveReplanEvidenceWindows,
+      ],
       sourceRetrieval: "sourceRetrieval" in priorLoopResult
         ? priorLoopResult.sourceRetrieval
         : undefined,

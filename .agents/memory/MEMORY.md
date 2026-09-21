@@ -146,6 +146,7 @@
 - [Project-query synthesis references](project-query-synthesis-references.md) — provider prose may use server-owned claimRefs/flowRefs; evidence and closure stay server-owned.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
 - [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.
+- [Objective replan evidence](objective-replan-evidence.md) — recovered windows must enter objective materialization and claim closure, not remain telemetry-only.
 - [Gap falsification](gap-falsification.md) — gap candidates require bounded counterevidence checks; missing probes stay UNPROVEN and provider prose cannot set the verdict.
 - [Server-owned confidence](server-owned-confidence.md) — confidence is computed from accepted evidence, claim closure, source diversity, revision, and contradictions; provider scores are non-authoritative.
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.

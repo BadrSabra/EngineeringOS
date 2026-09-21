@@ -27,14 +27,16 @@ function makeContext(): ProjectContext {
   };
 }
 
-async function makeRoot(): Promise<string> {
+async function makeRoot(
+  contentByPath: Readonly<Record<string, string>> = {},
+): Promise<string> {
   const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-objective-replan-"));
   for (const [index, file] of DECLARED_PATHS.entries()) {
     const fullPath = path.join(rootPath, file);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(
       fullPath,
-      `export const VALUE_${index + 1} = ${index + 1};\n`,
+      contentByPath[file] ?? `export const VALUE_${index + 1} = ${index + 1};\n`,
       "utf8",
     );
   }
@@ -238,6 +240,202 @@ describe("chat() closed-loop objective replanning", () => {
         ),
       ).toHaveLength(2);
       expect(result.response).toBeTypeOf("string");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("closes a missing claim only after bounded objective recovery retains its proof", async () => {
+    const claimText = "The secondary source is retained as objective evidence.";
+    const rootPath = await makeRoot({
+      [SECONDARY]: [
+        "export const VALUE_2 = 2;",
+        claimText,
+      ].join("\n"),
+    });
+    const createdLedgers: ExecutionLedger[] = [];
+    let replanDerivationCalls = 0;
+    let recoveryReads = 0;
+
+    vi.resetModules();
+    vi.doUnmock("../tools/file-tools.js");
+    vi.doUnmock("../tools/git-tools.js");
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
+      return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+    });
+    vi.doMock("../agents/query-planner.js", () => ({
+      // The planner failure is represented by the normal server-owned fallback
+      // path. The proof loop must recover from the objective manifest, not ask
+      // the planner for a second unconstrained plan.
+      planQuery: vi.fn().mockResolvedValue(null),
+    }));
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn((scope: string) => ({
+        taskProfile: { taskType: scope },
+      })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({
+        providerId: provider,
+      })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "initial-model",
+        powerModel: "initial-model",
+        fallbackChain: ["initial-model"],
+      })),
+    }));
+    vi.doMock("../openrouter/model-resolver.js", () => ({
+      resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+    }));
+    vi.doMock("../objective-replanning.js", async () => {
+      const actual = await vi.importActual<typeof import("../objective-replanning.js")>(
+        "../objective-replanning.js",
+      );
+      return {
+        ...actual,
+        deriveObjectiveReplanTargets: vi.fn(() => {
+          replanDerivationCalls += 1;
+          return replanDerivationCalls === 1
+            ? [{
+                path: SECONDARY,
+                claimIds: ["secondary-source"],
+                edgeKeys: [],
+                reason: "MISSING_REQUIRED_EVIDENCE_PATH" as const,
+              }]
+            : [];
+        }),
+      };
+    });
+    vi.doMock("../execution-ledger.js", async () => {
+      const actual = await vi.importActual<typeof import("../execution-ledger.js")>(
+        "../execution-ledger.js",
+      );
+      return {
+        ...actual,
+        createExecutionLedger: vi.fn((options) => {
+          const ledger = actual.createExecutionLedger(options);
+          createdLedgers.push(ledger);
+          return ledger;
+        }),
+      };
+    });
+
+    const proofResponse =
+      "## 1) Executive Verdict\n" +
+      "The objective is proven.\n" +
+      "## 2) Evidence Map\n" +
+      `File: \`${SECONDARY}\`\n` +
+      `Evidence: \`${claimText}\`\n` +
+      "## 3) Findings\nNo additional finding was asserted.\n" +
+      "## 4) Repair Plan\nNo repair is proposed.\n" +
+      "## 5) Validation Checklist\n- Confirm the retained secondary source.\n" +
+      "## 6) Final Judgment\nPROVEN — the required objective claim is complete.";
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (messages: unknown[]) => {
+        const serialized = JSON.stringify(messages);
+        const replanMarker = "Run one bounded objective-evidence replan.";
+        const replanIndex = serialized.indexOf(replanMarker);
+        const isReplan = replanIndex >= 0;
+        const hasReplanToolOutput = isReplan &&
+          serialized.slice(replanIndex).includes('"role":"tool"');
+        if (isReplan && !hasReplanToolOutput) {
+          recoveryReads += 1;
+          return {
+            content: "",
+            toolCalls: [{
+              id: `recovery-${recoveryReads}`,
+              type: "function" as const,
+              function: {
+                name: "read_file",
+                arguments: JSON.stringify({ path: SECONDARY }),
+              },
+            }],
+            model: "initial-model",
+            usage: {},
+          };
+        }
+        if (isReplan && hasReplanToolOutput) {
+          return {
+            content: `Recovered and retained ${SECONDARY}.`,
+            toolCalls: [],
+            model: "initial-model",
+            usage: {},
+          };
+        }
+        return {
+          content: JSON.stringify({
+            response: proofResponse,
+            sources: [SECONDARY],
+          }),
+          toolCalls: [],
+          model: "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: "Explain how the secondary source is retained.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        objective: {
+          objectiveType: "PROJECT_QUERY_BEHAVIOR",
+          goal: "Explain how the secondary source is retained from source evidence.",
+          requiredEvidencePaths: [PRIMARY, SECONDARY],
+          requiredClaims: [{
+            claimId: "secondary-source",
+            text: claimText,
+            requiredEvidencePaths: [SECONDARY],
+            evidenceNeedlesByPath: {
+              [SECONDARY]: [claimText],
+            },
+          }],
+          requiredEvidenceEdges: [],
+        },
+        onStep: (step) => steps.push(step),
+      });
+
+      const replanDiagnostics = steps.filter(
+        (step) => step.kind === "diagnostic" && step.code === "OBJECTIVE_REPLAN",
+      );
+      expect(replanDiagnostics.length).toBeGreaterThan(0);
+      expect(recoveryReads).toBe(1);
+      expect(replanDerivationCalls).toBe(2);
+      expect(result.evidenceGraph?.reads.map((read) => read.path)).toContain(SECONDARY);
+      expect(result.evidenceGraph?.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "claim:secondary-source",
+            status: "PROVEN",
+          }),
+        ]),
+      );
+      expect(result.response).toMatch(/Final Judgment\s*\n\s*PROVEN\b/i);
+      expect(result.response).not.toContain("OBJECTIVE_BLOCKED");
+      expect(result.response).not.toContain("NOT PROVEN");
+      expect(createdLedgers).toHaveLength(1);
+      expect(createdLedgers[0]?.snapshot().counts.hierarchical_task).toBe(1);
+      expect(
+        createdLedgers[0]?.snapshot().events.filter(
+          (event) =>
+            event.kind === "hierarchical_task" &&
+            event.operation === "objective_replan" &&
+            event.status === "completed",
+        ),
+      ).toHaveLength(1);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
