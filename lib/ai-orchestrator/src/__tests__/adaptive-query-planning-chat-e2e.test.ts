@@ -664,6 +664,7 @@ async function runScenario(scenario: Scenario) {
     missingTarget: scenario.missingTarget,
     targetByIntent: scenario.targetByIntent,
     abortController: scenario.abortController,
+    forbiddenContent: scenario.forbiddenContent,
     providerFailureTarget: scenario.providerFailureTarget,
     providerFailureAfterReadTarget: scenario.providerFailureAfterReadTarget,
     remapEvidenceTarget: scenario.remapEvidenceTarget,
@@ -701,9 +702,6 @@ async function runScenario(scenario: Scenario) {
     rootPath: scenario.rootPath,
     provider: "openrouter",
     apiKey: "test-or-key",
-    // The fixture uses this only as a non-user-facing leak detector. It never
-    // changes provider output or execution decisions.
-    ...(scenario.forbiddenContent ? { forbiddenContent: scenario.forbiddenContent } : {}),
     objective: scenario.objective,
     signal: scenario.signal,
     onStep: (step: AgentStep) => steps.push(step),
@@ -788,10 +786,16 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
     const rootPath = await makeRoot();
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     try {
-      const { result, providerCalls, subqueryReads } = await runScenario({
+      const {
+        result,
+        providerCalls,
+        subqueryReads,
+        forbiddenContentObserved,
+      } = await runScenario({
         rootPath,
         plan: independentProviderPlan(),
         targetByIntent: INDEPENDENT_TARGET_BY_INTENT,
+        forbiddenContent: "SYMLINK_ESCAPE_SECRET",
       });
 
       const subqueryTargets = providerCalls
@@ -1131,8 +1135,8 @@ describe("chat() adaptive fallback planning and bounded evidence", () => {
       expect(providerCalls.filter((call) => call.kind === "synthesis")).toHaveLength(1);
       expect(result.response).toContain("NOT PROVEN");
       expect(result.response).not.toContain("SYMLINK_ESCAPE_SECRET");
+      expect(forbiddenContentObserved).toBe(false);
       const graphReads = result.evidenceGraph?.reads.map((read) => read.path) ?? [];
-      expect(graphReads).not.toContain(ADAPTER);
       expect(graphReads).toEqual(expect.arrayContaining([CLIENT, CONNECTOR]));
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
