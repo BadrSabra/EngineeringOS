@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
+  aiGoalsTable,
+  projectsTable,
   taskLogsTable,
   tasksTable,
 } from "@workspace/db";
@@ -10,6 +12,8 @@ import {
   executeTask,
   invalidateContextCache,
   PROVIDER_REGISTRY,
+  type AgentStep,
+  type ValidationProfile,
 } from "@workspace/ai-orchestrator";
 import {
   createAiExecution,
@@ -28,7 +32,11 @@ import {
   finalizeExecutionAcceptance,
   type TaskExecutionFinalization,
 } from "./ai-execution-acceptance.js";
-import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.js";
+import {
+  chatWithFallback,
+  redactUserFacingText,
+  runAgentWithFallback,
+} from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { logger } from "./logger.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
@@ -37,6 +45,14 @@ import {
   markRemediationPlanVerified,
 } from "./remediation-plan.js";
 import { createTaskProgressEmitter } from "./task-progress.js";
+import { establishProjectRoot } from "./project-root.js";
+import {
+  isMissionToolLoopProfile,
+  missionObjectiveContract,
+  readMissionExecutionProfile,
+  type MissionExecutionProfile,
+} from "./mission-execution-profile.js";
+import { runRepairValidation } from "./ai-repair-validation.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -90,6 +106,7 @@ export type AiTaskExecutionReceipt = {
   confidence?: string;
   steps?: string[];
   evidenceRefs: string[];
+  executionProfile?: MissionExecutionProfile;
   failureClass?: AiTaskFailureClass;
   retryable?: boolean;
 };
@@ -141,6 +158,7 @@ export function buildAiTaskExecutionReceipt(params: {
   stages: string[];
   attempts?: number;
   result: Awaited<ReturnType<typeof executeTask>>;
+  executionProfile?: MissionExecutionProfile;
 }): AiTaskExecutionReceipt {
   return boundedReceipt({
     kind: "AI_TASK_EXECUTION_RECEIPT",
@@ -159,6 +177,7 @@ export function buildAiTaskExecutionReceipt(params: {
     confidence: safeText(params.result.confidence, 40),
     steps: params.result.steps.map((step) => String(step)),
     evidenceRefs: [],
+    ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
   });
 }
 
@@ -174,6 +193,7 @@ function failureReceipt(params: {
   failureClass: AiTaskFailureClass;
   retryable: boolean;
   cancelled?: boolean;
+  executionProfile?: MissionExecutionProfile;
 }): AiTaskExecutionReceipt {
   const cancelled = Boolean(params.cancelled);
   return boundedReceipt({
@@ -190,6 +210,7 @@ function failureReceipt(params: {
     terminalStatus: cancelled ? "CANCELLED" : "FAILED",
     terminalReason: safeText(params.code, 120),
     evidenceRefs: [],
+    ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
     failureClass: params.failureClass,
     retryable: params.retryable,
   });
@@ -377,6 +398,217 @@ async function finalizeTaskExecutionAcceptance(params: {
   return { accepted: finalized.accepted, duplicate: false };
 }
 
+type MissionToolLoopExecution = {
+  result: Awaited<ReturnType<typeof executeTask>>;
+  effectiveProvider: ProviderId;
+  profile: Exclude<MissionExecutionProfile, "analysis" | "delivery">;
+};
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function missionTaskPolicy(params: {
+  task: typeof tasksTable.$inferSelect;
+  goal: typeof aiGoalsTable.$inferSelect | undefined;
+  profile: MissionExecutionProfile;
+}) {
+  const outcome = jsonRecord(params.goal?.outcomeContract);
+  const success = jsonRecord(params.goal?.successCriteria);
+  const planRevision = jsonRecord(outcome.planRevision ?? success.planRevision);
+  const steps = Array.isArray(planRevision.steps) ? planRevision.steps : [];
+  const step = steps.find((candidate) =>
+    candidate && typeof candidate === "object"
+    && (candidate as Record<string, unknown>).kind === params.task.phase,
+  );
+  const stepRecord = jsonRecord(step);
+  const targetPaths = Array.isArray(stepRecord.files)
+    ? stepRecord.files.filter((path): path is string => typeof path === "string").slice(0, 48)
+    : Array.isArray(params.task.relatedFiles)
+      ? params.task.relatedFiles.filter((path): path is string => typeof path === "string").slice(0, 48)
+      : [];
+  return {
+    targetPaths,
+    approvalRequired: stepRecord.approvalRequired === true,
+    objective: typeof success.objective === "string"
+      ? success.objective
+      : params.task.description ?? params.task.title,
+  };
+}
+
+async function executeMissionToolLoop(params: {
+  task: typeof tasksTable.$inferSelect;
+  goal: typeof aiGoalsTable.$inferSelect;
+  projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+  profile: Exclude<MissionExecutionProfile, "analysis" | "delivery">;
+  userId: string;
+  provider: Provider;
+  executionId: string;
+  correlationId: string;
+  signal: AbortSignal;
+  workerId: string;
+  expectedAttempt: number;
+  checkpointSequenceBase: number;
+}): Promise<MissionToolLoopExecution> {
+  const [project] = await db
+    .select()
+    .from(projectsTable)
+    .where(eq(projectsTable.id, params.task.projectId))
+    .limit(1);
+  if (!project) throw new Error("mission_project_not_found");
+  const root = await establishProjectRoot(project.rootPath);
+  if (!root.ok) throw new Error("mission_project_root_unavailable");
+
+  const policy = missionTaskPolicy({
+    task: params.task,
+    goal: params.goal,
+    profile: params.profile,
+  });
+  const approvalState = policy.approvalRequired ? "PENDING_APPROVAL" : "APPROVED";
+  const allowValidationTools = params.profile !== "mission_observe";
+  const objective = missionObjectiveContract({
+    objective: policy.objective,
+    profile: params.profile,
+    targetPaths: policy.targetPaths,
+  });
+  let checkpointSequence = Math.max(1, params.checkpointSequenceBase);
+  let iteration = 0;
+  let toolCalls = 0;
+  let lastObservation = "tool loop initialized";
+  const message = [
+    "Server-owned Mission execution.",
+    `Execution profile: ${params.profile}.`,
+    `Objective: ${policy.objective}`,
+    policy.targetPaths.length > 0
+      ? `Server-approved target paths: ${policy.targetPaths.join(", ")}`
+      : "Use only server-observed project evidence.",
+    "Use the available server tools. Do not claim completion without evidence.",
+    params.task.prompt ?? params.task.title,
+  ].join("\n\n");
+
+  const chat = await chatWithFallback(
+    params.userId,
+    {
+      message,
+      history: [],
+      projectContext: params.projectContext,
+      rootPath: root.canonicalPath,
+      projectId: params.task.projectId,
+      activeTask: {
+        id: params.task.id,
+        title: params.task.title,
+        description: params.task.description,
+        priority: String(params.task.priority),
+        relatedFiles: policy.targetPaths,
+      },
+      objective,
+      allowValidationTools,
+      approvalState,
+      approvedFilePaths: approvalState === "APPROVED" ? policy.targetPaths : [],
+      validationTargetPaths: policy.targetPaths,
+      executionMode: params.profile === "mission_observe" ? "forensic" : "repair_plan",
+      allowExecutionTools: params.profile !== "mission_observe" && approvalState === "APPROVED",
+      allowedToolNames: params.profile === "mission_observe"
+        ? ["read_file", "read_file_range", "list_directory", "search_code"]
+        : params.profile === "mission_validate"
+          ? ["read_file", "read_file_range", "list_directory", "search_code", "run_validation"]
+          : [
+              "read_file",
+              "read_file_range",
+              "list_directory",
+              "search_code",
+              "replace_text",
+              "write_file",
+              "run_validation",
+            ],
+      validationRunner: allowValidationTools
+        ? async (
+            validationProfile: string,
+            targetPaths: string[],
+            signal?: AbortSignal,
+            pendingChanges?: readonly { path: string; newContent: string }[],
+            evidenceContext?: {
+              operationId?: string;
+              projectRevision?: string;
+              candidateHash?: string;
+            },
+          ) => runRepairValidation(
+            root.canonicalPath,
+            validationProfile as ValidationProfile,
+            targetPaths,
+            signal,
+            pendingChanges,
+            {
+              operationId: evidenceContext?.operationId ?? params.executionId,
+              projectRevision: evidenceContext?.projectRevision,
+              candidateHash: evidenceContext?.candidateHash,
+            },
+          )
+        : undefined,
+      signal: params.signal,
+      telemetryContext: {
+        projectId: params.task.projectId,
+        userId: params.userId,
+        operationId: params.executionId,
+        correlationId: params.correlationId,
+      },
+    },
+    params.provider,
+    undefined,
+    { qualityProfile: "task_execution", requireTools: true },
+    undefined,
+    async (step: AgentStep) => {
+      if (step.kind === "iteration_start") iteration = step.iter;
+      if (step.kind === "tool_call") toolCalls++;
+      if (step.kind === "tool_result") {
+        lastObservation = `${step.tool}: ${step.resultKind ?? "completed"}`;
+      } else if (step.kind === "diagnostic") {
+        lastObservation = step.code;
+      }
+      await checkpointAiExecution({
+        executionId: params.executionId,
+        expectedAttempt: params.expectedAttempt,
+        workerId: params.workerId,
+        checkpoint: {
+          stage: "tool_loop",
+          sequence: checkpointSequence++,
+          detail: JSON.stringify({
+            schemaVersion: 1,
+            executionProfile: params.profile,
+            iteration,
+            toolCalls,
+            lastObservation: lastObservation.slice(0, 240),
+            objective: policy.objective.slice(0, 240),
+          }),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    },
+  );
+  const output = chat.result;
+  const response = typeof output.response === "string"
+    ? output.response
+    : "Mission tool loop ended without a user-facing response.";
+  const toolSteps = [
+    `Mission tool loop profile: ${params.profile}`,
+    `Server-observed sources: ${output.sources?.length ?? 0}`,
+    `Pending candidate changes: ${output.pendingChanges?.length ?? 0}`,
+  ];
+  return {
+    effectiveProvider: chat.effectiveProvider,
+    profile: params.profile,
+    result: {
+      summary: response,
+      confidence: "medium",
+      needsHumanReview: true,
+      steps: toolSteps,
+      ...(output._parseError ? { _parseError: output._parseError } : {}),
+    } as Awaited<ReturnType<typeof executeTask>>,
+  };
+}
+
 /**
  * The single task execution state machine used by HTTP and queue callers.
  * The queue is only a concurrency limiter; ai_executions and the task lease
@@ -394,6 +626,20 @@ export async function executeTaskLifecycle(params: {
 }): Promise<TaskExecutionOutcome> {
   const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
   if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
+  const [missionGoal] = before.goalId
+    ? await db
+        .select()
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, before.goalId),
+          eq(aiGoalsTable.projectId, before.projectId),
+        ))
+        .limit(1)
+    : [];
+  const executionProfile = readMissionExecutionProfile(
+    missionGoal?.outcomeContract,
+    before.phase,
+  );
   const allowed = params.expectedStatuses ?? ["pending", "queued", "verifying"];
   const initialStatus = before.status as TaskStatus;
   const rollbackStatus = before.status === "running" ? "verifying" : before.status;
@@ -608,7 +854,23 @@ export async function executeTaskLifecycle(params: {
     stage = "provider_call";
     stages.push("provider_call");
     await progress.start("model", "Calling the AI model.", 32, 3);
-    const { result, effectiveProvider } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
+    const missionExecution = missionGoal && isMissionToolLoopProfile(executionProfile)
+      ? await executeMissionToolLoop({
+          task: before,
+          goal: missionGoal,
+          projectContext,
+          profile: executionProfile,
+          userId: params.userId,
+          provider: params.provider,
+          executionId,
+          correlationId,
+          signal: executionAbortController.signal,
+          workerId,
+          expectedAttempt: executionAttempt,
+          checkpointSequenceBase: Math.max(3, initialCheckpointSequence + 1),
+        })
+      : undefined;
+    const { result, effectiveProvider } = missionExecution ?? await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
       params.userId,
       params.provider,
       (opts) => executeTask({
@@ -662,6 +924,24 @@ export async function executeTaskLifecycle(params: {
         },
       },
     );
+    if (missionExecution) {
+      stages.push("tool_loop");
+      await checkpointAiExecution({
+        executionId,
+        expectedAttempt: executionAttempt,
+        workerId,
+        checkpoint: {
+          stage: "tool_loop",
+          sequence: Math.max(3, initialCheckpointSequence + 1),
+          detail: [
+            `profile=${missionExecution.profile}`,
+            "server-owned tool loop completed",
+            "candidate/proof state remains provisional until acceptance",
+          ].join("; "),
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
     executionProvider = effectiveProvider;
     if (effectiveProvider !== params.provider.provider) {
       stages.push("provider_fallback");
@@ -684,6 +964,7 @@ export async function executeTaskLifecycle(params: {
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
         failureClass: "malformed_output",
         retryable: true,
+        executionProfile,
       });
       const error = `model_output_invalid:${result._parseError.code}`;
       const finalized = await finalizeTaskExecutionAcceptance({
@@ -735,6 +1016,7 @@ export async function executeTaskLifecycle(params: {
         code: quality.code,
         failureClass: "quality_gate",
         retryable: true,
+        executionProfile,
       });
       const finalized = await finalizeTaskExecutionAcceptance({
         executionId,
@@ -773,7 +1055,7 @@ export async function executeTaskLifecycle(params: {
     // An AI report is not proof that a remediation was applied. Rule-backed
     // tasks remain in verification until the explicit verification path passes.
     const finalStatus =
-      result.needsHumanReview || before.remediationPlan ? "verifying" : "completed";
+      missionExecution || result.needsHumanReview || before.remediationPlan ? "verifying" : "completed";
     const finalConflict = taskTransitionConflict("running", finalStatus, "execution");
     if (finalConflict) throw new Error(finalConflict);
     stage = "finalize";
@@ -794,6 +1076,7 @@ export async function executeTaskLifecycle(params: {
        provider: executionProvider, attempt: executionAttempt,
       durationMs: Date.now() - startedAt, stages,
       attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
+      executionProfile,
     });
     const finalized = await finalizeTaskExecutionAcceptance({
       executionId,
@@ -802,7 +1085,11 @@ export async function executeTaskLifecycle(params: {
       receipt: taskReceipt,
       outcome: "SUCCEEDED",
       terminalStatus: "completed",
-      reasonCode: finalStatus === "completed" ? "ACCEPTED" : "HUMAN_REVIEW_REQUIRED",
+      reasonCode: finalStatus === "completed"
+        ? "ACCEPTED"
+        : missionExecution
+          ? "MISSION_PROOF_PENDING"
+          : "HUMAN_REVIEW_REQUIRED",
       retryable: false,
       trigger: params.trigger,
       finalStatus,

@@ -147,3 +147,4 @@
 - [Mission approval adapter](mission-approval-adapter.md) — proposal-backed Goal approvals reuse the existing revision gate and resume the Mission runtime; apply remains separate.
 - [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.
 - [Recovery test isolation](recovery-test-isolation.md) — shared recovery fixtures need project-scoped dispatch and dependency-ordered cleanup.
+- [Mission tool-loop profile boundary](mission-tool-loop-profile.md) — server-owned plan steps select profiles; legacy tasks retain TaskAgent behavior.

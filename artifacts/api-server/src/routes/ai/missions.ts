@@ -35,8 +35,13 @@ import {
   runMissionGoal,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
+import { executionProfileForMissionStep } from "../../lib/mission-execution-profile.js";
 import { createMissionEventEnvelope } from "../../lib/mission-events.js";
 import { approveMissionGoal } from "../../lib/mission-approval.js";
+import {
+  evaluateGoalCompletion,
+  evaluateMissionCompletion,
+} from "../../lib/mission-completion-gate.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -489,6 +494,10 @@ export async function createMissionPlanGoal(
       stepId: step.id,
       planRevision: planSnapshot,
       deliveryRequired: planStepRequiresDeliveryReceipt(step),
+      executionProfile: executionProfileForMissionStep(
+        step.kind,
+        Boolean(step.recipe),
+      ),
     },
     nextAction: planStepNextAction(step, taskId, purpose),
     createdAt: now,
@@ -1000,6 +1009,22 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
 
   const before = owned.mission;
   const now = new Date();
+  if (body.status === "completed") {
+    const completion = await db.transaction(async (tx) =>
+      evaluateMissionCompletion(tx, {
+        missionId: before.id,
+        projectId: before.projectId,
+      }),
+    );
+    if (!completion.allowed) {
+      return res.status(409).json({
+        error: "mission_completion_requires_proof",
+        code: "MISSION_COMPLETION_REQUIRES_PROOF",
+        reason: completion.reason,
+        missingGoalIds: completion.missingGoalIds,
+      });
+    }
+  }
   // Keep activation idempotent so missions that were already marked active
   // before activation plans existed can be repaired by saving "active" again.
   const shouldActivate = body.status === "active";
@@ -1311,6 +1336,19 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
       : {}),
   };
   if (body.status === "completed") {
+    const proven = await db.transaction(async (tx) =>
+      evaluateGoalCompletion(tx, {
+        goalId: goal.id,
+        missionId: goal.missionId,
+        projectId: goal.projectId,
+      }),
+    );
+    if (!proven) {
+      return res.status(409).json({
+        error: "goal_completion_requires_proof",
+        code: "GOAL_COMPLETION_REQUIRES_PROOF",
+      });
+    }
     updateValues.completedAt = goal.completedAt ?? now;
   } else if (body.status) {
     updateValues.completedAt = null;

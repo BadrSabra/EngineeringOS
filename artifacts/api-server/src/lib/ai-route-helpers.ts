@@ -850,6 +850,10 @@ export async function chatWithFallback(
      approvedFilePaths?: readonly string[];
     /** Server-owned validation callback; never derived from model arguments. */
     validationRunner?: ValidationRunner;
+     /** Server-owned execution mode and tool allowlist for durable Mission tasks. */
+     executionMode?: "forensic" | "repair_plan";
+     allowExecutionTools?: boolean;
+     allowedToolNames?: readonly string[];
     browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
     browserValidationContext?: { operationId?: string; revision?: string };
     approvedValidationProfiles?: readonly string[];
@@ -1098,6 +1102,9 @@ export async function chatWithFallback(
          approvalState: baseParams.approvalState,
          approvedFilePaths: baseParams.approvedFilePaths,
         validationRunner: baseParams.validationRunner,
+         executionMode: baseParams.executionMode,
+         allowExecutionTools: baseParams.allowExecutionTools,
+         allowedToolNames: baseParams.allowedToolNames,
         browserValidationRunner: baseParams.browserValidationRunner,
         browserValidationContext: baseParams.browserValidationContext,
         approvedValidationProfiles: baseParams.approvedValidationProfiles,
