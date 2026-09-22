@@ -3,18 +3,26 @@ import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
   aiExecutionsTable,
+  aiChangeProposalsTable,
+  aiChatMessagesTable,
+  aiChatSessionsTable,
   aiGoalsTable,
   aiMissionsTable,
   db,
   projectsTable,
 } from "@workspace/db";
 
-const { recipeRunner } = vi.hoisted(() => ({
+const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
+  githubDeliveryRunner: vi.fn(),
 }));
 
 vi.mock("./recipe-operation-runner.js", () => ({
   runRecipeOperation: recipeRunner,
+}));
+
+vi.mock("./github-delivery-service.js", () => ({
+  executeVerifiedGitHubDelivery: githubDeliveryRunner,
 }));
 
 import { dispatchPendingMissionRecipes, runMissionGoal } from "./mission-runtime.js";
@@ -23,12 +31,215 @@ const projectIds: string[] = [];
 
 afterEach(async () => {
   recipeRunner.mockReset();
+  githubDeliveryRunner.mockReset();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
 
 describe("Mission recipe dispatch", () => {
+  it("rebuilds the server-owned GitHub runner from a committed proposal", async () => {
+    recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
+      expect(runner).toBeTypeOf("function");
+      await runner?.({
+        rootPath: process.cwd(),
+        projectId: params.projectId,
+        operationId: params.operationId,
+        message: "Ship the verified change",
+      });
+      return {
+        executionId: "delivery-execution-1",
+        status: "completed",
+        completedNodeIds: ["push"],
+        receipt: {
+          contractVersion: 1,
+          executionId: "delivery-execution-1",
+          operationId: params.operationId,
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+          status: "completed",
+          completedNodeIds: ["push"],
+          nodes: [{
+            nodeId: "push",
+            status: "passed",
+            attempts: 1,
+            elapsedMs: 10,
+            evidenceId: "github-evidence-1",
+            excerpt: "GitHub delivery passed.",
+          }],
+          evidenceRefs: ["github-evidence-1"],
+          createdAt: "2026-09-22T15:00:00.000Z",
+          completedAt: "2026-09-22T15:00:00.010Z",
+        },
+      };
+    });
+    githubDeliveryRunner.mockResolvedValue({
+      status: "passed",
+      evidence: {
+        evidenceId: "github:delivery-1",
+        resultHash: "a".repeat(64),
+        artifactRef: "github-delivery:delivery-1",
+      },
+    });
+
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const proposalOperationId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-delivery-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      gitRemoteUrl: "https://github.com/example/project.git",
+      gitDefaultBranch: "main",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Mission delivery fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Verified delivery",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId: proposalOperationId,
+      createdAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Mission delivery",
+      intent: "Deliver the verified proposal",
+      status: "active",
+      scope: { kind: "project", projectId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Push verified proposal",
+      status: "queued",
+      outcomeContract: { deliveryRequired: true },
+      nextAction: {
+        kind: "recipe",
+        recipeId: "delivery.push.github",
+        recipeVersion: 1,
+        approvedPaths: [],
+        candidateIdentity: null,
+        proposalId,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(runMissionGoal({
+      goalId,
+      userId: "test-user",
+      trigger: "activation",
+    })).resolves.toMatchObject({
+      status: "scheduled",
+      goalId,
+    });
+    await vi.waitFor(() => expect(recipeRunner).toHaveBeenCalledOnce());
+    expect(recipeRunner).toHaveBeenCalledWith(expect.objectContaining({
+      operationId: proposalOperationId,
+      recipeId: "delivery.push.github",
+    }));
+    expect(githubDeliveryRunner).toHaveBeenCalledWith(expect.objectContaining({
+      projectId,
+      proposalId,
+      operationId: proposalOperationId,
+      remoteUrl: "https://github.com/example/project.git",
+      branch: "main",
+    }));
+  });
+
+  it("blocks a Mission delivery when the committed proposal is absent", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-delivery-blocked-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      gitRemoteUrl: "https://github.com/example/project.git",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Blocked mission delivery",
+      intent: "Deliver without a committed proposal",
+      status: "active",
+      scope: { kind: "project", projectId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Missing proposal",
+      status: "queued",
+      outcomeContract: { deliveryRequired: true },
+      nextAction: {
+        kind: "recipe",
+        recipeId: "delivery.push.github",
+        recipeVersion: 1,
+        approvedPaths: [],
+        candidateIdentity: null,
+        proposalId: randomUUID(),
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(runMissionGoal({
+      goalId,
+      userId: "test-user",
+      trigger: "activation",
+    })).resolves.toMatchObject({
+      status: "blocked",
+      reason: "delivery_proposal_not_committed",
+    });
+    expect(recipeRunner).not.toHaveBeenCalled();
+  });
+
   it("binds a typed recipe action to the existing recipe runner and projects completion", async () => {
     recipeRunner.mockResolvedValue({
       executionId: "recipe-execution-1",
