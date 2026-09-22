@@ -197,6 +197,67 @@ describe("AI missions and goals", () => {
     });
   });
 
+  it("accepts an authenticated Goal event idempotently and wakes the waiting Goal", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Event-driven mission",
+      intent: "Wait for an external validation event",
+    });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Wait for validation",
+        nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      });
+    expect(goal.status).toBe(201);
+    await db.update(aiGoalsTable)
+      .set({ status: "waiting_for_event" })
+      .where(eq(aiGoalsTable.id, goal.body.id));
+
+    const eventId = randomUUID();
+    const delivered = await request(app)
+      .post(`/api/ai/goals/${goal.body.id}/events`)
+      .send({
+        eventId,
+        type: "ExternalValidationCompleted",
+        payload: { validationId: "validation-1" },
+      });
+    expect(delivered.status).toBe(202);
+    expect(delivered.body).toMatchObject({
+      accepted: true,
+      woken: true,
+      duplicate: false,
+      eventId,
+      replayPending: false,
+    });
+
+    const duplicate = await request(app)
+      .post(`/api/ai/goals/${goal.body.id}/events`)
+      .send({
+        eventId,
+        type: "ExternalValidationCompleted",
+        payload: { validationId: "validation-1" },
+      });
+    expect(duplicate.status).toBe(202);
+    expect(duplicate.body).toMatchObject({
+      accepted: true,
+      duplicate: true,
+      eventId,
+    });
+
+    const [persistedGoal] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    const [inboxEvent] = await db
+      .select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(eq(eventsTable.id, eventId));
+    expect(persistedGoal?.status).toBe("needs_replan");
+    expect(inboxEvent?.type).toBe("AiMissionExternalEventReceived");
+  });
+
   it("binds active mission activation to the same server-owned plan revision", async () => {
     const projectId = await insertProject();
     const response = await request(app).post("/api/ai/missions").send({

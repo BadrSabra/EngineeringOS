@@ -33,3 +33,15 @@ restart.
 and execution checkpoint, enqueue through the shared bounded queue, and leave
 uncertain in-flight recovery to the existing AI execution acceptance/recovery
 contract.
+
+Mission external events use the existing events journal as a durable inbox:
+persist the envelope before waking a Goal, deduplicate by eventId, and replay
+unprocessed events when the Goal later reaches its event-wait boundary.
+
+**Why:** Delivering an event before a Goal begins waiting must not lose the
+trigger, while retries from a webhook or integration must not create duplicate
+replans.
+
+**How to apply:** Keep event payloads data-only, bind ingress to the owned Goal
+and project, mark the inbox row processed only after the row-locked wake
+transition succeeds, and let the normal Mission replan path continue execution.

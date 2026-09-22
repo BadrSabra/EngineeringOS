@@ -10,6 +10,8 @@ import {
   tasksTable,
 } from "@workspace/db";
 import {
+  receiveMissionEvent,
+  replayPendingMissionEvents,
   runMissionGoal,
   wakeDueMissionGoals,
   wakeMissionGoalsForEvent,
@@ -255,5 +257,46 @@ describe("Mission goal runtime", () => {
       nextAction: { kind: "replan" },
     });
     expect(mission?.status).toBe("needs_replan");
+  });
+
+  it("durably replays an event delivered before the Goal enters its wait state", async () => {
+    const waiting = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "ExternalValidationCompleted",
+      projectId: waiting.projectId,
+      goalId: waiting.goalId,
+      payload: { validationId: "validation-1" },
+    });
+
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      woken: false,
+      duplicate: false,
+    });
+    await runMissionGoal({
+      goalId: waiting.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+    expect(await replayPendingMissionEvents()).toBe(1);
+    expect(await replayPendingMissionEvents()).toBe(0);
+
+    const [goal] = await db
+      .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, waiting.goalId));
+    expect(goal).toMatchObject({
+      status: "needs_replan",
+      nextAction: { kind: "replan" },
+    });
+    await expect(receiveMissionEvent(event)).resolves.toMatchObject({
+      persisted: true,
+      duplicate: true,
+    });
   });
 });

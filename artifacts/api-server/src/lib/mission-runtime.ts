@@ -30,7 +30,7 @@ import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
-import type { MissionEventEnvelope } from "./mission-events.js";
+import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +46,7 @@ export type MissionGoalRunResult = {
 
 const ACTIVE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 const RECIPE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
+const MISSION_EXTERNAL_EVENT_TYPE = "AiMissionExternalEventReceived";
 type RecipeGoalAction = Extract<GoalNextAction, { kind: "recipe" }>;
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type GoalDependencyState = {
@@ -993,4 +994,134 @@ export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Pro
   });
 
   return changed ? 1 : 0;
+}
+
+type StoredMissionEvent = {
+  envelope?: MissionEventEnvelope;
+  processedAt?: string | null;
+};
+
+function storedMissionEvent(payload: Record<string, unknown> | null): StoredMissionEvent | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const candidate = payload.missionEvent;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
+  const envelope = candidate as Partial<MissionEventEnvelope>;
+  if (
+    envelope.schemaVersion !== 1
+    || typeof envelope.eventId !== "string"
+    || typeof envelope.type !== "string"
+    || typeof envelope.projectId !== "string"
+    || typeof envelope.goalId !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    envelope: envelope as MissionEventEnvelope,
+    processedAt: typeof payload.processedAt === "string" ? payload.processedAt : null,
+  };
+}
+
+/**
+ * Durable ingress for external Mission events. The existing events journal is
+ * also the inbox: eventId is the primary key, so webhook retries are
+ * idempotent. If the Goal is not waiting yet, the row remains unprocessed and
+ * the dispatcher replays it after the Goal reaches its wait boundary.
+ */
+export async function receiveMissionEvent(event: MissionEventEnvelope): Promise<{
+  eventId: string;
+  persisted: boolean;
+  woken: boolean;
+  duplicate: boolean;
+}> {
+  const payload = {
+    missionEvent: createMissionEventEnvelope(event),
+    processedAt: null,
+  } satisfies Record<string, unknown>;
+  const [inserted] = await db
+    .insert(eventsTable)
+    .values({
+      id: event.eventId,
+      type: MISSION_EXTERNAL_EVENT_TYPE,
+      projectId: event.projectId,
+      goalId: event.goalId,
+      correlationId: event.correlationId ?? event.eventId,
+      severity: "info",
+      message: `External Mission event "${event.type}" received`,
+      payload,
+    })
+    .onConflictDoNothing()
+    .returning({ id: eventsTable.id });
+
+  const existing = inserted
+    ? []
+    : await db
+      .select({ payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.id, event.eventId),
+        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+      ))
+      .limit(1);
+  if (!inserted && !storedMissionEvent(existing[0]?.payload ?? null)) {
+    return { eventId: event.eventId, persisted: false, woken: false, duplicate: true };
+  }
+
+  const woken = await wakeMissionGoalsForEvent(event);
+  if (woken > 0) {
+    await db.update(eventsTable)
+      .set({
+        payload: {
+          ...payload,
+          processedAt: new Date().toISOString(),
+        },
+      })
+      .where(and(
+        eq(eventsTable.id, event.eventId),
+        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+      ));
+  }
+  return {
+    eventId: event.eventId,
+    persisted: true,
+    woken: woken > 0,
+    duplicate: !inserted,
+  };
+}
+
+/**
+ * Replays durable external events that arrived before their Goal entered the
+ * event-wait state. Replay is bounded and safe because Goal wake is row-locked
+ * and the inbox event remains idempotent by eventId.
+ */
+export async function replayPendingMissionEvents(limit = 32): Promise<number> {
+  const rows = await db
+    .select({
+      id: eventsTable.id,
+      payload: eventsTable.payload,
+    })
+    .from(eventsTable)
+    .where(eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE))
+    .orderBy(eventsTable.timestamp, eventsTable.id)
+    .limit(Math.max(1, Math.min(limit, 100)));
+
+  let replayed = 0;
+  for (const row of rows) {
+    const stored = storedMissionEvent(row.payload);
+    if (!stored?.envelope || stored.processedAt) continue;
+    const woken = await wakeMissionGoalsForEvent(stored.envelope);
+    if (woken === 0) continue;
+    await db.update(eventsTable)
+      .set({
+        payload: {
+          ...(row.payload ?? {}),
+          processedAt: new Date().toISOString(),
+        },
+      })
+      .where(and(
+        eq(eventsTable.id, row.id),
+        eq(eventsTable.type, MISSION_EXTERNAL_EVENT_TYPE),
+      ));
+    replayed += 1;
+  }
+  return replayed;
 }

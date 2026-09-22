@@ -68,6 +68,7 @@ import { recoverPromotion } from "./delivery-workspace.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 import {
   dispatchPendingMissionRecipes,
+  replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
 } from "./mission-runtime.js";
@@ -730,7 +731,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -742,10 +743,12 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
       dispatchAutonomousTaskRecoveries(),
       reconcileAutomaticMissionReplans(),
       dispatchPendingMissionRecipes(),
+      replayPendingMissionEvents(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
     dispatched += missionRecipeCount;
+    dispatched += missionEventCount;
 
     for (const job of queuedScans) {
       if (
@@ -783,6 +786,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
           recoveryCount,
           automaticReplanCount,
             missionRecipeCount,
+            missionEventCount,
         },
         "durable job dispatcher: persisted pending work dispatched",
       );

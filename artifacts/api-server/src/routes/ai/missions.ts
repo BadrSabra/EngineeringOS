@@ -29,7 +29,12 @@ import {
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
-import { runMissionGoal, type MissionGoalRunTrigger } from "../../lib/mission-runtime.js";
+import {
+  receiveMissionEvent,
+  runMissionGoal,
+  type MissionGoalRunTrigger,
+} from "../../lib/mission-runtime.js";
+import { createMissionEventEnvelope } from "../../lib/mission-events.js";
 import { approveMissionGoal } from "../../lib/mission-approval.js";
 
 const router = Router();
@@ -109,6 +114,25 @@ const UpdateGoalBody = z.object({
   blockedReason: z.string().trim().max(5_000).nullable().optional(),
   nextWakeAt: z.string().datetime().nullable().optional(),
 }).strict();
+
+const MissionGoalEventBody = z.object({
+  eventId: z.string().uuid().optional(),
+  type: z.string().trim().min(1).max(120).regex(/^[A-Za-z][A-Za-z0-9._:-]*$/),
+  planRevision: z.string().trim().min(1).max(200).nullable().optional(),
+  correlationId: z.string().trim().min(1).max(200).nullable().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.payload && Buffer.byteLength(JSON.stringify(value.payload), "utf8") > 32_000) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.too_big,
+      maximum: 32_000,
+      type: "string",
+      inclusive: true,
+      path: ["payload"],
+      message: "payload must be at most 32KB",
+    });
+  }
+});
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -1064,6 +1088,41 @@ router.get("/ai/goals/:goalId", async (req, res) => {
     planRevision: aiGoalDependenciesTable.planRevision,
   }).from(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.goalId, goal.id));
   return res.json({ ...goal, dependencies });
+});
+
+/**
+ * Authenticated Mission event ingress. The event is persisted before the Goal
+ * is woken, so delivery before the Goal reaches its wait boundary is replayed
+ * by the durable dispatcher instead of being lost.
+ */
+router.post("/ai/goals/:goalId/events", async (req, res) => {
+  const [goal] = await db
+    .select()
+    .from(aiGoalsTable)
+    .where(eq(aiGoalsTable.id, req.params.goalId))
+    .limit(1);
+  if (!goal) return res.status(404).json({ error: "Goal not found" });
+  const owned = await loadOwnedMission(goal.missionId, req.userId, res);
+  if (!owned) return;
+
+  const body = MissionGoalEventBody.parse(req.body);
+  const event = createMissionEventEnvelope({
+    eventId: body.eventId ?? randomUUID(),
+    type: body.type,
+    projectId: goal.projectId,
+    goalId: goal.id,
+    ...(body.planRevision !== undefined ? { planRevision: body.planRevision } : {}),
+    ...(body.correlationId !== undefined ? { correlationId: body.correlationId } : {}),
+    ...(body.payload ? { payload: body.payload } : {}),
+  });
+  const result = await receiveMissionEvent(event);
+  return res.status(202).json({
+    accepted: result.persisted,
+    woken: result.woken,
+    duplicate: result.duplicate,
+    eventId: result.eventId,
+    replayPending: result.persisted && !result.woken,
+  });
 });
 
 router.patch("/ai/goals/:goalId", async (req, res) => {
