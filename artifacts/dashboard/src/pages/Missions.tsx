@@ -1053,7 +1053,7 @@ export default function Missions() {
           <div>
             <div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-cyan-300/70">
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
-              AI / Missions
+              Work toward a goal
             </div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">Missions</h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
@@ -1061,10 +1061,6 @@ export default function Missions() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-600 sm:flex">
-               <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-               Projection + management
-            </div>
             <button
               type="button"
               onClick={() => {
@@ -1198,7 +1194,6 @@ export default function Missions() {
                         <div className="min-w-0">
                           <div className="mb-2 flex flex-wrap items-center gap-2">
                             <StatusPill status={activeMission.status} />
-                            <span className="font-mono text-[10px] text-slate-600">{compactId(activeMission.id)}</span>
                           </div>
                           <h2 data-testid={`text-mission-title-${activeMission.id}`} className="text-xl font-semibold tracking-tight text-slate-50">{activeMission.title}</h2>
                           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{activeMission.intent || 'No intent recorded for this mission.'}</p>
@@ -1216,17 +1211,12 @@ export default function Missions() {
                               Edit details
                             </button>
                           </div>
-                          <div className="text-left sm:text-right">
-                            <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-slate-600">Last updated</p>
-                            <p className="mt-1 text-xs text-slate-400">{formatDate(activeMission.updatedAt, true)}</p>
-                          </div>
                         </div>
                       </div>
                       <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3">
                         <Metric label="Status" value={missionStatusMessage(activeMission.status)} accent="text-cyan-200" />
                         <Metric label="Goals" value={projection?.counts.goals ?? '—'} />
                         <Metric label="Tasks" value={projection?.counts.tasks ?? '—'} />
-                        <Metric label="Executions" value={projection?.counts.executions ?? '—'} />
                       </div>
                     </div>
 
@@ -1248,7 +1238,7 @@ export default function Missions() {
                         {projectionIsPartial ? (
                           <div className="mb-4 flex items-start gap-2.5 rounded-md border border-amber-300/20 bg-amber-300/5 px-3 py-2.5 text-xs text-amber-100/80">
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
-                            <span>This projection is partial. Some linked records may not be retained in the response.</span>
+                            <span>Some activity is still loading. The latest result will appear here automatically.</span>
                           </div>
                         ) : null}
                          <div className="mb-4 flex items-center justify-between gap-3">
@@ -1278,11 +1268,14 @@ export default function Missions() {
                             ))}
                           </div>
                         )}
-                        <div className="mt-5 grid gap-3 border-t border-slate-800 pt-4 text-xs text-slate-500 sm:grid-cols-3">
-                          <span>Scope: {activeMission.scope ? 'recorded' : 'not recorded'}</span>
-                          <span>Autonomy policy: {activeMission.autonomyPolicy ? 'recorded' : 'not recorded'}</span>
-                          <span>Deadline: {formatDate(activeMission.deadline)}</span>
-                        </div>
+                         <details className="mt-5 border-t border-slate-800 pt-4">
+                           <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-400">More details</summary>
+                           <div className="mt-3 grid gap-3 text-xs text-slate-500 sm:grid-cols-3">
+                             <span>Scope: {activeMission.scope ? 'project' : 'not recorded'}</span>
+                             <span>Deadline: {formatDate(activeMission.deadline)}</span>
+                             <span>Updated: {formatDate(activeMission.updatedAt, true)}</span>
+                           </div>
+                         </details>
                       </div>
                     ) : (
                       <EmptyState icon={Layers3} title="No projection returned" description="The mission exists, but its read-only projection was empty." />
