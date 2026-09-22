@@ -10,6 +10,7 @@ describe("server recipe definition registry", () => {
     expect(registry.listIds()).toEqual([
       "browser.verify",
       "candidate.verify",
+      "database.inspect.project",
       "delivery.push.github",
       "validation.recover",
     ]);

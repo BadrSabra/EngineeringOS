@@ -75,6 +75,50 @@ describe("recipe capability adapters", () => {
     });
   });
 
+  it("exposes bounded database reads only through the server-owned runner", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const registry = createServerCapabilityRegistry({
+      databaseReadRunner: async (args) => {
+        calls.push(args);
+        return {
+          status: "passed",
+          rows: [{ id: "project-1", status: "active" }],
+          evidence: { evidenceId: "database:project-summary" },
+        };
+      },
+    });
+
+    expect(registry.list().map((entry) => entry.id)).toContain("database.read_project");
+    await expect(registry.invoke(
+      "database.read_project",
+      1,
+      { resource: "project_summary", limit: 50 },
+      {
+        rootPath: process.cwd(),
+        projectId: "project-1",
+        operation: "recipe",
+        operationId: "operation-1",
+        authorized: true,
+        approvalState: "APPROVED",
+      },
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        status: "passed",
+        resource: "project_summary",
+        rows: [{ id: "project-1" }],
+        evidence: { evidenceId: "database:project-summary" },
+      },
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      projectId: "project-1",
+      operationId: "operation-1",
+      resource: "project_summary",
+      limit: 50,
+    });
+  });
+
   it("fails closed when external delivery has no durable identity", async () => {
     const registry = createServerCapabilityRegistry({
       githubDeliveryRunner: async () => ({

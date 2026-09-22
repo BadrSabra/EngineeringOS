@@ -111,6 +111,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
     {
       ...(params.browserValidationRunner ? { browserProfiles: ["default"] } : {}),
       ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+      databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     },
   );
   const compiled = compileCapabilityRecipe(recipe, {
@@ -468,6 +469,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         signal,
       ),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+    databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     ...(params.browserValidationRunner
       ? {
           browserValidationRunner: params.browserValidationRunner,
