@@ -937,6 +937,14 @@ export default function Missions() {
     setExpandedGoalId(null);
   }, [activeMissionId]);
 
+  useEffect(() => {
+    if (!activeMissionId || activeMission?.status !== 'active') return;
+    const interval = window.setInterval(() => {
+      setProjectionReload((value) => value + 1);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [activeMissionId, activeMission?.status]);
+
   const selectedProject = projects.find((project) => String(project.id) === projectId);
   const projectErrorStatus = typeof projectsQueryError === 'object' && projectsQueryError !== null && 'status' in projectsQueryError
     ? Number((projectsQueryError as { status?: unknown }).status)
@@ -979,7 +987,11 @@ export default function Missions() {
         setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
         setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
         setEditor(null);
-        setMutationNotice('Mission updated.');
+        setMutationNotice(
+          updated.status === 'active' && editor.mission.status !== 'active'
+            ? 'Mission activated. Initial plan queued.'
+            : 'Mission updated.',
+        );
         setMissionsReload((value) => value + 1);
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'goal-create') {

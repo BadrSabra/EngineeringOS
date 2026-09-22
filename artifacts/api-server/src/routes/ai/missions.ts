@@ -21,11 +21,13 @@ import {
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
+import { scheduleAiTaskExecution } from "./tasks.js";
 
 const router = Router();
 router.use(requireAuth);
 
 const JsonObjectSchema = z.record(z.string(), z.unknown());
+const ACTIVATION_PLAN_KIND = "mission_activation_plan";
 
 const CreateMissionBody = z.object({
   projectId: z.string().min(1).max(200),
@@ -158,6 +160,120 @@ function publicEvent(event: typeof eventsTable.$inferSelect) {
   };
 }
 
+function isActivationGoal(goal: typeof aiGoalsTable.$inferSelect) {
+  const nextAction = goal.nextAction;
+  return Boolean(
+    nextAction
+      && typeof nextAction === "object"
+      && !Array.isArray(nextAction)
+      && (nextAction as { kind?: unknown }).kind === ACTIVATION_PLAN_KIND,
+  );
+}
+
+async function ensureMissionActivationPlan(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  mission: typeof aiMissionsTable.$inferSelect,
+  now: Date,
+) {
+  const existingGoals = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(eq(aiGoalsTable.missionId, mission.id))
+    .for("update");
+  const existingActivationGoal = existingGoals.find(isActivationGoal);
+  if (existingActivationGoal) {
+    const [existingTask] = await tx
+      .select({ id: tasksTable.id })
+      .from(tasksTable)
+      .where(and(
+        eq(tasksTable.projectId, mission.projectId),
+        eq(tasksTable.goalId, existingActivationGoal.id),
+      ))
+      .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+      .limit(1);
+    return existingTask?.id;
+  }
+
+  const goalId = randomUUID();
+  const taskId = randomUUID();
+  const correlationId = randomUUID();
+  const goalTitle = `Plan: ${mission.title}`;
+  const taskTitle = `Execute: ${mission.title}`;
+  const activationPrompt = [
+    `Mission objective: ${mission.intent}`,
+    "Inspect the project's available context before acting.",
+    "Produce an evidence-backed progress report with concrete next steps.",
+    "Do not claim completion without project-grounded evidence.",
+  ].join("\n");
+
+  await tx.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId: mission.id,
+    projectId: mission.projectId,
+    title: goalTitle,
+    description: `Initial execution plan for mission "${mission.title}".`,
+    status: "running",
+    priority: "p1",
+    successCriteria: {
+      kind: ACTIVATION_PLAN_KIND,
+      missionId: mission.id,
+      objective: mission.intent,
+    },
+    evidenceContract: {
+      required: true,
+      source: "project_context",
+    },
+    outcomeContract: {
+      kind: "evidence_backed_progress_report",
+    },
+    nextAction: {
+      kind: ACTIVATION_PLAN_KIND,
+      action: "execute_seed_task",
+      taskId,
+    },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await tx.insert(tasksTable).values({
+    id: taskId,
+    projectId: mission.projectId,
+    goalId,
+    title: taskTitle,
+    description: mission.intent,
+    status: "verifying",
+    priority: "p1",
+    phase: "execute",
+    prompt: activationPrompt,
+    correlationId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await tx.insert(eventsTable).values([
+    {
+      id: randomUUID(),
+      type: "AiGoalCreated",
+      projectId: mission.projectId,
+      goalId,
+      severity: "info",
+      message: `Activation plan created for AI mission "${mission.title}"`,
+      correlationId,
+      payload: { missionId: mission.id, activation: true },
+    },
+    {
+      id: randomUUID(),
+      type: "TaskCreated",
+      projectId: mission.projectId,
+      goalId,
+      taskId,
+      severity: "info",
+      message: `Activation task queued for AI mission "${mission.title}"`,
+      correlationId,
+      payload: { missionId: mission.id, activation: true },
+    },
+  ]);
+  return taskId;
+}
+
 async function buildMissionProjection(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
@@ -274,6 +390,9 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
 
   const before = owned.mission;
   const now = new Date();
+  // Keep activation idempotent so missions that were already marked active
+  // before activation plans existed can be repaired by saving "active" again.
+  const shouldActivate = body.status === "active";
   const { deadline, ...rest } = body;
   const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
     ...rest,
@@ -289,11 +408,12 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   }
 
   const correlationId = randomUUID();
-  const [updated] = await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const rows = await tx.update(aiMissionsTable)
       .set(updateValues)
       .where(eq(aiMissionsTable.id, before.id))
       .returning();
+    let activationTaskId: string | undefined;
     if (rows[0]) {
       await tx.insert(eventsTable).values({
         id: randomUUID(),
@@ -304,11 +424,17 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         correlationId,
         payload: { missionId: before.id, changedFields: Object.keys(body) },
       });
+      if (shouldActivate) {
+        activationTaskId = await ensureMissionActivationPlan(tx, rows[0], now);
+      }
     }
-    return rows;
+    return { updated: rows[0], activationTaskId };
   });
-  if (!updated) return res.status(404).json({ error: "Mission not found" });
-  return res.json(updated);
+  if (!result.updated) return res.status(404).json({ error: "Mission not found" });
+  if (result.activationTaskId) {
+    scheduleAiTaskExecution(result.activationTaskId, req.userId);
+  }
+  return res.json(result.updated);
 });
 
 router.get("/ai/missions/:missionId/goals", async (req, res) => {

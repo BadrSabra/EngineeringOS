@@ -193,7 +193,41 @@ describe("AI missions and goals", () => {
     const projection = await request(app).get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.body.mission.title).toBe("Updated mission");
     expect(projection.body.goals[0].goal.title).toBe("Updated goal");
-    expect(projection.body.counts.events).toBe(2);
+    expect(projection.body.counts.events).toBe(4);
+  });
+
+  it("creates one activation plan and task when a mission becomes active", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Explain the project",
+      intent: "Inspect the project and produce an evidence-backed explanation",
+    });
+
+    const activated = await request(app)
+      .patch(`/api/ai/missions/${mission.body.id}`)
+      .send({ status: "active" });
+    expect(activated.status).toBe(200);
+    expect(activated.body.status).toBe("active");
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.goals).toHaveLength(1);
+    expect(projection.body.goals[0].goal.status).toBe("running");
+    expect(projection.body.goals[0].goal.nextAction.kind).toBe("mission_activation_plan");
+    expect(projection.body.goals[0].tasks).toHaveLength(1);
+    expect(projection.body.goals[0].tasks[0].title).toBe("Execute: Explain the project");
+
+    const activatedAgain = await request(app)
+      .patch(`/api/ai/missions/${mission.body.id}`)
+      .send({ status: "active" });
+    expect(activatedAgain.status).toBe(200);
+
+    const afterRepeat = await request(app)
+      .get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(afterRepeat.body.goals).toHaveLength(1);
+    expect(afterRepeat.body.goals[0].tasks).toHaveLength(1);
   });
 
   it("rejects invalid goal parent updates and empty patches", async () => {
