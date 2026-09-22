@@ -269,6 +269,24 @@ describe("server-owned execution acceptance", () => {
     })).toBe("needs_replan");
   });
 
+  it("keeps a delivery goal in verification until a server-owned receipt exists", () => {
+    expect(deriveLinkedGoalStatus({
+      outcome: "SUCCEEDED",
+      taskStatus: "completed",
+      retryable: false,
+      siblingTaskStatuses: [],
+      deliveryRequired: true,
+    })).toBe("verifying");
+    expect(deriveLinkedGoalStatus({
+      outcome: "SUCCEEDED",
+      taskStatus: "completed",
+      retryable: false,
+      siblingTaskStatuses: [],
+      deliveryRequired: true,
+      deliveryReceipt: { status: "PROVEN" },
+    })).toBe("completed");
+  });
+
   it("derives mission state from the linked goal states", () => {
     expect(deriveMissionStatusFromGoals(["completed"])).toBe("completed");
     expect(deriveMissionStatusFromGoals(["completed", "running"])).toBe("active");

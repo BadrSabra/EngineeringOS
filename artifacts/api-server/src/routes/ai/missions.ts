@@ -430,6 +430,7 @@ export async function createMissionPlanGoal(
       kind: "evidence_backed_progress_report",
       stepId: step.id,
       planRevision: planSnapshot,
+      deliveryRequired: preview.plan.turnKind === "DELIVERY" && step.kind === "deliver",
     },
     nextAction: {
       kind: "task" as const,

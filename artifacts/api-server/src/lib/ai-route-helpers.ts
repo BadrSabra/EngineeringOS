@@ -58,7 +58,7 @@ import {
   recordAiUsageAttempt,
 } from "./ai-telemetry.js";
 import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js";
-import { admitAiProviderAttempt } from "./ai-budget.js";
+import { admitAiProviderAttempt, reconcileAiBudgetReservation } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -731,6 +731,11 @@ export async function runAgentWithFallback<T>(
           usageStatus: "unknown",
         });
       }
+      if (attemptId) {
+        await reconcileAiBudgetReservation(attemptId).catch((error) => {
+          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
+        });
+      }
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
@@ -757,6 +762,11 @@ export async function runAgentWithFallback<T>(
             usageStatus: "unknown",
           });
         }
+      }
+      if (attemptId) {
+        await reconcileAiBudgetReservation(attemptId).catch((error) => {
+          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
+        });
       }
       if (options?.signal?.aborted) {
         throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
@@ -1153,6 +1163,15 @@ export async function chatWithFallback(
           ? null
           : Date.now() - recoveryStartedAt,
       });
+      if (attemptId) {
+        await reconcileAiBudgetReservation(attemptId, {
+          promptTokens: result.usage?.promptTokens ?? null,
+          completionTokens: result.usage?.completionTokens ?? null,
+          usageStatus: result.usage ? "known" : "unknown",
+        }).catch((error) => {
+          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
+        });
+      }
       const projectedAttempts = capabilityProbeTurn
         ? { emitted: 0, failed: 0 }
         : await emitLedgerProviderAttempts(
@@ -1184,6 +1203,11 @@ export async function chatWithFallback(
       return { result, effectiveProvider: providerEntry.provider, executionLedger };
     } catch (err) {
       const providerError = normalizeProviderFailure(err);
+      if (attemptId) {
+        await reconcileAiBudgetReservation(attemptId).catch((error) => {
+          logger.warn({ error, attemptId }, "AI budget reservation reconciliation failed");
+        });
+      }
       const providerLedgerAfter = executionLedger.snapshot();
       const projectedAttempts = capabilityProbeTurn
         ? { emitted: 0, failed: 0 }

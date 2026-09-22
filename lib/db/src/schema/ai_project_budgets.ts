@@ -35,6 +35,8 @@ export const aiBudgetReservationsTable = pgTable("ai_budget_reservations", {
   attemptId: text("attempt_id").notNull(),
   utcDay: text("utc_day").notNull(),
   status: text("status").notNull().default("reserved"),
+  estimatedTokens: integer("estimated_tokens").notNull().default(8192),
+  chargedTokens: integer("charged_tokens").notNull().default(0),
   reservedAt: timestamp("reserved_at").notNull().defaultNow(),
   reconciledAt: timestamp("reconciled_at"),
 }, (t) => [

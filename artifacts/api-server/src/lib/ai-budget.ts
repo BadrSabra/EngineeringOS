@@ -16,6 +16,7 @@ export const AI_BUDGET_DEFAULT_ATTEMPT_LIMIT = 100;
 export const AI_BUDGET_MIN_ATTEMPT_LIMIT = 1;
 export const AI_BUDGET_MAX_ATTEMPT_LIMIT = 10_000;
 export const AI_BUDGET_DEFAULT_TOKEN_LIMIT = 100_000;
+export const AI_BUDGET_PROVIDER_RESERVATION_TOKENS = 8_192;
 export const AI_BUDGET_MIN_TOKEN_LIMIT = 1_000;
 export const AI_BUDGET_MAX_TOKEN_LIMIT = 10_000_000;
 export const AI_BUDGET_DEFAULT_WARNING_THRESHOLD = 0.8;
@@ -33,9 +34,11 @@ export type AiBudgetInput = {
 
 export class AiBudgetAdmissionError extends Error {
   readonly code = "AI_BUDGET_EXHAUSTED" as const;
-  constructor() {
-    super("The project's daily AI attempt budget is exhausted.");
+  readonly reason: "attempts" | "tokens";
+  constructor(reason: "attempts" | "tokens") {
+    super(`The project's daily AI ${reason === "tokens" ? "token" : "attempt"} budget is exhausted.`);
     this.name = "AiBudgetAdmissionError";
+    this.reason = reason;
   }
 }
 
@@ -109,7 +112,7 @@ async function loadOrCreateBudget(
 
 async function usageForDay(executor: BudgetExecutor, projectId: string, day: string) {
   const since = utcDayStart(day);
-  const [attempts, reservations, tokenUsage] = await Promise.all([
+  const [attempts, reservations, tokenUsage, reservationTokens] = await Promise.all([
     executor.select({ value: count() }).from(aiUsageEventsTable).where(and(
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
@@ -128,6 +131,13 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
       eq(aiUsageEventsTable.projectId, projectId),
       gte(aiUsageEventsTable.occurredAt, since),
     )),
+    executor.select({
+      reserved: sql<number>`coalesce(sum(case when ${aiBudgetReservationsTable.status} = 'reserved' then ${aiBudgetReservationsTable.estimatedTokens} else 0 end), 0)`,
+      charged: sql<number>`coalesce(sum(${aiBudgetReservationsTable.chargedTokens}), 0)`,
+    }).from(aiBudgetReservationsTable).where(and(
+      eq(aiBudgetReservationsTable.projectId, projectId),
+      eq(aiBudgetReservationsTable.utcDay, day),
+    )),
   ]);
   const consumed = Number(attempts[0]?.value ?? 0);
   const pending = Number(reservations[0]?.value ?? 0);
@@ -135,6 +145,9 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
   const completionTokens = Number(tokenUsage[0]?.completion ?? 0);
   const unknownCount = Number(tokenUsage[0]?.unknown ?? 0);
   const partialCount = Number(tokenUsage[0]?.partial ?? 0);
+  const reservedTokens = Number(reservationTokens[0]?.reserved ?? 0);
+  const chargedTokens = Number(reservationTokens[0]?.charged ?? 0);
+  const tokenAdmissionTotal = promptTokens + completionTokens + reservedTokens + chargedTokens;
   return {
     consumed,
     reserved: pending,
@@ -142,6 +155,9 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
     promptTokens,
     completionTokens,
     tokenTotal: promptTokens + completionTokens,
+    reservedTokens,
+    chargedTokens,
+    tokenAdmissionTotal,
     usageStatus: unknownCount > 0 ? "unknown" as const : partialCount > 0 ? "partial" as const : "known" as const,
   };
 }
@@ -149,6 +165,17 @@ async function usageForDay(executor: BudgetExecutor, projectId: string, day: str
 function stateFor(projected: number, limit: number, warningThreshold: number): AiBudgetState {
   if (projected >= limit) return "exhausted";
   if (projected / limit >= warningThreshold) return "warning";
+  return "normal";
+}
+
+function budgetStateFor(
+  usage: Awaited<ReturnType<typeof usageForDay>>,
+  budget: AiProjectBudget,
+): AiBudgetState {
+  const attemptState = stateFor(usage.projected, budget.dailyAttemptLimit, budget.warningThreshold);
+  const tokenState = stateFor(usage.tokenAdmissionTotal, budget.dailyTokenLimit, budget.warningThreshold);
+  if (attemptState === "exhausted" || tokenState === "exhausted") return "exhausted";
+  if (attemptState === "warning" || tokenState === "warning") return "warning";
   return "normal";
 }
 
@@ -248,11 +275,18 @@ export async function admitAiProviderAttempt(params: {
       .limit(1);
     if (existing[0]) {
       const usage = await usageForDay(tx, params.projectId, utcDay());
-      return { budget, state: stateFor(usage.projected, budget.dailyAttemptLimit, budget.warningThreshold), projected: usage.projected };
+      return { budget, state: budgetStateFor(usage, budget), projected: usage.projected };
     }
     const usage = await usageForDay(tx, params.projectId, utcDay());
     if (usage.projected >= budget.dailyAttemptLimit) {
-      throw new AiBudgetAdmissionError();
+      throw new AiBudgetAdmissionError("attempts");
+    }
+    const estimatedTokens = Math.min(
+      budget.dailyTokenLimit,
+      AI_BUDGET_PROVIDER_RESERVATION_TOKENS,
+    );
+    if (usage.tokenAdmissionTotal + estimatedTokens > budget.dailyTokenLimit) {
+      throw new AiBudgetAdmissionError("tokens");
     }
     await tx.insert(aiBudgetReservationsTable).values({
       id: randomUUID(),
@@ -261,10 +295,16 @@ export async function admitAiProviderAttempt(params: {
       attemptId: params.attemptId,
       utcDay: utcDay(),
       status: "reserved",
+      estimatedTokens,
     });
     return {
       budget,
-      state: stateFor(usage.projected + 1, budget.dailyAttemptLimit, budget.warningThreshold),
+      state: budgetStateFor({
+        ...usage,
+        projected: usage.projected + 1,
+        reservedTokens: usage.reservedTokens + estimatedTokens,
+        tokenAdmissionTotal: usage.tokenAdmissionTotal + estimatedTokens,
+      }, budget),
       projected: usage.projected + 1,
     };
   });
@@ -277,7 +317,7 @@ export async function admitAiProviderAttempt(params: {
 export async function getAiProjectBudgetSummary(params: { ownerId: string; projectId: string }) {
   const budget = await loadOrCreateBudget(db, params.projectId, params.ownerId);
   const usage = await usageForDay(db, params.projectId, utcDay());
-  const state = stateFor(usage.projected, budget.dailyAttemptLimit, budget.warningThreshold);
+  const state = budgetStateFor(usage, budget);
   return {
     schemaVersion: budget.schemaVersion,
     projectId: budget.projectId,
@@ -294,7 +334,8 @@ export async function getAiProjectBudgetSummary(params: { ownerId: string; proje
       completionTokens: usage.usageStatus === "unknown" ? null : usage.completionTokens,
       total: usage.usageStatus === "unknown" ? null : usage.tokenTotal,
       status: usage.usageStatus,
-      remaining: usage.usageStatus === "unknown" ? null : Math.max(0, budget.dailyTokenLimit - usage.tokenTotal),
+      remaining: Math.max(0, budget.dailyTokenLimit - usage.tokenAdmissionTotal),
+      admissionTotal: usage.tokenAdmissionTotal,
     },
     updatedAt: budget.updatedAt.toISOString(),
   };
@@ -329,8 +370,24 @@ export async function updateAiProjectBudget(
   return getAiProjectBudgetSummary(params);
 }
 
-export async function reconcileAiBudgetReservation(attemptId: string): Promise<void> {
+export async function reconcileAiBudgetReservation(
+  attemptId: string,
+  usage?: {
+    promptTokens?: number | null;
+    completionTokens?: number | null;
+    usageStatus?: "known" | "partial" | "unknown";
+  },
+): Promise<void> {
+  const usageKnown = usage?.usageStatus === "known"
+    && Number.isSafeInteger(usage.promptTokens)
+    && Number.isSafeInteger(usage.completionTokens);
   await db.update(aiBudgetReservationsTable)
-    .set({ status: "consumed", reconciledAt: new Date() })
+    .set({
+      status: "consumed",
+      chargedTokens: usageKnown
+        ? 0
+        : sql`${aiBudgetReservationsTable.estimatedTokens}`,
+      reconciledAt: new Date(),
+    })
     .where(and(eq(aiBudgetReservationsTable.attemptId, attemptId), isNull(aiBudgetReservationsTable.reconciledAt)));
 }

@@ -409,7 +409,11 @@ export async function recordAiUsageAttempt(
       occurredAt: now,
       expiresAt,
     }).onConflictDoNothing({ target: aiUsageEventsTable.attemptId });
-    await reconcileAiBudgetReservation(attemptId);
+    await reconcileAiBudgetReservation(attemptId, {
+      promptTokens,
+      completionTokens,
+      usageStatus,
+    });
     const dayStart = new Date(now);
     dayStart.setUTCHours(0, 0, 0, 0);
     const daily = await db.select({ count: sql<number>`count(*)` })

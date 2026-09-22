@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import {
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   db,
   projectsTable,
   tasksTable,
@@ -133,6 +135,107 @@ describe("real durable task execution lifecycle", () => {
       );
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("does not complete a delivery Goal or Mission without a server-owned receipt", async () => {
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date();
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "delivery-gate-test-user",
+      name: `delivery-gate-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/delivery-gate-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "delivery-gate-test-user",
+      title: "Delivery gate fixture",
+      intent: "Deliver the verified result",
+      status: "active",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: {},
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Deliver the verified result",
+      description: "A delivery goal requiring a server-owned receipt.",
+      status: "running",
+      priority: "p1",
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: { deliveryRequired: true },
+      nextAction: { kind: "task", taskId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      goalId,
+      title: "Delivery gate task",
+      prompt: "Complete the deterministic delivery fixture task",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId: "delivery-gate-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+
+      expect(outcome.ok).toBe(true);
+      const [goal] = await db
+        .select({ status: aiGoalsTable.status, outcomeContract: aiGoalsTable.outcomeContract })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId));
+      const [mission] = await db
+        .select({ status: aiMissionsTable.status })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId));
+      expect(goal).toMatchObject({
+        status: "verifying",
+        outcomeContract: {
+          deliveryRequired: true,
+          acceptance: {
+            verdict: "PROVEN",
+          },
+        },
+      });
+      const acceptance = (goal?.outcomeContract as Record<string, unknown>).acceptance as Record<string, unknown>;
+      expect(acceptance.deliveryReceipt).toBeUndefined();
+      expect(mission?.status).toBe("waiting");
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(
+        eq(aiExecutionAcceptancesTable.projectId, projectId),
+      );
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });

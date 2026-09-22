@@ -321,6 +321,8 @@ export function deriveLinkedGoalStatus(params: {
   taskStatus: ObjectiveTaskStatus;
   retryable: boolean;
   siblingTaskStatuses: ObjectiveTaskStatus[];
+  deliveryRequired?: boolean;
+  deliveryReceipt?: { status: "PROVEN" | "completed" | "succeeded" } | null;
 }): ObjectiveGoalStatus {
   if (params.outcome === "INTERRUPTED") return "needs_replan";
   if (params.outcome === "FAILED") return params.retryable ? "needs_replan" : "failed";
@@ -331,7 +333,18 @@ export function deriveLinkedGoalStatus(params: {
   if (taskStatuses.some((status) => status === "failed" || status === "cancelled")) {
     return "needs_replan";
   }
-  return taskStatuses.every((status) => status === "completed") ? "completed" : "running";
+  if (!taskStatuses.every((status) => status === "completed")) return "running";
+  if (params.deliveryRequired && !params.deliveryReceipt) return "verifying";
+  return "completed";
+}
+
+function goalRequiresDelivery(contract: unknown): boolean {
+  return Boolean(
+    contract
+    && typeof contract === "object"
+    && !Array.isArray(contract)
+    && (contract as Record<string, unknown>).deliveryRequired === true,
+  );
 }
 
 export function deriveMissionStatusFromGoals(
@@ -441,6 +454,8 @@ async function syncLinkedObjectiveState(
     siblingTaskStatuses: siblingTasks
       .filter((task) => task.id !== params.task.id)
       .map((task) => task.status),
+    deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
+    deliveryReceipt: params.acceptanceProjection?.deliveryReceipt,
   });
 
   // A manually blocked/cancelled goal remains operator-owned. Automatic
@@ -1562,6 +1577,19 @@ export async function finalizeExecutionAcceptance(
             executionId: execution.id,
             status: acceptance.terminalStatus,
           },
+          deliveryReceipt: params.recipeReceipt && typeof params.recipeReceipt === "object"
+            && (params.recipeReceipt as Record<string, unknown>).contractVersion === 1
+            && typeof (params.recipeReceipt as Record<string, unknown>).recipeId === "string"
+            && (params.recipeReceipt as Record<string, unknown>).status === "completed"
+            ? {
+                kind: "recipe",
+                status: "completed",
+              }
+            : params.taskObjectiveStatus === "PROVEN"
+              && taskObjective?.validatorIds?.some((id) =>
+                id === "deployment-receipt.v1" || id === "integration-receipt.v1")
+              ? { kind: "validator", status: "PROVEN" }
+              : null,
           reasonCode: acceptance.reasonCode,
           nextActionCode: acceptance.nextActionCode,
           updatedAt: now,
