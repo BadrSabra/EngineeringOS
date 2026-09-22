@@ -41,7 +41,16 @@ export type VerifiedGitHubDeliveryResult = {
   };
   detail?: string;
   remoteCommitHash?: string;
+  changedPaths?: string[];
   idempotent?: boolean;
+};
+
+type DeliveryProof = {
+  baseTreeHash: string | null;
+  candidateTreeHash: string | null;
+  promotedTreeHash: string | null;
+  treeDigestVersion: string | null;
+  committedTreeHash: string | null;
 };
 
 async function gitText(rootPath: string, args: string[]): Promise<string> {
@@ -97,6 +106,7 @@ function passedResult(params: {
       artifactRef: `github-delivery:${params.operationId}:${hash}`,
     },
     remoteCommitHash: params.remoteCommitHash,
+    changedPaths: params.changedPaths,
     ...(params.idempotent ? { idempotent: true } : {}),
   };
 }
@@ -133,6 +143,7 @@ async function recordGitHubPush(params: {
   commitHash: string;
   remoteCommitHash: string;
   changedPaths: string[];
+  deliveryProof?: DeliveryProof;
 }): Promise<void> {
   await db.insert(eventsTable).values({
     id: crypto.randomUUID(),
@@ -147,6 +158,7 @@ async function recordGitHubPush(params: {
       commitHash: params.commitHash,
       remoteCommitHash: params.remoteCommitHash,
       changedPaths: params.changedPaths,
+      ...(params.deliveryProof ? params.deliveryProof : {}),
       branch: params.branch,
       remoteUrl: params.remoteUrl,
       treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
@@ -182,6 +194,13 @@ export async function executeVerifiedGitHubDelivery(
   if (!proposal || proposal.lifecycle !== "committed" || proposal.operationId !== params.operationId) {
     return blocked("GitHub delivery requires the same committed proposal operation.");
   }
+  const deliveryProof: DeliveryProof = {
+    baseTreeHash: proposal.baseTreeHash,
+    candidateTreeHash: proposal.candidateTreeHash,
+    promotedTreeHash: proposal.promotedTreeHash,
+    treeDigestVersion: proposal.treeDigestVersion,
+    committedTreeHash: proposal.committedTreeHash,
+  };
 
   const existingPush = await findOperationEvent(params.projectId, "GitPushed", params.operationId);
   if (
@@ -262,6 +281,7 @@ export async function executeVerifiedGitHubDelivery(
       commitHash,
       remoteCommitHash: pushed.remoteCommitHash,
       changedPaths: pushed.changedPaths,
+      deliveryProof,
     });
     return result;
   } catch (error) {
@@ -297,6 +317,7 @@ export async function executeVerifiedGitHubDelivery(
             commitHash,
             remoteCommitHash: branchState.commitHash,
             changedPaths,
+            deliveryProof,
           });
           return result;
         }

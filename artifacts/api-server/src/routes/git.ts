@@ -40,6 +40,7 @@ import {
   parseGitHubRemote,
   pushLocalCommitToGitHub,
 } from "../lib/github-connector.js";
+import { executeVerifiedGitHubDelivery } from "../lib/github-delivery-service.js";
 import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "../lib/delivery-workspace.js";
 
 const router = Router();
@@ -780,6 +781,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
   const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
   let pushAttempted = false;
   let pushCommitHash: string | undefined;
+  let delegatedDelivery = false;
 
   try {
     await assertRootPathExists(project.rootPath);
@@ -902,7 +904,47 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     }
     let output = "";
     let remoteCommitHash: string | undefined;
-    if (githubRemote) {
+    if (githubRemote && proposalId) {
+      if (!commitHash) {
+        return res.status(409).json({
+          error: "A local commit is required before pushing through the GitHub integration",
+          code: "GITHUB_PUSH_REQUIRES_LOCAL_COMMIT",
+        });
+      }
+      pushAttempted = true;
+      pushCommitHash = commitHash;
+      const delivery = await executeVerifiedGitHubDelivery({
+        projectId: project.id,
+        proposalId,
+        operationId: correlationId,
+        rootPath: project.rootPath,
+        remoteUrl: project.gitRemoteUrl,
+        branch,
+        message: `EngineeringOS: ${branch}`,
+      });
+      if (delivery.status === "blocked") {
+        return res.status(409).json({
+          error: delivery.detail ?? "GitHub delivery was blocked.",
+          code: delivery.detail?.includes("branch changed")
+            ? "GITHUB_PUSH_REMOTE_DRIFT"
+            : "GITHUB_DELIVERY_BLOCKED",
+          proposalId,
+          operationId: correlationId,
+          commitHash,
+        });
+      }
+      if (delivery.status === "unavailable") {
+        return res.status(502).json({
+          error: delivery.detail ?? "GitHub integration is unavailable.",
+          code: "GITHUB_INTEGRATION_UNAVAILABLE",
+          proposalId,
+          operationId: correlationId,
+        });
+      }
+      delegatedDelivery = true;
+      remoteCommitHash = delivery.remoteCommitHash;
+      output = `Pushed ${delivery.changedPaths?.length ?? 0} verified path(s) through GitHub integration`;
+    } else if (githubRemote) {
       if (!commitHash) {
         return res.status(409).json({
           error: "A local commit is required before pushing through the GitHub integration",
@@ -957,24 +999,27 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     });
 
     // G-14: emit a high-level event so push appears in dashboard activity feed
-    // and in the AI context's recentEvents on the next chat request.
-    await db.insert(eventsTable).values({
-      id: randomUUID(),
-      type: "GitPushed",
-      projectId: project.id,
-      severity: "info",
-      message: `Pushed branch "${branch}" to ${project.gitRemoteUrl}`,
-      correlationId,
-      payload: {
-        ...(proposalId ? { proposalId } : {}),
-        operationId: correlationId,
-        commitHash,
-        ...(deliveryProof ? deliveryProof : {}),
-        remoteCommitHash,
-        branch,
-        remoteUrl: project.gitRemoteUrl,
-      },
-    });
+    // and in the AI context's recentEvents on the next chat request. The
+    // verified delivery service owns this event for AI-scoped GitHub pushes.
+    if (!delegatedDelivery) {
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "GitPushed",
+        projectId: project.id,
+        severity: "info",
+        message: `Pushed branch "${branch}" to ${project.gitRemoteUrl}`,
+        correlationId,
+        payload: {
+          ...(proposalId ? { proposalId } : {}),
+          operationId: correlationId,
+          commitHash,
+          ...(deliveryProof ? deliveryProof : {}),
+          remoteCommitHash,
+          branch,
+          remoteUrl: project.gitRemoteUrl,
+        },
+      });
+    }
 
     invalidateContextCache(project.id);
 
@@ -1073,6 +1118,18 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     const e = err as { stderr?: string; stdout?: string; message?: string };
     const raw = e.stderr?.trim() || e.stdout?.trim() || e.message || "git push failed";
     if (pushAttempted) {
+      if (delegatedDelivery) {
+        const recordedPush = await findOperationEvent(project.id, "GitPushed", correlationId);
+        if (recordedPush) {
+          return res.status(500).json({
+            error: "Git push succeeded, but post-push bookkeeping could not be completed.",
+            code: "GIT_PUSH_BOOKKEEPING_FAILED",
+            proposalId,
+            operationId: correlationId,
+            commitHash: pushCommitHash,
+          });
+        }
+      }
       const existingRecovery = await findOperationEvent(project.id, "GitPushRecoveryRequired", correlationId);
       if (!existingRecovery) {
         await db.insert(eventsTable).values({
