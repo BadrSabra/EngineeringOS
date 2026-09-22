@@ -408,8 +408,13 @@ export async function executeTaskLifecycle(params: {
     return { ok: false, status: "conflict", executionId, errorCode: "execution_already_claimed" };
   }
   const executionAttempt = claimedExecution.attempt;
+  const claimedCheckpoint = parseAiExecutionCheckpoint(claimedExecution.checkpoint);
+  const initialCheckpointSequence = Math.max(
+    1,
+    (claimedCheckpoint?.sequence ?? claimedExecution.checkpointVersion ?? 0) + 1,
+  );
   const resumeContext = params.resumeToken
-    ? buildAiExecutionResumeContext(parseAiExecutionCheckpoint(claimedExecution.checkpoint))
+    ? buildAiExecutionResumeContext(claimedCheckpoint)
     : "";
 
   const [claimedTask] = await db.update(tasksTable)
@@ -459,7 +464,12 @@ export async function executeTaskLifecycle(params: {
   await progress.finish("acquisition", "completed", "Execution is owned by the active worker.", 12, 1);
   const initialCheckpointed = await checkpointAiExecution({
     executionId, expectedAttempt: executionAttempt, workerId,
-    checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
+    checkpoint: {
+      stage: "running",
+      sequence: initialCheckpointSequence,
+      detail: "Task claimed.",
+      updatedAt: new Date().toISOString(),
+    },
   });
   if (!initialCheckpointed) {
     const failure = failureReceipt({
