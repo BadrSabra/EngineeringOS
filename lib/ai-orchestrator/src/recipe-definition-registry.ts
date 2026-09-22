@@ -19,6 +19,7 @@ export type RecipeDefinition = {
   outcome: CapabilityRecipe["outcome"];
   executionPolicy: RecipeExecutionPolicy;
   maxParallelNodes: number;
+  maxRisk: "low" | "medium" | "high" | "critical";
   buildRecipe: (request: RecipeRequest) => CapabilityRecipe;
 };
 
@@ -32,6 +33,7 @@ function definition(
   outcome: CapabilityRecipe["outcome"],
   executionPolicy: RecipeExecutionPolicy,
   maxParallelNodes = 1,
+  maxRisk: RecipeDefinition["maxRisk"] = "low",
 ): RecipeDefinition {
   const buildRecipe = (request: RecipeRequest): CapabilityRecipe => ({
     contractVersion: RECIPE_CONTRACT_VERSION,
@@ -56,6 +58,7 @@ function definition(
     outcome,
     executionPolicy,
     maxParallelNodes,
+    maxRisk,
     buildRecipe,
   };
 }
@@ -209,6 +212,36 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
         outputs: [],
       },
       BROWSER_POLICY,
+    ),
+    definition(
+      "delivery.push.github",
+      (request) => [{
+        id: "github-delivery",
+        title: "Push the server-approved verified delivery to GitHub",
+        capabilityId: "github.push_verified_commit",
+        recipeVersion: 1,
+        input: {
+          message: request.deliveryMessage ?? "EngineeringOS verified delivery",
+        },
+        dependsOn: [],
+        declaredOutputs: ["status", "evidence", "remoteCommitHash"],
+      }],
+      {
+        success: {
+          kind: "evidence",
+          nodeId: "github-delivery",
+          evidenceType: "integration_verified",
+        },
+        outputs: [],
+      },
+      {
+        ...DEFAULT_RECIPE_EXECUTION_POLICY,
+        maxAttempts: 1,
+        nodeTimeoutMs: 120_000,
+        maxTotalTimeoutMs: 300_000,
+      },
+      1,
+      "critical",
     ),
   ]);
 }

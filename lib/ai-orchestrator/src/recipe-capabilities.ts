@@ -90,7 +90,31 @@ export type RecipeCapabilityRuntime = {
   commandRunner?: CommandRunner;
   commandProfiles?: readonly CommandProfile[];
   browserProfiles?: readonly string[];
+  /**
+   * Server-owned external delivery adapter. The model can provide only the
+   * business message; project, operation, proposal, credentials, and remote
+   * controls stay inside the API-side callback.
+   */
+  githubDeliveryRunner?: GitHubDeliveryRunner;
 };
+
+export type GitHubDeliveryRunner = (args: {
+  rootPath: string;
+  projectId: string;
+  operationId: string;
+  message: string;
+  signal?: AbortSignal;
+}) => Promise<{
+  status: "passed" | "blocked" | "unavailable";
+  evidence?: {
+    evidenceId: string;
+    resultHash?: string;
+    artifactRef?: string;
+  };
+  detail?: string;
+  remoteCommitHash?: string;
+  idempotent?: boolean;
+}>;
 
 function validationCapability(
   profile: ValidationProfile,
@@ -231,12 +255,78 @@ function commandCapability(profile: CommandProfile, runtime: RecipeCapabilityRun
   };
 }
 
+function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityAdapter | undefined {
+  if (!runtime.githubDeliveryRunner) return undefined;
+  const inputSchema = z.object({
+    message: z.string().min(1).max(240),
+  }).strict();
+  return {
+    contractVersion: 1,
+    id: "github.push_verified_commit",
+    supportedRecipeVersions: [1] as const,
+    policy: {
+      ...DEFAULT_CAPABILITY_POLICY,
+      risk: "critical",
+      requiresApproval: true,
+      maxInputBytes: 4_096,
+      maxOutputBytes: 32_768,
+    },
+    catalog: {
+      purpose: "Push the server-approved verified delivery through the GitHub integration.",
+      inputShape: {
+        type: "object",
+        fields: [{ name: "message", type: "string", required: true, description: "Business commit message for the verified delivery." }],
+      },
+      defaultScope: "none",
+      supportedScopes: ["none"],
+      estimatedCost: "high",
+      mutatesProject: false,
+      mutatesExternal: true,
+      keywords: ["github", "push", "delivery"],
+      allowedPhases: ["delivery"],
+      projectIds: [],
+      requiresAuthorization: true,
+      expectedEvidence: ["integration_verified"],
+    },
+    inputSchema,
+    outputSchema: z.object({
+      status: z.enum(["passed", "blocked", "unavailable"]),
+      evidence: z.object({
+        evidenceId: z.string().min(1).max(240),
+        resultHash: z.string().max(128).optional(),
+        artifactRef: z.string().max(240).optional(),
+      }).optional(),
+      detail: z.string().max(4_000).optional(),
+      remoteCommitHash: z.string().max(160).optional(),
+      idempotent: z.boolean().optional(),
+    }).strict(),
+    execute: async (input, context) => {
+      const parsedInput = inputSchema.parse(input);
+      if (!context.projectId || !context.operationId) {
+        return {
+          status: "blocked",
+          detail: "A durable project and operation identity are required for external delivery.",
+        };
+      }
+      return runtime.githubDeliveryRunner!({
+        rootPath: context.rootPath,
+        projectId: context.projectId,
+        operationId: context.operationId,
+        message: parsedInput.message,
+        signal: context.signal,
+      });
+    },
+  };
+}
+
 export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime = {}): CapabilityRegistry {
+  const githubCapability = githubDeliveryCapability(runtime);
   const adapters: CapabilityAdapter[] = [
     READ_PROJECT_FILE_CAPABILITY,
     ...VALIDATION_PROFILES.map((profile) => validationCapability(profile, runtime)),
     ...(runtime.browserProfiles ?? []).map((profile) => browserCapability(profile, runtime)),
     ...(runtime.commandProfiles ?? []).map((profile) => commandCapability(profile, runtime)),
+    ...(githubCapability ? [githubCapability] : []),
   ];
   return new CapabilityRegistry(adapters);
 }

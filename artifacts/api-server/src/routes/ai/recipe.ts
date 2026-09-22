@@ -1,14 +1,21 @@
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { RecipeRequestSchema, toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
+import { and, eq } from "drizzle-orm";
+import { aiChangeProposalsTable, db } from "@workspace/db";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { runRecipeOperation } from "../../lib/recipe-operation-runner.js";
+import { executeVerifiedGitHubDelivery } from "../../lib/github-delivery-service.js";
 
 const router = Router();
 
 router.post("/ai/projects/:projectId/recipe", requireProjectAccess, async (req, res) => {
-  const parsed = RecipeRequestSchema.safeParse(req.body);
+  const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : {};
+  const { deliveryProposalId: _deliveryProposalId, ...recipeBody } = rawBody;
+  const parsed = RecipeRequestSchema.safeParse(recipeBody);
   if (!parsed.success) {
     return res.status(400).json({
       error: "Invalid recipe request.",
@@ -18,6 +25,53 @@ router.post("/ai/projects/:projectId/recipe", requireProjectAccess, async (req, 
   }
   const project = req.project;
   if (!project) return res.status(500).json({ error: "Project context unavailable" });
+  const body = (req.body ?? {}) as { deliveryProposalId?: unknown };
+  const isDeliveryRecipe = parsed.data.recipeId === "delivery.push.github";
+  const deliveryProposalId = typeof body.deliveryProposalId === "string"
+    ? body.deliveryProposalId
+    : undefined;
+  let deliveryOperationId: string | undefined;
+  if (isDeliveryRecipe) {
+    if (project.status === "archived") {
+      return res.status(403).json({
+        error: "This project is archived and cannot perform external delivery.",
+        code: "PROJECT_ARCHIVED",
+      });
+    }
+    if (
+      !deliveryProposalId
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deliveryProposalId)
+    ) {
+      return res.status(400).json({
+        error: "deliveryProposalId must be a valid UUID for GitHub delivery.",
+        code: "DELIVERY_PROPOSAL_REQUIRED",
+      });
+    }
+    if (!project.gitRemoteUrl) {
+      return res.status(409).json({
+        error: "GitHub delivery requires a configured project remote.",
+        code: "DELIVERY_REMOTE_REQUIRED",
+      });
+    }
+    const [proposal] = await db
+      .select({
+        lifecycle: aiChangeProposalsTable.lifecycle,
+        operationId: aiChangeProposalsTable.operationId,
+      })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, deliveryProposalId),
+        eq(aiChangeProposalsTable.projectId, project.id),
+      ))
+      .limit(1);
+    if (!proposal || proposal.lifecycle !== "committed" || !proposal.operationId) {
+      return res.status(409).json({
+        error: "GitHub delivery requires a committed proposal.",
+        code: "DELIVERY_PROPOSAL_NOT_COMMITTED",
+      });
+    }
+    deliveryOperationId = proposal.operationId;
+  }
   const idempotencyKey = req.header("Idempotency-Key");
   if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 128) {
     return res.status(400).json({
@@ -33,7 +87,7 @@ router.post("/ai/projects/:projectId/recipe", requireProjectAccess, async (req, 
       retryable: true,
     });
   }
-  const operationId = randomUUID();
+  const operationId = deliveryOperationId ?? randomUUID();
   try {
     const result = await runRecipeOperation({
       ...parsed.data,
@@ -43,6 +97,21 @@ router.post("/ai/projects/:projectId/recipe", requireProjectAccess, async (req, 
       sourceRevision: project.updatedAt.toISOString(),
       userId: req.userId,
       idempotencyKey,
+      ...(isDeliveryRecipe && deliveryProposalId && project.gitRemoteUrl
+        ? {
+            githubDeliveryRunner: async ({ rootPath, projectId, operationId: deliveryOperation, message, signal }) =>
+              executeVerifiedGitHubDelivery({
+                rootPath,
+                projectId,
+                operationId: deliveryOperation,
+                proposalId: deliveryProposalId,
+                remoteUrl: project.gitRemoteUrl!,
+                branch: project.gitDefaultBranch ?? "main",
+                message,
+                signal,
+              }),
+          }
+        : {}),
     });
     return res.status(result.status === "completed" ? 200 : 409).json({
       receipt: toPublicRecipeReceipt(result.receipt),

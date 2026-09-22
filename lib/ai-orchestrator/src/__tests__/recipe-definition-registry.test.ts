@@ -10,6 +10,7 @@ describe("server recipe definition registry", () => {
     expect(registry.listIds()).toEqual([
       "browser.verify",
       "candidate.verify",
+      "delivery.push.github",
       "validation.recover",
     ]);
     expect(registry.resolve("candidate.verify", 1)).toMatchObject({
@@ -18,6 +19,23 @@ describe("server recipe definition registry", () => {
       maxParallelNodes: 1,
       executionPolicy: { maxAttempts: 2, maxTotalTimeoutMs: 900_000 },
     });
+  });
+
+  it("builds the delivery recipe from a bounded business message", () => {
+    const registry = createServerRecipeDefinitionRegistry();
+    const definition = registry.resolve("delivery.push.github", 1)!;
+    expect(definition).toMatchObject({ maxRisk: "critical", maxParallelNodes: 1 });
+    const recipe = registry.build({
+      recipeId: "delivery.push.github",
+      recipeVersion: 1,
+      approvedPaths: [],
+      deliveryMessage: "Ship the verified fix",
+    });
+    expect(recipe.nodes).toMatchObject([{
+      capabilityId: "github.push_verified_commit",
+      input: { message: "Ship the verified fix" },
+    }]);
+    expect(recipe.nodes[0]).not.toHaveProperty("timeoutMs");
   });
 
   it("builds only the registered graph from bounded business inputs", () => {

@@ -29,6 +29,77 @@ describe("recipe capability adapters", () => {
     ]);
   });
 
+  it("registers external delivery only when the server supplies its runner", () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const registry = createServerCapabilityRegistry({
+      githubDeliveryRunner: async (args) => {
+        calls.push(args);
+        return {
+          status: "passed",
+          evidence: {
+            evidenceId: "integration:verified",
+            resultHash: "a".repeat(64),
+            artifactRef: "github:delivery",
+          },
+          remoteCommitHash: "remote-commit",
+        };
+      },
+    });
+
+    expect(registry.list().map((entry) => entry.id)).toContain("github.push_verified_commit");
+    return expect(registry.invoke(
+      "github.push_verified_commit",
+      1,
+      { message: "Verified delivery" },
+      {
+        rootPath: process.cwd(),
+        projectId: "project-1",
+        operation: "recipe",
+        operationId: "operation-1",
+        authorized: true,
+        approvalState: "APPROVED",
+      },
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        status: "passed",
+        evidence: { evidenceId: "integration:verified" },
+      },
+    }).then(() => {
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({
+        projectId: "project-1",
+        operationId: "operation-1",
+        message: "Verified delivery",
+      });
+    });
+  });
+
+  it("fails closed when external delivery has no durable identity", async () => {
+    const registry = createServerCapabilityRegistry({
+      githubDeliveryRunner: async () => ({
+        status: "passed",
+        evidence: { evidenceId: "should-not-run" },
+      }),
+    });
+    await expect(registry.invoke(
+      "github.push_verified_commit",
+      1,
+      { message: "Verified delivery" },
+      {
+        rootPath: process.cwd(),
+        operation: "recipe",
+        authorized: true,
+        approvalState: "APPROVED",
+      },
+    )).resolves.toMatchObject({
+      ok: true,
+      output: {
+        status: "blocked",
+      },
+    });
+  });
+
   it("accepts an approved real file and rejects an unapproved path", async () => {
     const { root } = await projectFixture();
     const registry = createServerCapabilityRegistry();

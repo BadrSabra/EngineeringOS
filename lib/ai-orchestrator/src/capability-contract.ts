@@ -94,6 +94,8 @@ export const CapabilityCatalogMetadataSchema = z
     supportedScopes: z.array(CapabilityScopeKindSchema).min(1).max(5),
     estimatedCost: CapabilityCostSchema,
     mutatesProject: z.boolean(),
+    /** True when the capability can change a server-owned external system. */
+    mutatesExternal: z.boolean().optional(),
     keywords: z.array(z.string().min(1).max(40)).max(16),
     allowedPhases: z.array(z.string().min(1).max(40)).max(8),
     /** Empty means all projects; values are never emitted in catalog output. */
@@ -245,6 +247,10 @@ export type CapabilityExecutionContext = {
   rootPath: string;
   /** Server-established operation name used for policy authorization. */
   operation: string;
+  /** Server-owned project identity for durable external-operation bindings. */
+  projectId?: string;
+  /** Server-owned durable operation identity; never accepted from capability input. */
+  operationId?: string;
   /** Server-owned approved profile set, if the capability uses profiles. */
   approvedCommandProfiles?: ReadonlySet<string>;
   /** Server-owned scope copied from the current recipe node. */

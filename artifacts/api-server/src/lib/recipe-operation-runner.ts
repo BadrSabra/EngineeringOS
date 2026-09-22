@@ -10,6 +10,7 @@ import {
   executeExecutionNodePlan,
   type ActiveTaskExecutionPlan,
   type BrowserValidationRunner,
+  type GitHubDeliveryRunner,
   type RecipeEvidence,
 } from "@workspace/ai-orchestrator";
 import {
@@ -45,7 +46,9 @@ export type PrepareRecipeOperationParams = {
   approvedPaths?: readonly string[];
   candidateIdentity?: string | null;
   candidateWorkspace?: string | null;
+  deliveryMessage?: string;
   browserValidationRunner?: BrowserValidationRunner;
+  githubDeliveryRunner?: GitHubDeliveryRunner;
 };
 
 export type PreparedRecipeOperation = {
@@ -91,9 +94,13 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
     recipeVersion: params.recipeVersion,
     approvedPaths,
     candidateIdentity: params.candidateIdentity ?? null,
+    ...(params.deliveryMessage ? { deliveryMessage: params.deliveryMessage } : {}),
   });
   const registry = createServerCapabilityRegistry(
-    params.browserValidationRunner ? { browserProfiles: ["default"] } : {},
+    {
+      ...(params.browserValidationRunner ? { browserProfiles: ["default"] } : {}),
+      ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+    },
   );
   const compiled = compileCapabilityRecipe(recipe, {
     registry,
@@ -102,13 +109,14 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       rootPath: params.rootPath,
       revision: params.sourceRevision,
       operation: "recipe",
+      operationId: params.operationId,
       // Validation and browser profiles operate on a bounded set, even when
       // that set contains one file. "file" is reserved for file-native tools.
       scope: { kind: "paths", paths: approvedPaths },
       allowedFiles: approvedPaths,
       authorized: true,
       approvalState: "APPROVED",
-      maxRisk: "low",
+      maxRisk: definition.maxRisk,
       validationProfile: "workspace-typecheck",
     },
     policy: definition.executionPolicy,
@@ -159,6 +167,8 @@ function evidenceForNodes(
   return Object.fromEntries(nodes.map((node) => {
     const evidenceType = node.capabilityId?.startsWith("browser.verify.")
       ? "browser_verified" as const
+      : node.capabilityId?.startsWith("github.push.")
+        ? "integration_verified" as const
       : "validation_passed" as const;
     const evidenceId = outputs.get(node.id)?.evidence
       && typeof outputs.get(node.id)?.evidence === "object"
@@ -316,14 +326,15 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     outputs.set(node.id, { evidence: { evidenceId } });
   }
 
-  const registry = createServerCapabilityRegistry({
-    validationRunner: async (profile, targetPaths, signal) =>
+    const registry = createServerCapabilityRegistry({
+      validationRunner: async (profile, targetPaths, signal) =>
       runRepairValidation(
         executionRoot,
         profile as Parameters<typeof runRepairValidation>[1],
         targetPaths,
         signal,
       ),
+      ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
     ...(params.browserValidationRunner
       ? {
           browserValidationRunner: params.browserValidationRunner,
@@ -397,6 +408,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             {
               rootPath: executionRoot,
               operation: "recipe",
+              projectId: params.projectId,
+              operationId: params.operationId,
               signal: nodeController.signal,
               scope: node.executionContext?.scope,
               allowedFiles: node.allowedFiles,

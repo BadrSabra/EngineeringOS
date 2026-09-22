@@ -30,6 +30,7 @@ export const RecipeRequestSchema = z.object({
   recipeVersion: RecipeVersionSchema,
   approvedPaths: z.array(RecipeApprovedPathSchema).max(48).default([]),
   candidateIdentity: z.string().min(1).max(160).nullable().optional(),
+  deliveryMessage: z.string().min(1).max(240).optional(),
 }).strict();
 export type RecipeRequest = z.infer<typeof RecipeRequestSchema>;
 
@@ -100,7 +101,7 @@ export type EvidencePredicate =
   | { kind: "node_status"; nodeId: string; status: RecipeNodeStatus }
   | { kind: "output_present"; nodeId: string; output: string }
   | { kind: "output_equals"; nodeId: string; output: string; value: unknown }
-  | { kind: "evidence"; nodeId: string; evidenceType: "validation_passed" | "browser_verified" | "artifact_retained" }
+  | { kind: "evidence"; nodeId: string; evidenceType: "validation_passed" | "browser_verified" | "artifact_retained" | "integration_verified" }
   | { kind: "all"; predicates: EvidencePredicate[] }
   | { kind: "any"; predicates: EvidencePredicate[] }
   | { kind: "not"; predicate: EvidencePredicate };
@@ -126,7 +127,7 @@ export const EvidencePredicateSchema = z.lazy(() =>
     z.object({
       kind: z.literal("evidence"),
       nodeId: RecipeNodeIdSchema,
-      evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained"]),
+       evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained", "integration_verified"]),
     }).strict(),
     z.object({
       kind: z.literal("all"),
@@ -165,7 +166,7 @@ export const CompiledEvidencePredicateSchema = z.lazy(() =>
     z.object({
       kind: z.literal("evidence"),
       nodeId: z.string().min(1).max(180),
-      evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained"]),
+       evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained", "integration_verified"]),
     }).strict(),
     z.object({
       kind: z.literal("all"),
@@ -272,6 +273,7 @@ export const RecipeContextSchema = z.object({
   rootPath: z.string().min(1).nullable().default(null),
   revision: z.string().min(1).max(240),
   operation: z.string().min(1).max(80).default("recipe"),
+  operationId: z.string().min(1).max(160).optional(),
   scope: z.object({
     kind: z.enum(["none", "project", "paths", "file", "workspace"]),
     paths: z.array(z.string().min(1).max(500)).max(48),
@@ -306,7 +308,7 @@ export type RecipeEvidenceNode = {
   status: RecipeNodeStatus;
   outputs?: Readonly<Record<string, unknown>>;
   evidence?: readonly {
-    type: "validation_passed" | "browser_verified" | "artifact_retained";
+    type: "validation_passed" | "browser_verified" | "artifact_retained" | "integration_verified";
   }[];
 };
 
