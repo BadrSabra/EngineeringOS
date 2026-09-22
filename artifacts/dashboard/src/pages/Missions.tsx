@@ -1056,9 +1056,9 @@ export default function Missions() {
               <span className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
               AI / Missions
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">Durable objectives</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50 md:text-3xl">Missions</h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
-              Project-owned missions and the work attached to them, read from the operational projection.
+              Tell the system what you want to achieve. It creates the plan and shows you the result.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1090,7 +1090,7 @@ export default function Missions() {
         ) : null}
 
         {projectsLoading ? (
-          <div className="grid gap-4 xl:grid-cols-[250px_350px_minmax(0,1fr)]">
+          <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
             <Skeleton className="h-96" />
             <Skeleton className="h-96" />
             <Skeleton className="h-96" />
@@ -1113,7 +1113,7 @@ export default function Missions() {
             <div className="mb-4 flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/50 p-3 sm:flex-row sm:items-center">
               <label htmlFor="mission-project-select" className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">
                 <Code2 className="h-3.5 w-3.5 text-cyan-300/70" />
-                Owned project
+                Choose a project
               </label>
               <select
                 id="mission-project-select"
@@ -1129,42 +1129,12 @@ export default function Missions() {
               {selectedProject ? <span className="font-mono text-[10px] text-slate-600">{compactId(String(selectedProject.id))}</span> : null}
             </div>
 
-            <div className="grid items-start gap-4 xl:grid-cols-[250px_350px_minmax(0,1fr)]">
-              <aside className="hidden rounded-xl border border-slate-800 bg-slate-900/55 xl:block">
-                <div className="border-b border-slate-800 px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Project scope</p>
-                    <span className="font-mono text-[10px] text-slate-600">{projects.length}</span>
-                  </div>
-                </div>
-                <div className="space-y-1 p-2">
-                  {projects.map((project) => {
-                    const isCurrent = String(project.id) === projectId;
-                    return (
-                      <button
-                        type="button"
-                        key={project.id}
-                        onClick={() => setProjectId(String(project.id))}
-                        data-testid={`button-project-${project.id}`}
-                        className={`w-full rounded-md border px-3 py-3 text-left transition-colors ${isCurrent ? 'border-cyan-400/25 bg-cyan-300/10' : 'border-transparent hover:border-slate-700 hover:bg-slate-800/70'}`}
-                      >
-                        <div className="flex items-start gap-2">
-                          <GitBranch className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isCurrent ? 'text-cyan-300' : 'text-slate-600'}`} />
-                          <span className={`min-w-0 flex-1 truncate text-sm font-medium ${isCurrent ? 'text-cyan-100' : 'text-slate-300'}`}>{project.name}</span>
-                          {isCurrent ? <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-cyan-300/70" /> : null}
-                        </div>
-                        <p className="mt-1 truncate pl-5 font-mono text-[10px] text-slate-600">{compactId(String(project.id))}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </aside>
-
+            <div className="grid items-start gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
               <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/55">
                 <div className="border-b border-slate-800 px-4 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Mission queue</p>
+                      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Your missions</p>
                       <p className="mt-1 text-xs text-slate-600">{selectedProject?.name ?? 'Select a project'}</p>
                     </div>
                     <div className="flex items-center gap-2">
