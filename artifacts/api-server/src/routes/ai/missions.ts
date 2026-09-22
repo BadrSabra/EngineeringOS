@@ -17,7 +17,11 @@ import {
   tasksTable,
   workflowsTable,
 } from "@workspace/db";
-import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
+import {
+  GoalNextActionSchema,
+  buildMissionPlanPreview,
+  type MissionPlanPreview,
+} from "@workspace/ai-orchestrator";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
@@ -37,6 +41,13 @@ const CreateMissionBody = z.object({
   autonomyPolicy: JsonObjectSchema.optional(),
   budget: JsonObjectSchema.optional(),
   deadline: z.string().datetime().nullable().optional(),
+}).strict();
+
+const MissionPlanPreviewBody = z.object({
+  projectId: z.string().min(1).max(200),
+  message: z.string().trim().min(1).max(10_000),
+  objective: z.string().trim().min(1).max(2_000).optional(),
+  projectOrientation: z.boolean().optional(),
 }).strict();
 
 const CreateGoalBody = z.object({
@@ -179,6 +190,7 @@ async function ensureMissionActivationPlan(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   mission: typeof aiMissionsTable.$inferSelect,
   now: Date,
+  preview: MissionPlanPreview,
 ) {
   const existingGoals = await tx
     .select()
@@ -206,8 +218,28 @@ async function ensureMissionActivationPlan(
   const correlationId = randomUUID();
   const goalTitle = `Plan: ${mission.title}`;
   const taskTitle = `Execute: ${mission.title}`;
+  const planSnapshot = {
+    version: preview.version,
+    hash: preview.plan.planHash,
+    admission: preview.admission,
+    objective: preview.objective,
+    steps: preview.plan.steps.map((step) => ({
+      id: step.id,
+      title: step.title,
+      kind: step.kind,
+      dependencies: step.dependencies,
+      readOnly: step.readOnly,
+      approvalRequired: step.approvalRequired,
+    })),
+  };
+  const planSteps = planSnapshot.steps
+    .map((step) => `${step.id}: ${step.title} (depends on: ${step.dependencies.join(", ") || "none"})`)
+    .join("\n");
   const activationPrompt = [
     `Mission objective: ${mission.intent}`,
+    `Server-owned plan revision: ${planSnapshot.hash}`,
+    "Follow the bounded plan sequence below. Planning is not proof of completion.",
+    planSteps,
     "Inspect the project's available context before acting.",
     "Produce an evidence-backed progress report with concrete next steps.",
     "Do not claim completion without project-grounded evidence.",
@@ -225,13 +257,16 @@ async function ensureMissionActivationPlan(
       kind: ACTIVATION_PLAN_KIND,
       missionId: mission.id,
       objective: mission.intent,
+      planRevision: planSnapshot,
     },
     evidenceContract: {
       required: true,
       source: "project_context",
+      planHash: planSnapshot.hash,
     },
     outcomeContract: {
       kind: "evidence_backed_progress_report",
+      planRevision: planSnapshot,
     },
     nextAction: {
       kind: "task",
@@ -348,6 +383,24 @@ router.get("/ai/missions", async (req, res) => {
   return res.json(missions);
 });
 
+/**
+ * Read-only admission and planning preview.
+ *
+ * This intentionally does not create a Mission, Goal, Task, proposal, lease,
+ * or execution. It is the first boundary between a natural-language request
+ * and the durable Mission runtime.
+ */
+router.post("/ai/missions/plan-preview", async (req, res) => {
+  const body = MissionPlanPreviewBody.parse(req.body);
+  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+  if (!project) return;
+  return res.json(buildMissionPlanPreview({
+    message: body.message,
+    objective: body.objective,
+    projectOrientation: body.projectOrientation,
+  }));
+});
+
 router.post("/ai/missions", async (req, res) => {
   const body = CreateMissionBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
@@ -381,7 +434,12 @@ router.post("/ai/missions", async (req, res) => {
     });
     let activationPlan: { goalId: string; taskId: string } | undefined;
     if (created[0]?.status === "active") {
-      activationPlan = await ensureMissionActivationPlan(tx, created[0], now);
+      activationPlan = await ensureMissionActivationPlan(
+        tx,
+        created[0],
+        now,
+        buildMissionPlanPreview({ message: created[0].intent, objective: created[0].intent }),
+      );
     }
     return { mission: created[0], activationPlan };
   });
@@ -444,7 +502,12 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         payload: { missionId: before.id, changedFields: Object.keys(body) },
       });
       if (shouldActivate) {
-        activationPlan = await ensureMissionActivationPlan(tx, rows[0], now);
+        activationPlan = await ensureMissionActivationPlan(
+          tx,
+          rows[0],
+          now,
+          buildMissionPlanPreview({ message: rows[0].intent, objective: rows[0].intent }),
+        );
       }
     }
     return { updated: rows[0], activationPlan };

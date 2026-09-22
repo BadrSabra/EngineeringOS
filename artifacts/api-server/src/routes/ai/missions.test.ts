@@ -42,6 +42,32 @@ afterEach(async () => {
 });
 
 describe("AI missions and goals", () => {
+  it("previews admission and a general plan without creating durable rows", async () => {
+    const projectId = await insertProject();
+    const beforeMissions = await db
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId));
+
+    const response = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({
+        projectId,
+        message: "Inspect the source, then fix the blocking issue.",
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.version).toBe(1);
+    expect(response.body.admission).toBe("mission");
+    expect(response.body.plan.steps.length).toBeGreaterThan(1);
+
+    const afterMissions = await db
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId));
+    expect(afterMissions).toEqual(beforeMissions);
+  });
+
   it("creates project-owned missions and goals, then returns their read-only projection", async () => {
     const projectId = await insertProject();
     const createdMission = await request(app).post("/api/ai/missions").send({
@@ -83,6 +109,30 @@ describe("AI missions and goals", () => {
       executions: 0,
       events: 1,
     });
+  });
+
+  it("binds active mission activation to the same server-owned plan revision", async () => {
+    const projectId = await insertProject();
+    const response = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Repair the release flow",
+      intent: "Inspect the source, then fix the blocking issue.",
+      status: "active",
+    });
+
+    expect(response.status).toBe(201);
+    const goals = await db
+      .select()
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, response.body.id));
+    expect(goals).toHaveLength(1);
+    const successCriteria = goals[0]?.successCriteria as Record<string, unknown>;
+    const outcomeContract = goals[0]?.outcomeContract as Record<string, unknown>;
+    const successPlan = successCriteria.planRevision as Record<string, unknown>;
+    const outcomePlan = outcomeContract.planRevision as Record<string, unknown>;
+    expect(successPlan.hash).toBeTruthy();
+    expect(outcomePlan.hash).toBe(successPlan.hash);
+    expect(successPlan.steps).toEqual(outcomePlan.steps);
   });
 
   it("includes existing task, workflow, execution, and event rows linked to a goal", async () => {

@@ -228,6 +228,14 @@ export type {
   GeneralTaskPlanStepKind,
 } from "./task-planner.js";
 export {
+  buildMissionPlanPreview,
+} from "./mission-planning.js";
+export type {
+  MissionAdmissionKind,
+  MissionAdmissionReason,
+  MissionPlanPreview,
+} from "./mission-planning.js";
+export {
   MISSION_CONTRACT_VERSION,
   GoalNextActionSchema,
   parseGoalNextAction,
