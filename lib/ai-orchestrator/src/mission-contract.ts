@@ -26,6 +26,12 @@ const GoalRecipeActionSchema = z.object({
   recipeVersion: RecipeVersionSchema,
   approvedPaths: z.array(RecipeApprovedPathSchema).max(48).default([]),
   candidateIdentity: z.string().min(1).max(160).nullable().optional(),
+  /**
+   * Required by server-owned external delivery recipes. It is not a remote,
+   * credential, or execution control; the API validates its project ownership
+   * and committed lifecycle before dispatch.
+   */
+  proposalId: z.string().uuid().optional(),
 }).strict();
 
 const GoalWaitActionSchema = z.object({

@@ -26,6 +26,7 @@ import { projectGoalAcceptance } from "./mission-acceptance-projection.js";
 import { deliveryWorkspaceExists } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
 import { runRecipeOperation } from "./recipe-operation-runner.js";
+import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
@@ -126,10 +127,38 @@ async function resolveGitRevision(rootPath: string): Promise<string> {
   return revision;
 }
 
-function recipeOperationIdentity(goalId: string, action: RecipeGoalAction): {
+type MissionQueryExecutor = Pick<typeof db, "select">;
+
+async function recipeOperationIdentity(
+  executor: MissionQueryExecutor,
+  projectId: string,
+  goalId: string,
+  action: RecipeGoalAction,
+): Promise<{
   operationId: string;
   idempotencyKey: string;
-} {
+} | undefined> {
+  if (action.recipeId === "delivery.push.github") {
+    if (!action.proposalId) return undefined;
+    const [proposal] = await executor
+      .select({
+        operationId: aiChangeProposalsTable.operationId,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, action.proposalId),
+        eq(aiChangeProposalsTable.projectId, projectId),
+      ))
+      .limit(1);
+    if (!proposal || proposal.lifecycle !== "committed" || !proposal.operationId) {
+      return undefined;
+    }
+    return {
+      operationId: proposal.operationId,
+      idempotencyKey: `mission-delivery:${goalId}:${action.proposalId}:${proposal.operationId}`,
+    };
+  }
   const digest = createHash("sha256").update(JSON.stringify({
     goalId,
     recipeId: action.recipeId,
@@ -140,6 +169,29 @@ function recipeOperationIdentity(goalId: string, action: RecipeGoalAction): {
   return {
     operationId: `mission-goal-${goalId}-${digest.slice(0, 16)}`,
     idempotencyKey: `mission-goal:${goalId}:${digest.slice(0, 32)}`,
+  };
+}
+
+async function loadGitHubDeliveryContext(
+  projectId: string,
+  action: RecipeGoalAction,
+): Promise<{ proposalId: string; operationId: string } | undefined> {
+  if (action.recipeId !== "delivery.push.github" || !action.proposalId) return undefined;
+  const [proposal] = await db
+    .select({
+      operationId: aiChangeProposalsTable.operationId,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+    })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, action.proposalId),
+      eq(aiChangeProposalsTable.projectId, projectId),
+    ))
+    .limit(1);
+  if (!proposal || proposal.lifecycle !== "committed" || !proposal.operationId) return undefined;
+  return {
+    proposalId: action.proposalId,
+    operationId: proposal.operationId,
   };
 }
 
@@ -329,6 +381,28 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       return;
     }
     const sourceRevision = await resolveGitRevision(rootResult.canonicalPath);
+    const delivery = await loadGitHubDeliveryContext(dispatch.projectId, dispatch.action);
+    if (dispatch.action.recipeId === "delivery.push.github") {
+      if (
+        !delivery
+        || dispatch.operationId !== delivery.operationId
+        || project.status === "archived"
+        || !project.gitRemoteUrl
+      ) {
+        await syncRecipeObjectiveState({
+          ...dispatch,
+          status: "blocked",
+          reason: !delivery
+            ? "delivery_proposal_not_committed"
+            : project.status === "archived"
+              ? "project_archived"
+              : !project.gitRemoteUrl
+                ? "delivery_remote_not_configured"
+                : "delivery_operation_mismatch",
+        });
+        return;
+      }
+    }
     const candidate = await loadRecipeCandidate(dispatch.projectId, dispatch.action, sourceRevision);
     if (dispatch.action.candidateIdentity && !candidate) {
       await syncRecipeObjectiveState({
@@ -351,6 +425,26 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       candidateWorkspace: candidate?.candidateWorkspace ?? null,
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
+      ...(delivery && project.gitRemoteUrl
+        ? {
+            githubDeliveryRunner: async ({
+              rootPath,
+              projectId,
+              operationId,
+              message,
+              signal,
+            }) => executeVerifiedGitHubDelivery({
+              rootPath,
+              projectId,
+              operationId,
+              proposalId: delivery.proposalId,
+              remoteUrl: project.gitRemoteUrl!,
+              branch: project.gitDefaultBranch ?? "main",
+              message,
+              signal,
+            }),
+          }
+        : {}),
     });
     const receiptIsComplete = RecipeReceiptSchema.safeParse(result.receipt).success;
     const [goalAfterExecution] = await db
@@ -437,7 +531,8 @@ export async function dispatchPendingMissionRecipes(limit = 32): Promise<number>
     ) {
       continue;
     }
-    const identity = recipeOperationIdentity(row.goalId!, recipeAction);
+    const identity = await recipeOperationIdentity(db, row.projectId, row.goalId!, recipeAction);
+    if (!identity) continue;
     if (identity.operationId !== row.operationId) continue;
     const added = heavyJobQueue.enqueueWithId(row.executionId, async () => {
       await executeMissionRecipe({
@@ -614,7 +709,26 @@ export async function runMissionGoal(params: {
     }
 
     if (action.kind === "recipe") {
-      const identity = recipeOperationIdentity(goal.id, action);
+      const identity = await recipeOperationIdentity(tx, goal.projectId, goal.id, action);
+      if (!identity) {
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "blocked",
+            blockedReason: action.recipeId === "delivery.push.github"
+              ? "delivery_proposal_not_committed"
+              : "invalid_recipe_identity",
+            nextWakeAt: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        return {
+          status: "blocked" as const,
+          goalId: goal.id,
+          reason: action.recipeId === "delivery.push.github"
+            ? "delivery_proposal_not_committed"
+            : "invalid_recipe_identity",
+        };
+      }
       const [activeExecution] = await tx
         .select({ id: aiExecutionsTable.id })
         .from(aiExecutionsTable)
