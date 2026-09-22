@@ -24,6 +24,7 @@ import {
   GoalNextActionSchema,
   buildMissionPlanPreview,
   type MissionPlanPreview,
+  type GoalNextAction,
 } from "@workspace/ai-orchestrator";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
@@ -306,6 +307,33 @@ type MissionPlanGoal = {
   dependencies: string[];
 };
 
+function planStepNextAction(
+  step: MissionPlanPreview["plan"]["steps"][number],
+  taskId: string,
+  purpose: "activation" | "execution",
+): GoalNextAction {
+  if (step.recipe) {
+    return {
+      kind: "recipe",
+      recipeId: step.recipe.recipeId,
+      recipeVersion: step.recipe.recipeVersion,
+      approvedPaths: step.files,
+      candidateIdentity: null,
+    };
+  }
+  return {
+    kind: "task",
+    taskId,
+    purpose,
+  };
+}
+
+function planStepRequiresDeliveryReceipt(
+  step: MissionPlanPreview["plan"]["steps"][number],
+): boolean {
+  return step.kind === "deliver" && step.recipe?.recipeId.startsWith("delivery.") === true;
+}
+
 export type MissionPlanMaterialization = {
   revision: string;
   goals: MissionPlanGoal[];
@@ -336,6 +364,7 @@ export async function createMissionPlanGoal(
       files: step.files,
       readOnly: step.readOnly,
       approvalRequired: step.approvalRequired,
+      ...(step.recipe ? { recipe: step.recipe } : {}),
     })),
   };
   {
@@ -430,13 +459,9 @@ export async function createMissionPlanGoal(
       kind: "evidence_backed_progress_report",
       stepId: step.id,
       planRevision: planSnapshot,
-      deliveryRequired: preview.plan.turnKind === "DELIVERY" && step.kind === "deliver",
+      deliveryRequired: planStepRequiresDeliveryReceipt(step),
     },
-    nextAction: {
-      kind: "task" as const,
-      taskId,
-      purpose,
-    },
+    nextAction: planStepNextAction(step, taskId, purpose),
     createdAt: now,
     updatedAt: now,
   })));

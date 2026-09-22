@@ -25,6 +25,10 @@ export type GeneralTaskPlanStep = {
   files: string[];
   readOnly: boolean;
   approvalRequired: boolean;
+  recipe?: {
+    recipeId: string;
+    recipeVersion: number;
+  };
 };
 
 export type ProjectOrientationCoverage = {
@@ -100,7 +104,7 @@ function step(
   title: string,
   kind: GeneralTaskPlanStepKind,
   dependencies: string[] = [],
-  options: Partial<Pick<GeneralTaskPlanStep, "files" | "readOnly" | "approvalRequired">> = {},
+  options: Partial<Pick<GeneralTaskPlanStep, "files" | "readOnly" | "approvalRequired" | "recipe">> = {},
 ): GeneralTaskPlanStep {
   return {
     id,
@@ -110,6 +114,7 @@ function step(
     files: options.files ?? [],
     readOnly: options.readOnly ?? kind !== "execute",
     approvalRequired: options.approvalRequired ?? kind === "execute",
+    ...(options.recipe ? { recipe: options.recipe } : {}),
   };
 }
 
@@ -169,7 +174,13 @@ function stepsForIntent(input: GeneralTaskPlanInput): GeneralTaskPlanStep[] {
       inspect ? ["inspect"] : [],
       { readOnly: false, approvalRequired: !turnIntent.allowsBuildHandoff },
     );
-    const validate = step("validate", "Validate the resulting workspace", "validate", ["execute"]);
+    const validate = step(
+      "validate",
+      "Validate the resulting workspace",
+      "validate",
+      ["execute"],
+      { recipe: { recipeId: "validation.recover", recipeVersion: 1 } },
+    );
     return [
       ...(inspect ? [inspect] : []),
       execute,

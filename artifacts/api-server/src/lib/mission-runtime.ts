@@ -28,6 +28,7 @@ import { establishProjectRoot } from "./project-root.js";
 import { runRecipeOperation } from "./recipe-operation-runner.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
+import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import type { MissionEventEnvelope } from "./mission-events.js";
 
@@ -351,6 +352,19 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       idempotencyKey: dispatch.idempotencyKey,
     });
     const receiptIsComplete = RecipeReceiptSchema.safeParse(result.receipt).success;
+    const [goalAfterExecution] = await db
+      .select({ outcomeContract: aiGoalsTable.outcomeContract })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, dispatch.goalId),
+        eq(aiGoalsTable.missionId, dispatch.missionId),
+        eq(aiGoalsTable.projectId, dispatch.projectId),
+      ))
+      .limit(1);
+    const deliveryRequired = goalAfterExecution?.outcomeContract
+      && typeof goalAfterExecution.outcomeContract === "object"
+      && !Array.isArray(goalAfterExecution.outcomeContract)
+      && (goalAfterExecution.outcomeContract as { deliveryRequired?: unknown }).deliveryRequired === true;
     await syncRecipeObjectiveState({
       ...dispatch,
       executionId: result.executionId,
@@ -360,7 +374,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
         : result.status === "completed"
           ? undefined
           : "recipe_acceptance_blocked",
-      ...(result.status === "completed" && receiptIsComplete
+      ...(result.status === "completed" && receiptIsComplete && deliveryRequired
         ? { deliveryReceipt: { kind: "recipe" as const, status: "completed" as const } }
         : {}),
     });
@@ -376,6 +390,68 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       reason: "recipe_execution_failed",
     }).catch(() => undefined);
   }
+}
+
+/**
+ * Re-dispatches Mission recipe executions that were durably created but had
+ * not acquired a worker before the process stopped. Running/paused executions
+ * are intentionally excluded: the shared AI execution reconciler owns those
+ * uncertain leases and external-effect recovery.
+ */
+export async function dispatchPendingMissionRecipes(limit = 32): Promise<number> {
+  const pending = await db
+    .select({
+      executionId: aiExecutionsTable.id,
+      operationId: aiExecutionsTable.operationId,
+      userId: aiExecutionsTable.userId,
+      goalId: aiExecutionsTable.goalId,
+      missionId: aiGoalsTable.missionId,
+      projectId: aiExecutionsTable.projectId,
+      checkpoint: aiExecutionsTable.checkpoint,
+      nextAction: aiGoalsTable.nextAction,
+    })
+    .from(aiExecutionsTable)
+    .innerJoin(aiGoalsTable, eq(aiGoalsTable.id, aiExecutionsTable.goalId))
+    .where(and(
+      eq(aiExecutionsTable.status, "queued"),
+      isNotNull(aiExecutionsTable.goalId),
+    ))
+    .orderBy(aiExecutionsTable.createdAt, aiExecutionsTable.id)
+    .limit(Math.max(1, Math.min(limit, 100)));
+
+  let dispatched = 0;
+  for (const row of pending) {
+    const action = GoalNextActionSchema.safeParse(row.nextAction);
+    const checkpoint = parseAiExecutionCheckpoint(row.checkpoint);
+    const binding = checkpoint?.recipeBinding;
+    const recipeAction = action.success && action.data.kind === "recipe"
+      ? action.data
+      : undefined;
+    if (
+      !recipeAction
+      || !row.operationId
+      || !binding
+      || binding.projectId !== row.projectId
+      || binding.operationId !== row.operationId
+    ) {
+      continue;
+    }
+    const identity = recipeOperationIdentity(row.goalId!, recipeAction);
+    if (identity.operationId !== row.operationId) continue;
+    const added = heavyJobQueue.enqueueWithId(row.executionId, async () => {
+      await executeMissionRecipe({
+        goalId: row.goalId!,
+        userId: row.userId,
+        projectId: row.projectId,
+        missionId: row.missionId,
+        operationId: identity.operationId,
+        idempotencyKey: identity.idempotencyKey,
+        action: recipeAction,
+      });
+    });
+    if (added) dispatched += 1;
+  }
+  return dispatched;
 }
 
 /**

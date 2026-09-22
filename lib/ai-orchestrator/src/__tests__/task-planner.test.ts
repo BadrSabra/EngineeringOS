@@ -171,4 +171,24 @@ describe("buildGeneralTaskPlan", () => {
     expect(execute?.approvalRequired).toBe(true);
     expect(execute?.readOnly).toBe(false);
   });
+
+  it("binds validation in a new delivery plan to the server-owned validation recipe", () => {
+    const plan = buildGeneralTaskPlan({
+      message: "Apply the approved fix",
+      turnIntent: intent({
+        kind: "DELIVERY",
+        executionTaskType: "task_execution",
+        requiresEvidence: false,
+        allowsBuildHandoff: true,
+      }),
+    });
+
+    const validate = plan.steps.find((step) => step.kind === "validate");
+    expect(validate?.recipe).toEqual({
+      recipeId: "validation.recover",
+      recipeVersion: 1,
+    });
+    expect(validate?.readOnly).toBe(true);
+    expect(validate?.approvalRequired).toBe(false);
+  });
 });

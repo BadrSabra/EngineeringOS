@@ -360,11 +360,23 @@ describe("AI missions and goals", () => {
       .get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.status).toBe(200);
     expect(projection.body.goals.length).toBeGreaterThan(1);
-    expect(projection.body.goals.every((item: { goal: { nextAction: unknown }; tasks: unknown[] }) =>
-      (item.goal.nextAction as { kind?: string; purpose?: string }).kind === "task"
-      && (item.goal.nextAction as { purpose?: string }).purpose === "activation"
-      && item.tasks.length === 1,
-    )).toBe(true);
+    expect(projection.body.goals.every((item: { tasks: unknown[] }) => item.tasks.length === 1)).toBe(true);
+    const validationGoal = projection.body.goals.find((item: { goal: { title: string } }) =>
+      item.goal.title === "Validate the resulting workspace",
+    );
+    expect(validationGoal?.goal.nextAction).toMatchObject({
+      kind: "recipe",
+      recipeId: "validation.recover",
+      recipeVersion: 1,
+      candidateIdentity: null,
+    });
+    expect(projection.body.goals
+      .filter((item: { goal: { title: string } }) => item.goal.title !== "Validate the resulting workspace")
+      .every((item: { goal: { nextAction: unknown } }) =>
+        (item.goal.nextAction as { kind?: string; purpose?: string }).kind === "task"
+        && (item.goal.nextAction as { purpose?: string }).purpose === "activation",
+      ))
+      .toBe(true);
     expect(projection.body.goals.some((item: { goal: { dependencies?: unknown[] } }) =>
       Array.isArray(item.goal.dependencies) && item.goal.dependencies.length > 0,
     )).toBe(true);

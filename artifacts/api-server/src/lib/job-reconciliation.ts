@@ -66,7 +66,11 @@ import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { recoverPromotion } from "./delivery-workspace.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
-import { wakeDueMissionGoals, wakeReadyMissionGoals } from "./mission-runtime.js";
+import {
+  dispatchPendingMissionRecipes,
+  wakeDueMissionGoals,
+  wakeReadyMissionGoals,
+} from "./mission-runtime.js";
 import { reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
 
 const ORPHANED_RUNNING_MESSAGE =
@@ -726,7 +730,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -737,9 +741,11 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
         .where(eq(discoverySessionsTable.status, "pending")),
       dispatchAutonomousTaskRecoveries(),
       reconcileAutomaticMissionReplans(),
+      dispatchPendingMissionRecipes(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
+    dispatched += missionRecipeCount;
 
     for (const job of queuedScans) {
       if (
@@ -776,6 +782,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
           discoveryCount: pendingDiscoveries.length,
           recoveryCount,
           automaticReplanCount,
+            missionRecipeCount,
         },
         "durable job dispatcher: persisted pending work dispatched",
       );
