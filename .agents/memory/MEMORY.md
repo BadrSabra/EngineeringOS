@@ -129,6 +129,7 @@
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
  - [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
 - [Cancellation controller registration](cancellation-controller-registration.md) — durable cancellation must win even when a worker registers its AbortController after the cancel request.
+- [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.
