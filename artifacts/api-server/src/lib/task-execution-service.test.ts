@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildAiTaskExecutionReceipt } from "./task-execution-service.js";
+import {
+  buildAiTaskExecutionReceipt,
+  classifyTaskExecutionFailure,
+} from "./task-execution-service.js";
 
 function result(overrides: Record<string, unknown> = {}) {
   return {
@@ -57,5 +60,43 @@ describe("AI task execution receipts", () => {
     expect(receipt.terminalReason).toBe("human_review_required");
     expect(receipt.durationMs).toBe(86_400_000);
     expect(receipt.evidenceRefs).toEqual([]);
+  });
+});
+
+describe("AI task execution failure classification", () => {
+  it("keeps provider failures recoverable and distinct from generic execution failures", () => {
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: false,
+    })).toEqual({
+      code: "provider_call_failed",
+      failureClass: "provider",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      retryable: true,
+    });
+  });
+
+  it("classifies context failures separately", () => {
+    expect(classifyTaskExecutionFailure({
+      stage: "context",
+      cancelled: false,
+    })).toEqual({
+      code: "context_build_failed",
+      failureClass: "context",
+      reasonCode: "CONTEXT_BUILD_FAILED",
+      retryable: true,
+    });
+  });
+
+  it("never retries cancellation as a provider or execution failure", () => {
+    expect(classifyTaskExecutionFailure({
+      stage: "provider_call",
+      cancelled: true,
+    })).toEqual({
+      code: "cancelled",
+      failureClass: "internal",
+      reasonCode: "EXECUTION_CANCELLED",
+      retryable: false,
+    });
   });
 });

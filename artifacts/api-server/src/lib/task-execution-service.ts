@@ -90,7 +90,23 @@ export type AiTaskExecutionReceipt = {
   confidence?: string;
   steps?: string[];
   evidenceRefs: string[];
+  failureClass?: AiTaskFailureClass;
+  retryable?: boolean;
 };
+
+export type AiTaskFailureClass =
+  | "checkpoint"
+  | "context"
+  | "provider"
+  | "malformed_output"
+  | "quality_gate"
+  | "tool"
+  | "validation"
+  | "revision_conflict"
+  | "permission"
+  | "objective_incomplete"
+  | "ownership"
+  | "internal";
 
 function safeText(value: unknown, max = RECEIPT_MAX_TEXT): string {
   return redactUserFacingText(String(value ?? ""))
@@ -155,6 +171,8 @@ function failureReceipt(params: {
   durationMs: number;
   stages: string[];
   code: string;
+  failureClass: AiTaskFailureClass;
+  retryable: boolean;
   cancelled?: boolean;
 }): AiTaskExecutionReceipt {
   const cancelled = Boolean(params.cancelled);
@@ -172,7 +190,58 @@ function failureReceipt(params: {
     terminalStatus: cancelled ? "CANCELLED" : "FAILED",
     terminalReason: safeText(params.code, 120),
     evidenceRefs: [],
+    failureClass: params.failureClass,
+    retryable: params.retryable,
   });
+}
+
+export function classifyTaskExecutionFailure(params: {
+  stage: string;
+  cancelled: boolean;
+}): {
+  code: string;
+  failureClass: AiTaskFailureClass;
+  reasonCode: string;
+  retryable: boolean;
+} {
+  if (params.cancelled) {
+    return {
+      code: "cancelled",
+      failureClass: "internal",
+      reasonCode: "EXECUTION_CANCELLED",
+      retryable: false,
+    };
+  }
+  if (params.stage === "context") {
+    return {
+      code: "context_build_failed",
+      failureClass: "context",
+      reasonCode: "CONTEXT_BUILD_FAILED",
+      retryable: true,
+    };
+  }
+  if (params.stage === "provider_call" || params.stage === "provider_fallback") {
+    return {
+      code: "provider_call_failed",
+      failureClass: "provider",
+      reasonCode: "EXECUTION_PROVIDER_FAILURE",
+      retryable: true,
+    };
+  }
+  if (params.stage === "finalize") {
+    return {
+      code: "execution_finalize_failed",
+      failureClass: "ownership",
+      reasonCode: "EXECUTION_FINALIZATION_FAILED",
+      retryable: true,
+    };
+  }
+  return {
+    code: "task_execution_failed",
+    failureClass: "internal",
+    reasonCode: "EXECUTION_FAILED",
+    retryable: true,
+  };
 }
 
 function taskVerificationResult(params: {
@@ -483,6 +552,8 @@ export async function executeTaskLifecycle(params: {
       durationMs: Date.now() - startedAt,
       stages,
       code: "checkpoint_persistence_failed",
+       failureClass: "checkpoint",
+       retryable: true,
     });
     const finalized = await finalizeTaskExecutionAcceptance({
       executionId,
@@ -611,6 +682,8 @@ export async function executeTaskLifecycle(params: {
         executionId, correlationId, revision: params.workspaceRevision,
         provider: effectiveProvider, attempt: executionAttempt,
         durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
+        failureClass: "malformed_output",
+        retryable: true,
       });
       const error = `model_output_invalid:${result._parseError.code}`;
       const finalized = await finalizeTaskExecutionAcceptance({
@@ -660,6 +733,8 @@ export async function executeTaskLifecycle(params: {
         durationMs: Date.now() - startedAt,
         stages,
         code: quality.code,
+        failureClass: "quality_gate",
+        retryable: true,
       });
       const finalized = await finalizeTaskExecutionAcceptance({
         executionId,
@@ -759,13 +834,18 @@ export async function executeTaskLifecycle(params: {
   } catch (error) {
     const cancelled = executionAbortController.signal.aborted
       || (error instanceof Error && error.name === "AbortError");
-    const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
+    const classification = classifyTaskExecutionFailure({ stage, cancelled });
     const failure = failureReceipt({
       executionId, correlationId, revision: params.workspaceRevision,
       provider: executionProvider, attempt: executionAttempt,
-      durationMs: Date.now() - startedAt, stages, code, cancelled,
+      durationMs: Date.now() - startedAt,
+      stages,
+      code: classification.code,
+      failureClass: classification.failureClass,
+      retryable: classification.retryable,
+      cancelled,
     });
-    const message = safeText(code, 120);
+    const message = safeText(classification.code, 120);
     await progress.finish(
       stage === "context" ? "context" : "finalization",
       cancelled ? "cancelled" : "failed",
@@ -780,18 +860,21 @@ export async function executeTaskLifecycle(params: {
       receipt: failure,
       outcome: cancelled ? "INTERRUPTED" : "FAILED",
       terminalStatus: cancelled ? "cancelled" : "failed",
-      reasonCode: cancelled
-        ? "EXECUTION_CANCELLED"
-        : stage === "context" ? "CONTEXT_BUILD_FAILED" : "EXECUTION_FAILED",
-      retryable: !cancelled,
+      reasonCode: classification.reasonCode,
+      retryable: classification.retryable,
       trigger: params.trigger,
       finalStatus: rollbackStatus,
       error: message,
       logLevel: "error",
-      logMessage: stage === "context"
-        ? "AI execution failed while building project context"
+      logMessage: cancelled
+        ? "AI task execution was cancelled"
         : "AI task execution failed",
-      logMetadata: { stage, code: "provider_or_context_failure" },
+      logMetadata: {
+        stage,
+        code: classification.code,
+        failureClass: classification.failureClass,
+        reasonCode: classification.reasonCode,
+      },
     });
     if (finalized.accepted) {
       await progress.terminal(
@@ -804,8 +887,8 @@ export async function executeTaskLifecycle(params: {
       ok: false,
       status: "failed",
       executionId,
-      errorCode: code,
-      error,
+      errorCode: classification.code,
+      error: message,
     };
   } finally {
     clearInterval(heartbeat);
