@@ -973,7 +973,6 @@ export default function Missions() {
         setSelectedMissionId(created.id);
         setEditor(null);
         setMutationNotice('Mission created.');
-        setMissionsReload((value) => value + 1);
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'mission-edit') {
         const updated = await updateMission(editor.mission.id, data as UpdateMissionInput);
