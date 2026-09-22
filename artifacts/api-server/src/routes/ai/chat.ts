@@ -7745,9 +7745,11 @@ export async function handleChatStream(req: Request, res: Response) {
       || streamTurnIntent.kind === "FORENSIC_AUDIT"
       || streamTurnIntent.kind === "DELIVERY"
       || isCapabilityProbeRequest(message);
-    const executionBoundTaskState = needsExecutionBoundTaskState
+    const continuationBoundTaskState =
+      streamClassificationResolution.resumed || Boolean(effectiveExecutionId);
+    const executionBoundTaskState = needsExecutionBoundTaskState && continuationBoundTaskState
       ? parseActiveTaskState(resumableTaskStateAtStart)
-      : streamResumableStateForTurn;
+      : null;
     await db.update(aiChatSessionsTable)
       .set({
         activeTaskState: resumableTaskStateAtStart,

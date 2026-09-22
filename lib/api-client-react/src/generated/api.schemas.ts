@@ -5748,6 +5748,10 @@ startLine?: number;
 endLine?: number;
 };
 
+export type ListAiMissionsParams = {
+projectId: string;
+};
+
 export type DeleteGroqKey200 = {
   configured: boolean;
 };

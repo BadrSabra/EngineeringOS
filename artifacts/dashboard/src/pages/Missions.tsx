@@ -1303,6 +1303,10 @@ export default function Missions() {
                               <Edit3 className="h-3.5 w-3.5" />
                               Edit details
                             </button>
+                            <button type="button" onClick={() => openEditor({ type: 'goal-create', missionId: activeMission.id })} data-testid="button-create-goal" className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
+                              <Plus className="h-3.5 w-3.5" />
+                              Add goal
+                            </button>
                           </div>
                         </div>
                       </div>

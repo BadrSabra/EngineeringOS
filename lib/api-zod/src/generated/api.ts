@@ -7226,6 +7226,145 @@ export const AiReviewCodeStreamResponse = zod.unknown()
 
 
 /**
+ * @summary List project-owned AI missions
+ */
+export const ListAiMissionsQueryParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const ListAiMissionsResponse = zod.unknown()
+
+
+/**
+ * @summary Create an AI mission
+ */
+export const CreateAiMissionResponse = zod.void()
+
+
+/**
+ * @summary Preview a server-owned AI mission plan
+ */
+export const PreviewAiMissionPlanResponse = zod.unknown()
+
+
+/**
+ * @summary Explicitly hand off a chat request to Mission Control
+ */
+export const HandoffChatToAiMissionResponse = zod.void()
+
+
+/**
+ * @summary Get an AI mission
+ */
+export const GetAiMissionParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const GetAiMissionResponse = zod.unknown()
+
+
+/**
+ * @summary Update an AI mission
+ */
+export const UpdateAiMissionParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const UpdateAiMissionResponse = zod.unknown()
+
+
+/**
+ * @summary Create a new server-owned mission plan revision
+ */
+export const ReplanAiMissionParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const ReplanAiMissionResponse = zod.unknown()
+
+
+/**
+ * @summary List goals belonging to an AI mission
+ */
+export const ListAiMissionGoalsParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const ListAiMissionGoalsResponse = zod.unknown()
+
+
+/**
+ * @summary Create a goal in an AI mission
+ */
+export const CreateAiMissionGoalParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const CreateAiMissionGoalResponse = zod.void()
+
+
+/**
+ * @summary Approve a proposal-backed mission goal
+ */
+export const ApproveAiMissionGoalParams = zod.object({
+  "missionId": zod.coerce.string(),
+  "goalId": zod.coerce.string()
+})
+
+export const ApproveAiMissionGoalResponse = zod.unknown()
+
+
+/**
+ * @summary Get the read-only Mission Control projection
+ */
+export const GetAiMissionProjectionParams = zod.object({
+  "missionId": zod.coerce.string()
+})
+
+export const GetAiMissionProjectionResponse = zod.unknown()
+
+
+/**
+ * @summary Get an AI goal
+ */
+export const GetAiGoalParams = zod.object({
+  "goalId": zod.coerce.string()
+})
+
+export const GetAiGoalResponse = zod.unknown()
+
+
+/**
+ * @summary Update an AI goal
+ */
+export const UpdateAiGoalParams = zod.object({
+  "goalId": zod.coerce.string()
+})
+
+export const UpdateAiGoalResponse = zod.unknown()
+
+
+/**
+ * @summary Append a server-validated event to an AI goal
+ */
+export const AppendAiGoalEventParams = zod.object({
+  "goalId": zod.coerce.string()
+})
+
+export const AppendAiGoalEventResponse = zod.void()
+
+
+/**
+ * @summary Bind an approved delivery proposal to an AI goal
+ */
+export const BindAiGoalDeliveryParams = zod.object({
+  "goalId": zod.coerce.string()
+})
+
+export const BindAiGoalDeliveryResponse = zod.unknown()
+
+
+/**
  * @summary Get AI orchestration decision for a workflow
  */
 export const AiOrchestrateWorkflowParams = zod.object({

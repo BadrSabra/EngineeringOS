@@ -3035,6 +3035,205 @@ paths:
               schema:
                 type: string
 
+  # ─── Mission Control ────────────────────────────────────────────────────────
+  # Mission/Goal routes use handwritten dashboard adapters today. Keep them in
+  # the public contract without generating duplicate client hooks.
+  /api/ai/missions:
+    get:
+      operationId: listAiMissions
+      summary: List project-owned AI missions
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Mission list
+    post:
+      operationId: createAiMission
+      summary: Create an AI mission
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "201":
+          description: Created mission
+
+  /api/ai/missions/plan-preview:
+    post:
+      operationId: previewAiMissionPlan
+      summary: Preview a server-owned AI mission plan
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "200":
+          description: Mission plan preview
+
+  /api/ai/missions/from-chat:
+    post:
+      operationId: handoffChatToAiMission
+      summary: Explicitly hand off a chat request to Mission Control
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "201":
+          description: Created mission handoff
+
+  /api/ai/missions/{missionId}:
+    parameters:
+      - in: path
+        name: missionId
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getAiMission
+      summary: Get an AI mission
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "200":
+          description: Mission
+    patch:
+      operationId: updateAiMission
+      summary: Update an AI mission
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "200":
+          description: Updated mission
+
+  /api/ai/missions/{missionId}/replan:
+    post:
+      operationId: replanAiMission
+      summary: Create a new server-owned mission plan revision
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Replanned mission
+
+  /api/ai/missions/{missionId}/goals:
+    get:
+      operationId: listAiMissionGoals
+      summary: List goals belonging to an AI mission
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Goal list
+    post:
+      operationId: createAiMissionGoal
+      summary: Create a goal in an AI mission
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+      responses:
+        "201":
+          description: Created goal
+
+  /api/ai/missions/{missionId}/goals/{goalId}/approve:
+    post:
+      operationId: approveAiMissionGoal
+      summary: Approve a proposal-backed mission goal
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: goalId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Approved goal
+
+  /api/ai/missions/{missionId}/projection:
+    get:
+      operationId: getAiMissionProjection
+      summary: Get the read-only Mission Control projection
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: missionId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Mission projection
+
+  /api/ai/goals/{goalId}:
+    parameters:
+      - in: path
+        name: goalId
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getAiGoal
+      summary: Get an AI goal
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "200":
+          description: Goal
+    patch:
+      operationId: updateAiGoal
+      summary: Update an AI goal
+      tags: [AI]
+      x-no-codegen: true
+      responses:
+        "200":
+          description: Updated goal
+
+  /api/ai/goals/{goalId}/events:
+    post:
+      operationId: appendAiGoalEvent
+      summary: Append a server-validated event to an AI goal
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: goalId
+          required: true
+          schema: { type: string }
+      responses:
+        "202":
+          description: Event accepted
+
+  /api/ai/goals/{goalId}/delivery:
+    post:
+      operationId: bindAiGoalDelivery
+      summary: Bind an approved delivery proposal to an AI goal
+      tags: [AI]
+      x-no-codegen: true
+      parameters:
+        - in: path
+          name: goalId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Delivery binding result
+
   /api/ai/workflows/{workflowId}/orchestrate:
     post:
       operationId: aiOrchestrateWorkflow

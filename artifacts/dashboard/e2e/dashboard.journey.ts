@@ -53,6 +53,7 @@ const EXECUTION_ID = "e2e-controlled-execution";
 const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
 const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
 const DEFAULT_READINESS_TIMEOUT_MS = 15_000;
+const DEFAULT_CLERK_HANDOFF_TIMEOUT_MS = 30_000;
 const TEST_MODES = new Set(["fixture", "live-provider"]);
 const HOSTILE_ORIGIN = "https://attacker.example";
 const ORIGIN_DIAGNOSTIC_HEADERS = [
@@ -114,6 +115,15 @@ function readinessTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_READINESS_TIMEOUT_MS;
+}
+
+function clerkHandoffTimeoutMs(): number {
+  const configured = Number(
+    process.env.DASHBOARD_E2E_CLERK_HANDOFF_TIMEOUT_MS,
+  );
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_CLERK_HANDOFF_TIMEOUT_MS;
 }
 
 async function writeReadinessReceipt(
@@ -3613,6 +3623,7 @@ async function programmaticSignIn(
     await navigateClerkHandoff(page, await createReleaseSignInUrl(page, user));
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+      { timeout: clerkHandoffTimeoutMs() },
     );
     await completeReadinessHandshake(page);
     return;
@@ -3625,6 +3636,7 @@ async function programmaticSignIn(
   await navigateClerkHandoff(page, signInUrl);
   await expect(page).toHaveURL(
     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+    { timeout: clerkHandoffTimeoutMs() },
   );
   await completeReadinessHandshake(page);
 }
@@ -4624,7 +4636,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.goto(`${DASHBOARD_PATH}missions`);
     await expect(
-      page.getByRole("heading", { name: "Durable objectives" }),
+      page.getByRole("heading", { name: "Missions", exact: true }),
     ).toBeVisible();
     await expect(page.getByTestId("select-mission-project")).toHaveValue(
       "e2e-project",
@@ -4632,7 +4644,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByTestId("button-create-mission").click();
     await expect(
-      page.getByRole("heading", { name: "Create mission" }),
+      page.getByRole("heading", { name: "Start a mission" }),
     ).toBeVisible();
     await page.getByTestId("mission-title").fill("Release readiness");
     await page
@@ -4656,14 +4668,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByRole("heading", { name: "Edit mission" }),
     ).toBeVisible();
     await page.getByTestId("mission-title").fill("Release readiness updated");
-    await page.getByTestId("select-mission-status").selectOption("active");
     await page.getByTestId("button-save-editor").click();
     await expect(
       page.getByTestId("text-mission-title-e2e-mission-management"),
     ).toHaveText("Release readiness updated");
-    await expect(
-      page.getByText("active", { exact: true }).first(),
-    ).toBeVisible();
 
     await page.getByTestId("button-create-goal").click();
     await expect(

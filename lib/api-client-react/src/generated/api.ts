@@ -109,6 +109,7 @@ import type {
   ListAiChatSessionsParams,
   ListAiExecutionHistory200Item,
   ListAiExecutionHistoryParams,
+  ListAiMissionsParams,
   ListAiProjectBudgetAlertsParams,
   ListEvents200,
   ListEventsParams,
@@ -8205,6 +8206,1140 @@ export const useAiReviewCodeStream = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAiReviewCodeStreamMutationOptions(options));
+    }
+
+export const getListAiMissionsUrl = (params: ListAiMissionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/missions?${stringifiedParams}` : `/api/ai/missions`
+}
+
+/**
+ * @summary List project-owned AI missions
+ */
+export const listAiMissions = async (params: ListAiMissionsParams, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getListAiMissionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiMissionsQueryKey = (params?: ListAiMissionsParams,) => {
+    return [
+    `/api/ai/missions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAiMissionsQueryOptions = <TData = Awaited<ReturnType<typeof listAiMissions>>, TError = ErrorType<unknown>>(params: ListAiMissionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiMissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiMissionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiMissions>>> = ({ signal }) => listAiMissions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiMissions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiMissionsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiMissions>>>
+export type ListAiMissionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List project-owned AI missions
+ */
+
+export function useListAiMissions<TData = Awaited<ReturnType<typeof listAiMissions>>, TError = ErrorType<unknown>>(
+ params: ListAiMissionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiMissions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiMissionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAiMissionUrl = () => {
+
+
+
+
+  return `/api/ai/missions`
+}
+
+/**
+ * @summary Create an AI mission
+ */
+export const createAiMission = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getCreateAiMissionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateAiMissionMutationKey = () => ['createAiMission'] as const;
+
+export const getCreateAiMissionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,void, TContext> => {
+
+const mutationKey = getCreateAiMissionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiMission>>, void> = () => {
+
+
+          return  createAiMission(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof createAiMission>>>
+
+    export type CreateAiMissionMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Create an AI mission
+ */
+export const useCreateAiMission = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAiMission>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCreateAiMissionMutationOptions(options));
+    }
+
+export const getPreviewAiMissionPlanUrl = () => {
+
+
+
+
+  return `/api/ai/missions/plan-preview`
+}
+
+/**
+ * @summary Preview a server-owned AI mission plan
+ */
+export const previewAiMissionPlan = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getPreviewAiMissionPlanUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getPreviewAiMissionPlanMutationKey = () => ['previewAiMissionPlan'] as const;
+
+export const getPreviewAiMissionPlanMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,void, TContext> => {
+
+const mutationKey = getPreviewAiMissionPlanMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewAiMissionPlan>>, void> = () => {
+
+
+          return  previewAiMissionPlan(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewAiMissionPlanMutationResult = NonNullable<Awaited<ReturnType<typeof previewAiMissionPlan>>>
+
+    export type PreviewAiMissionPlanMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Preview a server-owned AI mission plan
+ */
+export const usePreviewAiMissionPlan = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewAiMissionPlan>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getPreviewAiMissionPlanMutationOptions(options));
+    }
+
+export const getHandoffChatToAiMissionUrl = () => {
+
+
+
+
+  return `/api/ai/missions/from-chat`
+}
+
+/**
+ * @summary Explicitly hand off a chat request to Mission Control
+ */
+export const handoffChatToAiMission = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getHandoffChatToAiMissionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getHandoffChatToAiMissionMutationKey = () => ['handoffChatToAiMission'] as const;
+
+export const getHandoffChatToAiMissionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,void, TContext> => {
+
+const mutationKey = getHandoffChatToAiMissionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof handoffChatToAiMission>>, void> = () => {
+
+
+          return  handoffChatToAiMission(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type HandoffChatToAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof handoffChatToAiMission>>>
+
+    export type HandoffChatToAiMissionMutationError = ErrorType<unknown>
+
+
+    /**
+ * @summary Explicitly hand off a chat request to Mission Control
+ */
+export const useHandoffChatToAiMission = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof handoffChatToAiMission>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getHandoffChatToAiMissionMutationOptions(options));
+    }
+
+export const getGetAiMissionUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}`
+}
+
+/**
+ * @summary Get an AI mission
+ */
+export const getAiMission = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getGetAiMissionUrl(missionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiMissionQueryKey = (missionId: string,) => {
+    return [
+    `/api/ai/missions/${missionId}`
+    ] as const;
+    }
+
+
+export const getGetAiMissionQueryOptions = <TData = Awaited<ReturnType<typeof getAiMission>>, TError = ErrorType<unknown>>(missionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMission>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiMissionQueryKey(missionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMission>>> = ({ signal }) => getAiMission(missionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: missionId !== null && missionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiMission>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiMissionQueryResult = NonNullable<Awaited<ReturnType<typeof getAiMission>>>
+export type GetAiMissionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get an AI mission
+ */
+
+export function useGetAiMission<TData = Awaited<ReturnType<typeof getAiMission>>, TError = ErrorType<unknown>>(
+ missionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMission>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiMissionQueryOptions(missionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAiMissionUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}`
+}
+
+/**
+ * @summary Update an AI mission
+ */
+export const updateAiMission = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getUpdateAiMissionUrl(missionId),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+
+export const getUpdateAiMissionMutationKey = () => ['updateAiMission'] as const;
+
+export const getUpdateAiMissionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiMission>>, TError,UpdateAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiMission>>, TError,UpdateAiMissionMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAiMissionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiMission>>, UpdateAiMissionMutationVariables> = (props) => {
+          const {missionId} = props ?? {};
+
+          return  updateAiMission(missionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiMission>>>
+
+    export type UpdateAiMissionMutationError = ErrorType<unknown>
+    export type UpdateAiMissionMutationVariables = {missionId: string}
+
+    /**
+ * @summary Update an AI mission
+ */
+export const useUpdateAiMission = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiMission>>, TError,UpdateAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiMission>>,
+        TError,
+        UpdateAiMissionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAiMissionMutationOptions(options));
+    }
+
+export const getReplanAiMissionUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/replan`
+}
+
+/**
+ * @summary Create a new server-owned mission plan revision
+ */
+export const replanAiMission = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getReplanAiMissionUrl(missionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getReplanAiMissionMutationKey = () => ['replanAiMission'] as const;
+
+export const getReplanAiMissionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replanAiMission>>, TError,ReplanAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replanAiMission>>, TError,ReplanAiMissionMutationVariables, TContext> => {
+
+const mutationKey = getReplanAiMissionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replanAiMission>>, ReplanAiMissionMutationVariables> = (props) => {
+          const {missionId} = props ?? {};
+
+          return  replanAiMission(missionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplanAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof replanAiMission>>>
+
+    export type ReplanAiMissionMutationError = ErrorType<unknown>
+    export type ReplanAiMissionMutationVariables = {missionId: string}
+
+    /**
+ * @summary Create a new server-owned mission plan revision
+ */
+export const useReplanAiMission = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replanAiMission>>, TError,ReplanAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replanAiMission>>,
+        TError,
+        ReplanAiMissionMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReplanAiMissionMutationOptions(options));
+    }
+
+export const getListAiMissionGoalsUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/goals`
+}
+
+/**
+ * @summary List goals belonging to an AI mission
+ */
+export const listAiMissionGoals = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getListAiMissionGoalsUrl(missionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiMissionGoalsQueryKey = (missionId: string,) => {
+    return [
+    `/api/ai/missions/${missionId}/goals`
+    ] as const;
+    }
+
+
+export const getListAiMissionGoalsQueryOptions = <TData = Awaited<ReturnType<typeof listAiMissionGoals>>, TError = ErrorType<unknown>>(missionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiMissionGoals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiMissionGoalsQueryKey(missionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiMissionGoals>>> = ({ signal }) => listAiMissionGoals(missionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: missionId !== null && missionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiMissionGoals>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiMissionGoalsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiMissionGoals>>>
+export type ListAiMissionGoalsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List goals belonging to an AI mission
+ */
+
+export function useListAiMissionGoals<TData = Awaited<ReturnType<typeof listAiMissionGoals>>, TError = ErrorType<unknown>>(
+ missionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiMissionGoals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiMissionGoalsQueryOptions(missionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAiMissionGoalUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/goals`
+}
+
+/**
+ * @summary Create a goal in an AI mission
+ */
+export const createAiMissionGoal = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getCreateAiMissionGoalUrl(missionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateAiMissionGoalMutationKey = () => ['createAiMissionGoal'] as const;
+
+export const getCreateAiMissionGoalMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMissionGoal>>, TError,CreateAiMissionGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAiMissionGoal>>, TError,CreateAiMissionGoalMutationVariables, TContext> => {
+
+const mutationKey = getCreateAiMissionGoalMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAiMissionGoal>>, CreateAiMissionGoalMutationVariables> = (props) => {
+          const {missionId} = props ?? {};
+
+          return  createAiMissionGoal(missionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAiMissionGoalMutationResult = NonNullable<Awaited<ReturnType<typeof createAiMissionGoal>>>
+
+    export type CreateAiMissionGoalMutationError = ErrorType<unknown>
+    export type CreateAiMissionGoalMutationVariables = {missionId: string}
+
+    /**
+ * @summary Create a goal in an AI mission
+ */
+export const useCreateAiMissionGoal = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAiMissionGoal>>, TError,CreateAiMissionGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAiMissionGoal>>,
+        TError,
+        CreateAiMissionGoalMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateAiMissionGoalMutationOptions(options));
+    }
+
+export const getApproveAiMissionGoalUrl = (missionId: string,
+    goalId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/goals/${goalId}/approve`
+}
+
+/**
+ * @summary Approve a proposal-backed mission goal
+ */
+export const approveAiMissionGoal = async (missionId: string,
+    goalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getApproveAiMissionGoalUrl(missionId,goalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveAiMissionGoalMutationKey = () => ['approveAiMissionGoal'] as const;
+
+export const getApproveAiMissionGoalMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiMissionGoal>>, TError,ApproveAiMissionGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveAiMissionGoal>>, TError,ApproveAiMissionGoalMutationVariables, TContext> => {
+
+const mutationKey = getApproveAiMissionGoalMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveAiMissionGoal>>, ApproveAiMissionGoalMutationVariables> = (props) => {
+          const {missionId,goalId} = props ?? {};
+
+          return  approveAiMissionGoal(missionId,goalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveAiMissionGoalMutationResult = NonNullable<Awaited<ReturnType<typeof approveAiMissionGoal>>>
+
+    export type ApproveAiMissionGoalMutationError = ErrorType<unknown>
+    export type ApproveAiMissionGoalMutationVariables = {missionId: string;goalId: string}
+
+    /**
+ * @summary Approve a proposal-backed mission goal
+ */
+export const useApproveAiMissionGoal = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiMissionGoal>>, TError,ApproveAiMissionGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveAiMissionGoal>>,
+        TError,
+        ApproveAiMissionGoalMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApproveAiMissionGoalMutationOptions(options));
+    }
+
+export const getGetAiMissionProjectionUrl = (missionId: string,) => {
+
+
+
+
+  return `/api/ai/missions/${missionId}/projection`
+}
+
+/**
+ * @summary Get the read-only Mission Control projection
+ */
+export const getAiMissionProjection = async (missionId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getGetAiMissionProjectionUrl(missionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiMissionProjectionQueryKey = (missionId: string,) => {
+    return [
+    `/api/ai/missions/${missionId}/projection`
+    ] as const;
+    }
+
+
+export const getGetAiMissionProjectionQueryOptions = <TData = Awaited<ReturnType<typeof getAiMissionProjection>>, TError = ErrorType<unknown>>(missionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMissionProjection>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiMissionProjectionQueryKey(missionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMissionProjection>>> = ({ signal }) => getAiMissionProjection(missionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: missionId !== null && missionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiMissionProjection>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiMissionProjectionQueryResult = NonNullable<Awaited<ReturnType<typeof getAiMissionProjection>>>
+export type GetAiMissionProjectionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the read-only Mission Control projection
+ */
+
+export function useGetAiMissionProjection<TData = Awaited<ReturnType<typeof getAiMissionProjection>>, TError = ErrorType<unknown>>(
+ missionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMissionProjection>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiMissionProjectionQueryOptions(missionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetAiGoalUrl = (goalId: string,) => {
+
+
+
+
+  return `/api/ai/goals/${goalId}`
+}
+
+/**
+ * @summary Get an AI goal
+ */
+export const getAiGoal = async (goalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getGetAiGoalUrl(goalId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiGoalQueryKey = (goalId: string,) => {
+    return [
+    `/api/ai/goals/${goalId}`
+    ] as const;
+    }
+
+
+export const getGetAiGoalQueryOptions = <TData = Awaited<ReturnType<typeof getAiGoal>>, TError = ErrorType<unknown>>(goalId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiGoal>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiGoalQueryKey(goalId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiGoal>>> = ({ signal }) => getAiGoal(goalId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: goalId !== null && goalId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiGoal>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiGoalQueryResult = NonNullable<Awaited<ReturnType<typeof getAiGoal>>>
+export type GetAiGoalQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get an AI goal
+ */
+
+export function useGetAiGoal<TData = Awaited<ReturnType<typeof getAiGoal>>, TError = ErrorType<unknown>>(
+ goalId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiGoal>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiGoalQueryOptions(goalId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateAiGoalUrl = (goalId: string,) => {
+
+
+
+
+  return `/api/ai/goals/${goalId}`
+}
+
+/**
+ * @summary Update an AI goal
+ */
+export const updateAiGoal = async (goalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getUpdateAiGoalUrl(goalId),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+
+export const getUpdateAiGoalMutationKey = () => ['updateAiGoal'] as const;
+
+export const getUpdateAiGoalMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiGoal>>, TError,UpdateAiGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiGoal>>, TError,UpdateAiGoalMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAiGoalMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiGoal>>, UpdateAiGoalMutationVariables> = (props) => {
+          const {goalId} = props ?? {};
+
+          return  updateAiGoal(goalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiGoalMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiGoal>>>
+
+    export type UpdateAiGoalMutationError = ErrorType<unknown>
+    export type UpdateAiGoalMutationVariables = {goalId: string}
+
+    /**
+ * @summary Update an AI goal
+ */
+export const useUpdateAiGoal = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiGoal>>, TError,UpdateAiGoalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiGoal>>,
+        TError,
+        UpdateAiGoalMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAiGoalMutationOptions(options));
+    }
+
+export const getAppendAiGoalEventUrl = (goalId: string,) => {
+
+
+
+
+  return `/api/ai/goals/${goalId}/events`
+}
+
+/**
+ * @summary Append a server-validated event to an AI goal
+ */
+export const appendAiGoalEvent = async (goalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getAppendAiGoalEventUrl(goalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getAppendAiGoalEventMutationKey = () => ['appendAiGoalEvent'] as const;
+
+export const getAppendAiGoalEventMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof appendAiGoalEvent>>, TError,AppendAiGoalEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof appendAiGoalEvent>>, TError,AppendAiGoalEventMutationVariables, TContext> => {
+
+const mutationKey = getAppendAiGoalEventMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof appendAiGoalEvent>>, AppendAiGoalEventMutationVariables> = (props) => {
+          const {goalId} = props ?? {};
+
+          return  appendAiGoalEvent(goalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AppendAiGoalEventMutationResult = NonNullable<Awaited<ReturnType<typeof appendAiGoalEvent>>>
+
+    export type AppendAiGoalEventMutationError = ErrorType<unknown>
+    export type AppendAiGoalEventMutationVariables = {goalId: string}
+
+    /**
+ * @summary Append a server-validated event to an AI goal
+ */
+export const useAppendAiGoalEvent = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof appendAiGoalEvent>>, TError,AppendAiGoalEventMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof appendAiGoalEvent>>,
+        TError,
+        AppendAiGoalEventMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAppendAiGoalEventMutationOptions(options));
+    }
+
+export const getBindAiGoalDeliveryUrl = (goalId: string,) => {
+
+
+
+
+  return `/api/ai/goals/${goalId}/delivery`
+}
+
+/**
+ * @summary Bind an approved delivery proposal to an AI goal
+ */
+export const bindAiGoalDelivery = async (goalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getBindAiGoalDeliveryUrl(goalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getBindAiGoalDeliveryMutationKey = () => ['bindAiGoalDelivery'] as const;
+
+export const getBindAiGoalDeliveryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bindAiGoalDelivery>>, TError,BindAiGoalDeliveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bindAiGoalDelivery>>, TError,BindAiGoalDeliveryMutationVariables, TContext> => {
+
+const mutationKey = getBindAiGoalDeliveryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bindAiGoalDelivery>>, BindAiGoalDeliveryMutationVariables> = (props) => {
+          const {goalId} = props ?? {};
+
+          return  bindAiGoalDelivery(goalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BindAiGoalDeliveryMutationResult = NonNullable<Awaited<ReturnType<typeof bindAiGoalDelivery>>>
+
+    export type BindAiGoalDeliveryMutationError = ErrorType<unknown>
+    export type BindAiGoalDeliveryMutationVariables = {goalId: string}
+
+    /**
+ * @summary Bind an approved delivery proposal to an AI goal
+ */
+export const useBindAiGoalDelivery = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bindAiGoalDelivery>>, TError,BindAiGoalDeliveryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bindAiGoalDelivery>>,
+        TError,
+        BindAiGoalDeliveryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getBindAiGoalDeliveryMutationOptions(options));
     }
 
 export const getAiOrchestrateWorkflowUrl = (workflowId: string,) => {
