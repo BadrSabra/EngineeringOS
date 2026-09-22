@@ -496,12 +496,12 @@ function MissionEditor({
     if (editing) {
       onSave({ title: title.trim(), intent: intent.trim(), status, autonomyPolicy: policy.value, budget: budgetValue.value, deadline: isoDateOrNull(deadline) });
     } else {
-      onSave({ projectId, title: title.trim(), intent: intent.trim(), autonomyPolicy: policy.value, budget: budgetValue.value, deadline: isoDateOrNull(deadline) });
+      onSave({ projectId, title: title.trim(), intent: intent.trim(), status: 'active', autonomyPolicy: policy.value, budget: budgetValue.value, deadline: isoDateOrNull(deadline) });
     }
   };
 
   return (
-    <EditorModal title={editing ? 'Edit mission' : 'Create mission'} eyebrow={editing ? 'Mission / update' : 'Mission / new objective'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'Save mission' : 'Create mission'}>
+      <EditorModal title={editing ? 'Edit mission' : 'Start a mission'} eyebrow={editing ? 'Mission / update' : 'Mission / ready to run'} error={error} saving={saving} onClose={onClose} onSubmit={submit} submitLabel={editing ? 'Save details' : 'Start mission'}>
       <div>
         <FieldLabel htmlFor="mission-title">Title</FieldLabel>
         <TextInput id="mission-title" value={title} onChange={setTitle} placeholder="A durable objective with a clear finish line" />

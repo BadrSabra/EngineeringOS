@@ -33,6 +33,7 @@ const CreateMissionBody = z.object({
   projectId: z.string().min(1).max(200),
   title: z.string().trim().min(1).max(200),
   intent: z.string().trim().min(1).max(500),
+  status: z.enum(["draft", "active"]).optional(),
   autonomyPolicy: JsonObjectSchema.optional(),
   budget: JsonObjectSchema.optional(),
   deadline: z.string().datetime().nullable().optional(),
@@ -348,13 +349,14 @@ router.post("/ai/missions", async (req, res) => {
   const now = new Date();
   const missionId = randomUUID();
   const correlationId = randomUUID();
-  const [mission] = await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const created = await tx.insert(aiMissionsTable).values({
       id: missionId,
       projectId: project.id,
       userId: req.userId,
       title: body.title,
       intent: body.intent,
+      status: body.status ?? "draft",
       scope: { kind: "project", projectId: project.id },
       autonomyPolicy: body.autonomyPolicy ?? {},
       budget: body.budget ?? {},
@@ -371,9 +373,16 @@ router.post("/ai/missions", async (req, res) => {
       correlationId,
       payload: { missionId },
     });
-    return created;
+    let activationTaskId: string | undefined;
+    if (created[0]?.status === "active") {
+      activationTaskId = await ensureMissionActivationPlan(tx, created[0], now);
+    }
+    return { mission: created[0], activationTaskId };
   });
-  return res.status(201).json(mission);
+  if (result.activationTaskId) {
+    scheduleAiTaskExecution(result.activationTaskId, req.userId);
+  }
+  return res.status(201).json(result.mission);
 });
 
 router.get("/ai/missions/:missionId", async (req, res) => {

@@ -160,6 +160,7 @@ export interface CreateMissionInput {
   projectId: string;
   title: string;
   intent: string;
+  status?: Extract<MissionStatus, 'draft' | 'active'>;
   autonomyPolicy?: Record<string, unknown>;
   budget?: Record<string, unknown>;
   deadline?: string | null;
