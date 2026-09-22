@@ -21,3 +21,17 @@ reload.
 **How to apply:** Normalize terminal operation state in the shared completion
 path, not in a new projection layer or provider callback, and cover project
 analysis through persisted checkpoint and public reload surfaces.
+
+Goal acceptance should also carry one server-owned projection on the existing
+Goal outcome contract: accepted references, source revision, project/candidate
+scope, validator IDs, receipt identity, and verdict. Task and Recipe executors
+may produce different receipts, but Mission status must consume the same
+projection boundary.
+
+**Why:** Separate Task and Recipe status sync paths otherwise expose completion
+without a durable, comparable proof record and make later Workflow/Delivery
+adapters invent incompatible acceptance shapes.
+
+**How to apply:** Project only allowlisted acceptance metadata after durable
+finalization; never copy provider diagnostics or evidence bodies into the Goal
+contract.

@@ -15,6 +15,7 @@ import {
 } from "@workspace/db";
 import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
 import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
+import { projectGoalAcceptance, type GoalAcceptanceProjection } from "./mission-acceptance-projection.js";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -345,6 +346,42 @@ export function deriveMissionStatusFromGoals(
   return "needs_replan";
 }
 
+function readGoalPlanRevision(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const planRevision = record.planRevision;
+  if (planRevision && typeof planRevision === "object" && !Array.isArray(planRevision)) {
+    const hash = (planRevision as Record<string, unknown>).hash;
+    return typeof hash === "string" ? hash : undefined;
+  }
+  return typeof planRevision === "string" ? planRevision : undefined;
+}
+
+/**
+ * Historical Goals remain visible for audit, but only the active plan revision
+ * can determine the current Mission status. Without this projection boundary,
+ * a failed Goal from an earlier revision would immediately poison every later
+ * replan back to needs_replan.
+ */
+export function selectActiveMissionGoals<
+  T extends {
+    status: ObjectiveGoalStatus;
+    successCriteria?: unknown;
+    outcomeContract?: unknown;
+  },
+>(params: {
+  mission: { autonomyPolicy: Record<string, unknown> };
+  goals: T[];
+}): T[] {
+  const activeRevision = params.mission.autonomyPolicy.activePlanRevision;
+  if (typeof activeRevision !== "string" || activeRevision.length === 0) return params.goals;
+  const activeGoals = params.goals.filter((goal) =>
+    readGoalPlanRevision(goal.successCriteria) === activeRevision
+    || readGoalPlanRevision(goal.outcomeContract) === activeRevision,
+  );
+  return activeGoals.length > 0 ? activeGoals : params.goals;
+}
+
 async function syncLinkedObjectiveState(
   tx: AcceptanceTransaction,
   params: {
@@ -355,6 +392,7 @@ async function syncLinkedObjectiveState(
     executionId: string;
     correlationId: string | null;
     now: Date;
+    acceptanceProjection?: GoalAcceptanceProjection;
   },
 ) {
   if (!params.task.goalId) return;
@@ -368,6 +406,13 @@ async function syncLinkedObjectiveState(
     ))
     .for("update");
   if (!goal) return;
+  if (params.acceptanceProjection) {
+    await projectGoalAcceptance(tx, {
+      goalId: goal.id,
+      projectId: params.task.projectId,
+      projection: params.acceptanceProjection,
+    });
+  }
 
   const siblingTasks = await tx
     .select({ id: tasksTable.id, status: tasksTable.status })
@@ -424,7 +469,12 @@ async function syncLinkedObjectiveState(
   }
 
   const goals = await tx
-    .select({ id: aiGoalsTable.id, status: aiGoalsTable.status })
+    .select({
+      id: aiGoalsTable.id,
+      status: aiGoalsTable.status,
+      successCriteria: aiGoalsTable.successCriteria,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    })
     .from(aiGoalsTable)
     .where(and(
       eq(aiGoalsTable.missionId, goal.missionId),
@@ -445,7 +495,10 @@ async function syncLinkedObjectiveState(
     mission.status === "blocked"
     || mission.status === "cancelled"
     || mission.status === "completed";
-  const effectiveGoalStatuses = goals.map((item) =>
+  const effectiveGoalStatuses = selectActiveMissionGoals({
+    mission,
+    goals,
+  }).map((item) =>
     item.id === goal.id && goalChanged ? nextGoalStatus : item.status,
   );
   const nextMissionStatus = deriveMissionStatusFromGoals(effectiveGoalStatuses);
@@ -1298,6 +1351,34 @@ export async function finalizeExecutionAcceptance(
         executionId: execution.id,
         correlationId,
         now,
+        acceptanceProjection: {
+          acceptanceId: acceptance.id,
+          executionId: execution.id,
+          outcome: acceptance.outcome as GoalAcceptanceProjection["outcome"],
+          verdict: acceptance.outcome === "SUCCEEDED"
+            ? (acceptance.evidenceComplete === 1 ? "PROVEN" : "INCOMPLETE")
+            : "FAILED",
+          evidenceSnapshotId: acceptance.evidenceSnapshotId,
+          evidenceRequired: acceptance.evidenceRequired === 1,
+          evidenceComplete: acceptance.evidenceComplete === 1,
+          sourceRevision: acceptance.sourceRevision,
+          candidateIdentity: acceptance.candidateIdentity,
+          scope: {
+            projectId: execution.projectId,
+            candidateIdentity: acceptance.candidateIdentity,
+          },
+          acceptedRefs: acceptance.evidenceSnapshotId ? [acceptance.evidenceSnapshotId] : [],
+          validatorIds: taskObjective?.validatorIds ?? [],
+          receipt: {
+            kind: "execution_acceptance",
+            id: acceptance.id,
+            executionId: execution.id,
+            status: acceptance.terminalStatus,
+          },
+          reasonCode: acceptance.reasonCode,
+          nextActionCode: acceptance.nextActionCode,
+          updatedAt: now,
+        },
       });
       if (params.taskFinalization.log) {
         await tx.insert(taskLogsTable).values({

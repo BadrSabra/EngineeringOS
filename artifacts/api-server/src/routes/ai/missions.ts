@@ -305,24 +305,26 @@ type MissionPlanGoal = {
   dependencies: string[];
 };
 
-type MissionPlanMaterialization = {
+export type MissionPlanMaterialization = {
   revision: string;
   goals: MissionPlanGoal[];
   primary: MissionPlanGoal;
 };
 
-async function createMissionPlanGoal(
+export async function createMissionPlanGoal(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   mission: typeof aiMissionsTable.$inferSelect,
   now: Date,
   preview: MissionPlanPreview,
   purpose: "activation" | "execution" = "activation",
+  planRevisionOverride?: string,
 ): Promise<MissionPlanMaterialization | undefined> {
   const planKind = purpose === "activation" ? "mission_plan_step" : "mission_replan_step";
   const legacyActivationKind = ACTIVATION_PLAN_KIND;
   const planSnapshot = {
     version: preview.version,
-    hash: preview.plan.planHash,
+    hash: planRevisionOverride ?? preview.plan.planHash,
+    sourceHash: preview.plan.planHash,
     admission: preview.admission,
     objective: preview.objective,
     steps: preview.plan.steps.map((step) => ({
@@ -335,7 +337,7 @@ async function createMissionPlanGoal(
       approvalRequired: step.approvalRequired,
     })),
   };
-  if (purpose === "activation") {
+  {
     const existingGoals = await tx
       .select()
       .from(aiGoalsTable)
@@ -360,13 +362,38 @@ async function createMissionPlanGoal(
           inArray(tasksTable.goalId, existingPlanGoals.map((goal) => goal.id)),
         ))
         .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id));
+      const existingDependencies = await tx
+        .select({
+          goalId: aiGoalDependenciesTable.goalId,
+          dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+        })
+        .from(aiGoalDependenciesTable)
+        .where(and(
+          eq(aiGoalDependenciesTable.missionId, mission.id),
+          eq(aiGoalDependenciesTable.projectId, mission.projectId),
+          eq(aiGoalDependenciesTable.planRevision, planSnapshot.hash),
+          inArray(aiGoalDependenciesTable.goalId, existingPlanGoals.map((goal) => goal.id)),
+        ));
       const goals = existingPlanGoals.flatMap((goal) => {
         const task = existingTasks.find((candidate) => candidate.goalId === goal.id);
-        return task ? [{ stepId: goal.id, goalId: goal.id, taskId: task.id, dependencies: [] as string[] }] : [];
+        const dependencies = existingDependencies
+          .filter((dependency) => dependency.goalId === goal.id)
+          .map((dependency) => dependency.dependsOnGoalId);
+        return task ? [{ stepId: goal.id, goalId: goal.id, taskId: task.id, dependencies }] : [];
       });
       if (goals.length === existingPlanGoals.length) {
         const primary = goals[0];
-        return primary ? { revision: planSnapshot.hash, goals, primary } : undefined;
+        if (!primary) return undefined;
+        await tx.update(aiMissionsTable)
+          .set({
+            autonomyPolicy: {
+              ...mission.autonomyPolicy,
+              activePlanRevision: planSnapshot.hash,
+            },
+            updatedAt: now,
+          })
+          .where(eq(aiMissionsTable.id, mission.id));
+        return { revision: planSnapshot.hash, goals, primary };
       }
     }
   }
@@ -489,6 +516,17 @@ async function createMissionPlanGoal(
     dependencies: step.dependencies,
   }));
   const primary = goals[0];
+  if (primary) {
+    await tx.update(aiMissionsTable)
+      .set({
+        autonomyPolicy: {
+          ...mission.autonomyPolicy,
+          activePlanRevision: planSnapshot.hash,
+        },
+        updatedAt: now,
+      })
+      .where(eq(aiMissionsTable.id, mission.id));
+  }
   return primary ? { revision: planSnapshot.hash, goals, primary } : undefined;
 }
 

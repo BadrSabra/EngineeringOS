@@ -14,7 +14,11 @@ import {
   tasksTable,
 } from "@workspace/db";
 import { GoalNextActionSchema, type GoalNextAction } from "@workspace/ai-orchestrator";
-import { deriveMissionStatusFromGoals } from "./ai-execution-acceptance.js";
+import {
+  deriveMissionStatusFromGoals,
+  selectActiveMissionGoals,
+} from "./ai-execution-acceptance.js";
+import { projectGoalAcceptance } from "./mission-acceptance-projection.js";
 import { deliveryWorkspaceExists } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
 import { runRecipeOperation } from "./recipe-operation-runner.js";
@@ -188,6 +192,28 @@ async function syncRecipeObjectiveState(params: {
     if (!goal) return;
 
     const nextGoalStatus = params.status;
+    if (params.executionId) {
+      await projectGoalAcceptance(tx, {
+        goalId: goal.id,
+        projectId: params.projectId,
+        projection: {
+          executionId: params.executionId,
+          outcome: nextGoalStatus === "completed" ? "SUCCEEDED" : "FAILED",
+          verdict: nextGoalStatus === "completed" ? "PROVEN" : nextGoalStatus === "needs_replan" ? "INCOMPLETE" : "FAILED",
+          scope: {
+            projectId: params.projectId,
+          },
+          acceptedRefs: [params.executionId],
+          receipt: {
+            kind: "recipe",
+            executionId: params.executionId,
+            status: nextGoalStatus,
+          },
+          reasonCode: params.reason,
+          updatedAt: new Date(),
+        },
+      });
+    }
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
@@ -212,7 +238,12 @@ async function syncRecipeObjectiveState(params: {
     });
 
     const goals = await tx
-      .select({ id: aiGoalsTable.id, status: aiGoalsTable.status })
+      .select({
+        id: aiGoalsTable.id,
+        status: aiGoalsTable.status,
+        successCriteria: aiGoalsTable.successCriteria,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      })
       .from(aiGoalsTable)
       .where(and(
         eq(aiGoalsTable.missionId, params.missionId),
@@ -227,8 +258,11 @@ async function syncRecipeObjectiveState(params: {
         eq(aiMissionsTable.projectId, params.projectId),
       ))
       .for("update");
-    if (!mission || mission.status === "blocked" || mission.status === "cancelled") return;
-    const nextMissionStatus = deriveMissionStatusFromGoals(goals.map((item) =>
+    if (!mission || mission.status === "blocked" || mission.status === "cancelled" || mission.status === "completed") return;
+    const nextMissionStatus = deriveMissionStatusFromGoals(selectActiveMissionGoals({
+      mission,
+      goals,
+    }).map((item) =>
       item.id === goal.id ? nextGoalStatus : item.status,
     ));
     if (mission.status === nextMissionStatus) return;
@@ -359,6 +393,18 @@ export async function runMissionGoal(params: {
       .for("update");
     if (!mission) {
       return { status: "conflict" as const, goalId: goal.id, reason: "mission_not_found" };
+    }
+
+    const activePlanRevision = typeof mission.autonomyPolicy.activePlanRevision === "string"
+      ? mission.autonomyPolicy.activePlanRevision
+      : undefined;
+    const goalRevision = goalPlanRevision(goal);
+    if (activePlanRevision && goalRevision && goalRevision !== activePlanRevision) {
+      return {
+        status: "conflict" as const,
+        goalId: goal.id,
+        reason: "stale_plan_revision",
+      };
     }
 
     if (mission.status === "cancelled" || mission.status === "completed") {
