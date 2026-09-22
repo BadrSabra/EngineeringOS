@@ -132,6 +132,17 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
+function missionStatusMessage(status: MissionStatus) {
+  if (status === 'draft') return 'Ready to start';
+  if (status === 'active') return 'Working on your objective';
+  if (status === 'waiting') return 'Waiting for the next step';
+  if (status === 'needs_replan') return 'Needs your attention';
+  if (status === 'completed') return 'Mission complete';
+  if (status === 'failed') return 'Execution failed';
+  if (status === 'cancelled') return 'Mission cancelled';
+  return 'Mission is blocked';
+}
+
 function Metric({ label, value, accent = 'text-slate-100' }: { label: string; value: number | string; accent?: string }) {
   return (
     <div className="border-l border-slate-700/70 pl-3 first:border-l-0 first:pl-0">
@@ -292,7 +303,6 @@ function EventList({ events }: { events: ProjectionEvent[] }) {
   );
 }
 
-const missionStatuses: MissionStatus[] = ['draft', 'active', 'waiting', 'blocked', 'needs_replan', 'completed', 'failed', 'cancelled'];
 const goalStatuses: GoalStatus[] = ['queued', 'planning', 'running', 'waiting_for_event', 'waiting_for_approval', 'verifying', 'needs_replan', 'completed', 'blocked', 'failed', 'cancelled'];
 const priorities: NonNullable<CreateGoalInput['priority']>[] = ['p0', 'p1', 'p2', 'p3'];
 
@@ -476,7 +486,7 @@ function MissionEditor({
   const editing = Boolean(mission);
   const [title, setTitle] = useState(mission?.title ?? '');
   const [intent, setIntent] = useState(mission?.intent ?? '');
-  const [status, setStatus] = useState<MissionStatus>(mission?.status ?? 'draft');
+  const status = mission?.status ?? 'draft';
   const [autonomyPolicy, setAutonomyPolicy] = useState(jsonText(mission?.autonomyPolicy));
   const [budget, setBudget] = useState(jsonText(mission?.budget));
   const [deadline, setDeadline] = useState(localDateValue(mission?.deadline));
@@ -513,11 +523,8 @@ function MissionEditor({
         {fieldErrors.intent ? <p className="mt-1 text-xs text-rose-300">{fieldErrors.intent}</p> : null}
       </div>
       {editing ? (
-        <div>
-          <FieldLabel htmlFor="mission-status">Status</FieldLabel>
-          <select id="mission-status" value={status} onChange={(event) => setStatus(event.target.value as MissionStatus)} data-testid="select-mission-status" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
-            {missionStatuses.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
+        <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
+          Mission execution is managed automatically from the mission workspace.
         </div>
       ) : null}
       <details data-testid="details-mission-advanced" className="rounded-md border border-slate-800 bg-slate-950/25 px-3">
@@ -980,7 +987,7 @@ export default function Missions() {
         setMissions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
         setSelectedMissionId(created.id);
         setEditor(null);
-        setMutationNotice('Mission created.');
+        setMutationNotice('Mission started. Your first plan is running.');
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'mission-edit') {
         const updated = await updateMission(editor.mission.id, data as UpdateMissionInput);
@@ -1014,6 +1021,25 @@ export default function Missions() {
         setMutationNotice(`Task created: ${created.title}`);
         setProjectionReload((value) => value + 1);
       }
+    } catch (error: unknown) {
+      setMutationError(error);
+    } finally {
+      setMutationSaving(false);
+    }
+  };
+
+  const startMission = async () => {
+    if (!activeMission || mutationSaving) return;
+    setMutationSaving(true);
+    setMutationError(null);
+    setMutationNotice(null);
+    try {
+      const updated = await updateMission(activeMission.id, { status: 'active' });
+      setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
+      setMutationNotice('Mission started. Your first plan is running.');
+      setMissionsReload((value) => value + 1);
+      setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       setMutationError(error);
     } finally {
@@ -1145,7 +1171,7 @@ export default function Missions() {
                       <span className="rounded border border-slate-700 bg-slate-950/50 px-2 py-1 font-mono text-[10px] text-slate-500">{missions.length} total</span>
                       <button type="button" onClick={() => openEditor({ type: 'mission-create' })} data-testid="button-create-mission" className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
                         <Plus className="h-3.5 w-3.5" />
-                         New mission
+                         Start a mission
                       </button>
                     </div>
                   </div>
@@ -1210,13 +1236,15 @@ export default function Missions() {
                         </div>
                         <div className="flex shrink-0 items-start gap-3 sm:flex-col sm:items-end">
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => openEditor({ type: 'goal-create', missionId: activeMission.id })} data-testid="button-create-goal" className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-300/20">
-                              <Plus className="h-3.5 w-3.5" />
-                              New goal
-                            </button>
+                            {activeMission.status === 'draft' ? (
+                              <button type="button" onClick={() => void startMission()} disabled={mutationSaving} data-testid={`button-start-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-300/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-300/25 disabled:cursor-wait disabled:opacity-60">
+                                {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
+                                Start mission
+                              </button>
+                            ) : null}
                             <button type="button" onClick={() => openEditor({ type: 'mission-edit', mission: activeMission })} data-testid={`button-edit-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition-colors hover:border-cyan-400/40 hover:text-cyan-100">
                               <Edit3 className="h-3.5 w-3.5" />
-                              Edit mission
+                              Edit details
                             </button>
                           </div>
                           <div className="text-left sm:text-right">
@@ -1226,11 +1254,10 @@ export default function Missions() {
                         </div>
                       </div>
                       <div className="mt-5 flex flex-wrap gap-x-6 gap-y-3">
-                        <Metric label="Goals" value={projection?.counts.goals ?? '—'} accent="text-cyan-200" />
+                        <Metric label="Status" value={missionStatusMessage(activeMission.status)} accent="text-cyan-200" />
+                        <Metric label="Goals" value={projection?.counts.goals ?? '—'} />
                         <Metric label="Tasks" value={projection?.counts.tasks ?? '—'} />
-                        <Metric label="Workflows" value={projection?.counts.workflows ?? '—'} />
                         <Metric label="Executions" value={projection?.counts.executions ?? '—'} />
-                        <Metric label="Events" value={projection?.counts.events ?? '—'} />
                       </div>
                     </div>
 
@@ -1257,13 +1284,17 @@ export default function Missions() {
                         ) : null}
                          <div className="mb-4 flex items-center justify-between gap-3">
                           <div>
-                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Mission goals</p>
-                            <p className="mt-1 text-xs text-slate-600">Expand a goal to inspect its attached records.</p>
+                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Progress</p>
+                            <p className="mt-1 text-xs text-slate-600">The system creates and runs the plan for you.</p>
                           </div>
                            <span className="font-mono text-[10px] text-slate-600">{projectionGoals.length} returned</span>
                         </div>
                         {projectionGoals.length === 0 ? (
-                          <EmptyState icon={ListChecks} title="No goals returned" description="This mission has no goals in the current projection." />
+                          <EmptyState
+                            icon={activeMission.status === 'draft' ? ArrowUpRight : ListChecks}
+                            title={activeMission.status === 'draft' ? 'Ready to start' : 'No progress yet'}
+                            description={activeMission.status === 'draft' ? 'Start this mission to create the plan and begin execution.' : 'The plan is being prepared. Refresh shortly to see its first result.'}
+                          />
                         ) : (
                           <div className="space-y-2">
                             {projectionGoals.map((item) => (

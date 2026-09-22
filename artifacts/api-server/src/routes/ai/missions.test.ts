@@ -230,6 +230,25 @@ describe("AI missions and goals", () => {
     expect(afterRepeat.body.goals[0].tasks).toHaveLength(1);
   });
 
+  it("starts the activation plan during one active mission creation request", async () => {
+    const projectId = await insertProject();
+    const created = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Start in one step",
+      intent: "Create the plan and begin execution without a second status change",
+      status: "active",
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body.status).toBe("active");
+
+    const projection = await request(app)
+      .get(`/api/ai/missions/${created.body.id}/projection`);
+    expect(projection.status).toBe(200);
+    expect(projection.body.goals).toHaveLength(1);
+    expect(projection.body.goals[0].tasks).toHaveLength(1);
+  });
+
   it("rejects invalid goal parent updates and empty patches", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({

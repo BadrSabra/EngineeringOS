@@ -90,7 +90,7 @@ describe('Missions management', () => {
 
     await waitFor(() => expect(screen.getByTestId('button-create-mission')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('button-create-mission'));
-    expect(screen.getByRole('heading', { name: 'Create mission' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Start a mission' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId('mission-title'), {
       target: { value: 'Release readiness' },
@@ -105,6 +105,7 @@ describe('Missions management', () => {
         projectId: project.id,
         title: mission.title,
         intent: mission.intent,
+        status: 'active',
         autonomyPolicy: undefined,
         budget: undefined,
         deadline: null,
@@ -112,7 +113,7 @@ describe('Missions management', () => {
     });
     expect(await screen.findByTestId(`button-mission-${mission.id}`)).toBeInTheDocument();
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
-    expect(screen.getByRole('status')).toHaveTextContent('Mission created.');
+    expect(screen.getByRole('status')).toHaveTextContent('Mission started.');
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
   });
 });
