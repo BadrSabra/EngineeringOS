@@ -1635,6 +1635,7 @@ export async function createAiExecution(params: {
   projectId: string;
   sessionId?: string;
   linkedTaskId?: string;
+  goalId?: string;
   buildPlanMessageId?: string;
   recipeBinding?: RecipeOperationBinding;
   /** Server-owned managed project root used by this execution. */
@@ -1701,6 +1702,7 @@ export async function createAiExecution(params: {
       sessionId: params.sessionId ?? null,
       operationId,
       linkedTaskId: params.linkedTaskId ?? null,
+      goalId: params.goalId ?? null,
       buildPlanMessageId: params.buildPlanMessageId ?? null,
       userId: params.userId,
       idempotencyKey: params.idempotencyKey,

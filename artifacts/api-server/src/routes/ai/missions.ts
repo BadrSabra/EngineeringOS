@@ -29,6 +29,7 @@ import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
 import { runMissionGoal, type MissionGoalRunTrigger } from "../../lib/mission-runtime.js";
+import { approveMissionGoal } from "../../lib/mission-approval.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -848,6 +849,37 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
     goal: result.plan.primary,
     goals: result.plan.goals,
     runs,
+  });
+});
+
+/**
+ * Approve a server-owned proposal currently blocking one Mission Goal.
+ * Applying/delivery remain separate guarded operations; this endpoint only
+ * clears the proposal gate and resumes the existing Mission runtime.
+ */
+router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) => {
+  const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
+  if (!owned) return;
+  const result = await approveMissionGoal({
+    missionId: owned.mission.id,
+    goalId: req.params.goalId,
+    userId: req.userId,
+  });
+  if (result.status !== "approved") {
+    return res.status(result.status === "not_found" ? 404 : 409).json({
+      error: result.status === "not_found"
+        ? "Mission Goal not found"
+        : "Mission Goal approval could not be applied",
+      code: result.reason,
+    });
+  }
+  return res.json({
+    missionId: result.missionId,
+    goalId: result.goalId,
+    executionId: result.executionId,
+    proposalId: result.proposalId,
+    revision: result.revision,
+    run: result.run,
   });
 });
 

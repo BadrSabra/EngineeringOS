@@ -371,6 +371,7 @@ export async function executeTaskLifecycle(params: {
         attempt: before.retryCount,
         projectId: before.projectId,
         linkedTaskId: before.id,
+        goalId: before.goalId ?? undefined,
       });
   if (!durable) {
     return {
