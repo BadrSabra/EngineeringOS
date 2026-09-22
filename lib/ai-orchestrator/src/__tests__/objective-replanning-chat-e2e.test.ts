@@ -440,4 +440,161 @@ describe("chat() closed-loop objective replanning", () => {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it("upgrades an oversized prefetch into a server-owned targeted read before closing the claim", async () => {
+    const claimNeedle = "const objectiveClaim = true;";
+    const sourceLines = Array.from(
+      { length: 9_000 },
+      (_, index) => `export const filler_${index + 1} = ${index + 1};`,
+    );
+    const claimLine = 8_200;
+    sourceLines[claimLine - 1] = claimNeedle;
+    const sourceBody = sourceLines.join("\n");
+    expect(Buffer.byteLength(sourceBody, "utf8")).toBeGreaterThan(256 * 1024);
+
+    const rootPath = await makeRoot({ [PRIMARY]: sourceBody });
+    const retainedEvidence = new Map([[PRIMARY, sourceBody]]);
+    const retainedReadStatuses = new Map<
+      string,
+      "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED"
+    >([[PRIMARY, "READ_TRUNCATED"]]);
+
+    vi.resetModules();
+    vi.doUnmock("../tools/file-tools.js");
+    vi.doUnmock("../tools/git-tools.js");
+    vi.doUnmock("../objective-replanning.js");
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual<Record<string, unknown>>("../provider-registry.js");
+      return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+    });
+    vi.doMock("../agents/query-planner.js", () => ({
+      planQuery: vi.fn().mockResolvedValue(null),
+    }));
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn((scope: string) => ({
+        taskProfile: { taskType: scope },
+      })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({
+        providerId: provider,
+      })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "initial-model",
+        powerModel: "initial-model",
+        fallbackChain: ["initial-model"],
+      })),
+    }));
+    vi.doMock("../openrouter/model-resolver.js", () => ({
+      resolveFallbackChain: vi.fn(() => [{ id: "initial-model" }]),
+    }));
+
+    const providerCalls: unknown[][] = [];
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      ownsModelFallback: true,
+      call: vi.fn(async (messages: unknown[]) => {
+        providerCalls.push(messages);
+        const serialized = JSON.stringify(messages);
+        if (serialized.includes('"role":"tool"')) {
+          return {
+            content: JSON.stringify({
+              response:
+                "## 1) Executive Verdict\n" +
+                "The objective claim is proven from the retained targeted window.\n" +
+                "## 2) Evidence Map\n" +
+                `File: \`${PRIMARY}\`\n` +
+                `Evidence: \`${claimNeedle}\`\n` +
+                "## 3) Findings\nNo additional finding was asserted.\n" +
+                "## 4) Repair Plan\nNo repair is proposed.\n" +
+                "## 5) Validation Checklist\n- Confirm the objective claim remains retained.\n" +
+                "## 6) Final Judgment\nPROVEN — the required objective claim is complete.",
+              sources: [PRIMARY],
+            }),
+            toolCalls: [],
+            model: "initial-model",
+            usage: {},
+          };
+        }
+        return {
+          content: "The source requires the server-owned evidence action.",
+          toolCalls: [],
+          model: "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const result = await chat({
+        message: "Explain how the objective claim is retained from source evidence.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        retainedEvidence,
+        retainedReadStatuses,
+        objective: {
+          objectiveType: "PROJECT_QUERY_BEHAVIOR",
+          goal: "Prove the objective claim from a bounded source window.",
+          requiredEvidencePaths: [PRIMARY],
+          requiredClaims: [{
+            claimId: "primary-objective-claim",
+            text: "The primary source contains the objective claim marker.",
+            requiredEvidencePaths: [PRIMARY],
+            evidenceNeedlesByPath: {
+              [PRIMARY]: [claimNeedle],
+            },
+          }],
+          requiredEvidenceEdges: [],
+        },
+        onStep: (step) => steps.push(step),
+      });
+
+      const targetedCalls = steps.filter(
+        (step): step is Extract<AgentStep, { kind: "tool_call" }> =>
+          step.kind === "tool_call" &&
+          step.tool === "read_file_range" &&
+          step.args?.path === PRIMARY,
+      );
+      expect(targetedCalls.length).toBeGreaterThan(0);
+      const targetedArgs = targetedCalls.at(-1)?.args as {
+        startLine?: string;
+        endLine?: string;
+      };
+      expect(Number(targetedArgs.startLine)).toBeLessThanOrEqual(claimLine);
+      expect(Number(targetedArgs.endLine)).toBeGreaterThanOrEqual(claimLine);
+      expect(Number(targetedArgs.endLine) - Number(targetedArgs.startLine)).toBeLessThan(200);
+      expect(steps).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tool_result",
+          tool: "read_file_range",
+          source: PRIMARY,
+          readStatus: "READ_TARGETED",
+        }),
+      ]));
+      expect(retainedReadStatuses.get(PRIMARY)).toBe("READ_TARGETED");
+      expect(result.evidenceGraph?.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "claim:primary-objective-claim",
+            status: "PROVEN",
+          }),
+        ]),
+      );
+      expect(result.response).toContain("Verified assertion");
+      expect(result.response).toContain("The primary source contains the objective claim marker.");
+      expect(result.response).not.toContain("OBJECTIVE_BLOCKED");
+      expect(providerCalls.length).toBeGreaterThan(0);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });

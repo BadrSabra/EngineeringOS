@@ -9102,6 +9102,12 @@ export async function chat(opts: {
   for (const [filePath, content] of loopResult.fileContents ?? []) {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
   }
+  for (const window of loopResult.evidenceWindows ?? []) {
+    if (!forensicFileContents.has(window.file)) {
+      forensicFileContents.set(window.file, stripReadFileWrapper(window.content));
+    }
+    incompletePrefetchContents.delete(window.file);
+  }
 
   // Closed-loop objective planning: inspect only the server-owned evidence
   // manifest before synthesis and perform at most two read-only replans for
@@ -9221,6 +9227,12 @@ export async function chat(opts: {
 
         for (const [filePath, content] of replanResult.fileContents ?? []) {
           forensicFileContents.set(filePath, stripReadFileWrapper(content));
+        }
+        for (const window of replanResult.evidenceWindows ?? []) {
+          if (!forensicFileContents.has(window.file)) {
+            forensicFileContents.set(window.file, stripReadFileWrapper(window.content));
+          }
+          incompletePrefetchContents.delete(window.file);
         }
         toolSources = [...toolSources, ...replanResult.toolSources];
         objectiveReplanEvidenceWindows.push(

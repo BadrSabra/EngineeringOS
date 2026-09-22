@@ -38,3 +38,9 @@ Server-owned locator bodies may select a bounded `read_file_range` recovery wind
 **Why:** A truncated prefetch can contain the needed symbol outside its visible head. Treating the locator body as proof would bypass the read ledger, while treating the returned window as lines 1..N would produce misleading provenance.
 
 **How to apply:** Carry needles and locator bodies into the tool loop as server-owned inputs, record targeted reads through the normal status ledger, and keep absolute start/end lines alongside the returned window through claim materialization.
+
+An oversized prefetch remains incomplete until a later targeted window is accepted; when that upgrade succeeds, remove the path from the incomplete-read set as well as adding its window to retained evidence.
+
+**Why:** Leaving the path marked incomplete makes the runtime ledger discard the accepted targeted body, so telemetry can report a successful claim while terminal acceptance still blocks on missing completed reads.
+
+**How to apply:** Reconcile each complete evidence window into the retained-body map and clear its path from incomplete-prefetch tracking before building the final ledger.
