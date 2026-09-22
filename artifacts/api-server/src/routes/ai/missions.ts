@@ -284,7 +284,7 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   };
   if (body.status === "completed") {
     updateValues.completedAt = before.completedAt ?? now;
-  } else if (body.status && body.status !== "completed") {
+  } else if (body.status) {
     updateValues.completedAt = null;
   }
 
@@ -373,7 +373,7 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
   };
   if (body.status === "completed") {
     updateValues.completedAt = goal.completedAt ?? now;
-  } else if (body.status && body.status !== "completed") {
+  } else if (body.status) {
     updateValues.completedAt = null;
   }
 

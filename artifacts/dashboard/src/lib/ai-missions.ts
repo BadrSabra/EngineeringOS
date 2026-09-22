@@ -121,11 +121,12 @@ export class MissionRequestError extends Error {
   }
 }
 
-async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function requestJson<T>(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, {
     method: 'GET',
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...(init.headers ?? {}) },
+    ...init,
     signal,
   });
 
@@ -148,9 +149,77 @@ async function requestJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 
 export function fetchMissions(projectId: string, signal?: AbortSignal) {
   const query = new URLSearchParams({ projectId });
-  return requestJson<Mission[]>(`/api/ai/missions?${query.toString()}`, signal);
+  return requestJson<Mission[]>(`/api/ai/missions?${query.toString()}`, {}, signal);
 }
 
 export function fetchMissionProjection(missionId: string, signal?: AbortSignal) {
-  return requestJson<MissionProjection>(`/api/ai/missions/${encodeURIComponent(missionId)}/projection`, signal);
+  return requestJson<MissionProjection>(`/api/ai/missions/${encodeURIComponent(missionId)}/projection`, {}, signal);
+}
+
+export interface CreateMissionInput {
+  projectId: string;
+  title: string;
+  intent: string;
+  autonomyPolicy?: Record<string, unknown>;
+  budget?: Record<string, unknown>;
+  deadline?: string | null;
+}
+
+export interface UpdateMissionInput {
+  title?: string;
+  intent?: string;
+  status?: MissionStatus;
+  autonomyPolicy?: Record<string, unknown>;
+  budget?: Record<string, unknown>;
+  deadline?: string | null;
+}
+
+export interface CreateGoalInput {
+  title: string;
+  description?: string | null;
+  parentGoalId?: string | null;
+  priority?: 'p0' | 'p1' | 'p2' | 'p3';
+  successCriteria?: Record<string, unknown>;
+  evidenceContract?: Record<string, unknown>;
+  outcomeContract?: Record<string, unknown>;
+  nextAction?: Record<string, unknown>;
+}
+
+export interface UpdateGoalInput extends CreateGoalInput {
+  status?: GoalStatus;
+  blockedReason?: string | null;
+  nextWakeAt?: string | null;
+}
+
+function jsonRequest(method: 'POST' | 'PATCH', body: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
+export function createMission(body: CreateMissionInput) {
+  return requestJson<Mission>('/api/ai/missions', jsonRequest('POST', body));
+}
+
+export function updateMission(missionId: string, body: UpdateMissionInput) {
+  return requestJson<Mission>(
+    `/api/ai/missions/${encodeURIComponent(missionId)}`,
+    jsonRequest('PATCH', body),
+  );
+}
+
+export function createGoal(missionId: string, body: CreateGoalInput) {
+  return requestJson<Goal>(
+    `/api/ai/missions/${encodeURIComponent(missionId)}/goals`,
+    jsonRequest('POST', body),
+  );
+}
+
+export function updateGoal(goalId: string, body: UpdateGoalInput) {
+  return requestJson<Goal>(
+    `/api/ai/goals/${encodeURIComponent(goalId)}`,
+    jsonRequest('PATCH', body),
+  );
 }

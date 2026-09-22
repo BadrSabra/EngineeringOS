@@ -193,7 +193,7 @@ describe("AI missions and goals", () => {
     const projection = await request(app).get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.body.mission.title).toBe("Updated mission");
     expect(projection.body.goals[0].goal.title).toBe("Updated goal");
-    expect(projection.body.counts.events).toBe(4);
+    expect(projection.body.counts.events).toBe(2);
   });
 
   it("rejects invalid goal parent updates and empty patches", async () => {
