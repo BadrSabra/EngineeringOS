@@ -91,12 +91,36 @@ export type RecipeCapabilityRuntime = {
   commandProfiles?: readonly CommandProfile[];
   browserProfiles?: readonly string[];
   /**
+   * Read-only, server-owned project data. The recipe provides only a bounded
+   * logical resource; SQL, table names, credentials, and row filtering remain
+   * inside the API-side callback.
+   */
+  databaseReadRunner?: DatabaseReadRunner;
+  /**
    * Server-owned external delivery adapter. The model can provide only the
    * business message; project, operation, proposal, credentials, and remote
    * controls stay inside the API-side callback.
    */
   githubDeliveryRunner?: GitHubDeliveryRunner;
 };
+
+export type DatabaseReadResource = "project_summary" | "active_goals" | "recent_events";
+
+export type DatabaseReadRunner = (args: {
+  projectId: string;
+  operationId: string;
+  resource: DatabaseReadResource;
+  limit: number;
+  signal?: AbortSignal;
+}) => Promise<{
+  status: "passed" | "blocked" | "unavailable";
+  rows?: Array<Record<string, unknown>>;
+  evidence?: {
+    evidenceId: string;
+    resultHash?: string;
+  };
+  detail?: string;
+}>;
 
 export type GitHubDeliveryRunner = (args: {
   rootPath: string;
@@ -326,13 +350,87 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
   };
 }
 
+function databaseReadCapability(runtime: RecipeCapabilityRuntime): CapabilityAdapter | undefined {
+  if (!runtime.databaseReadRunner) return undefined;
+  const inputSchema = z.object({
+    resource: z.enum(["project_summary", "active_goals", "recent_events"]),
+    limit: z.number().int().min(1).max(50).default(20),
+  }).strict();
+  return {
+    contractVersion: 1,
+    id: "database.read_project",
+    supportedRecipeVersions: [1] as const,
+    policy: {
+      ...DEFAULT_CAPABILITY_POLICY,
+      maxInputBytes: 2_048,
+      maxOutputBytes: 256_000,
+    },
+    catalog: {
+      purpose: "Read a bounded, server-approved project data view without raw SQL.",
+      inputShape: {
+        type: "object",
+        fields: [
+          { name: "resource", type: "string", required: true, description: "One server-approved project data view." },
+          { name: "limit", type: "number", required: false, description: "Maximum number of rows, bounded by the server." },
+        ],
+      },
+      defaultScope: "project",
+      supportedScopes: ["project"],
+      estimatedCost: "low",
+      mutatesProject: false,
+      keywords: ["database", "project", "goals", "events", "records"],
+      allowedPhases: ["analysis", "evidence"],
+      projectIds: [],
+      requiresAuthorization: true,
+      expectedEvidence: ["database_read"],
+    },
+    inputSchema,
+    outputSchema: z.object({
+      status: z.enum(["passed", "blocked", "unavailable"]),
+      resource: z.enum(["project_summary", "active_goals", "recent_events"]),
+      rows: z.array(z.record(z.string(), z.unknown())).max(50).optional(),
+      evidence: z.object({
+        evidenceId: z.string().min(1).max(240),
+        resultHash: z.string().max(128).optional(),
+      }).optional(),
+      detail: z.string().max(4_000).optional(),
+    }).strict(),
+    execute: async (input, context) => {
+      const parsedInput = inputSchema.parse(input);
+      if (!context.projectId || !context.operationId) {
+        return {
+          status: "blocked",
+          resource: parsedInput.resource,
+          detail: "A durable project and operation identity are required for database reads.",
+        };
+      }
+      const result = await runtime.databaseReadRunner!({
+        projectId: context.projectId,
+        operationId: context.operationId,
+        resource: parsedInput.resource,
+        limit: parsedInput.limit,
+        signal: context.signal,
+      });
+      return {
+        status: result.status,
+        resource: parsedInput.resource,
+        ...(result.rows ? { rows: result.rows.slice(0, parsedInput.limit) } : {}),
+        ...(result.evidence ? { evidence: result.evidence } : {}),
+        ...(result.detail ? { detail: result.detail.slice(0, 4_000) } : {}),
+      };
+    },
+  };
+}
+
 export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime = {}): CapabilityRegistry {
   const githubCapability = githubDeliveryCapability(runtime);
+  const databaseCapability = databaseReadCapability(runtime);
   const adapters: CapabilityAdapter[] = [
     READ_PROJECT_FILE_CAPABILITY,
     ...VALIDATION_PROFILES.map((profile) => validationCapability(profile, runtime)),
     ...(runtime.browserProfiles ?? []).map((profile) => browserCapability(profile, runtime)),
     ...(runtime.commandProfiles ?? []).map((profile) => commandCapability(profile, runtime)),
+    ...(databaseCapability ? [databaseCapability] : []),
     ...(githubCapability ? [githubCapability] : []),
   ];
   return new CapabilityRegistry(adapters);

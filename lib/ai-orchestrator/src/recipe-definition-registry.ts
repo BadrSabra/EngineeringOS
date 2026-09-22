@@ -214,6 +214,32 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
       BROWSER_POLICY,
     ),
     definition(
+      "database.inspect.project",
+      () => [{
+        id: "read-project-data",
+        title: "Read the approved project data view",
+        capabilityId: "database.read_project",
+        recipeVersion: 1,
+        input: { resource: "project_summary", limit: 1 },
+        dependsOn: [],
+        declaredOutputs: ["status", "rows", "evidence"],
+      }],
+      {
+        success: {
+          kind: "evidence",
+          nodeId: "read-project-data",
+          evidenceType: "database_read",
+        },
+        outputs: [],
+      },
+      {
+        ...DEFAULT_RECIPE_EXECUTION_POLICY,
+        maxAttempts: 1,
+        nodeTimeoutMs: 30_000,
+        maxTotalTimeoutMs: 60_000,
+      },
+    ),
+    definition(
       "delivery.push.github",
       (request) => [{
         id: "github-delivery",

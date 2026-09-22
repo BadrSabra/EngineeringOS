@@ -424,7 +424,12 @@ export {
   READ_PROJECT_FILE_CAPABILITY,
   createServerCapabilityRegistry,
 } from "./recipe-capabilities.js";
-export type { GitHubDeliveryRunner, RecipeCapabilityRuntime } from "./recipe-capabilities.js";
+export type {
+  DatabaseReadResource,
+  DatabaseReadRunner,
+  GitHubDeliveryRunner,
+  RecipeCapabilityRuntime,
+} from "./recipe-capabilities.js";
 export {
   CAPABILITY_CATALOG_VERSION,
   MAX_CATALOG_ENTRIES,

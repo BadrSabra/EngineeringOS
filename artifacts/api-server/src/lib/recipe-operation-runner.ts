@@ -12,8 +12,16 @@ import {
   type ExecutionNode,
   type BrowserValidationRunner,
   type GitHubDeliveryRunner,
+  type RecipeCapabilityRuntime,
   type RecipeEvidence,
 } from "@workspace/ai-orchestrator";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import {
+  aiGoalsTable,
+  db,
+  eventsTable,
+  projectsTable,
+} from "@workspace/db";
 import type { AiExternalEffectCheckpoint } from "./ai-execution-state.js";
 import {
   assertRecipeNodeBinding,
@@ -51,6 +59,7 @@ export type PrepareRecipeOperationParams = {
   deliveryMessage?: string;
   browserValidationRunner?: BrowserValidationRunner;
   githubDeliveryRunner?: GitHubDeliveryRunner;
+  databaseReadRunner?: NonNullable<RecipeCapabilityRuntime["databaseReadRunner"]>;
 };
 
 export type PreparedRecipeOperation = {
@@ -174,6 +183,8 @@ function evidenceForNodes(
       ? "browser_verified" as const
       : node.capabilityId?.startsWith("github.push")
         ? "integration_verified" as const
+        : node.capabilityId?.startsWith("database.read")
+          ? "database_read" as const
       : "validation_passed" as const;
     const evidenceId = outputs.get(node.id)?.evidence
       && typeof outputs.get(node.id)?.evidence === "object"
@@ -187,6 +198,99 @@ function evidenceForNodes(
     }];
   }));
 }
+
+const DEFAULT_DATABASE_READ_RUNNER: NonNullable<RecipeCapabilityRuntime["databaseReadRunner"]> = async ({
+  projectId,
+  operationId,
+  resource,
+  limit,
+  signal,
+}) => {
+  if (signal?.aborted) return { status: "blocked" as const, detail: "Database read was cancelled." };
+  try {
+    let rows: Array<Record<string, unknown>>;
+    if (resource === "project_summary") {
+      const projects = await db
+        .select({
+          id: projectsTable.id,
+          name: projectsTable.name,
+          language: projectsTable.language,
+          status: projectsTable.status,
+          updatedAt: projectsTable.updatedAt,
+        })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1);
+      rows = projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        language: project.language,
+        status: project.status,
+        updatedAt: project.updatedAt.toISOString(),
+      }));
+    } else if (resource === "active_goals") {
+      const goals = await db
+        .select({
+          id: aiGoalsTable.id,
+          title: aiGoalsTable.title,
+          status: aiGoalsTable.status,
+          priority: aiGoalsTable.priority,
+          updatedAt: aiGoalsTable.updatedAt,
+        })
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.projectId, projectId),
+          inArray(aiGoalsTable.status, ["queued", "planning", "running", "waiting_for_event", "waiting_for_approval", "verifying", "needs_replan"]),
+        ))
+        .orderBy(desc(aiGoalsTable.updatedAt), desc(aiGoalsTable.id))
+        .limit(limit);
+      rows = goals.map((goal) => ({
+        id: goal.id,
+        title: goal.title,
+        status: goal.status,
+        priority: goal.priority,
+        updatedAt: goal.updatedAt.toISOString(),
+      }));
+    } else {
+      const events = await db
+        .select({
+          id: eventsTable.id,
+          goalId: eventsTable.goalId,
+          workflowId: eventsTable.workflowId,
+          type: eventsTable.type,
+          severity: eventsTable.severity,
+          message: eventsTable.message,
+          correlationId: eventsTable.correlationId,
+          timestamp: eventsTable.timestamp,
+        })
+        .from(eventsTable)
+        .where(eq(eventsTable.projectId, projectId))
+        .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
+        .limit(limit);
+      rows = events.map((event) => ({
+        id: event.id,
+        goalId: event.goalId,
+        workflowId: event.workflowId,
+        type: event.type,
+        severity: event.severity,
+        message: event.message.slice(0, 500),
+        correlationId: event.correlationId,
+        timestamp: event.timestamp.toISOString(),
+      }));
+    }
+    const resultHash = createHash("sha256").update(JSON.stringify({ projectId, resource, rows })).digest("hex");
+    return {
+      status: "passed" as const,
+      rows,
+      evidence: {
+        evidenceId: `database:${operationId}:${resultHash}`,
+        resultHash,
+      },
+    };
+  } catch {
+    return { status: "unavailable" as const, detail: "The approved project data view is unavailable." };
+  }
+};
 
 function externalEffectForNodes(
   nodes: readonly ExecutionNode[],
