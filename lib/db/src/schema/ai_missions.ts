@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 
@@ -115,7 +116,38 @@ export const aiGoalsTable = pgTable("ai_goals", {
   index("idx_ai_goals_next_wake").on(t.status, t.nextWakeAt),
 ]);
 
+/**
+ * Server-owned completion dependencies between Goals in one Mission plan
+ * revision. This is an execution prerequisite relation, not a general graph:
+ * parentGoalId remains the hierarchy field and this table owns only
+ * "must complete before" edges.
+ */
+export const aiGoalDependenciesTable = pgTable("ai_goal_dependencies", {
+  id: text("id").primaryKey(),
+  missionId: text("mission_id")
+    .notNull()
+    .references(() => aiMissionsTable.id, { onDelete: "cascade" }),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  goalId: text("goal_id")
+    .notNull()
+    .references(() => aiGoalsTable.id, { onDelete: "cascade" }),
+  dependsOnGoalId: text("depends_on_goal_id")
+    .notNull()
+    .references(() => aiGoalsTable.id, { onDelete: "cascade" }),
+  planRevision: text("plan_revision").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("uq_ai_goal_dependency_edge").on(t.goalId, t.dependsOnGoalId, t.planRevision),
+  index("idx_ai_goal_dependencies_goal").on(t.goalId, t.planRevision),
+  index("idx_ai_goal_dependencies_depends_on").on(t.dependsOnGoalId, t.planRevision),
+  index("idx_ai_goal_dependencies_mission_revision").on(t.missionId, t.planRevision),
+]);
+
 export type InsertAiMission = typeof aiMissionsTable.$inferInsert;
 export type AiMission = typeof aiMissionsTable.$inferSelect;
 export type InsertAiGoal = typeof aiGoalsTable.$inferInsert;
 export type AiGoal = typeof aiGoalsTable.$inferSelect;
+export type InsertAiGoalDependency = typeof aiGoalDependenciesTable.$inferInsert;
+export type AiGoalDependency = typeof aiGoalDependenciesTable.$inferSelect;

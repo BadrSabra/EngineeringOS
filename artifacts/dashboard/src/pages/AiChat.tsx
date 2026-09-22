@@ -57,6 +57,7 @@ import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
 import { EvidenceGraphPanel } from '@/components/EvidenceGraphPanel';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
+import { createMissionFromChat } from '@/lib/ai-missions';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
 // not pull server-only deps (groq-sdk, db) into the client.
@@ -5390,6 +5391,7 @@ function TaskResultPanel({
 function MessageBubble({
   msg,
   projectId,
+  sessionId,
   proposalId,
   onPlanDecision,
   planDecisionPending,
@@ -5402,9 +5404,12 @@ function MessageBubble({
   retryPending,
   onRetryProjectQuery,
   projectQueryRetryPending,
+  onMissionHandoff,
+  missionHandoffPending,
 }: {
   msg: ChatMessage;
   projectId?: string;
+  sessionId?: string;
   proposalId?: string;
   onPlanDecision?: (messageId: string, decision: PlanDecision) => void;
   planDecisionPending?: boolean;
@@ -5417,10 +5422,13 @@ function MessageBubble({
   retryPending?: boolean;
   onRetryProjectQuery?: (messageId: string) => void;
   projectQueryRetryPending?: boolean;
+  onMissionHandoff?: (message: ChatMessage) => void;
+  missionHandoffPending?: boolean;
 }) {
   const isUser = msg.role === 'user';
   const isChatTurn = !isUser && msg.turnIntent === 'CHAT';
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
+  const canOfferMissionHandoff = isUser && Boolean(projectId && sessionId && onMissionHandoff);
   const sources = parseSources(msg.sources);
   const toolTrace = parseToolTrace(msg.toolTrace);
   const evidenceGraph = msg.evidenceGraph ?? parseEvidenceGraph(msg.toolTrace);
@@ -5715,6 +5723,22 @@ function MessageBubble({
             </ReactMarkdown>
           )}
         </div>}
+        {canOfferMissionHandoff && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => onMissionHandoff?.(msg)}
+            disabled={missionHandoffPending}
+            data-testid={`button-mission-handoff-${msg.id}`}
+          >
+            {missionHandoffPending
+              ? <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              : <Zap className="mr-1 h-3 w-3" />}
+            {missionHandoffPending ? 'Starting mission…' : 'Start as mission'}
+          </Button>
+        )}
         {internalTechnicalDump && (
           <div className="w-full rounded-lg border border-border/40 bg-background/20">
             <button
@@ -8694,6 +8718,7 @@ export default function AiChat() {
   const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
   const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
   const [planBuildPending, setPlanBuildPending] = useState<string | null>(null);
+  const [missionHandoffPending, setMissionHandoffPending] = useState<string | null>(null);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [proposalId, setProposalId] = useState<string | undefined>(undefined);
   const [proposalUnavailable, setProposalUnavailable] = useState<string | null>(null);
@@ -11477,6 +11502,32 @@ export default function AiChat() {
     sendMessage(input.trim());
   }
 
+  async function handleMissionHandoff(message: ChatMessage) {
+    if (!selectedProjectId || !sessionId || missionHandoffPending) return;
+    setMissionHandoffPending(message.id);
+    try {
+      const result = await createMissionFromChat({
+        projectId: selectedProjectId,
+        message: message.content,
+        sessionId,
+        messageId: message.id,
+      });
+      toast({
+        title: 'Mission started',
+        description: `The approved request is now running as "${result.mission.title}".`,
+      });
+      window.location.assign(`/missions?projectId=${encodeURIComponent(selectedProjectId)}&missionId=${encodeURIComponent(result.mission.id)}`);
+    } catch (error) {
+      toast({
+        title: 'Mission handoff unavailable',
+        description: error instanceof Error ? error.message : 'This request is not eligible for a Mission.',
+        variant: 'destructive',
+      });
+    } finally {
+      setMissionHandoffPending(null);
+    }
+  }
+
   async function handlePlanDecision(messageId: string, decision: PlanDecision) {
     if (planDecisionPending) return;
     setPlanDecisionPending(messageId);
@@ -12294,6 +12345,7 @@ export default function AiChat() {
                   key={msg.id}
                   msg={msg}
                   projectId={selectedProjectId}
+                   sessionId={sessionId}
                    proposalId={proposalId}
                   onPlanDecision={handlePlanDecision}
                   planDecisionPending={planDecisionPending === msg.id}
@@ -12305,6 +12357,8 @@ export default function AiChat() {
                   retryPending={structuredRetryMessageId === msg.id}
                   onRetryProjectQuery={retryProjectQuery}
                   projectQueryRetryPending={projectQueryRetryMessageId === msg.id}
+                   onMissionHandoff={handleMissionHandoff}
+                   missionHandoffPending={missionHandoffPending === msg.id}
                 />
               ))}
                {capabilityGap && <CapabilityGapNotice gap={capabilityGap} projectId={selectedProjectId} />}

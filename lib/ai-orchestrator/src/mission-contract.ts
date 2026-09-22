@@ -46,7 +46,13 @@ export const GoalNextActionSchema = z.discriminatedUnion("kind", [
   GoalReplanActionSchema,
 ]);
 
+export const GoalDependencyInputSchema = z.object({
+  goalId: z.string().min(1).max(200),
+  planRevision: z.string().trim().min(1).max(200),
+}).strict();
+
 export type GoalNextAction = z.infer<typeof GoalNextActionSchema>;
+export type GoalDependencyInput = z.infer<typeof GoalDependencyInputSchema>;
 
 export function parseGoalNextAction(value: unknown): GoalNextAction | undefined {
   const parsed = GoalNextActionSchema.safeParse(value);

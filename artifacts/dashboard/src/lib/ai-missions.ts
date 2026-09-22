@@ -55,6 +55,14 @@ export interface Goal {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  dependencies?: GoalDependency[];
+}
+
+export interface GoalDependency {
+  id: string;
+  goalId: string;
+  dependsOnGoalId: string;
+  planRevision: string;
 }
 
 export interface ProjectionTask {
@@ -184,6 +192,8 @@ export interface CreateGoalInput {
   evidenceContract?: Record<string, unknown>;
   outcomeContract?: Record<string, unknown>;
   nextAction?: Record<string, unknown>;
+  dependsOnGoalIds?: string[];
+  planRevision?: string;
 }
 
 export interface UpdateGoalInput extends CreateGoalInput {
@@ -202,6 +212,53 @@ function jsonRequest(method: 'POST' | 'PATCH', body: unknown): RequestInit {
 
 export function createMission(body: CreateMissionInput) {
   return requestJson<Mission>('/api/ai/missions', jsonRequest('POST', body));
+}
+
+export interface ChatMissionHandoffInput {
+  projectId: string;
+  message: string;
+  title?: string;
+  objective?: string;
+  expectedPlanHash?: string;
+  sessionId?: string;
+  messageId?: string;
+}
+
+export interface ChatMissionHandoffResult {
+  mission: Mission;
+  activation: { goalId: string; taskId: string };
+  preview: {
+    admission: 'mission';
+    admissionReason: string;
+    objective: string;
+    plan: { planHash: string };
+  };
+}
+
+export function createMissionFromChat(body: ChatMissionHandoffInput) {
+  return requestJson<ChatMissionHandoffResult>(
+    '/api/ai/missions/from-chat',
+    jsonRequest('POST', body),
+  );
+}
+
+export interface ReplanMissionInput {
+  message?: string;
+  objective?: string;
+  expectedPlanHash?: string;
+  reason?: string;
+}
+
+export function replanMission(missionId: string, body: ReplanMissionInput) {
+  return requestJson<{
+    mission: Mission;
+    plan: ChatMissionHandoffResult['preview']['plan'];
+    goal: { goalId: string; taskId: string };
+    run: { status: string; goalId: string; reason?: string };
+  }>(
+    `/api/ai/missions/${encodeURIComponent(missionId)}/replan`,
+    jsonRequest('POST', body),
+  );
 }
 
 export function updateMission(missionId: string, body: UpdateMissionInput) {

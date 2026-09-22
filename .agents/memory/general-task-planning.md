@@ -20,3 +20,25 @@ two interpretations of the same objective and makes later recovery ambiguous.
 **How to apply:** Derive both surfaces from the same server-owned preview;
 defer cross-Goal dependency persistence and natural-language Mission handoff
 until their ownership and consent boundaries are explicit.
+
+The durable dependency owner is a revision-bound completion-edge table between
+Goals in one Mission. `parentGoalId` remains hierarchy only; dependency writes
+must validate same-Mission ownership, self-edges, and cycles before insert.
+
+**Why:** Reusing the hierarchy field or adding a parallel graph would conflate
+parentage with execution prerequisites and make replan/recovery ambiguous.
+
+**How to apply:** Gate Goal dispatch on completed dependency Goals, keep pending
+Goals in the existing waiting state, wake them through the durable dispatcher,
+and preserve old revision rows when a new replan Goal is created.
+
+Chat-to-Mission conversion is an explicit server endpoint and UI action. It
+recomputes the server-owned preview, optionally binds to an owned user chat
+message, rejects stale plan hashes, and only then creates an active Mission.
+
+**Why:** Provider prose, a successful chat response, or a plan preview must not
+silently grant durable execution authority.
+
+**How to apply:** Keep ordinary Chat and Project Query paths unchanged; use the
+same activation planner/runtime for the handoff, and require a fresh Mission
+revision for replan rather than mutating historical Goals.

@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
+  aiGoalDependenciesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -36,6 +37,60 @@ export type MissionGoalRunResult = {
 const ACTIVE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 const RECIPE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
 type RecipeGoalAction = Extract<GoalNextAction, { kind: "recipe" }>;
+type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type GoalDependencyState = {
+  planRevision?: string;
+  dependencies: Array<{ dependsOnGoalId: string }>;
+  dependencyGoals: Array<{
+    id: string;
+    title: string;
+    status: typeof aiGoalsTable.$inferSelect["status"];
+  }>;
+};
+
+function goalPlanRevision(goal: typeof aiGoalsTable.$inferSelect): string | undefined {
+  const contract = goal.outcomeContract;
+  if (!contract || typeof contract !== "object" || Array.isArray(contract)) return undefined;
+  const revision = (contract as { planRevision?: unknown }).planRevision;
+  if (!revision || typeof revision !== "object" || Array.isArray(revision)) return undefined;
+  const hash = (revision as { hash?: unknown }).hash;
+  return typeof hash === "string" && hash.trim() ? hash : undefined;
+}
+
+async function loadGoalDependencyState(
+  tx: MissionTransaction,
+  goal: typeof aiGoalsTable.$inferSelect,
+): Promise<GoalDependencyState> {
+  const planRevision = goalPlanRevision(goal);
+  if (!planRevision) {
+    return {
+      planRevision,
+      dependencies: [],
+      dependencyGoals: [],
+    };
+  }
+  const dependencies = await tx
+    .select({ dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId })
+    .from(aiGoalDependenciesTable)
+    .where(and(
+      eq(aiGoalDependenciesTable.goalId, goal.id),
+      eq(aiGoalDependenciesTable.missionId, goal.missionId),
+      eq(aiGoalDependenciesTable.projectId, goal.projectId),
+      eq(aiGoalDependenciesTable.planRevision, planRevision),
+    ));
+  if (dependencies.length === 0) {
+    return { planRevision, dependencies, dependencyGoals: [] };
+  }
+  const dependencyGoals = await tx
+    .select({ id: aiGoalsTable.id, title: aiGoalsTable.title, status: aiGoalsTable.status })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, goal.missionId),
+      eq(aiGoalsTable.projectId, goal.projectId),
+      inArray(aiGoalsTable.id, dependencies.map((dependency) => dependency.dependsOnGoalId)),
+    ));
+  return { planRevision, dependencies, dependencyGoals };
+}
 
 type RecipeDispatch = {
   goalId: string;
@@ -316,6 +371,72 @@ export async function runMissionGoal(params: {
       return { status: "blocked" as const, goalId: goal.id, reason: "goal_operator_owned" };
     }
 
+    const dependencyState = await loadGoalDependencyState(tx, goal);
+    if (dependencyState.dependencies.length > 0) {
+      const failedDependency = dependencyState.dependencyGoals.find((dependency) =>
+        dependency.status === "failed"
+        || dependency.status === "cancelled"
+        || dependency.status === "blocked"
+        || dependency.status === "needs_replan",
+      );
+      if (failedDependency) {
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "needs_replan",
+            blockedReason: `Dependency "${failedDependency.title}" did not complete.`,
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        if (mission.status !== "blocked") {
+          await tx.update(aiMissionsTable)
+            .set({ status: "needs_replan", updatedAt: now })
+            .where(eq(aiMissionsTable.id, mission.id));
+        }
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalDependencyBlocked",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "warning",
+          message: `AI goal "${goal.title}" requires a replan because a dependency did not complete`,
+          payload: {
+            missionId: mission.id,
+            planRevision: dependencyState.planRevision,
+            dependencyGoalId: failedDependency.id,
+            dependencyStatus: failedDependency.status,
+          },
+        });
+        return { status: "blocked" as const, goalId: goal.id, reason: "dependency_failed" };
+      }
+      const allDependenciesCompleted =
+        dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+      if (!allDependenciesCompleted) {
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "waiting_for_event",
+            blockedReason: "dependencies_pending",
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        if (mission.status !== "blocked") {
+          await tx.update(aiMissionsTable)
+            .set({ status: "waiting", updatedAt: now })
+            .where(eq(aiMissionsTable.id, mission.id));
+        }
+        return { status: "waiting" as const, goalId: goal.id, reason: "dependencies_pending" };
+      }
+      if (goal.status === "waiting_for_event" && goal.blockedReason === "dependencies_pending") {
+        await tx.update(aiGoalsTable)
+          .set({ status: "queued", blockedReason: null, updatedAt: new Date() })
+          .where(eq(aiGoalsTable.id, goal.id));
+      }
+    }
+
     const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
     if (!parsedAction.success) {
       return { status: "blocked" as const, goalId: goal.id, reason: "invalid_next_action" };
@@ -473,6 +594,85 @@ export async function runMissionGoal(params: {
     scheduleAiTaskExecution(decision.taskId, params.userId);
   }
   return decision;
+}
+
+/**
+ * Re-queues Goals that were held on a completion dependency. This uses the
+ * existing durable dispatcher; it does not execute a second dependency engine.
+ */
+export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
+  const candidates = await db
+    .select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.status, "waiting_for_event"),
+      eq(aiGoalsTable.blockedReason, "dependencies_pending"),
+    ))
+    .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
+    .limit(Math.max(1, Math.min(limit, 100)));
+
+  let woken = 0;
+  for (const candidate of candidates) {
+    const ready = await db.transaction(async (tx) => {
+      const [goal] = await tx
+        .select()
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, candidate.id),
+          eq(aiGoalsTable.missionId, candidate.missionId),
+          eq(aiGoalsTable.projectId, candidate.projectId),
+          eq(aiGoalsTable.status, "waiting_for_event"),
+          eq(aiGoalsTable.blockedReason, "dependencies_pending"),
+        ))
+        .for("update");
+      if (!goal) return undefined;
+      const [mission] = await tx
+        .select({ userId: aiMissionsTable.userId })
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, goal.missionId),
+          eq(aiMissionsTable.projectId, goal.projectId),
+        ))
+        .for("update");
+      if (!mission) return undefined;
+      const dependencyState = await loadGoalDependencyState(tx, goal);
+      const allDependenciesCompleted =
+        dependencyState.dependencies.length > 0
+        && dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+        && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+      if (!allDependenciesCompleted) return undefined;
+      await tx.update(aiGoalsTable)
+        .set({
+          status: "queued",
+          blockedReason: null,
+          nextWakeAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(aiGoalsTable.id, goal.id));
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalDependencyReady",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "info",
+        message: `AI goal "${goal.title}" is ready after its dependencies completed`,
+        payload: { missionId: goal.missionId, planRevision: dependencyState.planRevision },
+      });
+      return { userId: mission.userId };
+    });
+    if (!ready) continue;
+    const result = await runMissionGoal({
+      goalId: candidate.id,
+      userId: ready.userId,
+      trigger: "wake",
+    });
+    if (result.status === "scheduled" || result.status === "completed") woken += 1;
+  }
+  return woken;
 }
 
 /**

@@ -9,6 +9,9 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  aiGoalDependenciesTable,
+  aiChatMessagesTable,
+  aiChatSessionsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -25,7 +28,7 @@ import {
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
-import { runMissionGoal } from "../../lib/mission-runtime.js";
+import { runMissionGoal, type MissionGoalRunTrigger } from "../../lib/mission-runtime.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -50,6 +53,23 @@ const MissionPlanPreviewBody = z.object({
   projectOrientation: z.boolean().optional(),
 }).strict();
 
+const MissionChatHandoffBody = z.object({
+  projectId: z.string().min(1).max(200),
+  message: z.string().trim().min(1).max(10_000),
+  title: z.string().trim().min(1).max(200).optional(),
+  objective: z.string().trim().min(1).max(2_000).optional(),
+  expectedPlanHash: z.string().trim().min(1).max(200).optional(),
+  sessionId: z.string().uuid().optional(),
+  messageId: z.string().uuid().optional(),
+}).strict();
+
+const MissionReplanBody = z.object({
+  message: z.string().trim().min(1).max(10_000).optional(),
+  objective: z.string().trim().min(1).max(2_000).optional(),
+  expectedPlanHash: z.string().trim().min(1).max(200).optional(),
+  reason: z.string().trim().min(1).max(2_000).optional(),
+}).strict();
+
 const CreateGoalBody = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(5_000).nullable().optional(),
@@ -59,6 +79,8 @@ const CreateGoalBody = z.object({
   evidenceContract: JsonObjectSchema.optional(),
   outcomeContract: JsonObjectSchema.optional(),
   nextAction: GoalNextActionSchema.optional(),
+  dependsOnGoalIds: z.array(z.string().min(1).max(200)).max(32).optional(),
+  planRevision: z.string().trim().min(1).max(200).optional(),
 }).strict();
 
 const UpdateMissionBody = z.object({
@@ -80,9 +102,113 @@ const UpdateGoalBody = z.object({
   evidenceContract: JsonObjectSchema.optional(),
   outcomeContract: JsonObjectSchema.optional(),
   nextAction: GoalNextActionSchema.optional(),
+  dependsOnGoalIds: z.array(z.string().min(1).max(200)).max(32).optional(),
+  planRevision: z.string().trim().min(1).max(200).optional(),
   blockedReason: z.string().trim().max(5_000).nullable().optional(),
   nextWakeAt: z.string().datetime().nullable().optional(),
 }).strict();
+
+type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+class GoalDependencyValidationError extends Error {}
+
+async function setGoalDependencies(
+  tx: MissionTransaction,
+  params: {
+    missionId: string;
+    projectId: string;
+    goalId: string;
+    dependsOnGoalIds: string[];
+    planRevision?: string;
+  },
+): Promise<void> {
+  const dependencyIds = [...new Set(params.dependsOnGoalIds)];
+  if (dependencyIds.length === 0) {
+    if (params.planRevision) {
+      await tx.delete(aiGoalDependenciesTable).where(and(
+        eq(aiGoalDependenciesTable.goalId, params.goalId),
+        eq(aiGoalDependenciesTable.planRevision, params.planRevision),
+      ));
+    }
+    return;
+  }
+  if (!params.planRevision) {
+    throw new GoalDependencyValidationError("planRevision is required when dependsOnGoalIds is provided");
+  }
+  if (dependencyIds.includes(params.goalId)) {
+    throw new GoalDependencyValidationError("A goal cannot depend on itself");
+  }
+
+  const relatedIds = [params.goalId, ...dependencyIds];
+  const relatedGoals = await tx
+    .select({ id: aiGoalsTable.id })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, params.missionId),
+      eq(aiGoalsTable.projectId, params.projectId),
+      inArray(aiGoalsTable.id, relatedIds),
+    ))
+    .for("update");
+  if (relatedGoals.length !== relatedIds.length) {
+    throw new GoalDependencyValidationError("All dependencies must reference goals in the same mission");
+  }
+
+  const existingEdges = await tx
+    .select({
+      goalId: aiGoalDependenciesTable.goalId,
+      dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+    })
+    .from(aiGoalDependenciesTable)
+    .where(and(
+      eq(aiGoalDependenciesTable.missionId, params.missionId),
+      eq(aiGoalDependenciesTable.projectId, params.projectId),
+      eq(aiGoalDependenciesTable.planRevision, params.planRevision),
+    ))
+    .for("update");
+  const edges = [
+    ...existingEdges.filter((edge) => edge.goalId !== params.goalId),
+    ...dependencyIds.map((dependsOnGoalId) => ({
+      goalId: params.goalId,
+      dependsOnGoalId,
+    })),
+  ];
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edges) {
+    adjacency.set(edge.goalId, [
+      ...(adjacency.get(edge.goalId) ?? []),
+      edge.dependsOnGoalId,
+    ]);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const hasCycle = (goalId: string): boolean => {
+    if (visiting.has(goalId)) return true;
+    if (visited.has(goalId)) return false;
+    visiting.add(goalId);
+    for (const dependencyId of adjacency.get(goalId) ?? []) {
+      if (hasCycle(dependencyId)) return true;
+    }
+    visiting.delete(goalId);
+    visited.add(goalId);
+    return false;
+  };
+  if (relatedIds.some(hasCycle)) {
+    throw new GoalDependencyValidationError("Goal dependencies cannot contain a cycle");
+  }
+
+  await tx.delete(aiGoalDependenciesTable).where(and(
+    eq(aiGoalDependenciesTable.goalId, params.goalId),
+    eq(aiGoalDependenciesTable.planRevision, params.planRevision),
+  ));
+  await tx.insert(aiGoalDependenciesTable).values(dependencyIds.map((dependsOnGoalId) => ({
+    id: randomUUID(),
+    missionId: params.missionId,
+    projectId: params.projectId,
+    goalId: params.goalId,
+    dependsOnGoalId,
+    planRevision: params.planRevision!,
+  })));
+}
 
 async function loadOwnedMission(
   missionId: string,
@@ -172,52 +298,28 @@ function publicEvent(event: typeof eventsTable.$inferSelect) {
   };
 }
 
-function isActivationGoal(goal: typeof aiGoalsTable.$inferSelect) {
-  const nextAction = GoalNextActionSchema.safeParse(goal.nextAction);
-  const successCriteria = goal.successCriteria;
-  return Boolean(
-    nextAction.success
-      && nextAction.data.kind === "task"
-      && nextAction.data.purpose === "activation"
-      && successCriteria
-      && typeof successCriteria === "object"
-      && !Array.isArray(successCriteria)
-      && (successCriteria as { kind?: unknown }).kind === ACTIVATION_PLAN_KIND,
-  );
-}
+type MissionPlanGoal = {
+  stepId: string;
+  goalId: string;
+  taskId: string;
+  dependencies: string[];
+};
 
-async function ensureMissionActivationPlan(
+type MissionPlanMaterialization = {
+  revision: string;
+  goals: MissionPlanGoal[];
+  primary: MissionPlanGoal;
+};
+
+async function createMissionPlanGoal(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   mission: typeof aiMissionsTable.$inferSelect,
   now: Date,
   preview: MissionPlanPreview,
-) {
-  const existingGoals = await tx
-    .select()
-    .from(aiGoalsTable)
-    .where(eq(aiGoalsTable.missionId, mission.id))
-    .for("update");
-  const existingActivationGoal = existingGoals.find(isActivationGoal);
-  if (existingActivationGoal) {
-    const [existingTask] = await tx
-      .select({ id: tasksTable.id })
-      .from(tasksTable)
-      .where(and(
-        eq(tasksTable.projectId, mission.projectId),
-        eq(tasksTable.goalId, existingActivationGoal.id),
-      ))
-      .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
-      .limit(1);
-    return existingTask
-      ? { goalId: existingActivationGoal.id, taskId: existingTask.id }
-      : undefined;
-  }
-
-  const goalId = randomUUID();
-  const taskId = randomUUID();
-  const correlationId = randomUUID();
-  const goalTitle = `Plan: ${mission.title}`;
-  const taskTitle = `Execute: ${mission.title}`;
+  purpose: "activation" | "execution" = "activation",
+): Promise<MissionPlanMaterialization | undefined> {
+  const planKind = purpose === "activation" ? "mission_plan_step" : "mission_replan_step";
+  const legacyActivationKind = ACTIVATION_PLAN_KIND;
   const planSnapshot = {
     version: preview.version,
     hash: preview.plan.planHash,
@@ -228,78 +330,123 @@ async function ensureMissionActivationPlan(
       title: step.title,
       kind: step.kind,
       dependencies: step.dependencies,
+      files: step.files,
       readOnly: step.readOnly,
       approvalRequired: step.approvalRequired,
     })),
   };
-  const planSteps = planSnapshot.steps
-    .map((step) => `${step.id}: ${step.title} (depends on: ${step.dependencies.join(", ") || "none"})`)
-    .join("\n");
-  const activationPrompt = [
-    `Mission objective: ${mission.intent}`,
-    `Server-owned plan revision: ${planSnapshot.hash}`,
-    "Follow the bounded plan sequence below. Planning is not proof of completion.",
-    planSteps,
-    "Inspect the project's available context before acting.",
-    "Produce an evidence-backed progress report with concrete next steps.",
-    "Do not claim completion without project-grounded evidence.",
-  ].join("\n");
+  if (purpose === "activation") {
+    const existingGoals = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, mission.id))
+      .for("update");
+    const existingPlanGoals = existingGoals.filter((goal) => {
+      const successCriteria = goal.successCriteria;
+      if (!successCriteria || typeof successCriteria !== "object" || Array.isArray(successCriteria)) {
+        return false;
+      }
+      const kind = (successCriteria as { kind?: unknown }).kind;
+      const planRevision = (successCriteria as { planRevision?: { hash?: unknown } }).planRevision;
+      return (kind === planKind || kind === legacyActivationKind)
+        && planRevision?.hash === planSnapshot.hash;
+    });
+    if (existingPlanGoals.length > 0) {
+      const existingTasks = await tx
+        .select({ id: tasksTable.id, goalId: tasksTable.goalId })
+        .from(tasksTable)
+        .where(and(
+          eq(tasksTable.projectId, mission.projectId),
+          inArray(tasksTable.goalId, existingPlanGoals.map((goal) => goal.id)),
+        ))
+        .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id));
+      const goals = existingPlanGoals.flatMap((goal) => {
+        const task = existingTasks.find((candidate) => candidate.goalId === goal.id);
+        return task ? [{ stepId: goal.id, goalId: goal.id, taskId: task.id, dependencies: [] as string[] }] : [];
+      });
+      if (goals.length === existingPlanGoals.length) {
+        const primary = goals[0];
+        return primary ? { revision: planSnapshot.hash, goals, primary } : undefined;
+      }
+    }
+  }
 
-  await tx.insert(aiGoalsTable).values({
+  const materialized = planSnapshot.steps.map((step) => ({
+    step,
+    goalId: randomUUID(),
+    taskId: randomUUID(),
+    correlationId: randomUUID(),
+  }));
+  await tx.insert(aiGoalsTable).values(materialized.map(({ step, goalId, taskId }) => ({
     id: goalId,
     missionId: mission.id,
     projectId: mission.projectId,
-    title: goalTitle,
-    description: `Initial execution plan for mission "${mission.title}".`,
-    status: "running",
+    title: step.title,
+    description: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" for mission "${mission.title}".`,
+    status: "queued" as const,
     priority: "p1",
     successCriteria: {
-      kind: ACTIVATION_PLAN_KIND,
+      kind: planKind,
       missionId: mission.id,
-      objective: mission.intent,
+      stepId: step.id,
+      objective: preview.objective,
       planRevision: planSnapshot,
     },
     evidenceContract: {
       required: true,
       source: "project_context",
       planHash: planSnapshot.hash,
+      stepId: step.id,
     },
     outcomeContract: {
       kind: "evidence_backed_progress_report",
+      stepId: step.id,
       planRevision: planSnapshot,
     },
     nextAction: {
-      kind: "task",
+      kind: "task" as const,
       taskId,
-      purpose: "activation",
+      purpose,
     },
     createdAt: now,
     updatedAt: now,
-  });
-  await tx.insert(tasksTable).values({
+  })));
+  await tx.insert(tasksTable).values(materialized.map(({ step, goalId, taskId, correlationId }) => ({
     id: taskId,
     projectId: mission.projectId,
     goalId,
-    title: taskTitle,
-    description: mission.intent,
-    status: "verifying",
-    priority: "p1",
-    phase: "execute",
-    prompt: activationPrompt,
+    title: step.title,
+    description: preview.objective,
+    status: "verifying" as const,
+    priority: "p1" as const,
+    phase: step.kind,
+    prompt: [
+      `Mission objective: ${preview.objective}`,
+      `Server-owned plan revision: ${planSnapshot.hash}`,
+      `Current plan step: ${step.id} — ${step.title}`,
+      `Step kind: ${step.kind}`,
+      `Step dependencies: ${step.dependencies.join(", ") || "none"}`,
+      `Read-only: ${step.readOnly ? "yes" : "no"}`,
+      `Approval required: ${step.approvalRequired ? "yes" : "no"}`,
+      `Relevant paths: ${step.files.join(", ") || "server-selected project context"}`,
+      "Planning is not proof of completion.",
+      "Produce an evidence-backed progress report for this step.",
+      "Do not claim completion without project-grounded evidence.",
+    ].join("\n"),
     correlationId,
     createdAt: now,
     updatedAt: now,
-  });
-  await tx.insert(eventsTable).values([
+  })));
+  await tx.insert(eventsTable).values(materialized.flatMap(({ step, goalId, taskId, correlationId }) => ([
     {
       id: randomUUID(),
       type: "AiGoalCreated",
       projectId: mission.projectId,
       goalId,
-      severity: "info",
-      message: `Activation plan created for AI mission "${mission.title}"`,
+      severity: "info" as const,
+      message: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" created for AI mission "${mission.title}"`,
       correlationId,
-      payload: { missionId: mission.id, activation: true },
+      payload: { missionId: mission.id, stepId: step.id, activation: purpose === "activation", purpose },
     },
     {
       id: randomUUID(),
@@ -307,13 +454,67 @@ async function ensureMissionActivationPlan(
       projectId: mission.projectId,
       goalId,
       taskId,
-      severity: "info",
-      message: `Activation task queued for AI mission "${mission.title}"`,
+      severity: "info" as const,
+      message: `${purpose === "activation" ? "Mission" : "Replan"} task queued for step "${step.id}"`,
       correlationId,
-      payload: { missionId: mission.id, activation: true },
+      payload: { missionId: mission.id, stepId: step.id, activation: purpose === "activation", purpose },
     },
-  ]);
-  return { goalId, taskId };
+  ])));
+
+  const goalByStepId = new Map(materialized.map(({ step, goalId }) => [step.id, goalId]));
+  for (const { step, goalId } of materialized) {
+    const dependencyGoalIds: string[] = [];
+    for (const dependencyId of step.dependencies) {
+      const dependencyGoalId = goalByStepId.get(dependencyId);
+      if (!dependencyGoalId) {
+        throw new Error(`Mission plan step "${step.id}" references an unknown dependency`);
+      }
+      dependencyGoalIds.push(dependencyGoalId);
+    }
+    if (dependencyGoalIds.length > 0) {
+      await setGoalDependencies(tx, {
+        missionId: mission.id,
+        projectId: mission.projectId,
+        goalId,
+        dependsOnGoalIds: dependencyGoalIds,
+        planRevision: planSnapshot.hash,
+      });
+    }
+  }
+
+  const goals = materialized.map(({ step, goalId, taskId }) => ({
+    stepId: step.id,
+    goalId,
+    taskId,
+    dependencies: step.dependencies,
+  }));
+  const primary = goals[0];
+  return primary ? { revision: planSnapshot.hash, goals, primary } : undefined;
+}
+
+async function ensureMissionActivationPlan(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  mission: typeof aiMissionsTable.$inferSelect,
+  now: Date,
+  preview: MissionPlanPreview,
+) {
+  return createMissionPlanGoal(tx, mission, now, preview, "activation");
+}
+
+async function dispatchMissionPlan(
+  materialization: MissionPlanMaterialization,
+  userId: string,
+  trigger: MissionGoalRunTrigger,
+) {
+  const runs = [];
+  for (const planGoal of materialization.goals) {
+    runs.push(await runMissionGoal({
+      goalId: planGoal.goalId,
+      userId,
+      trigger,
+    }));
+  }
+  return runs;
 }
 
 async function buildMissionProjection(
@@ -329,7 +530,7 @@ async function buildMissionProjection(
     };
   }
 
-  const [tasks, workflows, executions, events] = await Promise.all([
+  const [tasks, workflows, executions, events, dependencies] = await Promise.all([
     db.select().from(tasksTable).where(and(
       eq(tasksTable.projectId, mission.projectId),
       inArray(tasksTable.goalId, goalIds),
@@ -346,12 +547,24 @@ async function buildMissionProjection(
       eq(eventsTable.projectId, mission.projectId),
       inArray(eventsTable.goalId, goalIds),
     )).orderBy(desc(eventsTable.timestamp), desc(eventsTable.id)),
+    db.select({
+      id: aiGoalDependenciesTable.id,
+      goalId: aiGoalDependenciesTable.goalId,
+      dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+      planRevision: aiGoalDependenciesTable.planRevision,
+    }).from(aiGoalDependenciesTable).where(and(
+      eq(aiGoalDependenciesTable.projectId, mission.projectId),
+      inArray(aiGoalDependenciesTable.goalId, goalIds),
+    )),
   ]);
 
   return {
     mission,
     goals: goals.map((goal) => ({
-      goal,
+      goal: {
+        ...goal,
+        dependencies: dependencies.filter((dependency) => dependency.goalId === goal.id),
+      },
       tasks: tasks.filter((task) => task.goalId === goal.id).map(publicTask),
       workflows: workflows.filter((workflow) => workflow.goalId === goal.id).map(publicWorkflow),
       executions: executions.filter((execution) => execution.goalId === goal.id).map(publicExecution),
@@ -401,6 +614,202 @@ router.post("/ai/missions/plan-preview", async (req, res) => {
   }));
 });
 
+/**
+ * Explicit consent boundary from Chat into the durable Mission runtime.
+ * The caller must submit the same message used for the preview and may bind
+ * the handoff to its chat session/message. No provider output can trigger this
+ * route implicitly.
+ */
+router.post("/ai/missions/from-chat", async (req, res) => {
+  const body = MissionChatHandoffBody.parse(req.body);
+  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+  if (!project) return;
+  if ((body.sessionId && !body.messageId) || (!body.sessionId && body.messageId)) {
+    return res.status(400).json({
+      error: "sessionId and messageId must be provided together",
+      code: "CHAT_HANDOFF_CONTEXT_INCOMPLETE",
+    });
+  }
+  if (body.sessionId && body.messageId) {
+    const [source] = await db
+      .select({
+        sessionProjectId: aiChatSessionsTable.projectId,
+        messageSessionId: aiChatMessagesTable.sessionId,
+        role: aiChatMessagesTable.role,
+      })
+      .from(aiChatMessagesTable)
+      .innerJoin(
+        aiChatSessionsTable,
+        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+      )
+      .where(and(
+        eq(aiChatMessagesTable.id, body.messageId),
+        eq(aiChatSessionsTable.id, body.sessionId),
+      ))
+      .limit(1);
+    if (!source || source.sessionProjectId !== project.id || source.role !== "user") {
+      return res.status(409).json({
+        error: "The selected chat message is not a user message in this project",
+        code: "CHAT_HANDOFF_CONTEXT_INVALID",
+      });
+    }
+  }
+
+  const preview = buildMissionPlanPreview({
+    message: body.message,
+    objective: body.objective,
+  });
+  if (preview.admission !== "mission") {
+    return res.status(409).json({
+      error: "This request is not eligible for Mission execution",
+      code: "MISSION_ADMISSION_REQUIRED",
+      admission: preview.admission,
+      admissionReason: preview.admissionReason,
+      preview,
+    });
+  }
+  if (body.expectedPlanHash && body.expectedPlanHash !== preview.plan.planHash) {
+    return res.status(409).json({
+      error: "The Mission preview is stale. Refresh the preview before handing off.",
+      code: "MISSION_PREVIEW_STALE",
+      expectedPlanHash: body.expectedPlanHash,
+      actualPlanHash: preview.plan.planHash,
+    });
+  }
+
+  const now = new Date();
+  const missionId = randomUUID();
+  const title = body.title ?? preview.objective.slice(0, 200);
+  const source = body.sessionId && body.messageId
+    ? { kind: "chat", sessionId: body.sessionId, messageId: body.messageId }
+    : { kind: "chat", sessionId: null, messageId: null };
+  const result = await db.transaction(async (tx) => {
+    const [mission] = await tx.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId: project.id,
+      userId: req.userId,
+      title,
+      intent: preview.objective,
+      status: "active",
+      scope: { kind: "project", projectId: project.id },
+      autonomyPolicy: { handoffSource: source },
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiMissionCreatedFromChat",
+      projectId: project.id,
+      severity: "info",
+      message: `AI mission "${title}" was explicitly handed off from Chat`,
+      correlationId: body.messageId ?? missionId,
+      payload: {
+        missionId,
+        source,
+        planHash: preview.plan.planHash,
+        admission: preview.admission,
+      },
+    });
+    const activationPlan = await ensureMissionActivationPlan(tx, mission, now, preview);
+    return { mission, activationPlan, preview };
+  });
+  if (!result.activationPlan) {
+    return res.status(500).json({
+      error: "Mission activation plan could not be created",
+      code: "MISSION_ACTIVATION_PLAN_MISSING",
+    });
+  }
+  const runs = await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
+  return res.status(201).json({
+    mission: result.mission,
+    activation: result.activationPlan.primary,
+    planGoals: result.activationPlan.goals,
+    runs,
+    preview: result.preview,
+  });
+});
+
+/**
+ * Creates a new server-owned plan revision while retaining the previous Goal,
+ * task, execution, and evidence rows. Replan is an explicit operator action;
+ * it never rewrites a historical revision in place.
+ */
+router.post("/ai/missions/:missionId/replan", async (req, res) => {
+  const body = MissionReplanBody.parse(req.body);
+  const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
+  if (!owned) return;
+  if (["completed", "cancelled"].includes(owned.mission.status)) {
+    return res.status(409).json({
+      error: "A terminal Mission cannot be replanned",
+      code: "MISSION_TERMINAL",
+    });
+  }
+  const message = body.message ?? body.objective ?? owned.mission.intent;
+  const preview = buildMissionPlanPreview({ message, objective: body.objective });
+  if (preview.admission !== "mission") {
+    return res.status(409).json({
+      error: "The revised objective is not eligible for Mission execution",
+      code: "MISSION_ADMISSION_REQUIRED",
+      admission: preview.admission,
+      preview,
+    });
+  }
+  if (body.expectedPlanHash && body.expectedPlanHash === preview.plan.planHash) {
+    return res.status(409).json({
+      error: "The revised plan is identical to the current requested revision",
+      code: "MISSION_PLAN_UNCHANGED",
+    });
+  }
+
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, owned.mission.id),
+        eq(aiMissionsTable.projectId, owned.project.id),
+        eq(aiMissionsTable.userId, req.userId),
+      ))
+      .for("update");
+    if (!mission) return undefined;
+     const plan = await createMissionPlanGoal(tx, mission, now, preview, "execution");
+     if (!plan) return undefined;
+    await tx.update(aiMissionsTable)
+      .set({
+        status: "active",
+        intent: preview.objective,
+        updatedAt: now,
+      })
+      .where(eq(aiMissionsTable.id, mission.id));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiMissionReplanned",
+      projectId: mission.projectId,
+      severity: "info",
+      message: `AI mission "${mission.title}" received a new plan revision`,
+      correlationId: plan.primary.goalId,
+      payload: {
+        missionId: mission.id,
+        goalId: plan.primary.goalId,
+        planHash: preview.plan.planHash,
+        reason: body.reason ?? null,
+      },
+    });
+    return { mission, plan };
+  });
+  if (!result || !result.plan) return res.status(404).json({ error: "Mission not found" });
+  const runs = await dispatchMissionPlan(result.plan, req.userId, "replan");
+  return res.status(201).json({
+    mission: { ...result.mission, status: "active", intent: preview.objective },
+    plan: preview.plan,
+    goal: result.plan.primary,
+    goals: result.plan.goals,
+    runs,
+  });
+});
+
 router.post("/ai/missions", async (req, res) => {
   const body = CreateMissionBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
@@ -432,7 +841,7 @@ router.post("/ai/missions", async (req, res) => {
       correlationId,
       payload: { missionId },
     });
-    let activationPlan: { goalId: string; taskId: string } | undefined;
+    let activationPlan: MissionPlanMaterialization | undefined;
     if (created[0]?.status === "active") {
       activationPlan = await ensureMissionActivationPlan(
         tx,
@@ -444,11 +853,7 @@ router.post("/ai/missions", async (req, res) => {
     return { mission: created[0], activationPlan };
   });
   if (result.activationPlan) {
-    await runMissionGoal({
-      goalId: result.activationPlan.goalId,
-      userId: req.userId,
-      trigger: "activation",
-    });
+    await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
   }
   return res.status(201).json(result.mission);
 });
@@ -490,7 +895,7 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
       .set(updateValues)
       .where(eq(aiMissionsTable.id, before.id))
       .returning();
-    let activationPlan: { goalId: string; taskId: string } | undefined;
+    let activationPlan: MissionPlanMaterialization | undefined;
     if (rows[0]) {
       await tx.insert(eventsTable).values({
         id: randomUUID(),
@@ -514,11 +919,7 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   });
   if (!result.updated) return res.status(404).json({ error: "Mission not found" });
   if (result.activationPlan) {
-    await runMissionGoal({
-      goalId: result.activationPlan.goalId,
-      userId: req.userId,
-      trigger: "activation",
-    });
+    await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
   }
   return res.json(result.updated);
 });
@@ -531,7 +932,21 @@ router.get("/ai/missions/:missionId/goals", async (req, res) => {
     .from(aiGoalsTable)
     .where(eq(aiGoalsTable.missionId, owned.mission.id))
     .orderBy(desc(aiGoalsTable.createdAt), desc(aiGoalsTable.id));
-  return res.json(goals);
+  const dependencies = goals.length === 0
+    ? []
+    : await db.select({
+        id: aiGoalDependenciesTable.id,
+        goalId: aiGoalDependenciesTable.goalId,
+        dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+        planRevision: aiGoalDependenciesTable.planRevision,
+      }).from(aiGoalDependenciesTable).where(and(
+        eq(aiGoalDependenciesTable.projectId, owned.project.id),
+        inArray(aiGoalDependenciesTable.goalId, goals.map((goal) => goal.id)),
+      ));
+  return res.json(goals.map((goal) => ({
+    ...goal,
+    dependencies: dependencies.filter((dependency) => dependency.goalId === goal.id),
+  })));
 });
 
 router.get("/ai/goals/:goalId", async (req, res) => {
@@ -543,7 +958,13 @@ router.get("/ai/goals/:goalId", async (req, res) => {
   if (!goal) return res.status(404).json({ error: "Goal not found" });
   const owned = await loadOwnedMission(goal.missionId, req.userId, res);
   if (!owned) return;
-  return res.json(goal);
+  const dependencies = await db.select({
+    id: aiGoalDependenciesTable.id,
+    goalId: aiGoalDependenciesTable.goalId,
+    dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+    planRevision: aiGoalDependenciesTable.planRevision,
+  }).from(aiGoalDependenciesTable).where(eq(aiGoalDependenciesTable.goalId, goal.id));
+  return res.json({ ...goal, dependencies });
 });
 
 router.patch("/ai/goals/:goalId", async (req, res) => {
@@ -575,9 +996,27 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
   }
 
   const now = new Date();
-  const { nextWakeAt, ...rest } = body;
+  const {
+    nextWakeAt,
+    dependsOnGoalIds,
+    planRevision,
+    outcomeContract,
+    ...rest
+  } = body;
+  const nextOutcomeContract =
+    outcomeContract !== undefined
+      ? outcomeContract
+      : goal.outcomeContract;
   const updateValues: Partial<typeof aiGoalsTable.$inferInsert> = {
     ...rest,
+    ...(outcomeContract !== undefined || planRevision
+      ? {
+          outcomeContract: {
+            ...(nextOutcomeContract ?? {}),
+            ...(planRevision ? { planRevision: { hash: planRevision } } : {}),
+          },
+        }
+      : {}),
     updatedAt: now,
     ...(Object.prototype.hasOwnProperty.call(body, "nextWakeAt")
       ? { nextWakeAt: nextWakeAt ? new Date(nextWakeAt) : null }
@@ -590,27 +1029,47 @@ router.patch("/ai/goals/:goalId", async (req, res) => {
   }
 
   const correlationId = randomUUID();
-  const [updated] = await db.transaction(async (tx) => {
-    const rows = await tx.update(aiGoalsTable)
+  try {
+    const [updated] = await db.transaction(async (tx) => {
+      const rows = await tx.update(aiGoalsTable)
       .set(updateValues)
       .where(eq(aiGoalsTable.id, goal.id))
       .returning();
-    if (rows[0]) {
-      await tx.insert(eventsTable).values({
-        id: randomUUID(),
-        type: "AiGoalUpdated",
-        projectId: goal.projectId,
-        goalId: goal.id,
-        severity: "info",
-        message: `AI goal "${rows[0].title}" updated`,
-        correlationId,
-        payload: { missionId: goal.missionId, changedFields: Object.keys(body) },
-      });
+      if (rows[0] && Object.prototype.hasOwnProperty.call(body, "dependsOnGoalIds")) {
+        await setGoalDependencies(tx, {
+          missionId: goal.missionId,
+          projectId: goal.projectId,
+          goalId: goal.id,
+          dependsOnGoalIds: dependsOnGoalIds ?? [],
+          planRevision,
+        });
+      }
+      if (rows[0]) {
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalUpdated",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "info",
+          message: `AI goal "${rows[0].title}" updated`,
+          correlationId,
+          payload: {
+            missionId: goal.missionId,
+            changedFields: Object.keys(body),
+            dependencyRevision: planRevision ?? null,
+          },
+        });
+      }
+      return rows;
+    });
+    if (!updated) return res.status(404).json({ error: "Goal not found" });
+    return res.json(updated);
+  } catch (error) {
+    if (error instanceof GoalDependencyValidationError) {
+      return res.status(400).json({ error: error.message, code: "INVALID_GOAL_DEPENDENCIES" });
     }
-    return rows;
-  });
-  if (!updated) return res.status(404).json({ error: "Goal not found" });
-  return res.json(updated);
+    throw error;
+  }
 });
 
 router.post("/ai/missions/:missionId/goals", async (req, res) => {
@@ -631,8 +1090,13 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
   }
   const now = new Date();
   const goalId = randomUUID();
-  const [goal] = await db.transaction(async (tx) => {
-    const created = await tx.insert(aiGoalsTable).values({
+  const nextOutcomeContract = {
+    ...(body.outcomeContract ?? {}),
+    ...(body.planRevision ? { planRevision: { hash: body.planRevision } } : {}),
+  };
+  try {
+    const [goal] = await db.transaction(async (tx) => {
+      const created = await tx.insert(aiGoalsTable).values({
       id: goalId,
       missionId: owned.mission.id,
       projectId: owned.project.id,
@@ -642,23 +1106,39 @@ router.post("/ai/missions/:missionId/goals", async (req, res) => {
       priority: body.priority,
       successCriteria: body.successCriteria ?? {},
       evidenceContract: body.evidenceContract ?? {},
-      outcomeContract: body.outcomeContract ?? {},
+      outcomeContract: nextOutcomeContract,
       nextAction: body.nextAction ?? {},
       createdAt: now,
       updatedAt: now,
-    }).returning();
-    await tx.insert(eventsTable).values({
+      }).returning();
+      await setGoalDependencies(tx, {
+        missionId: owned.mission.id,
+        projectId: owned.project.id,
+        goalId,
+        dependsOnGoalIds: body.dependsOnGoalIds ?? [],
+        planRevision: body.planRevision,
+      });
+      await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiGoalCreated",
       projectId: owned.project.id,
       goalId,
       severity: "info",
       message: `AI goal "${body.title}" created`,
-      payload: { missionId: owned.mission.id },
+        payload: {
+          missionId: owned.mission.id,
+          dependencyRevision: body.planRevision ?? null,
+        },
+      });
+      return created;
     });
-    return created;
-  });
-  return res.status(201).json(goal);
+    return res.status(201).json(goal);
+  } catch (error) {
+    if (error instanceof GoalDependencyValidationError) {
+      return res.status(400).json({ error: error.message, code: "INVALID_GOAL_DEPENDENCIES" });
+    }
+    throw error;
+  }
 });
 
 router.get("/ai/missions/:missionId/projection", async (req, res) => {

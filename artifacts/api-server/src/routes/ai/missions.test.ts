@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import app from "../../app.js";
 import {
+  aiGoalDependenciesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -68,6 +69,91 @@ describe("AI missions and goals", () => {
     expect(afterMissions).toEqual(beforeMissions);
   });
 
+  it("requires an explicit chat handoff and reuses the preview plan revision", async () => {
+    const projectId = await insertProject();
+    const message = "Inspect the source, then fix the blocking issue.";
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({ projectId, message });
+    expect(preview.status).toBe(200);
+
+    const handoff = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        message,
+        expectedPlanHash: preview.body.plan.planHash,
+      });
+    expect(handoff.status).toBe(201);
+    expect(handoff.body.preview.plan.planHash).toBe(preview.body.plan.planHash);
+    expect(handoff.body.mission.status).toBe("active");
+    expect(handoff.body.activation.goalId).toBeTruthy();
+  });
+
+  it("persists revision-bound goal dependencies and rejects cycles", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Dependency mission",
+      intent: "Coordinate dependent work",
+    });
+    const first = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Prepare evidence" });
+    const second = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Apply follow-up",
+        dependsOnGoalIds: [first.body.id],
+        planRevision: "revision-1",
+      });
+    expect(second.status).toBe(201);
+
+    const persisted = await db
+      .select()
+      .from(aiGoalDependenciesTable)
+      .where(eq(aiGoalDependenciesTable.goalId, second.body.id));
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.dependsOnGoalId).toBe(first.body.id);
+    expect(persisted[0]?.planRevision).toBe("revision-1");
+
+    const cycle = await request(app)
+      .patch(`/api/ai/goals/${first.body.id}`)
+      .send({
+        dependsOnGoalIds: [second.body.id],
+        planRevision: "revision-1",
+      });
+    expect(cycle.status).toBe(400);
+    expect(cycle.body.code).toBe("INVALID_GOAL_DEPENDENCIES");
+  });
+
+  it("creates a fresh replan Goal without replacing the prior Mission history", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Replan mission",
+      intent: "Inspect the source, then fix the blocking issue.",
+    });
+    const replan = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/replan`)
+      .send({
+        message: "Inspect the source, then fix the newly discovered issue.",
+        reason: "The first execution found a changed objective.",
+      });
+    expect(replan.status).toBe(201);
+    expect(replan.body.goal.goalId).toBeTruthy();
+    expect(replan.body.plan.planHash).toBeTruthy();
+
+    const goals = await db
+      .select()
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, mission.body.id));
+    expect(goals.length).toBeGreaterThan(1);
+    expect(goals.every((goal) =>
+      (goal.successCriteria as Record<string, unknown>).kind === "mission_replan_step",
+    )).toBe(true);
+  });
+
   it("creates project-owned missions and goals, then returns their read-only projection", async () => {
     const projectId = await insertProject();
     const createdMission = await request(app).post("/api/ai/missions").send({
@@ -125,14 +211,18 @@ describe("AI missions and goals", () => {
       .select()
       .from(aiGoalsTable)
       .where(eq(aiGoalsTable.missionId, response.body.id));
-    expect(goals).toHaveLength(1);
-    const successCriteria = goals[0]?.successCriteria as Record<string, unknown>;
-    const outcomeContract = goals[0]?.outcomeContract as Record<string, unknown>;
-    const successPlan = successCriteria.planRevision as Record<string, unknown>;
-    const outcomePlan = outcomeContract.planRevision as Record<string, unknown>;
-    expect(successPlan.hash).toBeTruthy();
-    expect(outcomePlan.hash).toBe(successPlan.hash);
-    expect(successPlan.steps).toEqual(outcomePlan.steps);
+    expect(goals.length).toBeGreaterThan(1);
+    const revisions = goals.map((goal) => {
+      const successCriteria = goal.successCriteria as Record<string, unknown>;
+      const outcomeContract = goal.outcomeContract as Record<string, unknown>;
+      const successPlan = successCriteria.planRevision as Record<string, unknown>;
+      const outcomePlan = outcomeContract.planRevision as Record<string, unknown>;
+      expect(successPlan.hash).toBeTruthy();
+      expect(outcomePlan.hash).toBe(successPlan.hash);
+      expect(successPlan.steps).toEqual(outcomePlan.steps);
+      return successPlan.hash;
+    });
+    expect(new Set(revisions).size).toBe(1);
   });
 
   it("includes existing task, workflow, execution, and event rows linked to a goal", async () => {
@@ -252,12 +342,12 @@ describe("AI missions and goals", () => {
     expect(projection.body.counts.events).toBe(5);
   });
 
-  it("creates one activation plan and task when a mission becomes active", async () => {
+  it("materializes an activation plan into durable steps when a mission becomes active", async () => {
     const projectId = await insertProject();
     const mission = await request(app).post("/api/ai/missions").send({
       projectId,
       title: "Explain the project",
-      intent: "Inspect the project and produce an evidence-backed explanation",
+      intent: "Inspect the source, then fix the blocking issue.",
     });
 
     const activated = await request(app)
@@ -269,14 +359,15 @@ describe("AI missions and goals", () => {
     const projection = await request(app)
       .get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.status).toBe(200);
-    expect(projection.body.goals).toHaveLength(1);
-    expect(projection.body.goals[0].goal.status).toBe("running");
-    expect(projection.body.goals[0].goal.nextAction).toMatchObject({
-      kind: "task",
-      purpose: "activation",
-    });
-    expect(projection.body.goals[0].tasks).toHaveLength(1);
-    expect(projection.body.goals[0].tasks[0].title).toBe("Execute: Explain the project");
+    expect(projection.body.goals.length).toBeGreaterThan(1);
+    expect(projection.body.goals.every((item: { goal: { nextAction: unknown }; tasks: unknown[] }) =>
+      (item.goal.nextAction as { kind?: string; purpose?: string }).kind === "task"
+      && (item.goal.nextAction as { purpose?: string }).purpose === "activation"
+      && item.tasks.length === 1,
+    )).toBe(true);
+    expect(projection.body.goals.some((item: { goal: { dependencies?: unknown[] } }) =>
+      Array.isArray(item.goal.dependencies) && item.goal.dependencies.length > 0,
+    )).toBe(true);
 
     const activatedAgain = await request(app)
       .patch(`/api/ai/missions/${mission.body.id}`)
@@ -285,8 +376,8 @@ describe("AI missions and goals", () => {
 
     const afterRepeat = await request(app)
       .get(`/api/ai/missions/${mission.body.id}/projection`);
-    expect(afterRepeat.body.goals).toHaveLength(1);
-    expect(afterRepeat.body.goals[0].tasks).toHaveLength(1);
+    expect(afterRepeat.body.goals).toHaveLength(projection.body.goals.length);
+    expect(afterRepeat.body.goals.every((item: { tasks: unknown[] }) => item.tasks.length === 1)).toBe(true);
   });
 
   it("starts the activation plan during one active mission creation request", async () => {
@@ -304,8 +395,8 @@ describe("AI missions and goals", () => {
     const projection = await request(app)
       .get(`/api/ai/missions/${created.body.id}/projection`);
     expect(projection.status).toBe(200);
-    expect(projection.body.goals).toHaveLength(1);
-    expect(projection.body.goals[0].tasks).toHaveLength(1);
+    expect(projection.body.goals.length).toBeGreaterThan(1);
+    expect(projection.body.goals.every((item: { tasks: unknown[] }) => item.tasks.length === 1)).toBe(true);
   });
 
   it("rejects invalid goal parent updates and empty patches", async () => {

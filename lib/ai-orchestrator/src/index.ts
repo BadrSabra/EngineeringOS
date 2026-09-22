@@ -238,9 +238,10 @@ export type {
 export {
   MISSION_CONTRACT_VERSION,
   GoalNextActionSchema,
+  GoalDependencyInputSchema,
   parseGoalNextAction,
 } from "./mission-contract.js";
-export type { GoalNextAction } from "./mission-contract.js";
+export type { GoalDependencyInput, GoalNextAction } from "./mission-contract.js";
 export {
   deriveFlightDeckState,
   type FlightDeckState,
