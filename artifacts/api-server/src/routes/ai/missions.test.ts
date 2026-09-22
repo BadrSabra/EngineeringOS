@@ -13,6 +13,7 @@ import {
   tasksTable,
   workflowsTable,
 } from "@workspace/db";
+import { waitForScheduledAiTaskExecutions } from "./tasks.js";
 
 const projectIds: string[] = [];
 
@@ -34,6 +35,7 @@ async function insertProject(ownerId = "test-user") {
 }
 
 afterEach(async () => {
+  await waitForScheduledAiTaskExecutions();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }

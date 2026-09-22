@@ -12,3 +12,9 @@ Terminal recipe checkpoints must retain a direct recipe binding so idempotent re
 **Why:** Completion finalization can otherwise leave only an operation-nested binding, causing a retry with the same idempotency key to be rejected even though the durable execution and receipt are already complete.
 
 **How to apply:** When adding a server recipe, align its context scope, evidence type, capability output projection, terminal checkpoint binding, and replay test as one contract.
+
+Mission recipe actions must resolve the managed project root and current Git revision at execution time; a candidate identity is usable only when it matches a server-owned validated/committed proposal, its base revision, and its durable delivery workspace.
+
+**Why:** Goal actions are intentionally not trusted with roots, revisions, or workspaces. Binding those values at the worker boundary prevents stale or foreign candidate workspaces from becoming recipe evidence.
+
+**How to apply:** Keep Goal/Mission dispatch as a coordinator over `runRecipeOperation`; use the durable execution and receipt as the execution identity, then project the terminal recipe result back to the Goal/Mission under a row lock.

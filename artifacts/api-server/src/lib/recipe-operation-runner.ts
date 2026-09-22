@@ -160,6 +160,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
 
 export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   userId: string;
+  goalId?: string;
   sessionId?: string;
   idempotencyKey: string;
 };
@@ -298,6 +299,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     request: executionRequest,
     idempotencyKey: params.idempotencyKey,
     projectId: params.projectId,
+    ...(params.goalId ? { goalId: params.goalId } : {}),
     sessionId: params.sessionId,
     recipeBinding: prepared.binding,
   });

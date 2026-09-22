@@ -66,6 +66,7 @@ import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
 import { recoverPromotion } from "./delivery-workspace.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
+import { wakeDueMissionGoals } from "./mission-runtime.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -851,8 +852,10 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
   );
 
   void dispatchPersistedPendingJobs();
+  void wakeDueMissionGoals();
   return setInterval(() => {
     void dispatchPersistedPendingJobs();
+    void wakeDueMissionGoals();
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
 }
 
@@ -873,13 +876,14 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     "stale-job sweep scheduled",
   );
   return setInterval(async () => {
-    const [failed, requeued, failedDiscoveries, recoveredTasks, reconciledAiExecutions, expiredUploads] = await Promise.all([
+    const [failed, requeued, failedDiscoveries, recoveredTasks, reconciledAiExecutions, expiredUploads, wokenGoals] = await Promise.all([
       failStaleRunningJobs(),
       requeueStalePendingJobs(),
       failStaleDiscoverySessions(),
       reconcileStaleAiTasks(),
       reconcileAiExecutions({ expiredOnly: true }),
       sweepExpiredUploads(),
+      wakeDueMissionGoals(),
     ]);
     if (failed > 0) {
       logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");
@@ -898,6 +902,9 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     }
     if (expiredUploads > 0) {
       logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");
+    }
+    if (wokenGoals > 0) {
+      logger.info({ wokenGoals }, "stale-job sweep: due Mission Goals moved to replan");
     }
   }, STALE_JOB_SWEEP_INTERVAL_MS);
 }

@@ -9,7 +9,7 @@ import {
   projectsTable,
   tasksTable,
 } from "@workspace/db";
-import { runMissionGoal } from "./mission-runtime.js";
+import { runMissionGoal, wakeDueMissionGoals } from "./mission-runtime.js";
 
 const projectIds: string[] = [];
 
@@ -162,6 +162,54 @@ describe("Mission goal runtime", () => {
       taskId,
       executionId,
       reason: "execution_already_active",
+    });
+  });
+
+  it("wakes due event waits exactly once and leaves approval waits untouched", async () => {
+    const due = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: "2020-01-01T00:00:00.000Z",
+    });
+    const approval = await createMissionFixture({
+      kind: "wait",
+      reason: "approval",
+      wakeAt: "2020-01-01T00:00:00.000Z",
+    });
+    await runMissionGoal({
+      goalId: due.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+    await runMissionGoal({
+      goalId: approval.goalId,
+      userId: "test-user",
+      trigger: "resume",
+    });
+
+    expect(await wakeDueMissionGoals()).toBe(1);
+    expect(await wakeDueMissionGoals()).toBe(0);
+
+    const [dueGoal] = await db
+      .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, due.goalId));
+    const [approvalGoal] = await db
+      .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, approval.goalId));
+    expect(dueGoal).toMatchObject({
+      status: "needs_replan",
+      nextAction: {
+        kind: "replan",
+      },
+    });
+    expect(approvalGoal).toMatchObject({
+      status: "waiting_for_approval",
+      nextAction: {
+        kind: "wait",
+        reason: "approval",
+      },
     });
   });
 });

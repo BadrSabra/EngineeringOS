@@ -287,11 +287,19 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
  * status with a non-null prompt. Fire-and-forget: enqueued into the shared
  * heavyJobQueue so it never blocks the caller's HTTP response.
  */
+const scheduledAiTaskCompletions = new Map<string, Promise<void>>();
+
 export function scheduleAiTaskExecution(taskId: string, userId: string): void {
+  if (scheduledAiTaskCompletions.has(taskId)) return;
+  let resolveCompletion!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    resolveCompletion = resolve;
+  });
+  scheduledAiTaskCompletions.set(taskId, completion);
   // PR-D1: use enqueueWithId so concurrent calls for the same task (e.g.
   // from auto-trigger and a manual retry at the same moment) don't stack up
   // two closures and execute the AI agent twice for the same task ID.
-  heavyJobQueue.enqueueWithId(taskId, async () => {
+  const enqueued = heavyJobQueue.enqueueWithId(taskId, async () => {
     try {
       const [task] = await db
         .select()
@@ -352,8 +360,23 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
       return;
     } catch (err) {
       logger.error({ err, taskId }, "AI auto-trigger: unhandled error in auto-execution job");
+    } finally {
+      resolveCompletion();
     }
   });
+  if (!enqueued) {
+    resolveCompletion();
+    scheduledAiTaskCompletions.delete(taskId);
+  } else {
+    void completion.finally(() => {
+      scheduledAiTaskCompletions.delete(taskId);
+    });
+  }
+}
+
+/** Test/process-shutdown barrier for already scheduled task jobs. */
+export async function waitForScheduledAiTaskExecutions(): Promise<void> {
+  await Promise.allSettled([...scheduledAiTaskCompletions.values()]);
 }
 
 export default router;
