@@ -183,17 +183,21 @@ describe("AI missions and goals", () => {
         title: "Updated goal",
         status: "blocked",
         blockedReason: "Waiting for approval",
-        nextAction: { owner: "operator", action: "approve" },
+        nextAction: { kind: "wait", reason: "approval", wakeAt: null },
       });
     expect(updatedGoal.status).toBe(200);
     expect(updatedGoal.body.title).toBe("Updated goal");
     expect(updatedGoal.body.status).toBe("blocked");
-    expect(updatedGoal.body.nextAction).toEqual({ owner: "operator", action: "approve" });
+    expect(updatedGoal.body.nextAction).toEqual({
+      kind: "wait",
+      reason: "approval",
+      wakeAt: null,
+    });
 
     const projection = await request(app).get(`/api/ai/missions/${mission.body.id}/projection`);
     expect(projection.body.mission.title).toBe("Updated mission");
     expect(projection.body.goals[0].goal.title).toBe("Updated goal");
-    expect(projection.body.counts.events).toBe(4);
+    expect(projection.body.counts.events).toBe(5);
   });
 
   it("creates one activation plan and task when a mission becomes active", async () => {
@@ -215,7 +219,10 @@ describe("AI missions and goals", () => {
     expect(projection.status).toBe(200);
     expect(projection.body.goals).toHaveLength(1);
     expect(projection.body.goals[0].goal.status).toBe("running");
-    expect(projection.body.goals[0].goal.nextAction.kind).toBe("mission_activation_plan");
+    expect(projection.body.goals[0].goal.nextAction).toMatchObject({
+      kind: "task",
+      purpose: "activation",
+    });
     expect(projection.body.goals[0].tasks).toHaveLength(1);
     expect(projection.body.goals[0].tasks[0].title).toBe("Execute: Explain the project");
 
@@ -272,6 +279,29 @@ describe("AI missions and goals", () => {
       parentGoalId: randomUUID(),
     });
     expect(missingParent.status).toBe(400);
+  });
+
+  it("rejects untyped goal next actions", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Typed actions",
+      intent: "Keep goal dispatch server-owned",
+    });
+    const goal = await request(app).post(`/api/ai/missions/${mission.body.id}/goals`).send({
+      title: "Dispatch safely",
+    });
+
+    const response = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({
+        nextAction: {
+          owner: "operator",
+          action: "approve",
+        },
+      });
+
+    expect(response.status).toBe(400);
   });
 
   it("does not create or reveal missions for another project owner", async () => {

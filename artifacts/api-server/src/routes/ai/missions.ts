@@ -1,9 +1,8 @@
 /**
  * Durable Mission/Goal ownership and read-only cross-domain projection.
  *
- * This route deliberately does not schedule work or execute tools. It owns
- * only the durable objective records and reads the existing task, workflow,
- * execution, and event systems through their nullable goal links.
+ * This route owns the durable objective records and delegates activation to
+ * the existing task lifecycle. It does not execute tools itself.
  */
 import { Router } from "express";
 import { randomUUID } from "crypto";
@@ -18,10 +17,11 @@ import {
   tasksTable,
   workflowsTable,
 } from "@workspace/db";
+import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
 import { requireAuth } from "../../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../../lib/pagination.js";
-import { scheduleAiTaskExecution } from "./tasks.js";
+import { runMissionGoal } from "../../lib/mission-runtime.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -47,7 +47,7 @@ const CreateGoalBody = z.object({
   successCriteria: JsonObjectSchema.optional(),
   evidenceContract: JsonObjectSchema.optional(),
   outcomeContract: JsonObjectSchema.optional(),
-  nextAction: JsonObjectSchema.optional(),
+  nextAction: GoalNextActionSchema.optional(),
 }).strict();
 
 const UpdateMissionBody = z.object({
@@ -68,7 +68,7 @@ const UpdateGoalBody = z.object({
   successCriteria: JsonObjectSchema.optional(),
   evidenceContract: JsonObjectSchema.optional(),
   outcomeContract: JsonObjectSchema.optional(),
-  nextAction: JsonObjectSchema.optional(),
+  nextAction: GoalNextActionSchema.optional(),
   blockedReason: z.string().trim().max(5_000).nullable().optional(),
   nextWakeAt: z.string().datetime().nullable().optional(),
 }).strict();
@@ -162,12 +162,16 @@ function publicEvent(event: typeof eventsTable.$inferSelect) {
 }
 
 function isActivationGoal(goal: typeof aiGoalsTable.$inferSelect) {
-  const nextAction = goal.nextAction;
+  const nextAction = GoalNextActionSchema.safeParse(goal.nextAction);
+  const successCriteria = goal.successCriteria;
   return Boolean(
-    nextAction
-      && typeof nextAction === "object"
-      && !Array.isArray(nextAction)
-      && (nextAction as { kind?: unknown }).kind === ACTIVATION_PLAN_KIND,
+    nextAction.success
+      && nextAction.data.kind === "task"
+      && nextAction.data.purpose === "activation"
+      && successCriteria
+      && typeof successCriteria === "object"
+      && !Array.isArray(successCriteria)
+      && (successCriteria as { kind?: unknown }).kind === ACTIVATION_PLAN_KIND,
   );
 }
 
@@ -192,7 +196,9 @@ async function ensureMissionActivationPlan(
       ))
       .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
       .limit(1);
-    return existingTask?.id;
+    return existingTask
+      ? { goalId: existingActivationGoal.id, taskId: existingTask.id }
+      : undefined;
   }
 
   const goalId = randomUUID();
@@ -228,9 +234,9 @@ async function ensureMissionActivationPlan(
       kind: "evidence_backed_progress_report",
     },
     nextAction: {
-      kind: ACTIVATION_PLAN_KIND,
-      action: "execute_seed_task",
+      kind: "task",
       taskId,
+      purpose: "activation",
     },
     createdAt: now,
     updatedAt: now,
@@ -272,7 +278,7 @@ async function ensureMissionActivationPlan(
       payload: { missionId: mission.id, activation: true },
     },
   ]);
-  return taskId;
+  return { goalId, taskId };
 }
 
 async function buildMissionProjection(
@@ -373,14 +379,18 @@ router.post("/ai/missions", async (req, res) => {
       correlationId,
       payload: { missionId },
     });
-    let activationTaskId: string | undefined;
+    let activationPlan: { goalId: string; taskId: string } | undefined;
     if (created[0]?.status === "active") {
-      activationTaskId = await ensureMissionActivationPlan(tx, created[0], now);
+      activationPlan = await ensureMissionActivationPlan(tx, created[0], now);
     }
-    return { mission: created[0], activationTaskId };
+    return { mission: created[0], activationPlan };
   });
-  if (result.activationTaskId) {
-    scheduleAiTaskExecution(result.activationTaskId, req.userId);
+  if (result.activationPlan) {
+    await runMissionGoal({
+      goalId: result.activationPlan.goalId,
+      userId: req.userId,
+      trigger: "activation",
+    });
   }
   return res.status(201).json(result.mission);
 });
@@ -422,7 +432,7 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
       .set(updateValues)
       .where(eq(aiMissionsTable.id, before.id))
       .returning();
-    let activationTaskId: string | undefined;
+    let activationPlan: { goalId: string; taskId: string } | undefined;
     if (rows[0]) {
       await tx.insert(eventsTable).values({
         id: randomUUID(),
@@ -434,14 +444,18 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
         payload: { missionId: before.id, changedFields: Object.keys(body) },
       });
       if (shouldActivate) {
-        activationTaskId = await ensureMissionActivationPlan(tx, rows[0], now);
+        activationPlan = await ensureMissionActivationPlan(tx, rows[0], now);
       }
     }
-    return { updated: rows[0], activationTaskId };
+    return { updated: rows[0], activationPlan };
   });
   if (!result.updated) return res.status(404).json({ error: "Mission not found" });
-  if (result.activationTaskId) {
-    scheduleAiTaskExecution(result.activationTaskId, req.userId);
+  if (result.activationPlan) {
+    await runMissionGoal({
+      goalId: result.activationPlan.goalId,
+      userId: req.userId,
+      trigger: "activation",
+    });
   }
   return res.json(result.updated);
 });
