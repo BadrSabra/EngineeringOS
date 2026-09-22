@@ -862,6 +862,15 @@ export type AiExecutionNodeCheckpoint = Pick<
   evidenceRefs?: string[];
 };
 
+export type AiExternalEffectCheckpoint = {
+  kind: "github_delivery";
+  operationId: string;
+  capabilityId: string;
+  intentHash: string;
+  state: "pending";
+  updatedAt: string;
+};
+
 export type AiExecutionCheckpoint = {
   stage:
     | "queued"
@@ -890,6 +899,7 @@ export type AiExecutionCheckpoint = {
   retryAt?: string;
   acceptanceDisposition?: AiAcceptanceDisposition;
   detail?: string;
+  externalEffect?: AiExternalEffectCheckpoint;
   operation?: AutonomousOperationContract;
   recipeBinding?: RecipeOperationBinding;
   validatorReceipts?: readonly TaskObjectiveValidatorReceipt[];
@@ -1263,6 +1273,26 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       value.validatorReceipts !== undefined
       && (!validatorReceipts || validatorReceipts.length !== value.validatorReceipts.length)
     ) return undefined;
+    const externalEffect = value.externalEffect && typeof value.externalEffect === "object"
+      ? value.externalEffect as Partial<AiExternalEffectCheckpoint>
+      : undefined;
+    if (
+      value.externalEffect !== undefined
+      && (
+        !externalEffect
+        || externalEffect.kind !== "github_delivery"
+        || typeof externalEffect.operationId !== "string"
+        || externalEffect.operationId.length < 1
+        || externalEffect.operationId.length > 160
+        || typeof externalEffect.capabilityId !== "string"
+        || externalEffect.capabilityId.length < 1
+        || externalEffect.capabilityId.length > 160
+        || !/^[a-f0-9]{64}$/.test(externalEffect.intentHash ?? "")
+        || externalEffect.state !== "pending"
+        || typeof externalEffect.updatedAt !== "string"
+        || Number.isNaN(Date.parse(externalEffect.updatedAt))
+      )
+    ) return undefined;
     return {
       stage: value.stage as AiExecutionCheckpoint["stage"],
       sequence: value.sequence,
@@ -1295,6 +1325,18 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       ...(capabilityProbe ? { capabilityProbe } : {}),
       ...(providerAttempts && providerAttempts.length > 0 ? { providerAttempts } : {}),
       ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
+      ...(externalEffect
+        ? {
+            externalEffect: {
+              kind: "github_delivery" as const,
+              operationId: externalEffect.operationId!,
+              capabilityId: externalEffect.capabilityId!,
+              intentHash: externalEffect.intentHash!,
+              state: "pending" as const,
+              updatedAt: externalEffect.updatedAt!,
+            },
+          }
+        : {}),
       ...(operation ? { operation } : {}),
       ...(recipeBinding ? { recipeBinding } : {}),
       ...(validatorReceipts ? { validatorReceipts } : {}),

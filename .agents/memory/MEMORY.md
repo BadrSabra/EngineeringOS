@@ -119,6 +119,7 @@
 - [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
+- [GitHub delivery recovery](github-delivery-recovery.md) — reconcile an uncertain push with remote parent, Git tree SHA, and operation marker before recording idempotent success.
 - [Path-aware call edges](path-aware-call-edges.md) — static call relationships must retain endpoint paths so same-named symbols cannot collapse during persistence.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges require the active server-owned session/revision and support stale filtering.

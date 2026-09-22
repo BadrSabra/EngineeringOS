@@ -5,7 +5,7 @@ import { ReplitConnectors } from "@replit/connectors-sdk";
 const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 50 * 1024 * 1024;
 
-type GitHubRemote = {
+export type GitHubRemote = {
   owner: string;
   repo: string;
 };
@@ -17,10 +17,17 @@ type GitHubTreeEntry = {
   sha: string | null;
 };
 
-type GitHubRequest = (
+export type GitHubRequest = (
   path: string,
   init?: { method?: string; headers?: Record<string, string>; body?: string },
 ) => Promise<Record<string, unknown>>;
+
+export type GitHubBranchState = {
+  commitHash: string;
+  treeHash: string;
+  message: string;
+  parentHashes: string[];
+};
 
 export class GitHubConnectorError extends Error {
   readonly code: string;
@@ -153,6 +160,44 @@ function parseChangedPaths(raw: string): Array<{ kind: "upsert" | "delete"; path
   return changes;
 }
 
+export async function getGitHubBranchState(args: {
+  remote: GitHubRemote;
+  branch: string;
+  request?: GitHubRequest;
+  commitHash?: string;
+}): Promise<GitHubBranchState> {
+  const request = args.request ?? defaultGitHubRequest;
+  const commitHash = args.commitHash ?? await (async () => {
+    const ref = await request(repoPath(args.remote, `/git/ref/heads/${branchPath(args.branch)}`));
+    return typeof (ref.object as { sha?: unknown } | undefined)?.sha === "string"
+      ? (ref.object as { sha: string }).sha
+      : undefined;
+  })();
+  if (!commitHash) {
+    throw new GitHubConnectorError("GitHub branch reference did not return a commit", "GITHUB_API_INVALID_RESPONSE");
+  }
+  const commit = await request(repoPath(args.remote, `/git/commits/${encodePathPart(commitHash)}`));
+  const treeHash = typeof (commit.tree as { sha?: unknown } | undefined)?.sha === "string"
+    ? (commit.tree as { sha: string }).sha
+    : undefined;
+  if (!treeHash) {
+    throw new GitHubConnectorError("GitHub commit did not return a tree", "GITHUB_API_INVALID_RESPONSE");
+  }
+  const parentHashes = Array.isArray(commit.parents)
+    ? commit.parents
+      .map((parent) => parent && typeof parent === "object" && typeof (parent as { sha?: unknown }).sha === "string"
+        ? (parent as { sha: string }).sha
+        : undefined)
+      .filter((parent): parent is string => Boolean(parent))
+    : [];
+  return {
+    commitHash,
+    treeHash,
+    message: typeof commit.message === "string" ? commit.message : "",
+    parentHashes,
+  };
+}
+
 /**
  * Push a verified local commit to GitHub through the Replit connector.
  *
@@ -193,14 +238,14 @@ export async function pushLocalCommitToGitHub(args: {
       "GITHUB_PUSH_REMOTE_DRIFT",
     );
   }
+  const branchState = await getGitHubBranchState({
+    remote: args.remote,
+    branch: args.branch,
+    request,
+    commitHash: remoteCommitHash,
+  });
 
-  const commit = await request(repoPath(args.remote, `/git/commits/${encodePathPart(remoteCommitHash)}`));
-  const baseTree = typeof (commit.tree as { sha?: unknown } | undefined)?.sha === "string"
-    ? (commit.tree as { sha: string }).sha
-    : undefined;
-  if (!baseTree) {
-    throw new GitHubConnectorError("GitHub commit did not return a base tree", "GITHUB_API_INVALID_RESPONSE");
-  }
+  const baseTree = branchState.treeHash;
 
   const changes = parseChangedPaths(await gitText(
     args.rootPath,

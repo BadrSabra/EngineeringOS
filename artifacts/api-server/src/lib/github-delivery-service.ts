@@ -8,6 +8,7 @@ import {
   eventsTable,
 } from "@workspace/db";
 import {
+  getGitHubBranchState,
   GitHubConnectorError,
   parseGitHubRemote,
   pushLocalCommitToGitHub,
@@ -17,10 +18,7 @@ import { DELIVERY_TREE_DIGEST_VERSION, hashDeliveryTree } from "./delivery-works
 const execFileAsync = promisify(execFile);
 const GIT_MAX_BUFFER = 2 * 1024 * 1024;
 
-type GitHubRequest = (
-  path: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string },
-) => Promise<Record<string, unknown>>;
+import type { GitHubRequest } from "./github-connector.js";
 
 export type VerifiedGitHubDeliveryParams = {
   projectId: string;
@@ -107,6 +105,55 @@ function blocked(detail: string): VerifiedGitHubDeliveryResult {
   return { status: "blocked", detail };
 }
 
+function operationMarker(operationId: string): string {
+  return `EngineeringOS-Operation: ${operationId}`;
+}
+
+function deliveryCommitMessage(message: string, operationId: string): string {
+  return `${message.trim()}\n\n${operationMarker(operationId)}`;
+}
+
+async function localCommitIdentity(rootPath: string, commitHash: string): Promise<{
+  parentHash: string;
+  treeHash: string;
+}> {
+  const [parentHash, treeHash] = await Promise.all([
+    gitText(rootPath, ["rev-parse", `${commitHash}^`]),
+    gitText(rootPath, ["rev-parse", `${commitHash}^{tree}`]),
+  ]);
+  return { parentHash, treeHash };
+}
+
+async function recordGitHubPush(params: {
+  projectId: string;
+  proposalId: string;
+  operationId: string;
+  branch: string;
+  remoteUrl: string;
+  commitHash: string;
+  remoteCommitHash: string;
+  changedPaths: string[];
+}): Promise<void> {
+  await db.insert(eventsTable).values({
+    id: crypto.randomUUID(),
+    type: "GitPushed",
+    projectId: params.projectId,
+    severity: "info",
+    message: `Pushed branch "${params.branch}" through the verified GitHub delivery`,
+    correlationId: params.operationId,
+    payload: {
+      proposalId: params.proposalId,
+      operationId: params.operationId,
+      commitHash: params.commitHash,
+      remoteCommitHash: params.remoteCommitHash,
+      changedPaths: params.changedPaths,
+      branch: params.branch,
+      remoteUrl: params.remoteUrl,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+    },
+  });
+}
+
 export async function executeVerifiedGitHubDelivery(
   params: VerifiedGitHubDeliveryParams,
 ): Promise<VerifiedGitHubDeliveryResult> {
@@ -190,12 +237,13 @@ export async function executeVerifiedGitHubDelivery(
       return blocked("The repository HEAD changed after the recorded AI commit.");
     }
 
+    const expectedMessage = deliveryCommitMessage(params.message, params.operationId);
     const pushed = await pushLocalCommitToGitHub({
       rootPath: params.rootPath,
       remote,
       branch: params.branch,
       commitHash,
-      message: params.message,
+      message: expectedMessage,
       ...(params.request ? { request: params.request } : {}),
     });
     const result = passedResult({
@@ -205,27 +253,56 @@ export async function executeVerifiedGitHubDelivery(
       changedPaths: pushed.changedPaths,
     });
 
-    await db.insert(eventsTable).values({
-      id: crypto.randomUUID(),
-      type: "GitPushed",
+    await recordGitHubPush({
       projectId: params.projectId,
-      severity: "info",
-      message: `Pushed branch "${params.branch}" through the verified GitHub delivery`,
-      correlationId: params.operationId,
-      payload: {
-        proposalId: params.proposalId,
-        operationId: params.operationId,
-        commitHash,
-        remoteCommitHash: pushed.remoteCommitHash,
-        changedPaths: pushed.changedPaths,
-        branch: params.branch,
-        remoteUrl: params.remoteUrl,
-        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
-      },
+      proposalId: params.proposalId,
+      operationId: params.operationId,
+      branch: params.branch,
+      remoteUrl: params.remoteUrl,
+      commitHash,
+      remoteCommitHash: pushed.remoteCommitHash,
+      changedPaths: pushed.changedPaths,
     });
     return result;
   } catch (error) {
     if (error instanceof GitHubConnectorError && error.code === "GITHUB_PUSH_REMOTE_DRIFT") {
+      try {
+        const localIdentity = await localCommitIdentity(params.rootPath, commitHash);
+        const branchState = await getGitHubBranchState({
+          remote,
+          branch: params.branch,
+          ...(params.request ? { request: params.request } : {}),
+        });
+        const alreadyApplied = branchState.treeHash === localIdentity.treeHash
+          && branchState.parentHashes.length === 1
+          && branchState.parentHashes[0] === localIdentity.parentHash
+          && branchState.message.includes(operationMarker(params.operationId));
+        if (alreadyApplied) {
+          const changedPaths = Array.isArray(commitEvidence.committedPaths)
+            ? commitEvidence.committedPaths.filter((value): value is string => typeof value === "string")
+            : [];
+          const result = passedResult({
+            operationId: params.operationId,
+            commitHash,
+            remoteCommitHash: branchState.commitHash,
+            changedPaths,
+            idempotent: true,
+          });
+          await recordGitHubPush({
+            projectId: params.projectId,
+            proposalId: params.proposalId,
+            operationId: params.operationId,
+            branch: params.branch,
+            remoteUrl: params.remoteUrl,
+            commitHash,
+            remoteCommitHash: branchState.commitHash,
+            changedPaths,
+          });
+          return result;
+        }
+      } catch {
+        // Preserve the original drift classification when reconciliation is unavailable.
+      }
       return blocked(error.message);
     }
     if (error instanceof GitHubConnectorError) {

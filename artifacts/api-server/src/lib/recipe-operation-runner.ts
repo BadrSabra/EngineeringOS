@@ -1,5 +1,5 @@
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import {
   advanceCompiledRecipeTransition,
@@ -9,10 +9,12 @@ import {
   evaluateRecipeEvidencePredicate,
   executeExecutionNodePlan,
   type ActiveTaskExecutionPlan,
+  type ExecutionNode,
   type BrowserValidationRunner,
   type GitHubDeliveryRunner,
   type RecipeEvidence,
 } from "@workspace/ai-orchestrator";
+import type { AiExternalEffectCheckpoint } from "./ai-execution-state.js";
 import {
   assertRecipeNodeBinding,
   authorizeRecipeNodeExecution,
@@ -183,6 +185,29 @@ function evidenceForNodes(
   }));
 }
 
+function externalEffectForNodes(
+  nodes: readonly ExecutionNode[],
+  operationId: string,
+): AiExternalEffectCheckpoint | undefined {
+  const node = nodes.find((candidate) =>
+    candidate.status === "running" && candidate.capabilityId?.startsWith("github.push."));
+  if (!node || !node.capabilityId) return undefined;
+  const intentHash = createHash("sha256").update(JSON.stringify({
+    operationId,
+    capabilityId: node.capabilityId,
+    recipeVersion: node.recipeVersion,
+    capabilityInput: node.capabilityInput,
+  })).digest("hex");
+  return {
+    kind: "github_delivery",
+    operationId,
+    capabilityId: node.capabilityId,
+    intentHash,
+    state: "pending",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function receiptIdForEvidence(entry: RecipeEvidence[string]): string | undefined {
   const receipt = entry.outputs?.evidence;
   return receipt
@@ -326,15 +351,15 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     outputs.set(node.id, { evidence: { evidenceId } });
   }
 
-    const registry = createServerCapabilityRegistry({
-      validationRunner: async (profile, targetPaths, signal) =>
+  const registry = createServerCapabilityRegistry({
+    validationRunner: async (profile, targetPaths, signal) =>
       runRepairValidation(
         executionRoot,
         profile as Parameters<typeof runRepairValidation>[1],
         targetPaths,
         signal,
       ),
-      ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+    ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
     ...(params.browserValidationRunner
       ? {
           browserValidationRunner: params.browserValidationRunner,
@@ -359,6 +384,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   // version claimed above instead of using wall-clock milliseconds, which
   // overflow the column on the first progress checkpoint.
   let checkpointSequence = claimed.checkpointVersion;
+  let latestNodes = resumedNodes;
   try {
     const result = await executeExecutionNodePlan({
       nodes: resumedNodes,
@@ -401,6 +427,42 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         overallController.signal.addEventListener("abort", abortFromOverall, { once: true });
         context.signal?.addEventListener("abort", abortFromOverall, { once: true });
         try {
+          const checkpointNodes = latestNodes.some((candidate) => candidate.id === node.id)
+            ? latestNodes
+            : [...latestNodes, { ...node, status: "running" as const }];
+          const externalEffect = externalEffectForNodes(
+            checkpointNodes.map((candidate) => candidate.id === node.id
+              ? { ...candidate, status: "running" as const }
+              : candidate),
+            params.operationId,
+          );
+          if (externalEffect) {
+            const checkpointed = await checkpointAiExecution({
+              executionId: claimed.id,
+              expectedAttempt: claimed.attempt,
+              workerId,
+              recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+              checkpoint: {
+                stage: "running",
+                sequence: ++checkpointSequence,
+                currentNode: node.id,
+                externalEffect,
+                recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+                nodeStates: checkpointNodes.map((candidate) => ({
+                  ...candidate,
+                  evidenceRefs: candidate.status === "passed"
+                    ? [receiptIdForEvidence({ status: candidate.status, outputs: outputs.get(candidate.id) })]
+                      .filter((id): id is string => typeof id === "string")
+                    : [],
+                })),
+                completedNodes: checkpointNodes.filter((candidate) => candidate.status === "passed").map((candidate) => candidate.id),
+                updatedAt: new Date().toISOString(),
+              },
+            });
+            if (!checkpointed) {
+              return { status: "blocked" as const, detail: "Recipe could not durably record the external delivery intent." };
+            }
+          }
           const invocation = await registry.invoke(
             node.capabilityId!,
             node.recipeVersion!,
@@ -441,6 +503,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         }
       },
       onChange: ({ nodes }) => {
+        latestNodes = nodes;
+        const externalEffect = externalEffectForNodes(nodes, params.operationId);
         void checkpointAiExecution({
           executionId: claimed.id,
           expectedAttempt: claimed.attempt,
@@ -450,6 +514,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             stage: "running",
             sequence: ++checkpointSequence,
             recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+            ...(externalEffect ? { externalEffect } : {}),
             nodeStates: nodes.map((node) => ({
               ...node,
               evidenceRefs: node.status === "passed"
