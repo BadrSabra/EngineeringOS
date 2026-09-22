@@ -7,6 +7,7 @@
  *   analysis   — scan analysis, code review
  *   workflows  — workflow orchestration
  *   tasks      — task execution + scheduleAiTaskExecution
+ *   missions   — durable Mission/Goal ownership + read-only projection
  */
 import { Router } from "express";
 import providersRouter from "./providers.js";
@@ -17,6 +18,7 @@ import tasksRouter from "./tasks.js";
 import benchmarkRouter from "./benchmark.js";
 import operatorAlertsRouter from "./operator-alerts.js";
 import recipeRouter from "./recipe.js";
+import missionsRouter from "./missions.js";
 
 export { scheduleAiTaskExecution } from "./tasks.js";
 
@@ -30,5 +32,6 @@ router.use(tasksRouter);
 router.use(benchmarkRouter);
 router.use(operatorAlertsRouter);
 router.use(recipeRouter);
+router.use(missionsRouter);
 
 export default router;

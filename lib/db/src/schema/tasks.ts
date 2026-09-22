@@ -10,6 +10,7 @@ import {
 import { projectsTable } from "./projects.js";
 import { rulesTable } from "./rules.js";
 import { workflowsTable } from "./workflows.js";
+import { aiGoalsTable } from "./ai_missions.js";
 import type { RuleVerificationCheck } from "./rules.js";
 
 export type RemediationPlanStatus = "needs_review" | "ready" | "verified";
@@ -84,6 +85,7 @@ export const tasksTable = pgTable("tasks", {
     .references(() => projectsTable.id, { onDelete: "cascade" }),
   ruleId: text("rule_id").references(() => rulesTable.id, { onDelete: "set null" }),
   workflowId: text("workflow_id").references(() => workflowsTable.id, { onDelete: "set null" }),
+  goalId: text("goal_id").references(() => aiGoalsTable.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
   status: taskStatusEnum("status").notNull().default("pending"),
@@ -140,6 +142,7 @@ export const tasksTable = pgTable("tasks", {
   index("idx_tasks_status").on(t.status),
   index("idx_tasks_priority").on(t.priority),
   index("idx_tasks_correlation_id").on(t.correlationId),
+  index("idx_tasks_goal_id").on(t.goalId),
   // PR-01: Covers lease-expiry detection: WHERE status='running' AND lease_until < NOW()
   index("idx_tasks_status_lease_until").on(t.status, t.leaseUntil),
 ]);
