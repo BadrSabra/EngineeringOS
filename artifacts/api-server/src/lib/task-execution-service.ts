@@ -411,8 +411,9 @@ export async function executeTaskLifecycle(params: {
   const claimedCheckpoint = parseAiExecutionCheckpoint(claimedExecution.checkpoint);
   const initialCheckpointSequence = Math.max(
     1,
-    (claimedCheckpoint?.sequence ?? claimedExecution.checkpointVersion ?? 0) + 1,
-  );
+    claimedCheckpoint?.sequence ?? 0,
+    claimedExecution.checkpointVersion ?? 0,
+  ) + 1;
   const resumeContext = params.resumeToken
     ? buildAiExecutionResumeContext(claimedCheckpoint)
     : "";
