@@ -2,6 +2,7 @@ import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-c
 import { projectsTable } from "./projects.js";
 import { tasksTable } from "./tasks.js";
 import { workflowsTable } from "./workflows.js";
+import { aiGoalsTable } from "./ai_missions.js";
 
 export const eventSeverityEnum = pgEnum("event_severity", [
   "info",
@@ -18,6 +19,7 @@ export const eventsTable = pgTable("events", {
     .references(() => projectsTable.id, { onDelete: "cascade" }),
   taskId: text("task_id").references(() => tasksTable.id, { onDelete: "set null" }),
   workflowId: text("workflow_id").references(() => workflowsTable.id, { onDelete: "set null" }),
+  goalId: text("goal_id").references(() => aiGoalsTable.id, { onDelete: "set null" }),
   payload: jsonb("payload").$type<Record<string, unknown>>(),
   severity: eventSeverityEnum("severity").notNull().default("info"),
   message: text("message").notNull().default(""),
@@ -47,6 +49,7 @@ export const eventsTable = pgTable("events", {
    * from a different project cannot accidentally match.
    */
   index("idx_events_project_id_correlation_id").on(t.projectId, t.correlationId),
+  index("idx_events_project_id_goal_id").on(t.projectId, t.goalId),
   // Global timestamp index — kept for admin/dashboard time-range queries
   // that do not have a project_id filter (e.g. system-wide event feed).
   index("idx_events_timestamp").on(t.timestamp),

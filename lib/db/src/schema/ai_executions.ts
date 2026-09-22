@@ -2,6 +2,7 @@ import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex, jsonb } 
 import { projectsTable } from "./projects.js";
 import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
 import { tasksTable } from "./tasks.js";
+import { aiGoalsTable } from "./ai_missions.js";
 
 export const aiExecutionStatusEnum = pgEnum("ai_execution_status", [
   "queued",
@@ -32,6 +33,8 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   operationId: text("operation_id"),
   linkedTaskId: text("linked_task_id")
     .references(() => tasksTable.id, { onDelete: "set null" }),
+  goalId: text("goal_id")
+    .references(() => aiGoalsTable.id, { onDelete: "set null" }),
   buildPlanMessageId: text("build_plan_message_id")
     .references(() => aiChatMessagesTable.id, { onDelete: "set null" }),
   /** Clerk user id; intentionally not a DB foreign key. */
@@ -71,6 +74,7 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   index("idx_ai_executions_session_status").on(t.sessionId, t.status),
   index("idx_ai_executions_status_lease").on(t.status, t.leaseUntil),
   index("idx_ai_executions_linked_task").on(t.linkedTaskId),
+  index("idx_ai_executions_goal_id").on(t.goalId),
   index("idx_ai_executions_correlation_id").on(t.correlationId),
   uniqueIndex("uq_ai_executions_user_idempotency").on(t.userId, t.idempotencyKey),
 ]);

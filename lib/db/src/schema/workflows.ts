@@ -8,6 +8,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
+import { aiGoalsTable } from "./ai_missions.js";
 
 /**
  * DB-09: All status columns in this file use pgEnum, which PostgreSQL enforces
@@ -28,6 +29,7 @@ export const workflowsTable = pgTable("workflows", {
   projectId: text("project_id")
     .notNull()
     .references(() => projectsTable.id, { onDelete: "cascade" }),
+  goalId: text("goal_id").references(() => aiGoalsTable.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   description: text("description"),
   status: workflowStatusEnum("status").notNull().default("idle"),
@@ -48,6 +50,7 @@ export const workflowsTable = pgTable("workflows", {
   // Covers: WHERE project_id = ? ORDER BY created_at DESC
   index("idx_workflows_project_id_created_at").on(t.projectId, t.createdAt),
   index("idx_workflows_status").on(t.status),
+  index("idx_workflows_goal_id").on(t.goalId),
 ]);
 
 export const workflowExecutionsTable = pgTable("workflow_executions", {
