@@ -227,16 +227,21 @@ vi.mock("@workspace/db", () => {
         const tx = {
           select: (fields?: Record<string, unknown>) => ({
             from: (table: unknown) => ({
-              where: () => {
+              where: (predicate?: { __value?: unknown }) => {
                 const tableTag = (table as { _tag?: string })._tag;
+                const selectedMessageId = predicate?.__value;
                 const rows = tableTag === "aiExecutionsTable"
                   ? [{ ...fixture.execution }]
                   : tableTag === "aiChatMessagesTable"
-                    ? fixture.messages.filter((message) =>
-                      Object.keys(fields ?? {}).length === 1
-                        ? message.role === "user"
-                        : message.role === "assistant",
-                    )
+                    ? (Object.keys(fields ?? {}).length === 1
+                      ? fixture.messages.filter((message) => message.role === "user")
+                      : fixture.messages.filter((message) =>
+                        message.role === "assistant"
+                        && (
+                          selectedMessageId === undefined
+                          || message.id === selectedMessageId
+                        ),
+                      ).slice(-1))
                     : tableTag === "aiExecutionAcceptancesTable"
                       ? [...acceptanceRows]
                       : fixture.session ? [{ id: fixture.session.id }] : [];

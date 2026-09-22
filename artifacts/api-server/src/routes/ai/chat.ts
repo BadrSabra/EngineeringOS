@@ -128,6 +128,7 @@ import type {
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
+import type { TurnIntentKind } from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
 import { startInternalRestartServicesWorkflow } from "../../lib/server-action-workflows.js";
 import {
@@ -4274,6 +4275,18 @@ function resolveSessionTaskState(
   return state?.scope.projectId === projectId ? state : null;
 }
 
+function durableTurnIntentKind(
+  request: AiExecutionRequestEnvelope | undefined,
+): TurnIntentKind | undefined {
+  const kind = request?.turnIntent;
+  return kind === "CHAT"
+    || kind === "PROJECT_QUERY"
+    || kind === "FORENSIC_AUDIT"
+    || kind === "DELIVERY"
+    ? kind
+    : undefined;
+}
+
 function hasStaleTaskStateRevision(
   state: ReturnType<typeof parseActiveTaskState>,
   revision: string,
@@ -5326,6 +5339,37 @@ router.post("/ai/chat", async (req, res) => {
       : baseProjectContext;
     analysisCorrelation.projectRevision =
       projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
+    const needsExecutionBoundTaskState =
+      turnIntent.kind === "FORENSIC_AUDIT"
+      || turnIntent.kind === "DELIVERY"
+      || isCapabilityProbeRequest(message)
+      || (
+        Boolean(resumableStateForTurn)
+        && turnIntent.requiresEvidence
+      );
+    const executionBoundTaskState = needsExecutionBoundTaskState
+      ? parseActiveTaskState(nextSessionTaskState({
+          persisted: resumableStateForTurn,
+          classification: chatClassification,
+          effectiveTurnKind: turnIntent.kind,
+          resumed: classificationResolution.resumed,
+          projectId,
+          rootPath: validRootPath,
+          linkedTaskId: effectiveLinkedTaskId,
+          revision: analysisCorrelation.projectRevision,
+          capabilityProbe: isCapabilityProbeRequest(message)
+            || Boolean(resumableStateForTurn?.capabilityProbe),
+          projectQuery: effectiveProjectQuery,
+          projectQueryObjective: effectiveObjective,
+          projectOrientation: projectOrientationTurn,
+          forcePersist: turnIntent.kind === "FORENSIC_AUDIT",
+          operationId: analysisCorrelation.operationId,
+          now: msgNow,
+          readFiles: [],
+          executionPlan: null,
+        }))
+      : null;
+    const executionBoundTaskStateJson = serializeActiveTaskState(executionBoundTaskState);
     // Enrich context with cross-session memories (outside cache; always fresh).
     // Failure is non-fatal — agent proceeds without memory context.
     await enrichContextWithMemories(projectContext, projectId, contextExecutionPlan, {
@@ -5406,7 +5450,7 @@ router.post("/ai/chat", async (req, res) => {
           rootPath: validRootPath,
           projectId,
            previouslyAcceptedEvidence: projectQueryPreviouslyAcceptedEvidence,
-          activeTaskState: resumableStateForTurn,
+          activeTaskState: executionBoundTaskState,
           activeTask,
           telemetryContext: {
             projectId,
@@ -5540,7 +5584,7 @@ router.post("/ai/chat", async (req, res) => {
           projectId,
           message,
           turnIntent: turnIntent.kind,
-          activeTaskState: resumableTaskStateAtStart,
+          activeTaskState: executionBoundTaskStateJson,
           linkedTaskId: effectiveLinkedTaskId,
           createSessionIfMissing: true,
           outcome: "FAILED",
@@ -5619,7 +5663,7 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
-        activeTaskState: resumableTaskStateAtStart,
+          activeTaskState: executionBoundTaskStateJson,
         linkedTaskId: effectiveLinkedTaskId,
         createSessionIfMissing: true,
         outcome: terminalOutcome.outcome,
@@ -5739,7 +5783,7 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
-        activeTaskState: resumableTaskStateAtStart,
+          activeTaskState: executionBoundTaskStateJson,
         executionId: undefined,
         outcome: "FAILED",
         errorCode: quality.code,
@@ -5864,7 +5908,7 @@ router.post("/ai/chat", async (req, res) => {
       });
     }
     const activeTaskState = nextSessionTaskState({
-      persisted: resumableStateForTurn,
+      persisted: executionBoundTaskState,
       classification: chatClassification,
       effectiveTurnKind: turnIntent.kind,
       resumed: classificationResolution.resumed,
@@ -5872,6 +5916,7 @@ router.post("/ai/chat", async (req, res) => {
       rootPath: validRootPath,
       linkedTaskId: effectiveLinkedTaskId,
       revision: analysisCorrelation.projectRevision,
+      operationId: analysisCorrelation.operationId,
       capabilityProbe: isCapabilityProbeRequest(message) || Boolean(resumableStateForTurn?.capabilityProbe),
       projectQuery: effectiveProjectQuery,
       projectQueryObjective: effectiveObjective,
@@ -6201,11 +6246,37 @@ export async function handleChatStream(req: Request, res: Response) {
     rawTurnIntent.kind === "CHAT"
     && !rawTurnIntent.serverAction
     && !isTaskContinuationRequest(message);
-  const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
-  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+  // A recovery handoff is explicit only when both durable identifiers are
+  // present. This preserves the ordinary-chat behavior for stale metadata
+  // probes that include an executionId without a resume token.
+  const recoveryHandoffRequested = Boolean(
+    executionId
+    && resumeToken
+    && requestedSessionId,
+  );
+  const effectiveExecutionId = recoveryHandoffRequested
+    ? executionId
+    : isolatedConversationTurn
+      ? undefined
+      : executionId;
+  const effectiveResumeToken = recoveryHandoffRequested
+    ? resumeToken
+    : isolatedConversationTurn
+      ? undefined
+      : resumeToken;
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>> | undefined;
+  let storedExecutionRequest: AiExecutionRequestEnvelope | undefined;
+  if (effectiveExecutionId) {
+    aiExecution = await getAiExecutionForUser(effectiveExecutionId, req.userId);
+    storedExecutionRequest = aiExecution
+      ? parseExecutionRequest(aiExecution.request)
+      : undefined;
+  }
+  const authoritativeTurnIntentKind = durableTurnIntentKind(storedExecutionRequest);
 
   const sessionQualityAudit = isSessionQualityAuditRequest(message);
   let sessionId = requestedSessionId;
@@ -6526,6 +6597,7 @@ export async function handleChatStream(req: Request, res: Response) {
     implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
     projectOrientation: streamResumableStateForTurn?.projectOrientation === true,
+    authoritativeKind: authoritativeTurnIntentKind,
   });
   const projectOrientationTurn =
     streamTurnIntent.kind === "PROJECT_QUERY"
@@ -6639,7 +6711,6 @@ export async function handleChatStream(req: Request, res: Response) {
   }
 
   let executionWorkerId: string | undefined;
-  let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
   let executionAbortController: AbortController | undefined;
   let executionHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let executionLeaseLost = false;
@@ -7362,9 +7433,12 @@ export async function handleChatStream(req: Request, res: Response) {
       || (proofRequired && executionRequest.turnIntent === "PROJECT_QUERY");
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
-    aiExecution = effectiveExecutionId
-      ? await getAiExecutionForUser(effectiveExecutionId, req.userId)
-      : undefined;
+    if (effectiveExecutionId && !aiExecution) {
+      aiExecution = await getAiExecutionForUser(effectiveExecutionId, req.userId);
+      storedExecutionRequest = aiExecution
+        ? parseExecutionRequest(aiExecution.request)
+        : undefined;
+    }
 
     if (effectiveExecutionId && !aiExecution) {
       sse({ type: "error", code: "EXECUTION_NOT_FOUND", message: "AI execution not found" });
@@ -7373,7 +7447,8 @@ export async function handleChatStream(req: Request, res: Response) {
     }
 
     if (aiExecution) {
-      const storedRequest = parseExecutionRequest(aiExecution.request);
+      const storedRequest =
+        storedExecutionRequest ?? parseExecutionRequest(aiExecution.request);
       const legacyBuildModelBinding = Boolean(
         storedRequest?.buildPlanMessageId
         && storedRequest.modelMessage === storedRequest.message
@@ -7664,6 +7739,15 @@ export async function handleChatStream(req: Request, res: Response) {
       readFiles: [],
       executionPlan: null,
     });
+    const needsExecutionBoundTaskState =
+      Boolean(effectiveExecutionId)
+      || streamTurnIntent.requiresEvidence
+      || streamTurnIntent.kind === "FORENSIC_AUDIT"
+      || streamTurnIntent.kind === "DELIVERY"
+      || isCapabilityProbeRequest(message);
+    const executionBoundTaskState = needsExecutionBoundTaskState
+      ? parseActiveTaskState(resumableTaskStateAtStart)
+      : streamResumableStateForTurn;
     await db.update(aiChatSessionsTable)
       .set({
         activeTaskState: resumableTaskStateAtStart,
@@ -7677,7 +7761,9 @@ export async function handleChatStream(req: Request, res: Response) {
     let checkpointSequence = aiExecution.checkpointVersion;
     const streamCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
     let checkpointFailure: unknown;
-    const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
+    const resumableStateForExecution = greetingTurnForExecution
+      ? null
+      : executionBoundTaskState;
     const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
       ? approvedImplementationExecutionPlan
         ?? buildActiveTaskExecutionPlan({
@@ -7807,7 +7893,7 @@ export async function handleChatStream(req: Request, res: Response) {
     // lifecycle checkpoint below. Initialize it before creating or invoking
     // the checkpoint writer so this closure never hits the temporal dead zone.
     const failureActiveTaskState = (): string | null => nextSessionTaskState({
-      persisted: streamResumableStateForTurn,
+      persisted: executionBoundTaskState,
       classification: streamClassification,
       effectiveTurnKind: streamTurnIntent.kind,
       resumed: streamClassificationResolution.resumed || Boolean(aiExecution && effectiveExecutionId),
@@ -8734,7 +8820,7 @@ export async function handleChatStream(req: Request, res: Response) {
           rootPath: validRootPath,
           projectId,
            previouslyAcceptedEvidence: projectQueryPreviouslyAcceptedEvidence,
-          activeTaskState: streamResumableStateForTurn,
+          activeTaskState: executionBoundTaskState,
           executionPlanOverride: executionPlanForRun ?? undefined,
           activeTask,
           telemetryContext: {
@@ -9844,7 +9930,7 @@ export async function handleChatStream(req: Request, res: Response) {
       rootPath: validRootPath,
     });
     const activeTaskState = nextSessionTaskState({
-      persisted: streamResumableStateForTurn,
+      persisted: executionBoundTaskState,
       classification: streamClassification,
       effectiveTurnKind: streamTurnIntent.kind,
       resumed: streamClassificationResolution.resumed,

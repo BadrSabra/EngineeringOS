@@ -382,10 +382,13 @@ export function resolveTurnIntent(
     buildHandoff?: boolean;
     implementationPlanResume?: boolean;
     projectOrientation?: boolean;
+    /** Server-owned intent for a durable reconnect. */
+    authoritativeKind?: TurnIntentKind;
   } = {},
 ): TurnIntent {
   const baseClassification = options.classification ?? classifyRequest(message);
   const normalizedMessage = normalizeIntentText(message);
+  const authoritativeKind = options.authoritativeKind;
   const operationalCommand = resolveOperationalCommand(message);
   const serverAction = isRunProjectScanRequest(message)
     ? "RUN_PROJECT_SCAN" as const
@@ -486,19 +489,22 @@ export function resolveTurnIntent(
   const projectQueryEvidence =
     (!broadForensicTask || !broadAuditIntent) &&
     (targetedProjectQuery || unresolvedProjectQuery || gapAnalysisProjectQuery);
-  const scopeClarificationRequired =
-    !buildHandoff &&
-    !options.resumed &&
-    !planDelivery &&
-    !implementationDelivery &&
-    (
+  const scopeClarificationRequired = authoritativeKind
+    ? false
+    : (
+      !buildHandoff &&
+      !options.resumed &&
+      !planDelivery &&
+      !implementationDelivery &&
       (
-        broadForensicTask &&
-        BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) &&
-        !EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) &&
-        !hasExplicitAuditScope(normalizedMessage, classification)
+        (
+          broadForensicTask &&
+          BROAD_AUDIT_REQUEST_RE.test(normalizedMessage) &&
+          !EXPLICIT_STRUCTURED_AUDIT_RE.test(normalizedMessage) &&
+          !hasExplicitAuditScope(normalizedMessage, classification)
+        )
+        || projectQueryExpansionRequest
       )
-      || projectQueryExpansionRequest
     );
   // A short approval/continuation inherits the already-approved forensic
   // contract. Its raw text ("ابدأ", "continue") does not repeat the audit
@@ -531,7 +537,7 @@ export function resolveTurnIntent(
     projectOrientation,
   });
 
-  const requiresTools =
+  const computedRequiresTools =
     isLowRiskChat
       ? false
       : implementationDelivery ||
@@ -543,26 +549,37 @@ export function resolveTurnIntent(
          (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired) ||
          projectOrientation;
 
-  const kind: TurnIntentKind = implementationDelivery || planDelivery
-    ? "DELIVERY"
-    : explicitEvidenceIntent &&
-        !scopeClarificationRequired &&
-        !projectQueryEvidence
-      ? "FORENSIC_AUDIT"
-      : projectQueryExpansionRequest && scopeClarificationRequired
-        ? "PROJECT_QUERY"
-      : requiresTools
-        ? "PROJECT_QUERY"
-        : "CHAT";
-  const executionTaskType: TaskType = implementationDelivery
-    ? "task_execution"
-     : explicitEvidenceIntent &&
-         !scopeClarificationRequired &&
+  const requiresTools = authoritativeKind
+    ? authoritativeKind !== "CHAT"
+    : computedRequiresTools;
+  const kind: TurnIntentKind = authoritativeKind ?? (
+    implementationDelivery || planDelivery
+      ? "DELIVERY"
+      : explicitEvidenceIntent &&
+          !scopeClarificationRequired &&
           !projectQueryEvidence
-      ? "analysis"
-      : requiresTools
+        ? "FORENSIC_AUDIT"
+        : projectQueryExpansionRequest && scopeClarificationRequired
+          ? "PROJECT_QUERY"
+        : requiresTools
+          ? "PROJECT_QUERY"
+          : "CHAT"
+  );
+  const executionTaskType: TaskType = authoritativeKind === "FORENSIC_AUDIT"
+    ? "analysis"
+    : authoritativeKind === "DELIVERY"
+      ? "task_execution"
+      : authoritativeKind === "PROJECT_QUERY"
         ? "tool_chat"
-        : "chat";
+        : implementationDelivery
+          ? "task_execution"
+          : explicitEvidenceIntent &&
+              !scopeClarificationRequired &&
+              !projectQueryEvidence
+            ? "analysis"
+            : requiresTools
+              ? "tool_chat"
+              : "chat";
   const operationMode: TurnOperationMode =
     kind === "DELIVERY"
       ? "DELIVERY"
@@ -570,7 +587,9 @@ export function resolveTurnIntent(
         ? "FORENSIC_AUDIT"
         : "CHAT";
   const contextMode: TurnContextMode =
-    isLowRiskChat ||
+    authoritativeKind && authoritativeKind !== "CHAT"
+      ? "project"
+      : isLowRiskChat ||
     (
       classification.category === "simple" &&
       !targetedProjectQuery &&
@@ -579,7 +598,9 @@ export function resolveTurnIntent(
       ? "light"
       : "project";
   const phases: TurnIntentPhase[] =
-    compoundExecution
+    authoritativeKind === "FORENSIC_AUDIT"
+      ? ["evidence"]
+      : compoundExecution
       ? compoundWrite
         ? ["evidence", "proposal"]
         : ["evidence", "validation"]
@@ -593,7 +614,8 @@ export function resolveTurnIntent(
     kind,
     category: classification.category,
     forensicTaskType: classification.taskType,
-    analysisMode: explicitEvidenceIntent && !scopeClarificationRequired
+    analysisMode: (authoritativeKind === "FORENSIC_AUDIT"
+      || explicitEvidenceIntent) && !scopeClarificationRequired
       ? classification.analysisMode
       : "STANDARD",
     outputContract:
@@ -602,10 +624,13 @@ export function resolveTurnIntent(
         : classification.outputContract,
     executionTaskType,
     requiresTools,
-    requiresEvidence: explicitEvidenceIntent && !scopeClarificationRequired,
+    requiresEvidence:
+      authoritativeKind === "FORENSIC_AUDIT"
+        || (explicitEvidenceIntent && !scopeClarificationRequired),
     resumed: options.resumed === true,
     allowsResume:
       options.resumed === true ||
+      Boolean(authoritativeKind && authoritativeKind !== "CHAT") ||
       (kind !== "CHAT" && RESUMABLE_FORENSIC_TASKS.has(classification.taskType)),
     allowsBuildHandoff: buildHandoff,
     implementationPlanResume,
@@ -613,13 +638,20 @@ export function resolveTurnIntent(
     compoundExecution,
     compoundWrite,
     phases,
-    ...(classification.projectTarget ? { projectTarget: classification.projectTarget } : {}),
+    ...(authoritativeKind === "FORENSIC_AUDIT"
+      ? {}
+      : classification.projectTarget
+        ? { projectTarget: classification.projectTarget }
+        : {}),
     projectTargetResolution:
       classification.projectTargetResolution ?? "not_applicable",
     ...(projectQueryTargetMode ? { projectQueryTargetMode } : {}),
     ...(serverAction ? { serverAction } : {}),
     ...(operationalCommand ? { operationalCommand } : {}),
-    ...(explicitEvidenceIntent && !scopeClarificationRequired
+    ...((
+      authoritativeKind === "FORENSIC_AUDIT"
+      || explicitEvidenceIntent
+    ) && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, normalizedMessage) }
       : {}),
     operationMode,
