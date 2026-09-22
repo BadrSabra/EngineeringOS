@@ -507,7 +507,10 @@ async function dispatchMissionPlan(
   trigger: MissionGoalRunTrigger,
 ) {
   const runs = [];
-  for (const planGoal of materialization.goals) {
+  // Dependencies are persisted as the runtime gate. Only roots are dispatched
+  // here; completed predecessors wake their newly eligible descendants through
+  // the existing durable reconciliation loop.
+  for (const planGoal of materialization.goals.filter((goal) => goal.dependencies.length === 0)) {
     runs.push(await runMissionGoal({
       goalId: planGoal.goalId,
       userId,

@@ -226,7 +226,14 @@ export interface ChatMissionHandoffInput {
 
 export interface ChatMissionHandoffResult {
   mission: Mission;
-  activation: { goalId: string; taskId: string };
+  activation: { stepId: string; goalId: string; taskId: string; dependencies: string[] };
+  planGoals: Array<{
+    stepId: string;
+    goalId: string;
+    taskId: string;
+    dependencies: string[];
+  }>;
+  runs: Array<{ status: string; goalId: string; reason?: string }>;
   preview: {
     admission: 'mission';
     admissionReason: string;
@@ -253,8 +260,9 @@ export function replanMission(missionId: string, body: ReplanMissionInput) {
   return requestJson<{
     mission: Mission;
     plan: ChatMissionHandoffResult['preview']['plan'];
-    goal: { goalId: string; taskId: string };
-    run: { status: string; goalId: string; reason?: string };
+    goal: ChatMissionHandoffResult['activation'];
+    goals: ChatMissionHandoffResult['planGoals'];
+    runs: ChatMissionHandoffResult['runs'];
   }>(
     `/api/ai/missions/${encodeURIComponent(missionId)}/replan`,
     jsonRequest('POST', body),
