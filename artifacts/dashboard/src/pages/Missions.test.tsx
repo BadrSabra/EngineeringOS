@@ -22,6 +22,14 @@ vi.mock('@workspace/api-client-react', () => ({
 }));
 
 vi.mock('@/lib/ai-missions', () => ({
+  MissionRequestError: class MissionRequestError extends Error {
+    status: number;
+
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+    }
+  },
   createGoal: vi.fn(),
   createMission: createMissionMock,
   fetchMissionProjection: fetchMissionProjectionMock,
