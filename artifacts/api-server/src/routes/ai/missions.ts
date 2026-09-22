@@ -10,6 +10,7 @@ import { z } from "zod";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   aiGoalDependenciesTable,
+  aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiExecutionsTable,
@@ -133,6 +134,10 @@ const MissionGoalEventBody = z.object({
     });
   }
 });
+
+const BindMissionDeliveryBody = z.object({
+  proposalId: z.string().uuid(),
+}).strict();
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -1122,6 +1127,131 @@ router.post("/ai/goals/:goalId/events", async (req, res) => {
     duplicate: result.duplicate,
     eventId: result.eventId,
     replayPending: result.persisted && !result.woken,
+  });
+});
+
+/**
+ * Binds a committed, project-owned proposal to a delivery Goal. Delivery
+ * remains server-owned: callers cannot provide an operation identity, remote,
+ * branch, workspace, or command controls.
+ */
+router.post("/ai/goals/:goalId/delivery", async (req, res) => {
+  const [goal] = await db
+    .select()
+    .from(aiGoalsTable)
+    .where(eq(aiGoalsTable.id, req.params.goalId))
+    .limit(1);
+  if (!goal) return res.status(404).json({ error: "Goal not found" });
+  const owned = await loadOwnedMission(goal.missionId, req.userId, res);
+  if (!owned) return;
+  const body = BindMissionDeliveryBody.parse(req.body);
+  if (owned.project.status === "archived") {
+    return res.status(403).json({
+      error: "This project is archived and cannot perform external delivery.",
+      code: "PROJECT_ARCHIVED",
+    });
+  }
+  if (!owned.project.gitRemoteUrl) {
+    return res.status(409).json({
+      error: "GitHub delivery requires a configured project remote.",
+      code: "DELIVERY_REMOTE_REQUIRED",
+    });
+  }
+
+  const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
+  if (!parsedAction.success || parsedAction.data.kind !== "recipe" || parsedAction.data.recipeId !== "delivery.push.github") {
+    return res.status(409).json({
+      error: "The Goal is not a GitHub delivery recipe.",
+      code: "DELIVERY_GOAL_REQUIRED",
+    });
+  }
+  if (["completed", "cancelled"].includes(goal.status)) {
+    return res.status(409).json({
+      error: "A terminal Goal cannot receive a delivery proposal.",
+      code: "DELIVERY_GOAL_TERMINAL",
+    });
+  }
+
+  const [proposal] = await db
+    .select({
+      id: aiChangeProposalsTable.id,
+      operationId: aiChangeProposalsTable.operationId,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+    })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, body.proposalId),
+      eq(aiChangeProposalsTable.projectId, owned.project.id),
+    ))
+    .limit(1);
+  if (!proposal || proposal.lifecycle !== "committed" || !proposal.operationId) {
+    return res.status(409).json({
+      error: "Delivery requires a committed proposal owned by this project.",
+      code: "DELIVERY_PROPOSAL_NOT_COMMITTED",
+    });
+  }
+
+  const now = new Date();
+  const boundAction = {
+    ...parsedAction.data,
+    proposalId: proposal.id,
+  };
+  const [updated] = await db.transaction(async (tx) => {
+    const [lockedGoal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, goal.id),
+        eq(aiGoalsTable.missionId, owned.mission.id),
+        eq(aiGoalsTable.projectId, owned.project.id),
+      ))
+      .for("update");
+    if (!lockedGoal || ["completed", "cancelled"].includes(lockedGoal.status)) return [];
+    const rows = await tx.update(aiGoalsTable)
+      .set({
+        nextAction: boundAction,
+        status: "queued",
+        blockedReason: null,
+        nextWakeAt: null,
+        completedAt: null,
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, lockedGoal.id))
+      .returning();
+    if (rows[0]) {
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalDeliveryProposalBound",
+        projectId: owned.project.id,
+        goalId: lockedGoal.id,
+        severity: "info",
+        message: `Committed delivery proposal bound to AI goal "${lockedGoal.title}"`,
+        correlationId: proposal.operationId,
+        payload: {
+          missionId: owned.mission.id,
+          proposalId: proposal.id,
+          operationId: proposal.operationId,
+        },
+      });
+    }
+    return rows;
+  });
+  if (!updated) {
+    return res.status(409).json({
+      error: "The Goal changed or became terminal before delivery binding.",
+      code: "DELIVERY_GOAL_CONFLICT",
+    });
+  }
+  const run = await runMissionGoal({
+    goalId: updated.id,
+    userId: req.userId,
+    trigger: "resume",
+  });
+  return res.status(202).json({
+    goal: updated,
+    proposalId: proposal.id,
+    operationId: proposal.operationId,
+    run,
   });
 });
 

@@ -14,6 +14,7 @@ import {
   Clock3,
   Code2,
   Edit3,
+  GitBranch,
   Layers3,
   ListChecks,
   Loader2,
@@ -34,6 +35,7 @@ import {
   Goal,
   GoalStatus,
   CreateGoalInput,
+  bindMissionDelivery,
   CreateMissionInput,
   Mission,
   MissionStatus,
@@ -663,6 +665,62 @@ function GoalEditor({
   );
 }
 
+function DeliveryBindingEditor({
+  goal,
+  saving,
+  error,
+  onClose,
+  onSave,
+}: {
+  goal: Goal;
+  saving: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSave: (proposalId: string) => void;
+}) {
+  const [proposalId, setProposalId] = useState('');
+  const [fieldError, setFieldError] = useState('');
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = proposalId.trim();
+    if (!value) {
+      setFieldError('A committed proposal ID is required.');
+      return;
+    }
+    setFieldError('');
+    onSave(value);
+  };
+
+  return (
+    <EditorModal
+      title="Bind delivery proposal"
+      eyebrow={`Delivery / ${goal.title}`}
+      error={error}
+      saving={saving}
+      onClose={onClose}
+      onSubmit={submit}
+      submitLabel="Bind and resume"
+    >
+      <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
+        Only the proposal ID is entered here. The server verifies ownership and supplies the operation identity, remote, and branch.
+      </div>
+      <div>
+        <FieldLabel htmlFor="delivery-proposal-id">Committed proposal ID</FieldLabel>
+        <TextInput
+          id="delivery-proposal-id"
+          value={proposalId}
+          onChange={setProposalId}
+          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        />
+        {fieldError ? <p className="mt-1 text-xs text-rose-300">{fieldError}</p> : (
+          <p className="mt-1 text-[10px] text-slate-600">The proposal must already be committed for this project.</p>
+        )}
+      </div>
+    </EditorModal>
+  );
+}
+
 function TaskEditor({
   projectId,
   goal,
@@ -737,15 +795,22 @@ function GoalCard({
   onToggle,
   onEdit,
   onCreateTask,
+  onBindDelivery,
 }: {
   item: MissionProjection['goals'][number];
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onCreateTask: () => void;
+  onBindDelivery: () => void;
 }) {
   const { goal, tasks, workflows, executions, events } = item;
   const linkedCount = tasks.length + workflows.length + executions.length + events.length;
+  const nextAction = goal.nextAction && typeof goal.nextAction === 'object' && !Array.isArray(goal.nextAction)
+    ? goal.nextAction as Record<string, unknown>
+    : null;
+  const isGithubDelivery = nextAction?.kind === 'recipe' && nextAction.recipeId === 'delivery.push.github';
+  const hasProposal = typeof nextAction?.proposalId === 'string' && Boolean(nextAction.proposalId);
   return (
     <article data-testid={`card-goal-${goal.id}`} className={`overflow-hidden rounded-lg border transition-colors ${expanded ? 'border-cyan-400/30 bg-slate-900/80' : 'border-slate-800 bg-slate-900/45 hover:border-slate-700'}`}>
       <div className="flex items-start gap-3 px-4 py-3.5">
@@ -779,6 +844,13 @@ function GoalCard({
             <span className="hidden sm:inline">New task</span>
             <span className="sm:hidden">Task</span>
           </button>
+          {isGithubDelivery && !hasProposal && !['completed', 'cancelled'].includes(goal.status) ? (
+            <button type="button" onClick={onBindDelivery} data-testid={`button-bind-delivery-${goal.id}`} className="inline-flex items-center gap-1 rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20">
+              <GitBranch className="h-3 w-3" />
+              <span className="hidden sm:inline">Bind proposal</span>
+              <span className="sm:hidden">Bind</span>
+            </button>
+          ) : null}
           <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`Edit ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
             <Edit3 className="h-3.5 w-3.5" />
           </button>
@@ -846,6 +918,7 @@ type EditorState =
   | { type: 'mission-edit'; mission: Mission }
   | { type: 'goal-create'; missionId: string }
   | { type: 'goal-edit'; missionId: string; goal: Goal }
+  | { type: 'delivery-bind'; goal: Goal }
   | { type: 'task-create'; goal: Goal; projectId: string }
   | null;
 
@@ -1020,6 +1093,26 @@ export default function Missions() {
         setMutationNotice(`Task created: ${created.title}`);
         setProjectionReload((value) => value + 1);
       }
+    } catch (error: unknown) {
+      setMutationError(error);
+    } finally {
+      setMutationSaving(false);
+    }
+  };
+
+  const handleBindDelivery = async (proposalId: string) => {
+    if (editor?.type !== 'delivery-bind') return;
+    setMutationSaving(true);
+    setMutationError(null);
+    try {
+      const result = await bindMissionDelivery(editor.goal.id, proposalId);
+      setEditor(null);
+      setMutationNotice(
+        result.run.status === 'waiting'
+          ? 'Delivery proposal bound. The Goal will resume when its dependencies complete.'
+          : 'Delivery proposal bound. The Goal has been queued for delivery.',
+      );
+      setProjectionReload((value) => value + 1);
     } catch (error: unknown) {
       setMutationError(error);
     } finally {
@@ -1264,6 +1357,7 @@ export default function Missions() {
                                 onToggle={() => setExpandedGoalId((current) => current === item.goal.id ? null : item.goal.id)}
                                 onEdit={() => openEditor({ type: 'goal-edit', missionId: activeMission.id, goal: item.goal })}
                                  onCreateTask={() => openEditor({ type: 'task-create', goal: item.goal, projectId })}
+                                 onBindDelivery={() => openEditor({ type: 'delivery-bind', goal: item.goal })}
                               />
                             ))}
                           </div>
@@ -1298,6 +1392,9 @@ export default function Missions() {
       ) : null}
       {editor?.type === 'goal-edit' ? (
         <GoalEditor goal={editor.goal} availableParents={projectionGoals.map((item) => item.goal)} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleSave} />
+      ) : null}
+      {editor?.type === 'delivery-bind' ? (
+        <DeliveryBindingEditor goal={editor.goal} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleBindDelivery} />
       ) : null}
       {editor?.type === 'task-create' ? (
         <TaskEditor projectId={editor.projectId} goal={editor.goal} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleSave} />

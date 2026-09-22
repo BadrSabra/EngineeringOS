@@ -289,3 +289,21 @@ export function updateGoal(goalId: string, body: UpdateGoalInput) {
     jsonRequest('PATCH', body),
   );
 }
+
+export interface BindMissionDeliveryResult {
+  goal: Goal;
+  proposalId: string;
+  operationId: string;
+  run: {
+    status: string;
+    goalId: string;
+    reason?: string;
+  };
+}
+
+export function bindMissionDelivery(goalId: string, proposalId: string) {
+  return requestJson<BindMissionDeliveryResult>(
+    `/api/ai/goals/${encodeURIComponent(goalId)}/delivery`,
+    jsonRequest('POST', { proposalId }),
+  );
+}

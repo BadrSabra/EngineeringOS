@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5,11 +6,13 @@ import Missions from './Missions';
 
 const {
   createMissionMock,
+  bindMissionDeliveryMock,
   fetchMissionsMock,
   fetchMissionProjectionMock,
   useListProjectsMock,
 } = vi.hoisted(() => ({
   createMissionMock: vi.fn(),
+  bindMissionDeliveryMock: vi.fn(),
   fetchMissionsMock: vi.fn(),
   fetchMissionProjectionMock: vi.fn(),
   useListProjectsMock: vi.fn(),
@@ -31,6 +34,7 @@ vi.mock('@/lib/ai-missions', () => ({
     }
   },
   createGoal: vi.fn(),
+  bindMissionDelivery: bindMissionDeliveryMock,
   createMission: createMissionMock,
   fetchMissionProjection: fetchMissionProjectionMock,
   fetchMissions: fetchMissionsMock,
@@ -115,5 +119,57 @@ describe('Missions management', () => {
     expect(screen.getByTestId(`text-mission-title-${mission.id}`)).toHaveTextContent(mission.title);
     expect(screen.getByRole('status')).toHaveTextContent('Mission started.');
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('binds a committed proposal from the delivery goal action', async () => {
+    const deliveryGoal = {
+      id: 'goal-delivery-1',
+      missionId: mission.id,
+      projectId: project.id,
+      parentGoalId: null,
+      title: 'Push verified result',
+      description: null,
+      status: 'queued' as const,
+      priority: 'p1',
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: {},
+      nextAction: {
+        kind: 'recipe',
+        recipeId: 'delivery.push.github',
+        recipeVersion: 1,
+        approvedPaths: [],
+        candidateIdentity: null,
+      },
+      blockedReason: null,
+      nextWakeAt: null,
+      createdAt: '2026-09-22T00:00:00.000Z',
+      updatedAt: '2026-09-22T00:00:00.000Z',
+      completedAt: null,
+      dependencies: [],
+    };
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: { ...mission, status: 'active' },
+      goals: [{ goal: deliveryGoal, tasks: [], workflows: [], executions: [], events: [] }],
+      counts: { goals: 1, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    });
+    fetchMissionsMock.mockResolvedValue([{ ...mission, status: 'active' }]);
+    bindMissionDeliveryMock.mockResolvedValue({
+      goal: { ...deliveryGoal, status: 'waiting_for_event' },
+      proposalId: 'proposal-1',
+      operationId: 'operation-1',
+      run: { status: 'waiting', goalId: deliveryGoal.id, reason: 'dependencies_pending' },
+    });
+
+    renderPage();
+    expect(await screen.findByTestId(`button-bind-delivery-${deliveryGoal.id}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`button-bind-delivery-${deliveryGoal.id}`));
+    fireEvent.change(screen.getByTestId('delivery-proposal-id'), {
+      target: { value: 'proposal-1' },
+    });
+    fireEvent.click(screen.getByTestId('button-save-editor'));
+
+    await waitFor(() => expect(bindMissionDeliveryMock).toHaveBeenCalledWith(deliveryGoal.id, 'proposal-1'));
+    expect(await screen.findByRole('status')).toHaveTextContent('Delivery proposal bound.');
   });
 });

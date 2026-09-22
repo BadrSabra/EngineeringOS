@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import app from "../../app.js";
 import {
+  aiChangeProposalsTable,
   aiGoalDependenciesTable,
+  aiChatMessagesTable,
+  aiChatSessionsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -256,6 +259,113 @@ describe("AI missions and goals", () => {
       .where(eq(eventsTable.id, eventId));
     expect(persistedGoal?.status).toBe("needs_replan");
     expect(inboxEvent?.type).toBe("AiMissionExternalEventReceived");
+  });
+
+  it("binds only a committed project proposal to a delivery Goal", async () => {
+    const projectId = await insertProject();
+    await db.update(projectsTable)
+      .set({
+        gitRemoteUrl: "https://github.com/example/project.git",
+        gitDefaultBranch: "main",
+      })
+      .where(eq(projectsTable.id, projectId));
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Verified delivery mission",
+      intent: "Deliver the verified change",
+    });
+    const prerequisite = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({ title: "Complete verification first" });
+    const goal = await request(app)
+      .post(`/api/ai/missions/${mission.body.id}/goals`)
+      .send({
+        title: "Push verified change",
+        dependsOnGoalIds: [prerequisite.body.id],
+        planRevision: "delivery-plan-1",
+        nextAction: {
+          kind: "recipe",
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+          approvedPaths: [],
+          candidateIdentity: null,
+        },
+      });
+    expect(goal.status).toBe(201);
+
+    const rejected = await request(app)
+      .post(`/api/ai/goals/${goal.body.id}/delivery`)
+      .send({ proposalId: randomUUID() });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.code).toBe("DELIVERY_PROPOSAL_NOT_COMMITTED");
+
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const operationId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Delivery proposal fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Verified change",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId,
+      createdAt: now,
+    });
+
+    const bound = await request(app)
+      .post(`/api/ai/goals/${goal.body.id}/delivery`)
+      .send({ proposalId });
+    expect(bound.status).toBe(202);
+    expect(bound.body).toMatchObject({
+      proposalId,
+      operationId,
+      run: {
+        status: "waiting",
+        reason: "dependencies_pending",
+      },
+    });
+    expect(bound.body.goal.nextAction).toMatchObject({
+      kind: "recipe",
+      recipeId: "delivery.push.github",
+      proposalId,
+    });
+
+    const [persistedGoal] = await db
+      .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, goal.body.id));
+    expect(persistedGoal?.status).toBe("waiting_for_event");
+    expect(persistedGoal?.nextAction).toMatchObject({ proposalId });
+    const [bindingEvent] = await db
+      .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
+      .from(eventsTable)
+      .where(and(
+        eq(eventsTable.goalId, goal.body.id),
+        eq(eventsTable.type, "AiGoalDeliveryProposalBound"),
+      ));
+    expect(bindingEvent).toMatchObject({
+      type: "AiGoalDeliveryProposalBound",
+      correlationId: operationId,
+    });
   });
 
   it("binds active mission activation to the same server-owned plan revision", async () => {

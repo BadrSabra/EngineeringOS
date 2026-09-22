@@ -18,3 +18,9 @@ Mission recipe actions must resolve the managed project root and current Git rev
 **Why:** Goal actions are intentionally not trusted with roots, revisions, or workspaces. Binding those values at the worker boundary prevents stale or foreign candidate workspaces from becoming recipe evidence.
 
 **How to apply:** Keep Goal/Mission dispatch as a coordinator over `runRecipeOperation`; use the durable execution and receipt as the execution identity, then project the terminal recipe result back to the Goal/Mission under a row lock.
+
+Mission delivery binding is an explicit server-owned handoff: the UI may submit only a durable proposal ID, while the server verifies committed ownership and derives operation, repository, and branch identity.
+
+**Why:** Allowing the browser or a model to provide delivery identity would let an otherwise valid Goal target a foreign, stale, or uncommitted change.
+
+**How to apply:** Expose a dedicated binding action in Mission UI instead of asking users to edit `nextAction` JSON; refresh the Mission projection after the server accepts the binding.
