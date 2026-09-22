@@ -468,7 +468,9 @@ async function syncLinkedObjectiveState(
         status: nextGoalStatus,
         completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null,
         blockedReason: nextGoalStatus === "needs_replan"
-          ? `Execution ${params.outcome === "INTERRUPTED" ? "was cancelled" : "did not complete"}; review or retry the task.`
+          ? params.acceptanceProjection?.reasonCode
+            ? `Server-owned acceptance ${params.acceptanceProjection.reasonCode}; proof is not complete.`
+            : `Execution ${params.outcome === "INTERRUPTED" ? "was cancelled" : "did not complete"}; review or retry the task.`
           : null,
         updatedAt: params.now,
       })
@@ -492,6 +494,24 @@ async function syncLinkedObjectiveState(
         after: nextGoalStatus,
         outcome: params.outcome,
         retryable: params.retryable,
+        ...(params.acceptanceProjection
+          ? {
+              acceptance: {
+                acceptanceId: params.acceptanceProjection.acceptanceId ?? null,
+                executionId: params.acceptanceProjection.executionId,
+                outcome: params.acceptanceProjection.outcome,
+                verdict: params.acceptanceProjection.verdict,
+                evidenceSnapshotId: params.acceptanceProjection.evidenceSnapshotId ?? null,
+                sourceRevision: params.acceptanceProjection.sourceRevision ?? null,
+                candidateIdentity: params.acceptanceProjection.candidateIdentity ?? null,
+                acceptedRefs: params.acceptanceProjection.acceptedRefs ?? [],
+                validatorIds: params.acceptanceProjection.validatorIds ?? [],
+                receipt: params.acceptanceProjection.receipt ?? null,
+                reasonCode: params.acceptanceProjection.reasonCode ?? null,
+                nextActionCode: params.acceptanceProjection.nextActionCode ?? null,
+              },
+            }
+          : {}),
       },
     });
   }
@@ -986,9 +1006,9 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     verdict === "UNAVAILABLE"
     || (sourceEvidenceRequired && verdict !== "PROVEN");
   const complete = Boolean(!verdictBlocksCompletion && (!required || (
-    readsComplete
-    && verdict !== "NOT_RECORDED"
-    && verdict !== "UNAVAILABLE"
+    !sourceEvidenceRequired
+      ? verdict !== "NOT_RECORDED"
+      : readsComplete && verdict !== "NOT_RECORDED" && verdict !== "UNAVAILABLE"
   )));
   return {
     complete,
