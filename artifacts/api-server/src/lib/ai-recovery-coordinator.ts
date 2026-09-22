@@ -400,7 +400,9 @@ type RecoveryRow = TaskRecoveryCandidate & {
   acceptanceCreatedAt: Date;
 };
 
-async function findRecoveryCandidates(): Promise<RecoveryRow[]> {
+async function findRecoveryCandidates(scope: {
+  projectId?: string;
+} = {}): Promise<RecoveryRow[]> {
   const rows = await db
     .select({
       taskId: tasksTable.id,
@@ -435,6 +437,7 @@ async function findRecoveryCandidates(): Promise<RecoveryRow[]> {
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
       inArray(tasksTable.status, [...RECOVERY_TASK_STATUSES]),
+      scope.projectId ? eq(projectsTable.id, scope.projectId) : undefined,
     ))
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
     .limit(MAX_RECOVERY_CANDIDATES);
@@ -445,7 +448,9 @@ async function findRecoveryCandidates(): Promise<RecoveryRow[]> {
   }));
 }
 
-async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
+async function findChatRecoveryCandidates(scope: {
+  projectId?: string;
+} = {}): Promise<ChatRecoveryCandidate[]> {
   const rows = await db
     .select({
       executionId: aiExecutionsTable.id,
@@ -479,6 +484,7 @@ async function findChatRecoveryCandidates(): Promise<ChatRecoveryCandidate[]> {
       eq(aiExecutionAcceptancesTable.outcome, "FAILED"),
       isNull(aiExecutionsTable.linkedTaskId),
       inArray(aiExecutionsTable.status, [...RECOVERY_EXECUTION_STATUSES]),
+      scope.projectId ? eq(projectsTable.id, scope.projectId) : undefined,
     ))
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
     .limit(MAX_RECOVERY_CANDIDATES);
@@ -639,12 +645,14 @@ async function runChatRecovery(
  * Dispatch acceptance-authorized task recovery. The database acceptance is
  * the source of truth; the in-memory queue only limits local concurrency.
  */
-export async function dispatchAutonomousTaskRecoveries(): Promise<number> {
+export async function dispatchAutonomousTaskRecoveries(scope: {
+  projectId?: string;
+} = {}): Promise<number> {
   let dispatched = 0;
   try {
     const [rows, chatRows] = await Promise.all([
-      findRecoveryCandidates(),
-      findChatRecoveryCandidates(),
+      findRecoveryCandidates(scope),
+      findChatRecoveryCandidates(scope),
     ]);
     const seenTasks = new Set<string>();
     for (const candidate of rows) {

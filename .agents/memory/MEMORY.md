@@ -15,10 +15,7 @@
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
 - [AI fixture provider lifecycle](ai-fixture-provider-lifecycle.md) — deterministic chat fixtures must stub lifecycle selectability when fallback rechecks a dummy provider key.
 - [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
-- [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
 - [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
-- [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
-- [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
 - [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
 - [No-tools synthesis recovery](no-tools-synthesis-recovery.md) — malformed content-only output gets one bounded repair/alternate-model attempt; failed models stay excluded and parsing remains fail-closed.
 - [Concurrent test barriers](concurrent-test-barriers.md) — concurrent request fixtures should dispatch by request identity and use bounded readiness barriers, not queued mock order or unbounded polling.
@@ -26,8 +23,6 @@
 - [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
 - [Project query retry contract](project-query-retry-contract.md) — targeted project-query retries create fresh executions while preserving the server-owned evidence scope.
 - [Terminal projection identity](terminal-projection-identity.md) — terminal outcomes must bind execution, attempt, message, and session consistently across DB, SSE, history, and status.
-- [Live mission correlation](live-correlation-release.md) — live-provider acceptance is opt-in, disposable, redacted, and validates all mission surfaces by operation and revision.
-- [Analysis correlation](analysis-correlation.md) — scanner, graph, and discovery evidence must match the active operation and revision, with cancellation checked before writes.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
 - [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
@@ -37,14 +32,12 @@
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
 - [Automatic Mission replan](mission-auto-replan.md) — failure recovery is bounded and revision-bound; old Goals remain audit history and only new roots dispatch.
 - [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
-- [Graph project boundaries](graph-project-boundaries.md) — traversal must validate both endpoint entities; legacy null edge ownership is safe only with project-scoped endpoints.
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
-- [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.
+- [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks; Preview is blocking by default while live providers stay opt-in.
 - [AI cancellation checkpoint handling](ai-cancellation-checkpoint.md) — expected lease rejection after user cancellation must preserve the incomplete report, not become a stream 500.
 - [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
-- [Execution audit exports](execution-audit-export.md) — portable audits use owner-scoped durable state with allowlisted fields and explicit redaction.
 - [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
 - [Package test root](package-test-root.md) — run API Vitest from artifacts/api-server; workspace-root discovery can select the stale imported-project copy.
 - [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
@@ -68,7 +61,6 @@
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
 - [Chat message timeline semantics](chat-message-timeline-semantics.md) — assistant message timestamps can represent request-start ordering; audit terminal chronology from execution and acceptance timestamps.
-- [Forensic truncation marker collision](forensic-truncation-marker-collision.md) — literal marker constants in source can be mistaken for tool-appended truncation.
 - [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal projections must preserve claim-closure diagnostics even when classified as PROJECT_QUERY.
 - [Prefetch evidence parity](prefetch-evidence-parity.md) — prefetch telemetry and persisted evidence must share size-aware read status; oversized bodies cannot appear complete in the trace.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
@@ -101,7 +93,6 @@
 - [Project-query direct-stream acceptance](project-query-direct-stream-acceptance.md) — direct streaming must emit decision trace and accepted-claim evidence before project-query acceptance can finalize.
 - [Project-query terminal parity](project-query-terminal-parity.md) — accepted project queries must not lose objective verdicts in public projections or emit generic forensic incompleteness.
 - [Objective evidence range ownership](objective-evidence-range-ownership.md) — server-computed claim windows must override provider-selected ranges when proving behavioral objectives.
-- [Gap-analysis baseline](gap-analysis-baseline.md) — gap-analysis symbol-only recovery failure predates the embedded-AI locator fix and must be triaged separately.
 - [Objective locator recovery](objective-locator-recovery.md) — bounded objective recovery needs a server-owned locator for every required path; first-path prefetch alone cannot recover later truncated reads.
 - [Objective claim closure](objective-claim-closure.md) — complete retained windows still need a surviving response-bound claim projection before PROJECT_QUERY can be accepted.
 - [Project-query stream parity](project-query-stream-parity.md) — targeted objective evidence handoff must run before every SSE terminal return, not only the shared non-streaming gate.
@@ -121,7 +112,6 @@
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [GitHub delivery recovery](github-delivery-recovery.md) — reconcile an uncertain push with remote parent, Git tree SHA, and operation marker before recording idempotent success.
-- [Path-aware call edges](path-aware-call-edges.md) — static call relationships must retain endpoint paths so same-named symbols cannot collapse during persistence.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges require the active server-owned session/revision and support stale filtering.
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.
@@ -140,7 +130,6 @@
  - [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
 - [Cancellation controller registration](cancellation-controller-registration.md) — durable cancellation must win even when a worker registers its AbortController after the cancel request.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
-- [Empty prefetch reads](empty-prefetch-reads.md) — prefetch must reject empty tool output before creating cache/messages; otherwise failed paths enter status telemetry without a traceable read event.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
@@ -154,6 +143,6 @@
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
 - [Mission management browser proof](missions-management-browser-proof.md) — isolate CRUD journeys with provider-free fixtures and assert durable source values after reload.
-- [Collapsible form acceptance](collapsible-form-acceptance.md) — browser journeys must open disclosure controls before filling hidden advanced fields.
 - [Mission approval adapter](mission-approval-adapter.md) — proposal-backed Goal approvals reuse the existing revision gate and resume the Mission runtime; apply remains separate.
 - [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.
+- [Recovery test isolation](recovery-test-isolation.md) — shared recovery fixtures need project-scoped dispatch and dependency-ordered cleanup.

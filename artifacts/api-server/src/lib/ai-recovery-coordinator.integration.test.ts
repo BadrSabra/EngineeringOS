@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiChatMessagesTable,
@@ -277,20 +277,47 @@ async function insertProviderFailureChatFixture() {
   return fixture;
 }
 
+async function cleanupRecoveryFixtures() {
+  const owners = ["recovery-test-user", "recovery-chat-test-user"];
+  const projects = await db
+    .select({ id: projectsTable.id })
+    .from(projectsTable)
+    .where(inArray(projectsTable.ownerId, owners));
+  const projectIds = projects.map(({ id }) => id);
+  if (projectIds.length === 0) return;
+
+  await db.delete(aiExecutionAcceptancesTable)
+    .where(inArray(aiExecutionAcceptancesTable.projectId, projectIds));
+  await db.delete(aiChatMessagesTable)
+    .where(inArray(aiChatMessagesTable.sessionId,
+      db.select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable)
+        .where(inArray(aiChatSessionsTable.projectId, projectIds)),
+    ));
+  await db.delete(aiExecutionsTable)
+    .where(inArray(aiExecutionsTable.projectId, projectIds));
+  await db.delete(tasksTable)
+    .where(inArray(tasksTable.projectId, projectIds));
+  await db.delete(aiChatSessionsTable)
+    .where(inArray(aiChatSessionsTable.projectId, projectIds));
+  await db.delete(projectsTable)
+    .where(inArray(projectsTable.id, projectIds));
+}
+
 describe("durable automatic task recovery", () => {
   afterEach(async () => {
     vi.clearAllMocks();
     queuedJobs.length = 0;
     queuedIds.clear();
-    await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.finalizationKey, "recovery-test:missing"));
+    await cleanupRecoveryFixtures();
   });
 
   it("deduplicates concurrent dispatch and atomically advances the retry budget", async () => {
     const fixture = await insertFixture();
     try {
       const [first, second] = await Promise.all([
-        dispatchAutonomousTaskRecoveries(),
-        dispatchAutonomousTaskRecoveries(),
+        dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId }),
+        dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId }),
       ]);
       expect(first + second).toBe(1);
       expect(queuedJobs).toHaveLength(1);
@@ -319,19 +346,20 @@ describe("durable automatic task recovery", () => {
 });
 
 describe("durable automatic conversational recovery", () => {
-  afterEach(() => {
+  afterEach(async () => {
     runChatExecutionRecovery.mockClear();
     runChatRecoveryExhaustionFinalization.mockClear();
     queuedJobs.length = 0;
     queuedIds.clear();
+    await cleanupRecoveryFixtures();
   });
 
   it("dispatches an eligible proof-backed chat turn once without routing it through task lifecycle", async () => {
     const fixture = await insertChatFixture();
     try {
       const [first, second] = await Promise.all([
-        dispatchAutonomousTaskRecoveries(),
-        dispatchAutonomousTaskRecoveries(),
+        dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId }),
+        dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId }),
       ]);
       expect(first + second).toBe(1);
       expect(queuedJobs).toHaveLength(1);
@@ -357,8 +385,8 @@ describe("durable automatic conversational recovery", () => {
     const fixture = await insertParserChatFixture();
     try {
       const [first, second] = await Promise.all([
-        dispatchAutonomousTaskRecoveries(),
-        dispatchAutonomousTaskRecoveries(),
+        dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId }),
+        dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId }),
       ]);
       expect(first + second).toBe(1);
       expect(queuedJobs).toHaveLength(1);
@@ -383,7 +411,7 @@ describe("durable automatic conversational recovery", () => {
   it("dispatches a bounded automatic retry for an ordinary chat provider failure", async () => {
     const fixture = await insertProviderFailureChatFixture();
     try {
-      const dispatched = await dispatchAutonomousTaskRecoveries();
+      const dispatched = await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId });
 
       expect(dispatched).toBe(1);
       expect(queuedJobs).toHaveLength(1);
@@ -433,7 +461,7 @@ describe("durable automatic conversational recovery", () => {
         createdAt: new Date(),
       });
 
-      expect(await dispatchAutonomousTaskRecoveries()).toBe(0);
+      expect(await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId })).toBe(0);
       expect(queuedJobs).toHaveLength(0);
     } finally {
       await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
@@ -453,7 +481,7 @@ describe("durable automatic conversational recovery", () => {
         .set({ attempt: 3 })
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
 
-      const dispatched = await dispatchAutonomousTaskRecoveries();
+      const dispatched = await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId });
 
       expect(dispatched).toBe(1);
       expect(queuedJobs).toHaveLength(1);
@@ -486,7 +514,7 @@ describe("durable automatic conversational recovery", () => {
         .set({ attempt: 3 })
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
 
-      const dispatched = await dispatchAutonomousTaskRecoveries();
+      const dispatched = await dispatchAutonomousTaskRecoveries({ projectId: fixture.projectId });
 
       expect(dispatched).toBe(1);
       expect(queuedJobs[0]?.id).toBe(

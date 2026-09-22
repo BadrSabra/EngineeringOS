@@ -525,7 +525,11 @@ describe("Mission recipe dispatch", () => {
       updatedAt: now,
     });
 
-    expect(await dispatchPendingMissionRecipes()).toBe(1);
+    const [firstDispatch, secondDispatch] = await Promise.all([
+      dispatchPendingMissionRecipes(),
+      dispatchPendingMissionRecipes(),
+    ]);
+    expect(firstDispatch + secondDispatch).toBe(1);
     await vi.waitFor(async () => {
       expect(recipeRunner).toHaveBeenCalledOnce();
       const [goal] = await db

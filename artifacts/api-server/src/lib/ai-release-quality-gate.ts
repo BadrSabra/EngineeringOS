@@ -208,7 +208,11 @@ export function getAiReleaseChecks(options: {
   enablePreview?: boolean;
   enableLiveProvider?: boolean;
 } = {}): AiReleaseCheckDefinition[] {
-  const enablePreview = options.enablePreview === true;
+  // The deterministic dashboard journey is provider-free and is part of the
+  // normal release decision. Callers can still disable it explicitly for
+  // narrow local checks, but omission must not silently produce a skipped
+  // release surface.
+  const enablePreview = options.enablePreview !== false;
   const enableLiveProvider = options.enableLiveProvider === true;
   return CHECKS.map((check) => ({
     ...check,
@@ -422,7 +426,7 @@ export function evaluateAiReleaseQuality(results: readonly AiReleaseCheckResult[
     generatedAt: options.generatedAt ?? new Date().toISOString(),
     status: blockers.length === 0 ? "passed" : "blocked",
     liveProviderChecks: options.enableLiveProvider ? "enabled" : "disabled",
-    previewChecks: options.enablePreview ? "enabled" : "disabled",
+    previewChecks: options.enablePreview === false ? "disabled" : "enabled",
     summary: {
       totalCases: normalizedResults.length,
       passedCases: normalizedResults.filter((result) => result.status === "passed").length,
@@ -483,7 +487,7 @@ export async function runAiReleaseQualityGate(options: {
   enableLiveProvider?: boolean;
   generatedAt?: string;
 } = {}): Promise<AiReleaseQualityDecision> {
-  const enablePreview = options.enablePreview === true;
+  const enablePreview = options.enablePreview !== false;
   const enableLiveProvider = options.enableLiveProvider === true;
   const checks = getAiReleaseChecks({ enablePreview, enableLiveProvider });
   const results: AiReleaseCheckResult[] = [];
@@ -533,7 +537,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       releaseLockCleanup = await acquireReleaseLock(lockPath);
     }
     const decision = await runAiReleaseQualityGate({
-      enablePreview: process.env.AI_RELEASE_ENABLE_PREVIEW === "true",
+      enablePreview: process.env.AI_RELEASE_ENABLE_PREVIEW !== "false",
       enableLiveProvider: process.env.AI_RELEASE_ENABLE_LIVE_PROVIDER === "true",
       cwd: workspaceRoot,
     });

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import app from "../../app.js";
 import {
   aiChangeProposalsTable,
@@ -18,6 +18,7 @@ import {
   workflowsTable,
 } from "@workspace/db";
 import { waitForScheduledAiTaskExecutions } from "./tasks.js";
+import { runMissionGoal, wakeReadyMissionGoals } from "../../lib/mission-runtime.js";
 
 const projectIds: string[] = [];
 
@@ -91,6 +92,146 @@ describe("AI missions and goals", () => {
     expect(handoff.body.preview.plan.planHash).toBe(preview.body.plan.planHash);
     expect(handoff.body.mission.status).toBe("active");
     expect(handoff.body.activation.goalId).toBeTruthy();
+  });
+
+  it("runs the provider-free Chat-to-Mission dependency handoff and preserves history on replan", async () => {
+    const projectId = await insertProject();
+    const message = "Inspect the source, then fix the blocking issue.";
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({ projectId, message });
+    expect(preview.status).toBe(200);
+    expect(preview.body.admission).toBe("mission");
+    expect(preview.body.plan.steps.length).toBeGreaterThan(2);
+
+    const handoff = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        message,
+        expectedPlanHash: preview.body.plan.planHash,
+      });
+    expect(handoff.status).toBe(201);
+    const missionId = handoff.body.mission.id as string;
+    const planRevision = preview.body.plan.planHash as string;
+
+    const [mission] = await db
+      .select({
+        status: aiMissionsTable.status,
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(mission?.status).toBe("active");
+    expect(mission?.autonomyPolicy).toMatchObject({
+      handoffSource: { kind: "chat" },
+      activePlanRevision: planRevision,
+    });
+
+    const materializedGoals = await db
+      .select({
+        id: aiGoalsTable.id,
+        status: aiGoalsTable.status,
+        successCriteria: aiGoalsTable.successCriteria,
+        outcomeContract: aiGoalsTable.outcomeContract,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    expect(materializedGoals).toHaveLength(preview.body.plan.steps.length);
+
+    const dependencies = await db
+      .select({
+        goalId: aiGoalDependenciesTable.goalId,
+        dependsOnGoalId: aiGoalDependenciesTable.dependsOnGoalId,
+        planRevision: aiGoalDependenciesTable.planRevision,
+      })
+      .from(aiGoalDependenciesTable)
+      .where(eq(aiGoalDependenciesTable.missionId, missionId));
+    expect(dependencies.length).toBeGreaterThan(0);
+    expect(dependencies.every((dependency) => dependency.planRevision === planRevision)).toBe(true);
+    expect(materializedGoals.every((goal) => (
+      goal.successCriteria
+      && typeof goal.successCriteria === "object"
+      && !Array.isArray(goal.successCriteria)
+      && (goal.successCriteria as { planRevision?: { hash?: string } }).planRevision?.hash === planRevision
+    ))).toBe(true);
+
+    const dependentGoal = materializedGoals.find((goal) =>
+      dependencies.some((dependency) => dependency.goalId === goal.id),
+    );
+    expect(dependentGoal).toBeDefined();
+    if (!dependentGoal) return;
+
+    await expect(runMissionGoal({
+      goalId: dependentGoal.id,
+      userId: "test-user",
+      trigger: "resume",
+    })).resolves.toMatchObject({
+      status: "waiting",
+      goalId: dependentGoal.id,
+      reason: "dependencies_pending",
+    });
+
+    const predecessorIds = dependencies
+      .filter((dependency) => dependency.goalId === dependentGoal.id)
+      .map((dependency) => dependency.dependsOnGoalId);
+    await db.update(aiGoalsTable)
+      .set({
+        status: "completed",
+        blockedReason: null,
+        outcomeContract: {
+          ...(materializedGoals.find((goal) => predecessorIds.includes(goal.id))?.outcomeContract ?? {}),
+          acceptance: {
+            executionId: "provider-free-accepted-execution",
+            outcome: "SUCCEEDED",
+            verdict: "PROVEN",
+            acceptedRefs: ["provider-free-evidence"],
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(aiGoalsTable.missionId, missionId),
+        inArray(aiGoalsTable.id, predecessorIds),
+      ));
+
+    expect(await wakeReadyMissionGoals()).toBeGreaterThanOrEqual(1);
+    const [wokenGoal] = await db
+      .select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, dependentGoal.id));
+    expect(["running", "verifying"]).toContain(wokenGoal?.status);
+
+    const replan = await request(app)
+      .post(`/api/ai/missions/${missionId}/replan`)
+      .send({
+        message: "Inspect the source, then fix the newly discovered issue.",
+        reason: "The accepted execution exposed a new bounded objective.",
+      });
+    expect(replan.status).toBe(201);
+    expect(replan.body.plan.planHash).not.toBe(planRevision);
+
+    const historicalGoals = await db
+      .select({
+        id: aiGoalsTable.id,
+        status: aiGoalsTable.status,
+        successCriteria: aiGoalsTable.successCriteria,
+      })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    expect(historicalGoals.length).toBeGreaterThan(materializedGoals.length);
+    expect(historicalGoals.some((goal) => (
+      goal.successCriteria
+      && typeof goal.successCriteria === "object"
+      && !Array.isArray(goal.successCriteria)
+      && (goal.successCriteria as { planRevision?: { hash?: string } }).planRevision?.hash === planRevision
+    ))).toBe(true);
+    expect(historicalGoals.some((goal) => (
+      goal.successCriteria
+      && typeof goal.successCriteria === "object"
+      && !Array.isArray(goal.successCriteria)
+      && (goal.successCriteria as { planRevision?: { hash?: string } }).planRevision?.hash === replan.body.plan.planHash
+    ))).toBe(true);
   });
 
   it("persists revision-bound goal dependencies and rejects cycles", async () => {

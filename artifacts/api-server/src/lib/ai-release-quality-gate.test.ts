@@ -21,10 +21,15 @@ function result(overrides: Partial<AiReleaseCheckResult> = {}): AiReleaseCheckRe
 }
 
 describe("AI release quality gate", () => {
-  it("keeps preview and live-provider lanes opt-in", () => {
+  it("keeps the provider-free preview lane blocking while live providers stay opt-in", () => {
     const checks = getAiReleaseChecks();
-    expect(checks.find((check) => check.id === "dashboard-preview-contract")?.enabled).toBe(false);
+    expect(checks.find((check) => check.id === "dashboard-preview-contract")?.enabled).toBe(true);
     expect(checks.some((check) => check.id === "live-provider-quality")).toBe(false);
+  });
+
+  it("allows an explicit local opt-out without changing the standard release default", () => {
+    const checks = getAiReleaseChecks({ enablePreview: false });
+    expect(checks.find((check) => check.id === "dashboard-preview-contract")?.enabled).toBe(false);
   });
 
   it("adds only a non-blocking structured-review campaign when live checks are requested", () => {
