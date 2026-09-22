@@ -355,6 +355,205 @@ describe("Mission recipe dispatch", () => {
     }));
   });
 
+  it("reconstructs queued GitHub delivery after restart without duplicating execution", async () => {
+    recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
+      await runner?.({
+        rootPath: process.cwd(),
+        projectId: params.projectId,
+        operationId: params.operationId,
+        message: "Resume the verified delivery",
+      });
+      return {
+        executionId: "delivery-execution-recovered",
+        status: "completed",
+        completedNodeIds: ["push"],
+        receipt: {
+          contractVersion: 1,
+          executionId: "delivery-execution-recovered",
+          operationId: params.operationId,
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+          status: "completed",
+          completedNodeIds: ["push"],
+          nodes: [{
+            nodeId: "push",
+            status: "passed",
+            attempts: 1,
+            elapsedMs: 10,
+            evidenceId: "github-evidence-recovered",
+            excerpt: "GitHub delivery recovered after restart.",
+          }],
+          evidenceRefs: ["github-evidence-recovered"],
+          createdAt: "2026-09-22T15:00:00.000Z",
+          completedAt: "2026-09-22T15:00:00.010Z",
+        },
+      };
+    });
+    githubDeliveryRunner.mockResolvedValue({
+      status: "passed",
+      evidence: {
+        evidenceId: "github:delivery-recovered",
+        resultHash: "b".repeat(64),
+        artifactRef: "github-delivery:recovered",
+      },
+    });
+
+    const projectId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const executionId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const operationId = randomUUID();
+    const now = new Date();
+    const action = {
+      kind: "recipe" as const,
+      recipeId: "delivery.push.github",
+      recipeVersion: 1,
+      approvedPaths: [],
+      candidateIdentity: null,
+      proposalId,
+    };
+    const binding = {
+      projectId,
+      operationId,
+      sourceRevision: "source-revision-delivery",
+      candidateIdentity: null,
+      candidateWorkspace: null,
+      approvedPaths: [],
+      phase: "queued" as const,
+      leaseOwner: null,
+      leaseUntil: null,
+      missionBudget: {
+        maxNodes: 24,
+        maxParallelNodes: 1,
+        maxTotalTimeoutMs: 120_000,
+        maxProcessCount: 1,
+        maxOutputBytes: 200_000,
+      },
+      concurrencyBudget: {
+        maxInFlightNodes: 1,
+        maxProcesses: 1,
+      },
+    };
+    projectIds.push(projectId);
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-delivery-recovery-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      gitRemoteUrl: "https://github.com/example/project.git",
+      gitDefaultBranch: "main",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Mission delivery recovery fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Resume verified delivery",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: "[]",
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId,
+      createdAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Recover Mission delivery",
+      intent: "Resume verified GitHub delivery after restart",
+      status: "active",
+      scope: { kind: "project", projectId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Recovered GitHub delivery",
+      status: "running",
+      outcomeContract: { deliveryRequired: true },
+      nextAction: action,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      goalId,
+      userId: "test-user",
+      operationId,
+      idempotencyKey: `mission-delivery:${goalId}:${proposalId}:${operationId}`,
+      resumeTokenHash: "delivery-restart-fixture",
+      request: JSON.stringify({
+        projectId,
+        operationId,
+        message: `recipe:${operationId}`,
+        modelMessage: `recipe:${operationId}`,
+        workspaceRevision: binding.sourceRevision,
+      }),
+      checkpoint: JSON.stringify({
+        stage: "queued",
+        sequence: 0,
+        recipeBinding: binding,
+        updatedAt: now.toISOString(),
+      }),
+      status: "queued",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await dispatchPendingMissionRecipes()).toBe(1);
+    await vi.waitFor(async () => {
+      expect(recipeRunner).toHaveBeenCalledOnce();
+      const [goal] = await db
+        .select({ status: aiGoalsTable.status })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, goalId));
+      expect(goal?.status).toBe("completed");
+    });
+    expect(recipeRunner).toHaveBeenCalledWith(expect.objectContaining({
+      operationId,
+      recipeId: "delivery.push.github",
+    }));
+    expect(githubDeliveryRunner).toHaveBeenCalledOnce();
+    expect(githubDeliveryRunner).toHaveBeenCalledWith(expect.objectContaining({
+      projectId,
+      proposalId,
+      operationId,
+      remoteUrl: "https://github.com/example/project.git",
+      branch: "main",
+    }));
+
+    const executions = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.goalId, goalId));
+    expect(executions).toHaveLength(1);
+  });
+
   it("re-dispatches a queued Mission recipe after a process restart without duplicating its execution", async () => {
     recipeRunner.mockResolvedValue({
       executionId: "recipe-execution-recovered",
