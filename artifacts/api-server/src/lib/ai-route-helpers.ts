@@ -58,6 +58,7 @@ import {
   recordAiUsageAttempt,
 } from "./ai-telemetry.js";
 import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js";
+import { admitAiProviderAttempt } from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -682,6 +683,13 @@ export async function runAgentWithFallback<T>(
     const attemptId = options?.telemetryContext
       ? `${options.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
       : undefined;
+    if (attemptId && options?.telemetryContext?.projectId) {
+      await admitAiProviderAttempt({
+        ownerId: userId,
+        projectId: options.telemetryContext.projectId,
+        attemptId,
+      });
+    }
     let modelAttemptCount = 0;
     const providerStartedAt = Date.now();
     try {
@@ -952,6 +960,13 @@ export async function chatWithFallback(
     const attemptId = baseParams.telemetryContext
       ? `${baseParams.telemetryContext.correlationId}:${providerEntry.provider}:${providerIndex + 1}`
       : undefined;
+    if (attemptId && baseParams.telemetryContext?.projectId) {
+      await admitAiProviderAttempt({
+        ownerId: userId,
+        projectId: baseParams.telemetryContext.projectId,
+        attemptId,
+      });
+    }
     if (lastErr) {
       logger.info(
         { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },

@@ -58,6 +58,7 @@
 - [Project-query semantic acceptance](project-query-semantic-acceptance.md) — complete source reads never prove a proof-required PROJECT_QUERY without accepted claims and a verified objective verdict.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
+- [AI budget admission](ai-budget-admission.md) — reserve each provider fallback attempt before work; token-limit reservation remains a separate contract.
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.

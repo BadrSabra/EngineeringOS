@@ -27,6 +27,63 @@ type AutoReplanResult =
       reason: string;
     };
 
+const TERMINAL_REPLAN_FAILURES = new Set([
+  "objective_no_longer_mission_eligible",
+  "automatic_replan_budget_exhausted",
+  "automatic_replan_already_attempted",
+  "empty_plan",
+  "no_eligible_replan_root",
+]);
+
+/**
+ * A replan request is durable work, not a retry loop. If the coordinator
+ * cannot produce or dispatch a new bounded plan, leave the Mission in an
+ * operator-visible terminal state instead of polling needs_replan forever.
+ */
+async function terminalizeAutomaticReplanFailure(
+  missionId: string,
+  reason: string,
+): Promise<boolean> {
+  if (!TERMINAL_REPLAN_FAILURES.has(reason)) return false;
+
+  return db.transaction(async (tx) => {
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId))
+      .for("update");
+    if (!mission || mission.status !== "needs_replan") return false;
+
+    const now = new Date();
+    await tx
+      .update(aiMissionsTable)
+      .set({
+        status: "blocked",
+        completedAt: null,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(aiMissionsTable.id, missionId),
+        eq(aiMissionsTable.status, "needs_replan"),
+      ));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiMissionReplanBlocked",
+      projectId: mission.projectId,
+      severity: "warning",
+      message: "AI Mission could not produce or dispatch a bounded automatic replan",
+      correlationId: missionId,
+      payload: {
+        missionId,
+        reason,
+        previousStatus: "needs_replan",
+        nextStatus: "blocked",
+      },
+    });
+    return true;
+  });
+}
+
 /**
  * Converts a durable needs_replan Mission into one fresh server-owned plan.
  *
@@ -104,7 +161,10 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
     };
   });
 
-  if (prepared.status !== "prepared") return prepared;
+  if (prepared.status !== "prepared") {
+    await terminalizeAutomaticReplanFailure(prepared.missionId, prepared.reason);
+    return prepared;
+  }
 
   const runs: MissionGoalRunResult[] = [];
   for (const planGoal of prepared.plan.goals.filter((goal) => goal.dependencies.length === 0)) {
@@ -118,6 +178,7 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
     run.status === "scheduled" || run.status === "waiting" || run.status === "completed",
   );
   if (!dispatchSucceeded) {
+    await terminalizeAutomaticReplanFailure(missionId, "no_eligible_replan_root");
     return {
       status: "skipped",
       missionId,

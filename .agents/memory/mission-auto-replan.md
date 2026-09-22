@@ -7,4 +7,4 @@ Automatic replan must run after terminal acceptance commits, under a Mission row
 
 **Why:** Replanning inside the acceptance transaction risks deadlocks and makes terminal failure durability depend on planner/provider work. Including historical failed Goals in current status also causes every successful replan to fall back to needs_replan.
 
-**How to apply:** Use the durable reconciliation loop as the recovery trigger, preserve old Goal/Task/Execution rows, enforce a bounded automatic-replan budget, and leave the Mission in needs_replan when no eligible root can be dispatched.
+**How to apply:** Use the durable reconciliation loop as the recovery trigger, preserve old Goal/Task/Execution rows, enforce a bounded automatic-replan budget, and terminalize exhausted, empty, or undispatchable replans as operator-visible `blocked` with an auditable event.
