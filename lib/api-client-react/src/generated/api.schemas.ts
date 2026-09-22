@@ -4408,6 +4408,7 @@ export interface Task {
   projectId: string;
   ruleId?: string;
   workflowId?: string;
+  goalId?: string;
   title: string;
   description?: string;
   status: TaskStatus;
@@ -4431,6 +4432,7 @@ export interface CreateTaskInput {
   projectId: string;
   ruleId?: string;
   workflowId?: string;
+  goalId?: string;
   title: string;
   description?: string;
   priority: TaskPriority;

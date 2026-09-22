@@ -150,3 +150,4 @@
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
 - [Mission management browser proof](missions-management-browser-proof.md) — isolate CRUD journeys with provider-free fixtures and assert durable source values after reload.
+- [Collapsible form acceptance](collapsible-form-acceptance.md) — browser journeys must open disclosure controls before filling hidden advanced fields.

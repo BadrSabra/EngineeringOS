@@ -4638,6 +4638,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page
       .getByTestId("mission-intent")
       .fill("Coordinate a verified release candidate.");
+    await page.getByTestId("details-mission-advanced").locator("summary").click();
     await page
       .getByTestId("mission-autonomy-policy")
       .fill('{"mode":"operator-gated"}');
@@ -4669,6 +4670,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByRole("heading", { name: "Create goal" }),
     ).toBeVisible();
     await page.getByTestId("goal-title").fill("Validate candidate");
+    await page.getByTestId("details-goal-advanced").locator("summary").click();
     await page
       .getByTestId("goal-success-criteria")
       .fill('{"validator":"release"}');
@@ -4687,6 +4689,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
     await page.getByTestId("goal-title").fill("Validate candidate updated");
     await page.getByTestId("select-goal-status").selectOption("verifying");
+    await page.getByTestId("details-goal-advanced").locator("summary").click();
     await page
       .getByTestId("goal-next-action")
       .fill('{"owner":"operator","action":"approve"}');

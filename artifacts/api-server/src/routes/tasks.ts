@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import {
+  aiGoalsTable,
   tasksTable,
   eventsTable,
   taskLogsTable,
@@ -149,6 +150,20 @@ router.post("/tasks", async (req, res) => {
   const body = CreateTaskBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+
+  if (body.goalId) {
+    const [goal] = await db
+      .select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, body.goalId),
+        eq(aiGoalsTable.projectId, project.id),
+      ))
+      .limit(1);
+    if (!goal) {
+      return res.status(400).json({ error: "goalId must reference a goal in this project" });
+    }
+  }
 
   const now = new Date();
   const correlationId = randomUUID();

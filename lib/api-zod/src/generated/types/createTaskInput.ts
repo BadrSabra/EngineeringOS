@@ -11,6 +11,7 @@ export interface CreateTaskInput {
   projectId: string;
   ruleId?: string;
   workflowId?: string;
+  goalId?: string;
   title: string;
   description?: string;
   priority: TaskPriority;

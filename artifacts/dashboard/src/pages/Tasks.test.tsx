@@ -3,8 +3,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Tasks from './Tasks';
 
+const createTaskMutate = vi.hoisted(() => vi.fn());
+
 vi.mock('@workspace/api-client-react', () => ({
   useListTasks: vi.fn(),
+  useListProjects: vi.fn(),
   useExecuteTask: vi.fn(),
   useRetryTask: vi.fn(),
   useRollbackTask: vi.fn(),
@@ -13,7 +16,9 @@ vi.mock('@workspace/api-client-react', () => ({
   useGetAiExecution: vi.fn(),
   useRecordTaskVerification: vi.fn(),
   useAiResumeTask: vi.fn(),
+  useCreateTask: vi.fn(),
   getListTasksQueryKey: vi.fn(() => ['tasks']),
+  getListProjectsQueryKey: vi.fn(() => ['projects']),
   getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
   getGetTaskQueryKey: vi.fn((taskId: string) => ['task', taskId]),
 }));
@@ -32,6 +37,8 @@ import {
   useRollbackTask,
   useRecordTaskVerification,
   useAiResumeTask,
+  useCreateTask,
+  useListProjects,
 } from '@workspace/api-client-react';
 
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
@@ -74,6 +81,12 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(useListProjects).mockReturnValue({
+    data: [{ id: 'project-1', name: 'Test Project' }],
+    isLoading: false,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useListProjects>);
   vi.mocked(useListTasks).mockReturnValue({
     data: recoveryCases.map((item) => ({
       ...item,
@@ -131,6 +144,11 @@ beforeEach(() => {
   vi.mocked(useRollbackTask).mockReturnValue(mutation() as ReturnType<typeof useRollbackTask>);
   vi.mocked(useRecordTaskVerification).mockReturnValue(mutation() as ReturnType<typeof useRecordTaskVerification>);
   vi.mocked(useAiResumeTask).mockReturnValue(mutation() as ReturnType<typeof useAiResumeTask>);
+  vi.mocked(useCreateTask).mockReturnValue({
+    mutate: createTaskMutate,
+    isPending: false,
+    error: null,
+  } as ReturnType<typeof useCreateTask>);
 });
 
 describe('Tasks recovery rendering', () => {
@@ -465,5 +483,38 @@ describe('Tasks recovery rendering', () => {
     expect(screen.getByText('The behavior still failed.')).toBeInTheDocument();
     expect(screen.getByText(/By operator-a/)).toBeInTheDocument();
     expect(screen.getByText(/By operator-b/)).toBeInTheDocument();
+  });
+});
+
+describe('Task creation', () => {
+  it('opens a clear form and sends the selected project and task fields', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    fireEvent.change(screen.getByTestId('input-create-task-title'), {
+      target: { value: 'Add a health check' },
+    });
+    fireEvent.change(screen.getByTestId('input-create-task-description'), {
+      target: { value: 'Expose the endpoint in the dashboard.' },
+    });
+    fireEvent.change(screen.getByTestId('select-create-task-priority'), {
+      target: { value: 'p1' },
+    });
+    fireEvent.click(screen.getByTestId('button-submit-create-task'));
+
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      {
+        data: {
+          projectId: 'project-1',
+          title: 'Add a health check',
+          description: 'Expose the endpoint in the dashboard.',
+          priority: 'p1',
+        },
+      },
+      expect.objectContaining({
+        onSuccess: expect.any(Function),
+        onError: expect.any(Function),
+      }),
+    );
   });
 });

@@ -16,6 +16,7 @@ export interface Task {
   projectId: string;
   ruleId?: string;
   workflowId?: string;
+  goalId?: string;
   title: string;
   description?: string;
   status: TaskStatus;

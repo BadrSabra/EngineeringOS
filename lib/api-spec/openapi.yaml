@@ -7653,6 +7653,8 @@ components:
           type: string
         workflowId:
           type: string
+        goalId:
+          type: string
         title:
           type: string
         description:
@@ -7766,6 +7768,8 @@ components:
         ruleId:
           type: string
         workflowId:
+          type: string
+        goalId:
           type: string
         title:
           type: string

@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { getListProjectsQueryKey, useListProjects } from '@workspace/api-client-react';
+import {
+  createTask,
+  getListProjectsQueryKey,
+  useListProjects,
+  type CreateTaskInput as ApiCreateTaskInput,
+} from '@workspace/api-client-react';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -515,17 +520,18 @@ function MissionEditor({
           </select>
         </div>
       ) : null}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <FieldLabel htmlFor="mission-deadline" optional>Deadline</FieldLabel>
-          <input id="mission-deadline" type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} data-testid="input-mission-deadline" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
+      <details data-testid="details-mission-advanced" className="rounded-md border border-slate-800 bg-slate-950/25 px-3">
+        <summary className="cursor-pointer py-3 text-xs font-semibold text-slate-400">Advanced mission settings</summary>
+        <div className="space-y-4 pb-3">
+          <div>
+            <FieldLabel htmlFor="mission-deadline" optional>Deadline</FieldLabel>
+            <input id="mission-deadline" type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} data-testid="input-mission-deadline" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
+            <p className="mt-1 text-[10px] text-slate-600">Leave blank when there is no deadline.</p>
+          </div>
+          <JsonField id="mission-autonomy-policy" label="Autonomy policy" value={autonomyPolicy} onChange={setAutonomyPolicy} error={fieldErrors.autonomyPolicy} />
+          <JsonField id="mission-budget" label="Budget" value={budget} onChange={setBudget} error={fieldErrors.budget} />
         </div>
-        <div className="flex items-end pb-2">
-          <p className="text-xs leading-5 text-slate-600">Dates are sent as an ISO timestamp. Leave blank when this objective has no deadline.</p>
-        </div>
-      </div>
-      <JsonField id="mission-autonomy-policy" label="Autonomy policy" value={autonomyPolicy} onChange={setAutonomyPolicy} error={fieldErrors.autonomyPolicy} />
-      <JsonField id="mission-budget" label="Budget" value={budget} onChange={setBudget} error={fieldErrors.budget} />
+      </details>
     </EditorModal>
   );
 }
@@ -614,33 +620,106 @@ function GoalEditor({
           </div>
         ) : null}
       </div>
-      <div>
-        <FieldLabel htmlFor="goal-parent" optional>Parent goal</FieldLabel>
-        <select id="goal-parent" value={parentGoalId} onChange={(event) => setParentGoalId(event.target.value)} data-testid="select-goal-parent" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
-          <option value="">No parent goal</option>
-          {availableParents.filter((item) => item.id !== goal?.id).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-        </select>
+      <details data-testid="details-goal-advanced" className="rounded-md border border-slate-800 bg-slate-950/25 px-3">
+        <summary className="cursor-pointer py-3 text-xs font-semibold text-slate-400">Advanced goal settings</summary>
+        <div className="space-y-4 pb-3">
+          <div>
+            <FieldLabel htmlFor="goal-parent" optional>Parent goal</FieldLabel>
+            <select id="goal-parent" value={parentGoalId} onChange={(event) => setParentGoalId(event.target.value)} data-testid="select-goal-parent" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
+              <option value="">No parent goal</option>
+              {availableParents.filter((item) => item.id !== goal?.id).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+            </select>
+          </div>
+          {editing ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <FieldLabel htmlFor="goal-next-wake" optional>Next wake</FieldLabel>
+                <input id="goal-next-wake" type="datetime-local" value={nextWakeAt} onChange={(event) => setNextWakeAt(event.target.value)} data-testid="input-goal-next-wake" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
+              </div>
+              <div>
+                <FieldLabel htmlFor="goal-blocked-reason" optional>Blocked reason</FieldLabel>
+                <TextInput id="goal-blocked-reason" value={blockedReason} onChange={setBlockedReason} placeholder="Why execution cannot proceed" />
+              </div>
+            </div>
+          ) : null}
+          <div className="border-t border-slate-800 pt-4">
+            <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Contracts and next action</p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <JsonField id="goal-success-criteria" label="Success criteria" value={successCriteria} onChange={setSuccessCriteria} error={fieldErrors.successCriteria} />
+              <JsonField id="goal-evidence-contract" label="Evidence contract" value={evidenceContract} onChange={setEvidenceContract} error={fieldErrors.evidenceContract} />
+              <JsonField id="goal-outcome-contract" label="Outcome contract" value={outcomeContract} onChange={setOutcomeContract} error={fieldErrors.outcomeContract} />
+              <JsonField id="goal-next-action" label="Next action" value={nextAction} onChange={setNextAction} error={fieldErrors.nextAction} />
+            </div>
+          </div>
+        </div>
+      </details>
+    </EditorModal>
+  );
+}
+
+function TaskEditor({
+  projectId,
+  goal,
+  saving,
+  error,
+  onClose,
+  onSave,
+}: {
+  projectId: string;
+  goal: Goal;
+  saving: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSave: (data: ApiCreateTaskInput) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [priority, setPriority] = useState<ApiCreateTaskInput['priority']>('p2');
+  const [fieldError, setFieldError] = useState('');
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!title.trim()) {
+      setFieldError('Task title is required.');
+      return;
+    }
+    setFieldError('');
+    onSave({
+      projectId,
+      goalId: goal.id,
+      title: title.trim(),
+      description: description.trim() || undefined,
+      priority,
+    });
+  };
+
+  return (
+    <EditorModal
+      title="Create task"
+      eyebrow={`Task / ${goal.title}`}
+      error={error}
+      saving={saving}
+      onClose={onClose}
+      onSubmit={submit}
+      submitLabel="Create task"
+    >
+      <div className="rounded-md border border-cyan-400/15 bg-cyan-300/5 px-3 py-2.5 text-xs leading-5 text-slate-400">
+        This task will be saved under <span className="font-semibold text-cyan-100">{goal.title}</span>.
       </div>
-      {editing ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <FieldLabel htmlFor="goal-next-wake" optional>Next wake</FieldLabel>
-            <input id="goal-next-wake" type="datetime-local" value={nextWakeAt} onChange={(event) => setNextWakeAt(event.target.value)} data-testid="input-goal-next-wake" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70" />
-          </div>
-          <div>
-            <FieldLabel htmlFor="goal-blocked-reason" optional>Blocked reason</FieldLabel>
-            <TextInput id="goal-blocked-reason" value={blockedReason} onChange={setBlockedReason} placeholder="Why execution cannot proceed" />
-          </div>
-        </div>
-      ) : null}
-      <div className="border-t border-slate-800 pt-4">
-        <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Contracts and next action</p>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <JsonField id="goal-success-criteria" label="Success criteria" value={successCriteria} onChange={setSuccessCriteria} error={fieldErrors.successCriteria} />
-          <JsonField id="goal-evidence-contract" label="Evidence contract" value={evidenceContract} onChange={setEvidenceContract} error={fieldErrors.evidenceContract} />
-          <JsonField id="goal-outcome-contract" label="Outcome contract" value={outcomeContract} onChange={setOutcomeContract} error={fieldErrors.outcomeContract} />
-          <JsonField id="goal-next-action" label="Next action" value={nextAction} onChange={setNextAction} error={fieldErrors.nextAction} />
-        </div>
+      <div>
+        <FieldLabel htmlFor="task-title">Task title</FieldLabel>
+        <TextInput id="task-title" value={title} onChange={setTitle} placeholder="What needs to be done?" />
+        {fieldError ? <p className="mt-1 text-xs text-rose-300">{fieldError}</p> : null}
+      </div>
+      <div>
+        <FieldLabel htmlFor="task-description" optional>Description</FieldLabel>
+        <TextInput id="task-description" value={description} onChange={setDescription} multiline rows={3} placeholder="Add context for the operator or AI agent" />
+      </div>
+      <div>
+        <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
+        <select id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as ApiCreateTaskInput['priority'])} data-testid="select-task-priority" className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-400/70">
+          {priorities.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
       </div>
     </EditorModal>
   );
@@ -651,11 +730,13 @@ function GoalCard({
   expanded,
   onToggle,
   onEdit,
+  onCreateTask,
 }: {
   item: MissionProjection['goals'][number];
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  onCreateTask: () => void;
 }) {
   const { goal, tasks, workflows, executions, events } = item;
   const linkedCount = tasks.length + workflows.length + executions.length + events.length;
@@ -686,9 +767,16 @@ function GoalCard({
         </div>
           <ChevronDown className={`mt-1 h-4 w-4 shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-180 text-cyan-300' : ''}`} />
         </button>
-        <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`Edit ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
-          <Edit3 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={onCreateTask} data-testid={`button-create-task-${goal.id}`} className="inline-flex items-center gap-1 rounded-md border border-cyan-400/25 bg-cyan-300/10 px-2 py-1.5 text-[10px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
+            <Plus className="h-3 w-3" />
+            <span className="hidden sm:inline">New task</span>
+            <span className="sm:hidden">Task</span>
+          </button>
+          <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`Edit ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
+            <Edit3 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {expanded ? (
@@ -752,6 +840,7 @@ type EditorState =
   | { type: 'mission-edit'; mission: Mission }
   | { type: 'goal-create'; missionId: string }
   | { type: 'goal-edit'; missionId: string; goal: Goal }
+  | { type: 'task-create'; goal: Goal; projectId: string }
   | null;
 
 export default function Missions() {
@@ -779,6 +868,7 @@ export default function Missions() {
   const [editor, setEditor] = useState<EditorState>(null);
   const [mutationSaving, setMutationSaving] = useState(false);
   const [mutationError, setMutationError] = useState<unknown>(null);
+  const [mutationNotice, setMutationNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -862,6 +952,7 @@ export default function Missions() {
 
   const openEditor = (next: Exclude<EditorState, null>) => {
     setMutationError(null);
+    setMutationNotice(null);
     setEditor(next);
   };
 
@@ -871,7 +962,7 @@ export default function Missions() {
     setMutationError(null);
   };
 
-  const handleSave = async (data: CreateMissionInput | UpdateMissionInput | CreateGoalInput | UpdateGoalInput) => {
+  const handleSave = async (data: CreateMissionInput | UpdateMissionInput | CreateGoalInput | UpdateGoalInput | ApiCreateTaskInput) => {
     if (!editor) return;
     setMutationSaving(true);
     setMutationError(null);
@@ -881,6 +972,7 @@ export default function Missions() {
         setMissions((current) => [created, ...current.filter((item) => item.id !== created.id)]);
         setSelectedMissionId(created.id);
         setEditor(null);
+        setMutationNotice('Mission created.');
         setMissionsReload((value) => value + 1);
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'mission-edit') {
@@ -888,19 +980,27 @@ export default function Missions() {
         setMissions((current) => current.map((item) => item.id === updated.id ? updated : item));
         setProjection((current) => current && current.mission.id === updated.id ? { ...current, mission: updated } : current);
         setEditor(null);
+        setMutationNotice('Mission updated.');
         setMissionsReload((value) => value + 1);
         setProjectionReload((value) => value + 1);
       } else if (editor.type === 'goal-create') {
         await createGoal(editor.missionId, data as CreateGoalInput);
         setEditor(null);
+        setMutationNotice('Goal created.');
         setProjectionReload((value) => value + 1);
-      } else {
+      } else if (editor.type === 'goal-edit') {
         const updated = await updateGoal(editor.goal.id, data as UpdateGoalInput);
         setProjection((current) => current ? {
           ...current,
           goals: current.goals.map((item) => item.goal.id === updated.id ? { ...item, goal: updated } : item),
         } : current);
         setEditor(null);
+        setMutationNotice('Goal updated.');
+        setProjectionReload((value) => value + 1);
+      } else {
+        const created = await createTask(data as ApiCreateTaskInput);
+        setEditor(null);
+        setMutationNotice(`Task created: ${created.title}`);
         setProjectionReload((value) => value + 1);
       }
     } catch (error: unknown) {
@@ -945,6 +1045,13 @@ export default function Missions() {
           </div>
         </header>
 
+        {mutationNotice ? (
+          <div role="status" className="mb-4 flex items-center justify-between gap-3 rounded-md border border-emerald-400/25 bg-emerald-300/10 px-3 py-2.5 text-xs text-emerald-100">
+            <span className="inline-flex items-center gap-2"><CheckCircle2 className="h-4 w-4 shrink-0" />{mutationNotice}</span>
+            <button type="button" onClick={() => setMutationNotice(null)} className="text-emerald-200/70 hover:text-emerald-100" aria-label="Dismiss notification"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        ) : null}
+
         {projectsLoading ? (
           <div className="grid gap-4 xl:grid-cols-[250px_350px_minmax(0,1fr)]">
             <Skeleton className="h-96" />
@@ -986,7 +1093,7 @@ export default function Missions() {
             </div>
 
             <div className="grid items-start gap-4 xl:grid-cols-[250px_350px_minmax(0,1fr)]">
-              <aside className="rounded-xl border border-slate-800 bg-slate-900/55">
+              <aside className="hidden rounded-xl border border-slate-800 bg-slate-900/55 xl:block">
                 <div className="border-b border-slate-800 px-4 py-3">
                   <div className="flex items-center justify-between">
                     <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500">Project scope</p>
@@ -1027,7 +1134,7 @@ export default function Missions() {
                       <span className="rounded border border-slate-700 bg-slate-950/50 px-2 py-1 font-mono text-[10px] text-slate-500">{missions.length} total</span>
                       <button type="button" onClick={() => openEditor({ type: 'mission-create' })} data-testid="button-create-mission" className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 transition-colors hover:bg-cyan-300/20">
                         <Plus className="h-3.5 w-3.5" />
-                        New
+                         New mission
                       </button>
                     </div>
                   </div>
@@ -1155,6 +1262,7 @@ export default function Missions() {
                                 expanded={expandedGoalId === item.goal.id}
                                 onToggle={() => setExpandedGoalId((current) => current === item.goal.id ? null : item.goal.id)}
                                 onEdit={() => openEditor({ type: 'goal-edit', missionId: activeMission.id, goal: item.goal })}
+                                 onCreateTask={() => openEditor({ type: 'task-create', goal: item.goal, projectId })}
                               />
                             ))}
                           </div>
@@ -1186,6 +1294,9 @@ export default function Missions() {
       ) : null}
       {editor?.type === 'goal-edit' ? (
         <GoalEditor goal={editor.goal} availableParents={projectionGoals.map((item) => item.goal)} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleSave} />
+      ) : null}
+      {editor?.type === 'task-create' ? (
+        <TaskEditor projectId={editor.projectId} goal={editor.goal} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleSave} />
       ) : null}
     </main>
   );
