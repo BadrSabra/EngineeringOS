@@ -276,6 +276,67 @@ const executionFixture = {
     allowedActions: [],
   },
   objective: { objective: "Verify the dashboard browser journey" },
+  operationEvidence: {
+    version: 1,
+    redacted: true,
+    operationId: "e2e-operation",
+    projectId: "e2e-project",
+    revision: "e2e-revision-42",
+    terminalState: "COMPLETED",
+    completeness: "complete",
+    verified: false,
+    hashes: {
+      changeSet: "e2e-candidate-hash",
+      committed: "e2e-delivered-hash",
+    },
+    counts: {
+      executions: 1,
+      checkpoints: 1,
+      events: 5,
+      audit: 0,
+      taskLogs: 0,
+      journal: 3,
+      receipts: 5,
+    },
+    receipts: [
+      {
+        kind: "process",
+        status: "passed",
+        attempt: 1,
+        timestamp: "2026-01-01T00:00:10.000Z",
+        detail: "Candidate e2e-candidate-hash created for e2e-operation.",
+      },
+      {
+        kind: "validation",
+        status: "passed",
+        attempt: 1,
+        timestamp: "2026-01-01T00:00:20.000Z",
+        detail: "Candidate-bound validation passed for e2e-revision-42.",
+      },
+      {
+        kind: "promotion",
+        status: "passed",
+        attempt: 1,
+        timestamp: "2026-01-01T00:00:30.000Z",
+        detail: "AiChangesApplied: e2e-candidate-hash applied for e2e-operation.",
+      },
+      {
+        kind: "commit",
+        status: "passed",
+        attempt: 1,
+        timestamp: "2026-01-01T00:00:40.000Z",
+        detail: "GitCommitCreated: e2e-delivered-hash committed for e2e-operation.",
+      },
+      {
+        kind: "push",
+        status: "passed",
+        attempt: 1,
+        timestamp: "2026-01-01T00:00:50.000Z",
+        detail: "GitPushed: e2e-revision-42 delivered for e2e-operation.",
+      },
+    ],
+    gaps: [],
+  },
   startedAt: "2026-01-01T00:00:00.000Z",
   completedAt: "2026-01-01T00:01:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -4624,6 +4685,24 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+    const deliveryProof = page.getByRole("region", {
+      name: "Delivery proof chain",
+    });
+    await expect(deliveryProof).toBeVisible();
+    await expect(deliveryProof).toContainText("e2e-operation");
+    await expect(deliveryProof).toContainText("e2e-revision-42");
+    await expect(deliveryProof).toContainText("e2e-candidate-hash");
+    await expect(deliveryProof).toContainText("e2e-delivered-hash");
+    await expect(deliveryProof).toContainText("AiChangesApplied");
+    await expect(deliveryProof).toContainText("GitCommitCreated");
+    await expect(deliveryProof).toContainText("GitPushed");
+
+    await page.reload();
+    await expect(deliveryProof).toBeVisible();
+    await expect(deliveryProof).toContainText("e2e-revision-42");
+    await expect(deliveryProof).toContainText("AiChangesApplied");
+    await expect(deliveryProof).toContainText("GitCommitCreated");
+    await expect(deliveryProof).toContainText("GitPushed");
   });
 
   test("creates and edits Missions and Goals without losing changes", async ({

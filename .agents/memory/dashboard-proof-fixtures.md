@@ -14,3 +14,9 @@ Targeted `PROJECT_QUERY` turns can use the normal `CHAT` operation mode; `proofR
 **Why:** Filtering terminal retention by operation mode drops targeted analysis proof even though the API has preserved an incomplete, non-resumable acceptance state.
 
 **How to apply:** In targeted-analysis fixtures, keep `turnIntent: PROJECT_QUERY`, `proofRequired: true`, and `resumable: false` together, then assert the panel remains visible without a resume action after failure and reload.
+
+Delivery browser fixtures must include server-shaped operation evidence with candidate/revision identity and distinct apply, commit, and push receipts; a prose timeline entry is not enough to prove delivery.
+
+**Why:** The Flight Deck can render a completed `PROVEN` execution while still missing the durable delivery chain that operators need to trust after reload.
+
+**How to apply:** For delivery journeys, assert the redacted operation evidence chain and its receipts before and after reload, including the operation, candidate hash, project revision, and delivered-byte hash.
