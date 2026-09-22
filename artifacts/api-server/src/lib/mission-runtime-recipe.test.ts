@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
+import request from "supertest";
+import app from "../app.js";
 import {
   aiExecutionsTable,
   aiChangeProposalsTable,
@@ -16,6 +18,9 @@ const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
   githubDeliveryRunner: vi.fn(),
 }));
+const { scheduleTaskExecution } = vi.hoisted(() => ({
+  scheduleTaskExecution: vi.fn(),
+}));
 
 vi.mock("./recipe-operation-runner.js", () => ({
   runRecipeOperation: recipeRunner,
@@ -25,6 +30,14 @@ vi.mock("./github-delivery-service.js", () => ({
   executeVerifiedGitHubDelivery: githubDeliveryRunner,
 }));
 
+vi.mock("../routes/ai/tasks.js", async () => {
+  const actual = await vi.importActual<typeof import("../routes/ai/tasks.js")>("../routes/ai/tasks.js");
+  return {
+    ...actual,
+    scheduleAiTaskExecution: scheduleTaskExecution,
+  };
+});
+
 import { dispatchPendingMissionRecipes, runMissionGoal } from "./mission-runtime.js";
 
 const projectIds: string[] = [];
@@ -32,12 +45,274 @@ const projectIds: string[] = [];
 afterEach(async () => {
   recipeRunner.mockReset();
   githubDeliveryRunner.mockReset();
+  scheduleTaskExecution.mockReset();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
 
 describe("Mission recipe dispatch", () => {
+  it("completes one Chat-to-Mission delivery loop with server-owned identity and receipt", async () => {
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalMessageId = randomUUID();
+    const proposalId = randomUUID();
+    const operationId = randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-unified-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      gitRemoteUrl: "https://github.com/example/project.git",
+      gitDefaultBranch: "main",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Unified Mission fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: messageId,
+        sessionId,
+        role: "user",
+        content: "Inspect the repository, then implement and validate the approved fix.",
+        createdAt: now,
+      },
+      {
+        id: proposalMessageId,
+        sessionId,
+        role: "assistant",
+        content: "The approved fix is committed and ready for delivery.",
+        createdAt: now,
+      },
+    ]);
+
+    recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      const runner = params.githubDeliveryRunner as
+        ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
+      await runner?.({
+        rootPath: process.cwd(),
+        projectId: params.projectId,
+        operationId: params.operationId,
+        message: "Deliver the verified Mission result",
+      });
+      return {
+        executionId: "unified-delivery-execution",
+        status: "completed",
+        completedNodeIds: ["push"],
+        receipt: {
+          contractVersion: 1,
+          executionId: "unified-delivery-execution",
+          operationId: params.operationId,
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+          status: "completed",
+          completedNodeIds: ["push"],
+          nodes: [{
+            nodeId: "push",
+            status: "passed",
+            attempts: 1,
+            elapsedMs: 10,
+            evidenceId: "unified-delivery-evidence",
+            excerpt: "Server-owned delivery receipt.",
+          }],
+          evidenceRefs: ["unified-delivery-evidence"],
+          createdAt: "2026-09-23T10:00:00.000Z",
+          completedAt: "2026-09-23T10:00:00.010Z",
+        },
+      };
+    });
+    githubDeliveryRunner.mockResolvedValue({
+      status: "passed",
+      evidence: {
+        evidenceId: "github:unified-delivery",
+        resultHash: "c".repeat(64),
+        artifactRef: "github-delivery:unified",
+      },
+    });
+
+    const message = "Inspect the repository, then implement and validate the approved fix.";
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({ projectId, message });
+    expect(preview.status).toBe(200);
+    expect(preview.body.admission).toBe("mission");
+    expect(preview.body.plan.steps.map((step: { id: string }) => step.id))
+      .toEqual(["inspect", "execute", "validate", "deliver"]);
+
+    const handoff = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        message,
+        sessionId,
+        messageId,
+        expectedPlanHash: preview.body.plan.planHash,
+      });
+    expect(handoff.status).toBe(201);
+    expect(handoff.body.preview.plan.planHash).toBe(preview.body.plan.planHash);
+    expect(handoff.body.mission.status).toBe("active");
+    const [persistedHandoffMission] = await db
+      .select({ autonomyPolicy: aiMissionsTable.autonomyPolicy })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, handoff.body.mission.id));
+    expect(persistedHandoffMission?.autonomyPolicy.activePlanRevision)
+      .toBe(preview.body.plan.planHash);
+    expect(scheduleTaskExecution).toHaveBeenCalledOnce();
+
+    const missionId = handoff.body.mission.id as string;
+    const materializedGoals = await db
+      .select()
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.missionId, missionId));
+    const finalGoal = materializedGoals.find((goal) => (
+      (goal.successCriteria as { stepId?: unknown }).stepId === "deliver"
+    ));
+    const validationGoal = materializedGoals.find((goal) => (
+      (goal.successCriteria as { stepId?: unknown }).stepId === "validate"
+    ));
+    expect(finalGoal).toBeDefined();
+    expect(validationGoal).toBeDefined();
+    if (!finalGoal || !validationGoal) return;
+
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId: proposalMessageId,
+      changes: "[]",
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId,
+      createdAt: now,
+    });
+
+    const completedAcceptance = {
+      executionId: "unified-precondition-execution",
+      outcome: "SUCCEEDED",
+      verdict: "PROVEN",
+      acceptedRefs: ["unified-precondition-evidence"],
+    };
+    for (const predecessor of materializedGoals.filter((goal) => goal.id !== finalGoal.id)) {
+      await db.update(aiGoalsTable)
+        .set({
+          status: "completed",
+          blockedReason: null,
+          outcomeContract: {
+            ...predecessor.outcomeContract,
+            acceptance: completedAcceptance,
+          },
+          completedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(aiGoalsTable.id, predecessor.id));
+    }
+    await db.update(aiGoalsTable)
+      .set({
+        nextAction: {
+          kind: "recipe",
+          recipeId: "delivery.push.github",
+          recipeVersion: 1,
+          approvedPaths: [],
+          candidateIdentity: null,
+        },
+        outcomeContract: {
+          ...finalGoal.outcomeContract,
+          deliveryRequired: true,
+        },
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, finalGoal.id));
+
+    const bound = await request(app)
+      .post(`/api/ai/goals/${finalGoal.id}/delivery`)
+      .send({ proposalId });
+    expect(bound.status).toBe(202);
+    expect(bound.body).toMatchObject({
+      proposalId,
+      operationId,
+      run: {
+        status: "scheduled",
+        goalId: finalGoal.id,
+      },
+    });
+    expect(bound.body.goal.nextAction).toMatchObject({
+      kind: "recipe",
+      recipeId: "delivery.push.github",
+      proposalId,
+    });
+
+    await vi.waitFor(async () => {
+      const [goal] = await db
+        .select({ status: aiGoalsTable.status, outcomeContract: aiGoalsTable.outcomeContract })
+        .from(aiGoalsTable)
+        .where(eq(aiGoalsTable.id, finalGoal.id));
+      const [mission] = await db
+        .select({ status: aiMissionsTable.status })
+        .from(aiMissionsTable)
+        .where(eq(aiMissionsTable.id, missionId));
+      expect(goal?.status).toBe("completed");
+      expect(mission?.status).toBe("completed");
+      expect((goal?.outcomeContract as { planRevision?: { hash?: string } }).planRevision?.hash)
+        .toBe(preview.body.plan.planHash);
+      expect(goal?.outcomeContract).toMatchObject({
+        deliveryRequired: true,
+        acceptance: {
+          executionId: "unified-delivery-execution",
+          outcome: "SUCCEEDED",
+          verdict: "PROVEN",
+          acceptedRefs: ["unified-delivery-execution"],
+          receipt: {
+            kind: "recipe",
+            executionId: "unified-delivery-execution",
+            status: "completed",
+          },
+          deliveryReceipt: {
+            kind: "recipe",
+            status: "completed",
+          },
+        },
+      });
+    });
+
+    expect(recipeRunner).toHaveBeenCalledOnce();
+    expect(recipeRunner).toHaveBeenCalledWith(expect.objectContaining({
+      projectId,
+      goalId: finalGoal.id,
+      operationId,
+      recipeId: "delivery.push.github",
+      sourceRevision: expect.stringMatching(/^[0-9a-f]{40}$/i),
+      rootPath: process.cwd(),
+    }));
+    expect(githubDeliveryRunner).toHaveBeenCalledWith(expect.objectContaining({
+      projectId,
+      proposalId,
+      operationId,
+      remoteUrl: "https://github.com/example/project.git",
+      branch: "main",
+    }));
+
+    const [persistedMission] = await db
+      .select({ status: aiMissionsTable.status, completedAt: aiMissionsTable.completedAt })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(persistedMission?.status).toBe("completed");
+    expect(persistedMission?.completedAt).toBeInstanceOf(Date);
+    expect(recipeRunner).toHaveBeenCalledOnce();
+  });
+
   it("rebuilds the server-owned GitHub runner from a committed proposal", async () => {
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
       const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
