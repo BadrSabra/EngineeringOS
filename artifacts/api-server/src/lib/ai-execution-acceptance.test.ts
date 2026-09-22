@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveAcceptanceNextAction,
+  deriveLinkedGoalStatus,
+  deriveMissionStatusFromGoals,
   normalizeEvidenceSnapshot,
   projectExecutionAcceptance,
 } from "./ai-execution-acceptance.js";
@@ -226,6 +228,55 @@ describe("server-owned execution acceptance", () => {
       retryAfterMs: 15_000,
       retryAt: "2026-09-08T18:00:15.000Z",
     });
+  });
+
+  it("derives linked goal state from server-owned task outcomes", () => {
+    expect(deriveLinkedGoalStatus({
+      outcome: "SUCCEEDED",
+      taskStatus: "completed",
+      retryable: false,
+      siblingTaskStatuses: [],
+    })).toBe("completed");
+    expect(deriveLinkedGoalStatus({
+      outcome: "SUCCEEDED",
+      taskStatus: "completed",
+      retryable: false,
+      siblingTaskStatuses: ["pending"],
+    })).toBe("running");
+    expect(deriveLinkedGoalStatus({
+      outcome: "SUCCEEDED",
+      taskStatus: "verifying",
+      retryable: false,
+      siblingTaskStatuses: [],
+    })).toBe("verifying");
+    expect(deriveLinkedGoalStatus({
+      outcome: "FAILED",
+      taskStatus: "verifying",
+      retryable: true,
+      siblingTaskStatuses: [],
+    })).toBe("needs_replan");
+    expect(deriveLinkedGoalStatus({
+      outcome: "FAILED",
+      taskStatus: "verifying",
+      retryable: false,
+      siblingTaskStatuses: [],
+    })).toBe("failed");
+    expect(deriveLinkedGoalStatus({
+      outcome: "INTERRUPTED",
+      taskStatus: "verifying",
+      retryable: false,
+      siblingTaskStatuses: [],
+    })).toBe("needs_replan");
+  });
+
+  it("derives mission state from the linked goal states", () => {
+    expect(deriveMissionStatusFromGoals(["completed"])).toBe("completed");
+    expect(deriveMissionStatusFromGoals(["completed", "running"])).toBe("active");
+    expect(deriveMissionStatusFromGoals(["verifying"])).toBe("waiting");
+    expect(deriveMissionStatusFromGoals(["failed"])).toBe("failed");
+    expect(deriveMissionStatusFromGoals(["failed", "needs_replan"])).toBe("needs_replan");
+    expect(deriveMissionStatusFromGoals(["blocked"])).toBe("blocked");
+    expect(deriveMissionStatusFromGoals(["cancelled"])).toBe("cancelled");
   });
 
   it("projects task kind and validator state through the public acceptance boundary", () => {

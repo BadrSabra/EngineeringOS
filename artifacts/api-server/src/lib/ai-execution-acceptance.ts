@@ -6,6 +6,8 @@ import {
   aiExecutionEvidenceReadsTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   db,
   eventsTable,
   taskLogsTable,
@@ -289,6 +291,195 @@ export type TaskExecutionFinalization = {
   };
   correlationId?: string | null;
 };
+
+type ObjectiveTaskStatus = typeof tasksTable.$inferSelect["status"];
+type ObjectiveOutcome = "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+type ObjectiveGoalStatus = typeof aiGoalsTable.$inferSelect["status"];
+type ObjectiveMissionStatus = typeof aiMissionsTable.$inferSelect["status"];
+type AcceptanceTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Derive the linked objective state from server-owned task/acceptance state.
+ * Provider text and provider-selected status never participate in this decision.
+ */
+export function deriveLinkedGoalStatus(params: {
+  outcome: ObjectiveOutcome;
+  taskStatus: ObjectiveTaskStatus;
+  retryable: boolean;
+  siblingTaskStatuses: ObjectiveTaskStatus[];
+}): ObjectiveGoalStatus {
+  if (params.outcome === "INTERRUPTED") return "needs_replan";
+  if (params.outcome === "FAILED") return params.retryable ? "needs_replan" : "failed";
+  if (params.taskStatus === "verifying") return "verifying";
+  if (params.taskStatus !== "completed") return "running";
+
+  const taskStatuses = [...params.siblingTaskStatuses, params.taskStatus];
+  if (taskStatuses.some((status) => status === "failed" || status === "cancelled")) {
+    return "needs_replan";
+  }
+  return taskStatuses.every((status) => status === "completed") ? "completed" : "running";
+}
+
+export function deriveMissionStatusFromGoals(
+  goalStatuses: ObjectiveGoalStatus[],
+): ObjectiveMissionStatus {
+  if (goalStatuses.some((status) => status === "needs_replan")) return "needs_replan";
+  if (goalStatuses.some((status) => status === "failed")) return "failed";
+  if (goalStatuses.some((status) => status === "blocked")) return "blocked";
+  if (goalStatuses.some((status) =>
+    status === "waiting_for_event"
+    || status === "waiting_for_approval"
+    || status === "verifying"
+  )) return "waiting";
+  if (goalStatuses.some((status) =>
+    status === "queued"
+    || status === "planning"
+    || status === "running"
+  )) return "active";
+  if (goalStatuses.length > 0 && goalStatuses.every((status) => status === "completed")) {
+    return "completed";
+  }
+  if (goalStatuses.length > 0 && goalStatuses.every((status) => status === "cancelled")) {
+    return "cancelled";
+  }
+  return "needs_replan";
+}
+
+async function syncLinkedObjectiveState(
+  tx: AcceptanceTransaction,
+  params: {
+    task: typeof tasksTable.$inferSelect;
+    taskStatus: ObjectiveTaskStatus;
+    outcome: ObjectiveOutcome;
+    retryable: boolean;
+    executionId: string;
+    correlationId: string | null;
+    now: Date;
+  },
+) {
+  if (!params.task.goalId) return;
+
+  const [goal] = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, params.task.goalId),
+      eq(aiGoalsTable.projectId, params.task.projectId),
+    ))
+    .for("update");
+  if (!goal) return;
+
+  const siblingTasks = await tx
+    .select({ id: tasksTable.id, status: tasksTable.status })
+    .from(tasksTable)
+    .where(and(
+      eq(tasksTable.goalId, goal.id),
+      eq(tasksTable.projectId, params.task.projectId),
+    ));
+  const nextGoalStatus = deriveLinkedGoalStatus({
+    outcome: params.outcome,
+    taskStatus: params.taskStatus,
+    retryable: params.retryable,
+    siblingTaskStatuses: siblingTasks
+      .filter((task) => task.id !== params.task.id)
+      .map((task) => task.status),
+  });
+
+  // A manually blocked/cancelled goal remains operator-owned. Automatic
+  // execution may advance an active/recoverable goal but must not reopen it.
+  const goalIsOperatorOwned = goal.status === "blocked" || goal.status === "cancelled";
+  const goalChanged = !goalIsOperatorOwned && goal.status !== nextGoalStatus;
+  if (goalChanged) {
+    await tx.update(aiGoalsTable)
+      .set({
+        status: nextGoalStatus,
+        completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null,
+        blockedReason: nextGoalStatus === "needs_replan"
+          ? `Execution ${params.outcome === "INTERRUPTED" ? "was cancelled" : "did not complete"}; review or retry the task.`
+          : null,
+        updatedAt: params.now,
+      })
+      .where(and(
+        eq(aiGoalsTable.id, goal.id),
+        eq(aiGoalsTable.projectId, params.task.projectId),
+      ));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiGoalStatusSynced",
+      projectId: params.task.projectId,
+      goalId: goal.id,
+      taskId: params.task.id,
+      severity: nextGoalStatus === "completed" ? "success" : nextGoalStatus === "needs_replan" ? "warning" : "info",
+      message: `AI goal "${goal.title}" → ${nextGoalStatus}`,
+      correlationId: params.correlationId ?? undefined,
+      payload: {
+        executionId: params.executionId,
+        taskId: params.task.id,
+        before: goal.status,
+        after: nextGoalStatus,
+        outcome: params.outcome,
+        retryable: params.retryable,
+      },
+    });
+  }
+
+  const goals = await tx
+    .select({ id: aiGoalsTable.id, status: aiGoalsTable.status })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, goal.missionId),
+      eq(aiGoalsTable.projectId, params.task.projectId),
+    ))
+    .for("update");
+  const [mission] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goal.missionId),
+      eq(aiMissionsTable.projectId, params.task.projectId),
+    ))
+    .for("update");
+  if (!mission) return;
+
+  const missionIsOperatorOwned =
+    mission.status === "blocked"
+    || mission.status === "cancelled"
+    || mission.status === "completed";
+  const effectiveGoalStatuses = goals.map((item) =>
+    item.id === goal.id && goalChanged ? nextGoalStatus : item.status,
+  );
+  const nextMissionStatus = deriveMissionStatusFromGoals(effectiveGoalStatuses);
+  if (missionIsOperatorOwned || mission.status === nextMissionStatus) return;
+
+  await tx.update(aiMissionsTable)
+    .set({
+      status: nextMissionStatus,
+      completedAt: nextMissionStatus === "completed" ? mission.completedAt ?? params.now : null,
+      updatedAt: params.now,
+    })
+    .where(and(
+      eq(aiMissionsTable.id, mission.id),
+      eq(aiMissionsTable.projectId, params.task.projectId),
+    ));
+  await tx.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiMissionStatusSynced",
+    projectId: params.task.projectId,
+    taskId: params.task.id,
+    severity: nextMissionStatus === "completed" ? "success" : nextMissionStatus === "needs_replan" || nextMissionStatus === "failed" ? "warning" : "info",
+    message: `AI mission "${mission.title}" → ${nextMissionStatus}`,
+    correlationId: params.correlationId ?? undefined,
+    payload: {
+      executionId: params.executionId,
+      taskId: params.task.id,
+      goalId: goal.id,
+      before: mission.status,
+      after: nextMissionStatus,
+      outcome: params.outcome,
+      retryable: params.retryable,
+    },
+  });
+}
 
 export type FinalizeExecutionAcceptanceResult = {
   accepted: boolean;
@@ -1099,6 +1290,15 @@ export async function finalizeExecutionAcceptance(
       if (!updatedTask) throw new Error("task_state_changed_during_finalize");
 
       const correlationId = params.taskFinalization.correlationId ?? execution.correlationId;
+      await syncLinkedObjectiveState(tx, {
+        task,
+        taskStatus: updatedTask.status,
+        outcome,
+        retryable: params.resumable === true,
+        executionId: execution.id,
+        correlationId,
+        now,
+      });
       if (params.taskFinalization.log) {
         await tx.insert(taskLogsTable).values({
           id: randomUUID(),
