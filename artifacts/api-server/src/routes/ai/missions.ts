@@ -47,6 +47,29 @@ const CreateGoalBody = z.object({
   nextAction: JsonObjectSchema.optional(),
 }).strict();
 
+const UpdateMissionBody = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  intent: z.string().trim().min(1).max(500).optional(),
+  status: z.enum(["draft", "active", "waiting", "blocked", "needs_replan", "completed", "failed", "cancelled"]).optional(),
+  autonomyPolicy: JsonObjectSchema.optional(),
+  budget: JsonObjectSchema.optional(),
+  deadline: z.string().datetime().nullable().optional(),
+}).strict();
+
+const UpdateGoalBody = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().max(5_000).nullable().optional(),
+  parentGoalId: z.string().min(1).max(200).nullable().optional(),
+  priority: z.enum(["p0", "p1", "p2", "p3"]).optional(),
+  status: z.enum(["queued", "planning", "running", "waiting_for_event", "waiting_for_approval", "verifying", "needs_replan", "completed", "blocked", "failed", "cancelled"]).optional(),
+  successCriteria: JsonObjectSchema.optional(),
+  evidenceContract: JsonObjectSchema.optional(),
+  outcomeContract: JsonObjectSchema.optional(),
+  nextAction: JsonObjectSchema.optional(),
+  blockedReason: z.string().trim().max(5_000).nullable().optional(),
+  nextWakeAt: z.string().datetime().nullable().optional(),
+}).strict();
+
 async function loadOwnedMission(
   missionId: string,
   userId: string,
@@ -243,6 +266,51 @@ router.get("/ai/missions/:missionId", async (req, res) => {
   return res.json(owned.mission);
 });
 
+router.patch("/ai/missions/:missionId", async (req, res) => {
+  const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
+  if (!owned) return;
+  const body = UpdateMissionBody.parse(req.body);
+  if (Object.keys(body).length === 0) return res.status(400).json({ error: "At least one mission field is required" });
+
+  const before = owned.mission;
+  const now = new Date();
+  const { deadline, ...rest } = body;
+  const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
+    ...rest,
+    updatedAt: now,
+    ...(Object.prototype.hasOwnProperty.call(body, "deadline")
+      ? { deadline: deadline ? new Date(deadline) : null }
+      : {}),
+  };
+  if (body.status === "completed") {
+    updateValues.completedAt = before.completedAt ?? now;
+  } else if (body.status && body.status !== "completed") {
+    updateValues.completedAt = null;
+  }
+
+  const correlationId = randomUUID();
+  const [updated] = await db.transaction(async (tx) => {
+    const rows = await tx.update(aiMissionsTable)
+      .set(updateValues)
+      .where(eq(aiMissionsTable.id, before.id))
+      .returning();
+    if (rows[0]) {
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiMissionUpdated",
+        projectId: before.projectId,
+        severity: "info",
+        message: `AI mission "${rows[0].title}" updated`,
+        correlationId,
+        payload: { missionId: before.id, changedFields: Object.keys(body) },
+      });
+    }
+    return rows;
+  });
+  if (!updated) return res.status(404).json({ error: "Mission not found" });
+  return res.json(updated);
+});
+
 router.get("/ai/missions/:missionId/goals", async (req, res) => {
   const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
   if (!owned) return;
@@ -264,6 +332,73 @@ router.get("/ai/goals/:goalId", async (req, res) => {
   const owned = await loadOwnedMission(goal.missionId, req.userId, res);
   if (!owned) return;
   return res.json(goal);
+});
+
+router.patch("/ai/goals/:goalId", async (req, res) => {
+  const [goal] = await db
+    .select()
+    .from(aiGoalsTable)
+    .where(eq(aiGoalsTable.id, req.params.goalId))
+    .limit(1);
+  if (!goal) return res.status(404).json({ error: "Goal not found" });
+  const owned = await loadOwnedMission(goal.missionId, req.userId, res);
+  if (!owned) return;
+  const body = UpdateGoalBody.parse(req.body);
+  if (Object.keys(body).length === 0) return res.status(400).json({ error: "At least one goal field is required" });
+
+  if (Object.prototype.hasOwnProperty.call(body, "parentGoalId") && body.parentGoalId) {
+    if (body.parentGoalId === goal.id) {
+      return res.status(400).json({ error: "A goal cannot be its own parent" });
+    }
+    const [parent] = await db
+      .select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, body.parentGoalId),
+        eq(aiGoalsTable.missionId, owned.mission.id),
+        eq(aiGoalsTable.projectId, owned.project.id),
+      ))
+      .limit(1);
+    if (!parent) return res.status(400).json({ error: "parentGoalId must reference a goal in this mission" });
+  }
+
+  const now = new Date();
+  const { nextWakeAt, ...rest } = body;
+  const updateValues: Partial<typeof aiGoalsTable.$inferInsert> = {
+    ...rest,
+    updatedAt: now,
+    ...(Object.prototype.hasOwnProperty.call(body, "nextWakeAt")
+      ? { nextWakeAt: nextWakeAt ? new Date(nextWakeAt) : null }
+      : {}),
+  };
+  if (body.status === "completed") {
+    updateValues.completedAt = goal.completedAt ?? now;
+  } else if (body.status && body.status !== "completed") {
+    updateValues.completedAt = null;
+  }
+
+  const correlationId = randomUUID();
+  const [updated] = await db.transaction(async (tx) => {
+    const rows = await tx.update(aiGoalsTable)
+      .set(updateValues)
+      .where(eq(aiGoalsTable.id, goal.id))
+      .returning();
+    if (rows[0]) {
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalUpdated",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "info",
+        message: `AI goal "${rows[0].title}" updated`,
+        correlationId,
+        payload: { missionId: goal.missionId, changedFields: Object.keys(body) },
+      });
+    }
+    return rows;
+  });
+  if (!updated) return res.status(404).json({ error: "Goal not found" });
+  return res.json(updated);
 });
 
 router.post("/ai/missions/:missionId/goals", async (req, res) => {

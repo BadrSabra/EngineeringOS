@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import app from "../../app.js";
 import {
   aiExecutionsTable,
+  aiGoalsTable,
   aiMissionsTable,
   db,
   eventsTable,
@@ -153,6 +154,73 @@ describe("AI missions and goals", () => {
     expect(projection.body.goals[0].executions[0].id).toBe(executionId);
   });
 
+  it("updates owned missions and goals while preserving project ownership", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Initial mission",
+      intent: "Initial intent",
+    });
+    const goal = await request(app).post(`/api/ai/missions/${mission.body.id}/goals`).send({
+      title: "Initial goal",
+    });
+
+    const updatedMission = await request(app)
+      .patch(`/api/ai/missions/${mission.body.id}`)
+      .send({
+        title: "Updated mission",
+        status: "active",
+        deadline: "2027-01-15T12:00:00.000Z",
+      });
+    expect(updatedMission.status).toBe(200);
+    expect(updatedMission.body.title).toBe("Updated mission");
+    expect(updatedMission.body.status).toBe("active");
+    expect(updatedMission.body.deadline).toBe("2027-01-15T12:00:00.000Z");
+
+    const updatedGoal = await request(app)
+      .patch(`/api/ai/goals/${goal.body.id}`)
+      .send({
+        title: "Updated goal",
+        status: "blocked",
+        blockedReason: "Waiting for approval",
+        nextAction: { owner: "operator", action: "approve" },
+      });
+    expect(updatedGoal.status).toBe(200);
+    expect(updatedGoal.body.title).toBe("Updated goal");
+    expect(updatedGoal.body.status).toBe("blocked");
+    expect(updatedGoal.body.nextAction).toEqual({ owner: "operator", action: "approve" });
+
+    const projection = await request(app).get(`/api/ai/missions/${mission.body.id}/projection`);
+    expect(projection.body.mission.title).toBe("Updated mission");
+    expect(projection.body.goals[0].goal.title).toBe("Updated goal");
+    expect(projection.body.counts.events).toBe(4);
+  });
+
+  it("rejects invalid goal parent updates and empty patches", async () => {
+    const projectId = await insertProject();
+    const mission = await request(app).post("/api/ai/missions").send({
+      projectId,
+      title: "Parent validation",
+      intent: "Keep hierarchy safe",
+    });
+    const goal = await request(app).post(`/api/ai/missions/${mission.body.id}/goals`).send({
+      title: "Child candidate",
+    });
+
+    const emptyMissionPatch = await request(app).patch(`/api/ai/missions/${mission.body.id}`).send({});
+    expect(emptyMissionPatch.status).toBe(400);
+
+    const selfParent = await request(app).patch(`/api/ai/goals/${goal.body.id}`).send({
+      parentGoalId: goal.body.id,
+    });
+    expect(selfParent.status).toBe(400);
+
+    const missingParent = await request(app).patch(`/api/ai/goals/${goal.body.id}`).send({
+      parentGoalId: randomUUID(),
+    });
+    expect(missingParent.status).toBe(400);
+  });
+
   it("does not create or reveal missions for another project owner", async () => {
     const foreignProjectId = await insertProject("another-user");
     const create = await request(app).post("/api/ai/missions").send({
@@ -173,5 +241,17 @@ describe("AI missions and goals", () => {
     });
     const get = await request(app).get(`/api/ai/missions/${missionId}`);
     expect(get.status).toBe(404);
+
+    const foreignGoalId = randomUUID();
+    await db.insert(aiGoalsTable).values({
+      id: foreignGoalId,
+      missionId,
+      projectId: foreignProjectId,
+      title: "Foreign goal",
+    });
+    const patch = await request(app).patch(`/api/ai/goals/${foreignGoalId}`).send({
+      title: "Should remain hidden",
+    });
+    expect(patch.status).toBe(404);
   });
 });

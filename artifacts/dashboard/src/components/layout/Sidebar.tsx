@@ -14,6 +14,7 @@ import {
   Bot,
   Plane,
   Gauge,
+  Target,
   X,
 } from 'lucide-react';
 import { basePath } from '@/lib/clerk';
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: '/ai', label: 'AI Assistant', icon: Bot },
   { href: '/flight-deck', label: 'Flight Deck', icon: Plane },
   { href: '/mission-control', label: 'Mission Control', icon: Gauge },
+  { href: '/missions', label: 'Missions', icon: Target },
 ];
 
 function operatorInitials(name: string | null | undefined): string {

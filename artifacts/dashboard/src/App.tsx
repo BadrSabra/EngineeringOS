@@ -18,6 +18,7 @@ import Graph from '@/pages/Graph';
 import AiChat from '@/pages/AiChat';
 import FlightDeck from '@/pages/FlightDeck';
 import MissionControl from '@/pages/MissionControl';
+import Missions from '@/pages/Missions';
 import Landing from '@/pages/Landing';
 import SignInPage from '@/pages/SignIn';
 import SignUpPage from '@/pages/SignUp';
@@ -131,6 +132,9 @@ function Router() {
       </Route>
       <Route path="/mission-control">
         <ProtectedRoute component={MissionControl} />
+      </Route>
+      <Route path="/missions">
+        <ProtectedRoute component={Missions} />
       </Route>
       <Route component={NotFound} />
     </Switch>
