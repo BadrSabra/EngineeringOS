@@ -1,6 +1,12 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { workflowsTable, workflowExecutionsTable, eventsTable } from "@workspace/db";
+import {
+  aiGoalsTable,
+  aiMissionsTable,
+  workflowsTable,
+  workflowExecutionsTable,
+  eventsTable,
+} from "@workspace/db";
 import {
   CreateWorkflowBody,
   GetWorkflowParams,
@@ -24,6 +30,7 @@ import {
 } from "../services/workflow-service.js";
 import { parsePagination } from "../lib/pagination.js";
 import { executeWorkflowPhase } from "../lib/workflow-phase-execution.js";
+import { z } from "zod";
 
 const router = Router();
 
@@ -32,6 +39,10 @@ const router = Router();
 router.use(requireAuth);
 
 class WorkflowStateConflictError extends Error {}
+
+const CreateWorkflowRequest = CreateWorkflowBody.extend({
+  goalId: z.string().min(1).optional(),
+});
 
 // List workflows
 router.get("/workflows", async (req, res) => {
@@ -54,9 +65,33 @@ router.get("/workflows", async (req, res) => {
 
 // Create workflow
 router.post("/workflows", async (req, res) => {
-  const body = CreateWorkflowBody.parse(req.body);
+  const body = CreateWorkflowRequest.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  if (body.goalId) {
+    const [goal] = await db
+      .select({ id: aiGoalsTable.id })
+      .from(aiGoalsTable)
+      .innerJoin(
+        aiMissionsTable,
+        and(
+          eq(aiMissionsTable.id, aiGoalsTable.missionId),
+          eq(aiMissionsTable.projectId, project.id),
+          eq(aiMissionsTable.userId, req.userId),
+        ),
+      )
+      .where(and(
+        eq(aiGoalsTable.id, body.goalId),
+        eq(aiGoalsTable.projectId, project.id),
+      ))
+      .limit(1);
+    if (!goal) {
+      return res.status(409).json({
+        error: "Workflow Goal binding is not valid for this project",
+        code: "WORKFLOW_GOAL_BINDING_INVALID",
+      });
+    }
+  }
   const now = new Date();
   const workflow = await db.transaction(async (tx) => {
     const rows = await tx.insert(workflowsTable)
@@ -242,9 +277,10 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
         revision: workflow[0].updatedAt.toISOString(),
         completedPhaseNames: [],
          rootPath: ownerProject.rootPath,
+         goalId: workflow[0].goalId ?? undefined,
+         isFinalPhase: firstPhase === ((workflow[0].phases as Array<{ name: string }> | null)?.at(-1)?.name),
       })
     : undefined;
-
   return res.status(202).json({
     ...execution,
     ...(phaseExecution ? {
@@ -567,9 +603,10 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
         revision: workflow[0].updatedAt.toISOString(),
         completedPhaseNames: completedPhases,
         rootPath: advanceOwnerProject.rootPath,
+         goalId: workflow[0].goalId ?? undefined,
+         isFinalPhase: nextPhase === allPhases.at(-1)?.name,
       })
     : undefined;
-
   return res.json({
     ...updatedExecution,
     ...(phaseExecution ? {

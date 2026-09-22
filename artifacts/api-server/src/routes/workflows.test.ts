@@ -92,6 +92,22 @@ describe("Workflow phase orchestration", () => {
     expect(workflow[0].currentPhase).toBeNull();
   });
 
+  it("rejects a Goal binding from another or missing Mission", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const response = await request(app)
+      .post("/api/workflows")
+      .send({
+        projectId,
+        goalId: randomUUID(),
+        name: `wf-${randomUUID().slice(0, 8)}`,
+        phases: [{ name: "build", steps: [] }],
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("WORKFLOW_GOAL_BINDING_INVALID");
+  });
+
   // ── PR-B: event emission on workflow operations ─────────────────────────────
 
   it("emits WorkflowPhaseAdvanced when advancing to the next phase", async () => {

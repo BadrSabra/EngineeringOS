@@ -12,6 +12,8 @@ import {
   eventsTable,
   taskLogsTable,
   tasksTable,
+  workflowExecutionsTable,
+  workflowsTable,
 } from "@workspace/db";
 import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
 import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
@@ -139,6 +141,8 @@ export type FinalizeExecutionAcceptanceParams = {
    * guarded terminal transaction as the acceptance ledger.
    */
   taskFinalization?: TaskExecutionFinalization;
+  /** Optional workflow phase projection through the existing Goal/Mission seam. */
+  goalProjection?: GoalExecutionProjection;
   taskObjective?: TaskObjectiveContract;
   taskObjectiveStatus?: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
 };
@@ -290,6 +294,15 @@ export type TaskExecutionFinalization = {
     stateBefore?: Record<string, unknown> | null;
     stateAfter?: Record<string, unknown> | null;
   };
+  correlationId?: string | null;
+};
+
+export type GoalExecutionProjection = {
+  goalId: string;
+  workflowId: string;
+  workflowExecutionId: string;
+  phase: string;
+  finalPhase: boolean;
   correlationId?: string | null;
 };
 
@@ -530,6 +543,180 @@ async function syncLinkedObjectiveState(
       after: nextMissionStatus,
       outcome: params.outcome,
       retryable: params.retryable,
+    },
+  });
+}
+
+async function syncWorkflowGoalProjection(
+  tx: AcceptanceTransaction,
+  params: {
+    projection: GoalExecutionProjection;
+    projectId: string;
+    executionId: string;
+    acceptance: typeof aiExecutionAcceptancesTable.$inferSelect;
+    now: Date;
+  },
+): Promise<void> {
+  const [goal] = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, params.projection.goalId),
+      eq(aiGoalsTable.projectId, params.projectId),
+    ))
+    .for("update");
+  if (!goal) return;
+  const [workflow] = await tx
+    .select({ id: workflowsTable.id, goalId: workflowsTable.goalId })
+    .from(workflowsTable)
+    .where(and(
+      eq(workflowsTable.id, params.projection.workflowId),
+      eq(workflowsTable.projectId, params.projectId),
+      eq(workflowsTable.goalId, goal.id),
+    ))
+    .limit(1);
+  if (!workflow) return;
+  const [workflowExecution] = await tx
+    .select({ id: workflowExecutionsTable.id })
+    .from(workflowExecutionsTable)
+    .where(and(
+      eq(workflowExecutionsTable.id, params.projection.workflowExecutionId),
+      eq(workflowExecutionsTable.workflowId, workflow.id),
+    ))
+    .limit(1);
+  if (!workflowExecution) return;
+
+  const evidenceComplete = params.acceptance.evidenceComplete === 1;
+  await projectGoalAcceptance(tx, {
+    goalId: goal.id,
+    projectId: params.projectId,
+    projection: {
+      acceptanceId: params.acceptance.id,
+      executionId: params.executionId,
+      outcome: params.acceptance.outcome as GoalAcceptanceProjection["outcome"],
+      verdict: params.acceptance.outcome === "SUCCEEDED" && evidenceComplete
+        ? "PROVEN"
+        : params.acceptance.outcome === "FAILED"
+          ? "FAILED"
+          : "INCOMPLETE",
+      evidenceSnapshotId: params.acceptance.evidenceSnapshotId,
+      evidenceRequired: params.acceptance.evidenceRequired === 1,
+      evidenceComplete,
+      sourceRevision: params.acceptance.sourceRevision,
+      scope: { projectId: params.projectId },
+      acceptedRefs: [
+        params.acceptance.evidenceSnapshotId,
+        params.executionId,
+      ].filter((value): value is string => Boolean(value)),
+      receipt: {
+        kind: "execution_acceptance",
+        id: params.acceptance.id,
+        executionId: params.executionId,
+        status: params.acceptance.terminalStatus,
+      },
+      reasonCode: params.acceptance.reasonCode,
+      nextActionCode: params.acceptance.nextActionCode,
+      updatedAt: params.now,
+    },
+  });
+
+  // Intermediate phases contribute durable acceptance evidence but do not
+  // complete the Goal. Only the final phase owns the Goal/Mission terminal
+  // transition.
+  if (!params.projection.finalPhase) return;
+
+  const nextGoalStatus = params.acceptance.outcome === "SUCCEEDED" && evidenceComplete
+    ? "completed"
+    : params.acceptance.outcome === "INTERRUPTED"
+      ? "needs_replan"
+      : "failed";
+  const operatorOwned = goal.status === "blocked" || goal.status === "cancelled";
+  const goalChanged = !operatorOwned && goal.status !== nextGoalStatus;
+  if (goalChanged) {
+    await tx.update(aiGoalsTable)
+      .set({
+        status: nextGoalStatus,
+        completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? params.now : null,
+        blockedReason: nextGoalStatus === "completed" ? null : "Final workflow phase did not complete.",
+        updatedAt: params.now,
+      })
+      .where(eq(aiGoalsTable.id, goal.id));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiGoalStatusSynced",
+      projectId: params.projectId,
+      goalId: goal.id,
+      severity: nextGoalStatus === "completed" ? "success" : "warning",
+      message: `AI goal "${goal.title}" → ${nextGoalStatus}`,
+      correlationId: params.projection.correlationId ?? undefined,
+      payload: {
+        executionId: params.executionId,
+        workflowId: params.projection.workflowId,
+        workflowExecutionId: params.projection.workflowExecutionId,
+        phase: params.projection.phase,
+        finalPhase: true,
+        outcome: params.acceptance.outcome,
+        acceptanceId: params.acceptance.id,
+      },
+    });
+  }
+
+  const goals = await tx
+    .select({
+      id: aiGoalsTable.id,
+      status: aiGoalsTable.status,
+      successCriteria: aiGoalsTable.successCriteria,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, goal.missionId),
+      eq(aiGoalsTable.projectId, params.projectId),
+    ))
+    .for("update");
+  const [mission] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goal.missionId),
+      eq(aiMissionsTable.projectId, params.projectId),
+    ))
+    .for("update");
+  if (!mission) return;
+  const missionOperatorOwned =
+    mission.status === "blocked"
+    || mission.status === "cancelled"
+    || mission.status === "completed";
+  const nextMissionStatus = deriveMissionStatusFromGoals(
+    selectActiveMissionGoals({ mission, goals }).map((item) =>
+      item.id === goal.id && goalChanged ? nextGoalStatus : item.status,
+    ),
+  );
+  if (missionOperatorOwned || mission.status === nextMissionStatus) return;
+
+  await tx.update(aiMissionsTable)
+    .set({
+      status: nextMissionStatus,
+      completedAt: nextMissionStatus === "completed" ? mission.completedAt ?? params.now : null,
+      updatedAt: params.now,
+    })
+    .where(eq(aiMissionsTable.id, mission.id));
+  await tx.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiMissionStatusSynced",
+    projectId: params.projectId,
+    goalId: goal.id,
+    severity: nextMissionStatus === "completed" ? "success" : "warning",
+    message: `AI mission "${mission.title}" → ${nextMissionStatus}`,
+    correlationId: params.projection.correlationId ?? undefined,
+    payload: {
+      executionId: params.executionId,
+      workflowId: params.projection.workflowId,
+      workflowExecutionId: params.projection.workflowExecutionId,
+      phase: params.projection.phase,
+      goalId: goal.id,
+      acceptanceId: params.acceptance.id,
+      status: nextMissionStatus,
     },
   });
 }
@@ -1411,6 +1598,15 @@ export async function finalizeExecutionAcceptance(
           ...params.taskFinalization.audit,
         });
       }
+    }
+    if (params.goalProjection) {
+      await syncWorkflowGoalProjection(tx, {
+        projection: params.goalProjection,
+        projectId: execution.projectId,
+        executionId: execution.id,
+        acceptance,
+        now,
+      });
     }
     const checkpoint = params.checkpoint ?? (() => {
       try {

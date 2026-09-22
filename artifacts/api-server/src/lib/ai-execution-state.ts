@@ -26,6 +26,7 @@ import {
   finalizeExecutionAcceptance,
   type EvidenceReadInput,
   type EvidenceSnapshotInput,
+  type GoalExecutionProjection,
 } from "./ai-execution-acceptance.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
@@ -2568,6 +2569,7 @@ export async function completeAiExecution(params: {
   evidenceReads?: readonly EvidenceReadInput[];
   /** Orientation requires complete role coverage in addition to source reads. */
   orientationCoverageComplete?: boolean;
+  goalProjection?: GoalExecutionProjection;
 }): Promise<boolean> {
   const [current] = await db
     .select({
@@ -2784,6 +2786,7 @@ export async function completeAiExecution(params: {
     candidateIdentity: params.candidateIdentity,
     proposalId: params.proposalId ?? null,
     recipeReceipt: params.recipeReceipt,
+    goalProjection: params.goalProjection,
     taskObjective,
     taskObjectiveStatus: params.objectiveValidated ? "PROVEN" : "INCOMPLETE",
     checkpoint: JSON.stringify(checkpointEnvelope),
@@ -2819,6 +2822,7 @@ export async function failAiExecution(params: {
   evidenceReads?: readonly EvidenceReadInput[];
   orientationCoverageComplete?: boolean;
   recipeReceipt?: RecipeReceipt;
+  goalProjection?: GoalExecutionProjection;
 }): Promise<boolean> {
   const [current] = await db
     .select()
@@ -2916,6 +2920,7 @@ export async function failAiExecution(params: {
     disposition: params.disposition ?? params.acceptanceDisposition,
     error: params.error,
     recipeReceipt: params.recipeReceipt,
+    goalProjection: params.goalProjection,
     evidence: !ordinaryChat && (params.evidenceVerdict || params.evidenceReads)
       ? {
           operationId: current.operationId,

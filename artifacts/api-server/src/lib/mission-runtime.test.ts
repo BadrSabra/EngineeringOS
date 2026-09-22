@@ -9,7 +9,12 @@ import {
   projectsTable,
   tasksTable,
 } from "@workspace/db";
-import { runMissionGoal, wakeDueMissionGoals } from "./mission-runtime.js";
+import {
+  runMissionGoal,
+  wakeDueMissionGoals,
+  wakeMissionGoalsForEvent,
+} from "./mission-runtime.js";
+import { createMissionEventEnvelope } from "./mission-events.js";
 
 const projectIds: string[] = [];
 
@@ -211,5 +216,44 @@ describe("Mission goal runtime", () => {
         reason: "approval",
       },
     });
+  });
+
+  it("wakes only the targeted event wait and converts it into a revision-bound replan", async () => {
+    const waiting = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    await runMissionGoal({
+      goalId: waiting.goalId,
+      userId: "test-user",
+      trigger: "activation",
+    });
+
+    const event = createMissionEventEnvelope({
+      eventId: randomUUID(),
+      type: "WorkflowPhaseAccepted",
+      projectId: waiting.projectId,
+      goalId: waiting.goalId,
+      workflowId: randomUUID(),
+      correlationId: randomUUID(),
+      payload: { phase: "validate" },
+    });
+    expect(await wakeMissionGoalsForEvent(event)).toBe(1);
+    expect(await wakeMissionGoalsForEvent(event)).toBe(0);
+
+    const [goal] = await db
+      .select({ status: aiGoalsTable.status, nextAction: aiGoalsTable.nextAction })
+      .from(aiGoalsTable)
+      .where(eq(aiGoalsTable.id, waiting.goalId));
+    const [mission] = await db
+      .select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, waiting.missionId));
+    expect(goal).toMatchObject({
+      status: "needs_replan",
+      nextAction: { kind: "replan" },
+    });
+    expect(mission?.status).toBe("needs_replan");
   });
 });

@@ -154,3 +154,4 @@
 - [Mission management browser proof](missions-management-browser-proof.md) — isolate CRUD journeys with provider-free fixtures and assert durable source values after reload.
 - [Collapsible form acceptance](collapsible-form-acceptance.md) — browser journeys must open disclosure controls before filling hidden advanced fields.
 - [Mission approval adapter](mission-approval-adapter.md) — proposal-backed Goal approvals reuse the existing revision gate and resume the Mission runtime; apply remains separate.
+- [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.

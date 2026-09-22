@@ -42,6 +42,8 @@ export async function executeWorkflowPhase(params: {
   revision: string;
   completedPhaseNames: string[];
   rootPath?: string;
+  goalId?: string;
+  isFinalPhase?: boolean;
 }): Promise<WorkflowPhaseExecutionResult> {
   const phaseKey = `workflow-phase:${params.workflowExecutionId}:${params.phaseName}`;
   const objective = `Execute workflow "${params.workflowName}" phase "${params.phaseName}"`;
@@ -65,6 +67,7 @@ export async function executeWorkflowPhase(params: {
     request: operationRequest,
     idempotencyKey: phaseKey,
     workspaceRoot: params.rootPath ?? undefined,
+    goalId: params.goalId,
   });
   const existingCheckpoint = parseAiExecutionCheckpoint(durable.execution.checkpoint);
   if (!durable.created && durable.execution.status === "completed") {
@@ -149,14 +152,11 @@ export async function executeWorkflowPhase(params: {
       },
     });
     if (!checkpointed) throw new Error("Workflow phase lease was lost before checkpoint");
-    if (declaredSteps.length === 0) {
-      throw new Error(`Workflow phase "${params.phaseName}" has no executable steps`);
-    }
-
     // A workflow step is not successful merely because it was declared. The
     // phase executor performs a bounded, server-owned inspection: the
-    // configured project root must still exist and each declared step must be
-    // executable text. No provider or workflow payload can mark a node passed.
+    // configured project root must still exist. An empty phase is a valid
+    // server-owned no-op boundary for legacy workflow definitions; it still
+    // records the phase acceptance rather than inventing provider work.
     if (params.rootPath) {
       const rootStat = await stat(params.rootPath);
       if (!rootStat.isDirectory()) throw new Error("Workflow project root is not a directory");
@@ -184,6 +184,15 @@ export async function executeWorkflowPhase(params: {
       proofRequired: true,
       operation,
       nodeStates: completedNodes,
+      goalProjection: params.goalId
+        ? {
+            goalId: params.goalId,
+            workflowId: params.workflowId,
+            workflowExecutionId: params.workflowExecutionId,
+            phase: params.phaseName,
+            finalPhase: params.isFinalPhase === true,
+          }
+        : undefined,
     });
     if (!completed) throw new Error("Workflow phase lease was lost before completion");
     return {
@@ -200,6 +209,15 @@ export async function executeWorkflowPhase(params: {
         error: error instanceof Error ? error.message : "Workflow phase execution failed",
         operation: transitionAutonomousOperation(operation, "failed"),
         nodeStates: nodes,
+        goalProjection: params.goalId
+          ? {
+              goalId: params.goalId,
+              workflowId: params.workflowId,
+              workflowExecutionId: params.workflowExecutionId,
+              phase: params.phaseName,
+              finalPhase: params.isFinalPhase === true,
+            }
+          : undefined,
       });
     }
     return {

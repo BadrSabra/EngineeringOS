@@ -25,6 +25,7 @@ import { runRecipeOperation } from "./recipe-operation-runner.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
+import type { MissionEventEnvelope } from "./mission-events.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -803,4 +804,100 @@ export async function wakeDueMissionGoals(limit = 32): Promise<number> {
     if (changed) woken++;
   }
   return woken;
+}
+
+/**
+ * Converts one targeted durable event into a bounded replan request.
+ *
+ * Event waits are not timer-driven and do not bypass the existing planner or
+ * dispatcher. The event must target the Goal directly and, when supplied,
+ * match its active plan revision. The Goal is then re-evaluated by the normal
+ * replan path, so duplicate/stale events are harmless.
+ */
+export async function wakeMissionGoalsForEvent(event: MissionEventEnvelope): Promise<number> {
+  if (event.schemaVersion !== 1 || event.projectId.length === 0 || !event.goalId) return 0;
+
+  const [candidate] = await db
+    .select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, event.goalId),
+      eq(aiGoalsTable.projectId, event.projectId),
+      eq(aiGoalsTable.status, "waiting_for_event"),
+    ))
+    .limit(1);
+  if (!candidate) return 0;
+
+  const changed = await db.transaction(async (tx) => {
+    const [goal] = await tx
+      .select()
+      .from(aiGoalsTable)
+      .where(and(
+        eq(aiGoalsTable.id, candidate.id),
+        eq(aiGoalsTable.missionId, candidate.missionId),
+        eq(aiGoalsTable.projectId, candidate.projectId),
+        eq(aiGoalsTable.status, "waiting_for_event"),
+      ))
+      .for("update");
+    if (!goal) return false;
+
+    const action = GoalNextActionSchema.safeParse(goal.nextAction);
+    if (!action.success || action.data.kind !== "wait" || action.data.reason !== "event") {
+      return false;
+    }
+    const revision = goalPlanRevision(goal);
+    if (event.planRevision && revision && event.planRevision !== revision) return false;
+
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, goal.missionId),
+        eq(aiMissionsTable.projectId, goal.projectId),
+      ))
+      .for("update");
+    if (!mission || ["blocked", "cancelled", "completed"].includes(mission.status)) return false;
+
+    const now = new Date();
+    await tx.update(aiGoalsTable)
+      .set({
+        status: "needs_replan",
+        nextAction: {
+          kind: "replan",
+          reason: `Event "${event.type}" received; replan from current project evidence.`,
+        },
+        blockedReason: null,
+        nextWakeAt: null,
+        updatedAt: now,
+      })
+      .where(eq(aiGoalsTable.id, goal.id));
+    await tx.update(aiMissionsTable)
+      .set({ status: "needs_replan", updatedAt: now })
+      .where(and(
+        eq(aiMissionsTable.id, mission.id),
+        eq(aiMissionsTable.status, mission.status),
+      ));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiGoalEventReceived",
+      projectId: goal.projectId,
+      goalId: goal.id,
+      severity: "info",
+      message: `AI goal "${goal.title}" received event "${event.type}"`,
+      correlationId: event.correlationId ?? event.eventId,
+      payload: {
+        eventSchemaVersion: event.schemaVersion,
+        eventId: event.eventId,
+        eventType: event.type,
+        planRevision: revision ?? null,
+      },
+    });
+    return true;
+  });
+
+  return changed ? 1 : 0;
 }
