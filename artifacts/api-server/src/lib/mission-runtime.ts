@@ -13,7 +13,11 @@ import {
   projectsTable,
   tasksTable,
 } from "@workspace/db";
-import { GoalNextActionSchema, type GoalNextAction } from "@workspace/ai-orchestrator";
+import {
+  GoalNextActionSchema,
+  RecipeReceiptSchema,
+  type GoalNextAction,
+} from "@workspace/ai-orchestrator";
 import {
   deriveMissionStatusFromGoals,
   selectActiveMissionGoals,
@@ -179,6 +183,10 @@ async function syncRecipeObjectiveState(params: {
   executionId?: string;
   status: "completed" | "blocked" | "failed" | "needs_replan";
   reason?: string;
+  deliveryReceipt?: {
+    kind: "recipe";
+    status: "completed";
+  };
 }): Promise<void> {
   await db.transaction(async (tx) => {
     const [goal] = await tx
@@ -210,6 +218,7 @@ async function syncRecipeObjectiveState(params: {
             executionId: params.executionId,
             status: nextGoalStatus,
           },
+          deliveryReceipt: params.deliveryReceipt,
           reasonCode: params.reason,
           updatedAt: new Date(),
         },
@@ -341,11 +350,19 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
     });
+    const receiptIsComplete = RecipeReceiptSchema.safeParse(result.receipt).success;
     await syncRecipeObjectiveState({
       ...dispatch,
       executionId: result.executionId,
-      status: result.status === "completed" ? "completed" : "blocked",
-      reason: result.status === "completed" ? undefined : "recipe_acceptance_blocked",
+      status: result.status === "completed" && receiptIsComplete ? "completed" : "blocked",
+      reason: result.status === "completed" && !receiptIsComplete
+        ? "recipe_receipt_invalid"
+        : result.status === "completed"
+          ? undefined
+          : "recipe_acceptance_blocked",
+      ...(result.status === "completed" && receiptIsComplete
+        ? { deliveryReceipt: { kind: "recipe" as const, status: "completed" as const } }
+        : {}),
     });
   } catch (error) {
     logger.warn({

@@ -32,7 +32,26 @@ describe("Mission recipe dispatch", () => {
       executionId: "recipe-execution-1",
       status: "completed",
       completedNodeIds: ["verify"],
-      receipt: {},
+      receipt: {
+        contractVersion: 1,
+        executionId: "recipe-execution-1",
+        operationId: "mission-recipe-operation-1",
+        recipeId: "candidate.verify",
+        recipeVersion: 1,
+        status: "completed",
+        completedNodeIds: ["verify"],
+        nodes: [{
+          nodeId: "verify",
+          status: "passed",
+          attempts: 1,
+          elapsedMs: 10,
+          evidenceId: "evidence-1",
+          excerpt: "Candidate verification passed.",
+        }],
+        evidenceRefs: ["evidence-1"],
+        createdAt: "2026-09-22T15:00:00.000Z",
+        completedAt: "2026-09-22T15:00:00.010Z",
+      },
     });
 
     const projectId = crypto.randomUUID();
@@ -67,6 +86,7 @@ describe("Mission recipe dispatch", () => {
       projectId,
       title: "Candidate verification",
       status: "queued",
+      outcomeContract: { deliveryRequired: true },
       nextAction: {
         kind: "recipe",
         recipeId: "candidate.verify",
@@ -92,7 +112,7 @@ describe("Mission recipe dispatch", () => {
     await vi.waitFor(async () => {
       expect(recipeRunner).toHaveBeenCalledOnce();
       const [goal] = await db
-        .select({ status: aiGoalsTable.status })
+      .select({ status: aiGoalsTable.status, outcomeContract: aiGoalsTable.outcomeContract })
         .from(aiGoalsTable)
         .where(eq(aiGoalsTable.id, goalId));
       const [mission] = await db
@@ -100,6 +120,15 @@ describe("Mission recipe dispatch", () => {
         .from(aiMissionsTable)
         .where(eq(aiMissionsTable.id, missionId));
       expect(goal?.status).toBe("completed");
+      expect(goal?.outcomeContract).toMatchObject({
+        acceptance: {
+          verdict: "PROVEN",
+          deliveryReceipt: {
+            kind: "recipe",
+            status: "completed",
+          },
+        },
+      });
       expect(mission?.status).toBe("completed");
     });
 
