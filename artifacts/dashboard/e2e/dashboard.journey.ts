@@ -3754,6 +3754,153 @@ async function completeReadinessHandshake(page: Page): Promise<void> {
   );
 }
 
+async function installMissionManagementFixtures(page: Page) {
+  const projectId = "e2e-project";
+  const mutations: Array<{ method: string; path: string; body: Record<string, unknown> }> = [];
+  let mission: Record<string, unknown> | null = null;
+  let goal: Record<string, unknown> | null = null;
+
+  const now = "2026-01-01T00:00:00.000Z";
+  const missionId = "e2e-mission-management";
+  const goalId = "e2e-goal-management";
+
+  await page.route("**/api/ai/missions**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    let body: Record<string, unknown> = {};
+    try {
+      body = (request.postDataJSON() as Record<string, unknown>) ?? {};
+    } catch {
+      body = {};
+    }
+
+    if (path === "/api/ai/missions" && request.method() === "GET") {
+      return route.fulfill(jsonResponse(mission ? [mission] : []));
+    }
+
+    if (path === "/api/ai/missions" && request.method() === "POST") {
+      mutations.push({ method: request.method(), path, body });
+      mission = {
+        id: missionId,
+        projectId,
+        userId: "e2e-user",
+        title: body.title,
+        intent: body.intent,
+        status: "draft",
+        scope: { kind: "project", projectId },
+        autonomyPolicy: body.autonomyPolicy ?? {},
+        budget: body.budget ?? {},
+        deadline: body.deadline ?? null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+      };
+      return route.fulfill(jsonResponse(mission, 201));
+    }
+
+    const missionMatch = path.match(/^\/api\/ai\/missions\/([^/]+)$/);
+    if (missionMatch && request.method() === "PATCH") {
+      mutations.push({ method: request.method(), path, body });
+      if (!mission || missionMatch[1] !== missionId) {
+        return route.fulfill(jsonResponse({ error: "Mission not found" }, 404));
+      }
+      mission = { ...mission, ...body, updatedAt: "2026-01-01T00:01:00.000Z" };
+      return route.fulfill(jsonResponse(mission));
+    }
+
+    const projectionMatch = path.match(/^\/api\/ai\/missions\/([^/]+)\/projection$/);
+    if (projectionMatch && request.method() === "GET") {
+      if (!mission || projectionMatch[1] !== missionId) {
+        return route.fulfill(jsonResponse({ error: "Mission not found" }, 404));
+      }
+      const goalItems = goal
+        ? [{
+            goal,
+            tasks: [],
+            workflows: [],
+            executions: [],
+            events: [{
+              id: "e2e-goal-event",
+              projectId,
+              goalId,
+              taskId: null,
+              workflowId: null,
+              type: "AiGoalUpdated",
+              severity: "info",
+              message: "Goal fixture retained",
+              correlationId: null,
+              timestamp: now,
+            }],
+          }]
+        : [];
+      return route.fulfill(jsonResponse({
+        mission,
+        goals: goalItems,
+        counts: {
+          goals: goalItems.length,
+          tasks: 0,
+          workflows: 0,
+          executions: 0,
+          events: goalItems.length,
+        },
+      }));
+    }
+
+    const goalsMatch = path.match(/^\/api\/ai\/missions\/([^/]+)\/goals$/);
+    if (goalsMatch && request.method() === "POST") {
+      mutations.push({ method: request.method(), path, body });
+      if (!mission || goalsMatch[1] !== missionId) {
+        return route.fulfill(jsonResponse({ error: "Mission not found" }, 404));
+      }
+      goal = {
+        id: goalId,
+        missionId,
+        projectId,
+        parentGoalId: body.parentGoalId ?? null,
+        title: body.title,
+        description: body.description ?? null,
+        status: "queued",
+        priority: body.priority ?? "p2",
+        successCriteria: body.successCriteria ?? {},
+        evidenceContract: body.evidenceContract ?? {},
+        outcomeContract: body.outcomeContract ?? {},
+        nextAction: body.nextAction ?? {},
+        blockedReason: null,
+        nextWakeAt: null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+      };
+      return route.fulfill(jsonResponse(goal, 201));
+    }
+
+    return route.continue();
+  });
+
+  await page.route("**/api/ai/goals/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    if (request.method() !== "PATCH") return route.continue();
+    const goalMatch = path.match(/^\/api\/ai\/goals\/([^/]+)$/);
+    if (!goalMatch || !goal || goalMatch[1] !== goalId) {
+      return route.fulfill(jsonResponse({ error: "Goal not found" }, 404));
+    }
+    let body: Record<string, unknown> = {};
+    try {
+      body = (request.postDataJSON() as Record<string, unknown>) ?? {};
+    } catch {
+      body = {};
+    }
+    mutations.push({ method: request.method(), path, body });
+    goal = { ...goal, ...body, updatedAt: "2026-01-01T00:02:00.000Z" };
+    return route.fulfill(jsonResponse(goal));
+  });
+
+  return { mutations };
+}
+
 async function openNavigation(page: Page, label: string, path: string) {
   await page.getByRole("link", { name: label, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
@@ -4465,6 +4612,115 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("creates and edits Missions and Goals without losing changes", async ({
+    page,
+  }) => {
+    const browserErrors = installBrowserErrorMonitor(page);
+    await installApiFixtures(page);
+    const missionFixtures = await installMissionManagementFixtures(page);
+    await programmaticSignIn(page);
+
+    await page.goto(`${DASHBOARD_PATH}missions`);
+    await expect(
+      page.getByRole("heading", { name: "Durable objectives" }),
+    ).toBeVisible();
+    await expect(page.getByTestId("select-mission-project")).toHaveValue(
+      "e2e-project",
+    );
+
+    await page.getByTestId("button-create-mission").click();
+    await expect(
+      page.getByRole("heading", { name: "Create mission" }),
+    ).toBeVisible();
+    await page.getByTestId("mission-title").fill("Release readiness");
+    await page
+      .getByTestId("mission-intent")
+      .fill("Coordinate a verified release candidate.");
+    await page
+      .getByTestId("mission-autonomy-policy")
+      .fill('{"mode":"operator-gated"}');
+    await page.getByTestId("button-save-editor").click();
+
+    await expect(page.getByTestId("button-mission-e2e-mission-management")).toBeVisible();
+    await expect(
+      page.getByTestId("text-mission-title-e2e-mission-management"),
+    ).toHaveText("Release readiness");
+
+    await page
+      .getByTestId("button-edit-mission-e2e-mission-management")
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Edit mission" }),
+    ).toBeVisible();
+    await page.getByTestId("mission-title").fill("Release readiness updated");
+    await page.getByTestId("select-mission-status").selectOption("active");
+    await page.getByTestId("button-save-editor").click();
+    await expect(
+      page.getByTestId("text-mission-title-e2e-mission-management"),
+    ).toHaveText("Release readiness updated");
+    await expect(
+      page.getByText("active", { exact: true }).first(),
+    ).toBeVisible();
+
+    await page.getByTestId("button-create-goal").click();
+    await expect(
+      page.getByRole("heading", { name: "Create goal" }),
+    ).toBeVisible();
+    await page.getByTestId("goal-title").fill("Validate candidate");
+    await page
+      .getByTestId("goal-success-criteria")
+      .fill('{"validator":"release"}');
+    await page
+      .getByTestId("goal-evidence-contract")
+      .fill('{"required":true}');
+    await page.getByTestId("button-save-editor").click();
+
+    const goalCard = page.getByTestId("card-goal-e2e-goal-management");
+    await expect(goalCard).toBeVisible();
+    await expect(goalCard).toContainText("Validate candidate");
+
+    await page.getByTestId("button-edit-goal-e2e-goal-management").click();
+    await expect(
+      page.getByRole("heading", { name: "Edit goal" }),
+    ).toBeVisible();
+    await page.getByTestId("goal-title").fill("Validate candidate updated");
+    await page.getByTestId("select-goal-status").selectOption("verifying");
+    await page
+      .getByTestId("goal-next-action")
+      .fill('{"owner":"operator","action":"approve"}');
+    await page.getByTestId("button-save-editor").click();
+    await expect(goalCard).toContainText("Validate candidate updated");
+    await expect(goalCard).toContainText("verifying");
+
+    await page.reload();
+    await expect(
+      page.getByTestId("text-mission-title-e2e-mission-management"),
+    ).toHaveText("Release readiness updated");
+    await expect(
+      page.getByTestId("card-goal-e2e-goal-management"),
+    ).toContainText("Validate candidate updated");
+
+    expect(
+      missionFixtures.mutations.map(({ method, path }) => `${method} ${path}`),
+    ).toEqual([
+      "POST /api/ai/missions",
+      "PATCH /api/ai/missions/e2e-mission-management",
+      "POST /api/ai/missions/e2e-mission-management/goals",
+      "PATCH /api/ai/goals/e2e-goal-management",
+    ]);
+    expect(missionFixtures.mutations[0]?.body.autonomyPolicy).toEqual({
+      mode: "operator-gated",
+    });
+    expect(missionFixtures.mutations[2]?.body.successCriteria).toEqual({
+      validator: "release",
+    });
+    expect(missionFixtures.mutations[3]?.body.nextAction).toEqual({
+      owner: "operator",
+      action: "approve",
+    });
+    browserErrors.assertClean();
   });
 
   test("proves the protected dashboard requires and accepts Clerk authentication", async ({

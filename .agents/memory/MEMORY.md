@@ -15,8 +15,6 @@
 - [AI fixture provider lifecycle](ai-fixture-provider-lifecycle.md) — deterministic chat fixtures must stub lifecycle selectability when fallback rechecks a dummy provider key.
 - [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
 - [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
-- [Forensic Recovery formatting](forensic-recovery-formatting.md) — tolerate harmless heading styles only; contract, coverage, Finding, and repair gates remain strict.
-- [Forensic cancellation](forensic-cancellation.md) — cancellation preserves collected evidence but always renders ANALYSIS_INCOMPLETE, never NO_VERIFIED_FINDING.
 - [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
 - [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
 - [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
@@ -113,8 +111,6 @@
  - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
 - [Retry generation coherence](retry-generation-coherence.md) — adaptive retry tests must track token and request generations independently; only the current token bound to the current request may claim.
-- [Reconnect capability race oracle](reconnect-capability-race-oracle.md) — concurrent capability responses do not reveal commit order; obtain a fresh server-owned token before replaying stale reconnects.
- - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
 - [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.
 - [Recipe delivery contracts](recipe-delivery-contracts.md) — delivery recipes use `none` scope, project integration outputs need strict projection, and terminal bindings must survive replay.
@@ -153,7 +149,4 @@
 - [Server-owned confidence](server-owned-confidence.md) — confidence is computed from accepted evidence, claim closure, source diversity, revision, and contradictions; provider scores are non-authoritative.
 - [Sub-query value scheduling](subquery-value-scheduling.md) — broad query work is ordered by proof value and dependency gates; failed evidence prerequisites skip downstream reads.
 - [Shared evidence graph](shared-evidence-graph.md) — one metadata-only graph deduplicates retained reads and joins files, symbols, claims, sub-queries, and verdicts.
-- [Go graph scan boundary](go-graph-scan-boundary.md) — internal Go imports need go.mod in the walk and file entities for path-based relationship endpoints.
-- [Graph insert batching](graph-insert-batching.md) — large graph scans must batch multi-column entity and relationship inserts below PostgreSQL's bind-parameter limit.
-- [Evidence graph label bounds](evidence-graph-label-bounds.md) — graph labels are presentation fields; bound them at materialization while preserving IDs and source reads.
-- [Route fallback fixtures](route-fallback-fixtures.md) — route-level provider-exhaustion tests must isolate lifecycle candidates and avoid pre-resume acceptance rows.
+- [Mission management browser proof](missions-management-browser-proof.md) — isolate CRUD journeys with provider-free fixtures and assert durable source values after reload.
