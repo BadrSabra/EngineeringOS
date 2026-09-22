@@ -308,13 +308,20 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
           detail: "A durable project and operation identity are required for external delivery.",
         };
       }
-      return runtime.githubDeliveryRunner!({
+      const result = await runtime.githubDeliveryRunner!({
         rootPath: context.rootPath,
         projectId: context.projectId,
         operationId: context.operationId,
         message: parsedInput.message,
         signal: context.signal,
       });
+      return {
+        status: result.status,
+        ...(result.evidence ? { evidence: result.evidence } : {}),
+        ...(result.detail ? { detail: result.detail } : {}),
+        ...(result.remoteCommitHash ? { remoteCommitHash: result.remoteCommitHash } : {}),
+        ...(result.idempotent !== undefined ? { idempotent: result.idempotent } : {}),
+      };
     },
   };
 }

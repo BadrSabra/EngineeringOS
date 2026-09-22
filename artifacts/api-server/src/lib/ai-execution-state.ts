@@ -2729,6 +2729,7 @@ export async function completeAiExecution(params: {
     stage: "completed" as const,
     sequence: nextSequence,
     ...(terminalOperation ? { operation: terminalOperation } : {}),
+    ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
     ...(params.nodeStates && params.nodeStates.length > 0
       ? {
           nodeStates: params.nodeStates,

@@ -114,7 +114,9 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       operationId: params.operationId,
       // Validation and browser profiles operate on a bounded set, even when
       // that set contains one file. "file" is reserved for file-native tools.
-      scope: { kind: "paths", paths: approvedPaths },
+      scope: approvedPaths.length > 0
+        ? { kind: "paths", paths: approvedPaths }
+        : { kind: "none", paths: [] },
       allowedFiles: approvedPaths,
       authorized: true,
       approvalState: "APPROVED",
@@ -169,7 +171,7 @@ function evidenceForNodes(
   return Object.fromEntries(nodes.map((node) => {
     const evidenceType = node.capabilityId?.startsWith("browser.verify.")
       ? "browser_verified" as const
-      : node.capabilityId?.startsWith("github.push.")
+      : node.capabilityId?.startsWith("github.push")
         ? "integration_verified" as const
       : "validation_passed" as const;
     const evidenceId = outputs.get(node.id)?.evidence
@@ -243,7 +245,7 @@ function buildRecipeReceipt(
       evidenceId: receiptIdForEvidence({
         status: node.status,
         outputs: outputs.get(node.id),
-      }),
+      }) ?? null,
       excerpt: outputs.get(node.id)?.detail
         && typeof outputs.get(node.id)?.detail === "string"
         ? String(outputs.get(node.id)?.detail).slice(0, 500)

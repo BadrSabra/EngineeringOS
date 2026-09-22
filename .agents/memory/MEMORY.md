@@ -117,6 +117,7 @@
  - [Pre-loop provider failure recovery](pre-loop-provider-failure-recovery.md) — provider fallback can fail before the tool loop, replay FEG prefetch, and bypass in-loop evidence recovery.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
 - [General task planning](general-task-planning.md) — coordinate durable execution, query, and recipe plans through one revision-aware reuse decision; never grant mutation authority.
+- [Recipe delivery contracts](recipe-delivery-contracts.md) — delivery recipes use `none` scope, project integration outputs need strict projection, and terminal bindings must survive replay.
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [GitHub delivery recovery](github-delivery-recovery.md) — reconcile an uncertain push with remote parent, Git tree SHA, and operation marker before recording idempotent success.
