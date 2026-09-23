@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
+  aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiGoalDependenciesTable,
   aiExecutionsTable,
   aiGoalsTable,
@@ -30,6 +32,7 @@ import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
+import { composeCanonicalProof } from "./proof-foundation.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
@@ -73,6 +76,23 @@ function goalPlanRevision(goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeC
   if (!revision || typeof revision !== "object" || Array.isArray(revision)) return undefined;
   const hash = (revision as { hash?: unknown }).hash;
   return typeof hash === "string" && hash.trim() ? hash : undefined;
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function goalCandidateIdentity(goal: typeof aiGoalsTable.$inferSelect): string | null {
+  const outcome = jsonRecord(goal.outcomeContract);
+  const scope = jsonRecord(outcome.acceptance);
+  const nestedScope = jsonRecord(scope.scope);
+  return typeof nestedScope.candidateIdentity === "string"
+    ? nestedScope.candidateIdentity
+    : typeof outcome.candidateIdentity === "string"
+      ? outcome.candidateIdentity
+      : null;
 }
 
 async function loadGoalDependencyState(
@@ -242,6 +262,8 @@ async function syncRecipeObjectiveState(params: {
   missionId: string;
   projectId: string;
   executionId?: string;
+  sourceRevision?: string | null;
+  candidateIdentity?: string | null;
   status: "completed" | "blocked" | "failed" | "needs_replan";
   reason?: string;
   deliveryReceipt?: {
@@ -250,6 +272,15 @@ async function syncRecipeObjectiveState(params: {
   };
 }): Promise<void> {
   await db.transaction(async (tx) => {
+    const [mission] = await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, params.missionId),
+        eq(aiMissionsTable.projectId, params.projectId),
+      ))
+      .for("update");
+    if (!mission) return;
     const [goal] = await tx
       .select()
       .from(aiGoalsTable)
@@ -261,7 +292,106 @@ async function syncRecipeObjectiveState(params: {
       .for("update");
     if (!goal) return;
 
-    const nextGoalStatus = params.status;
+    let nextGoalStatus = params.status;
+    let completionReason = params.reason;
+    let canonicalProofAccepted = params.status !== "completed";
+    if (params.status === "completed" && params.executionId) {
+      const [execution] = await tx
+        .select()
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, params.executionId),
+          eq(aiExecutionsTable.projectId, params.projectId),
+          eq(aiExecutionsTable.goalId, goal.id),
+        ))
+        .limit(1);
+      const [acceptance] = execution
+        ? await tx
+          .select()
+          .from(aiExecutionAcceptancesTable)
+          .where(and(
+            eq(aiExecutionAcceptancesTable.executionId, execution.id),
+            eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+          ))
+          .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
+          .limit(1)
+        : [];
+      const evidence = acceptance?.evidenceSnapshotId
+        ? (await tx
+          .select()
+          .from(aiExecutionEvidenceSnapshotsTable)
+          .where(eq(
+            aiExecutionEvidenceSnapshotsTable.id,
+            acceptance.evidenceSnapshotId,
+          ))
+          .limit(1))[0]
+        : undefined;
+      const outcome = jsonRecord(goal.outcomeContract);
+      const canonicalProof = composeCanonicalProof({
+        scope: {
+          projectId: params.projectId,
+          missionId: params.missionId,
+          goalId: goal.id,
+          operationId: execution?.operationId ?? null,
+          planRevision: goalPlanRevision(goal) ?? null,
+          activePlanRevision: typeof jsonRecord(mission.autonomyPolicy).activePlanRevision === "string"
+            ? jsonRecord(mission.autonomyPolicy).activePlanRevision as string
+            : null,
+          sourceRevision: params.sourceRevision ?? execution?.baseRevision ?? null,
+          candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
+        },
+        goalStatus: "completed",
+        deliveryRequired: outcome.deliveryRequired === true,
+        deliveryReceipt: params.deliveryReceipt,
+        execution: execution
+          ? {
+              id: execution.id,
+              projectId: execution.projectId,
+              goalId: execution.goalId,
+              operationId: execution.operationId,
+              attempt: execution.attempt,
+              baseRevision: execution.baseRevision,
+            }
+          : null,
+        acceptance: acceptance
+          ? {
+              id: acceptance.id,
+              executionId: acceptance.executionId,
+              projectId: acceptance.projectId,
+              attempt: acceptance.attempt,
+              operationId: acceptance.operationId,
+              terminalStatus: acceptance.terminalStatus,
+              outcome: acceptance.outcome,
+              evidenceSnapshotId: acceptance.evidenceSnapshotId,
+              evidenceRequired: acceptance.evidenceRequired === 1,
+              evidenceComplete: acceptance.evidenceComplete === 1,
+              sourceRevision: acceptance.sourceRevision,
+              candidateIdentity: acceptance.candidateIdentity,
+              disposition: acceptance.disposition,
+            }
+          : null,
+        evidence: evidence
+          ? {
+              id: evidence.id,
+              executionId: evidence.executionId,
+              projectId: evidence.projectId,
+              attempt: evidence.attempt,
+              sourceRevision: evidence.sourceRevision,
+              candidateIdentity: evidence.candidateIdentity,
+              complete: evidence.complete === 1,
+              verdict: evidence.verdict,
+            }
+          : null,
+      });
+      canonicalProofAccepted = canonicalProof.accepted;
+      if (!canonicalProofAccepted) {
+        nextGoalStatus = "blocked";
+        completionReason = `canonical_proof_${canonicalProof.failureReasons[0] ?? "incomplete"}`;
+      }
+    } else if (params.status === "completed") {
+      nextGoalStatus = "blocked";
+      completionReason = "canonical_proof_missing_execution";
+    }
     if (params.executionId) {
       await projectGoalAcceptance(tx, {
         goalId: goal.id,
@@ -269,7 +399,11 @@ async function syncRecipeObjectiveState(params: {
         projection: {
           executionId: params.executionId,
           outcome: nextGoalStatus === "completed" ? "SUCCEEDED" : "FAILED",
-          verdict: nextGoalStatus === "completed" ? "PROVEN" : nextGoalStatus === "needs_replan" ? "INCOMPLETE" : "FAILED",
+          verdict: nextGoalStatus === "completed" && canonicalProofAccepted
+            ? "PROVEN"
+            : nextGoalStatus === "needs_replan"
+              ? "INCOMPLETE"
+              : "FAILED",
           scope: {
             projectId: params.projectId,
           },
@@ -280,7 +414,7 @@ async function syncRecipeObjectiveState(params: {
             status: nextGoalStatus,
           },
           deliveryReceipt: params.deliveryReceipt,
-          reasonCode: params.reason,
+          reasonCode: completionReason,
           updatedAt: new Date(),
         },
       });
@@ -288,7 +422,9 @@ async function syncRecipeObjectiveState(params: {
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
-        blockedReason: nextGoalStatus === "completed" ? null : (params.reason ?? "Recipe execution did not complete."),
+        blockedReason: nextGoalStatus === "completed"
+          ? null
+          : (completionReason ?? "Recipe execution did not complete."),
         completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? new Date() : null,
         nextWakeAt: null,
         updatedAt: new Date(),
@@ -321,15 +457,7 @@ async function syncRecipeObjectiveState(params: {
         eq(aiGoalsTable.projectId, params.projectId),
       ))
       .for("update");
-    const [mission] = await tx
-      .select()
-      .from(aiMissionsTable)
-      .where(and(
-        eq(aiMissionsTable.id, params.missionId),
-        eq(aiMissionsTable.projectId, params.projectId),
-      ))
-      .for("update");
-    if (!mission || mission.status === "blocked" || mission.status === "cancelled" || mission.status === "completed") return;
+    if (mission.status === "blocked" || mission.status === "cancelled" || mission.status === "completed") return;
     const nextMissionStatus = deriveMissionStatusFromGoals(selectActiveMissionGoals({
       mission,
       goals,
@@ -470,6 +598,8 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
     await syncRecipeObjectiveState({
       ...dispatch,
       executionId: result.executionId,
+      sourceRevision,
+      candidateIdentity: dispatch.action.candidateIdentity ?? null,
       status: result.status === "completed" && receiptIsComplete ? "completed" : "blocked",
       reason: result.status === "completed" && !receiptIsComplete
         ? "recipe_receipt_invalid"
