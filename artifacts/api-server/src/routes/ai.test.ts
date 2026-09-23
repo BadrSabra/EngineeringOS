@@ -21,9 +21,11 @@ import {
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
+  aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
+  aiShadowReplaysTable,
   aiUsageEventsTable,
   aiSessionMemoriesTable,
   aiApplyJournalTable,
@@ -688,6 +690,73 @@ async function makeRecoverableProposal(
     conflictReason: options.conflictReason ?? "Validation was interrupted before delivery completed.",
   }).where(eq(aiChangeProposalsTable.id, proposalId));
   return { proposalId, operationId, workspaceRoot, change };
+}
+
+async function insertMismatchedCompletedShadowReplay(
+  projectId: string,
+  operation: Awaited<ReturnType<typeof makeRecoverableProposal>>,
+): Promise<void> {
+  const [proposal] = await db.select({
+    candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+    baseRevision: aiChangeProposalsTable.baseRevision,
+    changeSetHash: aiChangeProposalsTable.changeSetHash,
+  }).from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, operation.proposalId))
+    .limit(1);
+  if (!proposal?.candidateTreeHash) throw new Error("Test proposal candidate identity is missing.");
+
+  const replayId = randomUUID();
+  const candidateRunId = `${replayId}:candidate`;
+  const execution = await createAiExecution({
+    userId: "test-user",
+    projectId,
+    idempotencyKey: `test-shadow-replay:${replayId}`,
+    correlationId: operation.operationId,
+    request: {
+      projectId,
+      message: "Test completed shadow replay.",
+      modelMessage: "Test completed shadow replay.",
+      validationTargetPaths: [operation.change.path],
+      validationProfiles: ["api-ai-tests"],
+      proofRequired: true,
+    },
+    workspaceRoot: operation.workspaceRoot ?? undefined,
+  });
+  await db.insert(aiShadowReplaysTable).values({
+    id: replayId,
+    executionId: execution.execution.id,
+    projectId,
+    proposalId: operation.proposalId,
+    userId: "test-user",
+    idempotencyKey: `test-shadow-replay:${replayId}`,
+    operationId: operation.operationId,
+    candidateId: "stored-candidate",
+    canonicalAcceptanceId: "test-source-acceptance",
+    trajectoryDigest: "test-source-trajectory",
+    sourceRevision: proposal.baseRevision ?? "base-revision",
+    candidateTreeHash: proposal.candidateTreeHash,
+    changeSetHash: proposal.changeSetHash,
+    executionProfile: "shadow-replay",
+    sourceWorkspaceRoot: "/tmp/test-shadow-replay-source",
+    replayWorkspaceRoot: null,
+    replayWorkspaceCleaned: true,
+    status: "completed",
+    attempt: execution.execution.attempt,
+    receipt: {
+      status: "completed",
+      pairedBaseline: {
+        status: "passed",
+        promotionAllowed: true,
+        candidateRunId,
+        candidateWorkspaceHash: proposal.candidateTreeHash,
+        contract: {
+          candidateId: "different-candidate",
+          candidateRunId,
+          candidateWorkspaceHash: proposal.candidateTreeHash,
+        },
+      },
+    },
+  });
 }
 
 async function insertTask(projectId: string, status = "pending"): Promise<string> {
@@ -5228,6 +5297,57 @@ describe("delivery recovery routes", () => {
     expect(proposal).toEqual({ lifecycle: "validated", status: "pending" });
     expect(await db.select().from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+  });
+
+  it.each([
+    { name: "missing", insertReplay: false },
+    { name: "candidate-mismatched", insertReplay: true },
+  ])("blocks automatic promotion when the Gate 3 receipt is $name", async ({ insertReplay }) => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "isolated");
+    await db.insert(aiDeliveryPoliciesTable).values({
+      projectId,
+      mode: "eligible_auto_promote",
+      approvedBy: "test-user",
+    });
+    if (insertReplay) {
+      await insertMismatchedCompletedShadowReplay(projectId, operation);
+    }
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValue({
+        status: "passed",
+        profile: "api-ai-tests",
+        exitCode: 0,
+        scenario: "Run API tests for Gate 3 recovery.",
+        command: "pnpm test",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "gate3-recovery-validation",
+        },
+        detail: "Validation passed.",
+      });
+
+    const res = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      proposalId: operation.proposalId,
+      operationId: operation.operationId,
+      lifecycle: "validated",
+      promotionDecision: "BLOCKED",
+      promotionReasons: ["paired_baseline_missing"],
+    });
+    expect(validationSpy).toHaveBeenCalledTimes(1);
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+    await expect(fs.access(operation.change.absolutePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("does not report validated recovery when its workspace is gone", async () => {
