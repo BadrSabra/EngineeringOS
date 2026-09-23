@@ -239,6 +239,15 @@ describe("composeCanonicalProof", () => {
           operationId: "operation-1",
           attempt: 2,
           baseRevision: "revision-1",
+          recipeReceipt: {
+            status: "completed",
+            executionId: "execution-1",
+            attempt: 2,
+            operationId: "operation-1",
+            sourceRevision: "revision-1",
+            candidateTreeHash: "candidate-1",
+            treeHash: "tree-1",
+          },
         },
         acceptance: {
           id: "acceptance-1",
@@ -285,5 +294,87 @@ describe("composeCanonicalProof", () => {
       acceptanceId: "acceptance-1",
       evidenceSnapshotId: "snapshot-1",
     });
+  });
+
+  it("ignores caller delivery projections and trusts the locked execution receipt", async () => {
+    const projected = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: "snapshot-1",
+      sourceRevision: "revision-1",
+      candidateIdentity: "candidate-1",
+    });
+    const result = await loadCanonicalProof({
+      tx: fakeTransaction({
+        execution: {
+          id: "execution-1",
+          projectId: "project-1",
+          goalId: null,
+          operationId: "operation-1",
+          attempt: 2,
+          baseRevision: "revision-1",
+          recipeReceipt: {
+            status: "pending",
+            executionId: "execution-1",
+            attempt: 2,
+            operationId: "operation-1",
+            sourceRevision: "revision-1",
+            candidateTreeHash: "candidate-1",
+            treeHash: null,
+          },
+        },
+        acceptance: {
+          id: "acceptance-1",
+          executionId: "execution-1",
+          projectId: "project-1",
+          attempt: 2,
+          operationId: "operation-1",
+          terminalStatus: "completed",
+          outcome: "SUCCEEDED",
+          evidenceSnapshotId: "snapshot-1",
+          evidenceRequired: 1,
+          evidenceComplete: 1,
+          sourceRevision: "revision-1",
+          candidateIdentity: "candidate-1",
+          disposition: { proof: projected },
+          createdAt: new Date(),
+        },
+        evidence: {
+          id: "snapshot-1",
+          executionId: "execution-1",
+          projectId: "project-1",
+          attempt: 2,
+          sourceRevision: "revision-1",
+          candidateIdentity: "candidate-1",
+          complete: 1,
+          verdict: "PROVEN",
+        },
+      }),
+      executionId: "execution-1",
+      scope: {
+        projectId: "project-1",
+        executionId: "execution-1",
+        operationId: "operation-1",
+        sourceRevision: "revision-1",
+        candidateIdentity: "candidate-1",
+      },
+      goalStatus: "completed",
+      deliveryRequired: true,
+      deliveryReceipt: {
+        status: "completed",
+        executionId: "execution-1",
+        attempt: 2,
+        operationId: "operation-1",
+        sourceRevision: "revision-1",
+        candidateTreeHash: "candidate-1",
+        treeHash: "tree-forged-by-caller",
+      },
+    });
+
+    expect(result.accepted).toBe(false);
+    expect(result.failureReasons).toContain("delivery_not_proven");
+    expect(result.delivery?.status).toBe("pending");
+    expect(result.delivery?.treeHash).toBeNull();
   });
 });

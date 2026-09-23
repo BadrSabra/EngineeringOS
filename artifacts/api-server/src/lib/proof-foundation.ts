@@ -443,9 +443,34 @@ export type CanonicalProofLoadInput = {
   scope: CanonicalProofScope;
   goalStatus: string;
   deliveryRequired?: boolean;
+  /**
+   * Legacy projection input. It is intentionally ignored by the loader.
+   * Delivery identity must come from the locked execution row.
+   */
   deliveryReceipt?: CanonicalProofDelivery | null;
   attempt?: number;
 };
+
+function durableDeliveryReceipt(
+  execution: { recipeReceipt?: unknown },
+): CanonicalProofDelivery | null {
+  const raw = execution.recipeReceipt;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const receipt = raw as Record<string, unknown>;
+  return {
+    status: receipt.status,
+    executionId: typeof receipt.executionId === "string" ? receipt.executionId : null,
+    attempt: typeof receipt.attempt === "number" ? receipt.attempt : null,
+    operationId: typeof receipt.operationId === "string" ? receipt.operationId : null,
+    sourceRevision: typeof receipt.sourceRevision === "string"
+      ? receipt.sourceRevision
+      : null,
+    candidateTreeHash: typeof receipt.candidateTreeHash === "string"
+      ? receipt.candidateTreeHash
+      : null,
+    treeHash: typeof receipt.treeHash === "string" ? receipt.treeHash : null,
+  };
+}
 
 /**
  * Load and lock the durable rows that compose a canonical proof.
@@ -474,7 +499,7 @@ export async function loadCanonicalProof(
       },
       goalStatus: input.goalStatus,
       deliveryRequired: input.deliveryRequired,
-      deliveryReceipt: input.deliveryReceipt,
+      deliveryReceipt: null,
       execution: null,
       acceptance: null,
       evidence: null,
@@ -515,7 +540,7 @@ export async function loadCanonicalProof(
     },
     goalStatus: input.goalStatus,
     deliveryRequired: input.deliveryRequired,
-    deliveryReceipt: input.deliveryReceipt,
+    deliveryReceipt: durableDeliveryReceipt(execution),
     execution: {
       id: execution.id,
       projectId: execution.projectId,

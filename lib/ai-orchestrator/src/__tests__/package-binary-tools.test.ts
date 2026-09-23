@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -61,6 +62,10 @@ describe("package and binary inspection tools", () => {
       height: number;
       hashComplete: boolean;
       workspaceRevision: string;
+      path: string;
+      sha256: string;
+      evidenceId: string;
+      artifactRef: string;
     };
 
     expect(output.status).toBe("complete");
@@ -69,6 +74,48 @@ describe("package and binary inspection tools", () => {
     expect(output.height).toBe(3);
     expect(output.hashComplete).toBe(true);
     expect(output.workspaceRevision).toBe("rev-binary");
+    expect(output.path).toBe("image.png");
+    const identity = createHash("sha256").update(JSON.stringify({
+      operationId: "op-binary",
+      workspaceRevision: "rev-binary",
+      normalizedPath: "image.png",
+      digest: output.sha256,
+    })).digest("hex");
+    expect(output.evidenceId).toBe(`binary-evidence:${identity}`);
+    expect(output.artifactRef).toBe(`binary-artifact:${identity}`);
+  });
+
+  it("fails closed for malformed and truncated PNG structures", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ai-binary-invalid-png-"));
+    roots.push(root);
+    await writeFile(
+      path.join(root, "truncated.png"),
+      Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+    );
+    await writeFile(
+      path.join(root, "malformed.png"),
+      Buffer.from("89504e470d0a1a0a0000000c494844520000000200000003", "hex"),
+    );
+
+    const truncated = JSON.parse(await executeBinaryTool(
+      "inspect_binary",
+      { path: "truncated.png" },
+      root,
+      { operationId: "op-invalid", revision: "rev-invalid" },
+    )) as { status: string; code: string; evidenceId?: string };
+    const malformed = JSON.parse(await executeBinaryTool(
+      "inspect_binary",
+      { path: "malformed.png" },
+      root,
+      { operationId: "op-invalid", revision: "rev-invalid" },
+    )) as { status: string; code: string; evidenceId?: string };
+
+    expect(truncated.status).not.toBe("complete");
+    expect(truncated.code).toBe("PNG_TRUNCATED");
+    expect(truncated.evidenceId).toBeUndefined();
+    expect(malformed.status).not.toBe("complete");
+    expect(malformed.code).toBe("PNG_INVALID_STRUCTURE");
+    expect(malformed.evidenceId).toBeUndefined();
   });
 
   it("fails closed for sensitive binary paths and missing revision context", async () => {

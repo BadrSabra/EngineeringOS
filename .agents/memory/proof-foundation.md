@@ -20,3 +20,9 @@ Automatic task, workflow, and recipe completion plus candidate/shadow decisions 
 **Why:** Provider or runner success and copied Goal projections can outlive, omit, or disagree with the durable execution/acceptance/evidence identities.
 
 **How to apply:** Route every automatic terminal/candidate decision through the row-loading service; never remap an unknown result execution ID to another durable execution just to make a test or replay complete.
+
+The canonical loader must derive delivery identity from the locked execution receipt; caller-provided delivery projections are compatibility inputs only and cannot establish delivery proof.
+
+**Why:** A serialized delivery projection can be forged or become stale independently of the durable execution row, allowing a delivery-required goal to appear proven without an authoritative receipt.
+
+**How to apply:** Keep delivery fields on the durable execution/receipt boundary and let the loader validate them alongside execution, attempt, operation, source revision, and candidate identity.
