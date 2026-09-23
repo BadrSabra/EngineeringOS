@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   aiChatMessagesTable,
+  aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceReadsTable,
   aiExecutionEvidenceSnapshotsTable,
@@ -331,6 +332,7 @@ export function deriveLinkedGoalStatus(params: {
   siblingTaskStatuses: ObjectiveTaskStatus[];
   deliveryRequired?: boolean;
   deliveryReceipt?: { status: "PROVEN" | "completed" | "succeeded" } | null;
+  canonicalProofAccepted?: boolean;
 }): ObjectiveGoalStatus {
   if (params.outcome === "INTERRUPTED") return "needs_replan";
   if (params.outcome === "FAILED") return params.retryable ? "needs_replan" : "failed";
@@ -343,16 +345,65 @@ export function deriveLinkedGoalStatus(params: {
   }
   if (!taskStatuses.every((status) => status === "completed")) return "running";
   if (params.deliveryRequired && !params.deliveryReceipt) return "verifying";
-  return "completed";
+  return params.canonicalProofAccepted !== false ? "completed" : "verifying";
 }
 
-function goalRequiresDelivery(contract: unknown): boolean {
+function goalRequiresDelivery(contract: unknown, nextAction?: unknown): boolean {
+  const action = nextAction && typeof nextAction === "object" && !Array.isArray(nextAction)
+    ? nextAction as Record<string, unknown>
+    : {};
   return Boolean(
     contract
     && typeof contract === "object"
     && !Array.isArray(contract)
     && (contract as Record<string, unknown>).deliveryRequired === true,
-  );
+  ) && action.recipeId !== "candidate.verify";
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function buildCanonicalRecipeReceipt(params: {
+  value: unknown;
+  execution: typeof aiExecutionsTable.$inferSelect;
+  sourceRevision: string | null;
+  proposal?: {
+    candidateTreeHash: string | null;
+    promotedTreeHash: string | null;
+    committedTreeHash: string | null;
+  } | null;
+}): GoalAcceptanceProjection["deliveryReceipt"] {
+  const value = recordValue(params.value);
+  if (
+    value.contractVersion !== 1
+    || typeof value.recipeId !== "string"
+    || value.status !== "completed"
+  ) {
+    return null;
+  }
+  return {
+    kind: "recipe",
+    status: "completed",
+    executionId: typeof value.executionId === "string" ? value.executionId : params.execution.id,
+    attempt: typeof value.attempt === "number" ? value.attempt : params.execution.attempt,
+    operationId: typeof value.operationId === "string"
+      ? value.operationId
+      : params.execution.operationId,
+    sourceRevision: typeof value.sourceRevision === "string"
+      ? value.sourceRevision
+      : params.sourceRevision,
+    candidateTreeHash: typeof value.candidateTreeHash === "string"
+      ? value.candidateTreeHash
+      : params.proposal?.candidateTreeHash ?? null,
+    treeHash: typeof value.treeHash === "string"
+      ? value.treeHash
+      : params.proposal?.committedTreeHash
+        ?? params.proposal?.promotedTreeHash
+        ?? null,
+  };
 }
 
 export function deriveMissionStatusFromGoals(
@@ -458,14 +509,6 @@ async function syncLinkedObjectiveState(
     ))
     .for("update");
   if (!goal) return;
-  if (params.acceptanceProjection) {
-    await projectGoalAcceptance(tx, {
-      goalId: goal.id,
-      projectId: params.task.projectId,
-      projection: params.acceptanceProjection,
-    });
-  }
-
   const siblingTasks = await tx
     .select({ id: tasksTable.id, status: tasksTable.status })
     .from(tasksTable)
@@ -483,37 +526,54 @@ async function syncLinkedObjectiveState(
     .for("update");
   if (!mission) return;
 
-  let nextGoalStatus: ObjectiveGoalStatus = deriveLinkedGoalStatus({
+  const deliveryRequired = goalRequiresDelivery(goal.outcomeContract, goal.nextAction);
+  const canonicalProof = params.outcome === "SUCCEEDED" && params.acceptanceProjection
+    ? await loadCanonicalProof({
+        tx,
+        executionId: params.executionId,
+        scope: {
+          projectId: params.task.projectId,
+          missionId: mission.id,
+          goalId: goal.id,
+          executionId: params.executionId,
+          operationId: params.operationId,
+          planRevision: goalPlanRevisionForProof(goal),
+          activePlanRevision: activeMissionPlanRevision(mission),
+          sourceRevision: params.acceptanceProjection.sourceRevision ?? null,
+          candidateIdentity: params.acceptanceProjection.candidateIdentity ?? null,
+        },
+        goalStatus: "completed",
+        deliveryRequired,
+        deliveryReceipt: params.acceptanceProjection.deliveryReceipt,
+      })
+    : null;
+  const acceptanceProjection = params.acceptanceProjection
+    ? {
+        ...params.acceptanceProjection,
+        verdict: params.outcome === "SUCCEEDED"
+          ? canonicalProof?.accepted === true ? "PROVEN" as const : "INCOMPLETE" as const
+          : params.acceptanceProjection.verdict,
+      }
+    : undefined;
+  if (acceptanceProjection) {
+    await projectGoalAcceptance(tx, {
+      goalId: goal.id,
+      projectId: params.task.projectId,
+      projection: acceptanceProjection,
+    });
+  }
+
+  const nextGoalStatus: ObjectiveGoalStatus = deriveLinkedGoalStatus({
     outcome: params.outcome,
     taskStatus: params.taskStatus,
     retryable: params.retryable,
     siblingTaskStatuses: siblingTasks
       .filter((task) => task.id !== params.task.id)
       .map((task) => task.status),
-    deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
-    deliveryReceipt: params.acceptanceProjection?.deliveryReceipt,
+    deliveryRequired,
+    deliveryReceipt: acceptanceProjection?.deliveryReceipt,
+    canonicalProofAccepted: canonicalProof?.accepted === true,
   });
-  if (nextGoalStatus === "completed") {
-    const proof = await loadCanonicalProof({
-      tx,
-      executionId: params.executionId,
-      scope: {
-        projectId: params.task.projectId,
-        missionId: mission.id,
-        goalId: goal.id,
-        executionId: params.executionId,
-        operationId: params.operationId,
-        planRevision: goalPlanRevisionForProof(goal),
-        activePlanRevision: activeMissionPlanRevision(mission),
-        sourceRevision: params.acceptanceProjection?.sourceRevision ?? null,
-        candidateIdentity: params.acceptanceProjection?.candidateIdentity ?? null,
-      },
-      goalStatus: "completed",
-      deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
-      deliveryReceipt: params.acceptanceProjection?.deliveryReceipt,
-    });
-    if (!proof.accepted) nextGoalStatus = "verifying";
-  }
 
   // A manually blocked/cancelled goal remains operator-owned. Automatic
   // execution may advance an active/recoverable goal but must not reopen it.
@@ -551,21 +611,21 @@ async function syncLinkedObjectiveState(
         after: nextGoalStatus,
         outcome: params.outcome,
         retryable: params.retryable,
-        ...(params.acceptanceProjection
+        ...(acceptanceProjection
           ? {
               acceptance: {
-                acceptanceId: params.acceptanceProjection.acceptanceId ?? null,
-                executionId: params.acceptanceProjection.executionId,
-                outcome: params.acceptanceProjection.outcome,
-                verdict: params.acceptanceProjection.verdict,
-                evidenceSnapshotId: params.acceptanceProjection.evidenceSnapshotId ?? null,
-                sourceRevision: params.acceptanceProjection.sourceRevision ?? null,
-                candidateIdentity: params.acceptanceProjection.candidateIdentity ?? null,
-                acceptedRefs: params.acceptanceProjection.acceptedRefs ?? [],
-                validatorIds: params.acceptanceProjection.validatorIds ?? [],
-                receipt: params.acceptanceProjection.receipt ?? null,
-                reasonCode: params.acceptanceProjection.reasonCode ?? null,
-                nextActionCode: params.acceptanceProjection.nextActionCode ?? null,
+                acceptanceId: acceptanceProjection.acceptanceId ?? null,
+                executionId: acceptanceProjection.executionId,
+                outcome: acceptanceProjection.outcome,
+                verdict: acceptanceProjection.verdict,
+                evidenceSnapshotId: acceptanceProjection.evidenceSnapshotId ?? null,
+                sourceRevision: acceptanceProjection.sourceRevision ?? null,
+                candidateIdentity: acceptanceProjection.candidateIdentity ?? null,
+                acceptedRefs: acceptanceProjection.acceptedRefs ?? [],
+                validatorIds: acceptanceProjection.validatorIds ?? [],
+                receipt: acceptanceProjection.receipt ?? null,
+                reasonCode: acceptanceProjection.reasonCode ?? null,
+                nextActionCode: acceptanceProjection.nextActionCode ?? null,
               },
             }
           : {}),
@@ -680,8 +740,8 @@ async function syncWorkflowGoalProjection(
       .for("update")
     : [];
   const canonicalProof = missionForProof
+    && params.projection.finalPhase
     && params.acceptance.outcome === "SUCCEEDED"
-    && evidenceComplete
     ? await loadCanonicalProof({
         tx,
         executionId: params.executionId,
@@ -697,7 +757,7 @@ async function syncWorkflowGoalProjection(
           candidateIdentity: params.acceptance.candidateIdentity,
         },
         goalStatus: "completed",
-        deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
+        deliveryRequired: goalRequiresDelivery(goal.outcomeContract, goal.nextAction),
       })
     : null;
   await projectGoalAcceptance(tx, {
@@ -708,7 +768,9 @@ async function syncWorkflowGoalProjection(
       executionId: params.executionId,
       outcome: params.acceptance.outcome as GoalAcceptanceProjection["outcome"],
       verdict: params.acceptance.outcome === "SUCCEEDED"
-        && (!params.projection.finalPhase || canonicalProof?.accepted === true)
+        && (params.projection.finalPhase
+          ? canonicalProof?.accepted === true
+          : evidenceComplete)
         ? "PROVEN"
         : params.acceptance.outcome === "FAILED"
           ? "FAILED"
@@ -739,14 +801,11 @@ async function syncWorkflowGoalProjection(
   // transition.
   if (!params.projection.finalPhase) return;
 
-  let nextGoalStatus: ObjectiveGoalStatus = params.acceptance.outcome === "SUCCEEDED" && evidenceComplete
-    ? "completed"
+  const nextGoalStatus: ObjectiveGoalStatus = params.acceptance.outcome === "SUCCEEDED"
+    ? canonicalProof?.accepted === true ? "completed" : "verifying"
     : params.acceptance.outcome === "INTERRUPTED"
       ? "needs_replan"
       : "failed";
-  if (nextGoalStatus === "completed" && canonicalProof?.accepted !== true) {
-    nextGoalStatus = "verifying";
-  }
   const operatorOwned = goal.status === "blocked" || goal.status === "cancelled";
   const goalChanged = !operatorOwned && goal.status !== nextGoalStatus;
   if (goalChanged) {
@@ -1227,6 +1286,20 @@ export async function finalizeExecutionAcceptance(
     }
 
     const storedRequest = parseStoredExecutionRequest(execution.request);
+    const [proposal] = execution.proposalId
+      ? await tx
+        .select({
+          candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+          promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+          committedTreeHash: aiChangeProposalsTable.committedTreeHash,
+        })
+        .from(aiChangeProposalsTable)
+        .where(and(
+          eq(aiChangeProposalsTable.id, execution.proposalId),
+          eq(aiChangeProposalsTable.projectId, execution.projectId),
+        ))
+        .limit(1)
+      : [];
     const taskObjective = params.taskObjective
       ?? parseTaskObjectiveContract(storedRequest?.taskObjective);
     const storedProofRequired = storedRequest?.proofRequired === true;
@@ -1251,6 +1324,19 @@ export async function finalizeExecutionAcceptance(
     const suppliedRoot = params.evidence?.workspaceRoot
       ?? params.workspaceRoot
       ?? expectedRoot;
+    const canonicalSourceRevision = params.sourceRevision
+      ?? (typeof storedRequest?.workspaceRevision === "string"
+        ? storedRequest.workspaceRevision
+        : execution.baseRevision ?? null);
+    const canonicalCandidateIdentity = params.candidateIdentity
+      ?? params.evidence?.candidateIdentity
+      ?? null;
+    const canonicalDeliveryReceipt = buildCanonicalRecipeReceipt({
+      value: params.recipeReceipt,
+      execution,
+      sourceRevision: canonicalSourceRevision,
+      proposal,
+    });
     if (
       evidenceRequired
       && (
@@ -1574,12 +1660,9 @@ export async function finalizeExecutionAcceptance(
         evidenceRequired,
         evidenceComplete: evidence.complete,
         evidenceSnapshotId,
-        sourceRevision: params.sourceRevision
-          ?? (typeof storedRequest?.workspaceRevision === "string"
-            ? storedRequest.workspaceRevision
-            : null),
-        candidateIdentity: params.candidateIdentity ?? effectiveEvidence?.candidateIdentity ?? null,
-        recipeReceipt: params.recipeReceipt,
+        sourceRevision: canonicalSourceRevision,
+        candidateIdentity: canonicalCandidateIdentity,
+        recipeReceipt: canonicalDeliveryReceipt,
       }),
     };
     const acceptanceValues = {
@@ -1596,11 +1679,8 @@ export async function finalizeExecutionAcceptance(
       evidenceComplete: evidence.complete ? 1 : 0,
       resumable: params.resumable === true ? 1 : 0,
       messageId: acceptedMessageId,
-      sourceRevision: params.sourceRevision
-        ?? (typeof storedRequest?.workspaceRevision === "string"
-          ? storedRequest.workspaceRevision
-          : null),
-      candidateIdentity: params.candidateIdentity ?? effectiveEvidence?.candidateIdentity ?? null,
+       sourceRevision: canonicalSourceRevision,
+       candidateIdentity: canonicalCandidateIdentity,
     };
     const [acceptance] = replaceExistingLeasePause && existing
       ? await tx.update(aiExecutionAcceptancesTable)
@@ -1708,19 +1788,12 @@ export async function finalizeExecutionAcceptance(
             executionId: execution.id,
             status: acceptance.terminalStatus,
           },
-          deliveryReceipt: params.recipeReceipt && typeof params.recipeReceipt === "object"
-            && (params.recipeReceipt as Record<string, unknown>).contractVersion === 1
-            && typeof (params.recipeReceipt as Record<string, unknown>).recipeId === "string"
-            && (params.recipeReceipt as Record<string, unknown>).status === "completed"
-            ? {
-                kind: "recipe",
-                status: "completed",
-              }
-            : params.taskObjectiveStatus === "PROVEN"
+          deliveryReceipt: canonicalDeliveryReceipt
+            ?? (params.taskObjectiveStatus === "PROVEN"
               && taskObjective?.validatorIds?.some((id) =>
                 id === "deployment-receipt.v1" || id === "integration-receipt.v1")
               ? { kind: "validator", status: "PROVEN" }
-              : null,
+              : null),
           reasonCode: acceptance.reasonCode,
           nextActionCode: acceptance.nextActionCode,
           updatedAt: now,

@@ -593,7 +593,8 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           }
         : {}),
     });
-    const receiptIsComplete = RecipeReceiptSchema.safeParse(result.receipt).success;
+    const parsedReceipt = RecipeReceiptSchema.safeParse(result.receipt).data;
+    const receiptIsComplete = Boolean(parsedReceipt);
     const [goalAfterExecution] = await db
       .select({ outcomeContract: aiGoalsTable.outcomeContract })
       .from(aiGoalsTable)
@@ -619,7 +620,20 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
           ? undefined
           : "recipe_acceptance_blocked",
       ...(result.status === "completed" && receiptIsComplete && deliveryRequired
-        ? { deliveryReceipt: { kind: "recipe" as const, status: "completed" as const } }
+        ? {
+            deliveryReceipt: {
+              kind: "recipe" as const,
+              status: "completed" as const,
+              executionId: parsedReceipt?.executionId ?? result.executionId,
+              attempt: parsedReceipt?.attempt ?? null,
+              operationId: parsedReceipt?.operationId ?? dispatch.operationId,
+              sourceRevision: parsedReceipt?.sourceRevision ?? sourceRevision,
+              candidateTreeHash: parsedReceipt?.candidateTreeHash
+                ?? dispatch.action.candidateIdentity
+                ?? null,
+              treeHash: parsedReceipt?.treeHash ?? null,
+            },
+          }
         : {}),
     });
   } catch (error) {

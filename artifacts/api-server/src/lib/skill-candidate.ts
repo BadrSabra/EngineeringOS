@@ -59,6 +59,13 @@ export type SkillCandidateReplayDecision = {
   envelope?: SkillCandidateEnvelope;
 };
 
+type SkillCandidateExpectations = {
+  projectId?: string;
+  sourceRevision?: string;
+  candidateTreeHash?: string;
+  changeSetHash?: string | null;
+};
+
 export type ShadowReplayReceipt = {
   contractVersion: typeof SKILL_CANDIDATE_CONTRACT_VERSION;
   runId: string;
@@ -146,14 +153,9 @@ function uniquePaths(paths: readonly string[]): string[] {
   return [...new Set(paths.map((path) => path.trim()).filter(Boolean))];
 }
 
-export function validateSkillCandidateForShadow(
+function validateSkillCandidateStructure(
   value: unknown,
-  expected?: {
-    projectId?: string;
-    sourceRevision?: string;
-    candidateTreeHash?: string;
-    changeSetHash?: string | null;
-  },
+  expected?: SkillCandidateExpectations,
 ): SkillCandidateReplayDecision {
   const parsed = SkillCandidateEnvelopeSchema.safeParse(value);
   if (!parsed.success) {
@@ -202,9 +204,9 @@ export function validateSkillCandidateForShadow(
 export function validateSkillCandidateAgainstCanonicalProof(
   value: unknown,
   canonicalProof: CanonicalProof | null | undefined,
-  expected?: Parameters<typeof validateSkillCandidateForShadow>[1],
+  expected?: SkillCandidateExpectations,
 ): SkillCandidateReplayDecision {
-  const decision = validateSkillCandidateForShadow(value, expected);
+  const decision = validateSkillCandidateStructure(value, expected);
   if (!decision.allowed || !decision.envelope) return decision;
   if (!canonicalProof?.accepted) {
     return {
@@ -234,11 +236,24 @@ export function validateSkillCandidateAgainstCanonicalProof(
     : { allowed: false, reasons: [...new Set(reasons)] };
 }
 
+/**
+ * Shadow replay is an executable candidate path, so structural validation
+ * alone is never sufficient. Keep the public helper canonical-proof-bound.
+ */
+export function validateSkillCandidateForShadow(
+  value: unknown,
+  canonicalProof: CanonicalProof | null | undefined,
+  expected?: SkillCandidateExpectations,
+): SkillCandidateReplayDecision {
+  return validateSkillCandidateAgainstCanonicalProof(value, canonicalProof, expected);
+}
+
 export function buildShadowReplayReceipt(
   value: unknown,
-  expected?: Parameters<typeof validateSkillCandidateForShadow>[1],
+  canonicalProof: CanonicalProof,
+  expected?: SkillCandidateExpectations,
 ): ShadowReplayReceipt {
-  const decision = validateSkillCandidateForShadow(value, expected);
+  const decision = validateSkillCandidateAgainstCanonicalProof(value, canonicalProof, expected);
   if (!decision.allowed || !decision.envelope) {
     throw new Error(`Shadow replay rejected: ${decision.reasons.join("; ")}`);
   }

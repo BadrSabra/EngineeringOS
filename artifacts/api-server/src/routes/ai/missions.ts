@@ -43,7 +43,10 @@ import {
   evaluateGoalCompletion,
   evaluateMissionCompletion,
 } from "../../lib/mission-completion-gate.js";
-import { loadCanonicalProof } from "../../lib/proof-foundation.js";
+import {
+  loadCanonicalProof,
+  projectCanonicalProof,
+} from "../../lib/proof-foundation.js";
 import {
   buildSkillCandidateEnvelope,
   buildShadowReplayReceipt,
@@ -734,6 +737,7 @@ async function buildMissionProjection(
         verdict: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
         projection: unknown;
       };
+      canonicalProof: ReturnType<typeof projectCanonicalProof>;
       shadow: unknown;
     };
   }>();
@@ -784,7 +788,7 @@ async function buildMissionProjection(
         candidateTreeHash: proposal.candidateTreeHash ?? undefined,
         changeSetHash: proposal.changeSetHash,
       });
-      if (!decision.allowed || !decision.envelope) continue;
+      if (!canonicalProof || !decision.allowed || !decision.envelope) continue;
       candidateByGoalId.set(goal.id, {
         skillCandidate: {
           candidateId: decision.envelope.candidateId,
@@ -794,6 +798,7 @@ async function buildMissionProjection(
             ...decision.envelope.proof,
             projection: decision.envelope.proof.projection ?? null,
           },
+          canonicalProof: projectCanonicalProof(canonicalProof),
           shadow: decision.envelope.shadow,
         },
       });
@@ -1533,7 +1538,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
     });
   }
   return res.json({
-    receipt: buildShadowReplayReceipt(skillCandidate, {
+    receipt: buildShadowReplayReceipt(skillCandidate, canonicalProof, {
       projectId: project.id,
       sourceRevision: proposal.baseRevision ?? undefined,
       candidateTreeHash: proposal.candidateTreeHash ?? undefined,

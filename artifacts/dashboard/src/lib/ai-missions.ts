@@ -118,6 +118,21 @@ export interface SkillCandidateProjection {
       candidateBound: boolean;
     };
   };
+  canonicalProof: {
+    contractVersion: 1;
+    verdict: 'PROVEN' | 'INCOMPLETE' | 'UNAVAILABLE';
+    accepted: boolean;
+    failureReasons: string[];
+    executionId: string | null;
+    acceptanceId: string | null;
+    attempt: number | null;
+    operationId: string | null;
+    evidenceSnapshotId: string | null;
+    sourceRevision: string | null;
+    candidateIdentity: string | null;
+    candidateTreeHash: string | null;
+    treeHash: string | null;
+  };
   shadow: {
     mode: 'shadow-replay';
     runId: string;

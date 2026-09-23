@@ -32,6 +32,12 @@ export type GoalAcceptanceProjection = {
   deliveryReceipt?: {
     kind: "recipe" | "validator";
     status: "PROVEN" | "completed" | "succeeded";
+    executionId?: string | null;
+    attempt?: number | null;
+    operationId?: string | null;
+    sourceRevision?: string | null;
+    candidateTreeHash?: string | null;
+    treeHash?: string | null;
   } | null;
   reasonCode?: string | null;
   nextActionCode?: string | null;

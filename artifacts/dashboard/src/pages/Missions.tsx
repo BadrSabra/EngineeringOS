@@ -883,17 +883,17 @@ function GoalCard({
                   <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-emerald-200/80">Proof-carrying candidate</p>
                 </div>
                 <div className="mt-2 space-y-1 font-mono text-[10px] text-slate-400">
-                  <p>verdict <span className="text-emerald-200">{skillCandidate.proof.verdict}</span></p>
+                  <p>verdict <span className={skillCandidate.canonicalProof.accepted ? 'text-emerald-200' : 'text-amber-200'}>{skillCandidate.canonicalProof.verdict}</span></p>
                   <p>candidate <span className="text-slate-300">{compactId(skillCandidate.candidateId)}</span></p>
-                  <p>tree <span className="text-slate-300">{compactId(skillCandidate.candidateTreeHash)}</span></p>
+                  <p>tree <span className="text-slate-300">{compactId(skillCandidate.canonicalProof.candidateTreeHash ?? skillCandidate.candidateTreeHash)}</span></p>
                    <p data-testid={`skill-candidate-evidence-${goal.id}`}>
                      evidence <span className="text-slate-300">
-                       {skillCandidate.proof.projection.evidenceComplete ? 'complete' : 'incomplete'}
+                        {skillCandidate.canonicalProof.evidenceSnapshotId ? 'retained' : 'missing'}
                      </span>
                    </p>
                    <p data-testid={`skill-candidate-binding-${goal.id}`}>
                      binding <span className="text-slate-300">
-                       {skillCandidate.proof.projection.sourceBound && skillCandidate.proof.projection.candidateBound
+                        {skillCandidate.canonicalProof.sourceRevision && skillCandidate.canonicalProof.candidateIdentity
                          ? 'source + candidate'
                          : 'incomplete'}
                      </span>

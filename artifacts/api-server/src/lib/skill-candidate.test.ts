@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildExecutionProofProjection } from "./execution-proof.js";
+import { composeCanonicalProof } from "./proof-foundation.js";
 import {
   buildShadowReplayReceipt,
   validateSkillCandidateForShadow,
@@ -12,7 +13,7 @@ function candidate(overrides: Record<string, unknown> = {}) {
     evidenceComplete: true,
     evidenceSnapshotId: "receipt-evidence",
     sourceRevision: "revision",
-    candidateIdentity: "candidate-tree",
+    candidateIdentity: "a".repeat(64),
   });
   return {
     contractVersion: 1,
@@ -42,13 +43,56 @@ function candidate(overrides: Record<string, unknown> = {}) {
 describe("skill candidate shadow contract", () => {
   it("accepts only a proven, bound candidate envelope", () => {
     const value = candidate();
-    expect(validateSkillCandidateForShadow(value, {
+
+    const canonicalProof = composeCanonicalProof({
+      scope: {
+        projectId: "project",
+        executionId: "execution-1",
+        sourceRevision: "revision",
+        candidateIdentity: "a".repeat(64),
+      },
+      goalStatus: "completed",
+      execution: {
+        id: "execution-1",
+        projectId: "project",
+        attempt: 1,
+        baseRevision: "revision",
+      },
+      acceptance: {
+        id: "receipt-1",
+        executionId: "execution-1",
+        projectId: "project",
+        attempt: 1,
+        terminalStatus: "completed",
+        outcome: "SUCCEEDED",
+        evidenceSnapshotId: "receipt-evidence",
+        evidenceRequired: true,
+        evidenceComplete: true,
+        sourceRevision: "revision",
+        candidateIdentity: "a".repeat(64),
+        disposition: { proof: value.proof.projection },
+      },
+      evidence: {
+        id: "receipt-evidence",
+        executionId: "execution-1",
+        projectId: "project",
+        attempt: 1,
+        sourceRevision: "revision",
+        candidateIdentity: "a".repeat(64),
+        complete: true,
+        verdict: "PROVEN",
+      },
+    });
+    expect(validateSkillCandidateForShadow(value, canonicalProof, {
       projectId: "project",
       sourceRevision: "revision",
       candidateTreeHash: "a".repeat(64),
     })).toMatchObject({ allowed: true });
-
-    expect(buildShadowReplayReceipt(value)).toMatchObject({
+    expect(buildShadowReplayReceipt(value, canonicalProof, {
+      projectId: "project",
+      sourceRevision: "revision",
+      candidateTreeHash: "a".repeat(64),
+    })).toMatchObject({
       candidateId: "skill:candidate-1",
       candidateTreeHash: "a".repeat(64),
       productionExecution: false,
@@ -62,7 +106,7 @@ describe("skill candidate shadow contract", () => {
         verdict: "INCOMPLETE",
       },
     });
-    expect(validateSkillCandidateForShadow(incomplete)).toMatchObject({
+    expect(validateSkillCandidateForShadow(incomplete, null)).toMatchObject({
       allowed: false,
       reasons: expect.arrayContaining(["skill_candidate_proof_not_proven"]),
     });
@@ -75,7 +119,7 @@ describe("skill candidate shadow contract", () => {
         productionExecution: true,
       },
     });
-    expect(validateSkillCandidateForShadow(production)).toMatchObject({
+    expect(validateSkillCandidateForShadow(production, null)).toMatchObject({
       allowed: false,
       reasons: ["invalid_skill_candidate_envelope"],
     });

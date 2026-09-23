@@ -13,7 +13,6 @@ import type { AiExecution } from "@workspace/db";
 import { redactUserFacingText, redactUserFacingValue } from "./ai-route-helpers.js";
 import { evaluateReadinessFromEvidence, type OperationalReadinessDecision } from "./operational-readiness-gate.js";
 import {
-  composeCanonicalProof,
   loadCanonicalProof,
   projectCanonicalProof,
   type PublicCanonicalProofProjection,
@@ -107,6 +106,24 @@ export type EvidenceInput = {
   } | null;
   proof?: PublicCanonicalProofProjection;
 };
+
+function unavailableProofProjection(): PublicCanonicalProofProjection {
+  return {
+    contractVersion: 1,
+    verdict: "UNAVAILABLE",
+    accepted: false,
+    failureReasons: ["acceptance_proof_missing"],
+    executionId: null,
+    acceptanceId: null,
+    attempt: null,
+    operationId: null,
+    evidenceSnapshotId: null,
+    sourceRevision: null,
+    candidateIdentity: null,
+    candidateTreeHash: null,
+    treeHash: null,
+  };
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -266,10 +283,7 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
     },
     receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
     gaps,
-    proof: input.proof ?? projectCanonicalProof(composeCanonicalProof({
-      scope: { projectId: execution.projectId, executionId: execution.id },
-      goalStatus: execution.status,
-    })),
+    proof: input.proof ?? unavailableProofProjection(),
   };
   const operation = checkpoint.operation as { nodes?: Array<{
     id: string;
