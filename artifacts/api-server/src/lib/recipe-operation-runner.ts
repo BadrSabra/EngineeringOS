@@ -14,6 +14,7 @@ import {
   type GitHubDeliveryRunner,
   type RecipeCapabilityRuntime,
   type RecipeEvidence,
+  type ValidationRunner,
 } from "@workspace/ai-orchestrator";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
@@ -37,6 +38,7 @@ import {
   ownsAiExecutionLease,
   parseAiExecutionCheckpoint,
   persistCancelledRecipeReceipt,
+  recoverAiExecutionResumeToken,
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
   unregisterAiExecutionController,
@@ -60,6 +62,7 @@ export type PrepareRecipeOperationParams = {
   browserValidationRunner?: BrowserValidationRunner;
   githubDeliveryRunner?: GitHubDeliveryRunner;
   databaseReadRunner?: NonNullable<RecipeCapabilityRuntime["databaseReadRunner"]>;
+  validationRunner?: ValidationRunner;
 };
 
 export type PreparedRecipeOperation = {
@@ -173,6 +176,8 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   goalId?: string;
   sessionId?: string;
   idempotencyKey: string;
+  executionProfile?: string;
+  proofRequired?: boolean;
 };
 
 function evidenceForNodes(
@@ -406,12 +411,14 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const executionRoot = candidateRoot ?? path.resolve(params.rootPath);
   const executionRequest = {
     projectId: params.projectId,
+    ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
     operationId: params.operationId,
     sessionId: params.sessionId,
     message: `recipe:${params.operationId}`,
     modelMessage: `recipe:${params.operationId}`,
     workspaceRevision: params.sourceRevision,
     validationTargetPaths: normalizedPaths(params.approvedPaths),
+    ...(params.proofRequired ? { proofRequired: true } : {}),
   };
   const created = await createAiExecution({
     userId: params.userId,
@@ -423,10 +430,21 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     recipeBinding: prepared.binding,
   });
   const workerId = `recipe:${params.operationId}:${randomUUID()}`;
+  const recovery = created.execution.status === "paused"
+    ? await recoverAiExecutionResumeToken({
+        executionId: created.execution.id,
+        userId: params.userId,
+        expectedAttempt: created.execution.attempt,
+      })
+    : undefined;
+  if (created.execution.status === "paused" && !recovery) {
+    throw new Error("Paused recipe execution is not eligible for durable recovery.");
+  }
   const claimed = await claimAiExecution({
     executionId: created.execution.id,
     userId: params.userId,
     workerId,
+    ...(recovery?.resumeToken ? { resumeToken: recovery.resumeToken } : {}),
     recipeBinding: prepared.binding,
   });
   if (!claimed) {
@@ -475,13 +493,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   }
 
   const registry = createServerCapabilityRegistry({
-    validationRunner: async (profile, targetPaths, signal) =>
+    validationRunner: params.validationRunner ?? (async (profile, targetPaths, signal) =>
       runRepairValidation(
         executionRoot,
         profile as Parameters<typeof runRepairValidation>[1],
         targetPaths,
         signal,
-      ),
+      )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
     databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     ...(params.browserValidationRunner
@@ -561,17 +579,24 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             params.operationId,
           );
           if (externalEffect) {
+            const liveBinding = {
+              ...prepared.binding,
+              phase: "running" as const,
+              leaseOwner: workerId,
+              leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+            };
             const checkpointed = await checkpointAiExecution({
               executionId: claimed.id,
               expectedAttempt: claimed.attempt,
               workerId,
-              recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+              recipeBinding: liveBinding,
               checkpoint: {
                 stage: "running",
                 sequence: ++checkpointSequence,
                 currentNode: node.id,
                 externalEffect,
-                recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+                ...(checkpoint?.operation ? { operation: { ...checkpoint.operation, binding: liveBinding } } : {}),
+                recipeBinding: liveBinding,
                 nodeStates: checkpointNodes.map((candidate) => ({
                   ...candidate,
                   evidenceRefs: candidate.status === "passed"
@@ -629,15 +654,22 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       onChange: ({ nodes }) => {
         latestNodes = nodes;
         const externalEffect = externalEffectForNodes(nodes, params.operationId);
+        const liveBinding = {
+          ...prepared.binding,
+          phase: "running" as const,
+          leaseOwner: workerId,
+          leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+        };
         void checkpointAiExecution({
           executionId: claimed.id,
           expectedAttempt: claimed.attempt,
           workerId,
-          recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+          recipeBinding: liveBinding,
           checkpoint: {
             stage: "running",
             sequence: ++checkpointSequence,
-            recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
+            ...(checkpoint?.operation ? { operation: { ...checkpoint.operation, binding: liveBinding } } : {}),
+            recipeBinding: liveBinding,
             ...(externalEffect ? { externalEffect } : {}),
             nodeStates: nodes.map((node) => ({
               ...node,
@@ -696,6 +728,24 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     const evidenceRefs = Object.values(evidence)
       .map(receiptIdForEvidence)
       .filter((id): id is string => typeof id === "string");
+    const completionEvidence = Object.values(evidence)
+      .map((entry) => entry.outputs?.evidence)
+      .filter((value): value is {
+        evidenceId: string;
+        artifactRef: string;
+        operationId: string;
+        projectRevision: string;
+        candidateHash: string;
+      } => Boolean(
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+        && typeof (value as { evidenceId?: unknown }).evidenceId === "string"
+        && typeof (value as { artifactRef?: unknown }).artifactRef === "string"
+        && typeof (value as { operationId?: unknown }).operationId === "string"
+        && typeof (value as { projectRevision?: unknown }).projectRevision === "string"
+        && typeof (value as { candidateHash?: unknown }).candidateHash === "string",
+      ));
     if (evidenceRefs.length !== result.nodes.length) {
       await failAiExecution({
         executionId: claimed.id,
@@ -714,6 +764,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       finalMessageId: `recipe-receipt:${params.operationId}`,
       evidenceVerdict: "PROVEN",
       evidenceRefs,
+      evidence: completionEvidence,
+      operationId: params.operationId,
+      candidateIdentity: params.candidateIdentity ?? null,
       recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
       nodeStates: result.nodes.map((node) => ({
         id: node.id,

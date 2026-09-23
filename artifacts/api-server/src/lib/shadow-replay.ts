@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   aiExecutionsTable,
@@ -8,17 +8,16 @@ import {
   db,
 } from "@workspace/db";
 import {
-  claimAiExecution,
   createAiExecution,
-  heartbeatAiExecution,
-  registerAiExecutionController,
-  unregisterAiExecutionController,
   type AiExecutionRequestEnvelope,
 } from "./ai-execution-state.js";
-import { finalizeExecutionAcceptance } from "./ai-execution-acceptance.js";
 import {
   createValidationWorkspace,
 } from "./ai-repair-validation.js";
+import {
+  prepareRecipeOperation,
+  runRecipeOperation,
+} from "./recipe-operation-runner.js";
 import {
   DELIVERY_TREE_DIGEST_VERSION,
   deliveryWorkspaceExists,
@@ -31,6 +30,7 @@ import {
 } from "./skill-candidate.js";
 import type { CanonicalProof } from "./proof-foundation.js";
 import { heavyJobQueue } from "./job-queue.js";
+import type { ValidationRunner } from "@workspace/ai-orchestrator";
 
 const SHADOW_REPLAY_LEASE_MS = 5 * 60 * 1000;
 const SHADOW_REPLAY_MAX_FILE_BYTES = 512_000;
@@ -91,7 +91,11 @@ function idempotencyKey(input: ShadowReplayStartInput): string {
 }
 
 function replayOperationId(input: ShadowReplayStartInput): string {
-  return `shadow-replay:${input.proposalId}:${input.candidate.candidateId}`;
+  const candidateKey = createHash("sha256")
+    .update(input.candidate.candidateId)
+    .digest("hex")
+    .slice(0, 32);
+  return `shadow-replay:${input.proposalId}:${candidateKey}`;
 }
 
 export function toPublicShadowReplay(row: ShadowReplayRow): {
@@ -342,6 +346,23 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
   );
   const replayId = randomUUID();
   const operationId = replayOperationId(input);
+  const recipeParams = {
+    projectId: input.projectId,
+    operationId,
+    rootPath: input.sourceWorkspaceRoot!,
+    sourceRevision: input.sourceRevision,
+    recipeId: "candidate.verify",
+    recipeVersion: 1,
+    approvedPaths: [...input.candidate.approvedPaths],
+    candidateIdentity: input.candidateTreeHash,
+    candidateWorkspace: replayWorkspace.rootPath,
+    executionProfile: SHADOW_REPLAY_PROFILE,
+    userId: input.userId,
+    idempotencyKey: key,
+    proofRequired: true,
+    ...(input.canonicalProof.scope.goalId ? { goalId: input.canonicalProof.scope.goalId } : {}),
+  } as const;
+  const prepared = prepareRecipeOperation(recipeParams);
   const replayExecutionRequest: AiExecutionRequestEnvelope = {
     projectId: input.projectId,
     executionProfile: "shadow-replay",
@@ -352,7 +373,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     workspaceRevision: input.sourceRevision,
     workspaceRoot: replayWorkspace.rootPath,
     validationTargetPaths: [...input.candidate.approvedPaths],
-    proofRequired: false,
+    proofRequired: true,
   };
   const execution = await createAiExecution({
     userId: input.userId,
@@ -360,6 +381,8 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     idempotencyKey: key,
     correlationId: operationId,
     projectId: input.projectId,
+    ...(input.canonicalProof.scope.goalId ? { goalId: input.canonicalProof.scope.goalId } : {}),
+    recipeBinding: prepared.binding,
     workspaceRoot: replayWorkspace.rootPath,
   });
   const [inserted] = await db
@@ -437,10 +460,18 @@ export async function runShadowReplayAttempt(
     const receiptRecord = receipt && typeof receipt === "object" && !Array.isArray(receipt)
       ? receipt as Record<string, unknown>
       : undefined;
+    const durableReceipt = replay.receipt && typeof replay.receipt === "object" && !Array.isArray(replay.receipt)
+      ? replay.receipt as Record<string, unknown>
+      : undefined;
     const receiptMatchesReplay = receiptRecord?.status === "completed"
-      && receiptRecord.productionExecution === false
-      && receiptRecord.replayId === replay.id
-      && receiptRecord.replayExecutionId === replay.executionId;
+      && receiptRecord.executionId === replay.executionId
+      && receiptRecord.operationId === replay.operationId
+      && receiptRecord.recipeId === "candidate.verify"
+      && receiptRecord.recipeVersion === 1
+      && durableReceipt?.status === "completed"
+      && durableReceipt.replayId === replay.id
+      && durableReceipt.replayExecutionId === replay.executionId
+      && durableReceipt.productionExecution === false;
     if (!receiptMatchesReplay) {
       await cleanupReplayWorkspace(replay);
       await updateReplay(replay.id, {
@@ -461,9 +492,9 @@ export async function runShadowReplayAttempt(
     }
     await updateReplay(replay.id, {
       status: "completed",
-      preTreeHash: typeof receiptRecord.preTreeHash === "string" ? receiptRecord.preTreeHash : replay.preTreeHash,
-      postTreeHash: typeof receiptRecord.postTreeHash === "string" ? receiptRecord.postTreeHash : replay.postTreeHash,
-      validatorResult: receiptRecord.validator ?? replay.validatorResult,
+      preTreeHash: typeof durableReceipt?.preTreeHash === "string" ? durableReceipt.preTreeHash : replay.preTreeHash,
+      postTreeHash: typeof durableReceipt?.postTreeHash === "string" ? durableReceipt.postTreeHash : replay.postTreeHash,
+      validatorResult: durableReceipt?.validator ?? replay.validatorResult,
       receipt,
       completedAt: execution.completedAt ?? new Date(),
       replayWorkspaceRoot: null,
@@ -473,27 +504,19 @@ export async function runShadowReplayAttempt(
     return true;
   }
 
-  const workerId = `shadow-replay-worker:${randomUUID()}`;
-  const claimedExecution = execution.status === "running"
-    ? execution.workerId === workerId
-      ? execution
-      : undefined
-    : await claimAiExecution({
-        executionId: execution.id,
-        userId,
-        workerId,
-      });
-  if (!claimedExecution) return false;
-
+  // Startup reconciliation pauses an execution that was running when the
+  // process died. The replay row remains running, so the durable execution
+  // state is the recovery authority: queued starts normally, paused resumes
+  // from its recipe checkpoint, and an active running execution is left alone.
+  if (execution.status !== "queued" && execution.status !== "paused") return false;
   const startedAt = new Date();
-  const leaseUntil = new Date(startedAt.getTime() + SHADOW_REPLAY_LEASE_MS);
   const [claimedReplay] = await db
     .update(aiShadowReplaysTable)
     .set({
       status: "running",
-      attempt: claimedExecution.attempt,
-      workerId,
-      leaseUntil,
+      attempt: execution.attempt,
+      workerId: `shadow-replay:${replay.id}`,
+      leaseUntil: new Date(startedAt.getTime() + SHADOW_REPLAY_LEASE_MS),
       startedAt: replay.startedAt ?? startedAt,
       updatedAt: startedAt,
     })
@@ -504,54 +527,121 @@ export async function runShadowReplayAttempt(
     .returning();
   if (!claimedReplay) return false;
 
-  const controller = new AbortController();
-  const registered = await registerAiExecutionController(execution.id, controller);
-  if (!registered) {
-    const [cancelledExecution] = await db
-      .select({ status: aiExecutionsTable.status })
-      .from(aiExecutionsTable)
-      .where(eq(aiExecutionsTable.id, execution.id))
-      .limit(1);
-    if (cancelledExecution?.status === "cancelled") {
-      await updateReplay(replay.id, {
-        status: "cancelled",
-        error: "SHADOW_REPLAY_CANCELLED: execution cancellation won before the validator started.",
-        workerId: null,
-        leaseUntil: null,
-        completedAt: new Date(),
-      });
-      await cleanupReplayWorkspace(claimedReplay);
-    }
+  const request = JSON.parse(execution.request) as AiExecutionRequestEnvelope & {
+    validationTargetPaths?: string[];
+  };
+  const approvedPaths = [...(request.validationTargetPaths ?? [])];
+  const replayRoot = claimedReplay.replayWorkspaceRoot;
+  if (!replayRoot) {
+    await updateReplay(replay.id, {
+      status: "failed",
+      error: "SHADOW_REPLAY_WORKSPACE_MISSING",
+      workerId: null,
+      leaseUntil: null,
+      completedAt: new Date(),
+    });
     return false;
   }
-  const heartbeat = setInterval(() => {
-    void heartbeatAiExecution({
-      executionId: execution.id,
-      expectedAttempt: claimedExecution.attempt,
-      workerId,
+  let replayStats: {
+    preTreeHash: string;
+    postTreeHash: string;
+    readCount: number;
+    totalBytes: number;
+  } | undefined;
+  const validationRunner: ValidationRunner = async (profile, targetPaths, signal) => {
+    if (profile !== "workspace-typecheck" && profile !== "ai-orchestrator-tests") {
+      return {
+        profile,
+        status: "blocked",
+        scenario: "Shadow replay exposes only the fixed candidate verification profiles.",
+        exitCode: null,
+        command: "",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: `shadow-replay:${replay.id}:blocked:${profile}`,
+          observedAt: new Date().toISOString(),
+          artifactRef: `shadow-replay:${replay.id}:blocked`,
+          operationId: replay.operationId,
+          projectRevision: replay.sourceRevision,
+          candidateHash: replay.candidateTreeHash,
+          treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        },
+        terminalState: "blocked",
+        failureKind: "scope",
+      };
+    }
+    const result = await runCandidateVerify({
+      workspaceRoot: replayRoot,
+      candidateTreeHash: replay.candidateTreeHash,
+      approvedPaths: targetPaths,
+      signal: signal ?? new AbortController().signal,
     });
+    replayStats = replayStats
+      ? {
+          ...replayStats,
+          postTreeHash: result.postTreeHash,
+          readCount: replayStats.readCount + result.readCount,
+          totalBytes: replayStats.totalBytes + result.totalBytes,
+        }
+      : result;
+    return {
+      profile,
+      status: "passed",
+      scenario: "Read-only server-owned candidate verification.",
+      exitCode: 0,
+      command: "",
+      stdout: "",
+      stderr: "",
+      failedTests: [],
+      changedFiles: [],
+      evidence: {
+        evidenceId: `shadow-replay:${replay.id}:validation:${profile}`,
+        observedAt: new Date().toISOString(),
+        artifactRef: `shadow-replay:${replay.id}:validation:${profile}`,
+        operationId: replay.operationId,
+        projectRevision: replay.sourceRevision,
+        candidateHash: replay.candidateTreeHash,
+        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      },
+      terminalState: "passed",
+    };
+  };
+  const replayLeaseTimer = setInterval(() => {
     void updateReplay(replay.id, {
       leaseUntil: new Date(Date.now() + SHADOW_REPLAY_LEASE_MS),
     });
   }, Math.floor(SHADOW_REPLAY_LEASE_MS / 3));
-
   try {
-    const replayResult = await runCandidateVerify({
-      workspaceRoot: claimedReplay.replayWorkspaceRoot!,
-      candidateTreeHash: replay.candidateTreeHash,
-      approvedPaths: JSON.parse(claimedExecution.request).validationTargetPaths ?? [],
-      signal: controller.signal,
+    const result = await runRecipeOperation({
+      projectId: replay.projectId,
+      operationId: replay.operationId,
+      rootPath: replay.sourceWorkspaceRoot,
+      sourceRevision: replay.sourceRevision,
+      recipeId: "candidate.verify",
+      recipeVersion: 1,
+      approvedPaths,
+      candidateIdentity: replay.candidateTreeHash,
+      candidateWorkspace: replayRoot,
+      userId,
+      idempotencyKey: execution.idempotencyKey,
+      ...(execution.goalId ? { goalId: execution.goalId } : {}),
+      ...(execution.sessionId ? { sessionId: execution.sessionId } : {}),
+      executionProfile: SHADOW_REPLAY_PROFILE,
+      proofRequired: true,
+      validationRunner,
     });
-    const evidenceRefs = [
-      `shadow-replay:${replay.id}:tree:pre`,
-      `shadow-replay:${replay.id}:tree:post`,
-      ...JSON.parse(claimedExecution.request).validationTargetPaths
-        .slice(0, SHADOW_REPLAY_MAX_PATHS)
-        .map((relativePath: string) => `shadow-replay:${replay.id}:read:${relativePath}`),
-    ].slice(0, 48);
+    if (result.status !== "completed" || !replayStats) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_RECIPE_BLOCKED",
+        "The server-owned candidate verification recipe did not reach terminal success.",
+      );
+    }
     const workspaceCleaned = await cleanupReplayWorkspace({
       ...claimedReplay,
-      replayWorkspaceRoot: claimedReplay.replayWorkspaceRoot,
+      replayWorkspaceRoot: replayRoot,
     });
     if (!workspaceCleaned) {
       throw new ShadowReplayError(
@@ -559,6 +649,14 @@ export async function runShadowReplayAttempt(
         "The disposable replay workspace could not be cleaned up.",
       );
     }
+    const evidenceRefs = [
+      `shadow-replay:${replay.id}:tree:pre`,
+      `shadow-replay:${replay.id}:tree:post`,
+      ...result.receipt.evidenceRefs,
+      ...approvedPaths
+        .slice(0, SHADOW_REPLAY_MAX_PATHS)
+        .map((relativePath: string) => `shadow-replay:${replay.id}:read:${relativePath}`),
+    ].slice(0, 48);
     const receipt: DurableShadowReplayReceipt = {
       contractVersion: 1,
       runId: replay.id,
@@ -576,9 +674,9 @@ export async function runShadowReplayAttempt(
       replayId: replay.id,
       replayExecutionId: replay.executionId,
       status: "completed",
-      attempt: claimedExecution.attempt,
-      preTreeHash: replayResult.preTreeHash,
-      postTreeHash: replayResult.postTreeHash,
+      attempt: execution.attempt,
+      preTreeHash: replayStats.preTreeHash,
+      postTreeHash: replayStats.postTreeHash,
       treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       workspaceIsolated: true,
       workspaceCleaned: true,
@@ -587,75 +685,31 @@ export async function runShadowReplayAttempt(
       validator: {
         profile: SHADOW_REPLAY_PROFILE,
         status: "passed",
-        readCount: replayResult.readCount,
-        totalBytes: replayResult.totalBytes,
-        approvedPathCount: JSON.parse(claimedExecution.request).validationTargetPaths?.length ?? 0,
+        readCount: replayStats.readCount,
+        totalBytes: replayStats.totalBytes,
+        approvedPathCount: approvedPaths.length,
       },
     };
-    const checkpoint = JSON.stringify({
-      stage: "completed",
-      sequence: claimedExecution.attempt + 1,
-      updatedAt: new Date().toISOString(),
-      replay: {
-        replayId: replay.id,
-        profile: SHADOW_REPLAY_PROFILE,
-        preTreeHash: replayResult.preTreeHash,
-        postTreeHash: replayResult.postTreeHash,
-        sideEffects: receipt.sideEffects,
-      },
-    });
-    const finalized = await finalizeExecutionAcceptance({
-      executionId: execution.id,
-      expectedAttempt: claimedExecution.attempt,
-      workerId,
-      finalizationKey: `shadow-replay:${replay.id}:attempt:${claimedExecution.attempt}:completed`,
-      outcome: "SUCCEEDED",
-      terminalStatus: "completed",
-      reasonCode: "SHADOW_REPLAY_COMPLETED",
-      recoveryState: "NONE",
-      sourceRevision: replay.sourceRevision,
-      candidateIdentity: replay.candidateTreeHash,
-      recipeReceipt: receipt,
-      checkpoint,
-    });
-    if (!finalized.accepted && !finalized.duplicate) {
-      throw new ShadowReplayError("SHADOW_REPLAY_FINALIZATION_REJECTED", finalized.reason ?? "Replay finalization was rejected.");
-    }
     await updateReplay(replay.id, {
       status: "completed",
-      preTreeHash: replayResult.preTreeHash,
-      postTreeHash: replayResult.postTreeHash,
+      preTreeHash: replayStats.preTreeHash,
+      postTreeHash: replayStats.postTreeHash,
       validatorResult: receipt.validator,
       receipt,
       completedAt: new Date(),
       error: null,
       workerId: null,
       leaseUntil: null,
+      replayWorkspaceRoot: null,
+      replayWorkspaceCleaned: true,
     });
     return true;
   } catch (error) {
     const reason = error instanceof ShadowReplayError
       ? `${error.code}: ${error.message}`
       : "SHADOW_REPLAY_FAILED";
-    await finalizeExecutionAcceptance({
-      executionId: execution.id,
-      expectedAttempt: claimedExecution.attempt,
-      workerId,
-      finalizationKey: `shadow-replay:${replay.id}:attempt:${claimedExecution.attempt}:failed`,
-      outcome: "FAILED",
-      terminalStatus: "failed",
-      reasonCode: error instanceof ShadowReplayError ? error.code : "SHADOW_REPLAY_FAILED",
-      recoveryState: "INCOMPLETE",
-      error: reason,
-      checkpoint: JSON.stringify({
-        stage: "failed",
-        sequence: claimedExecution.attempt + 1,
-        updatedAt: new Date().toISOString(),
-        replay: { replayId: replay.id, profile: SHADOW_REPLAY_PROFILE },
-      }),
-    }).catch(() => undefined);
     await updateReplay(replay.id, {
-      status: controller.signal.aborted ? "cancelled" : "failed",
+      status: "failed",
       error: reason.slice(0, 1_000),
       workerId: null,
       leaseUntil: null,
@@ -664,8 +718,7 @@ export async function runShadowReplayAttempt(
     await cleanupReplayWorkspace({ ...claimedReplay, replayWorkspaceRoot: claimedReplay.replayWorkspaceRoot });
     return false;
   } finally {
-    clearInterval(heartbeat);
-    unregisterAiExecutionController(execution.id, controller);
+    clearInterval(replayLeaseTimer);
   }
 }
 

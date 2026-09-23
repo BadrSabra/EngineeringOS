@@ -1696,6 +1696,9 @@ export async function createAiExecution(params: {
     revisionManifest: params.request.workspaceRevision,
     targetPaths: params.request.validationTargetPaths,
     expectedBehavior: params.request.message,
+    ...(params.recipeBinding?.candidateIdentity
+      ? { candidateIdentity: params.recipeBinding.candidateIdentity }
+      : {}),
     ...(params.recipeBinding ? { binding: params.recipeBinding } : {}),
   });
   const [execution] = await db

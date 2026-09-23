@@ -24,7 +24,18 @@ import {
 import { waitForScheduledAiTaskExecutions } from "./tasks.js";
 import { runMissionGoal, wakeReadyMissionGoals } from "../../lib/mission-runtime.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
-import { createDeliveryWorkspace, DELIVERY_TREE_DIGEST_VERSION } from "../../lib/delivery-workspace.js";
+import {
+  createDeliveryWorkspace,
+  DELIVERY_TREE_DIGEST_VERSION,
+  hashDeliveryTree,
+} from "../../lib/delivery-workspace.js";
+import { createValidationWorkspace } from "../../lib/ai-repair-validation.js";
+import {
+  createAiExecution,
+  reconcileAiExecutions,
+} from "../../lib/ai-execution-state.js";
+import { prepareRecipeOperation } from "../../lib/recipe-operation-runner.js";
+import { runShadowReplayAttempt } from "../../lib/shadow-replay.js";
 
 const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
@@ -707,6 +718,9 @@ describe("AI missions and goals", () => {
       .select({
         id: aiExecutionsTable.id,
         proposalId: aiExecutionsTable.proposalId,
+        status: aiExecutionsTable.status,
+        request: aiExecutionsTable.request,
+        recipeReceipt: aiExecutionsTable.recipeReceipt,
         executionProfile: aiShadowReplaysTable.executionProfile,
       })
       .from(aiExecutionsTable)
@@ -717,6 +731,63 @@ describe("AI missions and goals", () => {
       proposalId: null,
       executionProfile: "shadow-replay",
     });
+    const [replayAcceptance] = await db
+      .select({
+        executionId: aiExecutionAcceptancesTable.executionId,
+        outcome: aiExecutionAcceptancesTable.outcome,
+        terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+        operationId: aiExecutionAcceptancesTable.operationId,
+        sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+        candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
+        evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+      })
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, persistedReplay!.executionId));
+    const [replayEvidence] = await db
+      .select({
+        id: aiExecutionEvidenceSnapshotsTable.id,
+        executionId: aiExecutionEvidenceSnapshotsTable.executionId,
+        operationId: aiExecutionEvidenceSnapshotsTable.operationId,
+        sourceRevision: aiExecutionEvidenceSnapshotsTable.sourceRevision,
+        candidateIdentity: aiExecutionEvidenceSnapshotsTable.candidateIdentity,
+        verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+        complete: aiExecutionEvidenceSnapshotsTable.complete,
+      })
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(eq(aiExecutionEvidenceSnapshotsTable.executionId, persistedReplay!.executionId));
+    expect(replayExecution).toMatchObject({
+      status: "completed",
+      proposalId: null,
+    });
+    expect(JSON.parse(replayExecution?.request ?? "{}")).toMatchObject({
+      executionProfile: "shadow-replay",
+      operationId: expect.stringContaining("shadow-replay:"),
+    });
+    expect(replayExecution?.recipeReceipt).toMatchObject({
+      recipeId: "candidate.verify",
+      recipeVersion: 1,
+      status: "completed",
+      executionId: persistedReplay?.executionId,
+    });
+    expect(replayAcceptance).toMatchObject({
+      executionId: persistedReplay?.executionId,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      operationId: expect.stringContaining("shadow-replay:"),
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      evidenceComplete: 1,
+    });
+    expect(replayEvidence).toMatchObject({
+      executionId: persistedReplay?.executionId,
+      operationId: replayAcceptance?.operationId,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      verdict: "PROVEN",
+      complete: 1,
+    });
+    expect(replayAcceptance?.evidenceSnapshotId).toBe(replayEvidence?.id);
     expect(persistedReplay).toMatchObject({
       status: "completed",
       preTreeHash: candidateTreeHash,
@@ -731,6 +802,154 @@ describe("AI missions and goals", () => {
         sideEffects: { apply: false, push: false, browser: false, commands: false },
       },
     });
+  });
+
+  it("resumes a shadow replay whose recipe execution was interrupted by a crash", async () => {
+    const projectId = await insertProject();
+    const userId = "test-user";
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const replayId = randomUUID();
+    const executionIdempotencyKey = `shadow-recovery-${replayId}`;
+    const operationId = `shadow-replay:${replayId}`;
+    const sourceRevision = "c".repeat(40);
+    const now = new Date();
+    const sourceRoot = `/tmp/mission-shadow-recovery-source-${replayId}`;
+    await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
+    await fs.writeFile(`${sourceRoot}/src/index.ts`, "export const recovered = true;\n", "utf8");
+    shadowWorkspaceRoots.push(sourceRoot);
+    const replayWorkspace = await createValidationWorkspace(sourceRoot, [], async () => undefined);
+    shadowWorkspaceRoots.push(replayWorkspace.rootPath);
+    const candidateTreeHash = await hashDeliveryTree(replayWorkspace.rootPath);
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Shadow replay recovery fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Recovery fixture",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{ path: "src/index.ts", newContent: "export const recovered = true;" }]),
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId,
+      baseRevision: sourceRevision,
+      candidateTreeHash,
+      changeSetHash: "recovery-change-set",
+      baseTreeHash: candidateTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      workspaceRoot: replayWorkspace.rootPath,
+      createdAt: now,
+    });
+
+    const prepared = prepareRecipeOperation({
+      projectId,
+      operationId,
+      rootPath: sourceRoot,
+      sourceRevision,
+      recipeId: "candidate.verify",
+      recipeVersion: 1,
+      approvedPaths: ["src/index.ts"],
+      candidateIdentity: candidateTreeHash,
+      candidateWorkspace: replayWorkspace.rootPath,
+    });
+    const created = await createAiExecution({
+      userId,
+      request: {
+        projectId,
+        executionProfile: "shadow-replay",
+        turnIntent: "TASK_EXECUTION",
+        operationId,
+        message: "Server-owned candidate shadow replay.",
+        modelMessage: "Server-owned candidate shadow replay.",
+        workspaceRevision: sourceRevision,
+        workspaceRoot: replayWorkspace.rootPath,
+        validationTargetPaths: ["src/index.ts"],
+        proofRequired: true,
+      },
+      idempotencyKey: executionIdempotencyKey,
+      correlationId: operationId,
+      projectId,
+      recipeBinding: prepared.binding,
+      workspaceRoot: replayWorkspace.rootPath,
+    });
+    expect(created.execution.id).toBeTruthy();
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "running",
+        workerId: "crashed-shadow-replay-worker",
+        leaseUntil: new Date(now.getTime() - 1_000),
+        lastHeartbeatAt: new Date(now.getTime() - 1_000),
+        startedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    await db.insert(aiShadowReplaysTable).values({
+      id: replayId,
+      executionId: created.execution.id,
+      projectId,
+      proposalId,
+      userId,
+      idempotencyKey: executionIdempotencyKey,
+      operationId,
+      candidateId: "recovery-candidate",
+      canonicalAcceptanceId: "recovery-acceptance",
+      trajectoryDigest: "recovery-trajectory",
+      sourceRevision,
+      candidateTreeHash,
+      changeSetHash: "recovery-change-set",
+      executionProfile: "shadow-replay",
+      sourceWorkspaceRoot: sourceRoot,
+      replayWorkspaceRoot: replayWorkspace.rootPath,
+      status: "running",
+      attempt: created.execution.attempt,
+      workerId: "crashed-shadow-replay-worker",
+      leaseUntil: new Date(now.getTime() - 1_000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const reconciled = await reconcileAiExecutions();
+    expect(reconciled).toBe(1);
+    const [pausedExecution] = await db
+      .select({ status: aiExecutionsTable.status })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    expect(pausedExecution?.status).toBe("paused");
+
+    expect(await runShadowReplayAttempt(replayId, userId)).toBe(true);
+    const [recoveredReplay] = await db
+      .select({
+        status: aiShadowReplaysTable.status,
+        receipt: aiShadowReplaysTable.receipt,
+        replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
+      })
+      .from(aiShadowReplaysTable)
+      .where(eq(aiShadowReplaysTable.id, replayId));
+    const [recoveredExecution] = await db
+      .select({ status: aiExecutionsTable.status })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    expect(recoveredReplay).toMatchObject({
+      status: "completed",
+      replayWorkspaceCleaned: true,
+      receipt: { status: "completed", productionExecution: false },
+    });
+    expect(recoveredExecution?.status).toBe("completed");
   });
 
   it("binds active mission activation to the same server-owned plan revision", async () => {

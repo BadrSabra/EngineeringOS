@@ -7,4 +7,4 @@ Advance the execution attempt only when a valid resume token is atomically consu
 
 **Why:** Recovery endpoints can issue a token before a worker claims it. Incrementing there and again during claim creates skipped or duplicate attempt identities and can make a prior paused acceptance appear current.
 
-**How to apply:** Keep the previous acceptance immutable, validate resumability before issuing the token, and let the successful claim establish the new attempt before any terminal finalization.
+**How to apply:** Keep the previous acceptance immutable, validate resumability before issuing the token, and let the successful claim establish the new attempt before any terminal finalization—including automatic recipe recovery after lease-expired reconciliation, before writing new evidence.

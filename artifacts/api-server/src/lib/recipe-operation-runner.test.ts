@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
   aiExecutionAcceptancesTable,
@@ -365,6 +365,7 @@ describe("recipe operation preparation", () => {
         })
         .from(aiExecutionAcceptancesTable)
         .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId))
+        .orderBy(desc(aiExecutionAcceptancesTable.attempt))
         .limit(1);
       expect(acceptance).toMatchObject({
         terminalStatus: "cancelled",
