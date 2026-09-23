@@ -3,8 +3,8 @@ name: Delivery test cleanup
 description: Recovery route tests share the server delivery root with checked-in fixtures.
 ---
 
-Recovery tests must remove only the operation-specific workspace roots they create; never clear the shared delivery directory wholesale.
+Recovery tests must remove only the operation-specific workspace roots they create; never clear the shared delivery directory wholesale. Project-root tests also need a real Git repository under the workspace boundary, because production root validation rejects arbitrary /tmp roots.
 
-**Why:** The configured delivery root can contain tracked fixture workspaces as well as runtime-created recovery workspaces, so broad cleanup can delete repository files.
+**Why:** The configured delivery root can contain tracked fixture workspaces as well as runtime-created recovery workspaces, so broad cleanup can delete repository files. Mission recipe execution also requires a policy-approved Git root to resolve source revisions.
 
-**How to apply:** Track each generated workspace path and clean those exact paths in test teardown. Before deleting scan-job rows, wait for project-owned queued/running workers to reach a terminal state; the scan-job foreign key uses `ON DELETE SET NULL` on graph rows, so deletion can deadlock with an active scanner transaction.
+**How to apply:** Track each generated workspace path and clean those exact paths in test teardown; initialize a minimal Git repository when the code under test resolves revisions. Before deleting scan-job rows, wait for project-owned queued/running workers to reach a terminal state; the scan-job foreign key uses `ON DELETE SET NULL` on graph rows, so deletion can deadlock with an active scanner transaction.

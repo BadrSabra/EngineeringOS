@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import path from "node:path";
+import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import app from "../app.js";
@@ -41,6 +45,18 @@ vi.mock("../routes/ai/tasks.js", async () => {
 import { dispatchPendingMissionRecipes, runMissionGoal } from "./mission-runtime.js";
 
 const projectIds: string[] = [];
+const testRoots: string[] = [];
+const execFileAsync = promisify(execFile);
+
+async function createTestRoot(label: string): Promise<string> {
+  const rootPath = await mkdtemp(path.join(process.cwd(), `.engineeringos-delivery-test-${label}-`));
+  await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
+  await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
+  await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
+  await execFileAsync("git", ["-C", rootPath, "commit", "--allow-empty", "-qm", "fixture"]);
+  testRoots.push(rootPath);
+  return rootPath;
+}
 
 afterEach(async () => {
   recipeRunner.mockReset();
@@ -49,10 +65,14 @@ afterEach(async () => {
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
+  for (const rootPath of testRoots.splice(0)) {
+    await rm(rootPath, { recursive: true, force: true });
+  }
 });
 
 describe("Mission recipe dispatch", () => {
   it("completes one Chat-to-Mission delivery loop with server-owned identity and receipt", async () => {
+    const rootPath = await createTestRoot("unified");
     const projectId = randomUUID();
     const sessionId = randomUUID();
     const messageId = randomUUID();
@@ -66,7 +86,7 @@ describe("Mission recipe dispatch", () => {
       id: projectId,
       ownerId: "test-user",
       name: `mission-unified-${projectId.slice(0, 8)}`,
-      rootPath: process.cwd(),
+      rootPath,
       language: "typescript",
       status: "active",
       gitRemoteUrl: "https://github.com/example/project.git",
@@ -102,7 +122,7 @@ describe("Mission recipe dispatch", () => {
       const runner = params.githubDeliveryRunner as
         ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
       await runner?.({
-        rootPath: process.cwd(),
+        rootPath,
         projectId: params.projectId,
         operationId: params.operationId,
         message: "Deliver the verified Mission result",
@@ -294,7 +314,7 @@ describe("Mission recipe dispatch", () => {
       operationId,
       recipeId: "delivery.push.github",
       sourceRevision: expect.stringMatching(/^[0-9a-f]{40}$/i),
-      rootPath: process.cwd(),
+      rootPath,
     }));
     expect(githubDeliveryRunner).toHaveBeenCalledWith(expect.objectContaining({
       projectId,
@@ -314,11 +334,12 @@ describe("Mission recipe dispatch", () => {
   });
 
   it("rebuilds the server-owned GitHub runner from a committed proposal", async () => {
+    const rootPath = await createTestRoot("delivery");
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
       const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
       expect(runner).toBeTypeOf("function");
       await runner?.({
-        rootPath: process.cwd(),
+        rootPath,
         projectId: params.projectId,
         operationId: params.operationId,
         message: "Ship the verified change",
@@ -371,7 +392,7 @@ describe("Mission recipe dispatch", () => {
       id: projectId,
       ownerId: "test-user",
       name: `mission-delivery-${projectId.slice(0, 8)}`,
-      rootPath: process.cwd(),
+      rootPath,
       language: "typescript",
       status: "active",
       gitRemoteUrl: "https://github.com/example/project.git",
@@ -458,6 +479,7 @@ describe("Mission recipe dispatch", () => {
   });
 
   it("blocks a Mission delivery when the committed proposal is absent", async () => {
+    const rootPath = await createTestRoot("delivery-blocked");
     const projectId = randomUUID();
     const missionId = randomUUID();
     const goalId = randomUUID();
@@ -467,7 +489,7 @@ describe("Mission recipe dispatch", () => {
       id: projectId,
       ownerId: "test-user",
       name: `mission-delivery-blocked-${projectId.slice(0, 8)}`,
-      rootPath: process.cwd(),
+      rootPath,
       language: "typescript",
       status: "active",
       gitRemoteUrl: "https://github.com/example/project.git",
@@ -516,6 +538,7 @@ describe("Mission recipe dispatch", () => {
   });
 
   it("binds a typed recipe action to the existing recipe runner and projects completion", async () => {
+    const rootPath = await createTestRoot("recipe");
     recipeRunner.mockResolvedValue({
       executionId: "recipe-execution-1",
       status: "completed",
@@ -551,7 +574,7 @@ describe("Mission recipe dispatch", () => {
       id: projectId,
       ownerId: "test-user",
       name: `mission-recipe-${projectId.slice(0, 8)}`,
-      rootPath: process.cwd(),
+      rootPath,
       language: "typescript",
       status: "active",
       createdAt: now,
@@ -626,15 +649,16 @@ describe("Mission recipe dispatch", () => {
       recipeId: "candidate.verify",
       recipeVersion: 1,
       sourceRevision: expect.stringMatching(/^[0-9a-f]{40}$/i),
-      rootPath: process.cwd(),
+      rootPath,
     }));
   });
 
   it("reconstructs queued GitHub delivery after restart without duplicating execution", async () => {
+    const rootPath = await createTestRoot("delivery-recovery");
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
       const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
       await runner?.({
-        rootPath: process.cwd(),
+        rootPath,
         projectId: params.projectId,
         operationId: params.operationId,
         message: "Resume the verified delivery",
@@ -718,7 +742,7 @@ describe("Mission recipe dispatch", () => {
       id: projectId,
       ownerId: "test-user",
       name: `mission-delivery-recovery-${projectId.slice(0, 8)}`,
-      rootPath: process.cwd(),
+      rootPath,
       language: "typescript",
       status: "active",
       gitRemoteUrl: "https://github.com/example/project.git",
@@ -834,6 +858,7 @@ describe("Mission recipe dispatch", () => {
   });
 
   it("re-dispatches a queued Mission recipe after a process restart without duplicating its execution", async () => {
+    const rootPath = await createTestRoot("recipe-recovery");
     recipeRunner.mockResolvedValue({
       executionId: "recipe-execution-recovered",
       status: "completed",
@@ -907,7 +932,7 @@ describe("Mission recipe dispatch", () => {
       id: projectId,
       ownerId: "test-user",
       name: `mission-recovery-${projectId.slice(0, 8)}`,
-      rootPath: process.cwd(),
+      rootPath,
       language: "typescript",
       status: "active",
       createdAt: now,
