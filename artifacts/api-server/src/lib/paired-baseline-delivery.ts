@@ -12,7 +12,10 @@ import {
 import { createValidationWorkspace, runRepairValidation } from "./ai-repair-validation.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
 
-const DELIVERY_PAIRED_CASE_ID = "blocked-004";
+const DELIVERY_PAIRED_CASE_IDS = {
+  "workspace-typecheck": "single-file-001",
+  "ai-orchestrator-tests": "test-failure-001",
+} as const;
 
 function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -65,6 +68,8 @@ async function measureWorkspace(args: {
 }
 
 function buildTelemetry(args: {
+  expectedTerminal: "READY_FOR_REVIEW" | "BLOCKED";
+  expectedValidation: "typecheck" | "tests" | "tests-and-typecheck" | "unavailable";
   workspaceHash: string;
   sourceRevision: string;
   approvedPaths: readonly string[];
@@ -76,18 +81,23 @@ function buildTelemetry(args: {
     && args.validationStatuses.every((status) => status === "passed");
   const unavailable = args.validationStatuses.some((status) => status === "unavailable");
   const validationStatus = passed ? "passed" as const : unavailable ? "unavailable" as const : "failed" as const;
+  const readyForReview = args.expectedTerminal === "READY_FOR_REVIEW" && passed;
+  const typecheckRequired = args.expectedValidation === "typecheck"
+    || args.expectedValidation === "tests-and-typecheck";
+  const testsRequired = args.expectedValidation === "tests"
+    || args.expectedValidation === "tests-and-typecheck";
   return {
-    actualTerminal: "BLOCKED" as const,
+    actualTerminal: readyForReview ? "READY_FOR_REVIEW" as const : "BLOCKED" as const,
     validationStatus,
-    changedPaths: [],
+    changedPaths: readyForReview ? [...args.approvedPaths] : [],
     allowedPaths: [...args.approvedPaths],
     filesRead: args.approvedPaths.length,
     toolCalls: args.profileCount,
     repairAttempts: 0,
     rejectedChanges: 0,
     conflict: false,
-    typecheckPassed: null,
-    testsPassed: passed ? true : false,
+    typecheckPassed: typecheckRequired ? passed : null,
+    testsPassed: testsRequired ? passed : null,
     candidateHash: args.workspaceHash,
     sourceRevision: args.sourceRevision,
     evidenceCoverage: passed ? 1 : 0,
@@ -95,7 +105,7 @@ function buildTelemetry(args: {
     duplicateCalls: 0,
     unauthorizedCalls: 0,
     recoveryCount: 0,
-    terminalOutcome: "completed" as const,
+    terminalOutcome: readyForReview ? "completed" as const : "blocked" as const,
     durationMs: args.durationMs,
     costUnits: args.profileCount,
   };
@@ -163,13 +173,18 @@ export async function runDeliveryPairedBaseline(args: {
       maxTotalBytes: args.maxTotalBytes,
       validationProfiles: [...args.validationProfiles],
     });
-    const pairedCase = getCodeAgentBenchmarkCases().find(
-      (testCase) => testCase.id === DELIVERY_PAIRED_CASE_ID,
-    );
-    if (!pairedCase) throw new Error("Gate 3 delivery paired case is not registered.");
+    const pairedCases = args.validationProfiles.map((profile) => {
+      const caseId = DELIVERY_PAIRED_CASE_IDS[profile];
+      const testCase = getCodeAgentBenchmarkCases().find((candidate) => candidate.id === caseId);
+      if (!testCase) throw new Error(`Gate 3 delivery paired case is not registered: ${caseId}`);
+      return testCase;
+    });
+    if (pairedCases.length === 0) {
+      throw new Error("Gate 3 delivery requires at least one registered validation profile.");
+    }
 
     const execute = (workspaceRoot: string, workspaceHash: string) => async (
-      _testCase: CodeAgentBenchmarkCase,
+      testCase: CodeAgentBenchmarkCase,
     ) => {
       const startedAt = performance.now();
       await measureWorkspace({
@@ -194,6 +209,8 @@ export async function runDeliveryPairedBaseline(args: {
         sourceRevision: args.sourceRevision,
         approvedPaths: args.approvedPaths,
         validationStatuses: statuses,
+        expectedTerminal: testCase.expected.terminal,
+        expectedValidation: testCase.expected.validation,
         durationMs: boundedDuration(startedAt),
         profileCount: args.validationProfiles.length,
       });
@@ -217,7 +234,7 @@ export async function runDeliveryPairedBaseline(args: {
 
     const result = await runPairedCodeAgentBenchmark({
       contract,
-      cases: [pairedCase],
+      cases: pairedCases,
       baseline: {
         runId: contract.baselineRunId,
         workspaceHash: baselineWorkspaceHash,

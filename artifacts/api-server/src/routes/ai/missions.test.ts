@@ -620,7 +620,12 @@ describe("AI missions and goals", () => {
         planRevision: { hash: planRevision },
         validationProfile: "workspace-typecheck",
       },
-      nextAction: {},
+      nextAction: {
+        kind: "recipe",
+        recipeId: "candidate.verify",
+        recipeVersion: 1,
+        approvedPaths: ["src/index.ts"],
+      },
       createdAt: now,
       updatedAt: now,
       completedAt: now,
@@ -746,29 +751,15 @@ describe("AI missions and goals", () => {
       .send({});
     expect(boundAgain.status).toBe(200);
 
-    if (replay.body.receipt.pairedBaseline.status !== "passed") {
-      const incompleteRegistration = await request(app)
-        .post(`/api/ai/proposals/${proposalId}/skill-registry`)
-        .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
-      expect(incompleteRegistration.status).toBe(409);
-      expect(incompleteRegistration.body.code).toBe("SKILL_REGISTRY_PAIRED_BASELINE_REQUIRED");
-
-      // Keep the approval/revocation portion deterministic without turning an
-      // incomplete live benchmark into a passing result. This remains a
-      // server-owned receipt fixture with the same replay identities.
-      const fixtureReceipt = {
-        ...replay.body.receipt,
-        pairedBaseline: {
-          ...replay.body.receipt.pairedBaseline,
-          status: "passed",
-          promotionAllowed: true,
-          blockers: [],
-        },
-      };
-      await db.update(aiShadowReplaysTable)
-        .set({ receipt: fixtureReceipt })
-        .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
-    }
+    expect(replay.body.receipt.pairedBaseline).toMatchObject({
+      status: "passed",
+      promotionAllowed: true,
+      cases: [expect.objectContaining({
+        caseId: "single-file-001",
+        baselineTerminal: "completed",
+        candidateTerminal: "completed",
+      })],
+    });
 
     const registered = await request(app)
       .post(`/api/ai/proposals/${proposalId}/skill-registry`)

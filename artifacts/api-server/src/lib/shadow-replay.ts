@@ -42,7 +42,10 @@ import {
   parseTaskObjectiveContract,
   type TaskObjectiveContract,
 } from "./task-objective-contract.js";
-import type { ValidationRunner } from "@workspace/ai-orchestrator";
+import {
+  GoalNextActionSchema,
+  type ValidationRunner,
+} from "@workspace/ai-orchestrator";
 import { runDeliveryPairedBaseline } from "./paired-baseline-delivery.js";
 
 const SHADOW_REPLAY_LEASE_MS = 5 * 60 * 1000;
@@ -122,6 +125,9 @@ export type DurableShadowReplayReceipt = ShadowReplayReceipt & {
 
 type ShadowReplayBehaviorContract = {
   objective: TaskObjectiveContract;
+  recipeId: "candidate.verify";
+  recipeVersion: 1;
+  approvedPaths: string[];
   validationProfiles: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
 };
 
@@ -205,6 +211,7 @@ async function resolveShadowReplayBehaviorContract(
     .select({
       outcomeContract: aiGoalsTable.outcomeContract,
       successCriteria: aiGoalsTable.successCriteria,
+      nextAction: aiGoalsTable.nextAction,
     })
     .from(aiGoalsTable)
     .where(and(
@@ -220,6 +227,25 @@ async function resolveShadowReplayBehaviorContract(
   }
   const objective = parseTaskObjectiveContract(request?.taskObjective);
   const validationProfile = goal ? validationProfileFromGoal(goal) : undefined;
+  const nextAction = goal ? GoalNextActionSchema.safeParse(goal.nextAction) : undefined;
+  const behaviorApprovedPaths = nextAction?.success && nextAction.data.kind === "recipe"
+    ? [...nextAction.data.approvedPaths]
+    : [];
+  const behaviorIsCandidateVerification =
+    nextAction?.success
+    && nextAction.data.kind === "recipe"
+    && nextAction.data.recipeId === "candidate.verify"
+    && nextAction.data.recipeVersion === 1
+    && nextAction.data.approvedPaths.length > 0
+    && (
+      nextAction.data.candidateIdentity === undefined
+      || nextAction.data.candidateIdentity === null
+      || nextAction.data.candidateIdentity === input.candidateTreeHash
+    )
+    && nextAction.data.approvedPaths.length === input.candidate.approvedPaths.length
+    && nextAction.data.approvedPaths.every((approvedPath) => input.candidate.approvedPaths.includes(approvedPath))
+    && nextAction.data.proposalId === undefined
+    && nextAction.data.skill === undefined;
   const objectiveTargetPaths = objective?.targetPaths ?? [];
   const approved = new Set(input.candidate.approvedPaths);
   const targetScopeCovered = objectiveTargetPaths.length > 0
@@ -234,6 +260,7 @@ async function resolveShadowReplayBehaviorContract(
   if (
     !objective
     || !validationProfile
+    || !behaviorIsCandidateVerification
     || !objectiveBound
     || !registeredValidatorOnly
     || !targetScopeCovered
@@ -249,6 +276,9 @@ async function resolveShadowReplayBehaviorContract(
   }
   return {
     objective,
+    recipeId: "candidate.verify",
+    recipeVersion: 1,
+    approvedPaths: behaviorApprovedPaths,
     validationProfiles: [validationProfile],
   };
 }
@@ -495,9 +525,9 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     operationId,
     rootPath: input.sourceWorkspaceRoot!,
     sourceRevision: input.sourceRevision,
-    recipeId: "candidate.verify",
-    recipeVersion: 1,
-    approvedPaths: [...input.candidate.approvedPaths],
+    recipeId: behaviorContract.recipeId,
+    recipeVersion: behaviorContract.recipeVersion,
+    approvedPaths: behaviorContract.approvedPaths,
     candidateIdentity: input.candidateTreeHash,
     candidateWorkspace: replayWorkspace.rootPath,
     validationProfiles: behaviorContract.validationProfiles,
@@ -517,7 +547,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     modelMessage: "Server-owned candidate shadow replay.",
     workspaceRevision: input.sourceRevision,
     workspaceRoot: replayWorkspace.rootPath,
-    validationTargetPaths: [...input.candidate.approvedPaths],
+    validationTargetPaths: [...behaviorContract.approvedPaths],
     validationProfiles: behaviorContract.validationProfiles,
     objective: behaviorContract.objective.objective,
     taskObjective: behaviorContract.objective,
