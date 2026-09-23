@@ -15,8 +15,8 @@ Mission projections must revalidate stored Skill Candidate envelopes and their e
 
 **How to apply:** Use the existing Skill Candidate validator plus execution-proof parser in projection builders, and expose only a bounded proof summary to clients.
 
-The foundation is not yet the sole authority: task/workflow/recipe status synchronization and candidate/shadow validation still contain independent projection-based checks. Consolidate those callers before treating replay or promotion as proof-carrying.
+Automatic task, workflow, and recipe completion plus candidate/shadow decisions now reload the canonical proof before accepting a terminal result; a successful runner without bound proof leaves the Goal in `verifying` and the public verdict `INCOMPLETE`.
 
-**Why:** A strong composer cannot prevent weaker callers from marking a Goal complete or accepting a candidate before the canonical execution/acceptance/evidence rows are reloaded and bound.
+**Why:** Provider or runner success and copied Goal projections can outlive, omit, or disagree with the durable execution/acceptance/evidence identities.
 
-**How to apply:** Add a server-owned row-loading canonical-proof service, route every terminal/candidate decision through it, then make replay receipts and promotion eligibility reference that same proof identity.
+**How to apply:** Route every automatic terminal/candidate decision through the row-loading service; never remap an unknown result execution ID to another durable execution just to make a test or replay complete.

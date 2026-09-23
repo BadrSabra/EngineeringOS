@@ -1,11 +1,9 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
-import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
-  aiExecutionAcceptancesTable,
-  aiExecutionEvidenceSnapshotsTable,
   aiGoalDependenciesTable,
   aiExecutionsTable,
   aiGoalsTable,
@@ -32,7 +30,7 @@ import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
 import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
-import { composeCanonicalProof } from "./proof-foundation.js";
+import { loadCanonicalProof } from "./proof-foundation.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
 import {
@@ -264,7 +262,7 @@ async function syncRecipeObjectiveState(params: {
   executionId?: string;
   sourceRevision?: string | null;
   candidateIdentity?: string | null;
-  status: "completed" | "blocked" | "failed" | "needs_replan";
+  status: "completed" | "blocked" | "failed" | "needs_replan" | "verifying";
   reason?: string;
   deliveryReceipt?: {
     kind: "recipe";
@@ -296,100 +294,33 @@ async function syncRecipeObjectiveState(params: {
     let completionReason = params.reason;
     let canonicalProofAccepted = params.status !== "completed";
     if (params.status === "completed" && params.executionId) {
-      const [execution] = await tx
-        .select()
-        .from(aiExecutionsTable)
-        .where(and(
-          eq(aiExecutionsTable.id, params.executionId),
-          eq(aiExecutionsTable.projectId, params.projectId),
-          eq(aiExecutionsTable.goalId, goal.id),
-        ))
-        .limit(1);
-      const [acceptance] = execution
-        ? await tx
-          .select()
-          .from(aiExecutionAcceptancesTable)
-          .where(and(
-            eq(aiExecutionAcceptancesTable.executionId, execution.id),
-            eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
-          ))
-          .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
-          .limit(1)
-        : [];
-      const evidence = acceptance?.evidenceSnapshotId
-        ? (await tx
-          .select()
-          .from(aiExecutionEvidenceSnapshotsTable)
-          .where(eq(
-            aiExecutionEvidenceSnapshotsTable.id,
-            acceptance.evidenceSnapshotId,
-          ))
-          .limit(1))[0]
-        : undefined;
       const outcome = jsonRecord(goal.outcomeContract);
-      const canonicalProof = composeCanonicalProof({
+      const policy = jsonRecord(mission.autonomyPolicy);
+      const canonicalProof = await loadCanonicalProof({
+        tx,
+        executionId: params.executionId,
         scope: {
           projectId: params.projectId,
           missionId: params.missionId,
           goalId: goal.id,
-          operationId: execution?.operationId ?? null,
           planRevision: goalPlanRevision(goal) ?? null,
-          activePlanRevision: typeof jsonRecord(mission.autonomyPolicy).activePlanRevision === "string"
-            ? jsonRecord(mission.autonomyPolicy).activePlanRevision as string
+          activePlanRevision: typeof policy.activePlanRevision === "string"
+            ? policy.activePlanRevision
             : null,
-          sourceRevision: params.sourceRevision ?? execution?.baseRevision ?? null,
+          sourceRevision: params.sourceRevision ?? null,
           candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
         },
         goalStatus: "completed",
         deliveryRequired: outcome.deliveryRequired === true,
         deliveryReceipt: params.deliveryReceipt,
-        execution: execution
-          ? {
-              id: execution.id,
-              projectId: execution.projectId,
-              goalId: execution.goalId,
-              operationId: execution.operationId,
-              attempt: execution.attempt,
-              baseRevision: execution.baseRevision,
-            }
-          : null,
-        acceptance: acceptance
-          ? {
-              id: acceptance.id,
-              executionId: acceptance.executionId,
-              projectId: acceptance.projectId,
-              attempt: acceptance.attempt,
-              operationId: acceptance.operationId,
-              terminalStatus: acceptance.terminalStatus,
-              outcome: acceptance.outcome,
-              evidenceSnapshotId: acceptance.evidenceSnapshotId,
-              evidenceRequired: acceptance.evidenceRequired === 1,
-              evidenceComplete: acceptance.evidenceComplete === 1,
-              sourceRevision: acceptance.sourceRevision,
-              candidateIdentity: acceptance.candidateIdentity,
-              disposition: acceptance.disposition,
-            }
-          : null,
-        evidence: evidence
-          ? {
-              id: evidence.id,
-              executionId: evidence.executionId,
-              projectId: evidence.projectId,
-              attempt: evidence.attempt,
-              sourceRevision: evidence.sourceRevision,
-              candidateIdentity: evidence.candidateIdentity,
-              complete: evidence.complete === 1,
-              verdict: evidence.verdict,
-            }
-          : null,
       });
       canonicalProofAccepted = canonicalProof.accepted;
       if (!canonicalProofAccepted) {
-        nextGoalStatus = "blocked";
+        nextGoalStatus = "verifying";
         completionReason = `canonical_proof_${canonicalProof.failureReasons[0] ?? "incomplete"}`;
       }
     } else if (params.status === "completed") {
-      nextGoalStatus = "blocked";
+      nextGoalStatus = "verifying";
       completionReason = "canonical_proof_missing_execution";
     }
     if (params.executionId) {
@@ -398,10 +329,12 @@ async function syncRecipeObjectiveState(params: {
         projectId: params.projectId,
         projection: {
           executionId: params.executionId,
-          outcome: nextGoalStatus === "completed" ? "SUCCEEDED" : "FAILED",
-          verdict: nextGoalStatus === "completed" && canonicalProofAccepted
+          outcome: params.status === "completed" ? "SUCCEEDED" : "FAILED",
+          verdict: params.status === "completed" && canonicalProofAccepted
             ? "PROVEN"
-            : nextGoalStatus === "needs_replan"
+            : params.status === "completed"
+              ? "INCOMPLETE"
+              : nextGoalStatus === "needs_replan"
               ? "INCOMPLETE"
               : "FAILED",
           scope: {
@@ -411,7 +344,7 @@ async function syncRecipeObjectiveState(params: {
           receipt: {
             kind: "recipe",
             executionId: params.executionId,
-            status: nextGoalStatus,
+            status: params.status,
           },
           deliveryReceipt: params.deliveryReceipt,
           reasonCode: completionReason,
@@ -422,7 +355,7 @@ async function syncRecipeObjectiveState(params: {
     await tx.update(aiGoalsTable)
       .set({
         status: nextGoalStatus,
-        blockedReason: nextGoalStatus === "completed"
+        blockedReason: nextGoalStatus === "completed" || nextGoalStatus === "verifying"
           ? null
           : (completionReason ?? "Recipe execution did not complete."),
         completedAt: nextGoalStatus === "completed" ? goal.completedAt ?? new Date() : null,

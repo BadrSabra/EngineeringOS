@@ -23,6 +23,7 @@ import {
   parseExecutionProofProjection,
   type ExecutionProofProjection,
 } from "./execution-proof.js";
+import { loadCanonicalProof } from "./proof-foundation.js";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -390,6 +391,23 @@ function readGoalPlanRevision(value: unknown): string | undefined {
   return typeof planRevision === "string" ? planRevision : undefined;
 }
 
+function activeMissionPlanRevision(
+  mission: typeof aiMissionsTable.$inferSelect,
+): string | null {
+  const policy = mission.autonomyPolicy;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+  const revision = (policy as Record<string, unknown>).activePlanRevision;
+  return typeof revision === "string" && revision.length > 0 ? revision : null;
+}
+
+function goalPlanRevisionForProof(
+  goal: typeof aiGoalsTable.$inferSelect,
+): string | null {
+  return readGoalPlanRevision(goal.outcomeContract)
+    ?? readGoalPlanRevision(goal.successCriteria)
+    ?? null;
+}
+
 /**
  * Historical Goals remain visible for audit, but only the active plan revision
  * can determine the current Mission status. Without this projection boundary,
@@ -423,6 +441,7 @@ async function syncLinkedObjectiveState(
     outcome: ObjectiveOutcome;
     retryable: boolean;
     executionId: string;
+    operationId: string | null;
     correlationId: string | null;
     now: Date;
     acceptanceProjection?: GoalAcceptanceProjection;
@@ -454,7 +473,17 @@ async function syncLinkedObjectiveState(
       eq(tasksTable.goalId, goal.id),
       eq(tasksTable.projectId, params.task.projectId),
     ));
-  const nextGoalStatus = deriveLinkedGoalStatus({
+  const [mission] = await tx
+    .select()
+    .from(aiMissionsTable)
+    .where(and(
+      eq(aiMissionsTable.id, goal.missionId),
+      eq(aiMissionsTable.projectId, params.task.projectId),
+    ))
+    .for("update");
+  if (!mission) return;
+
+  let nextGoalStatus: ObjectiveGoalStatus = deriveLinkedGoalStatus({
     outcome: params.outcome,
     taskStatus: params.taskStatus,
     retryable: params.retryable,
@@ -464,6 +493,27 @@ async function syncLinkedObjectiveState(
     deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
     deliveryReceipt: params.acceptanceProjection?.deliveryReceipt,
   });
+  if (nextGoalStatus === "completed") {
+    const proof = await loadCanonicalProof({
+      tx,
+      executionId: params.executionId,
+      scope: {
+        projectId: params.task.projectId,
+        missionId: mission.id,
+        goalId: goal.id,
+        executionId: params.executionId,
+        operationId: params.operationId,
+        planRevision: goalPlanRevisionForProof(goal),
+        activePlanRevision: activeMissionPlanRevision(mission),
+        sourceRevision: params.acceptanceProjection?.sourceRevision ?? null,
+        candidateIdentity: params.acceptanceProjection?.candidateIdentity ?? null,
+      },
+      goalStatus: "completed",
+      deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
+      deliveryReceipt: params.acceptanceProjection?.deliveryReceipt,
+    });
+    if (!proof.accepted) nextGoalStatus = "verifying";
+  }
 
   // A manually blocked/cancelled goal remains operator-owned. Automatic
   // execution may advance an active/recoverable goal but must not reopen it.
@@ -536,16 +586,6 @@ async function syncLinkedObjectiveState(
       eq(aiGoalsTable.projectId, params.task.projectId),
     ))
     .for("update");
-  const [mission] = await tx
-    .select()
-    .from(aiMissionsTable)
-    .where(and(
-      eq(aiMissionsTable.id, goal.missionId),
-      eq(aiMissionsTable.projectId, params.task.projectId),
-    ))
-    .for("update");
-  if (!mission) return;
-
   const missionIsOperatorOwned =
     mission.status === "blocked"
     || mission.status === "cancelled"
@@ -629,6 +669,37 @@ async function syncWorkflowGoalProjection(
   if (!workflowExecution) return;
 
   const evidenceComplete = params.acceptance.evidenceComplete === 1;
+  const [missionForProof] = params.projection.finalPhase
+    ? await tx
+      .select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.id, goal.missionId),
+        eq(aiMissionsTable.projectId, params.projectId),
+      ))
+      .for("update")
+    : [];
+  const canonicalProof = missionForProof
+    && params.acceptance.outcome === "SUCCEEDED"
+    && evidenceComplete
+    ? await loadCanonicalProof({
+        tx,
+        executionId: params.executionId,
+        scope: {
+          projectId: params.projectId,
+          missionId: missionForProof.id,
+          goalId: goal.id,
+          executionId: params.executionId,
+          operationId: params.acceptance.operationId,
+          planRevision: goalPlanRevisionForProof(goal),
+          activePlanRevision: activeMissionPlanRevision(missionForProof),
+          sourceRevision: params.acceptance.sourceRevision,
+          candidateIdentity: params.acceptance.candidateIdentity,
+        },
+        goalStatus: "completed",
+        deliveryRequired: goalRequiresDelivery(goal.outcomeContract),
+      })
+    : null;
   await projectGoalAcceptance(tx, {
     goalId: goal.id,
     projectId: params.projectId,
@@ -636,7 +707,8 @@ async function syncWorkflowGoalProjection(
       acceptanceId: params.acceptance.id,
       executionId: params.executionId,
       outcome: params.acceptance.outcome as GoalAcceptanceProjection["outcome"],
-      verdict: params.acceptance.outcome === "SUCCEEDED" && evidenceComplete
+      verdict: params.acceptance.outcome === "SUCCEEDED"
+        && (!params.projection.finalPhase || canonicalProof?.accepted === true)
         ? "PROVEN"
         : params.acceptance.outcome === "FAILED"
           ? "FAILED"
@@ -667,11 +739,14 @@ async function syncWorkflowGoalProjection(
   // transition.
   if (!params.projection.finalPhase) return;
 
-  const nextGoalStatus = params.acceptance.outcome === "SUCCEEDED" && evidenceComplete
+  let nextGoalStatus: ObjectiveGoalStatus = params.acceptance.outcome === "SUCCEEDED" && evidenceComplete
     ? "completed"
     : params.acceptance.outcome === "INTERRUPTED"
       ? "needs_replan"
       : "failed";
+  if (nextGoalStatus === "completed" && canonicalProof?.accepted !== true) {
+    nextGoalStatus = "verifying";
+  }
   const operatorOwned = goal.status === "blocked" || goal.status === "cancelled";
   const goalChanged = !operatorOwned && goal.status !== nextGoalStatus;
   if (goalChanged) {
@@ -1605,6 +1680,7 @@ export async function finalizeExecutionAcceptance(
         outcome,
         retryable: params.resumable === true,
         executionId: execution.id,
+        operationId: execution.operationId,
         correlationId,
         now,
         acceptanceProjection: {

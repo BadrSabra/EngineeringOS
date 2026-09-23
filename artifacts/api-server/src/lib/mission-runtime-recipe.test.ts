@@ -4,10 +4,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import request from "supertest";
 import app from "../app.js";
 import {
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiChangeProposalsTable,
   aiChatMessagesTable,
@@ -17,6 +18,7 @@ import {
   db,
   projectsTable,
 } from "@workspace/db";
+import { buildExecutionProofProjection } from "./execution-proof.js";
 
 const { recipeRunner, githubDeliveryRunner } = vi.hoisted(() => ({
   recipeRunner: vi.fn(),
@@ -56,6 +58,100 @@ async function createTestRoot(label: string): Promise<string> {
   await execFileAsync("git", ["-C", rootPath, "commit", "--allow-empty", "-qm", "fixture"]);
   testRoots.push(rootPath);
   return rootPath;
+}
+
+async function seedSuccessfulRecipeProof(
+  params: Record<string, unknown>,
+  preferredExecutionId: string,
+): Promise<string> {
+  const projectId = String(params.projectId);
+  const goalId = String(params.goalId);
+  const operationId = String(params.operationId);
+  const sourceRevision = typeof params.sourceRevision === "string"
+    ? params.sourceRevision
+    : "recipe-test-source-revision";
+  const now = new Date();
+  const [execution] = await db
+    .select({ id: aiExecutionsTable.id, attempt: aiExecutionsTable.attempt })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.goalId, goalId),
+      eq(aiExecutionsTable.operationId, operationId),
+    ))
+    .limit(1);
+  const executionId = execution?.id ?? preferredExecutionId;
+  if (execution) {
+    await db.update(aiExecutionsTable)
+      .set({
+        status: "completed",
+        baseRevision: sourceRevision,
+        completedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(aiExecutionsTable.id, executionId));
+  } else {
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      goalId,
+      userId: "test-user",
+      operationId,
+      idempotencyKey: `recipe-proof:${executionId}`,
+      resumeTokenHash: `recipe-proof-token:${executionId}`,
+      request: JSON.stringify({
+        projectId,
+        operationId,
+        message: "recipe proof fixture",
+        modelMessage: "recipe proof fixture",
+        workspaceRevision: sourceRevision,
+      }),
+      checkpoint: "{}",
+      status: "completed",
+      baseRevision: sourceRevision,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+  }
+
+  const [acceptance] = await db
+    .select({ id: aiExecutionAcceptancesTable.id })
+    .from(aiExecutionAcceptancesTable)
+    .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+    .limit(1);
+  if (acceptance) return executionId;
+
+  const proof = buildExecutionProofProjection({
+    outcome: "SUCCEEDED",
+    evidenceRequired: false,
+    evidenceComplete: true,
+    evidenceSnapshotId: null,
+    sourceRevision,
+    candidateIdentity: null,
+  });
+  const attempt = execution?.attempt ?? 0;
+  await db.insert(aiExecutionAcceptancesTable).values({
+    id: `recipe-acceptance:${executionId}`,
+    executionId,
+    projectId,
+    attempt,
+    finalizationKey: `recipe-proof-finalization:${executionId}`,
+    operationId,
+    terminalStatus: "completed",
+    outcome: "SUCCEEDED",
+    reasonCode: "NONE",
+    nextActionCode: "NONE",
+    disposition: { proof },
+    evidenceSnapshotId: null,
+    evidenceRequired: 0,
+    evidenceComplete: 1,
+    resumable: 0,
+    messageId: null,
+    sourceRevision,
+    candidateIdentity: null,
+    createdAt: now,
+  });
+  return executionId;
 }
 
 afterEach(async () => {
@@ -119,6 +215,7 @@ describe("Mission recipe dispatch", () => {
     ]);
 
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      await seedSuccessfulRecipeProof(params, "unified-delivery-execution");
       const runner = params.githubDeliveryRunner as
         ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
       await runner?.({
@@ -336,6 +433,7 @@ describe("Mission recipe dispatch", () => {
   it("rebuilds the server-owned GitHub runner from a committed proposal", async () => {
     const rootPath = await createTestRoot("delivery");
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      await seedSuccessfulRecipeProof(params, "delivery-execution-1");
       const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
       expect(runner).toBeTypeOf("function");
       await runner?.({
@@ -539,8 +637,10 @@ describe("Mission recipe dispatch", () => {
 
   it("binds a typed recipe action to the existing recipe runner and projects completion", async () => {
     const rootPath = await createTestRoot("recipe");
-    recipeRunner.mockResolvedValue({
-      executionId: "recipe-execution-1",
+    recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      await seedSuccessfulRecipeProof(params, "recipe-execution-1");
+      return {
+        executionId: "recipe-execution-1",
       status: "completed",
       completedNodeIds: ["verify"],
       receipt: {
@@ -563,6 +663,7 @@ describe("Mission recipe dispatch", () => {
         createdAt: "2026-09-22T15:00:00.000Z",
         completedAt: "2026-09-22T15:00:00.010Z",
       },
+      };
     });
 
     const projectId = crypto.randomUUID();
@@ -663,13 +764,14 @@ describe("Mission recipe dispatch", () => {
         operationId: params.operationId,
         message: "Resume the verified delivery",
       });
+      const executionId = await seedSuccessfulRecipeProof(params, "delivery-execution-recovered");
       return {
-        executionId: "delivery-execution-recovered",
+        executionId,
         status: "completed",
         completedNodeIds: ["push"],
         receipt: {
           contractVersion: 1,
-          executionId: "delivery-execution-recovered",
+          executionId,
           operationId: params.operationId,
           recipeId: "delivery.push.github",
           recipeVersion: 1,
@@ -859,13 +961,15 @@ describe("Mission recipe dispatch", () => {
 
   it("re-dispatches a queued Mission recipe after a process restart without duplicating its execution", async () => {
     const rootPath = await createTestRoot("recipe-recovery");
-    recipeRunner.mockResolvedValue({
-      executionId: "recipe-execution-recovered",
+    recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
+      const executionId = await seedSuccessfulRecipeProof(params, "recipe-execution-recovered");
+      return {
+      executionId,
       status: "completed",
       completedNodeIds: ["verify"],
       receipt: {
         contractVersion: 1,
-        executionId: "recipe-execution-recovered",
+          executionId,
         operationId: "mission-recipe-operation-recovered",
         recipeId: "validation.recover",
         recipeVersion: 1,
@@ -883,6 +987,7 @@ describe("Mission recipe dispatch", () => {
         createdAt: "2026-09-22T15:00:00.000Z",
         completedAt: "2026-09-22T15:00:00.010Z",
       },
+      };
     });
 
     const projectId = randomUUID();
