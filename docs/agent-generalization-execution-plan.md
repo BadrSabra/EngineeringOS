@@ -3035,3 +3035,394 @@ evidence completeness
 
 إذا غابت أي مجموعة، يكون النظام في مرحلة وسيطة محددة، ولا يجوز وصفه بأنه
 وصل إلى الهدف العام الكامل.
+
+---
+
+## 35. Architecture Freeze — قرارات ملزمة قبل أول Migration
+
+هذا القسم يحسم القرارات التي كانت قابلة للتفسير في الخطة العامة. لا يبدأ
+التنفيذ الذي يغير schema أو acceptance قبل اعتماد هذه القرارات كما هي.
+
+### 35.1 مصدر الحقيقة لكل نوع بيانات
+
+| البيانات | المصدر الأصلي | ما لا يجوز فعله |
+|---|---|---|
+| execution ownership/status | `ai_executions` و`ai-execution-state.ts` | إنشاء queue أو lease ثانية |
+| mission/goal lifecycle | `ai_missions` و`mission-runtime.ts` | إنشاء Mission state machine موازية |
+| terminal acceptance | `ai_execution_acceptances` و`ai-execution-acceptance.ts` | إنشاء acceptance row بديلة |
+| retained source proof | `ai_execution_evidence_snapshots` و`evidence-integrity.ts` | نسخ body إلى world/episode |
+| project event feed | `events` | استخدامه وحده لإعادة بناء episode |
+| episode lifecycle | `ai_agent_episodes` | وضع lifecycle داخل checkpoint فقط |
+| episode ordering | `ai_agent_episode_events` | الاعتماد على timestamp وحده |
+| semantic observations | `ai_agent_observations` | اعتبار كل provider output observation |
+| current world projection | `ai_world_facts` | تعديل fact قديم بلا version |
+| executable promoted skill | `ai_skill_registry` | تخزين strategy غير قابلة للتنفيذ فيه |
+| reusable strategy candidate | `ai_strategy_candidates` | تفعيلها دون replay وevaluation |
+
+### 35.2 العلاقة بين `events` و`ai_agent_episode_events`
+
+لا تستبدل الجداول بعضها:
+
+- `events` سجل عام مرتبط بالمشروع، وقد يحتوي task/workflow/goal events
+  قديمة أو غير مرتبطة بـepisode.
+- `ai_agent_episode_events` سجل خاص قابل لإعادة بناء episode، ويملك sequence
+  إلزامياً وFK إلى episode وattempt.
+
+يجب أن يكتب adapter واحد الحدثين عند الحاجة:
+
+```text
+episode transition
+    → ai_agent_episode_events (canonical episode order)
+    → events (dashboard/audit projection)
+```
+
+لا يقرأ planner أو recovery episode من `events` العامة إذا كان
+`ai_agent_episode_events` متاحاً.
+
+### 35.3 ربط الأثر بالقبول
+
+يضاف إلى `ai_execution_acceptances` عمود اختياري:
+
+```text
+effect_bundle_id text nullable
+```
+
+ويرتبط بجدول:
+
+```text
+ai_agent_effect_bundles
+```
+
+المخطط:
+
+```text
+id              text primary key
+project_id      text not null
+execution_id    text not null
+attempt         integer not null
+episode_id      text not null
+effect_ids      jsonb not null
+effect_contract_hashes jsonb not null
+verdict         text not null
+world_revision  text nullable
+created_at      timestamp not null
+```
+
+القيود:
+
+```text
+UNIQUE(execution_id, attempt)
+FK execution_id → ai_executions.id ON DELETE CASCADE
+FK episode_id → ai_agent_episodes.id ON DELETE CASCADE
+INDEX(project_id, created_at)
+```
+
+يتم إنشاء effect bundle قبل terminal acceptance، وتكتب acceptance وeffect
+binding في نفس transaction. لا يستخدم `disposition` وحده لهذا الربط؛ يمكن
+أن يحتوي `disposition` على projection مختصرة فقط.
+
+### 35.4 الـenums والـchecks
+
+يجب أن تكون الحالات server-owned enums أو Zod enums متطابقة:
+
+```text
+episode_state:
+  created, running, paused, effect_pending, verifying,
+  waiting_approval, needs_replan, completed, blocked,
+  failed, cancelling, cancelled
+
+episode_verdict:
+  achieved, incomplete, blocked, replan_required,
+  world_changed, needs_approval, unsafe, failed, cancelled
+
+observation_completeness:
+  complete, partial, failed
+
+observation_freshness:
+  fresh, stale, unknown
+
+effect_status:
+  pending, observed, partial, not_observed, contradicted, unknown
+
+fact_status:
+  believed, confirmed, contradicted, superseded, retracted
+```
+
+يجب أن يفرض database وZod معاً:
+
+```text
+confidence >= 0 AND confidence <= 1
+sequence >= 0
+attempt >= 0
+version >= 1
+```
+
+### 35.5 `worldRevision`
+
+يحسب server-side فقط:
+
+```text
+worldRevision =
+  sha256(canonicalJson({
+    projectRevision,
+    environmentRevision,
+    relevantFactVersions,
+    latestObservationSequence
+  }))
+```
+
+يشمل `relevantFactVersions` facts التي تدخل scope الحالي، وليس كل facts
+المشروع. يجب حفظ inputs أو references اللازمة لإعادة الحساب دون حفظ raw
+provider text.
+
+### 35.6 rollout configuration
+
+في P0/P1 تكون flags process configuration server-owned، ولا تأتي من client.
+عند الحاجة إلى project-scoped rollout، يضاف لاحقاً جدول:
+
+```text
+ai_agent_rollout_controls
+```
+
+ولا يسمح بوجود قيم مختلفة بين workers دون revision/config generation موحدة.
+كل تغيير flag يسجل في audit، ولا يؤثر على execution بدأ بpolicy snapshot
+مختلفة.
+
+### 35.7 الوثائق المتداخلة
+
+تعد هذه الوثيقة المصدر الرئيسي لمبادرة generalization. الوثيقة:
+
+```text
+docs/ai-agent-improvement-plan.md
+```
+
+مرجع تاريخي للتحسينات السابقة المتعلقة بالـbudget وquery planning والذاكرة،
+ولا تنشئ خطة تنفيذ موازية. أي اقتراح من الوثيقة القديمة يجب أن يمر عبر
+العقود وExecutionPlan وEpisode/Effect boundaries الموجودة هنا.
+
+---
+
+## 36. أول حزمة تنفيذية ملزمة: P0 وP1
+
+هذه الحزمة هي نقطة البدء الوحيدة المسموح بها قبل World State أو learning.
+
+### 36.1 P0-A — إنشاء العقود
+
+الملفات:
+
+```text
+lib/ai-orchestrator/src/agent-state/episode-contract.ts
+lib/ai-orchestrator/src/agent-state/observation-contract.ts
+lib/ai-orchestrator/src/agent-state/effect-contract.ts
+lib/ai-orchestrator/src/agent-state/failure-contract.ts
+lib/ai-orchestrator/src/agent-state/strategy-contract.ts
+lib/ai-orchestrator/src/agent-state/index.ts
+```
+
+المطلوب:
+
+1. Zod schema لكل عقد.
+2. TypeScript inferred types.
+3. schema version.
+4. canonical hash helper.
+5. size limits.
+6. public/private projection types.
+7. parse functions لا تقبل unknown values غير bounded.
+8. تصدير العقود من `src/index.ts`.
+
+لا يضيف P0 أي import إلى:
+
+- `lib/db`.
+- API server.
+- provider clients.
+- filesystem.
+
+### 36.2 P0-B — الاختبارات
+
+يجب إنشاء:
+
+```text
+lib/ai-orchestrator/src/__tests__/agent-episode-contract.test.ts
+lib/ai-orchestrator/src/__tests__/agent-observation-contract.test.ts
+lib/ai-orchestrator/src/__tests__/agent-effect-contract.test.ts
+lib/ai-orchestrator/src/__tests__/agent-failure-contract.test.ts
+```
+
+وتغطي:
+
+- valid/invalid parsing.
+- maximum sizes.
+- unknown enum rejection.
+- hash stability.
+- redaction projection.
+- no raw provider diagnostics.
+- backward-compatible optional fields.
+
+### 36.3 P1-A — Drizzle migrations
+
+الملفات الجديدة:
+
+```text
+lib/db/src/schema/ai_agent_episodes.ts
+lib/db/src/schema/ai_agent_observations.ts
+lib/db/src/schema/ai_agent_effects.ts
+lib/db/src/schema/ai_agent_effect_bundles.ts
+lib/db/src/schema/ai_world_facts.ts
+lib/db/src/schema/ai_strategy_candidates.ts
+```
+
+في P1 تنشأ الجداول، لكن لا يكتب World State أو Strategy Learning بعد.
+تضاف فقط:
+
+- episode root.
+- episode event.
+- references اللازمة.
+
+يجب أن يمر schema readiness قبل تشغيل worker:
+
+```text
+schema exists
+→ enum values match
+→ indexes exist
+→ foreign keys exist
+→ unique constraints exist
+→ startup continues
+```
+
+### 36.4 P1-B — Episode Ledger
+
+الملف:
+
+```text
+artifacts/api-server/src/lib/agent-state/agent-episode-ledger.ts
+```
+
+الدوال الإلزامية:
+
+```ts
+startEpisode()
+appendEpisodeEvent()
+loadEpisodeForOwner()
+closeEpisode()
+replayEpisode()
+```
+
+كل write:
+
+```text
+transaction
+→ lock episode
+→ verify project/execution/attempt
+→ verify worker lease
+→ verify state transition
+→ verify sequence
+→ insert idempotently
+→ commit
+```
+
+### 36.5 P1-C — Shadow integration
+
+يرتبط ledger أولاً مع:
+
+```text
+artifacts/api-server/src/lib/task-execution-service.ts
+artifacts/api-server/src/lib/mission-runtime.ts
+artifacts/api-server/src/routes/ai/chat.ts
+```
+
+التكامل في هذه المرحلة:
+
+- ينشئ episode.
+- يسجل references.
+- لا يغير `terminalStatus`.
+- لا يمنع tool.
+- لا يغير provider routing.
+- لا يغير planner.
+- لا يغير acceptance verdict.
+
+### 36.6 P1-D — اختبارات القبول
+
+يجب إضافة اختبارات:
+
+```text
+episode-start-idempotency
+episode-attempt-mismatch
+episode-cross-project-rejection
+episode-stale-worker-rejection
+episode-sequence-coherence
+episode-terminal-immutability
+episode-resume-replay
+episode-cancellation
+episode-crash-before-close
+episode-public-redaction
+```
+
+مع fixtures provider-free قدر الإمكان.
+
+---
+
+## 37. عقد انتقال P1 إلى P2
+
+لا يبدأ Observation Materialization إلا إذا تحققت الشروط التالية:
+
+```text
+all P0 contract tests pass
+all P1 schema readiness checks pass
+episode writes are idempotent
+stale writes are rejected
+legacy executions remain readable
+no acceptance regression
+no public diagnostic leakage
+shadow overhead p95 < 50ms per event
+```
+
+ويجب أن تكون نتائج shadow متاحة لمدة campaign كاملة قبل تحويلها إلى مصدر
+لـworld state.
+
+---
+
+## 38. ما لا يجوز تنفيذه في أول Pull Request
+
+لا يضم أول PR أياً من التالي:
+
+- `ai_world_facts` تؤثر في قرار planner.
+- effect enforcement.
+- تغيير `ai_execution_acceptances` terminal logic.
+- automatic replan.
+- strategy extraction.
+- model/provider policy learning.
+- skill promotion.
+- capability composition.
+- generated adapters.
+- تغيير public Dashboard contracts.
+
+الهدف من أول PR هو إثبات الهوية والتتبع فقط، وليس جعل الوكيل أكثر استقلالية.
+
+---
+
+## 39. مراجعة القبول قبل كل تفعيل
+
+قبل تحويل أي flag من Shadow إلى Advisory أو Enforced، يجب تسجيل:
+
+```text
+implementation commit/checkpoint
+schema revision
+contract versions
+policy snapshot
+benchmark campaign id
+rollback procedure
+operator owner
+```
+
+ويجب أن تكون الإجابة عن الأسئلة التالية موجودة في release evidence:
+
+1. هل يمكن إعادة بناء episode بعد restart؟
+2. هل يرفض worker قديم الكتابة بعد فقد lease؟
+3. هل source/effect identity مرتبطة بنفس revision؟
+4. هل public projections خالية من raw diagnostics؟
+5. هل يستطيع rollback إيقاف المسار دون حذف evidence؟
+6. هل لا يزال acceptance هو مصدر terminal truth؟
+7. هل توجد fixture تثبت الفشل الآمن عند missing effect؟
+8. هل توجد fixture تثبت رفض cross-project state؟
+
+إذا كانت إجابة واحدة `لا`، يبقى المسار Shadow.
