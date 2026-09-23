@@ -6,6 +6,11 @@ import {
   normalizeEvidenceSnapshot,
   projectExecutionAcceptance,
 } from "./ai-execution-acceptance.js";
+import {
+  buildExecutionProofProjection,
+  buildExecutionTrajectoryDigest,
+  parseExecutionProofProjection,
+} from "./execution-proof.js";
 
 describe("server-owned execution acceptance", () => {
   it("fails closed when a required read is missing or truncated", () => {
@@ -337,6 +342,154 @@ describe("server-owned execution acceptance", () => {
       kind: "deployment",
       validatorIds: ["deployment-receipt.v1"],
       status: "UNAVAILABLE",
+    });
+  });
+
+  it("projects bounded proof and trajectory metadata without raw execution details", () => {
+    const projected = projectExecutionAcceptance({
+      id: "acceptance",
+      executionId: "execution",
+      projectId: "project",
+      attempt: 4,
+      finalizationKey: "key",
+      operationId: "operation",
+      workerId: "worker",
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "NONE",
+      nextActionCode: "NONE",
+      disposition: {
+        reasonCodes: ["NONE"],
+        outcome: "SUCCEEDED",
+        recoveryState: "NONE",
+        nextActionCode: "NONE",
+        operatorAction: "NONE",
+        providerPayload: "must not cross boundary",
+        proof: {
+          contractVersion: 1,
+          verdict: "PROVEN",
+          evidenceRequired: true,
+          evidenceComplete: true,
+          evidenceSnapshotId: "snapshot",
+          acceptedRefs: ["snapshot"],
+          sourceBound: true,
+          candidateBound: false,
+          trajectoryDigest: {
+            contractVersion: 1,
+            source: "recipe_receipt",
+            digest: "a".repeat(64),
+            nodeCount: 2,
+            passedNodeCount: 2,
+            failedNodeCount: 0,
+            blockedNodeCount: 0,
+            attemptCount: 2,
+            totalElapsedMs: 120,
+            evidenceRefCount: 2,
+          },
+        },
+      },
+      evidenceSnapshotId: "snapshot",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      messageId: "message",
+      sourceRevision: "revision",
+      candidateIdentity: null,
+      createdAt: new Date(),
+    });
+
+    expect(projected?.disposition?.proof).toMatchObject({
+      verdict: "PROVEN",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      trajectoryDigest: {
+        source: "recipe_receipt",
+        nodeCount: 2,
+        passedNodeCount: 2,
+      },
+    });
+    expect(JSON.stringify(projected)).not.toContain("providerPayload");
+  });
+
+  it("derives a bounded digest from recipe nodes without retaining node output", () => {
+    const proof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: "snapshot",
+      sourceRevision: "revision",
+      candidateIdentity: "candidate",
+      recipeReceipt: {
+        contractVersion: 1,
+        executionId: "execution",
+        operationId: "operation",
+        recipeId: "validation.v1",
+        recipeVersion: 1,
+        status: "completed",
+        completedNodeIds: ["read", "validate"],
+        nodes: [
+          {
+            nodeId: "read",
+            status: "passed",
+            attempts: 1,
+            elapsedMs: 20,
+            evidenceId: "read-evidence",
+            excerpt: "source body must never be retained",
+          },
+          {
+            nodeId: "validate",
+            status: "passed",
+            attempts: 2,
+            elapsedMs: 80,
+            evidenceId: "validation-evidence",
+            excerpt: null,
+          },
+        ],
+        evidenceRefs: ["read-evidence", "validation-evidence"],
+        createdAt: "2026-09-23T00:00:00.000Z",
+        completedAt: "2026-09-23T00:00:01.000Z",
+      },
+    });
+
+    expect(proof).toMatchObject({
+      verdict: "PROVEN",
+      sourceBound: true,
+      candidateBound: true,
+      trajectoryDigest: {
+        source: "recipe_receipt",
+        nodeCount: 2,
+        passedNodeCount: 2,
+        attemptCount: 3,
+        totalElapsedMs: 100,
+        evidenceRefCount: 2,
+      },
+    });
+    expect(JSON.stringify(proof)).not.toContain("source body must never be retained");
+  });
+
+  it("uses terminal acceptance metadata when no recipe receipt exists", () => {
+    const digest = buildExecutionTrajectoryDigest({
+      outcome: "FAILED",
+      evidenceComplete: false,
+    });
+    expect(digest).toMatchObject({
+      source: "acceptance",
+      nodeCount: 0,
+      failedNodeCount: 0,
+    });
+    expect(parseExecutionProofProjection({
+      contractVersion: 1,
+      verdict: "INCOMPLETE",
+      evidenceRequired: true,
+      evidenceComplete: false,
+      evidenceSnapshotId: null,
+      acceptedRefs: [],
+      sourceBound: false,
+      candidateBound: false,
+      trajectoryDigest: digest,
+    })).toMatchObject({
+      verdict: "INCOMPLETE",
+      trajectoryDigest: { source: "acceptance" },
     });
   });
 });

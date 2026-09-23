@@ -18,6 +18,11 @@ import {
 import { recordAuditInTransaction, type RecordAuditParams } from "./audit.js";
 import { parseTaskObjectiveContract, type TaskObjectiveContract } from "./task-objective-contract.js";
 import { projectGoalAcceptance, type GoalAcceptanceProjection } from "./mission-acceptance-projection.js";
+import {
+  buildExecutionProofProjection,
+  parseExecutionProofProjection,
+  type ExecutionProofProjection,
+} from "./execution-proof.js";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -46,6 +51,7 @@ export type ExecutionAcceptanceDisposition = {
     validatorIds: string[];
     status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
   };
+  proof?: ExecutionProofProjection;
 };
 
 export type EvidenceReadInput = {
@@ -840,6 +846,9 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
           },
         }
       : {}),
+    ...(parseExecutionProofProjection(raw.proof)
+      ? { proof: parseExecutionProofProjection(raw.proof) }
+      : {}),
   };
 }
 
@@ -1264,11 +1273,23 @@ export async function finalizeExecutionAcceptance(
       if (replaceExistingInterruption) {
         const now = new Date();
         const cancellationDisposition = {
+          ...(existing.disposition && typeof existing.disposition === "object"
+            ? existing.disposition as Record<string, unknown>
+            : {}),
           reasonCodes: [params.reasonCode],
           outcome: "INTERRUPTED" as const,
           recoveryState: "INCOMPLETE" as const,
           nextActionCode: "ABANDON_EXECUTION" as const,
           operatorAction: "ABANDON_EXECUTION",
+          proof: buildExecutionProofProjection({
+            outcome: "INTERRUPTED",
+            evidenceRequired: existing.evidenceRequired === 1,
+            evidenceComplete: existing.evidenceComplete === 1,
+            evidenceSnapshotId: existing.evidenceSnapshotId,
+            sourceRevision: existing.sourceRevision,
+            candidateIdentity: existing.candidateIdentity,
+            recipeReceipt: params.recipeReceipt,
+          }),
         };
         const [cancelledAcceptance] = await tx
           .update(aiExecutionAcceptancesTable)
@@ -1473,6 +1494,18 @@ export async function finalizeExecutionAcceptance(
         : {}),
       ...(params.retryAfterMs !== undefined ? { retryAfterMs: params.retryAfterMs } : {}),
       ...(params.retryAt ? { retryAt: params.retryAt } : {}),
+      proof: buildExecutionProofProjection({
+        outcome,
+        evidenceRequired,
+        evidenceComplete: evidence.complete,
+        evidenceSnapshotId,
+        sourceRevision: params.sourceRevision
+          ?? (typeof storedRequest?.workspaceRevision === "string"
+            ? storedRequest.workspaceRevision
+            : null),
+        candidateIdentity: params.candidateIdentity ?? effectiveEvidence?.candidateIdentity ?? null,
+        recipeReceipt: params.recipeReceipt,
+      }),
     };
     const acceptanceValues = {
       finalizationKey: params.finalizationKey,

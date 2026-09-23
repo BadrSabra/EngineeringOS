@@ -62,6 +62,7 @@
 - [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
+- [Execution proof projection](execution-proof-projection.md) — accepted proof and trajectory metrics stay bounded inside the existing acceptance projection; raw traces remain non-durable.
 - [Chat message timeline semantics](chat-message-timeline-semantics.md) — assistant message timestamps can represent request-start ordering; audit terminal chronology from execution and acceptance timestamps.
 - [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal projections must preserve claim-closure diagnostics even when classified as PROJECT_QUERY.
 - [Prefetch evidence parity](prefetch-evidence-parity.md) — prefetch telemetry and persisted evidence must share size-aware read status; oversized bodies cannot appear complete in the trace.
