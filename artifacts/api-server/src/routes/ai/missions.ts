@@ -44,6 +44,7 @@ import {
   evaluateMissionCompletion,
 } from "../../lib/mission-completion-gate.js";
 import { parseExecutionProofProjection } from "../../lib/execution-proof.js";
+import { loadCanonicalProof } from "../../lib/proof-foundation.js";
 import {
   buildSkillCandidateEnvelope,
   buildShadowReplayReceipt,
@@ -169,12 +170,6 @@ function parseCandidateApprovedPaths(value: unknown): string[] {
   } catch {
     return [];
   }
-}
-
-function recordValue(value: unknown, key: string): unknown {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
 }
 
 function parseStoredEvidenceText(value: string | null | undefined): unknown {
@@ -1299,29 +1294,11 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
   const existingCandidate = parseStoredProposalEvidence(
     parseStoredEvidenceText(proposal.validationEvidence),
   ).skillCandidate;
-  if (existingCandidate) {
-    const existingDecision = validateSkillCandidateForShadow(existingCandidate, {
-      projectId: project.id,
-      sourceRevision: proposal.baseRevision,
-      candidateTreeHash: proposal.candidateTreeHash,
-      changeSetHash: proposal.changeSetHash,
-    });
-    if (existingDecision.allowed && existingDecision.envelope) {
-      return res.status(200).json({
-        candidate: existingDecision.envelope,
-        lifecycle: proposal.lifecycle,
-        productionExecution: false,
-      });
-    }
-  }
 
   const [accepted] = await db
     .select({
-      id: aiExecutionAcceptancesTable.id,
-      disposition: aiExecutionAcceptancesTable.disposition,
-      sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
-      candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
-      outcome: aiExecutionAcceptancesTable.outcome,
+      acceptanceId: aiExecutionAcceptancesTable.id,
+      executionId: aiExecutionAcceptancesTable.executionId,
     })
     .from(aiExecutionAcceptancesTable)
     .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
@@ -1334,18 +1311,53 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
     ))
     .orderBy(desc(aiExecutionAcceptancesTable.createdAt), desc(aiExecutionAcceptancesTable.attempt))
     .limit(1);
-  const proof = parseExecutionProofProjection(recordValue(accepted?.disposition, "proof"));
+  const canonicalProof = accepted
+    ? await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: accepted.executionId,
+        scope: {
+          projectId: project.id,
+          executionId: accepted.executionId,
+          operationId: proposal.operationId,
+          sourceRevision: proposal.baseRevision,
+          candidateIdentity: proposal.candidateTreeHash,
+        },
+        // Proposal candidate binding is an execution-level decision. Mission
+        // Goal completion, when present, is checked by the Mission gate.
+        goalStatus: "completed",
+      }))
+    : null;
+  const proof = canonicalProof?.projection ?? null;
   if (
     !accepted
+    || !canonicalProof?.accepted
+    || canonicalProof.acceptanceId !== accepted.acceptanceId
     || !proof
-    || accepted.outcome !== "SUCCEEDED"
-    || accepted.candidateIdentity !== proposal.candidateTreeHash
-    || (accepted.sourceRevision ?? proposal.baseRevision) !== proposal.baseRevision
   ) {
     return res.status(409).json({
       error: "No matching server-owned proven acceptance exists for this candidate.",
       code: "SKILL_CANDIDATE_PROOF_NOT_AVAILABLE",
     });
+  }
+  if (existingCandidate) {
+    const existingDecision = validateSkillCandidateForShadow(existingCandidate, {
+      projectId: project.id,
+      sourceRevision: proposal.baseRevision,
+      candidateTreeHash: proposal.candidateTreeHash,
+      changeSetHash: proposal.changeSetHash,
+    });
+    if (
+      existingDecision.allowed
+      && existingDecision.envelope
+      && existingDecision.envelope.proof.receiptId === canonicalProof.acceptanceId
+      && existingDecision.envelope.proof.trajectoryDigest === canonicalProof.trajectoryDigest?.digest
+    ) {
+      return res.status(200).json({
+        candidate: existingDecision.envelope,
+        lifecycle: proposal.lifecycle,
+        productionExecution: false,
+      });
+    }
   }
 
   const candidate = buildSkillCandidateEnvelope({
@@ -1355,7 +1367,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
     candidateTreeHash: proposal.candidateTreeHash,
     changeSetHash: proposal.changeSetHash,
     approvedPaths: parseCandidateApprovedPaths(proposal.changes),
-    receiptId: accepted.id,
+      receiptId: accepted.acceptanceId,
     proof,
     runId: `shadow-${randomUUID()}`,
   });
@@ -1417,6 +1429,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
     .select({
       id: aiChangeProposalsTable.id,
       projectId: aiChangeProposalsTable.projectId,
+      operationId: aiChangeProposalsTable.operationId,
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
       changeSetHash: aiChangeProposalsTable.changeSetHash,
@@ -1436,6 +1449,34 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       code: "SKILL_CANDIDATE_NOT_BOUND",
     });
   }
+  const [candidateAcceptance] = await db
+    .select({ executionId: aiExecutionAcceptancesTable.executionId })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.id, skillCandidate.proof.receiptId),
+      eq(aiExecutionAcceptancesTable.projectId, project.id),
+    ))
+    .limit(1);
+  const canonicalProof = candidateAcceptance
+    ? await db.transaction((tx) => loadCanonicalProof({
+        tx,
+        executionId: candidateAcceptance.executionId,
+        scope: {
+          projectId: project.id,
+          executionId: candidateAcceptance.executionId,
+          operationId: proposal.operationId,
+          sourceRevision: proposal.baseRevision,
+          candidateIdentity: proposal.candidateTreeHash,
+        },
+        goalStatus: "completed",
+      }))
+    : null;
+  if (!canonicalProof?.accepted || !canonicalProof.acceptanceId) {
+    return res.status(409).json({
+      error: "The persisted skill candidate has no current canonical proof.",
+      code: "SKILL_CANDIDATE_CANONICAL_PROOF_REQUIRED",
+    });
+  }
   const decision = validateSkillCandidateForShadow(skillCandidate, {
     projectId: project.id,
     sourceRevision: proposal.baseRevision ?? undefined,
@@ -1447,6 +1488,16 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       error: "The persisted skill candidate failed shadow validation.",
       code: "SKILL_CANDIDATE_SHADOW_REJECTED",
       reasons: decision.reasons,
+    });
+  }
+  if (
+    skillCandidate.proof.receiptId !== canonicalProof.acceptanceId
+    || skillCandidate.proof.trajectoryDigest !== canonicalProof.trajectoryDigest?.digest
+  ) {
+    return res.status(409).json({
+      error: "The persisted skill candidate is not bound to the current canonical proof.",
+      code: "SKILL_CANDIDATE_PROOF_BINDING_MISMATCH",
+      reasons: ["canonical_proof_binding_mismatch"],
     });
   }
   return res.json({

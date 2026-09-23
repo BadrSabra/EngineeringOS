@@ -1,3 +1,10 @@
+import { and, desc, eq } from "drizzle-orm";
+import {
+  aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
+  aiExecutionsTable,
+  db,
+} from "@workspace/db";
 import {
   parseExecutionProofProjection,
   type ExecutionProofProjection,
@@ -18,6 +25,7 @@ export type CanonicalProofFailureReason =
   | "execution_operation_mismatch"
   | "acceptance_execution_mismatch"
   | "acceptance_attempt_mismatch"
+  | "execution_identity_mismatch"
   | "plan_revision_mismatch"
   | "missing_source_revision"
   | "source_revision_mismatch"
@@ -38,6 +46,7 @@ export type CanonicalProofScope = {
   projectId: string;
   missionId?: string | null;
   goalId?: string | null;
+  executionId?: string | null;
   operationId?: string | null;
   planRevision?: string | null;
   activePlanRevision?: string | null;
@@ -157,13 +166,22 @@ export function composeCanonicalProof(
   if (input.goalStatus !== "completed") addReason(reasons, "goal_not_completed");
   if (!input.scope.projectId.trim()) addReason(reasons, "acceptance_project_mismatch");
   if (!input.scope.goalId && !input.scope.missionId) {
-    addReason(reasons, "missing_goal_acceptance_projection");
+    if (!input.scope.executionId) {
+      addReason(reasons, "missing_goal_acceptance_projection");
+    }
   }
   if (!execution) addReason(reasons, "missing_execution");
   if (!acceptance) addReason(reasons, "missing_acceptance");
 
   if (execution && execution.projectId !== input.scope.projectId) {
     addReason(reasons, "execution_project_mismatch");
+  }
+  if (
+    execution
+    && input.scope.executionId
+    && execution.id !== input.scope.executionId
+  ) {
+    addReason(reasons, "execution_identity_mismatch");
   }
   if (acceptance && acceptance.projectId !== input.scope.projectId) {
     addReason(reasons, "acceptance_project_mismatch");
@@ -341,4 +359,125 @@ export function composeCanonicalProof(
     projection,
     trajectoryDigest: projection?.trajectoryDigest ?? null,
   };
+}
+
+type CanonicalProofTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export type CanonicalProofLoadInput = {
+  tx: CanonicalProofTransaction;
+  executionId: string;
+  scope: CanonicalProofScope;
+  goalStatus: string;
+  deliveryRequired?: boolean;
+  deliveryReceipt?: CanonicalProofDelivery | null;
+  attempt?: number;
+};
+
+/**
+ * Load and lock the durable rows that compose a canonical proof.
+ *
+ * Callers use this instead of trusting a serialized acceptance/projection.
+ * The pure composer remains useful for unit tests, while all runtime
+ * decisions should enter through this row-loading boundary.
+ */
+export async function loadCanonicalProof(
+  input: CanonicalProofLoadInput,
+): Promise<CanonicalProof> {
+  const [execution] = await input.tx
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.scope.projectId),
+    ))
+    .for("update");
+
+  if (!execution) {
+    return composeCanonicalProof({
+      scope: {
+        ...input.scope,
+        executionId: input.executionId,
+      },
+      goalStatus: input.goalStatus,
+      deliveryRequired: input.deliveryRequired,
+      deliveryReceipt: input.deliveryReceipt,
+      execution: null,
+      acceptance: null,
+      evidence: null,
+    });
+  }
+
+  const attempt = input.attempt ?? execution.attempt;
+  const [acceptance] = await input.tx
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.projectId, input.scope.projectId),
+      eq(aiExecutionAcceptancesTable.attempt, attempt),
+    ))
+    .orderBy(desc(aiExecutionAcceptancesTable.createdAt))
+    .for("update")
+    .limit(1);
+
+  const [evidence] = acceptance?.evidenceSnapshotId
+    ? await input.tx
+      .select()
+      .from(aiExecutionEvidenceSnapshotsTable)
+      .where(and(
+        eq(aiExecutionEvidenceSnapshotsTable.id, acceptance.evidenceSnapshotId),
+        eq(aiExecutionEvidenceSnapshotsTable.executionId, execution.id),
+        eq(aiExecutionEvidenceSnapshotsTable.projectId, input.scope.projectId),
+        eq(aiExecutionEvidenceSnapshotsTable.attempt, attempt),
+      ))
+      .for("update")
+      .limit(1)
+    : [];
+
+  return composeCanonicalProof({
+    scope: {
+      ...input.scope,
+      executionId: input.executionId,
+    },
+    goalStatus: input.goalStatus,
+    deliveryRequired: input.deliveryRequired,
+    deliveryReceipt: input.deliveryReceipt,
+    execution: {
+      id: execution.id,
+      projectId: execution.projectId,
+      goalId: execution.goalId,
+      operationId: execution.operationId,
+      attempt: execution.attempt,
+      baseRevision: execution.baseRevision,
+    },
+    acceptance: acceptance
+      ? {
+          id: acceptance.id,
+          executionId: acceptance.executionId,
+          projectId: acceptance.projectId,
+          attempt: acceptance.attempt,
+          operationId: acceptance.operationId,
+          terminalStatus: acceptance.terminalStatus,
+          outcome: acceptance.outcome,
+          evidenceSnapshotId: acceptance.evidenceSnapshotId,
+          evidenceRequired: acceptance.evidenceRequired === 1,
+          evidenceComplete: acceptance.evidenceComplete === 1,
+          sourceRevision: acceptance.sourceRevision,
+          candidateIdentity: acceptance.candidateIdentity,
+          disposition: acceptance.disposition,
+        }
+      : null,
+    evidence: evidence
+      ? {
+          id: evidence.id,
+          executionId: evidence.executionId,
+          projectId: evidence.projectId,
+          attempt: evidence.attempt,
+          sourceRevision: evidence.sourceRevision,
+          candidateIdentity: evidence.candidateIdentity,
+          complete: evidence.complete === 1,
+          verdict: evidence.verdict,
+        }
+      : null,
+  });
 }

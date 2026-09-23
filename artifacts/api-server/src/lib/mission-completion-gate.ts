@@ -1,13 +1,14 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
-  aiExecutionAcceptancesTable,
-  aiExecutionEvidenceSnapshotsTable,
-  aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
   db,
 } from "@workspace/db";
-import { composeCanonicalProof, type CanonicalProof } from "./proof-foundation.js";
+import {
+  composeCanonicalProof,
+  loadCanonicalProof,
+  type CanonicalProof,
+} from "./proof-foundation.js";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -121,132 +122,45 @@ async function composeGoalProofs(
   mission: typeof aiMissionsTable.$inferSelect,
   goals: Array<typeof aiGoalsTable.$inferSelect>,
 ): Promise<Array<CanonicalProof & { goalId: string }>> {
-  const projected = goals.map((goal) => ({
-    goal,
-    acceptance: projectedAcceptance(goal),
-  }));
-  const executionIds = projected
-    .map((item) => item.acceptance?.executionId)
-    .filter((value): value is string => Boolean(value));
-  if (executionIds.length === 0) {
-    return projected.map(({ goal, acceptance }) => ({
-      goalId: goal.id,
-      ...composeCanonicalProof({
-        scope: {
-          projectId: mission.projectId,
-          missionId: mission.id,
-          goalId: goal.id,
-          planRevision: planRevisionFromGoal(goal),
-          activePlanRevision: activePlanRevision(mission),
-          candidateIdentity: candidateIdentityFromGoal(goal),
-        },
-        goalStatus: goal.status,
-        deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
-        deliveryReceipt: acceptance?.deliveryReceipt,
-      }),
-    }));
+  const proofs: Array<CanonicalProof & { goalId: string }> = [];
+  for (const goal of goals) {
+    const projected = projectedAcceptance(goal);
+    const scope = record(projected?.scope);
+    const proof = projected
+      ? await loadCanonicalProof({
+          tx,
+          executionId: projected.executionId,
+          scope: {
+            projectId: mission.projectId,
+            missionId: mission.id,
+            goalId: goal.id,
+            executionId: projected.executionId,
+            operationId: typeof scope.operationId === "string" ? scope.operationId : null,
+            planRevision: planRevisionFromGoal(goal),
+            activePlanRevision: activePlanRevision(mission),
+            sourceRevision: projected.sourceRevision ?? null,
+            candidateIdentity: candidateIdentityFromGoal(goal),
+          },
+          goalStatus: goal.status,
+          deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
+          deliveryReceipt: projected.deliveryReceipt,
+        })
+      : composeCanonicalProof({
+          scope: {
+            projectId: mission.projectId,
+            missionId: mission.id,
+            goalId: goal.id,
+            planRevision: planRevisionFromGoal(goal),
+            activePlanRevision: activePlanRevision(mission),
+            candidateIdentity: candidateIdentityFromGoal(goal),
+          },
+          goalStatus: goal.status,
+          deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
+          deliveryReceipt: null,
+        });
+    proofs.push({ goalId: goal.id, ...proof });
   }
-
-  const executions = await tx
-    .select()
-    .from(aiExecutionsTable)
-    .where(and(
-      eq(aiExecutionsTable.projectId, mission.projectId),
-      inArray(aiExecutionsTable.id, [...new Set(executionIds)]),
-    ));
-  const executionById = new Map(executions.map((execution) => [execution.id, execution]));
-  const acceptances = await tx
-    .select()
-    .from(aiExecutionAcceptancesTable)
-    .where(inArray(aiExecutionAcceptancesTable.executionId, [...new Set(executionIds)]))
-    .orderBy(desc(aiExecutionAcceptancesTable.attempt), desc(aiExecutionAcceptancesTable.createdAt));
-  const acceptanceByExecutionAttempt = new Map(
-    acceptances.map((acceptance) => [
-      `${acceptance.executionId}:${acceptance.attempt}`,
-      acceptance,
-    ]),
-  );
-  const evidenceIds = acceptances
-    .map((acceptance) => acceptance.evidenceSnapshotId)
-    .filter((value): value is string => Boolean(value));
-  const evidenceSnapshots = evidenceIds.length === 0
-    ? []
-    : await tx
-      .select()
-      .from(aiExecutionEvidenceSnapshotsTable)
-      .where(inArray(aiExecutionEvidenceSnapshotsTable.id, [...new Set(evidenceIds)]));
-  const evidenceById = new Map(evidenceSnapshots.map((evidence) => [evidence.id, evidence]));
-
-  return projected.map(({ goal, acceptance: projectedGoalAcceptance }) => {
-    const execution = projectedGoalAcceptance
-      ? executionById.get(projectedGoalAcceptance.executionId)
-      : undefined;
-    const acceptance = execution
-      ? acceptanceByExecutionAttempt.get(`${execution.id}:${execution.attempt}`)
-      : undefined;
-    const evidence = acceptance?.evidenceSnapshotId
-      ? evidenceById.get(acceptance.evidenceSnapshotId)
-      : undefined;
-    const goalOutcome = record(goal.outcomeContract);
-    const scope = record(projectedGoalAcceptance?.scope);
-    return {
-      goalId: goal.id,
-      ...composeCanonicalProof({
-        scope: {
-          projectId: mission.projectId,
-          missionId: mission.id,
-          goalId: goal.id,
-          operationId: typeof scope.operationId === "string" ? scope.operationId : null,
-          planRevision: planRevisionFromGoal(goal),
-          activePlanRevision: activePlanRevision(mission),
-          sourceRevision: projectedGoalAcceptance?.sourceRevision ?? null,
-          candidateIdentity: candidateIdentityFromGoal(goal),
-        },
-        goalStatus: goal.status,
-        deliveryRequired: goalOutcome.deliveryRequired === true,
-        deliveryReceipt: projectedGoalAcceptance?.deliveryReceipt,
-        execution: execution
-          ? {
-              id: execution.id,
-              projectId: execution.projectId,
-              goalId: execution.goalId,
-              operationId: execution.operationId,
-              attempt: execution.attempt,
-              baseRevision: execution.baseRevision,
-            }
-          : null,
-        acceptance: acceptance
-          ? {
-              id: acceptance.id,
-              executionId: acceptance.executionId,
-              projectId: acceptance.projectId,
-              attempt: acceptance.attempt,
-              operationId: acceptance.operationId,
-              terminalStatus: acceptance.terminalStatus,
-              outcome: acceptance.outcome,
-              evidenceSnapshotId: acceptance.evidenceSnapshotId,
-              evidenceRequired: acceptance.evidenceRequired === 1,
-              evidenceComplete: acceptance.evidenceComplete === 1,
-              sourceRevision: acceptance.sourceRevision,
-              candidateIdentity: acceptance.candidateIdentity,
-              disposition: acceptance.disposition,
-            }
-          : null,
-        evidence: evidence
-          ? {
-              id: evidence.id,
-              executionId: evidence.executionId,
-              projectId: evidence.projectId,
-              attempt: evidence.attempt,
-              sourceRevision: evidence.sourceRevision,
-              candidateIdentity: evidence.candidateIdentity,
-              complete: evidence.complete === 1,
-              verdict: evidence.verdict,
-            }
-          : null,
-      }),
-    };
-  });
+  return proofs;
 }
 
 /**

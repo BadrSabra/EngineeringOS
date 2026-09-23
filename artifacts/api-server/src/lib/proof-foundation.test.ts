@@ -1,11 +1,45 @@
 import { describe, expect, it } from "vitest";
+import {
+  aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
+  aiExecutionsTable,
+} from "@workspace/db";
 import { buildExecutionProofProjection } from "./execution-proof.js";
 import {
   composeCanonicalProof,
+  loadCanonicalProof,
   type CanonicalProofAcceptance,
   type CanonicalProofEvidence,
   type CanonicalProofExecution,
 } from "./proof-foundation.js";
+
+function fakeTransaction(rows: {
+  execution: Record<string, unknown>;
+  acceptance: Record<string, unknown>;
+  evidence: Record<string, unknown>;
+}) {
+  const rowsForTable = (table: unknown) => {
+    if (table === aiExecutionsTable) return [rows.execution];
+    if (table === aiExecutionAcceptancesTable) return [rows.acceptance];
+    if (table === aiExecutionEvidenceSnapshotsTable) return [rows.evidence];
+    return [];
+  };
+  const query = (table: unknown) => {
+    const result = Promise.resolve(rowsForTable(table));
+    return Object.assign(result, {
+      for: () => result,
+      orderBy: () => result,
+      limit: () => result,
+    });
+  };
+  return {
+    select: () => ({
+      from: (table: unknown) => ({
+        where: () => query(table),
+      }),
+    }),
+  } as never;
+}
 
 function fixture(overrides: {
   execution?: Partial<CanonicalProofExecution>;
@@ -185,5 +219,71 @@ describe("composeCanonicalProof", () => {
       "missing_candidate_identity",
       "acceptance_proof_not_bound",
     ]));
+  });
+
+  it("loads the current durable execution attempt before composing proof", async () => {
+    const projected = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: "snapshot-1",
+      sourceRevision: "revision-1",
+      candidateIdentity: "candidate-1",
+    });
+    const result = await loadCanonicalProof({
+      tx: fakeTransaction({
+        execution: {
+          id: "execution-1",
+          projectId: "project-1",
+          goalId: null,
+          operationId: "operation-1",
+          attempt: 2,
+          baseRevision: "revision-1",
+        },
+        acceptance: {
+          id: "acceptance-1",
+          executionId: "execution-1",
+          projectId: "project-1",
+          attempt: 2,
+          operationId: "operation-1",
+          terminalStatus: "completed",
+          outcome: "SUCCEEDED",
+          evidenceSnapshotId: "snapshot-1",
+          evidenceRequired: 1,
+          evidenceComplete: 1,
+          sourceRevision: "revision-1",
+          candidateIdentity: "candidate-1",
+          disposition: { proof: projected },
+          createdAt: new Date(),
+        },
+        evidence: {
+          id: "snapshot-1",
+          executionId: "execution-1",
+          projectId: "project-1",
+          attempt: 2,
+          sourceRevision: "revision-1",
+          candidateIdentity: "candidate-1",
+          complete: 1,
+          verdict: "PROVEN",
+        },
+      }),
+      executionId: "execution-1",
+      scope: {
+        projectId: "project-1",
+        executionId: "execution-1",
+        operationId: "operation-1",
+        sourceRevision: "revision-1",
+        candidateIdentity: "candidate-1",
+      },
+      goalStatus: "completed",
+    });
+
+    expect(result).toMatchObject({
+      accepted: true,
+      verdict: "PROVEN",
+      executionId: "execution-1",
+      acceptanceId: "acceptance-1",
+      evidenceSnapshotId: "snapshot-1",
+    });
   });
 });
