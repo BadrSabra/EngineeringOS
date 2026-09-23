@@ -43,7 +43,10 @@ export const aiShadowReplaysTable = pgTable("ai_shadow_replays", {
   idempotencyKey: text("idempotency_key").notNull(),
   operationId: text("operation_id").notNull(),
   candidateId: text("candidate_id").notNull(),
+  /** Source proof acceptance; the replay proof is recorded separately once it is produced. */
   canonicalAcceptanceId: text("canonical_acceptance_id").notNull(),
+  /** Canonical proof acceptance created by this replay execution. */
+  replayCanonicalAcceptanceId: text("replay_canonical_acceptance_id"),
   trajectoryDigest: text("trajectory_digest").notNull(),
   sourceRevision: text("source_revision").notNull(),
   candidateTreeHash: text("candidate_tree_hash").notNull(),

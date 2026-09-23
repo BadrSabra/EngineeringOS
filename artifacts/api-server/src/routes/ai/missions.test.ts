@@ -767,6 +767,7 @@ describe("AI missions and goals", () => {
         executionId: aiShadowReplaysTable.executionId,
         preTreeHash: aiShadowReplaysTable.preTreeHash,
         postTreeHash: aiShadowReplaysTable.postTreeHash,
+        replayCanonicalAcceptanceId: aiShadowReplaysTable.replayCanonicalAcceptanceId,
         replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
         receipt: aiShadowReplaysTable.receipt,
       })
@@ -852,6 +853,7 @@ describe("AI missions and goals", () => {
       status: "completed",
       preTreeHash: candidateTreeHash,
       postTreeHash: candidateTreeHash,
+      replayCanonicalAcceptanceId: replay.body.receipt.proof.receiptId,
       replayWorkspaceCleaned: true,
       receipt: {
         replayExecutionId: persistedReplay?.executionId,

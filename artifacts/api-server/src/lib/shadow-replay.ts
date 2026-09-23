@@ -603,7 +603,10 @@ export async function runShadowReplayAttempt(
       && durableReceipt?.status === "completed"
       && durableReceipt.replayId === replay.id
       && durableReceipt.replayExecutionId === replay.executionId
-      && durableReceipt.productionExecution === false;
+      && durableReceipt.productionExecution === false
+      && replay.replayCanonicalAcceptanceId !== null
+      && recordValue(durableReceipt.proof)?.receiptId === replay.replayCanonicalAcceptanceId
+      && recordValue(durableReceipt.proof)?.verdict === "PROVEN";
     if (!receiptMatchesReplay) {
       await cleanupReplayWorkspace(replay);
       await updateReplay(replay.id, {
@@ -870,6 +873,12 @@ export async function runShadowReplayAttempt(
         `The replay execution did not produce accepted canonical proof: ${replayProof.failureReasons.join(", ")}`,
       );
     }
+    if (!replayProof.acceptanceId) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_CANONICAL_PROOF_ID_MISSING",
+        "The replay execution produced accepted proof without a durable acceptance identity.",
+      );
+    }
     const receipt: DurableShadowReplayReceipt = {
       contractVersion: 1,
       runId: replay.id,
@@ -879,7 +888,7 @@ export async function runShadowReplayAttempt(
       candidateTreeHash: replay.candidateTreeHash,
       verification: { recipeId: "candidate.verify", recipeVersion: 1 },
       proof: {
-        receiptId: replayProof.acceptanceId!,
+        receiptId: replayProof.acceptanceId,
         trajectoryDigest: replayProof.trajectoryDigest?.digest ?? replay.trajectoryDigest,
         verdict: "PROVEN",
       },
@@ -911,6 +920,7 @@ export async function runShadowReplayAttempt(
     };
     await updateReplay(replay.id, {
       status: "completed",
+      replayCanonicalAcceptanceId: replayProof.acceptanceId,
       preTreeHash: replayStats.preTreeHash,
       postTreeHash: replayStats.postTreeHash,
       validatorResult: receipt.validator,
