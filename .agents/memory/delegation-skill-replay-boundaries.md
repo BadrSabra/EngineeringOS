@@ -13,4 +13,4 @@ Skill candidates are strict, versioned, source/tree/path-bound envelopes. Shadow
 
 **Why:** Proof demonstrates the verified candidate but does not grant production execution, promotion, delivery, mutation, browser effects, arbitrary recipes, or arbitrary paths.
 
-**How to apply:** Keep validation fail-closed, use server-owned approved paths and tree identities, and route any future promotion through the existing proposal lifecycle and consent gates.
+**How to apply:** Keep validation fail-closed, use server-owned approved paths and tree identities, bind candidates only from matching execution acceptances, make repeated binding idempotent, and route any future promotion through the existing proposal lifecycle and consent gates.

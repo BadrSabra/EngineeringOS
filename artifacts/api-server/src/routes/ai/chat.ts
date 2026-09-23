@@ -1497,8 +1497,15 @@ function publicValidationReceipt(
 }
 
 function parsePublicValidationReceipts(value: unknown): PublicValidationResult[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
+  const receipts = Array.isArray(value)
+    ? value
+    : value
+      && typeof value === "object"
+      && !Array.isArray(value)
+      && Array.isArray((value as { validationResults?: unknown }).validationResults)
+      ? (value as { validationResults: unknown[] }).validationResults
+      : [];
+  return receipts.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const candidate = entry as Record<string, unknown>;
     // Older records stored one receipt per file. Only retain entries that

@@ -7,12 +7,13 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import {
   aiGoalDependenciesTable,
   aiChangeProposalsTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -42,6 +43,14 @@ import {
   evaluateGoalCompletion,
   evaluateMissionCompletion,
 } from "../../lib/mission-completion-gate.js";
+import { parseExecutionProofProjection } from "../../lib/execution-proof.js";
+import {
+  buildSkillCandidateEnvelope,
+  buildShadowReplayReceipt,
+  parseStoredProposalEvidence,
+  serializeProposalEvidence,
+  validateSkillCandidateForShadow,
+} from "../../lib/skill-candidate.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -143,6 +152,39 @@ const MissionGoalEventBody = z.object({
 const BindMissionDeliveryBody = z.object({
   proposalId: z.string().uuid(),
 }).strict();
+const EmptySkillCandidateBody = z.object({}).strict();
+
+function parseCandidateApprovedPaths(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => (
+      entry
+      && typeof entry === "object"
+      && typeof (entry as { path?: unknown }).path === "string"
+        ? [(entry as { path: string }).path]
+        : []
+    ));
+  } catch {
+    return [];
+  }
+}
+
+function recordValue(value: unknown, key: string): unknown {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function parseStoredEvidenceText(value: string | null | undefined): unknown {
+  if (!value) return [];
+  try {
+    return JSON.parse(value);
+  } catch {
+    return [];
+  }
+}
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -648,7 +690,7 @@ async function buildMissionProjection(
     };
   }
 
-  const [tasks, workflows, executions, events, dependencies] = await Promise.all([
+  const [tasks, workflows, executions, events, dependencies, proposals] = await Promise.all([
     db.select().from(tasksTable).where(and(
       eq(tasksTable.projectId, mission.projectId),
       inArray(tasksTable.goalId, goalIds),
@@ -674,7 +716,15 @@ async function buildMissionProjection(
       eq(aiGoalDependenciesTable.projectId, mission.projectId),
       inArray(aiGoalDependenciesTable.goalId, goalIds),
     )),
+    db.select({
+      id: aiChangeProposalsTable.id,
+      validationEvidence: aiChangeProposalsTable.validationEvidence,
+    }).from(aiChangeProposalsTable).where(eq(
+      aiChangeProposalsTable.projectId,
+      mission.projectId,
+    )),
   ]);
+  const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
 
   return {
     mission,
@@ -687,6 +737,42 @@ async function buildMissionProjection(
       workflows: workflows.filter((workflow) => workflow.goalId === goal.id).map(publicWorkflow),
       executions: executions.filter((execution) => execution.goalId === goal.id).map(publicExecution),
       events: events.filter((event) => event.goalId === goal.id).map(publicEvent),
+      ...(() => {
+        const goalExecutions = executions.filter((execution) => execution.goalId === goal.id);
+        const nextAction = goal.nextAction && typeof goal.nextAction === "object" && !Array.isArray(goal.nextAction)
+          ? goal.nextAction as Record<string, unknown>
+          : {};
+        const proposalIds = [
+          typeof nextAction.proposalId === "string" ? nextAction.proposalId : null,
+          ...goalExecutions.map((execution) => execution.proposalId),
+        ].filter((value): value is string => Boolean(value));
+        for (const proposalId of proposalIds) {
+          const proposal = proposalById.get(proposalId);
+          if (!proposal?.validationEvidence) continue;
+          let stored: unknown;
+          try {
+            stored = JSON.parse(proposal.validationEvidence);
+          } catch {
+            continue;
+          }
+          const candidate = parseStoredProposalEvidence(stored).skillCandidate;
+          if (!candidate) continue;
+          return {
+            skillCandidate: {
+              candidateId: candidate.candidateId,
+              sourceRevision: candidate.sourceRevision,
+              candidateTreeHash: candidate.candidateTreeHash,
+              proof: {
+                receiptId: candidate.proof.receiptId,
+                trajectoryDigest: candidate.proof.trajectoryDigest,
+                verdict: candidate.proof.verdict,
+              },
+              shadow: candidate.shadow,
+            },
+          };
+        }
+        return {};
+      })(),
     })),
     counts: {
       goals: goals.length,
@@ -1164,6 +1250,197 @@ router.post("/ai/goals/:goalId/events", async (req, res) => {
     duplicate: result.duplicate,
     eventId: result.eventId,
     replayPending: result.persisted && !result.woken,
+  });
+});
+
+/**
+ * Materializes the proof-carrying candidate projection for an already
+ * validated proposal. The proof is read from the server-owned acceptance;
+ * callers cannot submit or replace it.
+ */
+router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
+  EmptySkillCandidateBody.parse(req.body);
+  const [proposal] = await db
+    .select()
+    .from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+    .limit(1);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+  if (!["validated", "committed", "applied"].includes(proposal.lifecycle)) {
+    return res.status(409).json({
+      error: "A validated proposal is required before a skill candidate can be bound.",
+      code: "SKILL_CANDIDATE_PROPOSAL_NOT_VALIDATED",
+    });
+  }
+  if (!proposal.baseRevision || !proposal.candidateTreeHash) {
+    return res.status(409).json({
+      error: "The proposal is missing its immutable candidate identity.",
+      code: "SKILL_CANDIDATE_IDENTITY_MISSING",
+    });
+  }
+  const existingCandidate = parseStoredProposalEvidence(
+    parseStoredEvidenceText(proposal.validationEvidence),
+  ).skillCandidate;
+  if (existingCandidate) {
+    const existingDecision = validateSkillCandidateForShadow(existingCandidate, {
+      projectId: project.id,
+      sourceRevision: proposal.baseRevision,
+      candidateTreeHash: proposal.candidateTreeHash,
+      changeSetHash: proposal.changeSetHash,
+    });
+    if (existingDecision.allowed && existingDecision.envelope) {
+      return res.status(200).json({
+        candidate: existingDecision.envelope,
+        lifecycle: proposal.lifecycle,
+        productionExecution: false,
+      });
+    }
+  }
+
+  const [accepted] = await db
+    .select({
+      id: aiExecutionAcceptancesTable.id,
+      disposition: aiExecutionAcceptancesTable.disposition,
+      sourceRevision: aiExecutionAcceptancesTable.sourceRevision,
+      candidateIdentity: aiExecutionAcceptancesTable.candidateIdentity,
+      outcome: aiExecutionAcceptancesTable.outcome,
+    })
+    .from(aiExecutionAcceptancesTable)
+    .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
+    .where(and(
+      eq(aiExecutionAcceptancesTable.projectId, project.id),
+      or(
+        eq(aiExecutionsTable.proposalId, proposal.id),
+        ...(proposal.operationId ? [eq(aiExecutionsTable.operationId, proposal.operationId)] : []),
+      ),
+    ))
+    .orderBy(desc(aiExecutionAcceptancesTable.createdAt), desc(aiExecutionAcceptancesTable.attempt))
+    .limit(1);
+  const proof = parseExecutionProofProjection(recordValue(accepted?.disposition, "proof"));
+  if (
+    !accepted
+    || !proof
+    || accepted.outcome !== "SUCCEEDED"
+    || accepted.candidateIdentity !== proposal.candidateTreeHash
+    || (accepted.sourceRevision ?? proposal.baseRevision) !== proposal.baseRevision
+  ) {
+    return res.status(409).json({
+      error: "No matching server-owned proven acceptance exists for this candidate.",
+      code: "SKILL_CANDIDATE_PROOF_NOT_AVAILABLE",
+    });
+  }
+
+  const candidate = buildSkillCandidateEnvelope({
+    proposalId: proposal.id,
+    projectId: project.id,
+    sourceRevision: proposal.baseRevision,
+    candidateTreeHash: proposal.candidateTreeHash,
+    changeSetHash: proposal.changeSetHash,
+    approvedPaths: parseCandidateApprovedPaths(proposal.changes),
+    receiptId: accepted.id,
+    proof,
+    runId: `shadow-${randomUUID()}`,
+  });
+  const persisted = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ validationEvidence: aiChangeProposalsTable.validationEvidence })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposal.id),
+        eq(aiChangeProposalsTable.projectId, project.id),
+      ))
+      .for("update");
+    if (!locked) return false;
+    await tx.update(aiChangeProposalsTable)
+      .set({
+        validationEvidence: serializeProposalEvidence(
+          parseStoredEvidenceText(locked.validationEvidence),
+          candidate,
+        ),
+      })
+      .where(eq(aiChangeProposalsTable.id, proposal.id));
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiSkillCandidateBound",
+      projectId: project.id,
+      severity: "info",
+      message: "A proven skill candidate was bound to the proposal.",
+      correlationId: proposal.operationId,
+      payload: {
+        proposalId: proposal.id,
+        candidateId: candidate.candidateId,
+        candidateTreeHash: candidate.candidateTreeHash,
+        sourceRevision: candidate.sourceRevision,
+        proofReceiptId: candidate.proof.receiptId,
+      },
+    });
+    return true;
+  });
+  if (!persisted) {
+    return res.status(409).json({
+      error: "The proposal changed before the candidate could be bound.",
+      code: "SKILL_CANDIDATE_PROPOSAL_CONFLICT",
+    });
+  }
+  return res.status(201).json({
+    candidate,
+    lifecycle: proposal.lifecycle,
+    productionExecution: false,
+  });
+});
+
+/**
+ * Read-only shadow replay. It validates the persisted candidate projection and
+ * returns a bounded receipt; it never invokes a recipe or touches a workspace.
+ */
+router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (req, res) => {
+  EmptySkillCandidateBody.parse(req.body);
+  const [proposal] = await db
+    .select({
+      id: aiChangeProposalsTable.id,
+      projectId: aiChangeProposalsTable.projectId,
+      baseRevision: aiChangeProposalsTable.baseRevision,
+      candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      changeSetHash: aiChangeProposalsTable.changeSetHash,
+      validationEvidence: aiChangeProposalsTable.validationEvidence,
+    })
+    .from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+    .limit(1);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+  const storedEvidence = parseStoredEvidenceText(proposal.validationEvidence);
+  const { skillCandidate } = parseStoredProposalEvidence(storedEvidence);
+  if (!skillCandidate) {
+    return res.status(409).json({
+      error: "The proposal has no persisted proof-carrying skill candidate.",
+      code: "SKILL_CANDIDATE_NOT_BOUND",
+    });
+  }
+  const decision = validateSkillCandidateForShadow(skillCandidate, {
+    projectId: project.id,
+    sourceRevision: proposal.baseRevision ?? undefined,
+    candidateTreeHash: proposal.candidateTreeHash ?? undefined,
+    changeSetHash: proposal.changeSetHash,
+  });
+  if (!decision.allowed) {
+    return res.status(409).json({
+      error: "The persisted skill candidate failed shadow validation.",
+      code: "SKILL_CANDIDATE_SHADOW_REJECTED",
+      reasons: decision.reasons,
+    });
+  }
+  return res.json({
+    receipt: buildShadowReplayReceipt(skillCandidate, {
+      projectId: project.id,
+      sourceRevision: proposal.baseRevision ?? undefined,
+      candidateTreeHash: proposal.candidateTreeHash ?? undefined,
+      changeSetHash: proposal.changeSetHash,
+    }),
+    productionExecution: false,
   });
 });
 

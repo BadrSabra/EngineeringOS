@@ -8,6 +8,8 @@ import {
   aiGoalDependenciesTable,
   aiChatMessagesTable,
   aiChatSessionsTable,
+  aiExecutionAcceptancesTable,
+  aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -19,6 +21,7 @@ import {
 } from "@workspace/db";
 import { waitForScheduledAiTaskExecutions } from "./tasks.js";
 import { runMissionGoal, wakeReadyMissionGoals } from "../../lib/mission-runtime.js";
+import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
 
 const projectIds: string[] = [];
 
@@ -507,6 +510,155 @@ describe("AI missions and goals", () => {
       type: "AiGoalDeliveryProposalBound",
       correlationId: operationId,
     });
+  });
+
+  it("persists a server-owned skill candidate and performs read-only shadow replay", async () => {
+    const projectId = await insertProject();
+    const sessionId = randomUUID();
+    const messageId = randomUUID();
+    const proposalId = randomUUID();
+    const executionId = randomUUID();
+    const operationId = randomUUID();
+    const sourceRevision = "b".repeat(40);
+    const candidateTreeHash = "a".repeat(64);
+    const changeSetHash = "c".repeat(64);
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Skill candidate fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId,
+      sessionId,
+      role: "assistant",
+      content: "Verified candidate",
+      createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId,
+      projectId,
+      sessionId,
+      messageId,
+      changes: JSON.stringify([{ path: "src/index.ts", newContent: "export const ok = true;" }]),
+      appliedChanges: "[]",
+      status: "applied",
+      lifecycle: "committed",
+      operationId,
+      baseRevision: sourceRevision,
+      candidateTreeHash,
+      changeSetHash,
+      createdAt: now,
+    });
+    await db.insert(aiExecutionsTable).values({
+      id: executionId,
+      projectId,
+      sessionId,
+      operationId,
+      proposalId,
+      userId: "test-user",
+      idempotencyKey: `skill-candidate-${executionId}`,
+      resumeTokenHash: "resume-hash",
+      request: JSON.stringify({ workspaceRevision: sourceRevision }),
+      checkpoint: "{}",
+      status: "completed",
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    await db.insert(aiExecutionEvidenceSnapshotsTable).values({
+      id: "evidence-1",
+      executionId,
+      projectId,
+      attempt: 0,
+      operationId,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      verdict: "PROVEN",
+      complete: 1,
+      readCount: 1,
+      totalBytes: 128,
+      createdAt: now,
+    });
+    const proof = buildExecutionProofProjection({
+      outcome: "SUCCEEDED",
+      evidenceRequired: true,
+      evidenceComplete: true,
+      evidenceSnapshotId: "evidence-1",
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+    });
+    await db.insert(aiExecutionAcceptancesTable).values({
+      id: randomUUID(),
+      executionId,
+      projectId,
+      attempt: 0,
+      finalizationKey: `final-${executionId}`,
+      operationId,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "COMPLETED",
+      nextActionCode: "NONE",
+      disposition: { proof },
+      evidenceSnapshotId: "evidence-1",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      sourceRevision,
+      candidateIdentity: candidateTreeHash,
+      createdAt: now,
+    });
+
+    const bound = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate`)
+      .send({});
+    expect(bound.status).toBe(201);
+    expect(bound.body).toMatchObject({
+      candidate: {
+        projectId,
+        sourceRevision,
+        candidateTreeHash,
+        verification: { recipeId: "candidate.verify", recipeVersion: 1 },
+        shadow: { mode: "shadow-replay", productionExecution: false },
+      },
+      lifecycle: "committed",
+      productionExecution: false,
+    });
+
+    const replay = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
+      .send({});
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({
+      receipt: {
+        candidateTreeHash,
+        productionExecution: false,
+        proof: { verdict: "PROVEN" },
+      },
+      productionExecution: false,
+    });
+
+    const [persistedProposal] = await db
+      .select({
+        lifecycle: aiChangeProposalsTable.lifecycle,
+        validationEvidence: aiChangeProposalsTable.validationEvidence,
+      })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId));
+    expect(persistedProposal?.lifecycle).toBe("committed");
+    expect(JSON.parse(persistedProposal?.validationEvidence ?? "{}")).toMatchObject({
+      skillCandidate: {
+        candidateTreeHash,
+        sourceRevision,
+      },
+    });
+    const executions = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.proposalId, proposalId));
+    expect(executions).toHaveLength(1);
   });
 
   it("binds active mission activation to the same server-owned plan revision", async () => {

@@ -804,7 +804,7 @@ function GoalCard({
   onCreateTask: () => void;
   onBindDelivery: () => void;
 }) {
-  const { goal, tasks, workflows, executions, events } = item;
+  const { goal, tasks, workflows, executions, events, skillCandidate } = item;
   const linkedCount = tasks.length + workflows.length + executions.length + events.length;
   const nextAction = goal.nextAction && typeof goal.nextAction === 'object' && !Array.isArray(goal.nextAction)
     ? goal.nextAction as Record<string, unknown>
@@ -876,6 +876,20 @@ function GoalCard({
               <CollectionLine icon={Clock3} label="Updated" value={formatDate(goal.updatedAt, true)} />
               <CollectionLine icon={CheckCircle2} label="Completed" value={formatDate(goal.completedAt, true)} empty={!goal.completedAt} />
             </div>
+            {skillCandidate ? (
+              <div data-testid={`skill-candidate-${goal.id}`} className="rounded-md border border-emerald-300/20 bg-emerald-300/5 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                  <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-emerald-200/80">Proof-carrying candidate</p>
+                </div>
+                <div className="mt-2 space-y-1 font-mono text-[10px] text-slate-400">
+                  <p>verdict <span className="text-emerald-200">{skillCandidate.proof.verdict}</span></p>
+                  <p>candidate <span className="text-slate-300">{compactId(skillCandidate.candidateId)}</span></p>
+                  <p>tree <span className="text-slate-300">{compactId(skillCandidate.candidateTreeHash)}</span></p>
+                  <p>replay <span className="text-cyan-200">{skillCandidate.shadow.mode} / non-production</span></p>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="space-y-4">
             <div>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   EXECUTION_PROOF_CONTRACT_VERSION,
   parseExecutionProofProjection,
+  type ExecutionProofProjection,
 } from "./execution-proof.js";
 
 export const SKILL_CANDIDATE_CONTRACT_VERSION = 1 as const;
@@ -44,6 +45,13 @@ export const SkillCandidateEnvelopeSchema = z.object({
 
 export type SkillCandidateEnvelope = z.infer<typeof SkillCandidateEnvelopeSchema>;
 
+export const StoredProposalEvidenceSchema = z.object({
+  validationResults: z.array(z.unknown()),
+  skillCandidate: SkillCandidateEnvelopeSchema,
+}).strict();
+
+export type StoredProposalEvidence = z.infer<typeof StoredProposalEvidenceSchema>;
+
 export type SkillCandidateReplayDecision = {
   allowed: boolean;
   reasons: string[];
@@ -65,6 +73,73 @@ export type ShadowReplayReceipt = {
   };
   productionExecution: false;
 };
+
+export function buildSkillCandidateEnvelope(params: {
+  proposalId: string;
+  projectId: string;
+  sourceRevision: string;
+  candidateTreeHash: string;
+  changeSetHash?: string | null;
+  approvedPaths: readonly string[];
+  receiptId: string;
+  proof: ExecutionProofProjection;
+  runId: string;
+}): SkillCandidateEnvelope {
+  return SkillCandidateEnvelopeSchema.parse({
+    contractVersion: SKILL_CANDIDATE_CONTRACT_VERSION,
+    candidateId: `skill-candidate:${params.proposalId}:${params.candidateTreeHash}`,
+    projectId: params.projectId,
+    sourceRevision: params.sourceRevision,
+    candidateTreeHash: params.candidateTreeHash,
+    changeSetHash: params.changeSetHash ?? null,
+    approvedPaths: uniquePaths(params.approvedPaths),
+    verification: {
+      recipeId: "candidate.verify",
+      recipeVersion: 1,
+    },
+    proof: {
+      receiptId: params.receiptId,
+      trajectoryDigest: params.proof.trajectoryDigest.digest,
+      verdict: params.proof.verdict,
+      projection: params.proof,
+    },
+    shadow: {
+      mode: "shadow-replay",
+      runId: params.runId,
+      isolated: true,
+      productionExecution: false,
+    },
+  });
+}
+
+export function parseStoredProposalEvidence(value: unknown): {
+  validationResults: unknown[];
+  skillCandidate?: SkillCandidateEnvelope;
+} {
+  if (Array.isArray(value)) return { validationResults: value };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { validationResults: [] };
+  }
+  const record = value as Record<string, unknown>;
+  const validationResults = Array.isArray(record.validationResults)
+    ? record.validationResults
+    : [];
+  const candidate = SkillCandidateEnvelopeSchema.safeParse(record.skillCandidate);
+  return candidate.success
+    ? { validationResults, skillCandidate: candidate.data }
+    : { validationResults };
+}
+
+export function serializeProposalEvidence(
+  current: unknown,
+  skillCandidate: SkillCandidateEnvelope,
+): string {
+  const parsed = parseStoredProposalEvidence(current);
+  return JSON.stringify({
+    validationResults: parsed.validationResults,
+    skillCandidate,
+  } satisfies StoredProposalEvidence);
+}
 
 function uniquePaths(paths: readonly string[]): string[] {
   return [...new Set(paths.map((path) => path.trim()).filter(Boolean))];

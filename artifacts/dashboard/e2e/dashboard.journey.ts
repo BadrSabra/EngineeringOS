@@ -3905,6 +3905,22 @@ async function installMissionManagementFixtures(page: Page) {
               correlationId: null,
               timestamp: now,
             }],
+            skillCandidate: {
+              candidateId: "skill-candidate:e2e",
+              sourceRevision: "e2e-source-revision",
+              candidateTreeHash: "e2e-candidate-tree-hash",
+              proof: {
+                receiptId: "e2e-proof-receipt",
+                trajectoryDigest: "e2e-trajectory-digest",
+                verdict: "PROVEN",
+              },
+              shadow: {
+                mode: "shadow-replay",
+                runId: "e2e-shadow-run",
+                isolated: true,
+                productionExecution: false,
+              },
+            },
           }]
         : [];
       return route.fulfill(jsonResponse({
@@ -4769,6 +4785,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const goalCard = page.getByTestId("card-goal-e2e-goal-management");
     await expect(goalCard).toBeVisible();
     await expect(goalCard).toContainText("Validate candidate");
+    await page.getByTestId("button-toggle-goal-e2e-goal-management").click();
+    const candidateProof = page.getByTestId("skill-candidate-e2e-goal-management");
+    await expect(candidateProof).toBeVisible();
+    await expect(candidateProof).toContainText("PROVEN");
+    await expect(candidateProof).toContainText("skill-candidate:e2e");
+    await expect(candidateProof).toContainText("shadow-replay / non-production");
 
     await page.getByTestId("button-edit-goal-e2e-goal-management").click();
     await expect(
@@ -4791,6 +4813,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByTestId("card-goal-e2e-goal-management"),
     ).toContainText("Validate candidate updated");
+    await expect(
+      page.getByTestId("skill-candidate-e2e-goal-management"),
+    ).toContainText("PROVEN");
 
     expect(
       missionFixtures.mutations.map(({ method, path }) => `${method} ${path}`),

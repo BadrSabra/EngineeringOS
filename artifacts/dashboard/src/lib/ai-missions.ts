@@ -101,6 +101,23 @@ export interface ProjectionEvent {
   timestamp: string;
 }
 
+export interface SkillCandidateProjection {
+  candidateId: string;
+  sourceRevision: string;
+  candidateTreeHash: string;
+  proof: {
+    receiptId: string;
+    trajectoryDigest: string;
+    verdict: 'PROVEN' | 'INCOMPLETE' | 'UNAVAILABLE';
+  };
+  shadow: {
+    mode: 'shadow-replay';
+    runId: string;
+    isolated: true;
+    productionExecution: false;
+  };
+}
+
 export interface MissionProjection {
   mission: Mission;
   goals: Array<{
@@ -109,6 +126,7 @@ export interface MissionProjection {
     workflows: ProjectionWorkflow[];
     executions: ProjectionExecution[];
     events: ProjectionEvent[];
+    skillCandidate?: SkillCandidateProjection;
   }>;
   counts: {
     goals: number;
