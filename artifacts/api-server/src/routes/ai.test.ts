@@ -717,7 +717,6 @@ async function insertMismatchedCompletedShadowReplay(
       message: "Test completed shadow replay.",
       modelMessage: "Test completed shadow replay.",
       validationTargetPaths: [operation.change.path],
-      validationProfiles: ["api-ai-tests"],
       proofRequired: true,
     },
     workspaceRoot: operation.workspaceRoot ?? undefined,
