@@ -4024,6 +4024,10 @@ export const getAiExecutionResponseAcceptanceOneDispositionRetryAfterMsMin = 0;
 
 export const getAiExecutionResponseTerminalProjectionOneAttemptMin = 0;
 
+export const getAiExecutionResponseOperationEvidenceProofFailureReasonsMax = 8;
+
+export const getAiExecutionResponseOperationEvidenceProofAttemptMin = 0;
+
 export const getAiExecutionResponseExecutionDiagnosticsAttemptsMin = 0;
 export const getAiExecutionResponseExecutionDiagnosticsAttemptsMax = 5000;
 
@@ -4220,7 +4224,22 @@ export const GetAiExecutionResponse = zod.object({
   "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
   "detail": zod.string()
-}))
+})),
+  "proof": zod.object({
+  "contractVersion": zod.literal(1),
+  "verdict": zod.enum(['PROVEN', 'INCOMPLETE', 'UNAVAILABLE']),
+  "accepted": zod.boolean(),
+  "failureReasons": zod.array(zod.string()).max(getAiExecutionResponseOperationEvidenceProofFailureReasonsMax),
+  "executionId": zod.string().nullable(),
+  "acceptanceId": zod.string().nullable(),
+  "attempt": zod.number().int().min(getAiExecutionResponseOperationEvidenceProofAttemptMin).nullable(),
+  "operationId": zod.string().nullable(),
+  "evidenceSnapshotId": zod.string().nullable(),
+  "sourceRevision": zod.string().nullable(),
+  "candidateIdentity": zod.string().nullable(),
+  "candidateTreeHash": zod.string().nullable(),
+  "treeHash": zod.string().nullable()
+})
 }),
   "executionDiagnostics": zod.object({
   "schemaVersion": zod.literal(1),
@@ -4561,6 +4580,10 @@ export const ExportAiExecutionAuditParams = zod.object({
   "executionId": zod.coerce.string()
 })
 
+export const exportAiExecutionAuditResponseOperationEvidenceProofFailureReasonsMax = 8;
+
+export const exportAiExecutionAuditResponseOperationEvidenceProofAttemptMin = 0;
+
 export const exportAiExecutionAuditResponseExecutionDiagnosticsAttemptsMin = 0;
 export const exportAiExecutionAuditResponseExecutionDiagnosticsAttemptsMax = 5000;
 
@@ -4623,7 +4646,22 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
   "detail": zod.string()
-}))
+})),
+  "proof": zod.object({
+  "contractVersion": zod.literal(1),
+  "verdict": zod.enum(['PROVEN', 'INCOMPLETE', 'UNAVAILABLE']),
+  "accepted": zod.boolean(),
+  "failureReasons": zod.array(zod.string()).max(exportAiExecutionAuditResponseOperationEvidenceProofFailureReasonsMax),
+  "executionId": zod.string().nullable(),
+  "acceptanceId": zod.string().nullable(),
+  "attempt": zod.number().int().min(exportAiExecutionAuditResponseOperationEvidenceProofAttemptMin).nullable(),
+  "operationId": zod.string().nullable(),
+  "evidenceSnapshotId": zod.string().nullable(),
+  "sourceRevision": zod.string().nullable(),
+  "candidateIdentity": zod.string().nullable(),
+  "candidateTreeHash": zod.string().nullable(),
+  "treeHash": zod.string().nullable()
+})
 }),
   "executionDiagnostics": zod.object({
   "schemaVersion": zod.literal(1),
@@ -5019,6 +5057,10 @@ export const getAiMissionControlResponseBenchmarkEmpiricalCampaignMetricsFalseRe
 
 export const getAiMissionControlResponseBenchmarkEmpiricalCampaignCasesMax = 128;
 
+export const getAiMissionControlResponseExecutionsItemEvidenceProjectionProofFailureReasonsMax = 8;
+
+export const getAiMissionControlResponseExecutionsItemEvidenceProjectionProofAttemptMin = 0;
+
 export const getAiMissionControlResponseUsageWindowDaysMax = 90;
 
 export const getAiMissionControlResponseUsageRetentionDaysMax = 3650;
@@ -5312,7 +5354,22 @@ export const GetAiMissionControlResponse = zod.object({
   "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
   "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
   "detail": zod.string()
-}))
+})),
+  "proof": zod.object({
+  "contractVersion": zod.literal(1),
+  "verdict": zod.enum(['PROVEN', 'INCOMPLETE', 'UNAVAILABLE']),
+  "accepted": zod.boolean(),
+  "failureReasons": zod.array(zod.string()).max(getAiMissionControlResponseExecutionsItemEvidenceProjectionProofFailureReasonsMax),
+  "executionId": zod.string().nullable(),
+  "acceptanceId": zod.string().nullable(),
+  "attempt": zod.number().int().min(getAiMissionControlResponseExecutionsItemEvidenceProjectionProofAttemptMin).nullable(),
+  "operationId": zod.string().nullable(),
+  "evidenceSnapshotId": zod.string().nullable(),
+  "sourceRevision": zod.string().nullable(),
+  "candidateIdentity": zod.string().nullable(),
+  "candidateTreeHash": zod.string().nullable(),
+  "treeHash": zod.string().nullable()
+})
 }),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),

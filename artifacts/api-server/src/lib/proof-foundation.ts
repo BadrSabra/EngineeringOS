@@ -40,7 +40,9 @@ export type CanonicalProofFailureReason =
   | "acceptance_proof_missing"
   | "acceptance_proof_not_proven"
   | "acceptance_proof_not_bound"
-  | "delivery_not_proven";
+  | "delivery_not_proven"
+  | "delivery_identity_missing"
+  | "delivery_identity_mismatch";
 
 export type CanonicalProofScope = {
   projectId: string;
@@ -92,6 +94,12 @@ export type CanonicalProofEvidence = {
 
 export type CanonicalProofDelivery = {
   status?: unknown;
+  executionId?: string | null;
+  attempt?: number | null;
+  operationId?: string | null;
+  sourceRevision?: string | null;
+  candidateTreeHash?: string | null;
+  treeHash?: string | null;
 };
 
 export type CanonicalProofInput = {
@@ -115,6 +123,9 @@ export type CanonicalProof = {
   evidenceSnapshotId: string | null;
   sourceRevision: string | null;
   candidateIdentity: string | null;
+  attempt: number | null;
+  operationId: string | null;
+  delivery: CanonicalProofDelivery | null;
   projection: ExecutionProofProjection | null;
   trajectoryDigest: ExecutionProofProjection["trajectoryDigest"] | null;
 };
@@ -326,9 +337,32 @@ export function composeCanonicalProof(
   }
 
   if (input.deliveryRequired) {
-    const deliveryStatus = input.deliveryReceipt?.status;
+    const delivery = input.deliveryReceipt;
+    const deliveryStatus = delivery?.status;
     if (!["PROVEN", "completed", "succeeded"].includes(String(deliveryStatus))) {
       addReason(reasons, "delivery_not_proven");
+    } else if (
+      !delivery
+      || delivery.executionId !== execution?.id
+      || delivery.attempt !== execution?.attempt
+      || delivery.operationId !== (execution?.operationId ?? input.scope.operationId ?? null)
+      || delivery.sourceRevision !== acceptedSourceRevision
+      || !delivery.candidateTreeHash
+      || !delivery.treeHash
+    ) {
+      addReason(reasons, "delivery_identity_missing");
+      if (
+        delivery
+        && (
+          delivery.executionId !== execution?.id
+          || delivery.attempt !== execution?.attempt
+          || delivery.operationId !== (execution?.operationId ?? input.scope.operationId ?? null)
+          || delivery.sourceRevision !== acceptedSourceRevision
+          || (expectedCandidateIdentity && delivery.candidateTreeHash !== expectedCandidateIdentity)
+        )
+      ) {
+        addReason(reasons, "delivery_identity_mismatch");
+      }
     }
   }
 
@@ -356,8 +390,48 @@ export function composeCanonicalProof(
     evidenceSnapshotId: acceptance?.evidenceSnapshotId ?? null,
     sourceRevision: acceptedSourceRevision,
     candidateIdentity: acceptedCandidateIdentity,
+    attempt: execution?.attempt ?? acceptance?.attempt ?? null,
+    operationId: execution?.operationId ?? acceptance?.operationId ?? null,
+    delivery: input.deliveryReceipt ?? null,
     projection,
     trajectoryDigest: projection?.trajectoryDigest ?? null,
+  };
+}
+
+export type PublicCanonicalProofProjection = {
+  contractVersion: typeof CANONICAL_PROOF_CONTRACT_VERSION;
+  verdict: CanonicalProofVerdict;
+  accepted: boolean;
+  failureReasons: CanonicalProofFailureReason[];
+  executionId: string | null;
+  acceptanceId: string | null;
+  attempt: number | null;
+  operationId: string | null;
+  evidenceSnapshotId: string | null;
+  sourceRevision: string | null;
+  candidateIdentity: string | null;
+  candidateTreeHash: string | null;
+  treeHash: string | null;
+};
+
+export function projectCanonicalProof(
+  proof: CanonicalProof,
+): PublicCanonicalProofProjection {
+  return {
+    contractVersion: proof.contractVersion,
+    verdict: proof.verdict,
+    accepted: proof.accepted,
+    failureReasons: proof.failureReasons.slice(0, 8),
+    executionId: proof.executionId,
+    acceptanceId: proof.acceptanceId,
+    attempt: proof.attempt,
+    operationId: proof.operationId,
+    evidenceSnapshotId: proof.evidenceSnapshotId,
+    sourceRevision: proof.sourceRevision,
+    candidateIdentity: proof.candidateIdentity,
+    candidateTreeHash: proof.delivery?.candidateTreeHash
+      ?? proof.candidateIdentity,
+    treeHash: proof.delivery?.treeHash ?? null,
   };
 }
 

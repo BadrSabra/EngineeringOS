@@ -53,7 +53,13 @@ type MissionExecution = {
   evidenceStatus?: unknown;
   operationId?: unknown;
   revision?: unknown;
-  evidenceProjection?: unknown;
+  evidenceProjection?: {
+    completeness?: unknown;
+    proof?: {
+      verdict?: string;
+      accepted?: boolean;
+    };
+  } | null;
   phase?: unknown;
   proofRequired?: unknown;
   acceptance?: unknown;
@@ -183,7 +189,8 @@ function acceptanceStatus(execution: MissionExecution | undefined): AcceptanceSt
 
   const state = textValue(execution.state)?.toUpperCase();
   const acceptance = asRecord(execution.acceptance);
-  const evidenceVerdict = textValue(asRecord(execution.evidence)?.verdict)?.toUpperCase();
+  const proof = asRecord(asRecord(execution.evidenceProjection)?.proof);
+  const evidenceVerdict = textValue(proof?.verdict)?.toUpperCase();
 
   if (acceptance) {
     const terminalStatus = textValue(acceptance.terminalStatus)?.toLowerCase();
@@ -194,8 +201,8 @@ function acceptanceStatus(execution: MissionExecution | undefined): AcceptanceSt
     if (outcome === 'FAILED' || state === 'FAILED' || state === 'BLOCKED') {
       return 'FAILED';
     }
+    if (proof?.accepted === true && evidenceVerdict === 'PROVEN') return 'PROVEN';
     if (acceptance.evidenceComplete === false) return 'INCOMPLETE';
-    if (outcome === 'SUCCEEDED' || outcome === 'SUCCESS' || outcome === 'COMPLETED' || outcome === 'PROVEN') return 'PROVEN';
     if (textValue(acceptance.nextActionCode)?.toUpperCase() !== 'NONE') return 'INCOMPLETE';
   }
 
@@ -515,7 +522,9 @@ function ComparisonRunColumn({
   }
 
   const evidence = asRecord(execution.evidence);
-  const evidenceStatus = textValue(asRecord(execution.evidenceProjection)?.completeness)
+  const proofVerdict = textValue(asRecord(asRecord(execution.evidenceProjection)?.proof)?.verdict);
+  const evidenceStatus = proofVerdict
+    ?? textValue(asRecord(execution.evidenceProjection)?.completeness)
     ?? recoveryDetail(execution, 'evidenceStatus')
     ?? textValue(evidence?.verdict);
   const failureCategory = recoveryDetail(execution, 'failureCategory');
@@ -1640,7 +1649,7 @@ export default function MissionControl() {
               taskId={selectedExecutionDetail.linkedTaskId}
               executionStatus={selectedExecutionDetail.status}
               flightState={selectedExecutionDetail.flightState}
-              evidenceVerdict={selectedExecutionDetail.evidenceVerdict}
+              evidenceVerdict={selectedExecutionDetail.operationEvidence?.proof.verdict ?? 'UNAVAILABLE'}
               resumable={selectedExecutionDetail.resumable}
               nextAction={selectedExecutionDetail.evidenceReason ?? selectedExecutionDetail.acceptance?.disposition?.operatorAction}
             />

@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { CanonicalProofProjection } from './canonicalProofProjection';
 import type { OperationEvidenceProjectionCompleteness } from './operationEvidenceProjectionCompleteness';
 import type { OperationEvidenceProjectionCounts } from './operationEvidenceProjectionCounts';
 import type { OperationEvidenceProjectionGapsItem } from './operationEvidenceProjectionGapsItem';
@@ -26,4 +27,5 @@ export interface OperationEvidenceProjection {
   counts: OperationEvidenceProjectionCounts;
   receipts: OperationEvidenceProjectionReceiptsItem[];
   gaps: OperationEvidenceProjectionGapsItem[];
+  proof: CanonicalProofProjection;
 }

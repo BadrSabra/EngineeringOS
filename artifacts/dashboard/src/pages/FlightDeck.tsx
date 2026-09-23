@@ -151,14 +151,14 @@ function evidenceOutcomeClasses(status: string): string {
 function fallbackFlightState(execution: {
   status?: string;
   proofRequired?: boolean;
-  evidenceVerdict?: string;
+  proofVerdict?: string;
   proposalId?: string | null;
 }): string {
   if (execution.status === 'failed') return 'BLOCKED';
   if (execution.status === 'cancelled' || execution.status === 'cancelling') return 'CANCELLED';
   if (execution.status === 'completed') {
-    if (!execution.proofRequired || execution.evidenceVerdict === 'PROVEN') return 'COMPLETED';
-    if (execution.proposalId && execution.evidenceVerdict === 'PARTIAL') return 'READY_FOR_REVIEW';
+    if (!execution.proofRequired || execution.proofVerdict === 'PROVEN') return 'COMPLETED';
+    if (execution.proposalId && execution.proofVerdict === 'INCOMPLETE') return 'READY_FOR_REVIEW';
     return 'BLOCKED';
   }
   return 'BUILDING';
@@ -219,7 +219,10 @@ function DeliveryProofTimeline({
   // Operation evidence is intentionally a redacted record, not a delivery
   // attestation. Individual passed receipts are shown as verified, while the
   // chain itself stays conservative until the execution verdict certifies it.
-  const isVerified = evidence.completeness === 'complete' && executionVerdict === 'PROVEN';
+  const isVerified = evidence.completeness === 'complete'
+    && evidence.proof.accepted
+    && evidence.proof.verdict === 'PROVEN'
+    && executionVerdict === 'PROVEN';
   return (
     <section className="rounded-xl border border-border bg-card" aria-label="Delivery proof chain">
       <div className="border-b border-border px-4 py-3">
@@ -361,8 +364,12 @@ export default function FlightDeck() {
     );
   }
 
-  const state = execution.flightState ?? fallbackFlightState(execution);
-  const evidenceVerdict = execution.evidenceVerdict ?? 'NOT_RECORDED';
+  const canonicalProof = execution.operationEvidence?.proof;
+  const evidenceVerdict = canonicalProof?.verdict ?? 'UNAVAILABLE';
+  const state = execution.flightState ?? fallbackFlightState({
+    ...execution,
+    proofVerdict: evidenceVerdict,
+  });
   const checkpoint = execution.checkpoint;
   const nodes = checkpointNodes(checkpoint);
   const isDeliveryExecution = execution.proofRequired
@@ -474,7 +481,7 @@ export default function FlightDeck() {
           </div>
           <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Risk</div>
-            <div className={`mt-1 text-sm font-medium ${blockedNodes > 0 || evidenceVerdict === 'BLOCKED' ? 'text-red-200' : 'text-amber-200'}`}>{riskLabel}</div>
+             <div className={`mt-1 text-sm font-medium ${blockedNodes > 0 || evidenceVerdict === 'UNAVAILABLE' ? 'text-red-200' : 'text-amber-200'}`}>{riskLabel}</div>
           </div>
         </div>
 
@@ -640,7 +647,7 @@ export default function FlightDeck() {
       </div>
       <DeliveryProofTimeline
         evidence={execution.operationEvidence}
-        executionVerdict={execution.evidenceVerdict}
+        executionVerdict={evidenceVerdict}
       />
     </div>
   );

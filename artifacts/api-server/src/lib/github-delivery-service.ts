@@ -41,6 +41,8 @@ export type VerifiedGitHubDeliveryResult = {
   };
   detail?: string;
   remoteCommitHash?: string;
+  candidateTreeHash?: string;
+  treeHash?: string;
   changedPaths?: string[];
   idempotent?: boolean;
 };
@@ -89,6 +91,8 @@ function passedResult(params: {
   operationId: string;
   commitHash: string;
   remoteCommitHash: string;
+  candidateTreeHash?: string;
+  treeHash?: string;
   changedPaths: string[];
   idempotent?: boolean;
 }): VerifiedGitHubDeliveryResult {
@@ -96,6 +100,8 @@ function passedResult(params: {
     operationId: params.operationId,
     commitHash: params.commitHash,
     remoteCommitHash: params.remoteCommitHash,
+    ...(params.candidateTreeHash ? { candidateTreeHash: params.candidateTreeHash } : {}),
+    ...(params.treeHash ? { treeHash: params.treeHash } : {}),
     changedPaths: params.changedPaths,
   });
   return {
@@ -106,6 +112,8 @@ function passedResult(params: {
       artifactRef: `github-delivery:${params.operationId}:${hash}`,
     },
     remoteCommitHash: params.remoteCommitHash,
+    ...(params.candidateTreeHash ? { candidateTreeHash: params.candidateTreeHash } : {}),
+    ...(params.treeHash ? { treeHash: params.treeHash } : {}),
     changedPaths: params.changedPaths,
     ...(params.idempotent ? { idempotent: true } : {}),
   };
@@ -214,6 +222,8 @@ export async function executeVerifiedGitHubDelivery(
       operationId: params.operationId,
       commitHash: existingPush.commitHash,
       remoteCommitHash: existingPush.remoteCommitHash,
+      candidateTreeHash: proposal.candidateTreeHash ?? undefined,
+      treeHash: proposal.committedTreeHash ?? undefined,
       changedPaths: Array.isArray(existingPush.changedPaths)
         ? existingPush.changedPaths.filter((value): value is string => typeof value === "string")
         : [],
@@ -269,6 +279,8 @@ export async function executeVerifiedGitHubDelivery(
       operationId: params.operationId,
       commitHash,
       remoteCommitHash: pushed.remoteCommitHash,
+      candidateTreeHash: proposal.candidateTreeHash,
+      treeHash: committedTreeHash,
       changedPaths: pushed.changedPaths,
     });
 
@@ -305,6 +317,8 @@ export async function executeVerifiedGitHubDelivery(
             operationId: params.operationId,
             commitHash,
             remoteCommitHash: branchState.commitHash,
+            candidateTreeHash: proposal.candidateTreeHash ?? undefined,
+            treeHash: proposal.committedTreeHash ?? undefined,
             changedPaths,
             idempotent: true,
           });

@@ -267,6 +267,12 @@ async function syncRecipeObjectiveState(params: {
   deliveryReceipt?: {
     kind: "recipe";
     status: "completed";
+    executionId?: string | null;
+    attempt?: number | null;
+    operationId?: string | null;
+    sourceRevision?: string | null;
+    candidateTreeHash?: string | null;
+    treeHash?: string | null;
   };
 }): Promise<void> {
   await db.transaction(async (tx) => {
@@ -290,11 +296,77 @@ async function syncRecipeObjectiveState(params: {
       .for("update");
     if (!goal) return;
 
+    const [durableExecution] = params.executionId
+      ? await tx
+          .select({
+            attempt: aiExecutionsTable.attempt,
+            operationId: aiExecutionsTable.operationId,
+            baseRevision: aiExecutionsTable.baseRevision,
+          })
+          .from(aiExecutionsTable)
+          .where(and(
+            eq(aiExecutionsTable.id, params.executionId),
+            eq(aiExecutionsTable.projectId, params.projectId),
+          ))
+          .limit(1)
+      : [];
+    const outcome = jsonRecord(goal.outcomeContract);
+    const acceptance = jsonRecord(outcome.acceptance);
+    const acceptanceScope = jsonRecord(acceptance.scope);
+    const nextAction = jsonRecord(goal.nextAction);
+    const recipeId = typeof nextAction.recipeId === "string" ? nextAction.recipeId : null;
+    const requiresExternalDeliveryIdentity = outcome.deliveryRequired === true
+      && recipeId !== "candidate.verify";
+    const proposalId = typeof nextAction.proposalId === "string" ? nextAction.proposalId : null;
+    const [proposal] = proposalId
+      ? await tx
+          .select({
+            baseRevision: aiChangeProposalsTable.baseRevision,
+            candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+            promotedTreeHash: aiChangeProposalsTable.promotedTreeHash,
+            committedTreeHash: aiChangeProposalsTable.committedTreeHash,
+          })
+          .from(aiChangeProposalsTable)
+          .where(and(
+            eq(aiChangeProposalsTable.id, proposalId),
+            eq(aiChangeProposalsTable.projectId, params.projectId),
+          ))
+          .limit(1)
+      : [];
+    const canonicalDeliveryReceipt = params.deliveryReceipt
+      ? {
+          ...params.deliveryReceipt,
+          executionId: params.deliveryReceipt.executionId
+            ?? params.executionId
+            ?? null,
+          attempt: params.deliveryReceipt.attempt
+            ?? durableExecution?.attempt
+            ?? null,
+          operationId: params.deliveryReceipt.operationId
+            ?? durableExecution?.operationId
+            ?? (typeof acceptanceScope.operationId === "string"
+              ? acceptanceScope.operationId
+              : null),
+          sourceRevision: params.deliveryReceipt.sourceRevision
+            ?? params.sourceRevision
+            ?? (typeof proposal?.baseRevision === "string" ? proposal.baseRevision : null)
+            ?? durableExecution?.baseRevision
+            ?? null,
+          candidateTreeHash: params.deliveryReceipt.candidateTreeHash
+            ?? (typeof proposal?.candidateTreeHash === "string" ? proposal.candidateTreeHash : null)
+            ?? (typeof acceptanceScope.candidateIdentity === "string"
+              ? acceptanceScope.candidateIdentity
+              : null),
+          treeHash: params.deliveryReceipt.treeHash
+            ?? (typeof proposal?.committedTreeHash === "string" ? proposal.committedTreeHash : null)
+            ?? (typeof proposal?.promotedTreeHash === "string" ? proposal.promotedTreeHash : null),
+        }
+      : null;
+
     let nextGoalStatus = params.status;
     let completionReason = params.reason;
     let canonicalProofAccepted = params.status !== "completed";
     if (params.status === "completed" && params.executionId) {
-      const outcome = jsonRecord(goal.outcomeContract);
       const policy = jsonRecord(mission.autonomyPolicy);
       const canonicalProof = await loadCanonicalProof({
         tx,
@@ -311,11 +383,18 @@ async function syncRecipeObjectiveState(params: {
           candidateIdentity: params.candidateIdentity ?? goalCandidateIdentity(goal),
         },
         goalStatus: "completed",
-        deliveryRequired: outcome.deliveryRequired === true,
-        deliveryReceipt: params.deliveryReceipt,
+         deliveryRequired: requiresExternalDeliveryIdentity,
+         deliveryReceipt: canonicalDeliveryReceipt,
       });
       canonicalProofAccepted = canonicalProof.accepted;
       if (!canonicalProofAccepted) {
+        console.log("canonical recipe proof rejected", {
+          executionId: params.executionId,
+          failureReasons: canonicalProof.failureReasons,
+          delivery: canonicalProof.delivery,
+          sourceRevision: canonicalProof.sourceRevision,
+          candidateIdentity: canonicalProof.candidateIdentity,
+        });
         nextGoalStatus = "verifying";
         completionReason = `canonical_proof_${canonicalProof.failureReasons[0] ?? "incomplete"}`;
       }
@@ -346,7 +425,7 @@ async function syncRecipeObjectiveState(params: {
             executionId: params.executionId,
             status: params.status,
           },
-          deliveryReceipt: params.deliveryReceipt,
+          deliveryReceipt: canonicalDeliveryReceipt,
           reasonCode: completionReason,
           updatedAt: new Date(),
         },

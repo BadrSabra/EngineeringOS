@@ -4,6 +4,7 @@ import {
   parseExecutionProofProjection,
   type ExecutionProofProjection,
 } from "./execution-proof.js";
+import type { CanonicalProof } from "./proof-foundation.js";
 
 export const SKILL_CANDIDATE_CONTRACT_VERSION = 1 as const;
 
@@ -196,6 +197,41 @@ export function validateSkillCandidateForShadow(
   return reasons.length === 0
     ? { allowed: true, reasons: [], envelope }
     : { allowed: false, reasons };
+}
+
+export function validateSkillCandidateAgainstCanonicalProof(
+  value: unknown,
+  canonicalProof: CanonicalProof | null | undefined,
+  expected?: Parameters<typeof validateSkillCandidateForShadow>[1],
+): SkillCandidateReplayDecision {
+  const decision = validateSkillCandidateForShadow(value, expected);
+  if (!decision.allowed || !decision.envelope) return decision;
+  if (!canonicalProof?.accepted) {
+    return {
+      allowed: false,
+      reasons: [
+        "canonical_proof_not_accepted",
+        ...(canonicalProof?.failureReasons ?? []),
+      ],
+    };
+  }
+  const envelope = decision.envelope;
+  const reasons = [...decision.reasons];
+  if (envelope.proof.receiptId !== canonicalProof.acceptanceId) {
+    reasons.push("canonical_proof_acceptance_mismatch");
+  }
+  if (envelope.proof.trajectoryDigest !== canonicalProof.trajectoryDigest?.digest) {
+    reasons.push("canonical_proof_trajectory_mismatch");
+  }
+  if (envelope.sourceRevision !== canonicalProof.sourceRevision) {
+    reasons.push("canonical_proof_source_revision_mismatch");
+  }
+  if (envelope.candidateTreeHash !== canonicalProof.candidateIdentity) {
+    reasons.push("canonical_proof_candidate_mismatch");
+  }
+  return reasons.length === 0
+    ? decision
+    : { allowed: false, reasons: [...new Set(reasons)] };
 }
 
 export function buildShadowReplayReceipt(

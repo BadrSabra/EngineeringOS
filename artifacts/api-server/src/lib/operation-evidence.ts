@@ -3,6 +3,8 @@ import {
   db,
   aiApplyJournalTable,
   aiChangeProposalsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   auditLogsTable,
   eventsTable,
   taskLogsTable,
@@ -10,6 +12,12 @@ import {
 import type { AiExecution } from "@workspace/db";
 import { redactUserFacingText, redactUserFacingValue } from "./ai-route-helpers.js";
 import { evaluateReadinessFromEvidence, type OperationalReadinessDecision } from "./operational-readiness-gate.js";
+import {
+  composeCanonicalProof,
+  loadCanonicalProof,
+  projectCanonicalProof,
+  type PublicCanonicalProofProjection,
+} from "./proof-foundation.js";
 
 export const OPERATION_EVIDENCE_LIMITS = {
   events: 120,
@@ -74,6 +82,7 @@ export type OperationEvidenceProjection = {
   receipts: OperationReceipt[];
   gaps: EvidenceGap[];
   readiness?: OperationalReadinessDecision;
+  proof: PublicCanonicalProofProjection;
 };
 
 export type EvidenceInput = {
@@ -96,6 +105,7 @@ export type EvidenceInput = {
     changeSetHash: string | null;
     committedHash: string | null;
   } | null;
+  proof?: PublicCanonicalProofProjection;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -256,6 +266,10 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
     },
     receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
     gaps,
+    proof: input.proof ?? projectCanonicalProof(composeCanonicalProof({
+      scope: { projectId: execution.projectId, executionId: execution.id },
+      goalStatus: execution.status,
+    })),
   };
   const operation = checkpoint.operation as { nodes?: Array<{
     id: string;
@@ -286,7 +300,7 @@ function parseJson(value: string | null): unknown {
 
 export async function loadOperationEvidence(execution: AiExecution): Promise<OperationEvidenceProjection> {
   const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
-  const [events, audits, taskLogs, journal, proposals] = await Promise.all([
+  const [events, audits, taskLogs, journal, proposals, goals] = await Promise.all([
     db.select({
       id: eventsTable.id, type: eventsTable.type, severity: eventsTable.severity, message: eventsTable.message,
       timestamp: eventsTable.timestamp, payload: eventsTable.payload,
@@ -317,14 +331,75 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
            changeSetHash: aiChangeProposalsTable.changeSetHash, committedHash: aiChangeProposalsTable.committedHash,
         }).from(aiChangeProposalsTable).where(and(eq(aiChangeProposalsTable.id, execution.proposalId), eq(aiChangeProposalsTable.projectId, execution.projectId))).limit(1)
       : Promise.resolve([]),
+    execution.linkedTaskId || execution.goalId
+      ? db.select().from(aiGoalsTable).where(and(
+          eq(aiGoalsTable.id, execution.goalId ?? ""),
+          eq(aiGoalsTable.projectId, execution.projectId),
+        )).limit(1)
+      : Promise.resolve([]),
   ]);
+  const proposal = proposals[0] ?? null;
+  const goal = goals[0] ?? null;
+  const [mission] = goal
+    ? await db.select().from(aiMissionsTable).where(and(
+        eq(aiMissionsTable.id, goal.missionId),
+        eq(aiMissionsTable.projectId, execution.projectId),
+      )).limit(1)
+    : [];
+  const request = record(parseJson(execution.request));
+  const outcomeContract = record(goal?.outcomeContract);
+  const nextAction = record(goal?.nextAction);
+  const acceptance = record(outcomeContract.acceptance);
+  const acceptanceScope = record(acceptance.scope);
+  const missionPolicy = record(mission?.autonomyPolicy);
+  const sourceRevision = text(execution.baseRevision, 200)
+    ?? text(request.workspaceRevision, 200)
+    ?? text(acceptance.sourceRevision, 200)
+    ?? text(proposal?.baseRevision, 200);
+  const candidateIdentity = text(acceptance.candidateIdentity, 240)
+    ?? text(acceptanceScope.candidateIdentity, 240)
+    ?? text(proposal?.candidateTreeHash, 240);
+  const delivery = record(execution.recipeReceipt);
+  const canonicalProof = await db.transaction((tx) => loadCanonicalProof({
+    tx,
+    executionId: execution.id,
+    scope: {
+      projectId: execution.projectId,
+      missionId: mission?.id ?? goal?.missionId ?? null,
+      goalId: goal?.id ?? null,
+      executionId: execution.id,
+      operationId: typeof acceptanceScope.operationId === "string"
+        ? acceptanceScope.operationId
+        : execution.operationId,
+      sourceRevision,
+      candidateIdentity,
+      activePlanRevision: typeof missionPolicy.activePlanRevision === "string"
+        ? missionPolicy.activePlanRevision
+        : null,
+    },
+    goalStatus: goal?.status ?? execution.status,
+    deliveryRequired: outcomeContract.deliveryRequired === true
+      && nextAction.recipeId !== "candidate.verify",
+    deliveryReceipt: Object.keys(delivery).length > 0
+      ? {
+          status: delivery.status,
+          executionId: typeof delivery.executionId === "string" ? delivery.executionId : null,
+          attempt: typeof delivery.attempt === "number" ? delivery.attempt : null,
+          operationId: typeof delivery.operationId === "string" ? delivery.operationId : null,
+          sourceRevision: typeof delivery.sourceRevision === "string" ? delivery.sourceRevision : null,
+          candidateTreeHash: typeof delivery.candidateTreeHash === "string" ? delivery.candidateTreeHash : null,
+          treeHash: typeof delivery.treeHash === "string" ? delivery.treeHash : null,
+        }
+      : null,
+  }));
   return buildOperationEvidenceProjection({
     execution,
     events,
     audits,
     taskLogs,
     journal,
-    proposal: proposals[0] ?? null,
+    proposal,
+    proof: projectCanonicalProof(canonicalProof),
   });
 }
 

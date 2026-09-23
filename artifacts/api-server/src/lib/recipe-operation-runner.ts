@@ -329,15 +329,29 @@ function receiptIdForEvidence(entry: RecipeEvidence[string]): string | undefined
 function buildRecipeReceipt(
   params: RunRecipeOperationParams,
   executionId: string,
+  attempt: number,
   status: RecipeReceipt["status"],
   nodes: readonly ActiveTaskExecutionPlan["nodes"][number][],
   outputs: ReadonlyMap<string, Record<string, unknown>>,
   completedNodeIds: readonly string[],
 ): RecipeReceipt {
+  const deliveryOutput = [...outputs.values()].find((output) =>
+    typeof output.candidateTreeHash === "string"
+    || typeof output.treeHash === "string"
+    || typeof output.committedTreeHash === "string"
+  );
   const receipt = {
     contractVersion: 1 as const,
     executionId,
     operationId: params.operationId,
+    attempt,
+    sourceRevision: params.sourceRevision,
+    candidateTreeHash: params.candidateIdentity ?? null,
+    treeHash: typeof deliveryOutput?.treeHash === "string"
+      ? deliveryOutput.treeHash
+      : typeof deliveryOutput?.committedTreeHash === "string"
+        ? deliveryOutput.committedTreeHash
+        : null,
     recipeId: params.recipeId,
     recipeVersion: params.recipeVersion,
     status,
@@ -659,7 +673,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         })),
         recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
       });
-      const receipt = buildRecipeReceipt(params, claimed.id, "blocked", result.nodes, outputs, result.completedNodeIds);
+      const receipt = buildRecipeReceipt(params, claimed.id, claimed.attempt, "blocked", result.nodes, outputs, result.completedNodeIds);
       return { executionId: claimed.id, status: "blocked", completedNodeIds: result.completedNodeIds, receipt };
     }
 
@@ -676,7 +690,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         nodeStates: result.nodes.map((node) => ({ ...node, evidenceRefs: [] })),
         recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
       });
-      const receipt = buildRecipeReceipt(params, claimed.id, "blocked", result.nodes, outputs, result.completedNodeIds);
+      const receipt = buildRecipeReceipt(params, claimed.id, claimed.attempt, "blocked", result.nodes, outputs, result.completedNodeIds);
       return { executionId: claimed.id, status: "blocked", completedNodeIds: result.completedNodeIds, receipt };
     }
     const evidenceRefs = Object.values(evidence)
@@ -690,10 +704,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         nodeStates: result.nodes.map((node) => ({ ...node, evidenceRefs: [] })),
         recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
       });
-      const receipt = buildRecipeReceipt(params, claimed.id, "blocked", result.nodes, outputs, result.completedNodeIds);
+      const receipt = buildRecipeReceipt(params, claimed.id, claimed.attempt, "blocked", result.nodes, outputs, result.completedNodeIds);
       return { executionId: claimed.id, status: "blocked", completedNodeIds: result.completedNodeIds, receipt };
     }
-    const completedReceipt = buildRecipeReceipt(params, claimed.id, "completed", result.nodes, outputs, result.completedNodeIds);
+    const completedReceipt = buildRecipeReceipt(params, claimed.id, claimed.attempt, "completed", result.nodes, outputs, result.completedNodeIds);
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -720,6 +734,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       const cancelledReceipt = buildRecipeReceipt(
         params,
         claimed.id,
+        claimed.attempt,
         "cancelled",
         result.nodes,
         outputs,

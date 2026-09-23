@@ -4769,11 +4769,35 @@ components:
           type: string
           format: date-time
 
+    CanonicalProofProjection:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, verdict, accepted, failureReasons, executionId,
+                 acceptanceId, attempt, operationId, evidenceSnapshotId,
+                 sourceRevision, candidateIdentity, candidateTreeHash, treeHash]
+      properties:
+        contractVersion: { type: integer, enum: [1] }
+        verdict: { type: string, enum: [PROVEN, INCOMPLETE, UNAVAILABLE] }
+        accepted: { type: boolean }
+        failureReasons:
+          type: array
+          maxItems: 8
+          items: { type: string }
+        executionId: { type: string, nullable: true }
+        acceptanceId: { type: string, nullable: true }
+        attempt: { type: integer, minimum: 0, nullable: true }
+        operationId: { type: string, nullable: true }
+        evidenceSnapshotId: { type: string, nullable: true }
+        sourceRevision: { type: string, nullable: true }
+        candidateIdentity: { type: string, nullable: true }
+        candidateTreeHash: { type: string, nullable: true }
+        treeHash: { type: string, nullable: true }
+
     OperationEvidenceProjection:
       type: object
       additionalProperties: false
       required: [version, redacted, operationId, projectId, revision, terminalState,
-                completeness, verified, hashes, counts, receipts, gaps]
+                completeness, verified, hashes, counts, receipts, gaps, proof]
       properties:
         version: { type: integer, enum: [1] }
         redacted: { type: boolean, enum: [true] }
@@ -4817,6 +4841,8 @@ components:
               kind: { type: string, enum: [missing, expired, inaccessible, mismatch, unrecorded] }
               source: { type: string, enum: [execution, checkpoint, event, audit, task-log, journal, proposal, revision] }
               detail: { type: string }
+        proof:
+          $ref: "#/components/schemas/CanonicalProofProjection"
 
     AiPlanDecisionRequest:
       type: object

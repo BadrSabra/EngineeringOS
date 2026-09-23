@@ -757,6 +757,40 @@ export const OperationEvidenceProjectionGapsItemSource = {
   revision: 'revision',
 } as const;
 
+export type CanonicalProofProjectionContractVersion = typeof CanonicalProofProjectionContractVersion[keyof typeof CanonicalProofProjectionContractVersion];
+
+
+export const CanonicalProofProjectionContractVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type CanonicalProofProjectionVerdict = typeof CanonicalProofProjectionVerdict[keyof typeof CanonicalProofProjectionVerdict];
+
+
+export const CanonicalProofProjectionVerdict = {
+  PROVEN: 'PROVEN',
+  INCOMPLETE: 'INCOMPLETE',
+  UNAVAILABLE: 'UNAVAILABLE',
+} as const;
+
+export interface CanonicalProofProjection {
+  contractVersion: CanonicalProofProjectionContractVersion;
+  verdict: CanonicalProofProjectionVerdict;
+  accepted: boolean;
+  /** @maxItems 8 */
+  failureReasons: string[];
+  executionId: string | null;
+  acceptanceId: string | null;
+  /** @minimum 0 */
+  attempt: number | null;
+  operationId: string | null;
+  evidenceSnapshotId: string | null;
+  sourceRevision: string | null;
+  candidateIdentity: string | null;
+  candidateTreeHash: string | null;
+  treeHash: string | null;
+}
+
 export type OperationEvidenceProjectionHashes = {
   /** @nullable */
   changeSet: string | null;
@@ -796,6 +830,7 @@ export interface OperationEvidenceProjection {
   counts: OperationEvidenceProjectionCounts;
   receipts: OperationEvidenceProjectionReceiptsItem[];
   gaps: OperationEvidenceProjectionGapsItem[];
+  proof: CanonicalProofProjection;
 }
 
 export interface AiMissionControlExecution {

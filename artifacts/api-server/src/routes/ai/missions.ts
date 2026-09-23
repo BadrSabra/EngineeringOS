@@ -43,14 +43,13 @@ import {
   evaluateGoalCompletion,
   evaluateMissionCompletion,
 } from "../../lib/mission-completion-gate.js";
-import { parseExecutionProofProjection } from "../../lib/execution-proof.js";
 import { loadCanonicalProof } from "../../lib/proof-foundation.js";
 import {
   buildSkillCandidateEnvelope,
   buildShadowReplayReceipt,
   parseStoredProposalEvidence,
   serializeProposalEvidence,
-  validateSkillCandidateForShadow,
+  validateSkillCandidateAgainstCanonicalProof,
 } from "../../lib/skill-candidate.js";
 
 const router = Router();
@@ -713,6 +712,10 @@ async function buildMissionProjection(
     )),
     db.select({
       id: aiChangeProposalsTable.id,
+      operationId: aiChangeProposalsTable.operationId,
+      baseRevision: aiChangeProposalsTable.baseRevision,
+      candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      changeSetHash: aiChangeProposalsTable.changeSetHash,
       validationEvidence: aiChangeProposalsTable.validationEvidence,
     }).from(aiChangeProposalsTable).where(eq(
       aiChangeProposalsTable.projectId,
@@ -720,6 +723,83 @@ async function buildMissionProjection(
     )),
   ]);
   const proposalById = new Map(proposals.map((proposal) => [proposal.id, proposal]));
+  const candidateByGoalId = new Map<string, {
+    skillCandidate: {
+      candidateId: string;
+      sourceRevision: string;
+      candidateTreeHash: string;
+      proof: {
+        receiptId: string;
+        trajectoryDigest: string;
+        verdict: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+        projection: unknown;
+      };
+      shadow: unknown;
+    };
+  }>();
+  for (const goal of goals) {
+    const nextAction = goal.nextAction && typeof goal.nextAction === "object" && !Array.isArray(goal.nextAction)
+      ? goal.nextAction as Record<string, unknown>
+      : {};
+    const proposalIds = [
+      typeof nextAction.proposalId === "string" ? nextAction.proposalId : null,
+      ...executions.filter((execution) => execution.goalId === goal.id).map((execution) => execution.proposalId),
+    ].filter((value): value is string => Boolean(value));
+    for (const proposalId of proposalIds) {
+      const proposal = proposalById.get(proposalId);
+      if (!proposal?.validationEvidence) continue;
+      let stored: unknown;
+      try {
+        stored = JSON.parse(proposal.validationEvidence);
+      } catch {
+        continue;
+      }
+      const candidate = parseStoredProposalEvidence(stored).skillCandidate;
+      if (!candidate) continue;
+      const [candidateAcceptance] = await db
+        .select({ executionId: aiExecutionAcceptancesTable.executionId })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.id, candidate.proof.receiptId),
+          eq(aiExecutionAcceptancesTable.projectId, mission.projectId),
+        ))
+        .limit(1);
+      const canonicalProof = candidateAcceptance
+        ? await db.transaction((tx) => loadCanonicalProof({
+            tx,
+            executionId: candidateAcceptance.executionId,
+            scope: {
+              projectId: mission.projectId,
+              executionId: candidateAcceptance.executionId,
+              operationId: proposal.operationId,
+              sourceRevision: proposal.baseRevision,
+              candidateIdentity: proposal.candidateTreeHash,
+            },
+            goalStatus: "completed",
+          }))
+        : null;
+      const decision = validateSkillCandidateAgainstCanonicalProof(candidate, canonicalProof, {
+        projectId: mission.projectId,
+        sourceRevision: proposal.baseRevision ?? undefined,
+        candidateTreeHash: proposal.candidateTreeHash ?? undefined,
+        changeSetHash: proposal.changeSetHash,
+      });
+      if (!decision.allowed || !decision.envelope) continue;
+      candidateByGoalId.set(goal.id, {
+        skillCandidate: {
+          candidateId: decision.envelope.candidateId,
+          sourceRevision: decision.envelope.sourceRevision,
+          candidateTreeHash: decision.envelope.candidateTreeHash,
+          proof: {
+            ...decision.envelope.proof,
+            projection: decision.envelope.proof.projection ?? null,
+          },
+          shadow: decision.envelope.shadow,
+        },
+      });
+      break;
+    }
+  }
 
   return {
     mission,
@@ -732,58 +812,7 @@ async function buildMissionProjection(
       workflows: workflows.filter((workflow) => workflow.goalId === goal.id).map(publicWorkflow),
       executions: executions.filter((execution) => execution.goalId === goal.id).map(publicExecution),
       events: events.filter((event) => event.goalId === goal.id).map(publicEvent),
-      ...(() => {
-        const goalExecutions = executions.filter((execution) => execution.goalId === goal.id);
-        const nextAction = goal.nextAction && typeof goal.nextAction === "object" && !Array.isArray(goal.nextAction)
-          ? goal.nextAction as Record<string, unknown>
-          : {};
-        const proposalIds = [
-          typeof nextAction.proposalId === "string" ? nextAction.proposalId : null,
-          ...goalExecutions.map((execution) => execution.proposalId),
-        ].filter((value): value is string => Boolean(value));
-        for (const proposalId of proposalIds) {
-          const proposal = proposalById.get(proposalId);
-          if (!proposal?.validationEvidence) continue;
-          let stored: unknown;
-          try {
-            stored = JSON.parse(proposal.validationEvidence);
-          } catch {
-            continue;
-          }
-          const candidate = parseStoredProposalEvidence(stored).skillCandidate;
-          if (!candidate) continue;
-           const decision = validateSkillCandidateForShadow(candidate, {
-             projectId: mission.projectId,
-           });
-           if (!decision.allowed || !decision.envelope) continue;
-           const proof = parseExecutionProofProjection(
-             decision.envelope.proof.projection,
-           );
-           if (!proof) continue;
-          return {
-            skillCandidate: {
-               candidateId: decision.envelope.candidateId,
-               sourceRevision: decision.envelope.sourceRevision,
-               candidateTreeHash: decision.envelope.candidateTreeHash,
-              proof: {
-                 receiptId: decision.envelope.proof.receiptId,
-                 trajectoryDigest: decision.envelope.proof.trajectoryDigest,
-                 verdict: decision.envelope.proof.verdict,
-                 projection: {
-                   contractVersion: proof.contractVersion,
-                   evidenceRequired: proof.evidenceRequired,
-                   evidenceComplete: proof.evidenceComplete,
-                   evidenceSnapshotId: proof.evidenceSnapshotId,
-                   sourceBound: proof.sourceBound,
-                   candidateBound: proof.candidateBound,
-                 },
-              },
-               shadow: decision.envelope.shadow,
-            },
-          };
-        }
-        return {};
-      })(),
+       ...(candidateByGoalId.get(goal.id) ?? {}),
     })),
     counts: {
       goals: goals.length,
@@ -1340,7 +1369,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
     });
   }
   if (existingCandidate) {
-    const existingDecision = validateSkillCandidateForShadow(existingCandidate, {
+    const existingDecision = validateSkillCandidateAgainstCanonicalProof(existingCandidate, canonicalProof, {
       projectId: project.id,
       sourceRevision: proposal.baseRevision,
       candidateTreeHash: proposal.candidateTreeHash,
@@ -1371,6 +1400,19 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
     proof,
     runId: `shadow-${randomUUID()}`,
   });
+  const candidateDecision = validateSkillCandidateAgainstCanonicalProof(candidate, canonicalProof, {
+    projectId: project.id,
+    sourceRevision: proposal.baseRevision,
+    candidateTreeHash: proposal.candidateTreeHash,
+    changeSetHash: proposal.changeSetHash,
+  });
+  if (!candidateDecision.allowed) {
+    return res.status(409).json({
+      error: "The server-owned candidate proof binding is incomplete.",
+      code: "SKILL_CANDIDATE_CANONICAL_PROOF_REJECTED",
+      reasons: candidateDecision.reasons,
+    });
+  }
   const persisted = await db.transaction(async (tx) => {
     const [locked] = await tx
       .select({ validationEvidence: aiChangeProposalsTable.validationEvidence })
@@ -1477,7 +1519,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       code: "SKILL_CANDIDATE_CANONICAL_PROOF_REQUIRED",
     });
   }
-  const decision = validateSkillCandidateForShadow(skillCandidate, {
+  const decision = validateSkillCandidateAgainstCanonicalProof(skillCandidate, canonicalProof, {
     projectId: project.id,
     sourceRevision: proposal.baseRevision ?? undefined,
     candidateTreeHash: proposal.candidateTreeHash ?? undefined,
@@ -1488,16 +1530,6 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       error: "The persisted skill candidate failed shadow validation.",
       code: "SKILL_CANDIDATE_SHADOW_REJECTED",
       reasons: decision.reasons,
-    });
-  }
-  if (
-    skillCandidate.proof.receiptId !== canonicalProof.acceptanceId
-    || skillCandidate.proof.trajectoryDigest !== canonicalProof.trajectoryDigest?.digest
-  ) {
-    return res.status(409).json({
-      error: "The persisted skill candidate is not bound to the current canonical proof.",
-      code: "SKILL_CANDIDATE_PROOF_BINDING_MISMATCH",
-      reasons: ["canonical_proof_binding_mismatch"],
     });
   }
   return res.json({

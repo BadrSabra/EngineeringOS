@@ -313,6 +313,10 @@ describe("Mission recipe dispatch", () => {
       status: "applied",
       lifecycle: "committed",
       operationId,
+      baseRevision: "recipe-source-revision",
+      candidateTreeHash: "a".repeat(64),
+      promotedTreeHash: "b".repeat(64),
+      committedTreeHash: "b".repeat(64),
       createdAt: now,
     });
 
@@ -522,6 +526,10 @@ describe("Mission recipe dispatch", () => {
       status: "applied",
       lifecycle: "committed",
       operationId: proposalOperationId,
+      baseRevision: "recipe-source-revision",
+      candidateTreeHash: "a".repeat(64),
+      promotedTreeHash: "b".repeat(64),
+      committedTreeHash: "b".repeat(64),
       createdAt: now,
     });
     await db.insert(aiMissionsTable).values({
@@ -876,6 +884,10 @@ describe("Mission recipe dispatch", () => {
       status: "applied",
       lifecycle: "committed",
       operationId,
+      baseRevision: "recipe-source-revision",
+      candidateTreeHash: "a".repeat(64),
+      promotedTreeHash: "b".repeat(64),
+      committedTreeHash: "b".repeat(64),
       createdAt: now,
     });
     await db.insert(aiMissionsTable).values({

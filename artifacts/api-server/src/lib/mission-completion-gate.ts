@@ -1,11 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
+  aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
   db,
 } from "@workspace/db";
 import {
-  composeCanonicalProof,
   loadCanonicalProof,
   type CanonicalProof,
 } from "./proof-foundation.js";
@@ -126,38 +126,34 @@ async function composeGoalProofs(
   for (const goal of goals) {
     const projected = projectedAcceptance(goal);
     const scope = record(projected?.scope);
-    const proof = projected
-      ? await loadCanonicalProof({
-          tx,
-          executionId: projected.executionId,
-          scope: {
-            projectId: mission.projectId,
-            missionId: mission.id,
-            goalId: goal.id,
-            executionId: projected.executionId,
-            operationId: typeof scope.operationId === "string" ? scope.operationId : null,
-            planRevision: planRevisionFromGoal(goal),
-            activePlanRevision: activePlanRevision(mission),
-            sourceRevision: projected.sourceRevision ?? null,
-            candidateIdentity: candidateIdentityFromGoal(goal),
-          },
-          goalStatus: goal.status,
-          deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
-          deliveryReceipt: projected.deliveryReceipt,
-        })
-      : composeCanonicalProof({
-          scope: {
-            projectId: mission.projectId,
-            missionId: mission.id,
-            goalId: goal.id,
-            planRevision: planRevisionFromGoal(goal),
-            activePlanRevision: activePlanRevision(mission),
-            candidateIdentity: candidateIdentityFromGoal(goal),
-          },
-          goalStatus: goal.status,
-          deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
-          deliveryReceipt: null,
-        });
+    const [durableExecution] = await tx
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.goalId, goal.id),
+        eq(aiExecutionsTable.projectId, mission.projectId),
+      ))
+      .orderBy(desc(aiExecutionsTable.createdAt))
+      .limit(1);
+    const executionId = projected?.executionId ?? durableExecution?.id ?? "";
+    const proof = await loadCanonicalProof({
+      tx,
+      executionId,
+      scope: {
+        projectId: mission.projectId,
+        missionId: mission.id,
+        goalId: goal.id,
+        executionId,
+        operationId: typeof scope.operationId === "string" ? scope.operationId : null,
+        planRevision: planRevisionFromGoal(goal),
+        activePlanRevision: activePlanRevision(mission),
+        sourceRevision: projected?.sourceRevision ?? null,
+        candidateIdentity: projected?.candidateIdentity ?? candidateIdentityFromGoal(goal),
+      },
+      goalStatus: goal.status,
+      deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
+      deliveryReceipt: projected?.deliveryReceipt ?? null,
+    });
     proofs.push({ goalId: goal.id, ...proof });
   }
   return proofs;
