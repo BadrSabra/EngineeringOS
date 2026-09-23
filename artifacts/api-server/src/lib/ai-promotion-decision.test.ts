@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { decideDeliveryPromotion } from "./ai-promotion-decision.js";
+import {
+  decideDeliveryPromotion,
+  decideDeliveryPromotionWithPairedBaseline,
+} from "./ai-promotion-decision.js";
 
 const hashes = {
   candidate: "a".repeat(64),
@@ -91,6 +94,47 @@ describe("decideDeliveryPromotion", () => {
     expect(result).toEqual({
       decision: "REVIEW_REQUIRED",
       reasons: ["approval_required"],
+    });
+  });
+
+  it("blocks the explicit Gate 3 promotion path when the paired comparison is missing", () => {
+    const result = decideDeliveryPromotionWithPairedBaseline(baseInput(), undefined);
+
+    expect(result).toEqual({
+      decision: "BLOCKED",
+      reasons: ["paired_baseline_missing"],
+    });
+  });
+
+  it("blocks incomplete and regressed paired comparisons", () => {
+    const incomplete = decideDeliveryPromotionWithPairedBaseline(baseInput(), {
+      status: "incomplete",
+      promotionAllowed: false,
+    });
+    const regressed = decideDeliveryPromotionWithPairedBaseline(baseInput(), {
+      status: "regressed",
+      promotionAllowed: false,
+    });
+
+    expect(incomplete).toEqual({
+      decision: "BLOCKED",
+      reasons: ["paired_baseline_incomplete"],
+    });
+    expect(regressed).toEqual({
+      decision: "BLOCKED",
+      reasons: ["paired_baseline_regressed"],
+    });
+  });
+
+  it("allows the explicit promotion path only for a passed paired comparison", () => {
+    const result = decideDeliveryPromotionWithPairedBaseline(baseInput(), {
+      status: "passed",
+      promotionAllowed: true,
+    });
+
+    expect(result).toEqual({
+      decision: "AUTO_PROMOTE_ELIGIBLE",
+      reasons: ["eligible"],
     });
   });
 });

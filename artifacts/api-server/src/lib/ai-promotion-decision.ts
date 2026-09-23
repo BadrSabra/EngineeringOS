@@ -6,6 +6,7 @@
  * an already materialized file candidate is safe enough to be eligible for a
  * future automatic promotion. It never grants write authority by itself.
  */
+import type { PairedBaselineComparison } from "@workspace/ai-orchestrator";
 
 export const DELIVERY_PROMOTION_DECISIONS = [
   "AUTO_PROMOTE_ELIGIBLE",
@@ -25,6 +26,9 @@ export type DeliveryPromotionReason =
   | "sensitive_path"
   | "scope_not_auto_promotable"
   | "change_set_too_large"
+  | "paired_baseline_missing"
+  | "paired_baseline_incomplete"
+  | "paired_baseline_regressed"
   | "eligible";
 
 export type PromotionChange = {
@@ -53,6 +57,12 @@ export type DeliveryPromotionInput = {
   expectedTreeDigestVersion?: string | null;
   observedTreeDigestVersion?: string | null;
   approvalRequired: boolean;
+  /**
+   * Legacy/manual delivery callers may omit this. Callers entering the
+   * explicit Gate 3 path must provide a server-owned comparison.
+   */
+  pairedBaseline?: Pick<PairedBaselineComparison, "status" | "promotionAllowed">;
+  requirePairedBaseline?: boolean;
 };
 
 export type DeliveryPromotionResult = {
@@ -152,6 +162,29 @@ export function decideDeliveryPromotion(
     };
   }
 
+  if (input.requirePairedBaseline && !input.pairedBaseline) {
+    return {
+      decision: "BLOCKED",
+      reasons: ["paired_baseline_missing"],
+    };
+  }
+  if (input.pairedBaseline?.status === "incomplete") {
+    return {
+      decision: "BLOCKED",
+      reasons: ["paired_baseline_incomplete"],
+    };
+  }
+  if (
+    input.pairedBaseline &&
+    (input.pairedBaseline.status === "regressed" ||
+      input.pairedBaseline.promotionAllowed !== true)
+  ) {
+    return {
+      decision: "BLOCKED",
+      reasons: ["paired_baseline_regressed"],
+    };
+  }
+
   if (input.changes.length === 0 || input.validationResults.length === 0) {
     return {
       decision: "BLOCKED",
@@ -197,4 +230,20 @@ export function decideDeliveryPromotion(
     decision: "AUTO_PROMOTE_ELIGIBLE",
     reasons: ["eligible"],
   };
+}
+
+/**
+ * Explicit Gate 3 promotion entry point. Existing delivery callers retain
+ * their compatibility behavior, while candidate promotion can opt into the
+ * stricter server-owned paired comparison.
+ */
+export function decideDeliveryPromotionWithPairedBaseline(
+  input: Omit<DeliveryPromotionInput, "pairedBaseline" | "requirePairedBaseline">,
+  pairedBaseline: Pick<PairedBaselineComparison, "status" | "promotionAllowed"> | undefined,
+): DeliveryPromotionResult {
+  return decideDeliveryPromotion({
+    ...input,
+    pairedBaseline,
+    requirePairedBaseline: true,
+  });
 }

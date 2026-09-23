@@ -141,6 +141,21 @@ export type CodeAgentBenchmarkObservation = {
   oracleStatus?: "passed" | "failed";
   oracleCode?: string;
   behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+  /** Server-owned paired-baseline evidence coverage in the case workspace. */
+  evidenceCoverage?: number;
+  /** Server-owned validator outcome used by paired baseline comparison. */
+  validatorOutcome?: "passed" | "failed" | "unavailable" | "not-run";
+  /** Number of duplicate tool/capability calls observed by the server. */
+  duplicateCalls?: number;
+  /** Number of calls rejected by the server authorization boundary. */
+  unauthorizedCalls?: number;
+  /** Number of recovery transitions used by the case execution. */
+  recoveryCount?: number;
+  /** Server-observed terminal outcome, independent of provider prose. */
+  terminalOutcome?: "completed" | "blocked" | "failed" | "uncertain";
+  /** Server-observed duration and bounded cost units for paired comparison. */
+  durationMs?: number;
+  costUnits?: number;
 };
 
 export type CodeAgentExecutionTelemetry = {
@@ -176,6 +191,21 @@ export type CodeAgentExecutionTelemetry = {
   oracleStatus?: "passed" | "failed";
   oracleCode?: string;
   behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+  /** Server-owned paired-baseline evidence coverage in the case workspace. */
+  evidenceCoverage?: number;
+  /** Server-owned validator outcome used by paired baseline comparison. */
+  validatorOutcome?: "passed" | "failed" | "unavailable" | "not-run";
+  /** Number of duplicate tool/capability calls observed by the server. */
+  duplicateCalls?: number;
+  /** Number of calls rejected by the server authorization boundary. */
+  unauthorizedCalls?: number;
+  /** Number of recovery transitions used by the case execution. */
+  recoveryCount?: number;
+  /** Server-observed terminal outcome, independent of provider prose. */
+  terminalOutcome?: "completed" | "blocked" | "failed" | "uncertain";
+  /** Server-observed duration and bounded cost units for paired comparison. */
+  durationMs?: number;
+  costUnits?: number;
 };
 
 export type CodeAgentBenchmarkExecutor = (
@@ -774,6 +804,30 @@ export function observationFromCodeAgentExecution(
     ...(telemetry.behavioralOracleStatus
       ? { behavioralOracleStatus: telemetry.behavioralOracleStatus }
       : {}),
+    ...(telemetry.evidenceCoverage !== undefined
+      ? { evidenceCoverage: telemetry.evidenceCoverage }
+      : {}),
+    ...(telemetry.validatorOutcome
+      ? { validatorOutcome: telemetry.validatorOutcome }
+      : {}),
+    ...(telemetry.duplicateCalls !== undefined
+      ? { duplicateCalls: telemetry.duplicateCalls }
+      : {}),
+    ...(telemetry.unauthorizedCalls !== undefined
+      ? { unauthorizedCalls: telemetry.unauthorizedCalls }
+      : {}),
+    ...(telemetry.recoveryCount !== undefined
+      ? { recoveryCount: telemetry.recoveryCount }
+      : {}),
+    ...(telemetry.terminalOutcome
+      ? { terminalOutcome: telemetry.terminalOutcome }
+      : {}),
+    ...(telemetry.durationMs !== undefined
+      ? { durationMs: telemetry.durationMs }
+      : {}),
+    ...(telemetry.costUnits !== undefined
+      ? { costUnits: telemetry.costUnits }
+      : {}),
   };
 }
 
@@ -901,6 +955,7 @@ export async function runCodeAgentBenchmark(args: {
 
   return buildCodeAgentBenchmarkScorecard({
     results,
+    cases,
     generatedAt: args.generatedAt,
   });
 }

@@ -156,3 +156,4 @@
 - [Mission replan context](mission-replan-context.md) — automatic replans must persist bounded failure evidence and affected claims in the fresh plan revision.
 - [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.
 - [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — bind Mission dispatch to owner/revision identities; keep candidate replay strict, proof-bound, isolated, and non-production.
+- [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.

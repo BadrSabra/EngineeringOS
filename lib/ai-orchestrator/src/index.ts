@@ -1015,6 +1015,20 @@ export type {
   CodeAgentProjectShape,
   CodeAgentValidationKind,
 } from "./benchmark/code-agent-benchmark.js";
+export {
+  PAIRED_BASELINE_VERSION,
+  PAIRED_BASELINE_MAX_RESOURCE_REGRESSION,
+  comparePairedBaseline,
+  runPairedCodeAgentBenchmark,
+} from "./benchmark/paired-baseline.js";
+export type {
+  PairedBaselineRun,
+  PairedBaselineContract,
+  PairedBaselineMetricDeltas,
+  PairedBaselineCaseResult,
+  PairedBaselineComparison,
+  PairedBaselineRunResult,
+} from "./benchmark/paired-baseline.js";
 export { createChatCodeAgentBenchmarkExecutor } from "./benchmark/live-code-agent-benchmark.js";
 export {
   getCodeAgentBenchmarkFixture,
