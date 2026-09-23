@@ -1715,6 +1715,7 @@ router.post("/ai/proposals/:proposalId/skill-registry", async (req, res) => {
     .select({
       id: aiChangeProposalsTable.id,
       projectId: aiChangeProposalsTable.projectId,
+      operationId: aiChangeProposalsTable.operationId,
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
       validationEvidence: aiChangeProposalsTable.validationEvidence,

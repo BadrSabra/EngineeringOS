@@ -17,7 +17,7 @@ export type SkillShadowScore = {
   status: DeliveryPairedBaselineComparison["status"];
   promotionAllowed: boolean;
   pairId: string;
-  suiteVersion: number;
+  suiteVersion: string;
   baselineWorkspaceHash: string;
   candidateWorkspaceHash: string;
   metricDeltas: DeliveryPairedBaselineComparison["metricDeltas"] | null;
@@ -40,6 +40,7 @@ const ShadowReplayRegistryReceiptSchema = z.object({
   }).strict(),
   productionExecution: z.literal(false),
   replayId: z.string().min(1).max(160),
+  replayExecutionId: z.string().min(1).max(160),
   status: z.literal("completed"),
   preTreeHash: DigestSchema,
   postTreeHash: DigestSchema,
@@ -69,8 +70,7 @@ function isPairedBaselineComparison(value: unknown): value is DeliveryPairedBase
     && ["incomplete", "regressed", "passed"].includes(value.status)
     && typeof value.promotionAllowed === "boolean"
     && typeof contract.pairId === "string"
-    && typeof contract.candidateId === "string"
-    && typeof contract.suiteVersion === "number"
+    && typeof contract.suiteVersion === "string"
     && typeof value.baselineWorkspaceHash === "string"
     && typeof value.candidateWorkspaceHash === "string"
     && Number.isInteger(value.terminalMismatchCount)
@@ -88,11 +88,14 @@ export function buildSkillShadowScore(input: {
 }): SkillShadowScore | null {
   if (!isPairedBaselineComparison(input.comparison)) return null;
   const comparison = input.comparison;
+  const contractCandidateId = (
+    comparison.contract as unknown as { candidateId?: unknown }
+  ).candidateId;
   if (
     comparison.kind !== "code-agent-benchmark-paired-comparison"
     || comparison.version !== 1
     || comparison.contract.pairId !== `shadow-replay-pair:${input.replayId}`
-    || comparison.contract.candidateId !== input.candidateId
+    || contractCandidateId !== input.candidateId
     || !DigestSchema.safeParse(comparison.baselineWorkspaceHash).success
     || !DigestSchema.safeParse(comparison.candidateWorkspaceHash).success
     || comparison.candidateWorkspaceHash !== input.candidateTreeHash
@@ -126,7 +129,7 @@ export const SkillShadowScoreSchema = z.object({
   status: z.enum(["incomplete", "regressed", "passed"]),
   promotionAllowed: z.boolean(),
   pairId: z.string().min(1).max(240),
-  suiteVersion: z.number().int().positive(),
+  suiteVersion: z.string().min(1).max(120),
   baselineWorkspaceHash: DigestSchema,
   candidateWorkspaceHash: DigestSchema,
   metricDeltas: z.record(z.string(), z.unknown()).nullable(),

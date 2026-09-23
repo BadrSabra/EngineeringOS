@@ -746,6 +746,81 @@ describe("AI missions and goals", () => {
       .send({});
     expect(boundAgain.status).toBe(200);
 
+    if (replay.body.receipt.pairedBaseline.status !== "passed") {
+      const incompleteRegistration = await request(app)
+        .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+        .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
+      expect(incompleteRegistration.status).toBe(409);
+      expect(incompleteRegistration.body.code).toBe("SKILL_REGISTRY_PAIRED_BASELINE_REQUIRED");
+
+      // Keep the approval/revocation portion deterministic without turning an
+      // incomplete live benchmark into a passing result. This remains a
+      // server-owned receipt fixture with the same replay identities.
+      const fixtureReceipt = {
+        ...replay.body.receipt,
+        pairedBaseline: {
+          ...replay.body.receipt.pairedBaseline,
+          status: "passed",
+          promotionAllowed: true,
+          blockers: [],
+        },
+      };
+      await db.update(aiShadowReplaysTable)
+        .set({ receipt: fixtureReceipt })
+        .where(eq(aiShadowReplaysTable.id, replay.body.replay.id));
+    }
+
+    const registered = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-registry`)
+      .send({ skillId: "candidate-review", skillVersion: "1.0.0" });
+    expect(registered.status).toBe(201);
+    expect(registered.body).toMatchObject({
+      registry: {
+        projectId,
+        skillId: "candidate-review",
+        skillVersion: "1.0.0",
+        candidateId: expect.stringContaining("skill-candidate:"),
+        proofReceiptId: replay.body.receipt.proof.receiptId,
+        promotionStatus: "pending",
+        revocationStatus: "active",
+        shadowScore: {
+          status: "passed",
+          promotionAllowed: true,
+          candidateWorkspaceHash: candidateTreeHash,
+        },
+      },
+    });
+    const registryId = registered.body.registry.id as string;
+
+    const approved = await request(app)
+      .post(`/api/ai/skill-registry/${registryId}/approve`)
+      .send({});
+    expect(approved.status).toBe(200);
+    expect(approved.body.registry).toMatchObject({
+      id: registryId,
+      promotionStatus: "promoted",
+      revocationStatus: "active",
+      approvedBy: "test-user",
+    });
+
+    const listed = await request(app)
+      .get(`/api/ai/skill-registry?projectId=${projectId}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.registry).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: registryId, promotionStatus: "promoted" }),
+    ]));
+
+    const revoked = await request(app)
+      .post(`/api/ai/skill-registry/${registryId}/revoke`)
+      .send({});
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.registry).toMatchObject({
+      id: registryId,
+      promotionStatus: "promoted",
+      revocationStatus: "revoked",
+      revokedBy: "test-user",
+    });
+
     const [persistedProposal] = await db
       .select({
         lifecycle: aiChangeProposalsTable.lifecycle,
