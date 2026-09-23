@@ -1,9 +1,12 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import ts from "typescript";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   aiShadowReplaysTable,
   db,
 } from "@workspace/db";
@@ -28,7 +31,10 @@ import {
   type SkillCandidateEnvelope,
   validateSkillCandidateAgainstCanonicalProof,
 } from "./skill-candidate.js";
-import type { CanonicalProof } from "./proof-foundation.js";
+import {
+  loadCanonicalProof,
+  type CanonicalProof,
+} from "./proof-foundation.js";
 import { heavyJobQueue } from "./job-queue.js";
 import type { ValidationRunner } from "@workspace/ai-orchestrator";
 
@@ -56,6 +62,10 @@ export type ShadowReplayStartInput = {
   sourceWorkspaceRoot: string | null;
   candidate: SkillCandidateEnvelope;
   canonicalProof: CanonicalProof;
+  missionId: string;
+  goalId: string;
+  planRevision: string;
+  activePlanRevision: string;
 };
 
 export type DurableShadowReplayReceipt = ShadowReplayReceipt & {
@@ -81,6 +91,11 @@ export type DurableShadowReplayReceipt = ShadowReplayReceipt & {
     readCount: number;
     totalBytes: number;
     approvedPathCount: number;
+    behavioralCheck: {
+      status: "passed";
+      checkedFileCount: number;
+      engine: "typescript-compiler-api";
+    };
   };
 };
 
@@ -96,6 +111,28 @@ function replayOperationId(input: ShadowReplayStartInput): string {
     .digest("hex")
     .slice(0, 32);
   return `shadow-replay:${input.proposalId}:${candidateKey}`;
+}
+
+function planRevisionFromGoal(
+  outcomeContract: unknown,
+): string | undefined {
+  if (!outcomeContract || typeof outcomeContract !== "object" || Array.isArray(outcomeContract)) {
+    return undefined;
+  }
+  const revision = (outcomeContract as { planRevision?: unknown }).planRevision;
+  if (!revision || typeof revision !== "object" || Array.isArray(revision)) return undefined;
+  const hash = (revision as { hash?: unknown }).hash;
+  return typeof hash === "string" && hash.trim() ? hash : undefined;
+}
+
+function activePlanRevisionFromMission(
+  autonomyPolicy: unknown,
+): string | undefined {
+  if (!autonomyPolicy || typeof autonomyPolicy !== "object" || Array.isArray(autonomyPolicy)) {
+    return undefined;
+  }
+  const revision = (autonomyPolicy as { activePlanRevision?: unknown }).activePlanRevision;
+  return typeof revision === "string" && revision.trim() ? revision : undefined;
 }
 
 export function toPublicShadowReplay(row: ShadowReplayRow): {
@@ -210,6 +247,7 @@ async function runCandidateVerify(params: {
   postTreeHash: string;
   readCount: number;
   totalBytes: number;
+  behavioralCheckedFileCount: number;
 }> {
   if (params.approvedPaths.length > SHADOW_REPLAY_MAX_PATHS) {
     throw new ShadowReplayError("SHADOW_REPLAY_BUDGET_EXCEEDED", "The candidate path budget was exceeded.");
@@ -223,6 +261,7 @@ async function runCandidateVerify(params: {
   }
   let totalBytes = 0;
   let readCount = 0;
+  let behavioralCheckedFileCount = 0;
   for (const relativePath of params.approvedPaths) {
     if (params.signal.aborted) {
       throw new ShadowReplayError("SHADOW_REPLAY_CANCELLED", "Shadow replay was cancelled.");
@@ -235,7 +274,42 @@ async function runCandidateVerify(params: {
     if (stat.size > SHADOW_REPLAY_MAX_FILE_BYTES || totalBytes + stat.size > SHADOW_REPLAY_MAX_TOTAL_BYTES) {
       throw new ShadowReplayError("SHADOW_REPLAY_BUDGET_EXCEEDED", "The shadow replay read budget was exceeded.");
     }
-    await fs.readFile(target);
+    const contents = await fs.readFile(target);
+    const extension = path.extname(relativePath).toLowerCase();
+    if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(extension)) {
+      const syntax = ts.transpileModule(contents.toString("utf8"), {
+        fileName: relativePath,
+        compilerOptions: {
+          allowJs: true,
+          jsx: ts.JsxEmit.ReactJSX,
+          target: ts.ScriptTarget.ES2022,
+          module: ts.ModuleKind.ESNext,
+        },
+        reportDiagnostics: true,
+      });
+      const diagnostics = syntax.diagnostics ?? [];
+      if (diagnostics.length > 0) {
+        const detail = diagnostics
+          .slice(0, 3)
+          .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))
+          .join("; ");
+        throw new ShadowReplayError(
+          "SHADOW_REPLAY_BEHAVIOR_FAILED",
+          `The server-owned source behavior check rejected ${relativePath}: ${detail}`,
+        );
+      }
+      behavioralCheckedFileCount += 1;
+    } else if (extension === ".json") {
+      try {
+        JSON.parse(contents.toString("utf8"));
+        behavioralCheckedFileCount += 1;
+      } catch {
+        throw new ShadowReplayError(
+          "SHADOW_REPLAY_BEHAVIOR_FAILED",
+          `The server-owned JSON behavior check rejected ${relativePath}.`,
+        );
+      }
+    }
     totalBytes += stat.size;
     readCount += 1;
   }
@@ -246,7 +320,13 @@ async function runCandidateVerify(params: {
       "The candidate verification changed the isolated workspace.",
     );
   }
-  return { preTreeHash, postTreeHash, readCount, totalBytes };
+  return {
+    preTreeHash,
+    postTreeHash,
+    readCount,
+    totalBytes,
+    behavioralCheckedFileCount,
+  };
 }
 
 export class ShadowReplayError extends Error {
@@ -316,6 +396,17 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
       `The candidate is not eligible for shadow replay: ${decision.reasons.join("; ")}`,
     );
   }
+  if (
+    input.canonicalProof.scope.missionId !== input.missionId
+    || input.canonicalProof.scope.goalId !== input.goalId
+    || input.canonicalProof.scope.planRevision !== input.planRevision
+    || input.canonicalProof.scope.activePlanRevision !== input.activePlanRevision
+  ) {
+    throw new ShadowReplayError(
+      "SHADOW_REPLAY_SCOPE_MISMATCH",
+      "The replay scope is not the same Mission, Goal, and plan revision as the canonical proof.",
+    );
+  }
 
   const key = idempotencyKey(input);
   const [existing] = await db
@@ -360,7 +451,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     userId: input.userId,
     idempotencyKey: key,
     proofRequired: true,
-    ...(input.canonicalProof.scope.goalId ? { goalId: input.canonicalProof.scope.goalId } : {}),
+    goalId: input.goalId,
   } as const;
   const prepared = prepareRecipeOperation(recipeParams);
   const replayExecutionRequest: AiExecutionRequestEnvelope = {
@@ -381,7 +472,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     idempotencyKey: key,
     correlationId: operationId,
     projectId: input.projectId,
-    ...(input.canonicalProof.scope.goalId ? { goalId: input.canonicalProof.scope.goalId } : {}),
+    goalId: input.goalId,
     recipeBinding: prepared.binding,
     workspaceRoot: replayWorkspace.rootPath,
   });
@@ -547,6 +638,7 @@ export async function runShadowReplayAttempt(
     postTreeHash: string;
     readCount: number;
     totalBytes: number;
+    behavioralCheckedFileCount: number;
   } | undefined;
   const validationRunner: ValidationRunner = async (profile, targetPaths, signal) => {
     if (profile !== "workspace-typecheck" && profile !== "ai-orchestrator-tests") {
@@ -585,6 +677,8 @@ export async function runShadowReplayAttempt(
           postTreeHash: result.postTreeHash,
           readCount: replayStats.readCount + result.readCount,
           totalBytes: replayStats.totalBytes + result.totalBytes,
+           behavioralCheckedFileCount:
+             replayStats.behavioralCheckedFileCount + result.behavioralCheckedFileCount,
         }
       : result;
     return {
@@ -657,6 +751,63 @@ export async function runShadowReplayAttempt(
         .slice(0, SHADOW_REPLAY_MAX_PATHS)
         .map((relativePath: string) => `shadow-replay:${replay.id}:read:${relativePath}`),
     ].slice(0, 48);
+    const [replayScope] = await db
+      .select({
+        goalId: aiGoalsTable.id,
+        missionId: aiGoalsTable.missionId,
+        goalStatus: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      })
+      .from(aiGoalsTable)
+      .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+      .where(and(
+        eq(aiGoalsTable.id, execution.goalId ?? ""),
+        eq(aiGoalsTable.projectId, replay.projectId),
+        eq(aiMissionsTable.projectId, replay.projectId),
+      ))
+      .limit(1);
+    const planRevision = replayScope
+      ? planRevisionFromGoal(replayScope.outcomeContract)
+      : undefined;
+    const activePlanRevision = replayScope
+      ? activePlanRevisionFromMission(replayScope.autonomyPolicy)
+      : undefined;
+    if (
+      !replayScope
+      || replayScope.goalId !== execution.goalId
+      || replayScope.goalStatus !== "completed"
+      || !planRevision
+      || !activePlanRevision
+      || planRevision !== activePlanRevision
+    ) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_SCOPE_UNAVAILABLE",
+        "The replay execution is not bound to a completed Goal and active plan revision.",
+      );
+    }
+    const replayProof = await db.transaction((tx) => loadCanonicalProof({
+      tx,
+      executionId: replay.executionId,
+      scope: {
+        projectId: replay.projectId,
+        missionId: replayScope.missionId,
+        goalId: replayScope.goalId,
+        executionId: replay.executionId,
+        operationId: replay.operationId,
+        planRevision,
+        activePlanRevision,
+        sourceRevision: replay.sourceRevision,
+        candidateIdentity: replay.candidateTreeHash,
+      },
+      goalStatus: replayScope.goalStatus,
+    }));
+    if (!replayProof.accepted || replayProof.verdict !== "PROVEN") {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_CANONICAL_PROOF_REJECTED",
+        `The replay execution did not produce accepted canonical proof: ${replayProof.failureReasons.join(", ")}`,
+      );
+    }
     const receipt: DurableShadowReplayReceipt = {
       contractVersion: 1,
       runId: replay.id,
@@ -666,8 +817,8 @@ export async function runShadowReplayAttempt(
       candidateTreeHash: replay.candidateTreeHash,
       verification: { recipeId: "candidate.verify", recipeVersion: 1 },
       proof: {
-        receiptId: replay.canonicalAcceptanceId,
-        trajectoryDigest: replay.trajectoryDigest,
+        receiptId: replayProof.acceptanceId!,
+        trajectoryDigest: replayProof.trajectoryDigest?.digest ?? replay.trajectoryDigest,
         verdict: "PROVEN",
       },
       productionExecution: false,
@@ -688,6 +839,11 @@ export async function runShadowReplayAttempt(
         readCount: replayStats.readCount,
         totalBytes: replayStats.totalBytes,
         approvedPathCount: approvedPaths.length,
+        behavioralCheck: {
+          status: "passed",
+          checkedFileCount: replayStats.behavioralCheckedFileCount,
+          engine: "typescript-compiler-api",
+        },
       },
     };
     await updateReplay(replay.id, {

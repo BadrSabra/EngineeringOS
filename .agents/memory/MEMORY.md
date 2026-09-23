@@ -16,12 +16,6 @@
 - [Terminal outcome refinement](terminal-outcome-refinement.md) — one final assistant identity may be refined from a provisional provider failure to an authoritative semantic result, never downgraded.
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
-- [AI fixture provider lifecycle](ai-fixture-provider-lifecycle.md) — deterministic chat fixtures must stub lifecycle selectability when fallback rechecks a dummy provider key.
-- [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
-- [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
-- [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
-- [No-tools synthesis recovery](no-tools-synthesis-recovery.md) — malformed content-only output gets one bounded repair/alternate-model attempt; failed models stay excluded and parsing remains fail-closed.
-- [Concurrent test barriers](concurrent-test-barriers.md) — concurrent request fixtures should dispatch by request identity and use bounded readiness barriers, not queued mock order or unbounded polling.
 - [Session state concurrency](session-state-concurrency.md) — qualify resumable state writes by turn timestamp; a conditional value expression can still lose after row-lock waits.
 - [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
 - [Project query retry contract](project-query-retry-contract.md) — targeted project-query retries create fresh executions while preserving the server-owned evidence scope.
@@ -60,14 +54,9 @@
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
 - [Mission schema readiness](mission-schema-readiness.md) — reconciliation workers query Mission/Goal tables at startup; schema readiness must precede durable worker execution.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
-- [Context slice health](context-slice-health.md) — keep empty, skipped, loaded, and failed reads distinct from freshness and admission state.
-- [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
 - [Adaptive chat acceptance](adaptive-chat-acceptance.md) — fallback planning must be verified through chat(), scoped reads, bounded missing-evidence recovery, and final claim gating.
 - [AI provenance response parity](ai-provenance-response-parity.md) — JSON message, SSE done, persisted trace, and history must share one public provenance projection.
 - [Execution proof projection](execution-proof-projection.md) — accepted proof and trajectory metrics stay bounded inside the existing acceptance projection; raw traces remain non-durable.
-- [Chat message timeline semantics](chat-message-timeline-semantics.md) — assistant message timestamps can represent request-start ordering; audit terminal chronology from execution and acceptance timestamps.
-- [Capability probe root causes](capability-probe-root-causes.md) — complete reads can still yield zero accepted claims; terminal projections must preserve claim-closure diagnostics even when classified as PROJECT_QUERY.
-- [Prefetch evidence parity](prefetch-evidence-parity.md) — prefetch telemetry and persisted evidence must share size-aware read status; oversized bodies cannot appear complete in the trace.
 - [Contract telemetry separation](contract-telemetry-separation.md) — provider success is not contract acceptance; retain model-level claim, citation, recovery, failure-kind, and malformed-structured-output metrics separately.
 - [Runtime restart validation](runtime-restart-validation.md) — API sessions use compiled output; restart the managed workflow before drawing conclusions about source fixes.
 - [Dashboard authenticated smoke](dashboard-auth-smoke.md) — real Clerk API probes must use the dashboard-origin proxy so the handoff cookie reaches the protected API.
@@ -157,3 +146,4 @@
 - [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.
 - [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — bind Mission dispatch to owner/revision identities; keep candidate replay strict, proof-bound, isolated, and non-production.
 - [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.
+- [Shadow replay proof boundary](shadow-replay-proof-boundary.md) — replay needs a completed Goal, matching active plan revision, and a Canonical Proof from the replay execution itself.

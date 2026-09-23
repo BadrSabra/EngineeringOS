@@ -537,6 +537,9 @@ describe("AI missions and goals", () => {
     const proposalId = randomUUID();
     const executionId = randomUUID();
     const operationId = randomUUID();
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const planRevision = `shadow-plan-${operationId}`;
     const sourceRevision = "b".repeat(40);
     const now = new Date();
     const sourceRoot = `/tmp/mission-shadow-source-${operationId}`;
@@ -567,6 +570,35 @@ describe("AI missions and goals", () => {
       content: "Verified candidate",
       createdAt: now,
     });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Shadow replay mission",
+      intent: "Replay the verified candidate",
+      status: "completed",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Replay the verified candidate",
+      status: "completed",
+      priority: "p2",
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: { planRevision: { hash: planRevision } },
+      nextAction: {},
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
     await db.insert(aiChangeProposalsTable).values({
       id: proposalId,
       projectId,
@@ -591,6 +623,7 @@ describe("AI missions and goals", () => {
       sessionId,
       operationId,
       proposalId,
+      goalId,
       userId: "test-user",
       idempotencyKey: `skill-candidate-${executionId}`,
       resumeTokenHash: "resume-hash",
@@ -788,6 +821,8 @@ describe("AI missions and goals", () => {
       complete: 1,
     });
     expect(replayAcceptance?.evidenceSnapshotId).toBe(replayEvidence?.id);
+    expect(replay.body.receipt.proof.receiptId).toBeTruthy();
+    expect(replay.body.receipt.proof.receiptId).not.toBe("evidence-1");
     expect(persistedReplay).toMatchObject({
       status: "completed",
       preTreeHash: candidateTreeHash,
@@ -813,6 +848,9 @@ describe("AI missions and goals", () => {
     const replayId = randomUUID();
     const executionIdempotencyKey = `shadow-recovery-${replayId}`;
     const operationId = `shadow-replay:${replayId}`;
+    const missionId = randomUUID();
+    const goalId = randomUUID();
+    const planRevision = `shadow-recovery-plan-${replayId}`;
     const sourceRevision = "c".repeat(40);
     const now = new Date();
     const sourceRoot = `/tmp/mission-shadow-recovery-source-${replayId}`;
@@ -836,6 +874,35 @@ describe("AI missions and goals", () => {
       role: "assistant",
       content: "Recovery fixture",
       createdAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId,
+      title: "Shadow replay recovery mission",
+      intent: "Recover the candidate replay",
+      status: "completed",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: { activePlanRevision: planRevision },
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId,
+      title: "Recover the candidate replay",
+      status: "completed",
+      priority: "p2",
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: { planRevision: { hash: planRevision } },
+      nextAction: {},
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
     });
     await db.insert(aiChangeProposalsTable).values({
       id: proposalId,
@@ -884,6 +951,7 @@ describe("AI missions and goals", () => {
       idempotencyKey: executionIdempotencyKey,
       correlationId: operationId,
       projectId,
+      goalId,
       recipeBinding: prepared.binding,
       workspaceRoot: replayWorkspace.rootPath,
     });

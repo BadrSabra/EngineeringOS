@@ -66,6 +66,20 @@ router.use(requireAuth);
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const ACTIVATION_PLAN_KIND = "mission_activation_plan";
 
+function readPlanRevision(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const revision = (value as { planRevision?: unknown }).planRevision;
+  if (!revision || typeof revision !== "object" || Array.isArray(revision)) return undefined;
+  const hash = (revision as { hash?: unknown }).hash;
+  return typeof hash === "string" && hash.trim() ? hash : undefined;
+}
+
+function readActivePlanRevision(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const revision = (value as { activePlanRevision?: unknown }).activePlanRevision;
+  return typeof revision === "string" && revision.trim() ? revision : undefined;
+}
+
 const CreateMissionBody = z.object({
   projectId: z.string().min(1).max(200),
   title: z.string().trim().min(1).max(200),
@@ -1511,25 +1525,70 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
     });
   }
   const [candidateAcceptance] = await db
-    .select({ executionId: aiExecutionAcceptancesTable.executionId })
+    .select({
+      executionId: aiExecutionAcceptancesTable.executionId,
+      goalId: aiExecutionsTable.goalId,
+    })
     .from(aiExecutionAcceptancesTable)
+    .innerJoin(aiExecutionsTable, eq(aiExecutionsTable.id, aiExecutionAcceptancesTable.executionId))
     .where(and(
       eq(aiExecutionAcceptancesTable.id, skillCandidate.proof.receiptId),
       eq(aiExecutionAcceptancesTable.projectId, project.id),
     ))
     .limit(1);
+  const [replayScope] = candidateAcceptance?.goalId
+    ? await db
+      .select({
+        goalId: aiGoalsTable.id,
+        missionId: aiGoalsTable.missionId,
+        goalStatus: aiGoalsTable.status,
+        outcomeContract: aiGoalsTable.outcomeContract,
+        autonomyPolicy: aiMissionsTable.autonomyPolicy,
+      })
+      .from(aiGoalsTable)
+      .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+      .where(and(
+        eq(aiGoalsTable.id, candidateAcceptance.goalId),
+        eq(aiGoalsTable.projectId, project.id),
+        eq(aiMissionsTable.projectId, project.id),
+      ))
+      .limit(1)
+    : [];
+  const planRevision = replayScope
+    ? readPlanRevision(replayScope.outcomeContract)
+    : undefined;
+  const activePlanRevision = replayScope
+    ? readActivePlanRevision(replayScope.autonomyPolicy)
+    : undefined;
+  if (
+    !candidateAcceptance?.goalId
+    || !replayScope
+    || replayScope.goalStatus !== "completed"
+    || !planRevision
+    || !activePlanRevision
+    || planRevision !== activePlanRevision
+  ) {
+    return res.status(409).json({
+      error: "The persisted skill candidate is not bound to a completed Mission Goal plan.",
+      code: "SKILL_CANDIDATE_REPLAY_SCOPE_REQUIRED",
+    });
+  }
   const canonicalProof = candidateAcceptance
     ? await db.transaction((tx) => loadCanonicalProof({
         tx,
         executionId: candidateAcceptance.executionId,
         scope: {
           projectId: project.id,
+          missionId: replayScope.missionId,
+          goalId: replayScope.goalId,
           executionId: candidateAcceptance.executionId,
           operationId: proposal.operationId,
+          planRevision,
+          activePlanRevision,
           sourceRevision: proposal.baseRevision,
           candidateIdentity: proposal.candidateTreeHash,
         },
-        goalStatus: "completed",
+        goalStatus: replayScope.goalStatus,
       }))
     : null;
   if (!canonicalProof?.accepted || !canonicalProof.acceptanceId) {
@@ -1563,6 +1622,10 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       sourceWorkspaceRoot: proposal.workspaceRoot,
       candidate: skillCandidate,
       canonicalProof,
+      missionId: replayScope.missionId,
+      goalId: replayScope.goalId,
+      planRevision,
+      activePlanRevision,
     });
     const status = started.replay.status === "completed"
       ? 200

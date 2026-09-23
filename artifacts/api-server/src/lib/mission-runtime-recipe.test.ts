@@ -436,8 +436,9 @@ describe("Mission recipe dispatch", () => {
 
   it("rebuilds the server-owned GitHub runner from a committed proposal", async () => {
     const rootPath = await createTestRoot("delivery");
+    const deliveryExecutionId = randomUUID();
     recipeRunner.mockImplementation(async (params: Record<string, unknown>) => {
-      await seedSuccessfulRecipeProof(params, "delivery-execution-1");
+      await seedSuccessfulRecipeProof(params, deliveryExecutionId);
       const runner = params.githubDeliveryRunner as ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
       expect(runner).toBeTypeOf("function");
       await runner?.({
@@ -447,12 +448,12 @@ describe("Mission recipe dispatch", () => {
         message: "Ship the verified change",
       });
       return {
-        executionId: "delivery-execution-1",
+        executionId: deliveryExecutionId,
         status: "completed",
         completedNodeIds: ["push"],
         receipt: {
           contractVersion: 1,
-          executionId: "delivery-execution-1",
+          executionId: deliveryExecutionId,
           operationId: params.operationId,
           recipeId: "delivery.push.github",
           recipeVersion: 1,
