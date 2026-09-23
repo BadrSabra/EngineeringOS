@@ -403,7 +403,11 @@ export type {
   ToolSurfaceMutation,
 } from "./tool-surface.js";
 export { executePackageTool } from "./tools/package-tools.js";
-export { executeBinaryTool } from "./tools/binary-tools.js";
+export {
+  executeBinaryTool,
+  parseBinaryEvidencePacket,
+  type BinaryEvidencePacket,
+} from "./tools/binary-tools.js";
 
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";
 export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";

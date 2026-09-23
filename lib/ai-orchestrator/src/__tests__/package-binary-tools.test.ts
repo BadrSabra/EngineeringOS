@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { executeBinaryTool } from "../tools/binary-tools.js";
+import { executeBinaryTool, parseBinaryEvidencePacket } from "../tools/binary-tools.js";
 import { executePackageTool } from "../tools/package-tools.js";
 
 const roots: string[] = [];
@@ -83,6 +83,36 @@ describe("package and binary inspection tools", () => {
     })).digest("hex");
     expect(output.evidenceId).toBe(`binary-evidence:${identity}`);
     expect(output.artifactRef).toBe(`binary-artifact:${identity}`);
+    expect(parseBinaryEvidencePacket({
+      kind: "png",
+      evidenceId: output.evidenceId,
+      artifactRef: output.artifactRef,
+      path: output.path,
+      operationId: "op-binary",
+      workspaceRevision: output.workspaceRevision,
+      sha256: output.sha256,
+      sizeBytes: png.length,
+      width: output.width,
+      height: output.height,
+    }, {
+      operationId: "op-binary",
+      workspaceRevision: "rev-binary",
+    })?.artifactRef).toBe(output.artifactRef);
+    expect(parseBinaryEvidencePacket({
+      kind: "png",
+      evidenceId: output.evidenceId,
+      artifactRef: output.artifactRef,
+      path: output.path,
+      operationId: "other-operation",
+      workspaceRevision: output.workspaceRevision,
+      sha256: output.sha256,
+      sizeBytes: png.length,
+      width: output.width,
+      height: output.height,
+    }, {
+      operationId: "op-binary",
+      workspaceRevision: "rev-binary",
+    })).toBeUndefined();
   });
 
   it("fails closed for malformed and truncated PNG structures", async () => {

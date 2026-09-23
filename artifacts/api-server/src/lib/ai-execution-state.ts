@@ -28,6 +28,10 @@ import {
   type EvidenceSnapshotInput,
   type GoalExecutionProjection,
 } from "./ai-execution-acceptance.js";
+import {
+  buildExecutionLineage,
+  type ExecutionDelegationBudget,
+} from "./execution-lineage.js";
 
 export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
 export const AI_EXECUTION_HEARTBEAT_INTERVAL_MS = Math.max(
@@ -1672,6 +1676,9 @@ export async function createAiExecution(params: {
   recipeBinding?: RecipeOperationBinding;
   /** Server-owned managed project root used by this execution. */
   workspaceRoot?: string | null;
+  /** Optional server-owned parent execution for delegated work. */
+  parentExecutionId?: string | null;
+  delegationBudget?: Partial<ExecutionDelegationBudget>;
 }): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
   if (params.recipeBinding) {
     assertRecipeOperationBinding(params.recipeBinding, {
@@ -1714,6 +1721,62 @@ export async function createAiExecution(params: {
   const resumeToken = createResumeToken();
   const now = new Date();
   const executionId = randomUUID();
+  let lineage;
+  if (params.parentExecutionId) {
+    const [parent] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        projectId: aiExecutionsTable.projectId,
+        userId: aiExecutionsTable.userId,
+        delegationId: aiExecutionsTable.delegationId,
+        rootExecutionId: aiExecutionsTable.rootExecutionId,
+        delegationDepth: aiExecutionsTable.delegationDepth,
+        delegationBudget: aiExecutionsTable.delegationBudget,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, params.parentExecutionId))
+      .for("update")
+      .limit(1);
+    if (
+      !parent
+      || parent.projectId !== params.projectId
+      || parent.userId !== params.userId
+    ) {
+      throw new Error("Delegated execution parent is not owned by the same project and user.");
+    }
+    const stableDelegationId = parent.delegationId ?? `delegation:${parent.id}`;
+    const stableRootExecutionId = parent.rootExecutionId ?? parent.id;
+    if (!parent.delegationId || !parent.rootExecutionId) {
+      await db.update(aiExecutionsTable)
+        .set({
+          delegationId: stableDelegationId,
+          rootExecutionId: stableRootExecutionId,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(aiExecutionsTable.id, parent.id),
+          isNull(aiExecutionsTable.delegationId),
+        ));
+    }
+    lineage = buildExecutionLineage({
+      executionId,
+      parent: {
+        executionId: parent.id,
+        rootExecutionId: stableRootExecutionId,
+        delegationId: stableDelegationId,
+        depth: parent.delegationDepth,
+        budget: parent.delegationBudget,
+      },
+      budget: params.delegationBudget,
+    });
+    const [{ childCount }] = await db
+      .select({ childCount: sql<number>`count(*)` })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.parentExecutionId, parent.id));
+    if (Number(childCount) >= lineage.budget.maxChildren) {
+      throw new Error("Delegated execution child budget is exhausted.");
+    }
+  }
   const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
   const operation = createAutonomousOperationContract({
     operationId,
@@ -1764,6 +1827,17 @@ export async function createAiExecution(params: {
       } satisfies AiExecutionCheckpoint),
       baseRevision: params.request.workspaceRevision ?? null,
       workspaceRoot: params.workspaceRoot ?? params.request.workspaceRoot ?? null,
+      ...(lineage
+        ? {
+            parentExecutionId: lineage.parentExecutionId,
+            delegationId: lineage.delegationId,
+            rootExecutionId: lineage.rootExecutionId,
+            delegationDepth: lineage.depth,
+            delegationBudget: lineage.budget,
+          }
+        : {
+            rootExecutionId: executionId,
+          }),
       status: "queued",
       createdAt: now,
       updatedAt: now,

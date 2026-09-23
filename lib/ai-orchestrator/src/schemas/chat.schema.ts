@@ -365,6 +365,19 @@ export const QuerySourceSelectionRecordSchema = z.object({
 export type QuerySourceSelectionRecord = z.infer<typeof QuerySourceSelectionRecordSchema>;
 
 export const ChatOutputSchema = ChatResponseSchema.extend({
+  /** Server-validated PNG evidence packets; raw binary bytes never cross this boundary. */
+  binaryEvidence: z.array(z.object({
+    kind: z.literal("png"),
+    evidenceId: z.string().min(1).max(120),
+    artifactRef: z.string().min(1).max(120),
+    path: z.string().min(1).max(500),
+    operationId: z.string().min(1).max(160),
+    workspaceRevision: z.string().min(1).max(500),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/i),
+    sizeBytes: z.number().int().positive(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+  }).strict()).max(16).optional(),
   /** Server-owned confidence projection; provider confidence is non-authoritative. */
   confidence: ServerConfidenceSchema.optional(),
   /** Canonical metadata-only evidence graph; source bodies remain in snapshots. */

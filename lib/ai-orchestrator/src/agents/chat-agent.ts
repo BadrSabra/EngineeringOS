@@ -15180,6 +15180,9 @@ export async function chat(opts: {
     ...parsed.data,
     response: terminalResponse,
     sources: mergedSources,
+    ...(loopResult.binaryEvidence?.length
+      ? { binaryEvidence: loopResult.binaryEvidence }
+      : {}),
     pendingChanges: getExecutionPendingChanges(),
     resolvedModel: resolvedModelInfo,
     ...(normalizedUsage ? { usage: normalizedUsage } : {}),

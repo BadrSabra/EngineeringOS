@@ -602,6 +602,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
       ...(skillBinding ? { skillBinding } : {}),
+      parentExecutionId: dispatch.delegation.parentExecutionId,
       ...(delivery && project.gitRemoteUrl
         ? {
             githubDeliveryRunner: async ({
@@ -805,6 +806,7 @@ export async function runMissionGoal(params: {
     const delegation = buildMissionDelegationBinding({
       missionId: mission.id,
       goalId: goal.id,
+      parentExecutionId: params.delegation?.parentExecutionId ?? null,
       planRevision: goalRevision ?? activePlanRevision ?? null,
       userId: mission.userId,
       trigger: params.trigger,
@@ -1096,7 +1098,9 @@ export async function runMissionGoal(params: {
       await executeMissionRecipe(decision.recipeDispatch!);
     });
   } else if (decision.taskId && !decision.executionId && decision.status === "scheduled") {
-    scheduleAiTaskExecution(decision.taskId, params.userId);
+    scheduleAiTaskExecution(decision.taskId, params.userId, {
+      parentExecutionId: decision.delegation?.parentExecutionId,
+    });
   }
   return decision;
 }

@@ -66,6 +66,19 @@ export type EvidenceReadInput = {
   truncated?: boolean;
 };
 
+export type EvidenceArtifactInput = {
+  kind: "png";
+  evidenceId: string;
+  artifactRef: string;
+  path: string;
+  operationId: string;
+  workspaceRevision: string;
+  sha256: string;
+  sizeBytes: number;
+  width: number;
+  height: number;
+};
+
 export type EvidenceSnapshotInput = {
   operationId?: string | null;
   /** Server-owned managed root from which the retained reads were acquired. */
@@ -81,6 +94,8 @@ export type EvidenceSnapshotInput = {
    */
   sourceEvidenceRequired?: boolean;
   reads?: readonly EvidenceReadInput[];
+  /** Server-owned bounded artifact metadata; raw bytes are never retained. */
+  artifacts?: readonly EvidenceArtifactInput[];
 };
 
 export type ReusableEvidenceRead = {
@@ -92,6 +107,7 @@ export type NormalizedEvidenceSnapshot = {
   complete: boolean;
   verdict: string;
   reads: Array<EvidenceReadInput & { complete: boolean; truncated: boolean; byteLength: number; contentHash: string }>;
+  artifacts: EvidenceArtifactInput[];
   totalBytes: number;
   reason?: string;
 };
@@ -1135,6 +1151,38 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     };
   });
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
+  const artifacts = (input?.artifacts ?? []).flatMap((artifact) => {
+    if (
+      artifact.kind !== "png"
+      || !/^binary-evidence:[a-f0-9]{64}$/i.test(artifact.evidenceId)
+      || !/^binary-artifact:[a-f0-9]{64}$/i.test(artifact.artifactRef)
+      || !/^[a-f0-9]{64}$/i.test(artifact.sha256)
+      || typeof artifact.path !== "string"
+      || artifact.path.startsWith("/")
+      || artifact.path.split("/").includes("..")
+      || typeof artifact.operationId !== "string"
+      || typeof artifact.workspaceRevision !== "string"
+      || !Number.isSafeInteger(artifact.sizeBytes)
+      || artifact.sizeBytes <= 0
+      || !Number.isSafeInteger(artifact.width)
+      || artifact.width <= 0
+      || !Number.isSafeInteger(artifact.height)
+      || artifact.height <= 0
+    ) return [];
+    return [{
+      kind: "png" as const,
+      evidenceId: artifact.evidenceId.slice(0, 120),
+      artifactRef: artifact.artifactRef.slice(0, 120),
+      path: artifact.path.slice(0, 500),
+      operationId: artifact.operationId.slice(0, 160),
+      workspaceRevision: artifact.workspaceRevision.slice(0, 500),
+      sha256: artifact.sha256.toLowerCase(),
+      sizeBytes: artifact.sizeBytes,
+      width: artifact.width,
+      height: artifact.height,
+    }];
+  }).slice(0, 16);
+  const artifactsComplete = artifacts.length > 0;
   const required = input?.sourceEvidenceRequired ?? input?.required === true;
   const sourceEvidenceRequired = input?.sourceEvidenceRequired ?? required;
   const readsComplete = (
@@ -1145,7 +1193,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
   const suppliedVerdict = typeof input?.verdict === "string" && input.verdict.trim()
     ? input.verdict.slice(0, 40)
     : undefined;
-  const verdict = suppliedVerdict ?? (readsComplete ? "PROVEN" : "NOT_RECORDED");
+  const verdict = suppliedVerdict ?? (readsComplete || artifactsComplete ? "PROVEN" : "NOT_RECORDED");
   const verdictBlocksCompletion =
     verdict === "UNAVAILABLE"
     || (sourceEvidenceRequired && verdict !== "PROVEN");
@@ -1158,6 +1206,7 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     complete,
     verdict,
     reads,
+    artifacts,
     totalBytes,
     ...(complete ? {} : { reason: totalBytes > MAX_SNAPSHOT_BYTES
       ? "Evidence snapshot exceeds the server-owned byte limit."
@@ -1590,6 +1639,7 @@ export async function finalizeExecutionAcceptance(
         complete: evidence.complete ? 1 : 0,
         readCount: evidence.reads.length,
         totalBytes: evidence.totalBytes,
+        artifactRefs: evidence.artifacts,
         createdAt: now,
       });
       if (evidence.reads.length > 0) {

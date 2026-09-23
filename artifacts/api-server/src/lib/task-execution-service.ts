@@ -62,10 +62,12 @@ import {
   readMissionExecutionProfile,
   type MissionExecutionProfile,
 } from "./mission-execution-profile.js";
+import { parseBinaryEvidencePacket } from "@workspace/ai-orchestrator";
 import {
   runRepairValidation,
   validateRepairValidationScope,
 } from "./ai-repair-validation.js";
+import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -1027,6 +1029,32 @@ async function executeMissionToolLoop(params: {
       reads: [],
     };
   }
+  const binaryEvidence = (output.binaryEvidence ?? []).flatMap((packet) => {
+    const parsed = parseBinaryEvidencePacket(packet, {
+      operationId: params.executionId,
+      workspaceRevision: params.workspaceRevision,
+    });
+    return parsed ? [parsed] : [];
+  });
+  if (binaryEvidence.length > 0) {
+    const mediaVerdict = binaryEvidence.every((packet) =>
+      packet.operationId === params.executionId
+      && packet.workspaceRevision === params.workspaceRevision
+    ) ? "PROVEN" as const : "INCOMPLETE" as const;
+    proofStatus = mediaVerdict;
+    evidence = {
+      ...(evidence ?? {}),
+      operationId: params.executionId,
+      workspaceRoot: root.canonicalPath,
+      sourceRevision: params.workspaceRevision,
+      candidateIdentity,
+      verdict: mediaVerdict,
+      required: true,
+      sourceEvidenceRequired: false,
+      reads: [],
+      artifacts: binaryEvidence,
+    };
+  }
   const response = typeof output.response === "string"
     ? output.response
     : "Mission tool loop ended without a user-facing response.";
@@ -1072,6 +1100,8 @@ export async function executeTaskLifecycle(params: {
   workspaceRevision?: string;
   resumeExecutionId?: string;
   resumeToken?: string;
+  parentExecutionId?: string | null;
+  delegationBudget?: Partial<ExecutionDelegationBudget>;
 }): Promise<TaskExecutionOutcome> {
   const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
   if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
@@ -1164,6 +1194,8 @@ export async function executeTaskLifecycle(params: {
         linkedTaskId: before.id,
         goalId: before.goalId ?? undefined,
         workspaceRoot: executionWorkspaceRoot,
+        parentExecutionId: params.parentExecutionId,
+        delegationBudget: params.delegationBudget,
       });
   if (!durable) {
     return {

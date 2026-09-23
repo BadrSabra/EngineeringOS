@@ -25,6 +25,7 @@ import {
 } from "../../lib/ai-route-helpers.js";
 import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
 import { recoverAiExecutionResumeToken } from "../../lib/ai-execution-state.js";
+import type { ExecutionDelegationBudget } from "../../lib/execution-lineage.js";
 
 const router = Router();
 
@@ -289,7 +290,14 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
  */
 const scheduledAiTaskCompletions = new Map<string, Promise<void>>();
 
-export function scheduleAiTaskExecution(taskId: string, userId: string): void {
+export function scheduleAiTaskExecution(
+  taskId: string,
+  userId: string,
+  options?: {
+    parentExecutionId?: string | null;
+    delegationBudget?: Partial<ExecutionDelegationBudget>;
+  },
+): void {
   if (scheduledAiTaskCompletions.has(taskId)) return;
   let resolveCompletion!: () => void;
   const completion = new Promise<void>((resolve) => {
@@ -348,6 +356,8 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         provider: { provider, apiKey },
         trigger: "automatic",
         expectedStatuses: ["verifying"],
+        parentExecutionId: options?.parentExecutionId,
+        delegationBudget: options?.delegationBudget,
       });
       if (lifecycle.status === "conflict") {
         logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");

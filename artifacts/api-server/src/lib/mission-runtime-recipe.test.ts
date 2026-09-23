@@ -80,10 +80,35 @@ async function seedSuccessfulRecipeProof(
     ))
     .limit(1);
   const executionId = execution?.id ?? preferredExecutionId;
+  const recipeReceipt = {
+    contractVersion: 1,
+    executionId,
+    attempt: execution?.attempt ?? 0,
+    operationId,
+    sourceRevision,
+    candidateTreeHash: "a".repeat(64),
+    treeHash: "b".repeat(64),
+    recipeId: "delivery.push.github",
+    recipeVersion: 1,
+    status: "completed",
+    completedNodeIds: ["push"],
+    nodes: [{
+      nodeId: "push",
+      status: "passed",
+      attempts: 1,
+      elapsedMs: 10,
+      evidenceId: "recipe-proof-evidence",
+      excerpt: "Server-owned delivery receipt.",
+    }],
+    evidenceRefs: ["recipe-proof-evidence"],
+    createdAt: now.toISOString(),
+    completedAt: now.toISOString(),
+  };
   if (execution) {
     await db.update(aiExecutionsTable)
       .set({
         status: "completed",
+        recipeReceipt,
         baseRevision: sourceRevision,
         completedAt: now,
         updatedAt: now,
@@ -107,6 +132,7 @@ async function seedSuccessfulRecipeProof(
       }),
       checkpoint: "{}",
       status: "completed",
+      recipeReceipt,
       baseRevision: sourceRevision,
       createdAt: now,
       updatedAt: now,
@@ -231,7 +257,11 @@ describe("Mission recipe dispatch", () => {
         receipt: {
           contractVersion: 1,
           executionId: "unified-delivery-execution",
+          attempt: 0,
           operationId: params.operationId,
+          sourceRevision: params.sourceRevision,
+          candidateTreeHash: "a".repeat(64),
+          treeHash: "b".repeat(64),
           recipeId: "delivery.push.github",
           recipeVersion: 1,
           status: "completed",

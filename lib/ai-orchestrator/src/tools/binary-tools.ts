@@ -7,6 +7,19 @@ const MAX_HASH_BYTES = 32 * 1024 * 1024;
 const MAX_HEADER_BYTES = 1_048_576;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+export type BinaryEvidencePacket = {
+  kind: "png";
+  evidenceId: string;
+  artifactRef: string;
+  path: string;
+  operationId: string;
+  workspaceRevision: string;
+  sha256: string;
+  sizeBytes: number;
+  width: number;
+  height: number;
+};
+
 class PngInspectionError extends Error {
   constructor(readonly code: "PNG_INVALID_STRUCTURE" | "PNG_TRUNCATED") {
     super("PNG structure could not be validated.");
@@ -20,8 +33,8 @@ export const BINARY_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "inspect_binary",
       description:
-        "Inspect a project image, PDF, or other non-text file without returning raw bytes. " +
-        "Returns bounded type, size, hash, and format metadata tied to the current operation revision.",
+        "Inspect a project PNG without returning raw bytes. " +
+        "Returns bounded type, dimensions, size, hash, and server-owned evidence metadata. OCR, PDF, audio, and video are not supported.",
       parameters: {
         type: "object",
         properties: {
@@ -35,6 +48,59 @@ export const BINARY_TOOL_DEFINITIONS: ToolDefinition[] = [
 ];
 
 export const BINARY_TOOL_NAMES = new Set(BINARY_TOOL_DEFINITIONS.map((tool) => tool.function.name));
+
+export function parseBinaryEvidencePacket(
+  value: unknown,
+  expected: { operationId: string; workspaceRevision: string },
+): BinaryEvidencePacket | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<BinaryEvidencePacket>;
+  if (
+    candidate.kind !== "png"
+    || typeof candidate.evidenceId !== "string"
+    || typeof candidate.artifactRef !== "string"
+    || typeof candidate.path !== "string"
+    || typeof candidate.operationId !== "string"
+    || typeof candidate.workspaceRevision !== "string"
+    || typeof candidate.sha256 !== "string"
+    || !/^[a-f0-9]{64}$/i.test(candidate.sha256)
+    || typeof candidate.sizeBytes !== "number"
+    || !Number.isSafeInteger(candidate.sizeBytes)
+    || candidate.sizeBytes <= 0
+    || typeof candidate.width !== "number"
+    || typeof candidate.height !== "number"
+    || !Number.isSafeInteger(candidate.width)
+    || !Number.isSafeInteger(candidate.height)
+    || candidate.width <= 0
+    || candidate.height <= 0
+    || candidate.operationId !== expected.operationId
+    || candidate.workspaceRevision !== expected.workspaceRevision
+    || candidate.path.startsWith("/")
+    || candidate.path.split("/").includes("..")
+  ) return undefined;
+  const identity = binaryEvidenceIdentity({
+    operationId: candidate.operationId,
+    workspaceRevision: candidate.workspaceRevision,
+    normalizedPath: candidate.path,
+    digest: candidate.sha256,
+  });
+  if (
+    candidate.evidenceId !== `binary-evidence:${identity}`
+    || candidate.artifactRef !== `binary-artifact:${identity}`
+  ) return undefined;
+  return {
+    kind: "png",
+    evidenceId: candidate.evidenceId,
+    artifactRef: candidate.artifactRef,
+    path: candidate.path,
+    operationId: candidate.operationId,
+    workspaceRevision: candidate.workspaceRevision,
+    sha256: candidate.sha256,
+    sizeBytes: candidate.sizeBytes,
+    width: candidate.width,
+    height: candidate.height,
+  };
+}
 
 type BinaryToolContext = {
   operationId?: string;
@@ -192,6 +258,17 @@ export async function executeBinaryTool(
     if (!stat.isFile()) throw new Error("not-file");
     const headerBytes = await readHeader(realPath);
     const metadata = detectFormat(headerBytes, requestedPath);
+    if (metadata.mediaType !== "image/png") {
+      return JSON.stringify({
+        tool: name,
+        status: "unavailable",
+        code: "PNG_ONLY",
+        detail: "Only PNG inspection is supported; OCR, PDF, audio, and video are not supported.",
+        path: normalizedPath,
+        operationId: context.operationId,
+        workspaceRevision: context.revision,
+      });
+    }
     const hash = await hashFile(realPath, stat.size, headerBytes);
     const isPng = metadata.mediaType === "image/png";
     if (isPng && !hash.complete) {

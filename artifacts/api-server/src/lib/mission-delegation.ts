@@ -14,6 +14,7 @@ export const MissionDelegationBindingSchema = z.object({
   missionId: z.string().min(1).max(160),
   goalId: z.string().min(1).max(160),
   taskId: z.string().min(1).max(160).nullable(),
+  parentExecutionId: z.string().min(1).max(160).nullable(),
   planRevision: z.string().min(1).max(240).nullable(),
   userId: z.string().min(1).max(240),
   trigger: MissionDelegationTriggerSchema,
@@ -29,6 +30,7 @@ export type MissionDelegationValidation = {
     | "mission_mismatch"
     | "goal_mismatch"
     | "task_mismatch"
+    | "parent_execution_mismatch"
     | "user_mismatch"
     | "plan_revision_mismatch";
   detail: string;
@@ -38,6 +40,7 @@ export function buildMissionDelegationBinding(params: {
   missionId: string;
   goalId: string;
   taskId?: string | null;
+  parentExecutionId?: string | null;
   planRevision?: string | null;
   userId: string;
   trigger: MissionDelegationBinding["trigger"];
@@ -47,6 +50,7 @@ export function buildMissionDelegationBinding(params: {
     missionId: params.missionId,
     goalId: params.goalId,
     taskId: params.taskId ?? null,
+    parentExecutionId: params.parentExecutionId ?? null,
     planRevision: params.planRevision ?? null,
     userId: params.userId,
     trigger: params.trigger,
@@ -59,6 +63,7 @@ export function validateMissionDelegationBinding(
     missionId: string;
     goalId: string;
     taskId?: string | null;
+    parentExecutionId?: string | null;
     userId: string;
     planRevision?: string | null;
   },
@@ -90,6 +95,16 @@ export function validateMissionDelegationBinding(
       allowed: false,
       reason: "task_mismatch",
       detail: "Mission delegation belongs to a different Task.",
+    };
+  }
+  if (
+    expected.parentExecutionId !== undefined
+    && parsed.data.parentExecutionId !== expected.parentExecutionId
+  ) {
+    return {
+      allowed: false,
+      reason: "parent_execution_mismatch",
+      detail: "Mission delegation belongs to a different parent execution.",
     };
   }
   if (parsed.data.userId !== expected.userId) {

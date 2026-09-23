@@ -1,4 +1,14 @@
-import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  integer,
+  index,
+  uniqueIndex,
+  jsonb,
+} from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
 import { tasksTable } from "./tasks.js";
@@ -65,6 +75,18 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   /** Delivery workspace identity, when this execution can write files. */
   workspaceRoot: text("workspace_root"),
   baseRevision: text("base_revision"),
+  /** Server-owned parent/child execution lineage for bounded delegation. */
+  parentExecutionId: text("parent_execution_id"),
+  /** Stable identity shared by a delegation root and all descendants. */
+  delegationId: text("delegation_id"),
+  /** Root execution identity used to close lineage across multiple levels. */
+  rootExecutionId: text("root_execution_id"),
+  delegationDepth: integer("delegation_depth").notNull().default(0),
+  /** Bounded server-owned delegation budget snapshot. */
+  delegationBudget: jsonb("delegation_budget")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
@@ -76,6 +98,13 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   index("idx_ai_executions_linked_task").on(t.linkedTaskId),
   index("idx_ai_executions_goal_id").on(t.goalId),
   index("idx_ai_executions_correlation_id").on(t.correlationId),
+  index("idx_ai_executions_parent").on(t.parentExecutionId),
+  index("idx_ai_executions_delegation").on(t.delegationId, t.delegationDepth),
+  foreignKey({
+    columns: [t.parentExecutionId],
+    foreignColumns: [t.id],
+    name: "fk_ai_executions_parent_execution",
+  }).onDelete("set null"),
   uniqueIndex("uq_ai_executions_user_idempotency").on(t.userId, t.idempotencyKey),
 ]);
 

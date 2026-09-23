@@ -9,6 +9,10 @@ import {
   parseExecutionProofProjection,
   type ExecutionProofProjection,
 } from "./execution-proof.js";
+import {
+  aggregateDelegatedExecutionSummary,
+  type DelegatedExecutionSummary,
+} from "./execution-lineage.js";
 
 export const CANONICAL_PROOF_CONTRACT_VERSION = 1 as const;
 
@@ -579,4 +583,100 @@ export async function loadCanonicalProof(
         }
       : null,
   });
+}
+
+export type CanonicalDelegationProof = {
+  contractVersion: typeof CANONICAL_PROOF_CONTRACT_VERSION;
+  parentExecutionId: string;
+  delegationId: string | null;
+  verdict: CanonicalProofVerdict;
+  accepted: boolean;
+  failureReasons: CanonicalProofFailureReason[];
+  summary: DelegatedExecutionSummary;
+  childProofs: Array<{
+    executionId: string;
+    attempt: number;
+    proof: CanonicalProof;
+  }>;
+};
+
+/**
+ * Aggregate delegated children through the same canonical proof loader used
+ * for ordinary executions. This is intentionally read/lock/compose in one
+ * transaction so a parent cannot observe a child proof from a newer attempt.
+ */
+export async function loadCanonicalDelegationProof(input: {
+  tx: CanonicalProofTransaction;
+  parentExecutionId: string;
+  scope: CanonicalProofScope;
+  goalStatus: string;
+}): Promise<CanonicalDelegationProof> {
+  const [parent] = await input.tx
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, input.parentExecutionId),
+      eq(aiExecutionsTable.projectId, input.scope.projectId),
+    ))
+    .for("update");
+  if (!parent) {
+    return {
+      contractVersion: CANONICAL_PROOF_CONTRACT_VERSION,
+      parentExecutionId: input.parentExecutionId,
+      delegationId: null,
+      verdict: "UNAVAILABLE",
+      accepted: false,
+      failureReasons: ["missing_execution"],
+      summary: aggregateDelegatedExecutionSummary([]),
+      childProofs: [],
+    };
+  }
+
+  const children = await input.tx
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.parentExecutionId, parent.id),
+      eq(aiExecutionsTable.projectId, parent.projectId),
+    ))
+    .for("update");
+  const childProofs: CanonicalDelegationProof["childProofs"] = [];
+  for (const child of children) {
+    const proof = await loadCanonicalProof({
+      tx: input.tx,
+      executionId: child.id,
+      scope: {
+        ...input.scope,
+        executionId: child.id,
+        goalId: child.goalId,
+        operationId: child.operationId,
+        sourceRevision: child.baseRevision,
+      },
+      goalStatus: child.status,
+    });
+    childProofs.push({
+      executionId: child.id,
+      attempt: child.attempt,
+      proof,
+    });
+  }
+  const summary = aggregateDelegatedExecutionSummary(children.map((child) => ({
+    status: child.status,
+    checkpoint: child.checkpoint,
+    acceptance: childProofs.find((item) => item.executionId === child.id)?.proof.acceptanceId
+      ? { outcome: childProofs.find((item) => item.executionId === child.id)?.proof.accepted ? "SUCCEEDED" : "FAILED" }
+      : null,
+  })));
+  const failureReasons = childProofs.flatMap((item) => item.proof.failureReasons);
+  const uniqueFailureReasons = [...new Set(failureReasons)].slice(0, 16);
+  return {
+    contractVersion: CANONICAL_PROOF_CONTRACT_VERSION,
+    parentExecutionId: parent.id,
+    delegationId: parent.delegationId,
+    verdict: summary.verdict,
+    accepted: summary.verdict === "PROVEN" && childProofs.every((item) => item.proof.accepted),
+    failureReasons: uniqueFailureReasons,
+    summary,
+    childProofs,
+  };
 }

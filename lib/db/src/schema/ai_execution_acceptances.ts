@@ -33,6 +33,8 @@ export const aiExecutionEvidenceSnapshotsTable = pgTable("ai_execution_evidence_
   complete: integer("complete").notNull().default(0),
   readCount: integer("read_count").notNull().default(0),
   totalBytes: integer("total_bytes").notNull().default(0),
+  /** Bounded server-owned artifact metadata; never raw binary bytes. */
+  artifactRefs: jsonb("artifact_refs"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("uq_ai_execution_evidence_snapshots_attempt").on(t.executionId, t.attempt),

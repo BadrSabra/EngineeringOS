@@ -50,7 +50,12 @@ import {
   executeCodeNavigationTool,
 } from "./tools/code-navigation.js";
 import { PACKAGE_TOOL_NAMES, executePackageTool } from "./tools/package-tools.js";
-import { BINARY_TOOL_NAMES, executeBinaryTool } from "./tools/binary-tools.js";
+import {
+  BINARY_TOOL_NAMES,
+  executeBinaryTool,
+  parseBinaryEvidencePacket,
+  type BinaryEvidencePacket,
+} from "./tools/binary-tools.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
   executeCommandTool,
@@ -1500,6 +1505,7 @@ export type ToolLoopResult =
       evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
        objectiveState?: AgentLoopState;
     }
   | {
@@ -1518,6 +1524,7 @@ export type ToolLoopResult =
       evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
        reason?: "soft_limit" | "empty_response" | "provider_timeout" | "provider_failure";
        objectiveState?: AgentLoopState;
     }
@@ -1531,6 +1538,7 @@ export type ToolLoopResult =
       evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
       /** Why the loop could not produce a final response. */
       reason?: "iteration_budget" | "empty_response";
        objectiveState?: AgentLoopState;
@@ -1543,6 +1551,7 @@ export type ToolLoopResult =
       /** Absolute provenance for bounded read_file_range evidence windows. */
       evidenceWindows?: SourceEvidenceWindow[];
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
       tool: string;
       failureKind: "execution" | "unavailable" | "cancelled";
       diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
@@ -1562,6 +1571,7 @@ export type ToolLoopResult =
       evidenceWindows?: SourceEvidenceWindow[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
       reason: "repeated_tool_call";
       tool: string;
       iterations: number;
@@ -1575,6 +1585,7 @@ export type ToolLoopResult =
       /** Absolute provenance for bounded read_file_range evidence windows. */
       evidenceWindows?: SourceEvidenceWindow[];
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
        objectiveState?: AgentLoopState;
      }
   | {
@@ -1591,6 +1602,7 @@ export type ToolLoopResult =
       /** Absolute provenance for bounded read_file_range evidence windows. */
       evidenceWindows?: SourceEvidenceWindow[];
       sourceRetrieval?: SourceRetrievalTelemetry;
+       binaryEvidence?: BinaryEvidencePacket[];
       objectiveState?: AgentLoopState;
     };
 
@@ -2111,6 +2123,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     (priorToolCalls ?? []).map((call) => [call.key, call]),
   );
   const completedToolCalls: AgentLoopToolCall[] = [...(priorToolCalls ?? [])];
+  const binaryEvidencePackets: BinaryEvidencePacket[] = [];
   const nonIdempotentTools = new Set([
     "write_file",
     "replace_text",
@@ -3532,6 +3545,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       fileContents,
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
+      binaryEvidence: binaryEvidencePackets,
       ...(state ? { objectiveState: state } : {}),
     };
   };
@@ -3563,6 +3577,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       fileContents,
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
+      binaryEvidence: binaryEvidencePackets,
       ...(buildObjectiveState("cancelled")
         ? { objectiveState: buildObjectiveState("cancelled") }
         : {}),
@@ -3604,6 +3619,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       fileContents,
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
+      binaryEvidence: binaryEvidencePackets,
       tool,
       failureKind,
       diagnosticCode,
@@ -4654,6 +4670,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         fileContents,
         evidenceWindows: sourceEvidenceWindows,
         sourceRetrieval,
+        binaryEvidence: binaryEvidencePackets,
         ...(buildObjectiveState(objective ? "goal_met" : undefined)
           ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
           : {}),
@@ -4703,6 +4720,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           fileContents,
           evidenceWindows: sourceEvidenceWindows,
           sourceRetrieval,
+           binaryEvidence: binaryEvidencePackets,
           ...(buildObjectiveState(objective ? "goal_met" : undefined)
             ? { objectiveState: buildObjectiveState(objective ? "goal_met" : undefined) }
             : {}),
@@ -4720,6 +4738,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         fileContents,
         evidenceWindows: sourceEvidenceWindows,
         sourceRetrieval,
+        binaryEvidence: binaryEvidencePackets,
         reason: "empty_response",
       };
     }
@@ -5893,6 +5912,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         });
       }
       if (assertExecutionOwned) await assertExecutionOwned();
+      if (
+        toolResult.kind === "ok"
+        && BINARY_TOOL_NAMES.has(tc.function.name)
+      ) {
+        try {
+          const packet = parseBinaryEvidencePacket(JSON.parse(toolResult.output), {
+            operationId: opts.analysisCorrelation?.operationId ?? "",
+            workspaceRevision: opts.analysisCorrelation?.projectRevision ?? "",
+          });
+          if (packet && !binaryEvidencePackets.some((item) => item.evidenceId === packet.evidenceId)) {
+            binaryEvidencePackets.push(packet);
+          }
+        } catch {
+          // Binary output is untrusted until the server-owned packet parser accepts it.
+        }
+      }
 
       if (toolResult.kind === "unknown_tool") {
         console.error(
@@ -6345,6 +6380,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       fileContents,
       evidenceWindows: sourceEvidenceWindows,
       sourceRetrieval,
+      binaryEvidence: binaryEvidencePackets,
       reason: "soft_limit",
     };
   }
@@ -6376,6 +6412,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     fileContents,
     evidenceWindows: sourceEvidenceWindows,
     sourceRetrieval,
+    binaryEvidence: binaryEvidencePackets,
     reason: "iteration_budget",
   };
 }

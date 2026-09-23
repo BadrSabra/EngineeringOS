@@ -56,6 +56,7 @@ import {
   requireActiveSkillRegistry,
   type ActiveSkillRegistryBinding,
 } from "./skill-registry.js";
+import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -204,6 +205,8 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   idempotencyKey: string;
   executionProfile?: string;
   proofRequired?: boolean;
+  parentExecutionId?: string | null;
+  delegationBudget?: Partial<ExecutionDelegationBudget>;
 };
 
 function evidenceForNodes(
@@ -482,6 +485,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     ...(params.goalId ? { goalId: params.goalId } : {}),
     sessionId: params.sessionId,
     recipeBinding: prepared.binding,
+    parentExecutionId: params.parentExecutionId,
+    delegationBudget: params.delegationBudget,
   });
   const workerId = `recipe:${params.operationId}:${randomUUID()}`;
   const recovery = created.execution.status === "paused"
