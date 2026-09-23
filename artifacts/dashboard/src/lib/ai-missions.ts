@@ -109,6 +109,14 @@ export interface SkillCandidateProjection {
     receiptId: string;
     trajectoryDigest: string;
     verdict: 'PROVEN' | 'INCOMPLETE' | 'UNAVAILABLE';
+    projection: {
+      contractVersion: number;
+      evidenceRequired: boolean;
+      evidenceComplete: boolean;
+      evidenceSnapshotId: string | null;
+      sourceBound: boolean;
+      candidateBound: boolean;
+    };
   };
   shadow: {
     mode: 'shadow-replay';

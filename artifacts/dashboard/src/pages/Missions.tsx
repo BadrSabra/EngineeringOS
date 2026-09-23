@@ -886,6 +886,18 @@ function GoalCard({
                   <p>verdict <span className="text-emerald-200">{skillCandidate.proof.verdict}</span></p>
                   <p>candidate <span className="text-slate-300">{compactId(skillCandidate.candidateId)}</span></p>
                   <p>tree <span className="text-slate-300">{compactId(skillCandidate.candidateTreeHash)}</span></p>
+                   <p data-testid={`skill-candidate-evidence-${goal.id}`}>
+                     evidence <span className="text-slate-300">
+                       {skillCandidate.proof.projection.evidenceComplete ? 'complete' : 'incomplete'}
+                     </span>
+                   </p>
+                   <p data-testid={`skill-candidate-binding-${goal.id}`}>
+                     binding <span className="text-slate-300">
+                       {skillCandidate.proof.projection.sourceBound && skillCandidate.proof.projection.candidateBound
+                         ? 'source + candidate'
+                         : 'incomplete'}
+                     </span>
+                   </p>
                   <p>replay <span className="text-cyan-200">{skillCandidate.shadow.mode} / non-production</span></p>
                 </div>
               </div>

@@ -757,17 +757,33 @@ async function buildMissionProjection(
           }
           const candidate = parseStoredProposalEvidence(stored).skillCandidate;
           if (!candidate) continue;
+           const decision = validateSkillCandidateForShadow(candidate, {
+             projectId: mission.projectId,
+           });
+           if (!decision.allowed || !decision.envelope) continue;
+           const proof = parseExecutionProofProjection(
+             decision.envelope.proof.projection,
+           );
+           if (!proof) continue;
           return {
             skillCandidate: {
-              candidateId: candidate.candidateId,
-              sourceRevision: candidate.sourceRevision,
-              candidateTreeHash: candidate.candidateTreeHash,
+               candidateId: decision.envelope.candidateId,
+               sourceRevision: decision.envelope.sourceRevision,
+               candidateTreeHash: decision.envelope.candidateTreeHash,
               proof: {
-                receiptId: candidate.proof.receiptId,
-                trajectoryDigest: candidate.proof.trajectoryDigest,
-                verdict: candidate.proof.verdict,
+                 receiptId: decision.envelope.proof.receiptId,
+                 trajectoryDigest: decision.envelope.proof.trajectoryDigest,
+                 verdict: decision.envelope.proof.verdict,
+                 projection: {
+                   contractVersion: proof.contractVersion,
+                   evidenceRequired: proof.evidenceRequired,
+                   evidenceComplete: proof.evidenceComplete,
+                   evidenceSnapshotId: proof.evidenceSnapshotId,
+                   sourceBound: proof.sourceBound,
+                   candidateBound: proof.candidateBound,
+                 },
               },
-              shadow: candidate.shadow,
+               shadow: decision.envelope.shadow,
             },
           };
         }

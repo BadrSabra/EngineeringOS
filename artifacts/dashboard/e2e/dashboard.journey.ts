@@ -3913,6 +3913,14 @@ async function installMissionManagementFixtures(page: Page) {
                 receiptId: "e2e-proof-receipt",
                 trajectoryDigest: "e2e-trajectory-digest",
                 verdict: "PROVEN",
+                projection: {
+                  contractVersion: 1,
+                  evidenceRequired: true,
+                  evidenceComplete: true,
+                  evidenceSnapshotId: "e2e-evidence-snapshot",
+                  sourceBound: true,
+                  candidateBound: true,
+                },
               },
               shadow: {
                 mode: "shadow-replay",
@@ -4790,6 +4798,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(candidateProof).toBeVisible();
     await expect(candidateProof).toContainText("PROVEN");
     await expect(candidateProof).toContainText("skill-candidate:e2e");
+    await expect(page.getByTestId("skill-candidate-evidence-e2e-goal-management"))
+      .toHaveText("evidence complete");
+    await expect(page.getByTestId("skill-candidate-binding-e2e-goal-management"))
+      .toHaveText("binding source + candidate");
     await expect(candidateProof).toContainText("shadow-replay / non-production");
 
     await page.getByTestId("button-edit-goal-e2e-goal-management").click();
@@ -4816,6 +4828,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByTestId("skill-candidate-e2e-goal-management"),
     ).toContainText("PROVEN");
+    await expect(
+      page.getByTestId("skill-candidate-binding-e2e-goal-management"),
+    ).toHaveText("binding source + candidate");
 
     expect(
       missionFixtures.mutations.map(({ method, path }) => `${method} ${path}`),
