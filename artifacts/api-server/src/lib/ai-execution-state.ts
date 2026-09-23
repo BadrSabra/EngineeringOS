@@ -733,6 +733,8 @@ export function assertAutonomousOperationIdentity(
 
 export type AiExecutionRequestEnvelope = {
   projectId: string;
+  /** Fixed server-owned execution profile, when a bounded capability selects one. */
+  executionProfile?: string;
   /** Immutable route intent used by terminal policy and reconnect projections. */
   turnIntent?: string;
   /** Server-owned source-backed project explanation contract. */
@@ -1638,6 +1640,7 @@ export async function createAiExecution(params: {
   linkedTaskId?: string;
   goalId?: string;
   buildPlanMessageId?: string;
+  proposalId?: string;
   recipeBinding?: RecipeOperationBinding;
   /** Server-owned managed project root used by this execution. */
   workspaceRoot?: string | null;
@@ -1705,6 +1708,7 @@ export async function createAiExecution(params: {
       linkedTaskId: params.linkedTaskId ?? null,
       goalId: params.goalId ?? null,
       buildPlanMessageId: params.buildPlanMessageId ?? null,
+      proposalId: params.proposalId ?? null,
       userId: params.userId,
       idempotencyKey: params.idempotencyKey,
       correlationId: params.correlationId ?? null,

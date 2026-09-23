@@ -49,11 +49,16 @@ import {
 } from "../../lib/proof-foundation.js";
 import {
   buildSkillCandidateEnvelope,
-  buildShadowReplayReceipt,
   parseStoredProposalEvidence,
   serializeProposalEvidence,
   validateSkillCandidateAgainstCanonicalProof,
 } from "../../lib/skill-candidate.js";
+import {
+  getShadowReplayForUser,
+  ShadowReplayError,
+  startShadowReplay,
+  toPublicShadowReplay,
+} from "../../lib/shadow-replay.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -1467,8 +1472,10 @@ router.post("/ai/proposals/:proposalId/skill-candidate", async (req, res) => {
 });
 
 /**
- * Read-only shadow replay. It validates the persisted candidate projection and
- * returns a bounded receipt; it never invokes a recipe or touches a workspace.
+ * Server-owned shadow replay. It creates a durable replay execution, copies the
+ * candidate into a disposable workspace, runs the fixed candidate.verify
+ * handler, and persists a bounded receipt. It never applies, pushes, opens a
+ * browser, or executes candidate-supplied commands.
  */
 router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (req, res) => {
   EmptySkillCandidateBody.parse(req.body);
@@ -1480,6 +1487,7 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       baseRevision: aiChangeProposalsTable.baseRevision,
       candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
       changeSetHash: aiChangeProposalsTable.changeSetHash,
+      workspaceRoot: aiChangeProposalsTable.workspaceRoot,
       validationEvidence: aiChangeProposalsTable.validationEvidence,
     })
     .from(aiChangeProposalsTable)
@@ -1488,6 +1496,12 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
   if (!proposal) return res.status(404).json({ error: "Proposal not found" });
   const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
   if (!project) return;
+  if (!proposal.operationId || !proposal.baseRevision || !proposal.candidateTreeHash) {
+    return res.status(409).json({
+      error: "The proposal is missing the immutable candidate workspace identity required for replay.",
+      code: "SKILL_CANDIDATE_REPLAY_IDENTITY_MISSING",
+    });
+  }
   const storedEvidence = parseStoredEvidenceText(proposal.validationEvidence);
   const { skillCandidate } = parseStoredProposalEvidence(storedEvidence);
   if (!skillCandidate) {
@@ -1537,13 +1551,57 @@ router.post("/ai/proposals/:proposalId/skill-candidate/shadow-replay", async (re
       reasons: decision.reasons,
     });
   }
-  return res.json({
-    receipt: buildShadowReplayReceipt(skillCandidate, canonicalProof, {
+  try {
+    const started = await startShadowReplay({
+      userId: req.userId,
       projectId: project.id,
-      sourceRevision: proposal.baseRevision ?? undefined,
-      candidateTreeHash: proposal.candidateTreeHash ?? undefined,
+      proposalId: proposal.id,
+      operationId: proposal.operationId ?? "",
+      sourceRevision: proposal.baseRevision!,
+      candidateTreeHash: proposal.candidateTreeHash!,
       changeSetHash: proposal.changeSetHash,
-    }),
+      sourceWorkspaceRoot: proposal.workspaceRoot,
+      candidate: skillCandidate,
+      canonicalProof,
+    });
+    const status = started.replay.status === "completed"
+      ? 200
+      : started.replay.status === "queued" || started.replay.status === "running"
+        ? 202
+        : 409;
+    return res.status(status).json({
+      replay: started.replay,
+      ...(started.replay.receipt ? { receipt: started.replay.receipt } : {}),
+      productionExecution: false,
+    });
+  } catch (error) {
+    if (error instanceof ShadowReplayError) {
+      return res.status(409).json({
+        error: error.message,
+        code: error.code,
+        productionExecution: false,
+      });
+    }
+    throw error;
+  }
+});
+
+router.get("/ai/proposals/:proposalId/skill-candidate/shadow-replay/:replayId", async (req, res) => {
+  const [proposal] = await db
+    .select({ id: aiChangeProposalsTable.id, projectId: aiChangeProposalsTable.projectId })
+    .from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+    .limit(1);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+  const replay = await getShadowReplayForUser(req.params.replayId, req.userId);
+  if (!replay || replay.proposalId !== proposal.id || replay.projectId !== project.id) {
+    return res.status(404).json({ error: "Shadow replay not found" });
+  }
+  return res.json({
+    replay: toPublicShadowReplay(replay),
+    ...(replay.receipt ? { receipt: replay.receipt } : {}),
     productionExecution: false,
   });
 });

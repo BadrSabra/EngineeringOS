@@ -15,6 +15,7 @@ export * from "./ai_chats.js";
 export * from "./ai_change_proposals.js";
 export * from "./ai_executions.js";
 export * from "./ai_execution_acceptances.js";
+export * from "./ai_shadow_replays.js";
 export * from "./ai_apply_journal.js";
 export * from "./ai_provider_credentials.js";
 export * from "./rate_limits.js";

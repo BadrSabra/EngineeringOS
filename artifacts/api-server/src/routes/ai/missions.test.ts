@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "crypto";
+import { promises as fs } from "node:fs";
 import { and, eq, inArray } from "drizzle-orm";
 import app from "../../app.js";
 import {
@@ -11,6 +12,7 @@ import {
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
+  aiShadowReplaysTable,
   aiGoalsTable,
   aiMissionsTable,
   db,
@@ -22,8 +24,10 @@ import {
 import { waitForScheduledAiTaskExecutions } from "./tasks.js";
 import { runMissionGoal, wakeReadyMissionGoals } from "../../lib/mission-runtime.js";
 import { buildExecutionProofProjection } from "../../lib/execution-proof.js";
+import { createDeliveryWorkspace, DELIVERY_TREE_DIGEST_VERSION } from "../../lib/delivery-workspace.js";
 
 const projectIds: string[] = [];
+const shadowWorkspaceRoots: string[] = [];
 
 async function insertProject(ownerId = "test-user") {
   const id = randomUUID();
@@ -46,6 +50,9 @@ afterEach(async () => {
   await waitForScheduledAiTaskExecutions();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+  }
+  for (const workspaceRoot of shadowWorkspaceRoots.splice(0)) {
+    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 });
 
@@ -520,9 +527,21 @@ describe("AI missions and goals", () => {
     const executionId = randomUUID();
     const operationId = randomUUID();
     const sourceRevision = "b".repeat(40);
-    const candidateTreeHash = "a".repeat(64);
-    const changeSetHash = "c".repeat(64);
     const now = new Date();
+    const sourceRoot = `/tmp/mission-shadow-source-${operationId}`;
+    await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
+    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+    await fs.writeFile(`${sourceRoot}/src/index.ts`, "export const old = false;\n", "utf8");
+    const deliveryWorkspace = await createDeliveryWorkspace({
+      rootPath: sourceRoot,
+      operationId,
+      baseRevision: sourceRevision,
+      changes: [{ path: "src/index.ts", newContent: "export const ok = true;" }],
+    });
+    shadowWorkspaceRoots.push(deliveryWorkspace.workspaceRoot);
+    await fs.rm(sourceRoot, { recursive: true, force: true });
+    const candidateTreeHash = deliveryWorkspace.candidateTreeHash;
+    const changeSetHash = deliveryWorkspace.changeSetHash;
     await db.insert(aiChatSessionsTable).values({
       id: sessionId,
       projectId,
@@ -550,6 +569,9 @@ describe("AI missions and goals", () => {
       baseRevision: sourceRevision,
       candidateTreeHash,
       changeSetHash,
+      baseTreeHash: deliveryWorkspace.baseTreeHash,
+      treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+      workspaceRoot: deliveryWorkspace.workspaceRoot,
       createdAt: now,
     });
     await db.insert(aiExecutionsTable).values({
@@ -636,9 +658,19 @@ describe("AI missions and goals", () => {
         candidateTreeHash,
         productionExecution: false,
         proof: { verdict: "PROVEN" },
+        validator: { profile: "shadow-replay", status: "passed" },
       },
       productionExecution: false,
     });
+    const replayAgain = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`)
+      .send({});
+    expect(replayAgain.status).toBe(200);
+    expect(replayAgain.body.replay.id).toBe(replay.body.replay.id);
+    const boundAgain = await request(app)
+      .post(`/api/ai/proposals/${proposalId}/skill-candidate`)
+      .send({});
+    expect(boundAgain.status).toBe(200);
 
     const [persistedProposal] = await db
       .select({
@@ -659,6 +691,46 @@ describe("AI missions and goals", () => {
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.proposalId, proposalId));
     expect(executions).toHaveLength(1);
+    expect(executions[0]?.id).toBe(executionId);
+    const [persistedReplay] = await db
+      .select({
+        status: aiShadowReplaysTable.status,
+        executionId: aiShadowReplaysTable.executionId,
+        preTreeHash: aiShadowReplaysTable.preTreeHash,
+        postTreeHash: aiShadowReplaysTable.postTreeHash,
+        replayWorkspaceCleaned: aiShadowReplaysTable.replayWorkspaceCleaned,
+        receipt: aiShadowReplaysTable.receipt,
+      })
+      .from(aiShadowReplaysTable)
+      .where(eq(aiShadowReplaysTable.proposalId, proposalId));
+    const [replayExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        proposalId: aiExecutionsTable.proposalId,
+        executionProfile: aiShadowReplaysTable.executionProfile,
+      })
+      .from(aiExecutionsTable)
+      .innerJoin(aiShadowReplaysTable, eq(aiShadowReplaysTable.executionId, aiExecutionsTable.id))
+      .where(eq(aiShadowReplaysTable.proposalId, proposalId));
+    expect(replayExecution).toMatchObject({
+      id: persistedReplay?.executionId,
+      proposalId: null,
+      executionProfile: "shadow-replay",
+    });
+    expect(persistedReplay).toMatchObject({
+      status: "completed",
+      preTreeHash: candidateTreeHash,
+      postTreeHash: candidateTreeHash,
+      replayWorkspaceCleaned: true,
+      receipt: {
+        replayExecutionId: persistedReplay?.executionId,
+        evidenceRefs: expect.arrayContaining([
+          expect.stringContaining(":tree:pre"),
+          expect.stringContaining(":tree:post"),
+        ]),
+        sideEffects: { apply: false, push: false, browser: false, commands: false },
+      },
+    });
   });
 
   it("binds active mission activation to the same server-owned plan revision", async () => {

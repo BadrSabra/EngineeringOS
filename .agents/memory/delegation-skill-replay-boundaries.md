@@ -9,8 +9,14 @@ Mission delegation is a server-owned, versioned envelope bound to the Mission, G
 
 **How to apply:** Validate the envelope against rows locked by `runMissionGoal`; rebuild it during queued recipe recovery; create a separate entity only if a future requirement needs delegation requests to outlive the existing Goal/Execution lifecycle.
 
-Skill candidates are strict, versioned, source/tree/path-bound envelopes. Shadow replay accepts only the fixed `candidate.verify` contract and a PROVEN, source-bound, candidate-bound execution proof; the replay receipt is disposable and explicitly `productionExecution: false`.
+Skill candidates are strict, versioned, source/tree/path-bound envelopes. Shadow replay uses the fixed `shadow-replay` execution profile with the bounded `candidate.verify` read-only recipe and a PROVEN, source-bound, candidate-bound execution proof; the replay receipt is disposable and explicitly `productionExecution: false`.
 
 **Why:** Proof demonstrates the verified candidate but does not grant production execution, promotion, delivery, mutation, browser effects, arbitrary recipes, or arbitrary paths.
 
 **How to apply:** Keep validation fail-closed, use server-owned approved paths and tree identities, bind candidates only from matching execution acceptances, make repeated binding idempotent, and route any future promotion through the existing proposal lifecycle and consent gates.
+
+Replay recovery must revalidate the server-owned completed receipt and finish disposable-workspace cleanup before projecting a replay as completed; public replay responses expose only the bounded projection, never filesystem roots.
+
+**Why:** A process interruption can leave the execution terminal before the replay row or cleanup projection is written, and raw durable rows can disclose internal workspace topology.
+
+**How to apply:** Treat a completed execution without a matching replay receipt as failed/incomplete, retry cleanup fail-closed, and serialize GET responses through the same public projection used by POST.

@@ -82,6 +82,7 @@ import {
   wakeReadyMissionGoals,
 } from "./mission-runtime.js";
 import { reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
+import { dispatchPendingShadowReplays } from "./shadow-replay.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -740,7 +741,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   let dispatched = 0;
 
   try {
-    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount] = await Promise.all([
+    const [queuedScans, pendingDiscoveries, recoveryCount, automaticReplanCount, missionRecipeCount, missionEventCount, shadowReplayCount] = await Promise.all([
       db
         .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
         .from(scanJobsTable)
@@ -753,11 +754,13 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
       reconcileAutomaticMissionReplans(),
       dispatchPendingMissionRecipes(),
       replayPendingMissionEvents(),
+      dispatchPendingShadowReplays(),
     ]);
     dispatched += recoveryCount;
     dispatched += automaticReplanCount;
     dispatched += missionRecipeCount;
     dispatched += missionEventCount;
+    dispatched += shadowReplayCount;
 
     for (const job of queuedScans) {
       if (
@@ -796,6 +799,7 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
           automaticReplanCount,
             missionRecipeCount,
             missionEventCount,
+            shadowReplayCount,
         },
         "durable job dispatcher: persisted pending work dispatched",
       );
