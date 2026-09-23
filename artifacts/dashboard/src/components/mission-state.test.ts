@@ -71,4 +71,13 @@ describe('getMissionState', () => {
       resumable: true,
     })).toMatchObject({ key: 'INCOMPLETE', label: 'Paused — resume available' });
   });
+
+  it('surfaces a server-owned replan requirement after reconnect', () => {
+    expect(getMissionState({
+      projection: baseProjection,
+      executionStatus: 'completed',
+      flightState: 'BLOCKED',
+      nextAction: 'NEEDS_REPLAN',
+    })).toMatchObject({ key: 'NEEDS_REPLAN', label: 'Needs replan' });
+  });
 });

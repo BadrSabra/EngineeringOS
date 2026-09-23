@@ -173,6 +173,8 @@ import {
   BUDGET_BY_SCOPE,
   type AgentStep,
   type AgentDiagnosticCode,
+  type AgentLoopClaimState,
+  type AgentLoopToolCall,
   type ReadStatus,
   mergeReadStatus,
   EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
@@ -6180,6 +6182,10 @@ export async function chat(opts: {
    * gate refuses to emit a completed final answer.
    */
   objective?: ObjectiveContract;
+  /** Durable Mission loop state restored after a lease loss or reconnect. */
+  claimState?: AgentLoopClaimState[];
+  priorToolCalls?: readonly AgentLoopToolCall[];
+  initialPendingChanges?: PendingChange[];
   /**
    * Route-owned decision derived from the original user message. API callers
    * must pass this when they augment `message` with Build/resume context.
@@ -6259,6 +6265,9 @@ export async function chat(opts: {
     onExecutionNodes,
     productionTraceLinks,
     objective,
+    claimState,
+    priorToolCalls,
+    initialPendingChanges,
     turnIntent: suppliedTurnIntent,
      projectOrientation: serverProjectOrientation,
     executionPlan: suppliedExecutionPlan,
@@ -7156,7 +7165,7 @@ export async function chat(opts: {
       }));
     }
   };
-  const pendingChanges: PendingChange[] = [];
+  const pendingChanges: PendingChange[] = initialPendingChanges ?? [];
   const getExecutionPendingChanges = (): PendingChange[] =>
     repairPlanExecution && priorRepairPlan
       ? restrictPendingChangesToRepairPlan(pendingChanges, executionFilePaths)
@@ -8954,6 +8963,9 @@ export async function chat(opts: {
     evidenceRecoveryPaths,
     retainedFileContents: retainedEvidence,
     cache: toolCallCache,
+    claimState,
+    priorToolCalls,
+    initialPendingChanges,
     toolChoice:
       capabilityProbeRequest
         ? "required"

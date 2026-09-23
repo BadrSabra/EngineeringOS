@@ -50,6 +50,9 @@ import type {
   ExecutionLedgerPublicSnapshot,
   ExecutionLedgerSnapshot,
   AgentModelAttempt,
+  AgentLoopClaimState,
+  AgentLoopToolCall,
+  PendingChange,
 } from "@workspace/ai-orchestrator";
 import type { ExecutionLedger } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
@@ -824,6 +827,10 @@ export async function chatWithFallback(
      * actual chat entry points, not just direct library calls.
      */
     objective?: ObjectiveContract;
+     /** Durable Mission loop state restored after a lease loss or reconnect. */
+     claimState?: AgentLoopClaimState[];
+     priorToolCalls?: readonly AgentLoopToolCall[];
+     initialPendingChanges?: PendingChange[];
     /** Route-owned decision derived from the unaugmented user message. */
     turnIntent?: TurnIntent;
      /** Server-owned project orientation decision; survives resume prompt augmentation. */

@@ -11,6 +11,7 @@ export type MissionStateKey =
   | 'DELIVERING'
   | 'DELIVERED'
   | 'COMPLETE'
+  | 'NEEDS_REPLAN'
   | 'NEEDS_ATTENTION'
   | 'INCOMPLETE';
 
@@ -30,6 +31,7 @@ export type MissionStateInput = {
   flightState?: string | null;
   evidenceVerdict?: string | null;
   resumable?: boolean | null;
+  nextAction?: string | null;
 };
 
 function normalized(value: unknown): string {
@@ -81,6 +83,7 @@ export function getMissionState(input: MissionStateInput): MissionState {
   const executionStatus = normalized(input.executionStatus);
   const flightState = normalized(input.flightState);
   const evidenceVerdict = normalized(input.evidenceVerdict ?? input.projection.verification?.evidenceVerdict);
+  const nextAction = normalized(input.nextAction);
   const phase = normalized(input.projection.phase);
   const verification = input.projection.verification?.status;
   const stopped = input.projection.stopped?.outcome;
@@ -88,6 +91,14 @@ export function getMissionState(input: MissionStateInput): MissionState {
     (item) => item.id === 'deliver' && item.status === 'completed',
   ) ?? false;
   const allowedActions = input.projection.allowedActions ?? [];
+
+  if (nextAction.includes('REPLAN')) {
+    return withPrimaryAction({
+      key: 'NEEDS_REPLAN',
+      label: 'Needs replan',
+      detail: 'The server kept this execution incomplete and requires a bounded replan before it can continue.',
+    }, ['RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'REVIEW_PROOF', 'START_NEW_RUN'], 'Review the replan requirement', allowedActions);
+  }
 
   if (stopped === 'FAILED' || executionStatus === 'FAILED' || flightState === 'BLOCKED' || verification === 'failed' || evidenceVerdict === 'BLOCKED') {
     return withPrimaryAction({

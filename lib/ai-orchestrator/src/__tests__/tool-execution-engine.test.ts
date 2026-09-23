@@ -116,6 +116,56 @@ function makeMessages(): RawMessage[] {
   return [{ role: "user", content: "hello" }];
 }
 
+describe("durable Mission action replay markers", () => {
+  it("skips a previously started write action after reconnect", async () => {
+    const { executeToolLoop, toolCacheKey } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockImplementation(async () => {
+      throw new Error("write_file should not be dispatched after reconnect");
+    });
+    const args = {
+      path: "src/example.ts",
+      content: "export const value = 1;\n",
+      reason: "apply the approved change",
+    };
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("write-1", "write_file", args)]),
+      makeResponse("resume summary"),
+    ]);
+    const messages = makeMessages();
+    const result = await executeToolLoop({
+      messages,
+      strategy,
+      model: "test-model",
+      powerModel: "test-power",
+      provider: "test",
+      tools: [
+        { type: "function", function: { name: "write_file", description: "", parameters: {} } },
+      ],
+      rootPath: process.cwd(),
+      pendingChanges: [],
+      executionMode: "repair_plan",
+      allowExecutionTools: true,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/example.ts"],
+      executionTargetPaths: ["src/example.ts"],
+      priorToolCalls: [{
+        key: toolCacheKey("write_file", args),
+        tool: "write_file",
+        args,
+        status: "started",
+      }],
+      maxIterations: 4,
+      maxToolCalls: 4,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(messages.some((message) =>
+      message.role === "tool" && String(message.content).includes("SERVER_REPLAY_BLOCKED"),
+    )).toBe(true);
+  });
+});
+
 // ── executeSingleTool ─────────────────────────────────────────────────────────
 
 describe("executeSingleTool", () => {

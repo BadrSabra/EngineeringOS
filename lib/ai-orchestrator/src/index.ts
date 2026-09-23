@@ -9,7 +9,14 @@ export {
 export {
   validateGeminiDefaultModels,
 } from "./openai-compatible-client.js";
-export type { AgentStep, AgentDiagnosticCode, SourceRetrievalTelemetry, ReadStatus } from "./tool-execution-engine.js";
+export type {
+  AgentStep,
+  AgentDiagnosticCode,
+  AgentLoopClaimState,
+  AgentLoopToolCall,
+  SourceRetrievalTelemetry,
+  ReadStatus,
+} from "./tool-execution-engine.js";
 export {
   FORENSIC_DIAGNOSTIC_VERSION,
   FORENSIC_DIAGNOSTIC_MAX_FILES,

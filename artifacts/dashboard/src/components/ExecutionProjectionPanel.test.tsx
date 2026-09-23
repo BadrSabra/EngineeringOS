@@ -133,4 +133,28 @@ describe('ExecutionProjectionPanel', () => {
     expect(screen.getByTestId('status-proof')).toHaveTextContent('Unavailable');
     expect(screen.queryByText('Completed and verified')).not.toBeInTheDocument();
   });
+
+  it('keeps a durable replan requirement visible as the primary recovery state', () => {
+    renderPanel(
+      <ExecutionProjectionPanel
+        projection={{
+          ...projection,
+          verification: { status: 'unavailable', evidenceVerdict: 'UNAVAILABLE', proofRequired: true },
+          stopped: { reason: 'The prior plan can no longer continue safely.', outcome: 'FAILED' },
+          allowedActions: ['RETRY_CHECKPOINT', 'REVIEW_PROOF', 'START_NEW_RUN'],
+        }}
+        executionStatus="failed"
+        flightState="BLOCKED"
+        nextAction="NEEDS_REPLAN"
+      />,
+    );
+
+    expect(screen.getByTestId('text-lifecycle-title')).toHaveTextContent('Needs replan');
+    expect(screen.getByTestId('primary-next-action')).toHaveTextContent('Retry checkpoint');
+    expect(screen.getByTestId('button-action-retry_checkpoint')).toHaveAttribute(
+      'data-primary-action',
+      'true',
+    );
+    expect(screen.getByTestId('status-proof')).toHaveTextContent('Unavailable');
+  });
 });

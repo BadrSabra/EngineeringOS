@@ -210,6 +210,7 @@ export function ExecutionProjectionPanel({
     flightState,
     evidenceVerdict,
     resumable,
+    nextAction,
   });
   const percent = typeof progress?.percent === 'number' ? Math.max(0, Math.min(100, progress.percent)) : null;
   const approvalPending = projection.approval?.required && projection.approval.status === 'PENDING';

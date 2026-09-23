@@ -13,6 +13,9 @@ import {
   invalidateContextCache,
   PROVIDER_REGISTRY,
   type AgentStep,
+  type AgentLoopClaimState,
+  type AgentLoopToolCall,
+  type PendingChange,
   type ValidationProfile,
 } from "@workspace/ai-orchestrator";
 import {
@@ -433,6 +436,112 @@ type MissionToolLoopExecution = {
   };
 };
 
+type MissionToolLoopCheckpoint = {
+  schemaVersion: 2;
+  executionProfile: Exclude<MissionExecutionProfile, "analysis" | "delivery">;
+  iteration: number;
+  toolCalls: number;
+  noProgressStreak: number;
+  claimState: AgentLoopClaimState[];
+  missingEvidencePaths: string[];
+  lastObservation: string;
+  nextAction?: string;
+  completedToolCalls: AgentLoopToolCall[];
+  pendingChanges: PendingChange[];
+};
+
+function parseMissionToolLoopCheckpoint(
+  checkpoint: ReturnType<typeof parseAiExecutionCheckpoint>,
+): MissionToolLoopCheckpoint | undefined {
+  if (!checkpoint?.detail) return undefined;
+  try {
+    const value = JSON.parse(checkpoint.detail) as Partial<MissionToolLoopCheckpoint>;
+    if (
+      value.schemaVersion !== 2
+      || typeof value.executionProfile !== "string"
+      || !["mission_observe", "mission_repair", "mission_validate"].includes(value.executionProfile)
+      || typeof value.iteration !== "number"
+      || typeof value.toolCalls !== "number"
+      || typeof value.noProgressStreak !== "number"
+      || !Array.isArray(value.claimState)
+      || !Array.isArray(value.completedToolCalls)
+      || !Array.isArray(value.pendingChanges)
+    ) return undefined;
+    const claimState = value.claimState.flatMap((claim) => {
+      if (!claim || typeof claim !== "object") return [];
+      const candidate = claim as Partial<AgentLoopClaimState>;
+      if (
+        typeof candidate.claimId !== "string"
+        || !["PENDING", "PROVEN", "BLOCKED"].includes(candidate.status ?? "")
+        || !Array.isArray(candidate.evidenceRefs)
+      ) return [];
+      return [{
+        claimId: candidate.claimId.slice(0, 160),
+        status: candidate.status as AgentLoopClaimState["status"],
+        evidenceRefs: (candidate.evidenceRefs as unknown[])
+          .filter((ref): ref is string => typeof ref === "string")
+          .slice(0, 12)
+          .map((ref) => ref.slice(0, 500)),
+        ...(Array.isArray(candidate.requiredEvidencePaths)
+          ? { requiredEvidencePaths: (candidate.requiredEvidencePaths as unknown[]).filter((path): path is string => typeof path === "string").slice(0, 24) }
+          : {}),
+        ...(Array.isArray(candidate.missingEvidencePaths)
+          ? { missingEvidencePaths: (candidate.missingEvidencePaths as unknown[]).filter((path): path is string => typeof path === "string").slice(0, 24) }
+          : {}),
+      }];
+    });
+    const completedToolCalls = value.completedToolCalls.flatMap((call) => {
+      if (!call || typeof call !== "object") return [];
+      const candidate = call as Partial<AgentLoopToolCall>;
+      if (
+        typeof candidate.key !== "string"
+        || typeof candidate.tool !== "string"
+        || !["started", "completed"].includes(candidate.status ?? "")
+        || !candidate.args
+        || typeof candidate.args !== "object"
+      ) return [];
+      const args = Object.fromEntries(
+        Object.entries(candidate.args as Record<string, unknown>)
+          .filter(([, arg]) => typeof arg === "string")
+          .slice(0, 16),
+      ) as Record<string, string>;
+      return [{
+        key: candidate.key.slice(0, 2_000),
+        tool: candidate.tool.slice(0, 80),
+        args,
+        status: candidate.status as AgentLoopToolCall["status"],
+      }];
+    });
+    const pendingChanges = value.pendingChanges
+      .flatMap((change) => {
+        const parsed = (change && typeof change === "object")
+          ? change as PendingChange
+          : undefined;
+        return parsed && typeof parsed.path === "string" && typeof parsed.newContent === "string"
+          ? [parsed]
+          : [];
+      })
+      .slice(0, 12);
+    return {
+      schemaVersion: 2,
+      executionProfile: value.executionProfile as MissionToolLoopCheckpoint["executionProfile"],
+      iteration: Math.max(0, Math.min(200, Math.trunc(value.iteration))),
+      toolCalls: Math.max(0, Math.min(1_000, Math.trunc(value.toolCalls))),
+      noProgressStreak: Math.max(0, Math.min(100, Math.trunc(value.noProgressStreak))),
+      claimState: claimState.slice(0, 24),
+      missingEvidencePaths: (Array.isArray(value.missingEvidencePaths) ? value.missingEvidencePaths : [])
+        .filter((path): path is string => typeof path === "string")
+        .slice(0, 24),
+      lastObservation: typeof value.lastObservation === "string" ? value.lastObservation.slice(0, 240) : "",
+      ...(typeof value.nextAction === "string" ? { nextAction: value.nextAction.slice(0, 240) } : {}),
+      completedToolCalls: completedToolCalls.slice(-64),
+      pendingChanges,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function jsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -530,6 +639,7 @@ async function executeMissionToolLoop(params: {
   workerId: string;
   expectedAttempt: number;
   checkpointSequenceBase: number;
+  resumeState?: MissionToolLoopCheckpoint;
 }): Promise<MissionToolLoopExecution> {
   const [project] = await db
     .select()
@@ -559,9 +669,15 @@ async function executeMissionToolLoop(params: {
     workspaceRevision: params.workspaceRevision,
   });
   let checkpointSequence = Math.max(1, params.checkpointSequenceBase);
-  let iteration = 0;
-  let toolCalls = 0;
-  let lastObservation = "tool loop initialized";
+  let iteration = params.resumeState?.iteration ?? 0;
+  let toolCalls = params.resumeState?.toolCalls ?? 0;
+  let noProgressStreak = params.resumeState?.noProgressStreak ?? 0;
+  let claimState = params.resumeState?.claimState ?? [];
+  let missingEvidencePaths = params.resumeState?.missingEvidencePaths ?? [];
+  let lastObservation = params.resumeState?.lastObservation || "tool loop initialized";
+  let completedToolCalls = params.resumeState?.completedToolCalls ?? [];
+  const pendingChanges = params.resumeState?.pendingChanges ?? [];
+  const lastToolCallKeyByTool = new Map<string, string>();
   const message = [
     "Server-owned Mission execution.",
     `Execution profile: ${params.profile}.`,
@@ -589,6 +705,9 @@ async function executeMissionToolLoop(params: {
         relatedFiles: policy.targetPaths,
       },
       objective,
+      claimState,
+      priorToolCalls: completedToolCalls,
+      initialPendingChanges: pendingChanges,
       allowValidationTools,
       approvalState,
       approvedFilePaths: approvalState === "APPROVED" ? policy.targetPaths : [],
@@ -646,11 +765,34 @@ async function executeMissionToolLoop(params: {
     undefined,
     async (step: AgentStep) => {
       if (step.kind === "iteration_start") iteration = step.iter;
-      if (step.kind === "tool_call") toolCalls++;
+      if (step.kind === "tool_call") {
+        toolCalls++;
+        const key = `${step.tool}:${JSON.stringify(
+          Object.fromEntries(Object.entries(step.args).sort(([a], [b]) => a.localeCompare(b))),
+        )}`;
+        lastToolCallKeyByTool.set(step.tool, key);
+        if (!completedToolCalls.some((call) => call.key === key)) {
+          completedToolCalls = [
+            ...completedToolCalls,
+            { key, tool: step.tool, args: { ...step.args }, status: "started" as const },
+          ].slice(-64);
+        }
+      }
       if (step.kind === "tool_result") {
         lastObservation = `${step.tool}: ${step.resultKind ?? "completed"}`;
+        const key = lastToolCallKeyByTool.get(step.tool);
+        if (key) {
+          completedToolCalls = completedToolCalls.map((call) =>
+            call.key === key ? { ...call, status: "completed" as const } : call,
+          );
+        }
       } else if (step.kind === "diagnostic") {
         lastObservation = step.code;
+      } else if (step.kind === "done" && step.objectiveState) {
+        claimState = step.objectiveState.claims;
+        missingEvidencePaths = step.objectiveState.missingEvidencePaths;
+        noProgressStreak = step.objectiveState.progress.noProgressStreak;
+        completedToolCalls = step.objectiveState.completedToolCalls ?? completedToolCalls;
       }
       await checkpointAiExecution({
         executionId: params.executionId,
@@ -660,12 +802,17 @@ async function executeMissionToolLoop(params: {
           stage: "tool_loop",
           sequence: checkpointSequence++,
           detail: JSON.stringify({
-            schemaVersion: 1,
+            schemaVersion: 2,
             executionProfile: params.profile,
             iteration,
             toolCalls,
+            noProgressStreak,
+            claimState,
+            missingEvidencePaths,
             lastObservation: lastObservation.slice(0, 240),
-            objective: policy.objective.slice(0, 240),
+            nextAction: step.kind === "done" ? step.objectiveState?.nextAction : undefined,
+            completedToolCalls,
+            pendingChanges: pendingChanges.slice(0, 12),
           }),
           updatedAt: new Date().toISOString(),
         },
@@ -673,22 +820,22 @@ async function executeMissionToolLoop(params: {
     },
   );
   const output = chat.result;
-  const pendingChanges = output.pendingChanges ?? [];
-  const candidateIdentity = missionCandidateIdentity(params.workspaceRevision, pendingChanges);
+  const outputPendingChanges = output.pendingChanges ?? pendingChanges;
+  const candidateIdentity = missionCandidateIdentity(params.workspaceRevision, outputPendingChanges);
   const validatorReceipts: TaskObjectiveValidatorReceipt[] = [];
   let proofStatus: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" = "INCOMPLETE";
   let evidence: EvidenceSnapshotInput | undefined;
 
   if (taskObjective && policy.validationProfile) {
     const validationAllowed =
-      params.profile !== "mission_repair" || pendingChanges.length > 0;
+      params.profile !== "mission_repair" || outputPendingChanges.length > 0;
     const validation = validationAllowed
       ? await runRepairValidation(
           root.canonicalPath,
           policy.validationProfile,
           policy.targetPaths,
           params.signal,
-          pendingChanges,
+          outputPendingChanges,
           {
             operationId: params.executionId,
             projectRevision: params.workspaceRevision,
@@ -744,7 +891,7 @@ async function executeMissionToolLoop(params: {
   const toolSteps = [
     `Mission tool loop profile: ${params.profile}`,
     `Server-observed sources: ${output.sources?.length ?? 0}`,
-    `Pending candidate changes: ${pendingChanges.length}`,
+    `Pending candidate changes: ${outputPendingChanges.length}`,
     `Objective proof: ${proofStatus}`,
   ];
   return {
@@ -913,6 +1060,7 @@ export async function executeTaskLifecycle(params: {
   const executionAttempt = claimedExecution.attempt;
   const executionRevision = claimedExecution.baseRevision ?? executionWorkspaceRevision;
   const claimedCheckpoint = parseAiExecutionCheckpoint(claimedExecution.checkpoint);
+  const missionResumeState = parseMissionToolLoopCheckpoint(claimedCheckpoint);
   const initialCheckpointSequence = Math.max(
     1,
     claimedCheckpoint?.sequence ?? 0,
@@ -1057,6 +1205,7 @@ export async function executeTaskLifecycle(params: {
           workerId,
           expectedAttempt: executionAttempt,
           checkpointSequenceBase: Math.max(3, initialCheckpointSequence + 1),
+          ...(missionResumeState ? { resumeState: missionResumeState } : {}),
         })
       : undefined;
     const { result, effectiveProvider } = missionExecution ?? await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(

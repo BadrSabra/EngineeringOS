@@ -1155,6 +1155,13 @@ export type AgentLoopClaimState = {
   missingEvidencePaths?: string[];
 };
 
+export type AgentLoopToolCall = {
+  key: string;
+  tool: string;
+  args: Record<string, string>;
+  status: "started" | "completed";
+};
+
 export type AgentLoopState = {
   goal?: string;
   phase: AgentLoopPhase;
@@ -1166,6 +1173,9 @@ export type AgentLoopState = {
   };
   claims: AgentLoopClaimState[];
   missingEvidencePaths: string[];
+  completedToolCalls?: AgentLoopToolCall[];
+  nextAction?: string;
+  lastObservation?: string;
   terminalReason?:
     | "goal_met"
     | "claim_unclosed"
@@ -1282,6 +1292,10 @@ export type ToolLoopOpts = {
   objectiveEvidenceSources?: ReadonlyMap<string, string>;
   /** Previously server-verified claim state, restored on resumable execution. */
   claimState?: AgentLoopClaimState[];
+  /** Durable tool markers restored after a lease loss or reconnect. */
+  priorToolCalls?: readonly AgentLoopToolCall[];
+  /** Pending server-generated changes restored from a durable checkpoint. */
+  initialPendingChanges?: PendingChange[];
 
   /**
    * Structured forensic mode: every uncached read_file call requests the
@@ -1996,6 +2010,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     objective,
     objectiveEvidenceSources,
     claimState,
+    priorToolCalls,
+    initialPendingChanges,
     allowExecutionTools = false,
     validationRunner,
     browserValidationRunner,
@@ -2088,6 +2104,20 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   );
 
   const toolCallCache = opts.cache ?? new Map<string, string>();
+  if (initialPendingChanges && initialPendingChanges.length > 0) {
+    pendingChanges.splice(0, pendingChanges.length, ...initialPendingChanges);
+  }
+  const priorToolCallMap = new Map(
+    (priorToolCalls ?? []).map((call) => [call.key, call]),
+  );
+  const completedToolCalls: AgentLoopToolCall[] = [...(priorToolCalls ?? [])];
+  const nonIdempotentTools = new Set([
+    "write_file",
+    "replace_text",
+    "run_validation",
+    "run_command",
+    "browser_validation",
+  ]);
   const toolSources: string[] = [];
   const fileContents = new Map<string, string>(opts.initialFileContents ?? []);
   const sourceEvidenceWindows: SourceEvidenceWindow[] = [];
@@ -3447,6 +3477,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       },
       claims,
       missingEvidencePaths,
+      completedToolCalls: completedToolCalls.slice(-64),
+      ...(completedToolCalls.length > 0
+        ? {
+            nextAction:
+              missingEvidencePaths.length > 0
+                ? `read:${missingEvidencePaths[0]}`
+                : claims.some((claim) => claim.status !== "PROVEN")
+                  ? "close_claims"
+                  : "synthesize",
+          }
+        : {}),
       ...(terminalReason ? { terminalReason } : {}),
     };
   };
@@ -4801,6 +4842,41 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // requiring the model to remember the complete flag.
       const cached = shouldUpgradeCachedRead ? undefined : cachedValue;
 
+      // A lease recovery may replay the provider's last tool decision. Reads
+      // can safely use their retained cache, but writes, replacements, and
+      // validation/command actions must never execute again from model replay.
+      // Return a server-owned acknowledgement instead of dispatching them.
+      const priorToolCall =
+        priorToolCallMap.get(key) ??
+        priorToolCallMap.get(toolCacheKey(tc.function.name, args));
+      if (priorToolCall && nonIdempotentTools.has(tc.function.name)) {
+        try {
+          onStep?.({
+            kind: "tool_call",
+            tool: tc.function.name,
+            args,
+            cached: true,
+            reasoning: "server-owned replay marker",
+          });
+          onStep?.({
+            kind: "tool_result",
+            tool: tc.function.name,
+            cached: true,
+            outputLength: 0,
+            resultKind: "ok",
+            resultSummary: "replayed action skipped by durable marker",
+          });
+        } catch { /* ignore */ }
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "SERVER_REPLAY_BLOCKED: this non-idempotent action already completed in the prior durable attempt. " +
+            "Do not repeat it; continue from the persisted result and synthesize the current execution state.",
+        });
+        continue;
+      }
+
       // Some providers emit the same read twice in one tool-calling response.
       // Keep one protocol result for each call id, but do not replay the same
       // cached body twice or let a duplicate consume another evidence turn.
@@ -5878,6 +5954,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // Successful execution — consume budget, cache, record source.
       totalToolCalls++;
       toolCallCache.set(key, toolResult.output);
+      if (!completedToolCalls.some((call) => call.key === key)) {
+        completedToolCalls.push({
+          key,
+          tool: tc.function.name,
+          args: { ...args },
+          status: "completed",
+        });
+        if (completedToolCalls.length > 64) completedToolCalls.splice(0, completedToolCalls.length - 64);
+      }
       const searchBudgetState =
         tc.function.name === "search_code" && searchBudgetEnabled
           ? registerSearchResult(toolResult.output)
