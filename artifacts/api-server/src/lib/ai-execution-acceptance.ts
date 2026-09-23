@@ -145,6 +145,7 @@ export type FinalizeExecutionAcceptanceParams = {
   goalProjection?: GoalExecutionProjection;
   taskObjective?: TaskObjectiveContract;
   taskObjectiveStatus?: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
+  stateProjection?: Record<string, unknown>;
 };
 
 /**
@@ -1591,6 +1592,7 @@ export async function finalizeExecutionAcceptance(
           },
           acceptedRefs: acceptance.evidenceSnapshotId ? [acceptance.evidenceSnapshotId] : [],
           validatorIds: taskObjective?.validatorIds ?? [],
+          ...(params.stateProjection ? { stateProjection: params.stateProjection } : {}),
           receipt: {
             kind: "execution_acceptance",
             id: acceptance.id,

@@ -22,6 +22,7 @@ export type GoalAcceptanceProjection = {
   };
   acceptedRefs?: string[];
   validatorIds?: string[];
+  stateProjection?: Record<string, unknown>;
   receipt?: {
     kind: "execution_acceptance" | "recipe";
     id?: string | null;
@@ -73,6 +74,7 @@ export async function projectGoalAcceptance(
     ...(params.projection.scope ? { scope: params.projection.scope } : {}),
     ...(params.projection.acceptedRefs?.length ? { acceptedRefs: params.projection.acceptedRefs } : {}),
     ...(params.projection.validatorIds?.length ? { validatorIds: params.projection.validatorIds } : {}),
+    ...(params.projection.stateProjection ? { stateProjection: params.projection.stateProjection } : {}),
     ...(params.projection.receipt ? { receipt: params.projection.receipt } : {}),
     ...(params.projection.deliveryReceipt ? { deliveryReceipt: params.projection.deliveryReceipt } : {}),
     ...(params.projection.reasonCode ? { reasonCode: params.projection.reasonCode } : {}),

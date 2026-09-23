@@ -35,6 +35,66 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "no_eligible_replan_root",
 ]);
 
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringList(value: unknown, max: number, itemMax: number): string[] {
+  return Array.isArray(value)
+    ? value
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .slice(0, max)
+      .map((item) => item.slice(0, itemMax))
+    : [];
+}
+
+function buildReplanContext(goal: {
+  id: string;
+  blockedReason: string | null;
+  nextAction: unknown;
+  outcomeContract: unknown;
+  successCriteria: unknown;
+}) {
+  const outcome = jsonRecord(goal.outcomeContract);
+  const acceptance = jsonRecord(outcome.acceptance);
+  const receipt = jsonRecord(acceptance.receipt);
+  const stateProjection = jsonRecord(acceptance.stateProjection);
+  const success = jsonRecord(goal.successCriteria);
+  const planRevision = jsonRecord(outcome.planRevision).hash ?? jsonRecord(success.planRevision).hash;
+  const nextActionReason = jsonRecord(goal.nextAction).reason;
+  return {
+    failedGoalId: goal.id,
+    ...(typeof receipt.failureClass === "string" ? { failureClass: receipt.failureClass } : {}),
+    ...(typeof acceptance.reasonCode === "string" ? { failureCode: acceptance.reasonCode } : {}),
+    affectedPaths: stringList(
+      acceptance.affectedPaths ?? receipt.affectedPaths ?? outcome.affectedPaths,
+      24,
+      500,
+    ),
+    affectedClaims: stringList(
+      acceptance.affectedClaims ?? stateProjection.proofObligations ?? stateProjection.contradictions,
+      24,
+      240,
+    ),
+    evidenceRefs: stringList(
+      acceptance.acceptedRefs ?? receipt.evidenceRefs ?? outcome.evidenceRefs,
+      16,
+      500,
+    ),
+    ...(typeof outcome.hypothesisImpact === "string"
+      ? { hypothesisImpact: outcome.hypothesisImpact.slice(0, 500) }
+      : {}),
+    nextActions: [
+      ...(goal.blockedReason ? [goal.blockedReason] : []),
+      ...(typeof nextActionReason === "string" ? [nextActionReason.slice(0, 240)] : []),
+      ...stringList(outcome.nextActions, 4, 240),
+    ].slice(0, 8),
+    ...(typeof planRevision === "string" ? { priorPlanRevision: planRevision.slice(0, 200) } : {}),
+  };
+}
+
 /**
  * A replan request is durable work, not a retry loop. If the coordinator
  * cannot produce or dispatch a new bounded plan, leave the Mission in an
@@ -106,7 +166,13 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
       };
     }
     const [failedGoal] = await tx
-      .select({ id: aiGoalsTable.id })
+      .select({
+        id: aiGoalsTable.id,
+        blockedReason: aiGoalsTable.blockedReason,
+        nextAction: aiGoalsTable.nextAction,
+        outcomeContract: aiGoalsTable.outcomeContract,
+        successCriteria: aiGoalsTable.successCriteria,
+      })
       .from(aiGoalsTable)
       .where(and(
         eq(aiGoalsTable.missionId, mission.id),
@@ -118,6 +184,7 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
     const preview = buildMissionPlanPreview({
       message: mission.intent,
       objective: mission.intent,
+      ...(failedGoal ? { replanContext: buildReplanContext(failedGoal) } : {}),
     });
     if (preview.admission !== "mission") {
       return { status: "skipped" as const, missionId, reason: "objective_no_longer_mission_eligible" };

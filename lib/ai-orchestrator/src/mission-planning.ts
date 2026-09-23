@@ -14,11 +14,29 @@ export type MissionAdmissionReason =
   | "evidence_or_project_context"
   | "multi_step_or_mutating_objective";
 
+/**
+ * Server-derived recovery context carried into a fresh Mission plan revision.
+ * This is deliberately bounded metadata: it is not provider reasoning and it
+ * never grants additional scope or mutation authority.
+ */
+export type MissionReplanContext = {
+  failedGoalId?: string;
+  failureClass?: string;
+  failureCode?: string;
+  affectedPaths: string[];
+  affectedClaims: string[];
+  evidenceRefs: string[];
+  hypothesisImpact?: string;
+  nextActions: string[];
+  priorPlanRevision?: string;
+};
+
 export type MissionPlanPreview = {
   version: 1;
   objective: string;
   admission: MissionAdmissionKind;
   admissionReason: MissionAdmissionReason;
+  replanContext?: MissionReplanContext;
   turnIntent: Pick<
     TurnIntent,
     | "kind"
@@ -75,6 +93,7 @@ export function buildMissionPlanPreview(input: {
   message: string;
   objective?: string;
   projectOrientation?: boolean;
+  replanContext?: MissionReplanContext;
 }): MissionPlanPreview {
   const intent = resolveTurnIntent(input.message, {
     projectOrientation: input.projectOrientation === true,
@@ -92,6 +111,23 @@ export function buildMissionPlanPreview(input: {
     objective: plan.objective,
     admission: admission.admission,
     admissionReason: admission.reason,
+    ...(input.replanContext ? {
+      replanContext: {
+        ...(input.replanContext.failedGoalId ? { failedGoalId: input.replanContext.failedGoalId.slice(0, 120) } : {}),
+        ...(input.replanContext.failureClass ? { failureClass: input.replanContext.failureClass.slice(0, 80) } : {}),
+        ...(input.replanContext.failureCode ? { failureCode: input.replanContext.failureCode.slice(0, 120) } : {}),
+        affectedPaths: input.replanContext.affectedPaths.slice(0, 24).map((path) => path.slice(0, 500)),
+        affectedClaims: input.replanContext.affectedClaims.slice(0, 24).map((claim) => claim.slice(0, 240)),
+        evidenceRefs: input.replanContext.evidenceRefs.slice(0, 16).map((ref) => ref.slice(0, 500)),
+        ...(input.replanContext.hypothesisImpact
+          ? { hypothesisImpact: input.replanContext.hypothesisImpact.slice(0, 500) }
+          : {}),
+        nextActions: input.replanContext.nextActions.slice(0, 8).map((action) => action.slice(0, 240)),
+        ...(input.replanContext.priorPlanRevision
+          ? { priorPlanRevision: input.replanContext.priorPlanRevision.slice(0, 200) }
+          : {}),
+      },
+    } : {}),
     turnIntent: {
       kind: intent.kind,
       executionTaskType: intent.executionTaskType,

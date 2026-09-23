@@ -120,8 +120,23 @@ export type AiTaskExecutionReceipt = {
   steps?: string[];
   evidenceRefs: string[];
   executionProfile?: MissionExecutionProfile;
+  stateProjection?: MissionStateProjection;
   failureClass?: AiTaskFailureClass;
   retryable?: boolean;
+};
+
+export type MissionStateProjection = {
+  knownFacts: string[];
+  hypotheses: string[];
+  unknowns: string[];
+  contradictions: string[];
+  observations: string[];
+  actions: string[];
+  effects: string[];
+  proofObligations: string[];
+  sourceRevision?: string;
+  candidateRevision?: string;
+  nextAction?: string;
 };
 
 export type AiTaskFailureClass =
@@ -152,13 +167,51 @@ function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionRe
     evidenceRefs: receiptValue.evidenceRefs.slice(0, 8).map((ref) => safeText(ref, 120)),
     ...(receiptValue.summary ? { summary: safeText(receiptValue.summary, 2_000) } : {}),
     ...(receiptValue.steps ? { steps: receiptValue.steps.slice(0, RECEIPT_MAX_STEPS).map((step) => safeText(step)) } : {}),
+    ...(receiptValue.stateProjection ? {
+      stateProjection: {
+        knownFacts: receiptValue.stateProjection.knownFacts.slice(0, 24).map((item) => safeText(item, 180)),
+        hypotheses: receiptValue.stateProjection.hypotheses.slice(0, 12).map((item) => safeText(item, 240)),
+        unknowns: receiptValue.stateProjection.unknowns.slice(0, 24).map((item) => safeText(item, 240)),
+        contradictions: receiptValue.stateProjection.contradictions.slice(0, 12).map((item) => safeText(item, 240)),
+        observations: receiptValue.stateProjection.observations.slice(0, 12).map((item) => safeText(item, 240)),
+        actions: receiptValue.stateProjection.actions.slice(0, 12).map((item) => safeText(item, 240)),
+        effects: receiptValue.stateProjection.effects.slice(0, 24).map((item) => safeText(item, 240)),
+        proofObligations: receiptValue.stateProjection.proofObligations.slice(0, 24).map((item) => safeText(item, 240)),
+        ...(receiptValue.stateProjection.sourceRevision
+          ? { sourceRevision: safeText(receiptValue.stateProjection.sourceRevision, 240) }
+          : {}),
+        ...(receiptValue.stateProjection.candidateRevision
+          ? { candidateRevision: safeText(receiptValue.stateProjection.candidateRevision, 240) }
+          : {}),
+        ...(receiptValue.stateProjection.nextAction
+          ? { nextAction: safeText(receiptValue.stateProjection.nextAction, 240) }
+          : {}),
+      },
+    } : {}),
     terminalReason: safeText(receiptValue.terminalReason, 240),
   };
   // Keep this envelope bounded even if future fields are added to the contract.
   const serialized = JSON.stringify(bounded);
   return serialized.length <= RECEIPT_MAX_BYTES
     ? bounded
-    : { ...bounded, summary: bounded.summary?.slice(0, 240), steps: bounded.steps?.slice(0, 8) };
+    : {
+        ...bounded,
+        summary: bounded.summary?.slice(0, 240),
+        steps: bounded.steps?.slice(0, 8),
+        ...(bounded.stateProjection ? {
+          stateProjection: {
+            ...bounded.stateProjection,
+            knownFacts: bounded.stateProjection.knownFacts.slice(0, 8),
+            hypotheses: bounded.stateProjection.hypotheses.slice(0, 4),
+            unknowns: bounded.stateProjection.unknowns.slice(0, 8),
+            contradictions: bounded.stateProjection.contradictions.slice(0, 4),
+            observations: bounded.stateProjection.observations.slice(0, 4),
+            actions: bounded.stateProjection.actions.slice(0, 4),
+            effects: bounded.stateProjection.effects.slice(0, 8),
+            proofObligations: bounded.stateProjection.proofObligations.slice(0, 8),
+          },
+        } : {}),
+      };
 }
 
 export function buildAiTaskExecutionReceipt(params: {
@@ -173,6 +226,7 @@ export function buildAiTaskExecutionReceipt(params: {
   result: Awaited<ReturnType<typeof executeTask>>;
   executionProfile?: MissionExecutionProfile;
   evidenceRefs?: string[];
+  stateProjection?: MissionStateProjection;
 }): AiTaskExecutionReceipt {
   return boundedReceipt({
     kind: "AI_TASK_EXECUTION_RECEIPT",
@@ -192,6 +246,7 @@ export function buildAiTaskExecutionReceipt(params: {
     steps: params.result.steps.map((step) => String(step)),
     evidenceRefs: params.evidenceRefs ?? [],
     ...(params.executionProfile ? { executionProfile: params.executionProfile } : {}),
+    ...(params.stateProjection ? { stateProjection: params.stateProjection } : {}),
   });
 }
 
@@ -404,6 +459,7 @@ async function finalizeTaskExecutionAcceptance(params: {
     evidence: params.evidence,
     taskObjective: params.taskObjective,
     taskObjectiveStatus: params.taskObjectiveStatus,
+    stateProjection: params.receipt.stateProjection,
     taskFinalization,
   });
   if (finalized.duplicate) {
@@ -433,6 +489,7 @@ type MissionToolLoopExecution = {
     evidence?: EvidenceSnapshotInput;
     candidateIdentity: string;
     refs: string[];
+    stateProjection: MissionStateProjection;
   };
 };
 
@@ -448,7 +505,42 @@ type MissionToolLoopCheckpoint = {
   nextAction?: string;
   completedToolCalls: AgentLoopToolCall[];
   pendingChanges: PendingChange[];
+  stateProjection?: MissionStateProjection;
 };
+
+function buildMissionStateProjection(params: {
+  profile: MissionToolLoopCheckpoint["executionProfile"];
+  claimState: AgentLoopClaimState[];
+  missingEvidencePaths: string[];
+  lastObservation: string;
+  nextAction?: string;
+  pendingChanges: PendingChange[];
+  sourceRevision: string;
+  candidateRevision?: string;
+}): MissionStateProjection {
+  const provenClaims = params.claimState
+    .filter((claim) => claim.status === "PROVEN")
+    .map((claim) => `claim:${claim.claimId}`);
+  const blockedClaims = params.claimState
+    .filter((claim) => claim.status === "BLOCKED")
+    .map((claim) => `claim:${claim.claimId}`);
+  const pendingClaims = params.claimState
+    .filter((claim) => claim.status === "PENDING")
+    .map((claim) => `claim:${claim.claimId}`);
+  return {
+    knownFacts: provenClaims,
+    hypotheses: [`execution-profile:${params.profile}`],
+    unknowns: params.missingEvidencePaths.map((path) => `missing-evidence:${path}`),
+    contradictions: blockedClaims,
+    observations: params.lastObservation ? [params.lastObservation] : [],
+    actions: params.nextAction ? [params.nextAction] : [],
+    effects: params.pendingChanges.map((change) => `candidate-change:${change.path}`),
+    proofObligations: pendingClaims,
+    sourceRevision: params.sourceRevision,
+    ...(params.candidateRevision ? { candidateRevision: params.candidateRevision } : {}),
+    ...(params.nextAction ? { nextAction: params.nextAction } : {}),
+  };
+}
 
 function parseMissionToolLoopCheckpoint(
   checkpoint: ReturnType<typeof parseAiExecutionCheckpoint>,
@@ -522,6 +614,35 @@ function parseMissionToolLoopCheckpoint(
           : [];
       })
       .slice(0, 12);
+    const projectionRecord = value.stateProjection && typeof value.stateProjection === "object"
+      && !Array.isArray(value.stateProjection)
+      ? value.stateProjection as Partial<MissionStateProjection>
+      : undefined;
+    const projectionArray = (candidate: unknown, max: number): string[] =>
+      Array.isArray(candidate)
+        ? candidate.filter((item): item is string => typeof item === "string").slice(0, max).map((item) => item.slice(0, 240))
+        : [];
+    const stateProjection = projectionRecord
+      ? {
+          knownFacts: projectionArray(projectionRecord.knownFacts, 24),
+          hypotheses: projectionArray(projectionRecord.hypotheses, 12),
+          unknowns: projectionArray(projectionRecord.unknowns, 24),
+          contradictions: projectionArray(projectionRecord.contradictions, 12),
+          observations: projectionArray(projectionRecord.observations, 12),
+          actions: projectionArray(projectionRecord.actions, 12),
+          effects: projectionArray(projectionRecord.effects, 24),
+          proofObligations: projectionArray(projectionRecord.proofObligations, 24),
+          ...(typeof projectionRecord.sourceRevision === "string"
+            ? { sourceRevision: projectionRecord.sourceRevision.slice(0, 240) }
+            : {}),
+          ...(typeof projectionRecord.candidateRevision === "string"
+            ? { candidateRevision: projectionRecord.candidateRevision.slice(0, 240) }
+            : {}),
+          ...(typeof projectionRecord.nextAction === "string"
+            ? { nextAction: projectionRecord.nextAction.slice(0, 240) }
+            : {}),
+        } satisfies MissionStateProjection
+      : undefined;
     return {
       schemaVersion: 2,
       executionProfile: value.executionProfile as MissionToolLoopCheckpoint["executionProfile"],
@@ -536,6 +657,7 @@ function parseMissionToolLoopCheckpoint(
       ...(typeof value.nextAction === "string" ? { nextAction: value.nextAction.slice(0, 240) } : {}),
       completedToolCalls: completedToolCalls.slice(-64),
       pendingChanges,
+      ...(stateProjection ? { stateProjection } : {}),
     };
   } catch {
     return undefined;
@@ -794,6 +916,16 @@ async function executeMissionToolLoop(params: {
         noProgressStreak = step.objectiveState.progress.noProgressStreak;
         completedToolCalls = step.objectiveState.completedToolCalls ?? completedToolCalls;
       }
+      const checkpointStateProjection = buildMissionStateProjection({
+        profile: params.profile,
+        claimState,
+        missingEvidencePaths,
+        lastObservation,
+        nextAction: step.kind === "done" ? step.objectiveState?.nextAction : undefined,
+        pendingChanges,
+        sourceRevision: params.workspaceRevision,
+        candidateRevision: missionCandidateIdentity(params.workspaceRevision, pendingChanges),
+      });
       await checkpointAiExecution({
         executionId: params.executionId,
         expectedAttempt: params.expectedAttempt,
@@ -813,6 +945,7 @@ async function executeMissionToolLoop(params: {
             nextAction: step.kind === "done" ? step.objectiveState?.nextAction : undefined,
             completedToolCalls,
             pendingChanges: pendingChanges.slice(0, 12),
+            stateProjection: checkpointStateProjection,
           }),
           updatedAt: new Date().toISOString(),
         },
@@ -822,6 +955,15 @@ async function executeMissionToolLoop(params: {
   const output = chat.result;
   const outputPendingChanges = output.pendingChanges ?? pendingChanges;
   const candidateIdentity = missionCandidateIdentity(params.workspaceRevision, outputPendingChanges);
+  const stateProjection = buildMissionStateProjection({
+    profile: params.profile,
+    claimState,
+    missingEvidencePaths,
+    lastObservation,
+    pendingChanges: outputPendingChanges,
+    sourceRevision: params.workspaceRevision,
+    candidateRevision: candidateIdentity,
+  });
   const validatorReceipts: TaskObjectiveValidatorReceipt[] = [];
   let proofStatus: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" = "INCOMPLETE";
   let evidence: EvidenceSnapshotInput | undefined;
@@ -911,6 +1053,7 @@ async function executeMissionToolLoop(params: {
       evidence,
       candidateIdentity,
       refs: validatorReceipts.map((receipt) => receipt.artifactRef),
+      stateProjection,
     },
   };
 }

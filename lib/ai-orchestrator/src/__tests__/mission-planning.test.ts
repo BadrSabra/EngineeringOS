@@ -32,4 +32,34 @@ describe("buildMissionPlanPreview", () => {
     expect(preview.plan.steps.some((step) => step.readOnly === false)).toBe(true);
     expect(preview.plan.steps.some((step) => step.approvalRequired)).toBe(true);
   });
+
+  it("carries bounded server-owned recovery context into a replan preview", () => {
+    const preview = buildMissionPlanPreview({
+      message: "Inspect the source, then fix the blocking issue.",
+      objective: "Inspect the source, then fix the blocking issue.",
+      replanContext: {
+        failedGoalId: "goal-1",
+        failureClass: "validation",
+        failureCode: "VALIDATION_FAILED",
+        affectedPaths: ["src/login.ts"],
+        affectedClaims: ["claim:auth-flow"],
+        evidenceRefs: ["validation:run-1"],
+        hypothesisImpact: "The previous candidate did not satisfy the auth check.",
+        nextActions: ["Change the candidate before rerunning validation."],
+        priorPlanRevision: "plan-old",
+      },
+    });
+
+    expect(preview.replanContext).toEqual({
+      failedGoalId: "goal-1",
+      failureClass: "validation",
+      failureCode: "VALIDATION_FAILED",
+      affectedPaths: ["src/login.ts"],
+      affectedClaims: ["claim:auth-flow"],
+      evidenceRefs: ["validation:run-1"],
+      hypothesisImpact: "The previous candidate did not satisfy the auth check.",
+      nextActions: ["Change the candidate before rerunning validation."],
+      priorPlanRevision: "plan-old",
+    });
+  });
 });

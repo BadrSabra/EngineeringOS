@@ -148,3 +148,5 @@
 - [Workflow Mission adapter](workflow-mission-adapter.md) — workflow phase acceptance projects through the shared Goal/Mission seam; empty phases remain valid no-op boundaries.
 - [Recovery test isolation](recovery-test-isolation.md) — shared recovery fixtures need project-scoped dispatch and dependency-ordered cleanup.
 - [Mission tool-loop profile boundary](mission-tool-loop-profile.md) — server-owned plan steps select profiles; legacy tasks retain TaskAgent behavior.
+- [Mission replan context](mission-replan-context.md) — automatic replans must persist bounded failure evidence and affected claims in the fresh plan revision.
+- [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.

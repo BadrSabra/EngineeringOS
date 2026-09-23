@@ -70,7 +70,11 @@ describe("automatic Mission replanning", () => {
     expect(result.runs.some((run) => run.status === "scheduled" || run.status === "waiting")).toBe(true);
 
     const goals = await db
-      .select({ id: aiGoalsTable.id, status: aiGoalsTable.status })
+      .select({
+        id: aiGoalsTable.id,
+        status: aiGoalsTable.status,
+        successCriteria: aiGoalsTable.successCriteria,
+      })
       .from(aiGoalsTable)
       .where(and(
         eq(aiGoalsTable.missionId, missionId),
@@ -78,6 +82,18 @@ describe("automatic Mission replanning", () => {
       ));
     expect(goals.some((goal) => goal.id === failedGoalId && goal.status === "needs_replan")).toBe(true);
     expect(goals.length).toBeGreaterThan(2);
+    const replannedGoal = goals.find((goal) => goal.id !== failedGoalId);
+    expect(replannedGoal?.successCriteria).toMatchObject({
+      planRevision: {
+        replanContext: {
+          failedGoalId,
+          affectedPaths: [],
+          affectedClaims: [],
+          evidenceRefs: [],
+          nextActions: ["retry from current evidence"],
+        },
+      },
+    });
 
     const [mission] = await db
       .select({ status: aiMissionsTable.status })
