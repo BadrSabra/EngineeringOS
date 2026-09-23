@@ -70,11 +70,21 @@ export async function updateSession(
     error: string;
     completedAt: Date;
   }>,
+  workerId?: string,
 ): Promise<void> {
+  // A worker-scoped update is the terminal ownership fence. Without it, a
+  // worker whose lease expired could finish after reconciliation marked the
+  // session as error and overwrite the newer attempt's durable state.
   await db
     .update(discoverySessionsTable)
     .set(patch as Record<string, unknown>)
-    .where(eq(discoverySessionsTable.id, id));
+    .where(and(
+      eq(discoverySessionsTable.id, id),
+      ...(workerId ? [
+        eq(discoverySessionsTable.workerId, workerId),
+        eq(discoverySessionsTable.status, "discovering"),
+      ] : []),
+    ));
 }
 
 // ─── Metadata detection helpers ────────────────────────────────────────────────
@@ -390,7 +400,7 @@ export async function runDiscovery(
       progress,
       currentStep: steps[idx].name,
       steps: [...steps],
-    });
+      }, workerId);
   };
 
   try {
@@ -587,7 +597,7 @@ export async function runDiscovery(
       steps,
       result: partial,
       completedAt: new Date(),
-    });
+    }, workerId);
     // PR-01: release lease fields now that the session has reached a
     // terminal state. Clears workerId/leaseUntil/lastHeartbeatAt atomically.
     await releaseDiscoverySessionLease(sessionId);
@@ -598,7 +608,7 @@ export async function runDiscovery(
       status: "error",
       error: message,
       completedAt: new Date(),
-    }).catch(() => undefined);
+    }, workerId).catch(() => undefined);
     await releaseDiscoverySessionLease(sessionId).catch(() => undefined);
   }
   } finally {

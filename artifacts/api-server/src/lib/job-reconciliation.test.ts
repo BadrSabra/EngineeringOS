@@ -42,7 +42,8 @@ import { heavyJobQueue } from "./job-queue.js";
 // PR-03: Replace @workspace/ai-orchestrator with a spy so we can assert that
 // invalidateContextCache is called for every reconciled project without
 // needing a live context-builder instance.
-vi.mock("@workspace/ai-orchestrator", () => ({
+vi.mock("@workspace/ai-orchestrator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@workspace/ai-orchestrator")>()),
   invalidateContextCache: vi.fn(),
 }));
 import { invalidateContextCache } from "@workspace/ai-orchestrator";

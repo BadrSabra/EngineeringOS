@@ -226,13 +226,11 @@ httpServer = app.listen(port, (err) => {
     process.exit(1);
   }
 
-  // PR-H (H-1): log queue stats on startup so operators can confirm the queue
-  // is empty (running=0, queued=0) at a clean boot vs. after a crash-restart
-  // where reconciliation may have re-enqueued pending jobs or paused durable
-  // AI executions for explicit resume.
-  // ⚠️  Durability caveat: this queue is process-local. Jobs in flight at the
-  // time of a crash/restart are lost; reconciliation marks their DB rows as
-  // `failed` so callers can detect and re-submit them.
+  // Log local queue stats for operational context. These counters are not a
+  // durable or global scheduler view: every API instance has its own queue.
+  // Durable rows are reconciled and redispatched independently, while
+  // job-specific recovery decides whether an interrupted operation is retried,
+  // reset for explicit re-triggering, or made a visible conflict.
   const queueStats = heavyJobQueue.getStats();
   logger.info({ port, jobQueue: queueStats }, "Server listening");
 

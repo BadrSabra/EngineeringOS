@@ -13,8 +13,11 @@
  *    invisible to all detectors.
  */
 
-import { describe, it, expect } from "vitest";
-import { detectDb } from "./discovery-runner.js";
+import { afterEach, describe, it, expect } from "vitest";
+import { eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { db, discoverySessionsTable } from "@workspace/db";
+import { detectDb, updateSession } from "./discovery-runner.js";
 import type { ScannedFile } from "@workspace/scanner";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -151,5 +154,46 @@ describe("detectDb", () => {
   it("returns null db when no database signal is present", () => {
     const { db } = detectDb({}, []);
     expect(db).toBeNull();
+  });
+});
+
+describe("discovery session ownership", () => {
+  const sessionIds: string[] = [];
+
+  afterEach(async () => {
+    for (const id of sessionIds.splice(0)) {
+      await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, id));
+    }
+  });
+
+  it("rejects a stale worker's terminal update after its lease is replaced", async () => {
+    const sessionId = randomUUID();
+    const currentWorker = randomUUID();
+    sessionIds.push(sessionId);
+
+    await db.insert(discoverySessionsTable).values({
+      id: sessionId,
+      ownerId: "discovery-lease-test-user",
+      status: "discovering",
+      rootPath: `/tmp/discovery-lease-${sessionId}`,
+      sourceType: "LOCAL_FOLDER",
+      workerId: currentWorker,
+      leaseUntil: new Date(Date.now() + 60_000),
+      steps: [],
+    });
+
+    await updateSession(sessionId, { status: "ready" }, randomUUID());
+    const [stillRunning] = await db
+      .select({ status: discoverySessionsTable.status })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sessionId));
+    expect(stillRunning.status).toBe("discovering");
+
+    await updateSession(sessionId, { status: "ready" }, currentWorker);
+    const [completed] = await db
+      .select({ status: discoverySessionsTable.status })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, sessionId));
+    expect(completed.status).toBe("ready");
   });
 });

@@ -103,6 +103,34 @@ describe("scan-job lease helpers", () => {
     expect(c1 && c2).toBe(false); // at most one wins
   });
 
+  it("does not let a stale worker complete after a recovered worker claims the row", async () => {
+    const jobId = await insertJob();
+    const staleWorker = randomUUID();
+    const currentWorker = randomUUID();
+
+    expect(await claimScanJob(jobId, staleWorker, SCAN_LEASE_MS)).toBe(true);
+
+    // Model reconciliation recovering the expired row and dispatching it
+    // again. The next claim is the durable cross-process ownership boundary.
+    await db.update(scanJobsTable).set({
+      status: "queued",
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    }).where(eq(scanJobsTable.id, jobId));
+    expect(await claimScanJob(jobId, currentWorker, SCAN_LEASE_MS)).toBe(true);
+
+    expect(await completeScanJob(jobId, staleWorker, { source: "stale" })).toBe(false);
+    expect(await completeScanJob(jobId, currentWorker, { source: "current" })).toBe(true);
+
+    const [row] = await db
+      .select({ status: scanJobsTable.status, result: scanJobsTable.result })
+      .from(scanJobsTable)
+      .where(eq(scanJobsTable.id, jobId));
+    expect(row.status).toBe("completed");
+    expect(row.result).toEqual({ source: "current" });
+  });
+
   it("heartbeatScanJob extends lease_until forward in time", async () => {
     const jobId = await insertJob();
     const workerId = randomUUID();

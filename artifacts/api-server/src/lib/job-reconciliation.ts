@@ -1,26 +1,32 @@
 /**
- * Startup reconciliation for scan/discovery/AI-task jobs.
+ * Durable scheduler boundary and startup reconciliation for
+ * scan/discovery/AI-task jobs.
  *
- * Scan and discovery jobs are tracked in-process (see job-queue.ts): the
- * only record that a job is "queued"/"pending" or "running"/"discovering"
- * lives in the DB row plus an in-memory closure. If the process crashes or
- * is killed, that in-memory state is gone on restart, but the DB rows are
- * left behind. This module sweeps for exactly that stuck state once, at
- * process start, before the server accepts traffic.
+ * The DB row is the durable queue record and ownership boundary. The
+ * process-local JobQueue is only a bounded dispatcher/backpressure mechanism;
+ * it may be absent, duplicated by another API instance, or lost on restart.
+ * Every runner must therefore perform an atomic DB claim before work and use
+ * a worker-scoped lease for heartbeats and terminal ownership fences.
+ *
+ * This module repairs the gap between durable rows and local dispatch at
+ * startup and on a short periodic interval. Re-dispatch is intentionally
+ * harmless: duplicate polling may create duplicate local closures, but only
+ * the worker that wins the durable claim may execute the job.
  *
  * Treatment per status:
  *
  *   scan_jobs "queued"          → re-enqueue via heavyJobQueue (never started;
  *                                  all params are in the DB row: project_id)
  *   scan_jobs "running"         → retry if retryCount < maxRetries (reset to
- *                                  "queued"), else mark failed
+ *                                  "queued"), else mark failed; this is bounded
+ *                                  replay and not blind concurrent replay
  *   discovery_sessions "pending"    → re-enqueue via heavyJobQueue (never
  *                                  started; rootPath is in the DB row)
  *   discovery_sessions "discovering" → mark error (was in-flight when process
  *                                  died; intermediate state is gone)
  *   tasks "running"             → reset to "verifying" if retryCount < maxRetries
- *                                  (AI execution was interrupted; safe to re-trigger),
- *                                  else mark failed
+ *                                  (a new execution must be explicitly
+ *                                  triggered), else mark failed
  *
  * For re-enqueued queued scan jobs the project stays "scanning" — it is
  * still going to scan. runScanJob handles both the success and failure paths
@@ -30,20 +36,23 @@
  * and marks the session "error" with a clear message.
  *
  * For interrupted AI tasks, resetting to "verifying" makes the task visible
- * and re-triggerable. Unknown-midpoint workers are never replayed directly.
- * Separately, the durable dispatcher may execute a new bounded recovery only
- * when an acceptance row authorizes it and the coordinator can claim the
- * task's retry budget or one-time resume token.
+ * and re-triggerable; the old worker is never replayed directly. AI
+ * executions have a separate reconciler because checkpoints, attempt
+ * identity, cancellation, and external-effect recovery are part of their
+ * contract. Unknown-midpoint delivery promotion is reconciled against its
+ * durable journal and becomes an explicit conflict/recovery state rather than
+ * being blindly replayed.
  *
- * PR-D1 (Durability hardening):
- *   - All re-enqueue calls use `enqueueWithId` (ID-based deduplication) to
- *     prevent duplicate execution when a job is re-enqueued at startup while
- *     still present in a hot-reload or overlapping process queue.
- *   - Added `requeueStalePendingJobs`: a periodic sweep that finds scan_jobs
- *     stuck in "queued" state beyond STALE_PENDING_TIMEOUT_MS and re-enqueues
- *     them. Handles the rare case where an in-memory closure was lost without
- *     a clean restart (hot-reload, signal race, etc.). The advisory lock inside
- *     runScanJob provides a second safety net against any double-execution.
+ * Dispatch rules:
+ *   - `enqueueWithId` prevents duplicate closures in one process. It is not a
+ *     distributed lock and must not be treated as one.
+ *   - `dispatchPersistedPendingJobs` includes fresh rows to close the
+ *     DB-commit/local-enqueue crash window.
+ *   - `requeueStalePendingJobs` is a scan-specific safety net for rows that
+ *     remain queued too long; it does not touch running rows.
+ *   - Conditional DB transitions, leases, and terminal worker fences provide
+ *     multi-process correctness. Advisory locks are defense in depth for scan
+ *     execution, not a replacement for the durable state machine.
  */
 import { randomUUID } from "node:crypto";
 import {

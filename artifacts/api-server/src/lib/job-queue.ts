@@ -92,18 +92,23 @@ export class JobQueue {
   /**
    * PR-H (H-1): Snapshot of current queue state.
    *
-   * Durability: this queue is in-process only. Jobs actively executing at
-   * restart time (`running` / `discovering`) are marked failed by the
-   * job-reconciliation module — they cannot be safely resumed from an unknown
-   * midpoint. Jobs waiting for a free slot (`queued` / `pending`) are
-   * automatically re-enqueued by job-reconciliation at next startup: all
-   * parameters needed to re-run them are persisted to DB rows before they
-   * reach this queue, so no pending work is silently lost across restarts.
+   * Boundary: this queue is process-local backpressure and dispatch only. It
+   * is never the durable queue, and these counters must not be used to infer
+   * global work or ownership across API instances. The DB row is written
+   * first; the runner's conditional claim/lease is the cross-process
+   * admission boundary.
    *
-   * PR-D1: The stale-pending sweep in job-reconciliation also periodically
-   * re-enqueues any "queued" DB rows whose in-memory closure may have been
-   * lost without a clean restart. `enqueueWithId` deduplicates so that sweep
-   * cannot cause double-execution of jobs still in this queue.
+   * On restart, queued rows are redispatched from durable state. A row that
+   * was already running is handled by job-reconciliation according to its job
+   * class: scans may retry within their bounded retry policy, discovery is
+   * made explicitly incomplete, and AI executions/tasks use their dedicated
+   * reconciliation rules. There is no blanket "mark every in-flight job
+   * failed" policy because unknown-midpoint side effects differ by class.
+   *
+   * The durable dispatcher periodically re-enqueues persisted pending rows
+   * from every API instance. `enqueueWithId` removes duplicate closures within
+   * this process only; the runner's DB claim/lease remains authoritative when
+   * two instances observe the same row.
    */
   getStats(): { running: number; queued: number; concurrency: number } {
     return {
