@@ -32,6 +32,11 @@ import { logger } from "./logger.js";
 import { parseAiExecutionCheckpoint } from "./ai-execution-state.js";
 import { scheduleAiTaskExecution } from "../routes/ai/tasks.js";
 import { createMissionEventEnvelope, type MissionEventEnvelope } from "./mission-events.js";
+import {
+  buildMissionDelegationBinding,
+  validateMissionDelegationBinding,
+  type MissionDelegationBinding,
+} from "./mission-delegation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,6 +48,7 @@ export type MissionGoalRunResult = {
   taskId?: string;
   executionId?: string;
   reason?: string;
+  delegation?: MissionDelegationBinding;
 };
 
 const ACTIVE_EXECUTION_STATUSES = ["queued", "running", "paused", "cancelling"] as const;
@@ -60,7 +66,7 @@ type GoalDependencyState = {
   }>;
 };
 
-function goalPlanRevision(goal: typeof aiGoalsTable.$inferSelect): string | undefined {
+function goalPlanRevision(goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract">): string | undefined {
   const contract = goal.outcomeContract;
   if (!contract || typeof contract !== "object" || Array.isArray(contract)) return undefined;
   const revision = (contract as { planRevision?: unknown }).planRevision;
@@ -112,6 +118,7 @@ type RecipeDispatch = {
   operationId: string;
   idempotencyKey: string;
   action: RecipeGoalAction;
+  delegation: MissionDelegationBinding;
 };
 
 async function resolveGitRevision(rootPath: string): Promise<string> {
@@ -504,6 +511,7 @@ export async function dispatchPendingMissionRecipes(limit = 32): Promise<number>
       projectId: aiExecutionsTable.projectId,
       checkpoint: aiExecutionsTable.checkpoint,
       nextAction: aiGoalsTable.nextAction,
+      outcomeContract: aiGoalsTable.outcomeContract,
     })
     .from(aiExecutionsTable)
     .innerJoin(aiGoalsTable, eq(aiGoalsTable.id, aiExecutionsTable.goalId))
@@ -543,6 +551,16 @@ export async function dispatchPendingMissionRecipes(limit = 32): Promise<number>
         operationId: identity.operationId,
         idempotencyKey: identity.idempotencyKey,
         action: recipeAction,
+        delegation: buildMissionDelegationBinding({
+          missionId: row.missionId,
+          goalId: row.goalId!,
+          taskId: null,
+          planRevision: goalPlanRevision({
+            outcomeContract: row.outcomeContract,
+          } as typeof aiGoalsTable.$inferSelect),
+          userId: row.userId,
+          trigger: "resume",
+        }),
       });
     });
     if (added) dispatched += 1;
@@ -561,6 +579,7 @@ export async function runMissionGoal(params: {
   goalId: string;
   userId: string;
   trigger: MissionGoalRunTrigger;
+  delegation?: MissionDelegationBinding;
 }): Promise<MissionGoalRunResult> {
   const decision = await db.transaction(async (tx) => {
     const [goal] = await tx
@@ -595,6 +614,25 @@ export async function runMissionGoal(params: {
         goalId: goal.id,
         reason: "stale_plan_revision",
       };
+    }
+
+    const delegation = buildMissionDelegationBinding({
+      missionId: mission.id,
+      goalId: goal.id,
+      planRevision: goalRevision ?? activePlanRevision ?? null,
+      userId: mission.userId,
+      trigger: params.trigger,
+    });
+    if (params.delegation) {
+      const bindingCheck = validateMissionDelegationBinding(params.delegation, {
+        missionId: mission.id,
+        goalId: goal.id,
+        userId: mission.userId,
+        planRevision: delegation.planRevision,
+      });
+      if (!bindingCheck.allowed) {
+        return { status: "conflict" as const, goalId: goal.id, reason: bindingCheck.reason };
+      }
     }
 
     if (mission.status === "cancelled" || mission.status === "completed") {
@@ -744,6 +782,7 @@ export async function runMissionGoal(params: {
           goalId: goal.id,
           executionId: activeExecution.id,
           reason: "execution_already_active",
+          delegation,
         };
       }
       const now = new Date();
@@ -769,6 +808,7 @@ export async function runMissionGoal(params: {
           recipeVersion: action.recipeVersion,
           candidateIdentity: action.candidateIdentity ?? null,
           trigger: params.trigger,
+          delegation,
         },
       });
       return {
@@ -784,7 +824,9 @@ export async function runMissionGoal(params: {
           operationId: identity.operationId,
           idempotencyKey: identity.idempotencyKey,
           action,
+          delegation,
         } satisfies RecipeDispatch,
+          delegation,
       };
     }
 
@@ -799,6 +841,22 @@ export async function runMissionGoal(params: {
       .limit(1);
     if (!task) {
       return { status: "blocked" as const, goalId: goal.id, reason: "task_not_found" };
+    }
+    const taskDelegation = buildMissionDelegationBinding({
+      ...delegation,
+      taskId: task.id,
+    });
+    if (params.delegation) {
+      const bindingCheck = validateMissionDelegationBinding(params.delegation, {
+        missionId: mission.id,
+        goalId: goal.id,
+        taskId: task.id,
+        userId: mission.userId,
+        planRevision: delegation.planRevision,
+      });
+      if (!bindingCheck.allowed) {
+        return { status: "conflict" as const, goalId: goal.id, taskId: task.id, reason: bindingCheck.reason };
+      }
     }
     if (!task.prompt || task.status !== "verifying") {
       return { status: "blocked" as const, goalId: goal.id, taskId: task.id, reason: "task_not_eligible" };
@@ -819,6 +877,7 @@ export async function runMissionGoal(params: {
         taskId: task.id,
         executionId: activeExecution.id,
         reason: "execution_already_active",
+        delegation: taskDelegation,
       };
     }
 
@@ -836,9 +895,14 @@ export async function runMissionGoal(params: {
       taskId: task.id,
       severity: "info",
       message: `AI goal "${goal.title}" dispatched`,
-      payload: { missionId: mission.id, trigger: params.trigger, action: action.kind },
+      payload: {
+        missionId: mission.id,
+        trigger: params.trigger,
+        action: action.kind,
+        delegation: taskDelegation,
+      },
     });
-    return { status: "scheduled" as const, goalId: goal.id, taskId: task.id };
+    return { status: "scheduled" as const, goalId: goal.id, taskId: task.id, delegation: taskDelegation };
   });
 
   if (decision.recipeDispatch && decision.status === "scheduled" && !decision.executionId) {

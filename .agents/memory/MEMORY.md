@@ -153,3 +153,4 @@
 - [Mission tool-loop profile boundary](mission-tool-loop-profile.md) — server-owned plan steps select profiles; legacy tasks retain TaskAgent behavior.
 - [Mission replan context](mission-replan-context.md) — automatic replans must persist bounded failure evidence and affected claims in the fresh plan revision.
 - [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.
+- [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — bind Mission dispatch to owner/revision identities; keep candidate replay strict, proof-bound, isolated, and non-production.

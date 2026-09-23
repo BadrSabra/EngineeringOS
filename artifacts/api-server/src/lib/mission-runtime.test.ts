@@ -17,6 +17,7 @@ import {
   wakeMissionGoalsForEvent,
 } from "./mission-runtime.js";
 import { createMissionEventEnvelope } from "./mission-events.js";
+import { buildMissionDelegationBinding } from "./mission-delegation.js";
 
 const projectIds: string[] = [];
 
@@ -90,6 +91,35 @@ describe("Mission goal runtime", () => {
       .where(eq(aiGoalsTable.id, fixture.goalId));
     expect(goal?.status).toBe("waiting_for_event");
     expect(goal?.nextWakeAt?.toISOString()).toBe("2026-09-22T05:00:00.000Z");
+  });
+
+  it("rejects a delegation binding from another owner or plan revision", async () => {
+    const fixture = await createMissionFixture({
+      kind: "wait",
+      reason: "event",
+      wakeAt: null,
+    });
+    const binding = buildMissionDelegationBinding({
+      missionId: fixture.missionId,
+      goalId: fixture.goalId,
+      taskId: null,
+      planRevision: "stale-plan",
+      userId: "another-user",
+      trigger: "resume",
+    });
+
+    const result = await runMissionGoal({
+      goalId: fixture.goalId,
+      userId: "test-user",
+      trigger: "resume",
+      delegation: binding,
+    });
+
+    expect(result).toMatchObject({
+      status: "conflict",
+      goalId: fixture.goalId,
+      reason: "user_mismatch",
+    });
   });
 
   it("moves a replan action to needs_replan without creating another execution", async () => {
