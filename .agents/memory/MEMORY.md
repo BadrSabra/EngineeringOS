@@ -1,4 +1,5 @@
 - [Clerk setup](clerk-setup.md) — Clerk provisioned via setupClerkWhitelabelAuth; proxy middleware already in api-server; all env vars auto-set.
+- [Canonical proof foundation](proof-foundation.md) — server-only completion proof binds acceptance, execution, evidence, scope, revision, candidate, and delivery identities.
 - [Clerk release handoff](clerk-release-handoff.md) — full browser journeys may need a bounded 30-second Clerk redirect wait under suite load.
 - [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.
 - [Delivery candidate safety](delivery-candidate-safety.md) — resolve symlink project roots and copy across filesystems; candidate overlays must reject symlink traversal.
