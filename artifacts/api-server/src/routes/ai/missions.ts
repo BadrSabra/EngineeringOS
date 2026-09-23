@@ -17,6 +17,8 @@ import {
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiShadowReplaysTable,
+  aiSkillRegistryTable,
   db,
   eventsTable,
   tasksTable,
@@ -53,6 +55,12 @@ import {
   serializeProposalEvidence,
   validateSkillCandidateAgainstCanonicalProof,
 } from "../../lib/skill-candidate.js";
+import {
+  buildSkillShadowScore,
+  parseShadowReplayRegistryReceipt,
+  SkillRegistryIdentitySchema,
+  SkillShadowScoreSchema,
+} from "../../lib/skill-registry.js";
 import {
   getShadowReplayForUser,
   ShadowReplayError,
@@ -175,6 +183,8 @@ const BindMissionDeliveryBody = z.object({
   proposalId: z.string().uuid(),
 }).strict();
 const EmptySkillCandidateBody = z.object({}).strict();
+const RegisterSkillBody = SkillRegistryIdentitySchema;
+const EmptyRegistryActionBody = z.object({}).strict();
 
 function parseCandidateApprovedPaths(value: unknown): string[] {
   if (typeof value !== "string") return [];
@@ -1667,6 +1677,325 @@ router.get("/ai/proposals/:proposalId/skill-candidate/shadow-replay/:replayId", 
     ...(replay.receipt ? { receipt: replay.receipt } : {}),
     productionExecution: false,
   });
+});
+
+function publicSkillRegistryRow(row: typeof aiSkillRegistryTable.$inferSelect) {
+  const shadowScore = SkillShadowScoreSchema.safeParse(row.shadowScore);
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    skillId: row.skillId,
+    skillVersion: row.skillVersion,
+    candidateId: row.candidateId,
+    proposalId: row.proposalId,
+    shadowReplayId: row.shadowReplayId,
+    proofReceiptId: row.proofReceiptId,
+    sourceRevision: row.sourceRevision,
+    candidateTreeHash: row.candidateTreeHash,
+    shadowScore: shadowScore.success ? shadowScore.data : null,
+    promotionStatus: row.promotionStatus,
+    revocationStatus: row.revocationStatus,
+    approvedBy: row.approvedBy,
+    approvedAt: row.approvedAt,
+    revokedBy: row.revokedBy,
+    revokedAt: row.revokedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+/**
+ * Register a skill only after the server has a completed shadow replay and a
+ * passing Gate 3 paired baseline. The client supplies only the human-facing
+ * skill name/version; every proof and score field comes from durable rows.
+ */
+router.post("/ai/proposals/:proposalId/skill-registry", async (req, res) => {
+  const body = RegisterSkillBody.parse(req.body);
+  const [proposal] = await db
+    .select({
+      id: aiChangeProposalsTable.id,
+      projectId: aiChangeProposalsTable.projectId,
+      baseRevision: aiChangeProposalsTable.baseRevision,
+      candidateTreeHash: aiChangeProposalsTable.candidateTreeHash,
+      validationEvidence: aiChangeProposalsTable.validationEvidence,
+      baseTreeHash: aiChangeProposalsTable.baseTreeHash,
+    })
+    .from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+    .limit(1);
+  if (!proposal) return res.status(404).json({ error: "Proposal not found" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+
+  const skillCandidate = parseStoredProposalEvidence(
+    parseStoredEvidenceText(proposal.validationEvidence),
+  ).skillCandidate;
+  if (!skillCandidate) {
+    return res.status(409).json({
+      error: "A proof-carrying skill candidate must be bound before registry registration.",
+      code: "SKILL_REGISTRY_CANDIDATE_REQUIRED",
+    });
+  }
+  if (
+    !proposal.baseRevision
+    || !proposal.candidateTreeHash
+    || skillCandidate.projectId !== project.id
+    || skillCandidate.sourceRevision !== proposal.baseRevision
+    || skillCandidate.candidateTreeHash !== proposal.candidateTreeHash
+  ) {
+    return res.status(409).json({
+      error: "The candidate identity is not bound to the current proposal revision.",
+      code: "SKILL_REGISTRY_CANDIDATE_IDENTITY_MISMATCH",
+    });
+  }
+
+  const [replay] = await db
+    .select()
+    .from(aiShadowReplaysTable)
+    .where(and(
+      eq(aiShadowReplaysTable.projectId, project.id),
+      eq(aiShadowReplaysTable.proposalId, proposal.id),
+      eq(aiShadowReplaysTable.candidateId, skillCandidate.candidateId),
+      eq(aiShadowReplaysTable.status, "completed"),
+    ))
+    .orderBy(desc(aiShadowReplaysTable.completedAt), desc(aiShadowReplaysTable.createdAt))
+    .limit(1);
+  const receipt = replay ? parseShadowReplayRegistryReceipt(replay.receipt) : null;
+  if (!replay || !receipt) {
+    return res.status(409).json({
+      error: "A completed, isolated shadow replay receipt is required.",
+      code: "SKILL_REGISTRY_SHADOW_REPLAY_REQUIRED",
+    });
+  }
+  if (
+    receipt.replayId !== replay.id
+    || receipt.replayExecutionId !== replay.executionId
+    || receipt.candidateId !== skillCandidate.candidateId
+    || receipt.projectId !== project.id
+    || receipt.sourceRevision !== proposal.baseRevision
+    || receipt.candidateTreeHash !== proposal.candidateTreeHash
+    || replay.replayCanonicalAcceptanceId !== receipt.proof.receiptId
+    || skillCandidate.proof.receiptId !== replay.canonicalAcceptanceId
+    || receipt.postTreeHash !== proposal.candidateTreeHash
+  ) {
+    return res.status(409).json({
+      error: "The shadow replay receipt is not bound to the candidate and proof identities.",
+      code: "SKILL_REGISTRY_SHADOW_REPLAY_IDENTITY_MISMATCH",
+    });
+  }
+
+  const shadowScore = buildSkillShadowScore({
+    comparison: receipt.pairedBaseline,
+    replayId: replay.id,
+    candidateId: skillCandidate.candidateId,
+    candidateTreeHash: receipt.postTreeHash,
+    baselineTreeHash: proposal.baseTreeHash,
+  });
+  if (!shadowScore) {
+    return res.status(409).json({
+      error: "A passing Gate 3 paired baseline is required before registry registration.",
+      code: "SKILL_REGISTRY_PAIRED_BASELINE_REQUIRED",
+    });
+  }
+
+  const existing = await db
+    .select()
+    .from(aiSkillRegistryTable)
+    .where(and(
+      eq(aiSkillRegistryTable.projectId, project.id),
+      eq(aiSkillRegistryTable.skillId, body.skillId),
+      eq(aiSkillRegistryTable.skillVersion, body.skillVersion),
+    ))
+    .limit(1);
+  if (existing[0]) {
+    const row = existing[0];
+    if (row.candidateId !== skillCandidate.candidateId || row.shadowReplayId !== replay.id) {
+      return res.status(409).json({
+        error: "This skill version is already bound to a different candidate.",
+        code: "SKILL_REGISTRY_VERSION_CONFLICT",
+      });
+    }
+    return res.status(200).json({ registry: publicSkillRegistryRow(row) });
+  }
+
+  const [created] = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(aiSkillRegistryTable)
+      .values({
+        id: randomUUID(),
+        projectId: project.id,
+        skillId: body.skillId,
+        skillVersion: body.skillVersion,
+        candidateId: skillCandidate.candidateId,
+        proposalId: proposal.id,
+        shadowReplayId: replay.id,
+        proofReceiptId: receipt.proof.receiptId,
+        sourceRevision: proposal.baseRevision!,
+        candidateTreeHash: proposal.candidateTreeHash!,
+        shadowScore,
+        promotionStatus: "pending",
+        revocationStatus: "active",
+      })
+      .returning();
+    if (!row) return [];
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiSkillRegistryRegistered",
+      projectId: project.id,
+      severity: "info",
+      message: "A proof-carrying skill candidate was registered pending approval.",
+      correlationId: proposal.operationId,
+      payload: {
+        registryId: row.id,
+        skillId: row.skillId,
+        skillVersion: row.skillVersion,
+        candidateId: row.candidateId,
+        proofReceiptId: row.proofReceiptId,
+        shadowReplayId: row.shadowReplayId,
+      },
+    });
+    return [row];
+  });
+  if (!created) {
+    return res.status(409).json({
+      error: "The skill registry changed before registration completed.",
+      code: "SKILL_REGISTRY_CONFLICT",
+    });
+  }
+  return res.status(201).json({ registry: publicSkillRegistryRow(created) });
+});
+
+router.get("/ai/skill-registry", async (req, res) => {
+  const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+  if (!projectId) return res.status(400).json({ error: "projectId is required" });
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+  const rows = await db
+    .select()
+    .from(aiSkillRegistryTable)
+    .where(eq(aiSkillRegistryTable.projectId, project.id))
+    .orderBy(desc(aiSkillRegistryTable.updatedAt), desc(aiSkillRegistryTable.createdAt));
+  return res.json({ registry: rows.map(publicSkillRegistryRow) });
+});
+
+router.post("/ai/skill-registry/:registryId/approve", async (req, res) => {
+  EmptyRegistryActionBody.parse(req.body);
+  const [current] = await db
+    .select()
+    .from(aiSkillRegistryTable)
+    .where(eq(aiSkillRegistryTable.id, req.params.registryId))
+    .limit(1);
+  if (!current) return res.status(404).json({ error: "Skill registry entry not found" });
+  const project = await loadProjectByIdForUser(current.projectId, req.userId, res);
+  if (!project) return;
+  const now = new Date();
+  const promoted = await db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select()
+      .from(aiSkillRegistryTable)
+      .where(and(
+        eq(aiSkillRegistryTable.id, current.id),
+        eq(aiSkillRegistryTable.projectId, project.id),
+      ))
+      .for("update");
+    if (!locked || locked.revocationStatus === "revoked") return null;
+    if (locked.promotionStatus === "promoted") return locked;
+    if (locked.promotionStatus !== "pending") return null;
+
+    await tx.update(aiSkillRegistryTable)
+      .set({
+        promotionStatus: "superseded",
+        updatedAt: now,
+      })
+      .where(and(
+        eq(aiSkillRegistryTable.projectId, project.id),
+        eq(aiSkillRegistryTable.skillId, locked.skillId),
+        eq(aiSkillRegistryTable.promotionStatus, "promoted"),
+        eq(aiSkillRegistryTable.revocationStatus, "active"),
+      ));
+    const [row] = await tx.update(aiSkillRegistryTable)
+      .set({
+        promotionStatus: "promoted",
+        approvedBy: req.userId,
+        approvedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(aiSkillRegistryTable.id, locked.id))
+      .returning();
+    if (!row) return null;
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiSkillRegistryApproved",
+      projectId: project.id,
+      severity: "info",
+      message: "A skill registry entry was explicitly approved.",
+      payload: {
+        registryId: row.id,
+        skillId: row.skillId,
+        skillVersion: row.skillVersion,
+        candidateId: row.candidateId,
+      },
+    });
+    return row;
+  });
+  if (!promoted) {
+    return res.status(409).json({
+      error: "Only an active pending skill registry entry can be approved.",
+      code: "SKILL_REGISTRY_APPROVAL_REJECTED",
+    });
+  }
+  return res.json({ registry: publicSkillRegistryRow(promoted) });
+});
+
+router.post("/ai/skill-registry/:registryId/revoke", async (req, res) => {
+  EmptyRegistryActionBody.parse(req.body);
+  const [current] = await db
+    .select()
+    .from(aiSkillRegistryTable)
+    .where(eq(aiSkillRegistryTable.id, req.params.registryId))
+    .limit(1);
+  if (!current) return res.status(404).json({ error: "Skill registry entry not found" });
+  const project = await loadProjectByIdForUser(current.projectId, req.userId, res);
+  if (!project) return;
+  const now = new Date();
+  const [revoked] = await db.update(aiSkillRegistryTable)
+    .set({
+      revocationStatus: "revoked",
+      revokedBy: req.userId,
+      revokedAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(aiSkillRegistryTable.id, current.id),
+      eq(aiSkillRegistryTable.projectId, project.id),
+      eq(aiSkillRegistryTable.revocationStatus, "active"),
+    ))
+    .returning();
+  if (!revoked) {
+    const [alreadyRevoked] = await db
+      .select()
+      .from(aiSkillRegistryTable)
+      .where(eq(aiSkillRegistryTable.id, current.id))
+      .limit(1);
+    return res.status(200).json({
+      registry: alreadyRevoked ? publicSkillRegistryRow(alreadyRevoked) : null,
+      alreadyRevoked: true,
+    });
+  }
+  await db.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiSkillRegistryRevoked",
+    projectId: project.id,
+    severity: "warning",
+    message: "A skill registry entry was immediately revoked.",
+    payload: {
+      registryId: revoked.id,
+      skillId: revoked.skillId,
+      skillVersion: revoked.skillVersion,
+      candidateId: revoked.candidateId,
+    },
+  });
+  return res.json({ registry: publicSkillRegistryRow(revoked) });
 });
 
 /**
