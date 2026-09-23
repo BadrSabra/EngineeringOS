@@ -516,6 +516,8 @@ export {
 export type { AgentParseResult } from "./parsing.js";
 export type { QualityErrorCode, QualityFailure } from "./errors.js";
 
+export * from "./agent-state/index.js";
+
 export {
   buildProjectContext,
   invalidateContextCache,

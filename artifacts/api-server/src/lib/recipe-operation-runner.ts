@@ -57,6 +57,7 @@ import {
   type ActiveSkillRegistryBinding,
 } from "./skill-registry.js";
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
+import { startEpisodeShadow } from "./agent-state/agent-episode-ledger.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -518,6 +519,17 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     };
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
+  startEpisodeShadow({
+    projectId: params.projectId,
+    executionId: claimed.id,
+    attempt: claimed.attempt,
+    workerId,
+    idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
+    projectRevision: params.sourceRevision,
+    intentKind: "RECIPE_OPERATION",
+    scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
+    ...(params.goalId ? { goalId: params.goalId } : {}),
+  });
   const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
   const runningRecipeBinding = checkpoint?.recipeBinding ?? {
     ...prepared.binding,

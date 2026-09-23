@@ -34,6 +34,18 @@ const remediationPlan = {
 
 function completeSnapshot() {
   const defaultFor = (tableName: string, columnName: string) => {
+    if (tableName === "ai_agent_episodes" && columnName === "state") {
+      return "'created'::ai_agent_episode_state";
+    }
+    if (tableName === "ai_agent_effects" && columnName === "status") {
+      return "'pending'::ai_agent_effect_status";
+    }
+    if (tableName === "ai_world_facts" && columnName === "status") {
+      return "'believed'::ai_world_fact_status";
+    }
+    if (tableName === "ai_strategy_candidates" && columnName === "evaluation_status") {
+      return "'discovered'::ai_strategy_evaluation_status";
+    }
     if (columnName === "status") return "'pending'::task_status";
     if (columnName === "priority") return "'p2'::task_priority";
     if (columnName === "level") return "'info'::log_level";
@@ -41,7 +53,16 @@ function completeSnapshot() {
       (tableName === "tasks" &&
         (columnName === "related_files" || columnName === "depends_on")) ||
       (tableName === "ai_session_memory_outbox" &&
-        (columnName === "tool_sources" || columnName === "semantic_records"))
+        (columnName === "tool_sources" || columnName === "semantic_records")) ||
+      (tableName === "ai_agent_episodes" &&
+        ["observation_refs", "action_refs", "expected_effect_refs", "observed_effect_refs", "evidence_refs"].includes(columnName)) ||
+      (tableName === "ai_agent_observations" &&
+        ["source_refs", "evidence_refs"].includes(columnName)) ||
+      (tableName === "ai_agent_effects" &&
+        ["before_observation_ids", "after_observation_ids", "missing_effects", "contradiction_refs", "evidence_refs"].includes(columnName)) ||
+      (tableName === "ai_world_facts" && columnName === "source_observation_ids") ||
+      (tableName === "ai_strategy_candidates" &&
+        ["supporting_episode_ids", "contradicting_episode_ids"].includes(columnName))
     ) {
       return "'[]'::jsonb";
     }

@@ -144,6 +144,7 @@ import {
   ValidationProfileSchema,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
+import { startEpisodeShadow } from "../../lib/agent-state/agent-episode-ledger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { establishProjectRoot } from "../../lib/project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
@@ -7804,6 +7805,22 @@ export async function handleChatStream(req: Request, res: Response) {
       aiExecution = claimed;
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
+
+    startEpisodeShadow({
+      projectId,
+      executionId: aiExecution.id,
+      attempt: aiExecution.attempt,
+      workerId: executionWorkerId,
+      idempotencyKey: `${sessionIdToUse ?? aiExecution.id}:episode:${aiExecution.attempt}`,
+      projectRevision: executionRequest.workspaceRevision ?? aiExecution.baseRevision ?? "unknown",
+      intentKind: "CHAT_TURN",
+      scope: {
+        kind: "chat",
+        ...(sessionIdToUse ? { sessionId: sessionIdToUse } : {}),
+        turnIntent: streamTurnIntent.kind,
+      },
+      ...(effectiveLinkedTaskId ? { objectiveContractId: effectiveLinkedTaskId } : {}),
+    });
 
     const providerHistoryPolicy = resolveProviderHistoryPolicy({
       turnIntent: streamTurnIntent,

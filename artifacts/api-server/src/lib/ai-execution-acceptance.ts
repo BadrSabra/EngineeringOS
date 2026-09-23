@@ -1012,8 +1012,12 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
   };
 }
 
+type AcceptanceProjectionRow =
+  Omit<typeof aiExecutionAcceptancesTable.$inferSelect, "effectBundleId">
+  & { effectBundleId?: string | null };
+
 export function projectExecutionAcceptance(
-  row: typeof aiExecutionAcceptancesTable.$inferSelect | undefined,
+  row: AcceptanceProjectionRow | undefined,
 ): PublicExecutionAcceptance | undefined {
   if (!row) return undefined;
   const disposition = projectAcceptanceDisposition(row.disposition);

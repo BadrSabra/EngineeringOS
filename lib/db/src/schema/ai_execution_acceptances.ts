@@ -10,6 +10,7 @@ import {
 import { projectsTable } from "./projects.js";
 import { aiExecutionsTable } from "./ai_executions.js";
 import { aiChatMessagesTable } from "./ai_chats.js";
+import { aiAgentEffectBundlesTable } from "./ai_agent_effect_bundles.js";
 
 /**
  * Server-owned source evidence retained before an execution worker is
@@ -88,11 +89,14 @@ export const aiExecutionAcceptancesTable = pgTable("ai_execution_acceptances", {
     .references(() => aiChatMessagesTable.id, { onDelete: "set null" }),
   sourceRevision: text("source_revision"),
   candidateIdentity: text("candidate_identity"),
+  effectBundleId: text("effect_bundle_id")
+    .references(() => aiAgentEffectBundlesTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("uq_ai_execution_acceptances_execution_attempt").on(t.executionId, t.attempt),
   uniqueIndex("uq_ai_execution_acceptances_finalization_key").on(t.finalizationKey),
   index("idx_ai_execution_acceptances_project_created").on(t.projectId, t.createdAt),
+  index("idx_ai_execution_acceptances_effect_bundle").on(t.effectBundleId),
 ]);
 
 export type InsertAiExecutionEvidenceSnapshot =

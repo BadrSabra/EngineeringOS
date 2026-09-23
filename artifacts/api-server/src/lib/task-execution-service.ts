@@ -68,6 +68,7 @@ import {
   validateRepairValidationScope,
 } from "./ai-repair-validation.js";
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
+import { startEpisodeShadow } from "./agent-state/agent-episode-ledger.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -1234,6 +1235,17 @@ export async function executeTaskLifecycle(params: {
   }
   const executionAttempt = claimedExecution.attempt;
   const executionRevision = claimedExecution.baseRevision ?? executionWorkspaceRevision;
+  startEpisodeShadow({
+    projectId: before.projectId,
+    executionId,
+    attempt: executionAttempt,
+    workerId,
+    idempotencyKey: `${before.id}:episode:${executionAttempt}`,
+    projectRevision: executionRevision ?? "unknown",
+    intentKind: "TASK_EXECUTION",
+    scope: { kind: "task", taskId: before.id },
+    ...(before.goalId ? { goalId: before.goalId } : {}),
+  });
   const claimedCheckpoint = parseAiExecutionCheckpoint(claimedExecution.checkpoint);
   const missionResumeState = parseMissionToolLoopCheckpoint(claimedCheckpoint);
   const initialCheckpointSequence = Math.max(
