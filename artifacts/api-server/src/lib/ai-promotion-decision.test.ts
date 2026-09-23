@@ -130,11 +130,47 @@ describe("decideDeliveryPromotion", () => {
     const result = decideDeliveryPromotionWithPairedBaseline(baseInput(), {
       status: "passed",
       promotionAllowed: true,
+      canonicalProof: {
+        accepted: true,
+        verdict: "PROVEN",
+        acceptanceId: "acceptance-1",
+        candidateTreeHash: hashes.candidate,
+      },
     });
 
     expect(result).toEqual({
       decision: "AUTO_PROMOTE_ELIGIBLE",
       reasons: ["eligible"],
+    });
+  });
+
+  it("requires an accepted canonical proof on the explicit promotion path", () => {
+    const result = decideDeliveryPromotionWithPairedBaseline(baseInput(), {
+      status: "passed",
+      promotionAllowed: true,
+    });
+
+    expect(result).toEqual({
+      decision: "BLOCKED",
+      reasons: ["canonical_proof_missing"],
+    });
+  });
+
+  it("blocks a canonical proof bound to a different candidate", () => {
+    const result = decideDeliveryPromotionWithPairedBaseline(baseInput(), {
+      status: "passed",
+      promotionAllowed: true,
+      canonicalProof: {
+        accepted: true,
+        verdict: "PROVEN",
+        acceptanceId: "acceptance-2",
+        candidateTreeHash: "c".repeat(64),
+      },
+    });
+
+    expect(result).toEqual({
+      decision: "BLOCKED",
+      reasons: ["canonical_proof_candidate_mismatch"],
     });
   });
 });

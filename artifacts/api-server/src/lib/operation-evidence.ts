@@ -17,6 +17,11 @@ import {
   projectCanonicalProof,
   type PublicCanonicalProofProjection,
 } from "./proof-foundation.js";
+import {
+  projectProofSpine,
+  projectPublicProofSpine,
+  type ProofSpineProjection,
+} from "./proof-spine.js";
 
 export const OPERATION_EVIDENCE_LIMITS = {
   events: 120,
@@ -82,6 +87,7 @@ export type OperationEvidenceProjection = {
   gaps: EvidenceGap[];
   readiness?: OperationalReadinessDecision;
   proof: PublicCanonicalProofProjection;
+  proofSpine: ProofSpineProjection;
 };
 
 export type EvidenceInput = {
@@ -105,6 +111,7 @@ export type EvidenceInput = {
     committedHash: string | null;
   } | null;
   proof?: PublicCanonicalProofProjection;
+  proofSpine?: ProofSpineProjection;
 };
 
 function unavailableProofProjection(): PublicCanonicalProofProjection {
@@ -284,6 +291,8 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
     receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
     gaps,
     proof: input.proof ?? unavailableProofProjection(),
+    proofSpine: input.proofSpine
+      ?? projectPublicProofSpine(input.proof ?? unavailableProofProjection()),
   };
   const operation = checkpoint.operation as { nodes?: Array<{
     id: string;
@@ -414,6 +423,7 @@ export async function loadOperationEvidence(execution: AiExecution): Promise<Ope
     journal,
     proposal,
     proof: projectCanonicalProof(canonicalProof),
+    proofSpine: projectProofSpine(canonicalProof),
   });
 }
 

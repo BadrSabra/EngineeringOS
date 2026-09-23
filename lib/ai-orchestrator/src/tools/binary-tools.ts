@@ -7,8 +7,7 @@ const MAX_HASH_BYTES = 32 * 1024 * 1024;
 const MAX_HEADER_BYTES = 1_048_576;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-export type BinaryEvidencePacket = {
-  kind: "png";
+type BinaryEvidencePacketBase = {
   evidenceId: string;
   artifactRef: string;
   path: string;
@@ -16,9 +15,18 @@ export type BinaryEvidencePacket = {
   workspaceRevision: string;
   sha256: string;
   sizeBytes: number;
-  width: number;
-  height: number;
 };
+
+export type BinaryEvidencePacket =
+  | (BinaryEvidencePacketBase & {
+      kind: "png";
+      width: number;
+      height: number;
+    })
+  | (BinaryEvidencePacketBase & {
+      kind: "pdf";
+      pageCount: number;
+    });
 
 class PngInspectionError extends Error {
   constructor(readonly code: "PNG_INVALID_STRUCTURE" | "PNG_TRUNCATED") {
@@ -33,8 +41,8 @@ export const BINARY_TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "inspect_binary",
       description:
-        "Inspect a project PNG without returning raw bytes. " +
-        "Returns bounded type, dimensions, size, hash, and server-owned evidence metadata. OCR, PDF, audio, and video are not supported.",
+        "Inspect a project PNG or PDF without returning raw bytes. " +
+        "Returns bounded type, dimensions/page-count hint, size, hash, and server-owned evidence metadata. OCR, audio, and video are not supported.",
       parameters: {
         type: "object",
         properties: {
@@ -54,9 +62,24 @@ export function parseBinaryEvidencePacket(
   expected: { operationId: string; workspaceRevision: string },
 ): BinaryEvidencePacket | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const candidate = value as Partial<BinaryEvidencePacket>;
+  const candidate = value as Partial<BinaryEvidencePacket> & {
+    width?: unknown;
+    height?: unknown;
+    pageCount?: unknown;
+  };
+  const shapeValid = candidate.kind === "png"
+    ? typeof candidate.width === "number"
+      && typeof candidate.height === "number"
+      && Number.isSafeInteger(candidate.width)
+      && Number.isSafeInteger(candidate.height)
+      && candidate.width > 0
+      && candidate.height > 0
+    : candidate.kind === "pdf"
+      && typeof candidate.pageCount === "number"
+      && Number.isSafeInteger(candidate.pageCount)
+      && candidate.pageCount >= 0;
   if (
-    candidate.kind !== "png"
+    (candidate.kind !== "png" && candidate.kind !== "pdf")
     || typeof candidate.evidenceId !== "string"
     || typeof candidate.artifactRef !== "string"
     || typeof candidate.path !== "string"
@@ -67,12 +90,7 @@ export function parseBinaryEvidencePacket(
     || typeof candidate.sizeBytes !== "number"
     || !Number.isSafeInteger(candidate.sizeBytes)
     || candidate.sizeBytes <= 0
-    || typeof candidate.width !== "number"
-    || typeof candidate.height !== "number"
-    || !Number.isSafeInteger(candidate.width)
-    || !Number.isSafeInteger(candidate.height)
-    || candidate.width <= 0
-    || candidate.height <= 0
+    || !shapeValid
     || candidate.operationId !== expected.operationId
     || candidate.workspaceRevision !== expected.workspaceRevision
     || candidate.path.startsWith("/")
@@ -89,7 +107,16 @@ export function parseBinaryEvidencePacket(
     || candidate.artifactRef !== `binary-artifact:${identity}`
   ) return undefined;
   return {
-    kind: "png",
+    ...(candidate.kind === "png"
+      ? {
+          kind: "png" as const,
+          width: candidate.width as number,
+          height: candidate.height as number,
+        }
+      : {
+          kind: "pdf" as const,
+          pageCount: candidate.pageCount as number,
+        }),
     evidenceId: candidate.evidenceId,
     artifactRef: candidate.artifactRef,
     path: candidate.path,
@@ -97,8 +124,6 @@ export function parseBinaryEvidencePacket(
     workspaceRevision: candidate.workspaceRevision,
     sha256: candidate.sha256,
     sizeBytes: candidate.sizeBytes,
-    width: candidate.width,
-    height: candidate.height,
   };
 }
 
@@ -258,25 +283,29 @@ export async function executeBinaryTool(
     if (!stat.isFile()) throw new Error("not-file");
     const headerBytes = await readHeader(realPath);
     const metadata = detectFormat(headerBytes, requestedPath);
-    if (metadata.mediaType !== "image/png") {
+    const supportedKind = metadata.mediaType === "image/png"
+      ? "png" as const
+      : metadata.mediaType === "application/pdf"
+        ? "pdf" as const
+        : undefined;
+    if (!supportedKind) {
       return JSON.stringify({
         tool: name,
         status: "unavailable",
-        code: "PNG_ONLY",
-        detail: "Only PNG inspection is supported; OCR, PDF, audio, and video are not supported.",
+        code: "BINARY_FORMAT_UNSUPPORTED",
+        detail: "Only PNG and PDF metadata inspection is supported; OCR, audio, and video are not supported.",
         path: normalizedPath,
         operationId: context.operationId,
         workspaceRevision: context.revision,
       });
     }
     const hash = await hashFile(realPath, stat.size, headerBytes);
-    const isPng = metadata.mediaType === "image/png";
-    if (isPng && !hash.complete) {
+    if (!hash.complete) {
       return JSON.stringify({
         tool: name,
         status: "incomplete",
-        code: "PNG_HASH_INCOMPLETE",
-        detail: "PNG inspection requires a complete sha256 over the approved file.",
+        code: "BINARY_HASH_INCOMPLETE",
+        detail: "Binary inspection requires a complete sha256 over the approved file.",
         path: normalizedPath,
         operationId: context.operationId,
         workspaceRevision: context.revision,
@@ -286,29 +315,24 @@ export async function executeBinaryTool(
         ...metadata,
       });
     }
-    const evidenceIdentity = isPng
-      ? binaryEvidenceIdentity({
-          operationId: context.operationId,
-          workspaceRevision: context.revision,
-          normalizedPath,
-          digest: hash.digest,
-        })
-      : undefined;
+    const evidenceIdentity = binaryEvidenceIdentity({
+      operationId: context.operationId,
+      workspaceRevision: context.revision,
+      normalizedPath,
+      digest: hash.digest,
+    });
     return JSON.stringify({
       tool: name,
       status: "complete",
+      kind: supportedKind,
       path: normalizedPath,
       operationId: context.operationId,
       workspaceRevision: context.revision,
       sizeBytes: stat.size,
       sha256: hash.digest,
       hashComplete: hash.complete,
-      ...(evidenceIdentity
-        ? {
-            evidenceId: `binary-evidence:${evidenceIdentity}`,
-            artifactRef: `binary-artifact:${evidenceIdentity}`,
-          }
-        : {}),
+      evidenceId: `binary-evidence:${evidenceIdentity}`,
+      artifactRef: `binary-artifact:${evidenceIdentity}`,
       ...metadata,
     });
   } catch (error) {

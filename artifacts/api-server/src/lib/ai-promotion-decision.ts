@@ -29,6 +29,9 @@ export type DeliveryPromotionReason =
   | "paired_baseline_missing"
   | "paired_baseline_incomplete"
   | "paired_baseline_regressed"
+  | "canonical_proof_missing"
+  | "canonical_proof_incomplete"
+  | "canonical_proof_candidate_mismatch"
   | "eligible";
 
 export type PromotionChange = {
@@ -61,8 +64,26 @@ export type DeliveryPromotionInput = {
    * Legacy/manual delivery callers may omit this. Callers entering the
    * explicit Gate 3 path must provide a server-owned comparison.
    */
-  pairedBaseline?: Pick<PairedBaselineComparison, "status" | "promotionAllowed">;
+  pairedBaseline?: DeliveryPairedBaseline;
+  canonicalProof?: {
+    accepted: boolean;
+    verdict: string;
+    acceptanceId: string | null;
+    candidateTreeHash?: string | null;
+  };
   requirePairedBaseline?: boolean;
+};
+
+export type DeliveryPairedBaseline = Pick<
+  PairedBaselineComparison,
+  "status" | "promotionAllowed"
+> & {
+  canonicalProof?: {
+    accepted: boolean;
+    verdict: string;
+    acceptanceId: string | null;
+    candidateTreeHash?: string | null;
+  };
 };
 
 export type DeliveryPromotionResult = {
@@ -184,6 +205,38 @@ export function decideDeliveryPromotion(
       reasons: ["paired_baseline_regressed"],
     };
   }
+  if (input.requirePairedBaseline && !input.canonicalProof) {
+    return {
+      decision: "BLOCKED",
+      reasons: ["canonical_proof_missing"],
+    };
+  }
+  if (
+    input.requirePairedBaseline
+    && (
+      input.canonicalProof?.accepted !== true
+      || input.canonicalProof.verdict !== "PROVEN"
+      || !input.canonicalProof.acceptanceId
+    )
+  ) {
+    return {
+      decision: "BLOCKED",
+      reasons: ["canonical_proof_incomplete"],
+    };
+  }
+  if (
+    input.requirePairedBaseline
+    && (
+      !input.canonicalProof?.candidateTreeHash
+      || !input.expectedCandidateTreeHash
+      || input.canonicalProof.candidateTreeHash !== input.expectedCandidateTreeHash
+    )
+  ) {
+    return {
+      decision: "BLOCKED",
+      reasons: ["canonical_proof_candidate_mismatch"],
+    };
+  }
 
   if (input.changes.length === 0 || input.validationResults.length === 0) {
     return {
@@ -239,11 +292,12 @@ export function decideDeliveryPromotion(
  */
 export function decideDeliveryPromotionWithPairedBaseline(
   input: Omit<DeliveryPromotionInput, "pairedBaseline" | "requirePairedBaseline">,
-  pairedBaseline: Pick<PairedBaselineComparison, "status" | "promotionAllowed"> | undefined,
+  pairedBaseline: DeliveryPairedBaseline | undefined,
 ): DeliveryPromotionResult {
   return decideDeliveryPromotion({
     ...input,
     pairedBaseline,
+    canonicalProof: pairedBaseline?.canonicalProof,
     requirePairedBaseline: true,
   });
 }

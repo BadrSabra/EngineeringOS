@@ -115,6 +115,53 @@ describe("package and binary inspection tools", () => {
     })).toBeUndefined();
   });
 
+  it("detects PDF metadata and produces a revision-bound evidence packet", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ai-binary-pdf-"));
+    roots.push(root);
+    await writeFile(path.join(root, "brief.pdf"), Buffer.from(
+      "%PDF-1.7\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF\n",
+      "latin1",
+    ));
+
+    const output = JSON.parse(await executeBinaryTool(
+      "inspect_binary",
+      { path: "brief.pdf" },
+      root,
+      { operationId: "op-pdf", revision: "rev-pdf" },
+    )) as {
+      status: string;
+      kind: string;
+      mediaType: string;
+      pageCountHint: number;
+      evidenceId: string;
+      artifactRef: string;
+      sha256: string;
+    };
+
+    expect(output).toMatchObject({
+      status: "complete",
+      kind: "pdf",
+      mediaType: "application/pdf",
+      pageCountHint: 1,
+    });
+    expect(output.evidenceId).toMatch(/^binary-evidence:[a-f0-9]{64}$/);
+    expect(output.artifactRef).toMatch(/^binary-artifact:[a-f0-9]{64}$/);
+    expect(parseBinaryEvidencePacket({
+      kind: "pdf",
+      evidenceId: output.evidenceId,
+      artifactRef: output.artifactRef,
+      path: "brief.pdf",
+      operationId: "op-pdf",
+      workspaceRevision: "rev-pdf",
+      sha256: output.sha256,
+      sizeBytes: 50,
+      pageCount: 1,
+    }, {
+      operationId: "op-pdf",
+      workspaceRevision: "rev-pdf",
+    })?.kind).toBe("pdf");
+  });
+
   it("fails closed for malformed and truncated PNG structures", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "ai-binary-invalid-png-"));
     roots.push(root);

@@ -7,4 +7,4 @@ Automatic delivery promotion is opt-in per project, recorded as an owner-approve
 
 **Why:** Reducing approval clicks is safe only when consent is durable and the existing guarded apply path remains the sole writer.
 
-**How to apply:** Add new automation behind the existing policy and promotion decision; never let model output, repository text, or a client boolean grant write authority.
+**How to apply:** Add new automation behind the existing policy and promotion decision; never let model output, repository text, or a client boolean grant write authority. Explicit Gate 3 also requires a passed paired replay receipt carrying accepted PROVEN proof bound to the same candidate tree hash; legacy/manual callers may omit that gate.

@@ -77,6 +77,16 @@ export type EvidenceArtifactInput = {
   sizeBytes: number;
   width: number;
   height: number;
+} | {
+  kind: "pdf";
+  evidenceId: string;
+  artifactRef: string;
+  path: string;
+  operationId: string;
+  workspaceRevision: string;
+  sha256: string;
+  sizeBytes: number;
+  pageCount: number;
 };
 
 export type EvidenceSnapshotInput = {
@@ -1151,9 +1161,10 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
     };
   });
   const totalBytes = reads.reduce((sum, read) => sum + read.byteLength, 0);
-  const artifacts = (input?.artifacts ?? []).flatMap((artifact) => {
+  const artifacts: EvidenceArtifactInput[] = (input?.artifacts ?? []).flatMap(
+    (artifact): EvidenceArtifactInput[] => {
     if (
-      artifact.kind !== "png"
+      (artifact.kind !== "png" && artifact.kind !== "pdf")
       || !/^binary-evidence:[a-f0-9]{64}$/i.test(artifact.evidenceId)
       || !/^binary-artifact:[a-f0-9]{64}$/i.test(artifact.artifactRef)
       || !/^[a-f0-9]{64}$/i.test(artifact.sha256)
@@ -1164,13 +1175,18 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       || typeof artifact.workspaceRevision !== "string"
       || !Number.isSafeInteger(artifact.sizeBytes)
       || artifact.sizeBytes <= 0
-      || !Number.isSafeInteger(artifact.width)
-      || artifact.width <= 0
-      || !Number.isSafeInteger(artifact.height)
-      || artifact.height <= 0
+      || artifact.kind === "png" && (
+        !Number.isSafeInteger(artifact.width)
+        || artifact.width <= 0
+        || !Number.isSafeInteger(artifact.height)
+        || artifact.height <= 0
+      )
+      || artifact.kind === "pdf" && (
+        !Number.isSafeInteger(artifact.pageCount)
+        || artifact.pageCount < 0
+      )
     ) return [];
-    return [{
-      kind: "png" as const,
+    const common = {
       evidenceId: artifact.evidenceId.slice(0, 120),
       artifactRef: artifact.artifactRef.slice(0, 120),
       path: artifact.path.slice(0, 500),
@@ -1178,10 +1194,12 @@ export function normalizeEvidenceSnapshot(input: EvidenceSnapshotInput | undefin
       workspaceRevision: artifact.workspaceRevision.slice(0, 500),
       sha256: artifact.sha256.toLowerCase(),
       sizeBytes: artifact.sizeBytes,
-      width: artifact.width,
-      height: artifact.height,
-    }];
-  }).slice(0, 16);
+    };
+    return artifact.kind === "png"
+      ? [{ kind: "png" as const, ...common, width: artifact.width, height: artifact.height }]
+      : [{ kind: "pdf" as const, ...common, pageCount: artifact.pageCount }];
+    },
+  ).slice(0, 16);
   const artifactsComplete = artifacts.length > 0;
   const required = input?.sourceEvidenceRequired ?? input?.required === true;
   const sourceEvidenceRequired = input?.sourceEvidenceRequired ?? required;

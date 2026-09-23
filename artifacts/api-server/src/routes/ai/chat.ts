@@ -242,6 +242,7 @@ import {
 import {
   decideDeliveryPromotion,
   decideDeliveryPromotionWithPairedBaseline,
+  type DeliveryPairedBaseline,
 } from "../../lib/ai-promotion-decision.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import {
@@ -1566,10 +1567,7 @@ function getDeliveryPromotionDecision(params: {
   observedCandidateTreeHash?: string | null;
   observedChangeSetHash?: string | null;
   observedTreeDigestVersion?: string | null;
-  pairedBaseline?: {
-    status: "incomplete" | "regressed" | "passed";
-    promotionAllowed: boolean;
-  };
+  pairedBaseline?: DeliveryPairedBaseline;
   requirePairedBaseline?: boolean;
 }) {
   let parsedChanges: unknown;
@@ -1613,6 +1611,12 @@ function parsePairedBaselineComparison(value: unknown, expected?: {
 }): {
   status: "incomplete" | "regressed" | "passed";
   promotionAllowed: boolean;
+  canonicalProof?: {
+    accepted: boolean;
+    verdict: string;
+    acceptanceId: string | null;
+    candidateTreeHash?: string | null;
+  };
 } | undefined {
   const receipt = parseStoredJson(value);
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return undefined;
@@ -1623,6 +1627,23 @@ function parsePairedBaselineComparison(value: unknown, expected?: {
     (record.status !== "incomplete" && record.status !== "regressed" && record.status !== "passed")
     || typeof record.promotionAllowed !== "boolean"
   ) return undefined;
+  let canonicalProof: DeliveryPairedBaseline["canonicalProof"];
+  if (record.status === "passed") {
+    const proof = record.proof;
+    if (!proof || typeof proof !== "object" || Array.isArray(proof)) return undefined;
+    const proofRecord = proof as Record<string, unknown>;
+    if (
+      proofRecord.verdict !== "PROVEN"
+      || typeof proofRecord.receiptId !== "string"
+      || proofRecord.receiptId.length === 0
+    ) return undefined;
+    canonicalProof = {
+      accepted: true,
+      verdict: "PROVEN",
+      acceptanceId: proofRecord.receiptId,
+      candidateTreeHash: record.candidateWorkspaceHash as string,
+    };
+  }
   if (
     typeof record.candidateRunId !== "string"
     || typeof record.candidateWorkspaceHash !== "string"
@@ -1645,16 +1666,14 @@ function parsePairedBaselineComparison(value: unknown, expected?: {
   return {
     status: record.status,
     promotionAllowed: record.promotionAllowed,
+    ...(canonicalProof ? { canonicalProof } : {}),
   };
 }
 
 async function loadPairedBaselineComparisonForProposal(
   proposalId: string,
   projectId: string,
-): Promise<{
-  status: "incomplete" | "regressed" | "passed";
-  promotionAllowed: boolean;
-} | undefined> {
+): Promise<DeliveryPairedBaseline | undefined> {
   const [replay] = await db
     .select({
       receipt: aiShadowReplaysTable.receipt,
