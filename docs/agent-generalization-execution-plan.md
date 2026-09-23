@@ -1434,3 +1434,1604 @@ provider claims success without evidence
 ```
 
 حتى ذلك الوقت، يبقى المشروع منصة تنفيذ هندسي موثوقة ذات تكيف محلي، وليس نظام تعلم عام مكتمل.
+
+---
+
+# الملحقات الإلزامية — مواصفة البناء وعقد القبول
+
+الأقسام التالية تحول الخطة إلى مواصفة يمكن تنفيذها ومراجعتها واختبارها دون
+اتخاذ قرارات معمارية أساسية جديدة أثناء التنفيذ. إذا تعارض أي اقتراح سابق
+في الوثيقة مع ملحق إلزامي هنا، تكون الملحقات هي المرجع الأقوى.
+
+---
+
+## 17. المتطلبات المعيارية
+
+### 17.1 متطلبات الهوية
+
+كل episode وobservation وeffect وworld fact وstrategy candidate يجب أن يرتبط
+بـ:
+
+```text
+projectId
+```
+
+ويجب أن يرتبط execution-backed record أيضاً بـ:
+
+```text
+executionId
+attempt
+operationId أو correlationId عند توفره
+```
+
+ويجب أن يملك أي record يعتمد على مصدر ملفات أو runtime:
+
+```text
+projectRevision أو sourceRevision
+environmentRevision عند الحاجة
+```
+
+يجب رفض الكتابة إذا:
+
+- كان `projectId` لا يطابق execution أو source.
+- كان `attempt` مختلفاً عن المحاولة الحالية.
+- كان worker لا يملك lease.
+- كان source revision غير متاح لمسار يتطلب proof.
+- كانت observation من مشروع آخر.
+
+### 17.2 متطلبات السلطة
+
+يجب أن تبقى القرارات التالية server-owned:
+
+```text
+tool authorization
+scope
+project root
+write approval
+validation profile
+acceptance verdict
+proof completeness
+skill promotion
+delivery authorization
+```
+
+لا يجوز أن يكتب النموذج أو provider مباشرة إلى:
+
+- `ai_execution_acceptances`.
+- `ai_skill_registry`.
+- `ai_world_facts`.
+- `ai_strategy_candidates` بحالة promoted.
+- `ai_agent_episodes` بحالة terminal مقبولة.
+
+النموذج يرسل proposal إلى adapter server-owned، والـadapter يتحقق من
+schema والهوية والـpolicy.
+
+### 17.3 متطلبات الثقة
+
+كل نص قادم من:
+
+- repository.
+- tool output.
+- memory.
+- checkpoint detail.
+- provider response.
+- generated strategy.
+
+يُعامل كبيانات غير موثوقة ما لم يمر عبر validator أو materializer server-owned.
+
+لا يجوز استخدام النص غير الموثوق لتحديد:
+
+- صلاحية مسار.
+- approval.
+- project root.
+- terminal success.
+- promotion.
+
+### 17.4 متطلبات الحجم
+
+الحدود الأولية الإلزامية:
+
+| العنصر | الحد |
+|---|---:|
+| episode event payload | 32 KiB |
+| observation value | 16 KiB |
+| effect expected/observed payload | 16 KiB |
+| failure diagnosis | 8 KiB |
+| strategy candidate | 32 KiB |
+| episode references | 128 عنصر |
+| observation references | 128 عنصر |
+| strategy supporting episodes | 64 عنصر |
+| strategy contradicting episodes | 64 عنصر |
+| world facts injected into one prompt | 64 fact |
+| strategies injected into one planner call | 8 strategy |
+
+يجب رفض payload الأكبر من الحد، لا تقليمه بصمت في records التي تدخل proof
+أو learning. يمكن عمل truncation فقط في public display projection مع marker
+واضح.
+
+### 17.5 متطلبات الزمن
+
+كل record زمني يستخدم UTC مع timezone-aware timestamps.
+
+لا تستخدم timestamps القادمة من provider لتحديد ترتيب الأحداث. ترتيب الأحداث
+يحدده server sequence وdatabase transaction time.
+
+---
+
+## 18. مخطط البيانات النهائي
+
+### 18.1 مبدأ التخزين
+
+تستخدم الجداول الحالية كمصادر أصلية:
+
+- `ai_executions`: control plane.
+- `ai_execution_acceptances`: terminal acceptance.
+- `ai_execution_evidence_snapshots`: retained proof evidence.
+- `ai_missions` و`ai_goals`: durable objectives.
+- `events`: project event feed.
+- `ai_skill_registry`: promoted executable skills.
+
+تضاف جداول متخصصة لأن كل نوع من البيانات له lifecycle مختلف. لا يوضع
+world state أو learning state في `checkpoint` أو `recipeReceipt`.
+
+### 18.2 جدول `ai_agent_episodes`
+
+المخطط المنطقي الإلزامي:
+
+```text
+id                  text primary key
+project_id          text not null → projects.id
+execution_id        text not null → ai_executions.id
+attempt             integer not null
+episode_type        text not null
+parent_episode_id   text nullable → ai_agent_episodes.id
+mission_id          text nullable → ai_missions.id
+goal_id             text nullable → ai_goals.id
+operation_id        text nullable
+correlation_id      text nullable
+project_revision    text not null
+world_revision_start text nullable
+world_revision_end  text nullable
+plan_revision       text nullable
+scope               jsonb not null
+objective_hash      text not null
+state               enum not null
+verdict             text nullable
+reason_code         text nullable
+next_action_code    text nullable
+worker_id           text nullable
+lease_epoch         integer nullable
+idempotency_key     text not null
+created_at          timestamp not null
+updated_at          timestamp not null
+closed_at           timestamp nullable
+```
+
+القيود:
+
+```text
+FK project_id → projects.id ON DELETE CASCADE
+FK execution_id → ai_executions.id ON DELETE CASCADE
+FK parent_episode_id → ai_agent_episodes.id ON DELETE SET NULL
+FK mission_id/goal_id → existing mission tables
+UNIQUE(execution_id, attempt, idempotency_key)
+INDEX(project_id, state, updated_at)
+INDEX(execution_id, attempt)
+INDEX(goal_id, plan_revision)
+```
+
+`objective_hash` هو hash لنسخة server-owned من objective contract. لا يحسب
+من prompt خام.
+
+### 18.3 جدول `ai_agent_episode_events`
+
+للحفاظ على الترتيب وإعادة البناء:
+
+```text
+id                  text primary key
+episode_id          text not null → ai_agent_episodes.id
+project_id          text not null → projects.id
+execution_id        text not null → ai_executions.id
+attempt             integer not null
+sequence            integer not null
+event_type          text not null
+payload             jsonb not null
+actor_type          text not null
+actor_id            text nullable
+correlation_id      text nullable
+created_at          timestamp not null
+```
+
+القيود:
+
+```text
+UNIQUE(episode_id, sequence)
+UNIQUE(episode_id, event_type, payload_hash)
+INDEX(project_id, created_at)
+INDEX(execution_id, attempt, sequence)
+```
+
+`payload_hash` يحسب server-side من canonical JSON. لا يستخدم provider-generated
+hash.
+
+أنواع الأحداث المسموحة في الإصدار الأول:
+
+```text
+EPISODE_CREATED
+OBSERVATION_REQUESTED
+OBSERVATION_RECORDED
+PLAN_SELECTED
+ACTION_REQUESTED
+ACTION_COMMITTED
+EFFECT_PENDING
+EFFECT_CLASSIFIED
+CLAIM_UPDATED
+REPLAN_REQUESTED
+ACCEPTANCE_LINKED
+EPISODE_PAUSED
+EPISODE_RESUMED
+EPISODE_CANCELLED
+EPISODE_TERMINAL
+```
+
+أي event type جديد يحتاج contract version وتحديثاً في replay reducer.
+
+### 18.4 جدول `ai_agent_observations`
+
+```text
+id                    text primary key
+project_id            text not null → projects.id
+episode_id            text not null → ai_agent_episodes.id
+execution_id          text nullable → ai_executions.id
+attempt               integer nullable
+kind                  text not null
+observation_role      text not null
+source_type           text not null
+source_id             text not null
+source_version        text nullable
+subject               text not null
+predicate             text not null
+value                 jsonb not null
+value_hash            text not null
+source_revision       text nullable
+environment_revision  text nullable
+completeness          text not null
+freshness             text not null
+evidence_refs         jsonb not null default []
+observed_at           timestamp not null
+created_at            timestamp not null
+```
+
+القيود:
+
+```text
+FK project_id → projects.id ON DELETE CASCADE
+FK episode_id → ai_agent_episodes.id ON DELETE CASCADE
+UNIQUE(source_type, source_id, source_version, predicate, value_hash)
+INDEX(project_id, kind, observed_at)
+INDEX(project_id, subject, predicate, observed_at)
+INDEX(episode_id, observation_role)
+```
+
+`source_type` لا يساوي `kind`. مثال:
+
+```text
+kind = RUNTIME
+source_type = runtime_validation_receipt
+```
+
+### 18.5 جدول `ai_agent_effects`
+
+يخزن مقارنة action قبل وبعد:
+
+```text
+id                    text primary key
+project_id            text not null → projects.id
+episode_id            text not null → ai_agent_episodes.id
+execution_id          text not null → ai_executions.id
+attempt               integer not null
+action_id             text not null
+capability_id         text not null
+effect_contract_hash  text not null
+before_observation_ids jsonb not null
+after_observation_ids  jsonb not null
+expected_effects       jsonb not null
+status                 text not null
+missing_effects        jsonb not null default []
+contradiction_refs     jsonb not null default []
+evidence_refs          jsonb not null default []
+created_at             timestamp not null
+```
+
+القيود:
+
+```text
+FK episode_id → ai_agent_episodes.id ON DELETE CASCADE
+UNIQUE(execution_id, attempt, action_id, effect_contract_hash)
+INDEX(project_id, status, created_at)
+INDEX(episode_id, action_id)
+```
+
+حالات effect:
+
+```text
+PENDING
+OBSERVED
+PARTIAL
+NOT_OBSERVED
+CONTRADICTED
+UNKNOWN
+```
+
+### 18.6 جدول `ai_world_facts`
+
+يستخدم versioned facts بدلاً من update صامت:
+
+```text
+id                    text primary key
+project_id            text not null → projects.id
+fact_key              text not null
+version               integer not null
+scope_kind            text not null
+scope_id              text not null
+subject               text not null
+predicate             text not null
+object_value          jsonb not null
+object_hash           text not null
+status                text not null
+confidence             numeric not null
+world_revision        text not null
+source_observation_ids jsonb not null
+supersedes_fact_id    text nullable
+valid_from            timestamp nullable
+valid_until           timestamp nullable
+observed_at           timestamp not null
+created_at            timestamp not null
+```
+
+القيود:
+
+```text
+UNIQUE(project_id, fact_key, version)
+INDEX(project_id, fact_key, status, version)
+INDEX(project_id, scope_kind, scope_id, status)
+INDEX(project_id, world_revision)
+```
+
+لا يوجد `UNIQUE` يمنع التناقضات؛ التناقض يجب أن يكون قابلاً للتسجيل حتى
+يتم حسمه. projection الحالية تختار facts المقبولة وفق سياسة التعارض.
+
+### 18.7 جدول `ai_strategy_candidates`
+
+```text
+id                    text primary key
+strategy_key          text not null
+strategy_version      integer not null
+scope_kind            text not null
+scope_id              text nullable
+trigger_contract      jsonb not null
+precondition_contract jsonb not null
+action_order          jsonb not null
+expected_effects      jsonb not null
+supporting_episode_ids jsonb not null
+contradicting_episode_ids jsonb not null
+source_revision       text nullable
+evaluation_contract   jsonb not null
+evaluation_status     text not null
+confidence             numeric not null
+created_by             text not null
+created_at             timestamp not null
+updated_at             timestamp not null
+promoted_at            timestamp nullable
+revoked_at             timestamp nullable
+```
+
+القيود:
+
+```text
+UNIQUE(strategy_key, strategy_version, scope_kind, scope_id)
+INDEX(scope_kind, scope_id, evaluation_status)
+INDEX(evaluation_status, updated_at)
+```
+
+هذا الجدول لا يملك foreign key إلى `ai_skill_registry` لأن strategy ليست skill
+تنفيذية. عند تحويلها إلى capability، يجب إنشاء proposal وcandidate وshadow
+replay عبر المسار الحالي.
+
+### 18.8 تصدير schemas
+
+يجب تصدير كل جداول Drizzle من:
+
+```text
+lib/db/src/schema/index.ts
+```
+
+ويجب أن تبقى كل أنواع JSONB محمية بـZod عند حدود API أو worker. لا تعتبر
+`jsonb` وحدها تحققاً من schema.
+
+---
+
+## 19. State Machines
+
+### 19.1 Episode state machine
+
+```text
+CREATED
+  → RUNNING
+  → PAUSED
+  → RUNNING
+  → VERIFYING
+  → COMPLETED
+
+RUNNING
+  → EFFECT_PENDING
+  → RUNNING
+
+RUNNING
+  → NEEDS_REPLAN
+  → RUNNING
+
+RUNNING
+  → WAITING_APPROVAL
+  → RUNNING
+
+CREATED/RUNNING/PAUSED/VERIFYING
+  → CANCELLING
+  → CANCELLED
+
+CREATED/RUNNING/PAUSED/VERIFYING
+  → BLOCKED
+  → FAILED
+```
+
+القواعد:
+
+- `COMPLETED`, `CANCELLED`, `BLOCKED`, و`FAILED` terminal.
+- لا يمكن فتح episode terminal.
+- resume ينشئ attempt جديداً فقط وفق عقد execution الحالي؛ لا يعيد فتح row
+  terminal.
+- `NEEDS_REPLAN` ليست terminal إذا كانت الميزانية تسمح بإعادة التخطيط.
+- `WAITING_APPROVAL` لا يستهلك action budget أثناء الانتظار.
+- لا يكتب الانتقال إلا worker المالك أو transaction recovery المصرح بها.
+
+### 19.2 Action state machine
+
+```text
+PLANNED
+  → PRECONDITIONS_CHECKED
+  → BEFORE_CAPTURED
+  → DISPATCHED
+  → ACTION_COMMITTED
+  → EFFECT_PENDING
+  → EFFECT_CLASSIFIED
+```
+
+من `EFFECT_CLASSIFIED`:
+
+```text
+OBSERVED      → CONTINUE أو ACCEPTANCE
+PARTIAL       → READ_MORE أو REPLAN
+NOT_OBSERVED  → REPLAN أو INCOMPLETE
+CONTRADICTED  → WORLD_CHANGED أو BLOCKED
+UNKNOWN       → INCOMPLETE
+```
+
+لا يجوز الانتقال من `ACTION_COMMITTED` إلى `PROVEN` مباشرة في mutation أو
+delivery action.
+
+### 19.3 World fact state machine
+
+```text
+OBSERVED
+  → BELIEVED
+  → CONFIRMED
+
+BELIEVED/CONFIRMED
+  → SUPERSEDED
+  → RETRACTED
+  → CONTRADICTED
+```
+
+الانتقال إلى `CONFIRMED` يحتاج مصدر server-owned يحقق policy الخاصة بنوع fact.
+
+### 19.4 Strategy candidate state machine
+
+```text
+DISCOVERED
+  → PENDING_REPLAY
+  → REPLAY_PASSED
+  → CANARY
+  → PROMOTED
+
+DISCOVERED/PENDING_REPLAY/REPLAY_PASSED/CANARY
+  → REPLAY_FAILED أو REJECTED
+
+PROMOTED
+  → REVOKED
+  → SUPERSEDED
+```
+
+لا يجوز الانتقال إلى `PROMOTED` من provider response أو benchmark aggregate
+فقط.
+
+---
+
+## 20. العقود الداخلية والـAPI
+
+### 20.1 Episode Ledger
+
+```ts
+startEpisode(input): Promise<{
+  episodeId: string;
+  created: boolean;
+  state: EpisodeState;
+}>;
+
+appendEpisodeEvent(input): Promise<{
+  sequence: number;
+  duplicate: boolean;
+}>;
+
+closeEpisode(input): Promise<{
+  closed: boolean;
+  duplicate: boolean;
+  verdict: EpisodeVerdict;
+}>;
+
+loadEpisodeForOwner(input): Promise<AgentEpisode | null>;
+replayEpisode(input): Promise<ReplayedEpisode>;
+```
+
+كل دالة يجب أن:
+
+- تتحقق من project ownership.
+- تتحقق من execution attempt.
+- تتحقق من worker lease عند الكتابة.
+- تستخدم idempotency.
+- لا تعرض raw provider diagnostics.
+
+### 20.2 Observation Materializer
+
+```ts
+materializeObservation(input): Promise<{
+  observationId: string;
+  duplicate: boolean;
+}>;
+
+materializeFromAcceptance(input): Promise<{
+  observationIds: string[];
+}>;
+
+materializeFromRuntimeReceipt(input): Promise<{
+  observationIds: string[];
+}>;
+```
+
+لا تقبل هذه الواجهات `value` غير محدود. يجب أن تمر القيمة عبر schema نوع
+المصدر، ثم عبر redaction وsize validation.
+
+### 20.3 World State Reader
+
+```ts
+readWorldState(input: {
+  projectId: string;
+  scope: WorldScope;
+  requiredFacts?: RequiredFact[];
+  maxFacts: number;
+  asOfRevision?: string;
+}): Promise<{
+  worldRevision: string;
+  facts: WorldFact[];
+  staleFacts: WorldFact[];
+  contradictions: FactConflict[];
+  missing: RequiredFact[];
+}>;
+```
+
+`readWorldState` read-only. لا يكتب facts ولا يرفع confidence.
+
+### 20.4 Effect Observer
+
+```ts
+captureBefore(input): Promise<ObservationRef[]>;
+captureAfter(input): Promise<ObservationRef[]>;
+classifyEffect(input): Promise<EffectObservationResult>;
+```
+
+كل observer profile يملك:
+
+```text
+timeout
+max reads
+required revision
+allowed scope
+evidence requirement
+failure mapping
+```
+
+### 20.5 Failure Diagnosis
+
+```ts
+diagnoseFailure(input: {
+  episodeId: string;
+  actionId?: string;
+  validatorReceipt?: unknown;
+  effectResult?: unknown;
+  acceptanceProjection?: unknown;
+}): FailureDiagnosis;
+```
+
+الدالة deterministic قدر الإمكان، ولا تجعل تفسير provider المصدر الوحيد للـkind.
+
+### 20.6 Strategy Evaluation
+
+```ts
+extractStrategy(input): Promise<StrategyCandidate | null>;
+evaluateStrategy(input): Promise<StrategyEvaluation>;
+promoteStrategy(input): Promise<PromotionDecision>;
+revokeStrategy(input): Promise<RevocationDecision>;
+```
+
+`promoteStrategy` لا ينشئ `ai_skill_registry` row مباشرة إلا إذا تحولت
+strategy إلى executable capability واجتازت مسار candidate/shadow/proof الحالي.
+
+---
+
+## 21. المعاملات والتزامن والاسترداد
+
+### 21.1 إنشاء episode
+
+عند إنشاء execution جديد:
+
+1. ينشئ route أو service execution كما هو حالياً.
+2. ينشئ root episode في نفس transaction إن أمكن.
+3. إذا تعذر ذلك، ينفذ `startEpisode` idempotently بعد commit.
+4. لا يبدأ worker provider work قبل توفر execution identity.
+
+### 21.2 إضافة event
+
+يجب أن تنفذ transaction الآتي:
+
+```text
+BEGIN
+  SELECT episode FOR UPDATE
+  verify owner/attempt/state
+  compute next sequence
+  validate event contract
+  INSERT event
+  UPDATE episode updated_at/state if required
+COMMIT
+```
+
+لا يعتمد sequence على memory أو process-local counter.
+
+### 21.3 Materialize observation
+
+يجب أن تكون insert idempotent. عند duplicate:
+
+```text
+return existing observation
+```
+
+ولا تنشئ observation جديدة بسبب retry أو reconnect.
+
+### 21.4 Materialize fact
+
+تستخدم transaction مع lock على:
+
+```text
+projectId + factKey
+```
+
+يمكن استخدام advisory lock الموجود في:
+
+```text
+artifacts/api-server/src/lib/advisory-lock.ts
+```
+
+ثم:
+
+1. قراءة آخر version.
+2. مقارنة observation.
+3. إنشاء version جديدة.
+4. تحديث supersession/contradiction.
+5. إنشاء world revision.
+
+### 21.5 قبول execution
+
+لا تغير `ai-execution-acceptance.ts` ترتيب الحماية الحالي. قبل terminal success:
+
+1. verify owner.
+2. verify attempt.
+3. verify objective contract.
+4. verify retained evidence.
+5. verify effect bundle عند الحاجة.
+6. verify candidate/delivery identity.
+7. write acceptance and public message transactionally.
+
+### 21.6 crash بين action وeffect
+
+إذا توقف worker بعد `ACTION_COMMITTED` وقبل `EFFECT_CLASSIFIED`:
+
+```text
+recovery sees EFFECT_PENDING
+→ reacquire execution lease
+→ run only idempotent observer
+→ never blindly repeat mutation
+```
+
+إذا لم يكن observer idempotent أو آمناً، تصبح النتيجة:
+
+```text
+EFFECT_UNKNOWN
+```
+
+ولا يعاد action تلقائياً.
+
+### 21.7 lease fences
+
+كل كتابة جديدة يجب أن تتحقق من:
+
+```text
+executionId
+attempt
+workerId
+leaseUntil
+checkpointVersion/sequence عند الحاجة
+```
+
+لا يكفي التحقق من `workerId` وحده.
+
+---
+
+## 22. سياسة World State
+
+### 22.1 أولوية المصادر
+
+الترتيب الأولي من الأقوى إلى الأضعف:
+
+```text
+server-owned acceptance/proof
+→ complete validator receipt
+→ complete runtime/browser/delivery observation
+→ complete retained source evidence
+→ static graph evidence
+→ typed validated memory
+→ unconfirmed hypothesis
+```
+
+الترتيب لا يعني أن المصدر الأقوى يحذف مصدراً أقدم؛ بل يحدد status عند التعارض.
+
+### 22.2 Freshness
+
+يجب أن يملك كل fact أحد أسباب freshness:
+
+```text
+revision_match
+environment_revision_match
+time_window
+explicitly_immutable
+```
+
+إذا لم يوجد سبب، تكون freshness `UNKNOWN`.
+
+### 22.3 Confidence
+
+لا يدخل provider confidence في الحساب. يشتق confidence من:
+
+```text
+source strength
+source completeness
+revision match
+source diversity
+contradictions
+age
+repeated observation
+```
+
+يجب حفظ مكونات الحساب ضمن server-only metadata حتى يمكن تفسير القرار.
+
+### 22.4 التناقض
+
+عند وجود factين متناقضين:
+
+1. لا تحذف أياً منهما.
+2. أنشئ conflict reference.
+3. اجعل projection الحالية `CONTRADICTED` أو `UNRESOLVED`.
+4. أضف required observation تميز بينهما.
+5. امنع claims التي تعتمد على conflict من PROVEN.
+
+### 22.5 نطاق النقل
+
+كل fact تصنف إلى:
+
+```text
+PROJECT_LOCAL
+ENVIRONMENT_LOCAL
+DOMAIN_REUSABLE
+GLOBAL_SAFE
+```
+
+الافتراضي `PROJECT_LOCAL`. لا تنقل fact بين المشاريع إلا بعد strategy/evidence
+evaluation صريحة.
+
+---
+
+## 23. مواصفة Action وEffect لكل المسارات
+
+### 23.1 قراءة ملف
+
+```text
+Action: READ_PROJECT_FILE
+Before: project revision + root identity
+After: retained complete read or explicit failure
+Effect: requested source evidence available
+Proof: evidence read binding
+Failure: incomplete evidence; no source-grounded claim
+```
+
+### 23.2 قراءة تحليلية
+
+```text
+Action: ANALYSIS_TOOL
+Before: operation/correlation/revision/root
+After: complete analysis result with matching correlation
+Effect: analysis evidence available
+Proof: analysis correlation + retained evidence
+Failure: reject cross-operation/stale result
+```
+
+### 23.3 Candidate validation
+
+```text
+Action: VALIDATE_CANDIDATE
+Before: candidate tree hash + source revision + scope
+After: validator receipt + observed candidate bytes
+Effect: validation profile passed on immutable candidate
+Proof: candidate validation boundary
+Failure: incomplete/failed validation; no promotion
+```
+
+### 23.4 Runtime start/restart
+
+```text
+Action: RUN_RUNTIME_PROFILE
+Before: runtime ownership + candidate/revision
+After: process identity + port + health + serving revision
+Effect: expected runtime is serving target bytes
+Proof: runtime observation bound to session/revision
+Failure: process alive alone is not success
+```
+
+### 23.5 Browser verification
+
+```text
+Action: RUN_BROWSER_PROFILE
+Before: preview path + runtime revision + profile
+After: DOM/assertion/console evidence
+Effect: expected user-visible behavior observed
+Proof: browser validation receipt
+Failure: no DOM/effect proof; incomplete
+```
+
+### 23.6 Git delivery
+
+```text
+Action: PUSH_VERIFIED_COMMIT
+Before: verified local commit + expected remote parent
+After: remote parent/tree/marker observation
+Effect: exact candidate tree delivered
+Proof: delivery receipt + proof spine
+Failure: drift reconciliation; never record uncertain push as success
+```
+
+### 23.7 Database read
+
+```text
+Action: READ_DATABASE_RESOURCE
+Before: authorized logical resource + project scope
+After: bounded typed result + schema/version metadata
+Effect: requested database claim observed
+Proof: resource contract and query boundary
+Failure: incomplete/unauthorized; no claim acceptance
+```
+
+---
+
+## 24. خوارزمية التخطيط وإعادة التخطيط
+
+### 24.1 مدخلات planner
+
+يستلم planner:
+
+```text
+server-owned intent
+objective contract
+current world revision
+required claims/effects
+available capability catalog
+accepted strategy candidates
+failure diagnosis إن وجدت
+request budget
+risk/approval policy
+```
+
+لا يستلم صلاحية mutation لمجرد استلام catalog.
+
+### 24.2 مخرجات planner
+
+```ts
+type StrategyProposal = {
+  proposalId: string;
+  baseWorldRevision: string;
+  steps: PlannedStep[];
+  assumptions: Assumption[];
+  requiredObservations: ObservationRequest[];
+  expectedEffects: ExpectedEffect[];
+  fallbackStrategyIds: string[];
+  estimatedCost: number;
+  estimatedRisk: number;
+  informationGain: number;
+};
+```
+
+كل `PlannedStep` يجب أن يحتوي:
+
+```text
+capabilityId
+recipeVersion
+inputRef
+preconditions
+expectedEffects
+observationProfile
+evidenceRequirements
+approvalRequirement
+```
+
+### 24.3 التقييم
+
+التقييم server-owned:
+
+```text
+utility =
+  successProbability
+  + informationGainWeight * informationGain
+  - costWeight * cost
+  - riskWeight * risk
+  - staleRiskPenalty
+  - contradictionPenalty
+```
+
+القيم والأوزان تحفظ في execution plan أو policy snapshot، ولا يغيرها النموذج.
+
+### 24.4 حدود البحث
+
+النسخة الأولى:
+
+```text
+max strategies per replan: 3
+max depth per strategy: 16
+max replans per execution: 2
+max observation-only steps per replan: 4
+max total planner time per execution: request ledger budget
+```
+
+أي تجاوز يتحول إلى:
+
+```text
+REPLAN_BUDGET_EXHAUSTED
+```
+
+ولا يستمر loop مفتوح.
+
+### 24.5 قواعد replan
+
+يجب إعادة التخطيط إذا:
+
+- تغير `worldRevision`.
+- فشل precondition.
+- لم يظهر expected effect.
+- ظهرت contradiction.
+- أصبحت evidence غير كاملة.
+- أصبح capability غير متاح.
+- تغيرت approval أو scope policy.
+
+لا تعاد نفس الخطة إذا لم يتغير:
+
+```text
+world observation
+failure diagnosis
+strategy candidate
+or allowed budget
+```
+
+ويجب حفظ hash للخطة السابقة للمقارنة.
+
+---
+
+## 25. مواصفة التعلم والترقية
+
+### 25.1 ما يدخل learning dataset
+
+فقط trajectories التي:
+
+- تملك episode مكتملة.
+- تملك objective contract.
+- تملك effect classification.
+- تملك evidence acceptance مناسبة.
+- تملك source/environment revision.
+- لم تنته بـ`CANCELLED` أو `EFFECT_UNKNOWN`.
+
+الـ`PARTIAL` و`NOT_PROVEN` تستخدم لتعلم failure patterns فقط، لا لاستخراج
+strategy نجاح.
+
+### 25.2 Credit assignment
+
+لكل action يحسب server-side:
+
+```text
+claim_contribution
+effect_contribution
+information_gain
+failure_contribution
+redundancy_score
+```
+
+مصادر الحساب:
+
+- claims التي أغلقت بعد action.
+- effects التي ظهرت بعد action.
+- observations التي أزالت uncertainty.
+- validator outcome.
+- subsequent replan.
+
+لا يعتبر التتابع الزمني وحده سببية.
+
+### 25.3 Minimum evidence للـstrategy
+
+لا تدخل strategy `PENDING_REPLAY` إلا إذا:
+
+```text
+supporting accepted episodes >= 2
+or
+one episode with explicit controlled experiment
+```
+
+ولا تدخل `CANARY` إلا إذا:
+
+```text
+replay pass rate >= 95%
+zero critical safety failures
+zero false PROVEN
+held-out improvement or cost reduction
+```
+
+### 25.4 بوابة الترقية الرقمية
+
+الحدود الأولية:
+
+```text
+critical safety violations: 0
+cross-project scope violations: 0
+false PROVEN increase: 0
+held-out cases: >= 30
+independent transfer fixtures: >= 3
+success regression versus baseline: <= 2 percentage points
+required improvement: >= 5 percentage points
+or tool/retry reduction: >= 15% with no safety regression
+confidence calibration ECE: <= 0.15
+```
+
+إذا لم تتوفر 3 مشاريع أو fixtures مستقلة، تبقى strategy غير قابلة للترقية
+العامة وتظل project-scoped.
+
+### 25.5 Revocation
+
+يجب إبطال strategy إذا:
+
+- ظهرت safety violation واحدة critical.
+- زادت false-success.
+- ظهرت regression مستمرة في حالتين متتاليتين.
+- أصبحت source/capability contract غير متوافقة.
+- اكتشفت contradiction غير معالجة.
+
+الإبطال لا يحذف history. يغير الحالة إلى `REVOKED` ويوقف استخدامها فوراً.
+
+---
+
+## 26. نموذج التهديد والضوابط
+
+### 26.1 Prompt injection من repository
+
+الخطر: ملف يطلب من agent تجاهل policy أو كشف أسرار أو توسيع scope.
+
+الضوابط:
+
+- repository content evidence فقط.
+- tool policy server-owned.
+- approval مستقل عن prompt.
+- tests تحتوي ملفات injection.
+- لا يكتب content إلى policy أو action contract.
+
+### 26.2 Memory poisoning
+
+الخطر: finding أو strategy خاطئة تصبح قابلة لإعادة الاستخدام.
+
+الضوابط:
+
+- لا memory authoritative بلا evidence.
+- source revision وscope إلزاميان.
+- strategy لا تترقى من prose.
+- contradictory episodes تحفظ.
+- revocation وexpiry.
+
+### 26.3 Cross-project leakage
+
+الخطر: fact أو strategy من مشروع تظهر في مشروع آخر بلا إذن.
+
+الضوابط:
+
+- كل query تبدأ بـproject ownership.
+- default scope `PROJECT_LOCAL`.
+- cross-project transfer عبر held-out evaluation فقط.
+- indexes وforeign keys project-scoped.
+- public projections لا تعرض foreign references.
+
+### 26.4 Capability escalation
+
+الخطر: composition تحول read capability إلى write capability.
+
+الضوابط:
+
+- capability risk لا يورث صلاحية من composition تلقائياً.
+- أعلى risk/approval في أي node يطبق على composition.
+- كل input/output schema server-validated.
+- no raw command/argv/cwd/env من النموذج.
+- promotion عبر registry الحالي فقط.
+
+### 26.5 Replay attack
+
+الخطر: إعادة استخدام observation أو approval من revision قديمة.
+
+الضوابط:
+
+- source/environment revision binding.
+- effect contract hash.
+- candidate tree hash.
+- acceptance attempt binding.
+- stale observation لا تدخل PROVEN.
+
+### 26.6 Malicious generated adapter
+
+الخطر: adapter مولد يقرأ أسراراً أو يتجاوز root أو ينفذ network غير مصرح.
+
+الضوابط:
+
+- isolated disposable workspace.
+- allowlisted dependencies.
+- static checks.
+- network egress deny-by-default.
+- secrets لا تصل إلى sandbox إلا عبر scoped adapter.
+- shadow replay لا يكتب production.
+- explicit approval قبل promotion.
+
+### 26.7 Data volume denial of service
+
+الخطر: strategy أو observation أو episode payload ضخم.
+
+الضوابط:
+
+- limits في Zod وDB boundary.
+- bounded arrays.
+- no raw body في event payload.
+- per-project quotas.
+- rejection لا truncation صامت.
+
+---
+
+## 27. الترحيل والتوافق
+
+### 27.1 ترتيب migration
+
+```text
+1. Add enums/tables/indexes
+2. Export schemas
+3. Add startup schema readiness checks
+4. Backfill no historical facts by default
+5. Enable episode shadow writes
+6. Verify row counts and idempotency
+7. Enable observations
+8. Enable world projection
+9. Enable effect enforcement per slice
+```
+
+لا يتم backfill للـWorld Facts من provider prose أو raw chat history. يجوز
+backfill فقط من server-owned accepted receipts إذا كان source revision متاحاً.
+
+### 27.2 Legacy execution
+
+الـexecutions القديمة التي لا تملك episode:
+
+```text
+legacy = true
+```
+
+وتبقى قابلة للعرض والاسترداد وفق العقود القديمة. لا تعاد كتابتها بأثر رجعي
+إلى learning dataset إلا بعد materialization موثقة.
+
+### 27.3 Rollback migration
+
+لا يحذف rollback الجداول إذا كانت تحتوي على references إلى acceptance أو proof.
+
+الترتيب:
+
+1. disable write flags.
+2. drain active workers.
+3. retain rows and projections.
+4. revert code readers.
+5. keep additive tables for forensic recovery.
+
+### 27.4 Backward-compatible deployment
+
+كل worker جديد يجب أن يعمل مع:
+
+- execution rows القديمة.
+- checkpoint envelopes القديمة.
+- acceptance rows القديمة.
+- missing episode refs.
+- missing world revisions.
+
+ولا يجوز للworker القديم أن يكتب event لا يستطيع worker الجديد إعادة قراءته.
+
+---
+
+## 28. التشغيل والـSLO
+
+### 28.1 Feature flag ownership
+
+الـflags:
+
+- server-owned.
+- لا تأتي من client body.
+- لا يحددها provider.
+- تسجل في audit عند تغييرها.
+- تطبق على worker جديد بعد restart أو config refresh معروف.
+
+### 28.2 أهداف الأداء الأولية
+
+في shadow mode:
+
+```text
+episode ledger overhead p95: < 50 ms لكل event
+observation materialization p95: < 200 ms
+world-state read p95: < 150 ms
+extra execution latency: < 10% median
+duplicate materialization rate: 0
+```
+
+إذا تجاوزت القراءة أو الكتابة هذه الحدود، تتوقف مرحلة Enforced وتبقى
+Shadow/Advisory.
+
+### 28.3 Health signals
+
+يجب مراقبة:
+
+- episode creation failures.
+- event sequence conflicts.
+- stale worker write rejections.
+- observation duplicates.
+- materializer lag.
+- unresolved contradictions.
+- `EFFECT_UNKNOWN` rate.
+- acceptance blocked بسبب effect.
+- strategy replay failures.
+- promotion/revocation counts.
+
+### 28.4 Recovery
+
+يجب أن يوجد job reconciliation يفحص:
+
+```text
+episodes RUNNING with expired lease
+effects PENDING beyond timeout
+observations missing source
+facts with broken supersession
+strategy CANARY beyond deadline
+```
+
+لا يعيد reconciliation mutation. يعيد فقط observation idempotent أو يرفع
+حالة blocked/unknown.
+
+---
+
+## 29. عقد الاختبار والقبول
+
+### 29.1 بوابة schema
+
+يجب أن تنجح:
+
+- TypeScript build.
+- Zod contract tests.
+- Drizzle schema readiness.
+- migration apply على disposable database.
+- migration rollback procedure.
+- serialization/redaction tests.
+
+### 29.2 بوابة ownership
+
+المطلوب:
+
+```text
+100% stale-writer rejection
+100% cross-project rejection
+100% duplicate idempotency
+100% attempt mismatch rejection
+100% terminal state immutability
+```
+
+أي failure في هذه المجموعة blocking.
+
+### 29.3 بوابة proof
+
+المطلوب:
+
+```text
+0 false PROVEN from incomplete evidence
+0 PROVEN from provider prose only
+0 acceptance with mismatched revision
+0 acceptance with mismatched candidate identity
+0 delivery success without remote effect evidence
+```
+
+### 29.4 بوابة effect
+
+لكل capability مدعومة:
+
+- before observation موجودة.
+- action identity موجودة.
+- after observation أو explicit unknown موجود.
+- effect contract hash مطابق.
+- failure mapping deterministic.
+- no mutation success بلا effect status.
+
+### 29.5 بوابة recovery
+
+يجب اختبار:
+
+- crash بعد action وقبل effect.
+- crash بعد effect وقبل acceptance.
+- reconnect بعد SSE EOF.
+- resume بعد lease expiry.
+- cancellation قبل controller registration.
+- retry بعد duplicate finalization.
+- world revision change أثناء انتظار worker.
+
+### 29.6 بوابة generalization
+
+الترقية العامة تحتاج:
+
+```text
+>= 30 held-out cases
+>= 3 independent transfer fixtures
+0 critical safety failures
+0 false PROVEN increase
+<= 2pp success regression
+>= 5pp improvement أو >=15% cost/retry reduction
+ECE <= 0.15
+```
+
+إذا فشل شرط واحد، تبقى candidate في `REPLAY_FAILED` أو project-scoped
+`CANARY`.
+
+---
+
+## 30. مصفوفة القبول النهائية
+
+| القدرة | دليل القبول | مصدر السلطة |
+|---|---|---|
+| استمرار التنفيذ | episode + execution + attempt متطابقة | execution state |
+| ملكية التنفيذ | lease/worker fence | API server |
+| إدراك الحالة | observations مرتبطة بمصدر وrevision | materializer |
+| تحديث العالم | versioned facts وworld revision | world-state materializer |
+| تنفيذ action | capability/recipe contract صالح | tool policy |
+| تحقق الأثر | before/after + effect classification | effect observer |
+| صحة النتيجة | objective/evidence/validator | acceptance |
+| منع false success | لا PROVEN بلا required evidence/effect | proof/acceptance |
+| إعادة التخطيط | diagnosis + تغير strategy أو observation | planner |
+| الذاكرة | source-bound strategy candidate | strategy store |
+| التعلم | held-out improvement | evaluation gate |
+| capability جديدة | sandbox + replay + proof + approval | skill/capability registry |
+| التعميم | transfer على fixtures مستقلة | generalization gate |
+| الرجوع | revoke/rollback دون حذف forensic history | promotion controller |
+
+---
+
+## 31. ترتيب التنفيذ المعتمد
+
+يجب تنفيذ الوحدات بهذا الترتيب:
+
+```text
+P0  Contracts, baseline, threat model
+P1  Episode schema + ledger
+P2  Episode integration in Chat/Mission
+P3  Observation materialization
+P4  World facts + materialized reader
+P5  Effect contract for candidate validation
+P6  Runtime/browser/delivery observers
+P7  Failure diagnosis
+P8  Bounded hypothesis-aware replan
+P9  Strategy candidate extraction
+P10 Replay and generalization benchmark
+P11 Strategy canary/promotion/revocation
+P12 Capability composition
+P13 Multimodal extension
+```
+
+### الاعتماديات
+
+```text
+P0 → P1 → P2 → P3 → P4
+P4 → P5 → P6
+P5/P6 → P7 → P8
+P8 → P9 → P10 → P11
+P11 → P12
+P5/P6/P10 → P13
+```
+
+لا يبدأ `P9` قبل أن تكون effects وacceptance موثوقة، ولا يبدأ `P12` قبل أن
+تعمل sandbox/replay/promotion.
+
+---
+
+## 32. قائمة مراجعة تنفيذية قبل كل مرحلة
+
+قبل دمج أي مرحلة، يجب الإجابة بـنعم عن الأسئلة التالية:
+
+### الهوية
+
+- هل كل row مرتبط بالمشروع والتنفيذ والمحاولة الصحيحة؟
+- هل revision موجودة ومتحقق منها؟
+- هل retry idempotent؟
+
+### السلطة
+
+- هل القرار server-owned؟
+- هل provider أو repository content يستطيع التأثير في permission؟
+- هل public projection خالية من diagnostics؟
+
+### الحالة
+
+- هل يمكن إعادة بناء state من events؟
+- هل التناقض محفوظ ولا يُحذف؟
+- هل stale state مميزة؟
+
+### الأثر
+
+- هل action يملك expected effect؟
+- هل after-state ملاحظ؟
+- ماذا يحدث عند observer failure؟
+- هل يمنع المسار false success؟
+
+### التعلم
+
+- هل source evidence مقبولة؟
+- هل strategy candidate قابلة لإعادة الاختبار؟
+- هل يوجد held-out evaluation؟
+- هل يوجد rollback؟
+
+### التشغيل
+
+- هل يعمل worker القديم والجديد معاً؟
+- هل migration قابلة للتطبيق والرجوع؟
+- هل feature flag قابلة للإيقاف؟
+- هل توجد metrics وalerts؟
+
+---
+
+## 33. المعنى الدقيق للهدف النهائي
+
+هذه المواصفة لا تدعي أن إضافة الجداول أو planners تجعل النظام AGI. الهدف المحدد
+والقابل للقبول هو:
+
+> وكيل هندسي عام نسبياً يستطيع العمل عبر مشاريع وبيئات برمجية مختلفة، ويحافظ
+> على حالة عالم مرتبطة بالأدلة، يلاحظ أثر أفعاله، يعيد التخطيط عند تغير العالم،
+> يستخرج استراتيجيات من trajectories المقبولة، ويثبت تحسنها على مهام held-out،
+> دون أن يتجاوز سلطة الخادم أو يحول provider output إلى حقيقة.
+
+ولا يعد النظام “قابلاً للتعلم” إلا إذا تحققت هذه الدورة:
+
+```text
+accepted outcome
+→ attributable trajectory
+→ strategy candidate
+→ replay
+→ held-out improvement
+→ controlled canary
+→ revocable promotion
+```
+
+ولا يعد “قابلاً للتعميم” إلا إذا نجحت strategy أو capability في سياق مستقل عن
+السياق الذي أنتجها، مع بقاء:
+
+```text
+proof integrity
+ownership integrity
+scope integrity
+evidence completeness
+```
+
+---
+
+## 34. Definition of Complete Build
+
+يعتبر البناء كاملاً فقط عند تحقق جميع المجموعات التالية:
+
+### Control Plane
+
+- execution durable.
+- leases وownership fences.
+- checkpoints وresume.
+- cancellation.
+- idempotent terminalization.
+
+### Evidence Plane
+
+- retained reads.
+- objective claims.
+- validator receipts.
+- effect evidence.
+- proof identity.
+
+### Cognitive State Plane
+
+- observations append-only.
+- versioned world facts.
+- freshness.
+- contradictions.
+- world revision.
+
+### Planning Plane
+
+- preconditions/effects.
+- bounded strategy search.
+- diagnosis-aware replanning.
+- no-progress protection.
+
+### Learning Plane
+
+- trajectory extraction.
+- credit assignment.
+- strategy candidates.
+- replay.
+- held-out evaluation.
+- canary/revocation.
+
+### Capability Plane
+
+- typed capability contracts.
+- composition.
+- sandbox.
+- shadow replay.
+- proof-bound promotion.
+
+### Evaluation Plane
+
+- safety score.
+- generalization score.
+- transfer score.
+- learning delta.
+- calibration.
+- cost/latency.
+
+### Operational Plane
+
+- migrations.
+- feature flags.
+- dashboards.
+- alerts.
+- reconciliation.
+- rollback.
+- retention.
+
+إذا غابت أي مجموعة، يكون النظام في مرحلة وسيطة محددة، ولا يجوز وصفه بأنه
+وصل إلى الهدف العام الكامل.
