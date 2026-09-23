@@ -38,6 +38,10 @@ import {
   validateMissionDelegationBinding,
   type MissionDelegationBinding,
 } from "./mission-delegation.js";
+import {
+  requireActiveSkillRegistry,
+  SkillRegistryRuntimeError,
+} from "./skill-registry.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -190,6 +194,7 @@ async function recipeOperationIdentity(
     recipeVersion: action.recipeVersion,
     approvedPaths: action.approvedPaths,
     candidateIdentity: action.candidateIdentity ?? null,
+    ...(action.skill ? { skill: action.skill } : {}),
   })).digest("hex");
   return {
     operationId: `mission-goal-${goalId}-${digest.slice(0, 16)}`,
@@ -559,6 +564,30 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       });
       return;
     }
+    let skillBinding;
+    if (dispatch.action.skill) {
+      try {
+        skillBinding = await requireActiveSkillRegistry({
+          projectId: dispatch.projectId,
+          skillId: dispatch.action.skill.skillId,
+          skillVersion: dispatch.action.skill.skillVersion,
+          candidateId: dispatch.action.candidateIdentity,
+          sourceRevision,
+          candidateTreeHash: dispatch.action.candidateIdentity,
+        });
+      } catch (error) {
+        await syncRecipeObjectiveState({
+          ...dispatch,
+          sourceRevision,
+          candidateIdentity: dispatch.action.candidateIdentity ?? null,
+          status: "blocked",
+          reason: error instanceof SkillRegistryRuntimeError
+            ? "skill_registry_not_active"
+            : "skill_registry_unavailable",
+        });
+        return;
+      }
+    }
     const result = await runRecipeOperation({
       projectId: dispatch.projectId,
       goalId: dispatch.goalId,
@@ -572,6 +601,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       candidateWorkspace: candidate?.candidateWorkspace ?? null,
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
+      ...(skillBinding ? { skillBinding } : {}),
       ...(delivery && project.gitRemoteUrl
         ? {
             githubDeliveryRunner: async ({

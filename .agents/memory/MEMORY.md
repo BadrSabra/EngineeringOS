@@ -150,3 +150,4 @@
 - [Shadow replay proof boundary](shadow-replay-proof-boundary.md) — replay needs a completed Goal, matching active plan revision, and a Canonical Proof from the replay execution itself.
 - [Shadow replay validator contract](shadow-replay-validator-contract.md) — replay profiles and receipts stay server-owned and must pass through normal acceptance before proof.
 - [Skill registry Gate 4](skill-registry-gate4.md) — registry accepts only persisted paired-baseline passes; a validator-passed replay may still be incomplete.
+- [Skill runtime registry enforcement](skill-runtime-registry.md) — active registry status is rechecked per recipe node and the full proof binding persists through resume.

@@ -27,6 +27,15 @@ const GoalRecipeActionSchema = z.object({
   approvedPaths: z.array(RecipeApprovedPathSchema).max(48).default([]),
   candidateIdentity: z.string().min(1).max(160).nullable().optional(),
   /**
+   * A proof-backed skill selected by the server-owned mission plan. Runtime
+   * dispatch resolves this identity against the project registry; the model
+   * never supplies registry, candidate, or proof fields.
+   */
+  skill: z.object({
+    skillId: z.string().trim().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    skillVersion: z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/),
+  }).strict().optional(),
+  /**
    * Required by server-owned external delivery recipes. It is not a remote,
    * credential, or execution control; the API validates its project ownership
    * and committed lifecycle before dispatch.

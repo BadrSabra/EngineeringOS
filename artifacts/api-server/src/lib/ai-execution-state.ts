@@ -115,6 +115,17 @@ export type RecipeOperationBudget = {
   maxOutputBytes: number;
 };
 
+export type RecipeSkillRegistryBinding = {
+  registryId: string;
+  skillId: string;
+  skillVersion: string;
+  candidateId: string;
+  sourceRevision: string;
+  candidateTreeHash: string;
+  proofReceiptId: string;
+  shadowReplayId: string;
+};
+
 export type RecipeOperationBinding = {
   projectId: string;
   operationId: string;
@@ -130,6 +141,7 @@ export type RecipeOperationBinding = {
     maxInFlightNodes: number;
     maxProcesses: number;
   };
+  skillRegistryBinding?: RecipeSkillRegistryBinding;
 };
 
 export type RecipeBindingExpectation = {
@@ -179,6 +191,14 @@ function validRecipeBudget(value: unknown): value is RecipeOperationBudget {
     && Number.isInteger(budget.maxOutputBytes) && budget.maxOutputBytes! >= 1 && budget.maxOutputBytes! <= 8 * 1024 * 1024;
 }
 
+function validSkillRegistryBinding(value: unknown): value is RecipeSkillRegistryBinding {
+  if (!value || typeof value !== "object") return false;
+  const binding = value as Partial<RecipeSkillRegistryBinding>;
+  return [binding.registryId, binding.skillId, binding.skillVersion, binding.candidateId,
+    binding.sourceRevision, binding.candidateTreeHash, binding.proofReceiptId, binding.shadowReplayId]
+    .every((item) => typeof item === "string" && item.length >= 1 && item.length <= 240);
+}
+
 function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<RecipeOperationBinding> & {
@@ -208,6 +228,7 @@ function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | u
     || concurrencyBudget.maxInFlightNodes < 1 || concurrencyBudget.maxInFlightNodes > 8
     || !Number.isInteger(concurrencyBudget.maxProcesses)
     || concurrencyBudget.maxProcesses < 1 || concurrencyBudget.maxProcesses > 24
+    || (candidate.skillRegistryBinding !== undefined && !validSkillRegistryBinding(candidate.skillRegistryBinding))
   ) return undefined;
   return {
     projectId: candidate.projectId,
@@ -224,6 +245,9 @@ function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | u
       maxInFlightNodes: concurrencyBudget.maxInFlightNodes,
       maxProcesses: concurrencyBudget.maxProcesses,
     },
+    ...(candidate.skillRegistryBinding
+      ? { skillRegistryBinding: { ...candidate.skillRegistryBinding } }
+      : {}),
   };
 }
 
@@ -239,6 +263,7 @@ export function createRecipeOperationBinding(params: {
   leaseUntil?: Date | string | null;
   missionBudget?: Partial<RecipeOperationBudget>;
   concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
+  skillRegistryBinding?: RecipeSkillRegistryBinding;
 }): RecipeOperationBinding {
   const binding = parseRecipeOperationBinding({
     projectId: params.projectId,
@@ -261,6 +286,7 @@ export function createRecipeOperationBinding(params: {
       maxInFlightNodes: params.concurrencyBudget?.maxInFlightNodes ?? 3,
       maxProcesses: params.concurrencyBudget?.maxProcesses ?? 8,
     },
+    ...(params.skillRegistryBinding ? { skillRegistryBinding: params.skillRegistryBinding } : {}),
   });
   if (!binding) throw new Error("Invalid server-owned recipe operation binding.");
   return binding;

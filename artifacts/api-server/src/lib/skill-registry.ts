@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import { aiSkillRegistryTable, db } from "@workspace/db";
 import type { DeliveryPairedBaselineComparison } from "./paired-baseline-delivery.js";
 
 export const SKILL_REGISTRY_CONTRACT_VERSION = 1 as const;
@@ -11,6 +13,86 @@ export const SkillRegistryIdentitySchema = z.object({
 }).strict();
 
 export type SkillRegistryIdentity = z.infer<typeof SkillRegistryIdentitySchema>;
+
+export type ActiveSkillRegistryBinding = SkillRegistryIdentity & {
+  registryId: string;
+  candidateId: string;
+  sourceRevision: string;
+  candidateTreeHash: string;
+  proofReceiptId: string;
+  shadowReplayId: string;
+};
+
+export class SkillRegistryRuntimeError extends Error {
+  readonly code = "SKILL_REGISTRY_NOT_ACTIVE";
+
+  constructor(message = "The requested skill is not promoted and active for this project binding.") {
+    super(message);
+    this.name = "SkillRegistryRuntimeError";
+  }
+}
+
+/**
+ * Resolve a skill at the execution boundary. Registry state is intentionally
+ * read on every call instead of cached so an operator revocation takes effect
+ * before the next recipe node, including a resumed execution.
+ */
+export async function requireActiveSkillRegistry(params: {
+  projectId: string;
+  skillId: string;
+  skillVersion: string;
+  candidateId: string | null | undefined;
+  sourceRevision: string;
+  candidateTreeHash: string | null | undefined;
+  registryId?: string;
+  proofReceiptId?: string;
+  shadowReplayId?: string;
+}): Promise<ActiveSkillRegistryBinding> {
+  if (!params.candidateId || !params.candidateTreeHash) {
+    throw new SkillRegistryRuntimeError(
+      "A registered skill requires a bound candidate identity before execution.",
+    );
+  }
+  const [row] = await db
+    .select()
+    .from(aiSkillRegistryTable)
+    .where(and(
+      eq(aiSkillRegistryTable.projectId, params.projectId),
+      eq(aiSkillRegistryTable.skillId, params.skillId),
+      eq(aiSkillRegistryTable.skillVersion, params.skillVersion),
+      eq(aiSkillRegistryTable.candidateId, params.candidateId),
+      eq(aiSkillRegistryTable.sourceRevision, params.sourceRevision),
+      eq(aiSkillRegistryTable.candidateTreeHash, params.candidateTreeHash),
+      eq(aiSkillRegistryTable.promotionStatus, "promoted"),
+      eq(aiSkillRegistryTable.revocationStatus, "active"),
+      ...(params.registryId ? [eq(aiSkillRegistryTable.id, params.registryId)] : []),
+      ...(params.proofReceiptId ? [eq(aiSkillRegistryTable.proofReceiptId, params.proofReceiptId)] : []),
+      ...(params.shadowReplayId ? [eq(aiSkillRegistryTable.shadowReplayId, params.shadowReplayId)] : []),
+    ))
+    .limit(1);
+  if (!row) throw new SkillRegistryRuntimeError();
+  const score = SkillShadowScoreSchema.safeParse(row.shadowScore);
+  if (!score.success || score.data.status !== "passed" || score.data.promotionAllowed !== true) {
+    throw new SkillRegistryRuntimeError(
+      "The registered skill no longer has a server-accepted Gate 3 score.",
+    );
+  }
+  if (!row.proofReceiptId || !row.shadowReplayId) {
+    throw new SkillRegistryRuntimeError(
+      "The registered skill is missing its proof or shadow replay binding.",
+    );
+  }
+  return {
+    skillId: row.skillId,
+    skillVersion: row.skillVersion,
+    registryId: row.id,
+    candidateId: row.candidateId,
+    sourceRevision: row.sourceRevision,
+    candidateTreeHash: row.candidateTreeHash,
+    proofReceiptId: row.proofReceiptId,
+    shadowReplayId: row.shadowReplayId,
+  };
+}
 
 export type SkillShadowScore = {
   contractVersion: typeof SKILL_REGISTRY_CONTRACT_VERSION;

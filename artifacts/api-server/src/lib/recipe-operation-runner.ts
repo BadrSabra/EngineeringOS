@@ -43,6 +43,7 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
   type RecipeOperationBinding,
+  type RecipeSkillRegistryBinding,
 } from "./ai-execution-state.js";
 import { RecipeReceiptSchema, type RecipeReceipt } from "@workspace/ai-orchestrator";
 import { runRepairValidation } from "./ai-repair-validation.js";
@@ -51,6 +52,10 @@ import {
   parseTaskObjectiveContract,
   type TaskObjectiveValidatorReceipt,
 } from "./task-objective-contract.js";
+import {
+  requireActiveSkillRegistry,
+  type ActiveSkillRegistryBinding,
+} from "./skill-registry.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -68,6 +73,7 @@ export type PrepareRecipeOperationParams = {
   githubDeliveryRunner?: GitHubDeliveryRunner;
   databaseReadRunner?: NonNullable<RecipeCapabilityRuntime["databaseReadRunner"]>;
   validationRunner?: ValidationRunner;
+  skillBinding?: ActiveSkillRegistryBinding;
 };
 
 export type PreparedRecipeOperation = {
@@ -168,6 +174,20 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       maxInFlightNodes: definition.maxParallelNodes,
       maxProcesses: definition.maxParallelNodes,
     },
+    ...(params.skillBinding
+      ? {
+          skillRegistryBinding: {
+            registryId: params.skillBinding.registryId,
+            skillId: params.skillBinding.skillId,
+            skillVersion: params.skillBinding.skillVersion,
+            candidateId: params.skillBinding.candidateId,
+            sourceRevision: params.skillBinding.sourceRevision,
+            candidateTreeHash: params.skillBinding.candidateTreeHash,
+            proofReceiptId: params.skillBinding.proofReceiptId,
+            shadowReplayId: params.skillBinding.shadowReplayId,
+          } satisfies RecipeSkillRegistryBinding,
+        }
+      : {}),
   });
   if (compiled.plan.nodes.length > binding.missionBudget.maxNodes
     || definition.maxParallelNodes !== binding.concurrencyBudget.maxInFlightNodes) {
@@ -413,6 +433,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   receipt: RecipeReceipt;
 }> {
   const prepared = prepareRecipeOperation(params);
+  if (params.skillBinding) {
+    await requireActiveSkillRegistry({
+      projectId: params.projectId,
+      skillId: params.skillBinding.skillId,
+      skillVersion: params.skillBinding.skillVersion,
+      candidateId: params.candidateIdentity,
+      sourceRevision: params.sourceRevision,
+      candidateTreeHash: params.candidateIdentity,
+      registryId: params.skillBinding.registryId,
+      proofReceiptId: params.skillBinding.proofReceiptId,
+      shadowReplayId: params.skillBinding.shadowReplayId,
+    });
+  }
   const candidateRoot = await canonicalCandidateWorkspace(params.candidateWorkspace);
   const executionRoot = candidateRoot ?? path.resolve(params.rootPath);
   const executionRequest = {
@@ -426,6 +459,20 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     validationTargetPaths: normalizedPaths(params.approvedPaths),
     ...(params.validationProfiles ? { validationProfiles: [...params.validationProfiles] } : {}),
     ...(params.proofRequired ? { proofRequired: true } : {}),
+    ...(params.skillBinding
+      ? {
+          skillRegistryBinding: {
+            registryId: params.skillBinding.registryId,
+            skillId: params.skillBinding.skillId,
+            skillVersion: params.skillBinding.skillVersion,
+            candidateId: params.skillBinding.candidateId,
+            sourceRevision: params.skillBinding.sourceRevision,
+            candidateTreeHash: params.skillBinding.candidateTreeHash,
+            proofReceiptId: params.skillBinding.proofReceiptId,
+            shadowReplayId: params.skillBinding.shadowReplayId,
+          },
+        }
+      : {}),
   };
   const created = await createAiExecution({
     userId: params.userId,
@@ -568,6 +615,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           if (currentCandidateRoot !== executionRoot) {
             return { status: "blocked" as const, detail: "Recipe candidate workspace canonical identity changed." };
           }
+        }
+        if (params.skillBinding) {
+          await requireActiveSkillRegistry({
+            projectId: params.projectId,
+            skillId: params.skillBinding.skillId,
+            skillVersion: params.skillBinding.skillVersion,
+            candidateId: params.candidateIdentity,
+            sourceRevision: params.sourceRevision,
+            candidateTreeHash: params.candidateIdentity,
+            registryId: params.skillBinding.registryId,
+            proofReceiptId: params.skillBinding.proofReceiptId,
+            shadowReplayId: params.skillBinding.shadowReplayId,
+          });
         }
         const nodeController = new AbortController();
         const abortNode = () => nodeController.abort();

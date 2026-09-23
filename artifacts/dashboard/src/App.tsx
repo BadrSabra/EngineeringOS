@@ -19,6 +19,7 @@ import AiChat from '@/pages/AiChat';
 import FlightDeck from '@/pages/FlightDeck';
 import MissionControl from '@/pages/MissionControl';
 import Missions from '@/pages/Missions';
+import SkillRegistry from '@/pages/SkillRegistry';
 import Landing from '@/pages/Landing';
 import SignInPage from '@/pages/SignIn';
 import SignUpPage from '@/pages/SignUp';
@@ -135,6 +136,9 @@ function Router() {
       </Route>
       <Route path="/missions">
         <ProtectedRoute component={Missions} />
+      </Route>
+      <Route path="/skill-registry">
+        <ProtectedRoute component={SkillRegistry} />
       </Route>
       <Route component={NotFound} />
     </Switch>
