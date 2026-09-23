@@ -55,6 +55,7 @@
 - [AI budget admission](ai-budget-admission.md) — reserve each provider fallback attempt before work; token-limit reservation remains a separate contract.
 - [Duplicate source-read replay](duplicate-read-replay.md) — cached forensic reads remain usable evidence and must not force a no-tool synthesis turn.
 - [API runtime schema gate](api-runtime-schema-gate.md) — API build success does not imply startup or integration readiness; current Drizzle schema must exist before runtime validation.
+- [Mission schema readiness](mission-schema-readiness.md) — reconciliation workers query Mission/Goal tables at startup; schema readiness must precede durable worker execution.
 - [Execution-plan scope aliases](execution-plan-scope-aliases.md) — TurnIntent task types need normalization before legacy scope-based profile inference, while callers may retain their original scope labels.
 - [Context slice health](context-slice-health.md) — keep empty, skipped, loaded, and failed reads distinct from freshness and admission state.
 - [Compound intent routing](compound-intent-routing.md) — compound requests retain first-read evidence ordering while later proposal tools are derived separately from forensic isolation.
