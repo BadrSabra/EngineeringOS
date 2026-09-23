@@ -20,6 +20,7 @@ import {
   aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  aiShadowReplaysTable,
   aiApplyJournalTable,
   auditLogsTable,
   eventsTable,
@@ -238,7 +239,10 @@ import {
   atomicallyPromoteFile,
   writeDeliveryWorkspaceFile,
 } from "../../lib/delivery-workspace.js";
-import { decideDeliveryPromotion } from "../../lib/ai-promotion-decision.js";
+import {
+  decideDeliveryPromotion,
+  decideDeliveryPromotionWithPairedBaseline,
+} from "../../lib/ai-promotion-decision.js";
 import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 import {
   getAiExecutionDiagnostics,
@@ -1562,6 +1566,11 @@ function getDeliveryPromotionDecision(params: {
   observedCandidateTreeHash?: string | null;
   observedChangeSetHash?: string | null;
   observedTreeDigestVersion?: string | null;
+  pairedBaseline?: {
+    status: "incomplete" | "regressed" | "passed";
+    promotionAllowed: boolean;
+  };
+  requirePairedBaseline?: boolean;
 }) {
   let parsedChanges: unknown;
   try {
@@ -1582,7 +1591,7 @@ function getDeliveryPromotionDecision(params: {
       ))
     : [];
 
-  return decideDeliveryPromotion({
+  const input = {
     changes,
     validationResults: parsePublicValidationReceipts(params.validationEvidence),
     expectedCandidateTreeHash: params.proposal.candidateTreeHash,
@@ -1592,7 +1601,80 @@ function getDeliveryPromotionDecision(params: {
     expectedTreeDigestVersion: params.proposal.treeDigestVersion,
     observedTreeDigestVersion: params.observedTreeDigestVersion,
     approvalRequired: params.proposal.approvalRequired,
-  });
+  };
+  return params.requirePairedBaseline
+    ? decideDeliveryPromotionWithPairedBaseline(input, params.pairedBaseline)
+    : decideDeliveryPromotion(input);
+}
+
+function parsePairedBaselineComparison(value: unknown, expected?: {
+  candidateId: string;
+  candidateTreeHash: string | null;
+}): {
+  status: "incomplete" | "regressed" | "passed";
+  promotionAllowed: boolean;
+} | undefined {
+  const receipt = parseStoredJson(value);
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return undefined;
+  const paired = (receipt as Record<string, unknown>).pairedBaseline;
+  if (!paired || typeof paired !== "object" || Array.isArray(paired)) return undefined;
+  const record = paired as Record<string, unknown>;
+  if (
+    (record.status !== "incomplete" && record.status !== "regressed" && record.status !== "passed")
+    || typeof record.promotionAllowed !== "boolean"
+  ) return undefined;
+  if (
+    typeof record.candidateRunId !== "string"
+    || typeof record.candidateWorkspaceHash !== "string"
+    || typeof record.contract !== "object"
+    || record.contract === null
+    || Array.isArray(record.contract)
+  ) return undefined;
+  const contract = record.contract as Record<string, unknown>;
+  if (
+    typeof contract.candidateId !== "string"
+    || typeof contract.candidateRunId !== "string"
+    || typeof contract.candidateWorkspaceHash !== "string"
+    || contract.candidateId !== expected?.candidateId
+    || contract.candidateRunId !== record.candidateRunId
+    || record.candidateWorkspaceHash !== contract.candidateWorkspaceHash
+    || (expected?.candidateTreeHash !== null
+      && record.candidateWorkspaceHash !== expected?.candidateTreeHash)
+    || record.promotionAllowed !== (record.status === "passed")
+  ) return undefined;
+  return {
+    status: record.status,
+    promotionAllowed: record.promotionAllowed,
+  };
+}
+
+async function loadPairedBaselineComparisonForProposal(
+  proposalId: string,
+  projectId: string,
+): Promise<{
+  status: "incomplete" | "regressed" | "passed";
+  promotionAllowed: boolean;
+} | undefined> {
+  const [replay] = await db
+    .select({
+      receipt: aiShadowReplaysTable.receipt,
+      candidateId: aiShadowReplaysTable.candidateId,
+      candidateTreeHash: aiShadowReplaysTable.candidateTreeHash,
+    })
+    .from(aiShadowReplaysTable)
+    .where(and(
+      eq(aiShadowReplaysTable.proposalId, proposalId),
+      eq(aiShadowReplaysTable.projectId, projectId),
+      eq(aiShadowReplaysTable.status, "completed"),
+    ))
+    .orderBy(desc(aiShadowReplaysTable.updatedAt))
+    .limit(1);
+  return replay
+    ? parsePairedBaselineComparison(replay.receipt, {
+        candidateId: replay.candidateId,
+        candidateTreeHash: replay.candidateTreeHash,
+      })
+    : undefined;
 }
 
 const serverAutoPromotionRequests = new WeakSet<Request>();
@@ -12500,12 +12582,18 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
       ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
       : null;
     const latestEvidence = validationEvidence?.at(-1)?.evidence;
+    const pairedBaseline = await loadPairedBaselineComparisonForProposal(
+      proposal.id,
+      proposal.projectId,
+    );
     const promotion = getDeliveryPromotionDecision({
       proposal,
       validationEvidence: validationEvidence ?? [],
       observedCandidateTreeHash: latestEvidence?.candidateHash,
       observedChangeSetHash: latestEvidence?.changeSetHash,
       observedTreeDigestVersion: latestEvidence?.treeDigestVersion,
+      pairedBaseline,
+      requirePairedBaseline: true,
     });
     const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
       ? "discarded"
@@ -12681,12 +12769,18 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   }
   const passed = results.length === groups.size && results.length > 0
     && results.every((result) => result.status === "passed");
+  const pairedBaseline = await loadPairedBaselineComparisonForProposal(
+    proposal.id,
+    proposal.projectId,
+  );
   const promotion = getDeliveryPromotionDecision({
     proposal,
     validationEvidence: results,
     observedCandidateTreeHash: candidateHash,
     observedChangeSetHash: changeSetHash,
     observedTreeDigestVersion: proposal.treeDigestVersion ?? DELIVERY_TREE_DIGEST_VERSION,
+    pairedBaseline,
+    requirePairedBaseline: true,
   });
   const evidence = JSON.stringify(results);
   const [updated] = await db.update(aiChangeProposalsTable).set({
@@ -13777,12 +13871,18 @@ async function applyChangesHandler(req: Request, res: Response) {
           status: validation.status,
           evidence: "evidence" in validation ? validation.evidence : undefined,
         }));
+      const pairedBaseline = await loadPairedBaselineComparisonForProposal(
+        proposal.id,
+        projectId,
+      );
       const currentPromotion = getDeliveryPromotionDecision({
         proposal,
         validationEvidence: currentValidationEvidence,
         observedCandidateTreeHash: candidateHashBeforePromotion,
         observedChangeSetHash: effectiveChangeSetHash,
         observedTreeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
+        pairedBaseline,
+        requirePairedBaseline: true,
       });
       if (policy?.mode !== "eligible_auto_promote") {
         automaticPromotionBlockedReason = "Automatic delivery promotion was disabled before the candidate could be promoted.";

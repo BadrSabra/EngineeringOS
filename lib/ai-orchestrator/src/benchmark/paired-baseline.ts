@@ -33,6 +33,7 @@ export type PairedBaselineContract = {
   candidateRunId: string;
   baselineWorkspaceHash: string;
   candidateWorkspaceHash: string;
+  candidateId: string;
 };
 
 export type PairedBaselineMetricDeltas = {
@@ -157,6 +158,9 @@ function validateContract(
     contract.kind !== "code-agent-benchmark-paired-contract" ||
     contract.version !== PAIRED_BASELINE_VERSION
   ) addBlocker(blockers, "paired baseline contract is unsupported");
+  if (typeof contract.candidateId !== "string" || !contract.candidateId.trim()) {
+    addBlocker(blockers, "paired baseline candidate identity is missing");
+  }
   for (const [label, value] of [
     ["pair id", contract.pairId],
     ["suite version", contract.suiteVersion],

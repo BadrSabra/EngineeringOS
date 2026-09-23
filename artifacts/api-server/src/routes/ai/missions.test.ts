@@ -41,6 +41,7 @@ import { buildTaskObjectiveContract } from "../../lib/task-objective-contract.js
 
 const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
+const shadowSourceRoots: string[] = [];
 
 async function insertProject(ownerId = "test-user") {
   const id = randomUUID();
@@ -66,6 +67,9 @@ afterEach(async () => {
   }
   for (const workspaceRoot of shadowWorkspaceRoots.splice(0)) {
     await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+  for (const sourceRoot of shadowSourceRoots.splice(0)) {
+    await fs.rm(sourceRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 });
 
@@ -555,6 +559,8 @@ describe("AI missions and goals", () => {
     }), "utf8");
     await fs.symlink(path.join(process.cwd(), "node_modules"), `${sourceRoot}/node_modules`, "dir");
     await fs.writeFile(`${sourceRoot}/src/index.ts`, "export const old = false;\n", "utf8");
+    shadowSourceRoots.push(sourceRoot);
+    await db.update(projectsTable).set({ rootPath: sourceRoot }).where(eq(projectsTable.id, projectId));
     const deliveryWorkspace = await createDeliveryWorkspace({
       rootPath: sourceRoot,
       operationId,
@@ -562,7 +568,6 @@ describe("AI missions and goals", () => {
       changes: [{ path: "src/index.ts", newContent: "export const ok = true;" }],
     });
     shadowWorkspaceRoots.push(deliveryWorkspace.workspaceRoot);
-    await fs.rm(sourceRoot, { recursive: true, force: true });
     const candidateTreeHash = deliveryWorkspace.candidateTreeHash;
     const changeSetHash = deliveryWorkspace.changeSetHash;
     const taskObjective = buildTaskObjectiveContract({
@@ -892,6 +897,7 @@ describe("AI missions and goals", () => {
     await fs.symlink(path.join(process.cwd(), "node_modules"), `${sourceRoot}/node_modules`, "dir");
     await fs.writeFile(`${sourceRoot}/src/index.ts`, "export const recovered = true;\n", "utf8");
     shadowWorkspaceRoots.push(sourceRoot);
+    await db.update(projectsTable).set({ rootPath: sourceRoot }).where(eq(projectsTable.id, projectId));
     const replayWorkspace = await createValidationWorkspace(sourceRoot, [], async () => undefined);
     shadowWorkspaceRoots.push(replayWorkspace.rootPath);
     const candidateTreeHash = await hashDeliveryTree(replayWorkspace.rootPath);

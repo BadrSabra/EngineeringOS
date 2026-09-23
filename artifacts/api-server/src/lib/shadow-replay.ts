@@ -3,10 +3,12 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
+  aiChangeProposalsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
   aiShadowReplaysTable,
+  projectsTable,
   db,
 } from "@workspace/db";
 import {
@@ -41,6 +43,7 @@ import {
   type TaskObjectiveContract,
 } from "./task-objective-contract.js";
 import type { ValidationRunner } from "@workspace/ai-orchestrator";
+import { runDeliveryPairedBaseline } from "./paired-baseline-delivery.js";
 
 const SHADOW_REPLAY_LEASE_MS = 5 * 60 * 1000;
 const SHADOW_REPLAY_MAX_FILE_BYTES = 512_000;
@@ -101,6 +104,19 @@ export type DurableShadowReplayReceipt = ShadowReplayReceipt & {
       engine: "server-registered-validation";
       profiles: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
     };
+  };
+  pairedBaseline: {
+    status: "incomplete" | "regressed" | "passed";
+    promotionAllowed: boolean;
+    contract: unknown;
+    baselineRunId: string;
+    candidateRunId: string;
+    baselineWorkspaceHash: string;
+    candidateWorkspaceHash: string;
+    metricDeltas?: Record<string, number>;
+    terminalMismatchCount: number;
+    cases: unknown[];
+    blockers: string[];
   };
 };
 
@@ -798,16 +814,6 @@ export async function runShadowReplayAttempt(
         "The server-owned candidate verification recipe did not reach terminal success.",
       );
     }
-    const workspaceCleaned = await cleanupReplayWorkspace({
-      ...claimedReplay,
-      replayWorkspaceRoot: replayRoot,
-    });
-    if (!workspaceCleaned) {
-      throw new ShadowReplayError(
-        "SHADOW_REPLAY_CLEANUP_FAILED",
-        "The disposable replay workspace could not be cleaned up.",
-      );
-    }
     const evidenceRefs = [
       `shadow-replay:${replay.id}:tree:pre`,
       `shadow-replay:${replay.id}:tree:post`,
@@ -879,6 +885,56 @@ export async function runShadowReplayAttempt(
         "The replay execution produced accepted proof without a durable acceptance identity.",
       );
     }
+    const [project] = await db
+      .select({
+        rootPath: projectsTable.rootPath,
+      })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, replay.projectId))
+      .limit(1);
+    const [proposal] = await db
+      .select({ baseTreeHash: aiChangeProposalsTable.baseTreeHash })
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, replay.proposalId),
+        eq(aiChangeProposalsTable.projectId, replay.projectId),
+      ))
+      .limit(1);
+    if (!project?.rootPath || !proposal) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_BASELINE_UNAVAILABLE",
+        "The persisted source workspace is unavailable for the paired baseline.",
+      );
+    }
+    const paired = await runDeliveryPairedBaseline({
+      replayId: replay.id,
+      candidateId: replay.candidateId,
+      sourceRevision: replay.sourceRevision,
+      baselineSourceRoot: project.rootPath,
+      candidateWorkspaceRoot: replayRoot,
+      projectId: replay.projectId,
+      missionId: replayScope.missionId,
+      goalId: replayScope.goalId,
+      planRevision,
+      activePlanRevision,
+      objective: JSON.stringify(request.taskObjective ?? request.objective),
+      approvedPaths,
+      validationProfiles,
+      maxPaths: SHADOW_REPLAY_MAX_PATHS,
+      maxTotalBytes: SHADOW_REPLAY_MAX_TOTAL_BYTES,
+      expectedBaselineWorkspaceHash: proposal.baseTreeHash,
+    });
+    const workspaceCleaned = await cleanupReplayWorkspace({
+      ...claimedReplay,
+      replayWorkspaceRoot: replayRoot,
+    });
+    await paired.cleanup();
+    if (!workspaceCleaned) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_CLEANUP_FAILED",
+        "The disposable replay workspace could not be cleaned up.",
+      );
+    }
     const receipt: DurableShadowReplayReceipt = {
       contractVersion: 1,
       runId: replay.id,
@@ -917,6 +973,7 @@ export async function runShadowReplayAttempt(
           profiles: validationProfiles,
         },
       },
+      pairedBaseline: paired.result.comparison,
     };
     await updateReplay(replay.id, {
       status: "completed",

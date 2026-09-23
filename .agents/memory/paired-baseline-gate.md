@@ -7,4 +7,4 @@ Gate 3 is a counterfactual comparison, not an aggregate scorecard check. Baselin
 
 **Why:** Aggregate metrics can hide a terminal-outcome change, an unauthorized call, or a missing evidence window in one case. The candidate must be compared against its paired witness before any promotion path can treat it as eligible.
 
-**How to apply:** Keep the paired contract and comparison metadata-only and provider-independent. Let server-owned adapters supply workspace hashes and bounded telemetry; never let provider prose set paired metrics or the final status. Persist and project the comparison before wiring it into durable shadow-replay promotion.
+**How to apply:** Keep the paired contract and comparison metadata-only and provider-independent. Let server-owned adapters supply workspace hashes and bounded telemetry; never let provider prose set paired metrics or the final status. Bind the baseline workspace to the persisted base-tree identity rather than a mutable project timestamp, then persist and project the comparison through the existing shadow-replay receipt before promotion.

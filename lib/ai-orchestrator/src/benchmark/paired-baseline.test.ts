@@ -65,6 +65,7 @@ function contract(overrides: Partial<PairedBaselineContract> = {}): PairedBaseli
     candidateRunId: "candidate-run",
     baselineWorkspaceHash,
     candidateWorkspaceHash,
+    candidateId: "candidate-001",
     ...overrides,
   };
 }
