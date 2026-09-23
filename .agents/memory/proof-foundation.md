@@ -14,3 +14,9 @@ Mission projections must revalidate stored Skill Candidate envelopes and their e
 **Why:** Candidate envelopes contain provider/runtime-derived fields and can outlive the acceptance that created them. Revalidating at the read boundary prevents malformed or unbound candidates from appearing as proven after reload.
 
 **How to apply:** Use the existing Skill Candidate validator plus execution-proof parser in projection builders, and expose only a bounded proof summary to clients.
+
+The foundation is not yet the sole authority: task/workflow/recipe status synchronization and candidate/shadow validation still contain independent projection-based checks. Consolidate those callers before treating replay or promotion as proof-carrying.
+
+**Why:** A strong composer cannot prevent weaker callers from marking a Goal complete or accepting a candidate before the canonical execution/acceptance/evidence rows are reloaded and bound.
+
+**How to apply:** Add a server-owned row-loading canonical-proof service, route every terminal/candidate decision through it, then make replay receipts and promotion eligibility reference that same proof identity.
