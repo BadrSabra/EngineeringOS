@@ -8,3 +8,9 @@ The canonical completion verdict is composed from the durable execution, accepta
 **Why:** Provider success and copied projection fields can disagree with server-owned evidence or identity bindings; accepting either one alone can mark a stale, incomplete, or cross-scope execution as complete.
 
 **How to apply:** Keep completion gates on the canonical composition layer, validate projection fields against acceptance/evidence, and preserve one database lock order (Mission before Goal) for Mission and Goal terminal checks.
+
+Mission projections must revalidate stored Skill Candidate envelopes and their embedded execution-proof projection before exposing them to the dashboard; stored proposal JSON is not trusted presentation data.
+
+**Why:** Candidate envelopes contain provider/runtime-derived fields and can outlive the acceptance that created them. Revalidating at the read boundary prevents malformed or unbound candidates from appearing as proven after reload.
+
+**How to apply:** Use the existing Skill Candidate validator plus execution-proof parser in projection builders, and expose only a bounded proof summary to clients.
