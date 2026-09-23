@@ -47,6 +47,10 @@ import {
 import { RecipeReceiptSchema, type RecipeReceipt } from "@workspace/ai-orchestrator";
 import { runRepairValidation } from "./ai-repair-validation.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
+import {
+  parseTaskObjectiveContract,
+  type TaskObjectiveValidatorReceipt,
+} from "./task-objective-contract.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -58,6 +62,7 @@ export type PrepareRecipeOperationParams = {
   approvedPaths?: readonly string[];
   candidateIdentity?: string | null;
   candidateWorkspace?: string | null;
+  validationProfiles?: readonly ("workspace-typecheck" | "ai-orchestrator-tests")[];
   deliveryMessage?: string;
   browserValidationRunner?: BrowserValidationRunner;
   githubDeliveryRunner?: GitHubDeliveryRunner;
@@ -108,6 +113,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
     recipeVersion: params.recipeVersion,
     approvedPaths,
     candidateIdentity: params.candidateIdentity ?? null,
+    ...(params.validationProfiles ? { validationProfiles: [...params.validationProfiles] } : {}),
     ...(params.deliveryMessage ? { deliveryMessage: params.deliveryMessage } : {}),
   });
   const registry = createServerCapabilityRegistry(
@@ -418,6 +424,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     modelMessage: `recipe:${params.operationId}`,
     workspaceRevision: params.sourceRevision,
     validationTargetPaths: normalizedPaths(params.approvedPaths),
+    ...(params.validationProfiles ? { validationProfiles: [...params.validationProfiles] } : {}),
     ...(params.proofRequired ? { proofRequired: true } : {}),
   };
   const created = await createAiExecution({
@@ -758,6 +765,28 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       return { executionId: claimed.id, status: "blocked", completedNodeIds: result.completedNodeIds, receipt };
     }
     const completedReceipt = buildRecipeReceipt(params, claimed.id, claimed.attempt, "completed", result.nodes, outputs, result.completedNodeIds);
+    let taskObjective;
+    try {
+      taskObjective = parseTaskObjectiveContract(
+        (JSON.parse(claimed.request) as { taskObjective?: unknown }).taskObjective,
+      );
+    } catch {
+      taskObjective = undefined;
+    }
+    const validatorEvidence = completionEvidence[0];
+    const validatorReceipts: TaskObjectiveValidatorReceipt[] = taskObjective && validatorEvidence
+      ? taskObjective.validatorIds.map((validatorId) => {
+          const evidence = validatorEvidence;
+          return {
+            validatorId,
+            status: "PROVEN" as const,
+            operationId: evidence.operationId,
+            projectId: params.projectId,
+            workspaceRevision: evidence.projectRevision,
+            artifactRef: evidence.artifactRef,
+          };
+        })
+      : [];
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -767,6 +796,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       evidence: completionEvidence,
       operationId: params.operationId,
       candidateIdentity: params.candidateIdentity ?? null,
+      ...(taskObjective
+        ? {
+            taskObjective,
+            validatorReceipts,
+            objectiveValidated: true,
+          }
+        : {}),
       recipeBinding: { ...prepared.binding, phase: "running", leaseOwner: workerId, leaseUntil: new Date(Date.now() + 300_000).toISOString() },
       nodeStates: result.nodes.map((node) => ({
         id: node.id,

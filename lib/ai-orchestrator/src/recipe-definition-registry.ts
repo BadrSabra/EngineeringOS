@@ -27,10 +27,16 @@ function targetPaths(request: RecipeRequest): string[] {
   return [...request.approvedPaths];
 }
 
+function validationProfiles(request: RecipeRequest): Array<"workspace-typecheck" | "ai-orchestrator-tests"> {
+  return request.validationProfiles?.length
+    ? [...new Set(request.validationProfiles)]
+    : ["workspace-typecheck", "ai-orchestrator-tests"];
+}
+
 function definition(
   recipeId: string,
   nodes: (request: RecipeRequest) => CapabilityRecipe["nodes"],
-  outcome: CapabilityRecipe["outcome"],
+  outcome: CapabilityRecipe["outcome"] | ((request: RecipeRequest) => CapabilityRecipe["outcome"]),
   executionPolicy: RecipeExecutionPolicy,
   maxParallelNodes = 1,
   maxRisk: RecipeDefinition["maxRisk"] = "low",
@@ -41,7 +47,7 @@ function definition(
     recipeVersion: request.recipeVersion,
     nodes: nodes(request),
     transitions: [],
-    outcome,
+    outcome: typeof outcome === "function" ? outcome(request) : outcome,
   });
   const sample = buildRecipe({
     recipeId,
@@ -55,7 +61,7 @@ function definition(
     recipeVersion: 1,
     nodes: sample.nodes,
     transitions: sample.transitions,
-    outcome,
+    outcome: sample.outcome,
     executionPolicy,
     maxParallelNodes,
     maxRisk,
@@ -139,36 +145,42 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
     definition(
       "candidate.verify",
       (request) => [
-        {
-          id: "workspace-typecheck",
-          title: "Typecheck the candidate workspace",
-          capabilityId: "validation.run.workspace-typecheck",
+        ...validationProfiles(request).map((profile, index) => ({
+          id: profile === "workspace-typecheck" ? "workspace-typecheck" : "focused-validation",
+          title: profile === "workspace-typecheck"
+            ? "Typecheck the candidate workspace"
+            : "Run focused candidate validation",
+          capabilityId: `validation.run.${profile}`,
           recipeVersion: 1,
           input: { targetPaths: targetPaths(request) },
-          dependsOn: [],
+          dependsOn: index === 0
+            ? []
+            : [validationProfiles(request)[index - 1] === "workspace-typecheck"
+              ? "workspace-typecheck"
+              : "focused-validation"],
           declaredOutputs: ["status", "evidence"],
-        },
-        {
-          id: "focused-validation",
-          title: "Run focused candidate validation",
-          capabilityId: "validation.run.ai-orchestrator-tests",
-          recipeVersion: 1,
-          input: { targetPaths: targetPaths(request) },
-          dependsOn: ["workspace-typecheck"],
-          declaredOutputs: ["status", "evidence"],
-        },
+        })),
       ],
-      {
+      (request) => ({
         success: {
           kind: "all",
           predicates: [
-            { kind: "node_status", nodeId: "workspace-typecheck", status: "passed" },
-            { kind: "node_status", nodeId: "focused-validation", status: "passed" },
-            { kind: "evidence", nodeId: "focused-validation", evidenceType: "validation_passed" },
+            ...validationProfiles(request).map((profile) => ({
+              kind: "node_status" as const,
+              nodeId: profile === "workspace-typecheck" ? "workspace-typecheck" : "focused-validation",
+              status: "passed" as const,
+            })),
+            {
+              kind: "evidence" as const,
+              nodeId: validationProfiles(request).at(-1) === "workspace-typecheck"
+                ? "workspace-typecheck"
+                : "focused-validation",
+              evidenceType: "validation_passed" as const,
+            },
           ],
         },
         outputs: [],
-      },
+      }),
       CANDIDATE_VERIFY_POLICY,
     ),
     definition(

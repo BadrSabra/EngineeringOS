@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import app from "../../app.js";
 import {
@@ -36,6 +37,7 @@ import {
 } from "../../lib/ai-execution-state.js";
 import { prepareRecipeOperation } from "../../lib/recipe-operation-runner.js";
 import { runShadowReplayAttempt } from "../../lib/shadow-replay.js";
+import { buildTaskObjectiveContract } from "../../lib/task-objective-contract.js";
 
 const projectIds: string[] = [];
 const shadowWorkspaceRoots: string[] = [];
@@ -544,7 +546,14 @@ describe("AI missions and goals", () => {
     const now = new Date();
     const sourceRoot = `/tmp/mission-shadow-source-${operationId}`;
     await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
-    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+    await fs.writeFile(`${sourceRoot}/package.json`, JSON.stringify({
+      scripts: { typecheck: "tsc --noEmit" },
+    }), "utf8");
+    await fs.writeFile(`${sourceRoot}/tsconfig.json`, JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true },
+      include: ["src/**/*.ts"],
+    }), "utf8");
+    await fs.symlink(path.join(process.cwd(), "node_modules"), `${sourceRoot}/node_modules`, "dir");
     await fs.writeFile(`${sourceRoot}/src/index.ts`, "export const old = false;\n", "utf8");
     const deliveryWorkspace = await createDeliveryWorkspace({
       rootPath: sourceRoot,
@@ -556,6 +565,15 @@ describe("AI missions and goals", () => {
     await fs.rm(sourceRoot, { recursive: true, force: true });
     const candidateTreeHash = deliveryWorkspace.candidateTreeHash;
     const changeSetHash = deliveryWorkspace.changeSetHash;
+    const taskObjective = buildTaskObjectiveContract({
+      message: "Fix the candidate behavior.",
+      projectId,
+      workspaceRevision: sourceRevision,
+      targetPaths: ["src/index.ts"],
+      proofRequired: true,
+      operationMode: "BUILD",
+      implementationTaskMode: true,
+    })!;
     await db.insert(aiChatSessionsTable).values({
       id: sessionId,
       projectId,
@@ -593,7 +611,10 @@ describe("AI missions and goals", () => {
       priority: "p2",
       successCriteria: {},
       evidenceContract: {},
-      outcomeContract: { planRevision: { hash: planRevision } },
+      outcomeContract: {
+        planRevision: { hash: planRevision },
+        validationProfile: "workspace-typecheck",
+      },
       nextAction: {},
       createdAt: now,
       updatedAt: now,
@@ -627,7 +648,11 @@ describe("AI missions and goals", () => {
       userId: "test-user",
       idempotencyKey: `skill-candidate-${executionId}`,
       resumeTokenHash: "resume-hash",
-      request: JSON.stringify({ workspaceRevision: sourceRevision }),
+      baseRevision: sourceRevision,
+      request: JSON.stringify({
+        workspaceRevision: sourceRevision,
+        taskObjective,
+      }),
       checkpoint: "{}",
       status: "completed",
       createdAt: now,
@@ -855,6 +880,14 @@ describe("AI missions and goals", () => {
     const now = new Date();
     const sourceRoot = `/tmp/mission-shadow-recovery-source-${replayId}`;
     await fs.mkdir(`${sourceRoot}/src`, { recursive: true });
+    await fs.writeFile(`${sourceRoot}/package.json`, JSON.stringify({
+      scripts: { typecheck: "tsc --noEmit" },
+    }), "utf8");
+    await fs.writeFile(`${sourceRoot}/tsconfig.json`, JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true },
+      include: ["src/**/*.ts"],
+    }), "utf8");
+    await fs.symlink(path.join(process.cwd(), "node_modules"), `${sourceRoot}/node_modules`, "dir");
     await fs.writeFile(`${sourceRoot}/src/index.ts`, "export const recovered = true;\n", "utf8");
     shadowWorkspaceRoots.push(sourceRoot);
     const replayWorkspace = await createValidationWorkspace(sourceRoot, [], async () => undefined);
@@ -898,7 +931,10 @@ describe("AI missions and goals", () => {
       priority: "p2",
       successCriteria: {},
       evidenceContract: {},
-      outcomeContract: { planRevision: { hash: planRevision } },
+      outcomeContract: {
+        planRevision: { hash: planRevision },
+        validationProfile: "workspace-typecheck",
+      },
       nextAction: {},
       createdAt: now,
       updatedAt: now,
@@ -933,7 +969,17 @@ describe("AI missions and goals", () => {
       approvedPaths: ["src/index.ts"],
       candidateIdentity: candidateTreeHash,
       candidateWorkspace: replayWorkspace.rootPath,
+      validationProfiles: ["workspace-typecheck"],
     });
+    const taskObjective = buildTaskObjectiveContract({
+      message: "Fix the recovered candidate behavior.",
+      projectId,
+      workspaceRevision: sourceRevision,
+      targetPaths: ["src/index.ts"],
+      proofRequired: true,
+      operationMode: "BUILD",
+      implementationTaskMode: true,
+    })!;
     const created = await createAiExecution({
       userId,
       request: {
@@ -946,6 +992,8 @@ describe("AI missions and goals", () => {
         workspaceRevision: sourceRevision,
         workspaceRoot: replayWorkspace.rootPath,
         validationTargetPaths: ["src/index.ts"],
+        validationProfiles: ["workspace-typecheck"],
+        taskObjective,
         proofRequired: true,
       },
       idempotencyKey: executionIdempotencyKey,

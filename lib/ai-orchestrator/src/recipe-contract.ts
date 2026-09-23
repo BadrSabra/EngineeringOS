@@ -30,6 +30,9 @@ export const RecipeRequestSchema = z.object({
   recipeVersion: RecipeVersionSchema,
   approvedPaths: z.array(RecipeApprovedPathSchema).max(48).default([]),
   candidateIdentity: z.string().min(1).max(160).nullable().optional(),
+  validationProfiles: z.array(
+    z.enum(["workspace-typecheck", "ai-orchestrator-tests"]),
+  ).max(2).optional(),
   deliveryMessage: z.string().min(1).max(240).optional(),
 }).strict();
 export type RecipeRequest = z.infer<typeof RecipeRequestSchema>;

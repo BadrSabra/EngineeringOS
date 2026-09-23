@@ -770,6 +770,8 @@ export type AiExecutionRequestEnvelope = {
   objective?: unknown;
   taskObjective?: TaskObjectiveContract;
   validationTargetPaths: string[];
+  /** Server-owned validator profiles selected by the immutable task contract. */
+  validationProfiles?: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
   proofRequired?: boolean;
 };
 

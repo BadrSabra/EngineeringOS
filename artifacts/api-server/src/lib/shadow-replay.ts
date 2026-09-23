@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import ts from "typescript";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   aiExecutionsTable,
@@ -16,6 +15,7 @@ import {
 } from "./ai-execution-state.js";
 import {
   createValidationWorkspace,
+  runRepairValidation,
 } from "./ai-repair-validation.js";
 import {
   prepareRecipeOperation,
@@ -36,6 +36,10 @@ import {
   type CanonicalProof,
 } from "./proof-foundation.js";
 import { heavyJobQueue } from "./job-queue.js";
+import {
+  parseTaskObjectiveContract,
+  type TaskObjectiveContract,
+} from "./task-objective-contract.js";
 import type { ValidationRunner } from "@workspace/ai-orchestrator";
 
 const SHADOW_REPLAY_LEASE_MS = 5 * 60 * 1000;
@@ -94,9 +98,15 @@ export type DurableShadowReplayReceipt = ShadowReplayReceipt & {
     behavioralCheck: {
       status: "passed";
       checkedFileCount: number;
-      engine: "typescript-compiler-api";
+      engine: "server-registered-validation";
+      profiles: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
     };
   };
+};
+
+type ShadowReplayBehaviorContract = {
+  objective: TaskObjectiveContract;
+  validationProfiles: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
 };
 
 type ShadowReplayRow = typeof aiShadowReplaysTable.$inferSelect;
@@ -133,6 +143,98 @@ function activePlanRevisionFromMission(
   }
   const revision = (autonomyPolicy as { activePlanRevision?: unknown }).activePlanRevision;
   return typeof revision === "string" && revision.trim() ? revision : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function validationProfileFromGoal(
+  goal: Pick<typeof aiGoalsTable.$inferSelect, "outcomeContract" | "successCriteria">,
+): "workspace-typecheck" | "ai-orchestrator-tests" | undefined {
+  const outcome = recordValue(goal.outcomeContract);
+  const success = recordValue(goal.successCriteria);
+  const plan = recordValue(outcome?.planRevision ?? success?.planRevision);
+  const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+  const step = steps.find((candidate) =>
+    recordValue(candidate)?.id === outcome?.stepId,
+  );
+  const requested = outcome?.validationProfile ?? recordValue(step)?.validationProfile;
+  return requested === "workspace-typecheck" || requested === "ai-orchestrator-tests"
+    ? requested
+    : undefined;
+}
+
+async function resolveShadowReplayBehaviorContract(
+  input: ShadowReplayStartInput,
+): Promise<ShadowReplayBehaviorContract> {
+  if (!input.canonicalProof.executionId) {
+    throw new ShadowReplayError(
+      "SHADOW_REPLAY_OBJECTIVE_REQUIRED",
+      "Shadow replay requires the source execution that contains the immutable objective contract.",
+    );
+  }
+  const [sourceExecution] = await db
+    .select({
+      projectId: aiExecutionsTable.projectId,
+      baseRevision: aiExecutionsTable.baseRevision,
+      request: aiExecutionsTable.request,
+    })
+    .from(aiExecutionsTable)
+    .where(eq(aiExecutionsTable.id, input.canonicalProof.executionId))
+    .limit(1);
+  const [goal] = await db
+    .select({
+      outcomeContract: aiGoalsTable.outcomeContract,
+      successCriteria: aiGoalsTable.successCriteria,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.id, input.goalId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  let request: AiExecutionRequestEnvelope | undefined;
+  try {
+    request = sourceExecution ? JSON.parse(sourceExecution.request) as AiExecutionRequestEnvelope : undefined;
+  } catch {
+    request = undefined;
+  }
+  const objective = parseTaskObjectiveContract(request?.taskObjective);
+  const validationProfile = goal ? validationProfileFromGoal(goal) : undefined;
+  const objectiveTargetPaths = objective?.targetPaths ?? [];
+  const approved = new Set(input.candidate.approvedPaths);
+  const targetScopeCovered = objectiveTargetPaths.length > 0
+    && objectiveTargetPaths.every((target) => approved.has(target));
+  const objectiveBound =
+    sourceExecution?.projectId === input.projectId
+    && sourceExecution.baseRevision === input.sourceRevision
+    && objective?.projectId === input.projectId
+    && objective.workspaceRevision === input.sourceRevision;
+  const registeredValidatorOnly = objective?.validatorIds.length === 1
+    && objective.validatorIds[0] === "registered-validation.v1";
+  if (
+    !objective
+    || !validationProfile
+    || !objectiveBound
+    || !registeredValidatorOnly
+    || !targetScopeCovered
+    || objective.kind === "browser_workflow"
+    || objective.kind === "database_change"
+    || objective.kind === "deployment"
+    || objective.kind === "integration_task"
+  ) {
+    throw new ShadowReplayError(
+      "SHADOW_REPLAY_OBJECTIVE_UNSUPPORTED",
+      "Shadow replay requires a server-owned registered validation objective whose revision and target scope match the candidate.",
+    );
+  }
+  return {
+    objective,
+    validationProfiles: [validationProfile],
+  };
 }
 
 export function toPublicShadowReplay(row: ShadowReplayRow): {
@@ -237,36 +339,20 @@ async function assertNoSymlinkPath(rootPath: string, relativePath: string): Prom
   return target;
 }
 
-async function runCandidateVerify(params: {
-  workspaceRoot: string;
-  candidateTreeHash: string;
-  approvedPaths: readonly string[];
-  signal: AbortSignal;
-}): Promise<{
-  preTreeHash: string;
-  postTreeHash: string;
-  readCount: number;
-  totalBytes: number;
-  behavioralCheckedFileCount: number;
-}> {
-  if (params.approvedPaths.length > SHADOW_REPLAY_MAX_PATHS) {
+async function measureApprovedFiles(
+  workspaceRoot: string,
+  approvedPaths: readonly string[],
+  signal: AbortSignal,
+): Promise<{ readCount: number; totalBytes: number }> {
+  if (approvedPaths.length > SHADOW_REPLAY_MAX_PATHS) {
     throw new ShadowReplayError("SHADOW_REPLAY_BUDGET_EXCEEDED", "The candidate path budget was exceeded.");
   }
-  const preTreeHash = await hashDeliveryTree(params.workspaceRoot);
-  if (preTreeHash !== params.candidateTreeHash) {
-    throw new ShadowReplayError(
-      "SHADOW_REPLAY_TREE_MISMATCH",
-      "The isolated replay workspace does not match the candidate tree identity.",
-    );
-  }
   let totalBytes = 0;
-  let readCount = 0;
-  let behavioralCheckedFileCount = 0;
-  for (const relativePath of params.approvedPaths) {
-    if (params.signal.aborted) {
+  for (const relativePath of approvedPaths) {
+    if (signal.aborted) {
       throw new ShadowReplayError("SHADOW_REPLAY_CANCELLED", "Shadow replay was cancelled.");
     }
-    const target = await assertNoSymlinkPath(params.workspaceRoot, relativePath);
+    const target = await assertNoSymlinkPath(workspaceRoot, relativePath);
     const stat = await fs.stat(target);
     if (!stat.isFile()) {
       throw new ShadowReplayError("SHADOW_REPLAY_NON_FILE_PATH", "Shadow replay only verifies regular files.");
@@ -274,59 +360,9 @@ async function runCandidateVerify(params: {
     if (stat.size > SHADOW_REPLAY_MAX_FILE_BYTES || totalBytes + stat.size > SHADOW_REPLAY_MAX_TOTAL_BYTES) {
       throw new ShadowReplayError("SHADOW_REPLAY_BUDGET_EXCEEDED", "The shadow replay read budget was exceeded.");
     }
-    const contents = await fs.readFile(target);
-    const extension = path.extname(relativePath).toLowerCase();
-    if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(extension)) {
-      const syntax = ts.transpileModule(contents.toString("utf8"), {
-        fileName: relativePath,
-        compilerOptions: {
-          allowJs: true,
-          jsx: ts.JsxEmit.ReactJSX,
-          target: ts.ScriptTarget.ES2022,
-          module: ts.ModuleKind.ESNext,
-        },
-        reportDiagnostics: true,
-      });
-      const diagnostics = syntax.diagnostics ?? [];
-      if (diagnostics.length > 0) {
-        const detail = diagnostics
-          .slice(0, 3)
-          .map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, " "))
-          .join("; ");
-        throw new ShadowReplayError(
-          "SHADOW_REPLAY_BEHAVIOR_FAILED",
-          `The server-owned source behavior check rejected ${relativePath}: ${detail}`,
-        );
-      }
-      behavioralCheckedFileCount += 1;
-    } else if (extension === ".json") {
-      try {
-        JSON.parse(contents.toString("utf8"));
-        behavioralCheckedFileCount += 1;
-      } catch {
-        throw new ShadowReplayError(
-          "SHADOW_REPLAY_BEHAVIOR_FAILED",
-          `The server-owned JSON behavior check rejected ${relativePath}.`,
-        );
-      }
-    }
     totalBytes += stat.size;
-    readCount += 1;
   }
-  const postTreeHash = await hashDeliveryTree(params.workspaceRoot);
-  if (postTreeHash !== preTreeHash) {
-    throw new ShadowReplayError(
-      "SHADOW_REPLAY_SIDE_EFFECT_DETECTED",
-      "The candidate verification changed the isolated workspace.",
-    );
-  }
-  return {
-    preTreeHash,
-    postTreeHash,
-    readCount,
-    totalBytes,
-    behavioralCheckedFileCount,
-  };
+  return { readCount: approvedPaths.length, totalBytes };
 }
 
 export class ShadowReplayError extends Error {
@@ -407,6 +443,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
       "The replay scope is not the same Mission, Goal, and plan revision as the canonical proof.",
     );
   }
+  const behaviorContract = await resolveShadowReplayBehaviorContract(input);
 
   const key = idempotencyKey(input);
   const [existing] = await db
@@ -447,6 +484,7 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     approvedPaths: [...input.candidate.approvedPaths],
     candidateIdentity: input.candidateTreeHash,
     candidateWorkspace: replayWorkspace.rootPath,
+    validationProfiles: behaviorContract.validationProfiles,
     executionProfile: SHADOW_REPLAY_PROFILE,
     userId: input.userId,
     idempotencyKey: key,
@@ -464,6 +502,9 @@ export async function startShadowReplay(input: ShadowReplayStartInput): Promise<
     workspaceRevision: input.sourceRevision,
     workspaceRoot: replayWorkspace.rootPath,
     validationTargetPaths: [...input.candidate.approvedPaths],
+    validationProfiles: behaviorContract.validationProfiles,
+    objective: behaviorContract.objective.objective,
+    taskObjective: behaviorContract.objective,
     proofRequired: true,
   };
   const execution = await createAiExecution({
@@ -620,8 +661,20 @@ export async function runShadowReplayAttempt(
 
   const request = JSON.parse(execution.request) as AiExecutionRequestEnvelope & {
     validationTargetPaths?: string[];
+    validationProfiles?: Array<"workspace-typecheck" | "ai-orchestrator-tests">;
   };
   const approvedPaths = [...(request.validationTargetPaths ?? [])];
+  const validationProfiles = request.validationProfiles ?? [];
+  if (validationProfiles.length === 0) {
+    await updateReplay(replay.id, {
+      status: "failed",
+      error: "SHADOW_REPLAY_OBJECTIVE_MISSING",
+      workerId: null,
+      leaseUntil: null,
+      completedAt: new Date(),
+    });
+    return false;
+  }
   const replayRoot = claimedReplay.replayWorkspaceRoot;
   if (!replayRoot) {
     await updateReplay(replay.id, {
@@ -641,11 +694,11 @@ export async function runShadowReplayAttempt(
     behavioralCheckedFileCount: number;
   } | undefined;
   const validationRunner: ValidationRunner = async (profile, targetPaths, signal) => {
-    if (profile !== "workspace-typecheck" && profile !== "ai-orchestrator-tests") {
+    if (!validationProfiles.includes(profile as "workspace-typecheck" | "ai-orchestrator-tests")) {
       return {
         profile,
         status: "blocked",
-        scenario: "Shadow replay exposes only the fixed candidate verification profiles.",
+        scenario: "Shadow replay exposes only the server-owned profiles from the immutable objective contract.",
         exitCode: null,
         command: "",
         stdout: "",
@@ -665,43 +718,51 @@ export async function runShadowReplayAttempt(
         failureKind: "scope",
       };
     }
-    const result = await runCandidateVerify({
-      workspaceRoot: replayRoot,
-      candidateTreeHash: replay.candidateTreeHash,
-      approvedPaths: targetPaths,
-      signal: signal ?? new AbortController().signal,
-    });
-    replayStats = replayStats
-      ? {
-          ...replayStats,
-          postTreeHash: result.postTreeHash,
-          readCount: replayStats.readCount + result.readCount,
-          totalBytes: replayStats.totalBytes + result.totalBytes,
-           behavioralCheckedFileCount:
-             replayStats.behavioralCheckedFileCount + result.behavioralCheckedFileCount,
-        }
-      : result;
-    return {
-      profile,
-      status: "passed",
-      scenario: "Read-only server-owned candidate verification.",
-      exitCode: 0,
-      command: "",
-      stdout: "",
-      stderr: "",
-      failedTests: [],
-      changedFiles: [],
-      evidence: {
-        evidenceId: `shadow-replay:${replay.id}:validation:${profile}`,
-        observedAt: new Date().toISOString(),
-        artifactRef: `shadow-replay:${replay.id}:validation:${profile}`,
+    const replaySignal = signal ?? new AbortController().signal;
+    const measured = await measureApprovedFiles(replayRoot, targetPaths, replaySignal);
+    const preTreeHash = await hashDeliveryTree(replayRoot);
+    if (preTreeHash !== replay.candidateTreeHash) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_TREE_MISMATCH",
+        "The isolated replay workspace does not match the candidate tree identity.",
+      );
+    }
+    const result = await runRepairValidation(
+      replayRoot,
+      profile as "workspace-typecheck" | "ai-orchestrator-tests",
+      targetPaths,
+      replaySignal,
+      [],
+      {
         operationId: replay.operationId,
         projectRevision: replay.sourceRevision,
         candidateHash: replay.candidateTreeHash,
-        treeDigestVersion: DELIVERY_TREE_DIGEST_VERSION,
       },
-      terminalState: "passed",
-    };
+    );
+    const postTreeHash = await hashDeliveryTree(replayRoot);
+    if (postTreeHash !== preTreeHash) {
+      throw new ShadowReplayError(
+        "SHADOW_REPLAY_SIDE_EFFECT_DETECTED",
+        "The registered behavioral validator changed the isolated replay workspace.",
+      );
+    }
+    replayStats = replayStats
+      ? {
+          ...replayStats,
+          postTreeHash,
+          readCount: replayStats.readCount + measured.readCount,
+          totalBytes: replayStats.totalBytes + measured.totalBytes,
+          behavioralCheckedFileCount:
+            replayStats.behavioralCheckedFileCount + targetPaths.length,
+        }
+      : {
+          preTreeHash,
+          postTreeHash,
+          readCount: measured.readCount,
+          totalBytes: measured.totalBytes,
+          behavioralCheckedFileCount: targetPaths.length,
+        };
+    return result;
   };
   const replayLeaseTimer = setInterval(() => {
     void updateReplay(replay.id, {
@@ -717,6 +778,7 @@ export async function runShadowReplayAttempt(
       recipeId: "candidate.verify",
       recipeVersion: 1,
       approvedPaths,
+      validationProfiles,
       candidateIdentity: replay.candidateTreeHash,
       candidateWorkspace: replayRoot,
       userId,
@@ -842,7 +904,8 @@ export async function runShadowReplayAttempt(
         behavioralCheck: {
           status: "passed",
           checkedFileCount: replayStats.behavioralCheckedFileCount,
-          engine: "typescript-compiler-api",
+          engine: "server-registered-validation",
+          profiles: validationProfiles,
         },
       },
     };
