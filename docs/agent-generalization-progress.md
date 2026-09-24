@@ -14,7 +14,7 @@
 |---|---|---|
 | P0 — Contracts, baseline, threat model | `done` | عقود agent-state واختبارات parsing/hash/redaction موجودة. |
 | P1 — Episode schema + ledger | `done` | جداول Episode/Observation/Effect/World/Strategy والـledger واختبارات ownership/idempotency/replay موجودة. |
-| P2 — Episode integration in Chat/Mission | `partial` | Chat وTask/Recipe متكاملة، وأضيف ربط هوية Mission/Goal وWorkflow scope عند إنشاء Episode؛ رحلة Mission/Workflow الكاملة ما زالت تحتاج اختبار تكاملي وإغلاقًا موثقًا. |
+| P2 — Episode integration in Chat/Mission | `partial` | Chat وTask/Recipe متكاملة، وربط Mission/Goal مغطى باختبار lifecycle؛ Workflow scope مربوط في Episode لكن يحتاج اختبارًا تكامليًا قبل إغلاق المرحلة. |
 | P3 — Observation materialization | `done` | مصادر server-owned مع completeness/freshness/revision وربط بالـepisode. |
 | P4 — World facts + materialized reader | `partial` | read model، contradictions، supersession، world revision، endpoint محمي وContext projection منجزة؛ تغطية effect/browser/Git الكاملة ليست منجزة بعد. |
 | P5 — Effect contract for candidate validation | `not_started` | يلزم before/after effect bundle وربطه بالـacceptance في نفس المعاملة. |
@@ -83,6 +83,22 @@
   Episode مع كل terminal/recovery projections.
 - **next step:** إضافة اختبار تكاملي يثبت الهوية عبر Mission dispatch وresume/
   retry قبل بدء Gate B.
+
+### 2026-09-24 — Mission Episode identity integration coverage
+
+- **phase/step:** P2 / Mission task lifecycle identity
+- **status:** `done`
+- **what changed:** أضيفت fixture تكاملية تتحقق من أن تنفيذ Task المرتبط بـMission
+  ينشئ Episode يحمل `missionId` و`goalId` و`planRevision` وscope من نوع
+  `mission-task`.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`.
+- **validation:** اختبارات lifecycle وEpisode وtask service؛ 17 اختبارًا ناجحًا؛
+  API typecheck ناجح؛ `git diff --check`.
+- **authority/safety impact:** assertion فقط؛ لا تغيير في acceptance أو proof أو
+  Mission terminal state أو permissions.
+- **remaining/blocker:** Workflow integration coverage غير مكتملة؛ P2 تبقى
+  `partial` حتى يثبت scope الخاص بـWorkflow عبر lifecycle فعلي.
+- **next step:** إضافة اختبار Workflow task يثبت `workflowId` في Episode scope.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
