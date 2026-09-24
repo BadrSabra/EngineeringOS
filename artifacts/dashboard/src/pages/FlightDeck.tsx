@@ -158,7 +158,12 @@ function fallbackFlightState(execution: {
   if (execution.status === 'cancelled' || execution.status === 'cancelling') return 'CANCELLED';
   if (execution.status === 'completed') {
     if (!execution.proofRequired || execution.proofVerdict === 'PROVEN') return 'COMPLETED';
-    if (execution.proposalId && execution.proofVerdict === 'INCOMPLETE') return 'READY_FOR_REVIEW';
+    if (
+      execution.proposalId
+      && ['INCOMPLETE', 'PARTIAL', 'UNAVAILABLE', 'NOT_RECORDED'].includes(execution.proofVerdict ?? '')
+    ) {
+      return 'READY_FOR_REVIEW';
+    }
     return 'BLOCKED';
   }
   return 'BUILDING';
@@ -220,7 +225,7 @@ function DeliveryProofTimeline({
   // attestation. Individual passed receipts are shown as verified, while the
   // chain itself stays conservative until the execution verdict certifies it.
   const isVerified = evidence.completeness === 'complete'
-    && evidence.proof.accepted
+    && evidence.proof?.accepted === true
     && evidence.proof.verdict === 'PROVEN'
     && executionVerdict === 'PROVEN';
   return (
@@ -365,7 +370,7 @@ export default function FlightDeck() {
   }
 
   const canonicalProof = execution.operationEvidence?.proof;
-  const evidenceVerdict = canonicalProof?.verdict ?? 'UNAVAILABLE';
+  const evidenceVerdict = canonicalProof?.verdict ?? execution.evidenceVerdict ?? 'UNAVAILABLE';
   const state = execution.flightState ?? fallbackFlightState({
     ...execution,
     proofVerdict: evidenceVerdict,

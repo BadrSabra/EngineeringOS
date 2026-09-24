@@ -285,6 +285,21 @@ const executionFixture = {
     terminalState: "COMPLETED",
     completeness: "complete",
     verified: false,
+    proof: {
+      contractVersion: 1,
+      verdict: "PROVEN",
+      accepted: true,
+      failureReasons: [],
+      executionId: EXECUTION_ID,
+      acceptanceId: "e2e-acceptance",
+      attempt: 1,
+      operationId: "e2e-operation",
+      evidenceSnapshotId: "e2e-evidence-snapshot",
+      sourceRevision: "e2e-revision-42",
+      candidateIdentity: "e2e-candidate-hash",
+      candidateTreeHash: "e2e-candidate-tree-hash",
+      treeHash: "e2e-delivered-hash",
+    },
     hashes: {
       changeSet: "e2e-candidate-hash",
       committed: "e2e-delivered-hash",
@@ -3922,6 +3937,21 @@ async function installMissionManagementFixtures(page: Page) {
                   candidateBound: true,
                 },
               },
+              canonicalProof: {
+                contractVersion: 1,
+                verdict: "PROVEN",
+                accepted: true,
+                failureReasons: [],
+                executionId: "e2e-execution",
+                acceptanceId: "e2e-proof-receipt",
+                attempt: 1,
+                operationId: "e2e-operation",
+                evidenceSnapshotId: "e2e-evidence-snapshot",
+                sourceRevision: "e2e-source-revision",
+                candidateIdentity: "e2e-candidate-tree-hash",
+                candidateTreeHash: "e2e-candidate-tree-hash",
+                treeHash: "e2e-delivered-tree-hash",
+              },
               shadow: {
                 mode: "shadow-replay",
                 runId: "e2e-shadow-run",
@@ -4825,6 +4855,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByTestId("card-goal-e2e-goal-management"),
     ).toContainText("Validate candidate updated");
+    await page.getByTestId("button-toggle-goal-e2e-goal-management").click();
     await expect(
       page.getByTestId("skill-candidate-e2e-goal-management"),
     ).toContainText("PROVEN");
@@ -7373,7 +7404,13 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           objective: recovery.fixture.question,
           attempt: acceptedAcceptance.attempt,
           acceptance: acceptedAcceptance,
-          evidenceProjection: { completeness: "COMPLETE" },
+          evidenceProjection: {
+            completeness: "COMPLETE",
+            proof: {
+              verdict: "PROVEN",
+              accepted: true,
+            },
+          },
           evidence: { verdict: "PROVEN" },
           checkpointVersion: 2,
           eventCount: 4,

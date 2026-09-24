@@ -61,7 +61,7 @@ function formatDate(value: string | null | undefined, includeTime = false) {
 }
 
 function compactId(value: string) {
-  return value.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
+  return value.length > 24 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 }
 
 function displayJsonValue(value: unknown, fallback: string) {
@@ -888,7 +888,11 @@ function GoalCard({
                   <p>tree <span className="text-slate-300">{compactId(skillCandidate.canonicalProof.candidateTreeHash ?? skillCandidate.candidateTreeHash)}</span></p>
                    <p data-testid={`skill-candidate-evidence-${goal.id}`}>
                      evidence <span className="text-slate-300">
-                        {skillCandidate.canonicalProof.evidenceSnapshotId ? 'retained' : 'missing'}
+                         {skillCandidate.canonicalProof.evidenceSnapshotId
+                           ? skillCandidate.canonicalProof.accepted && skillCandidate.canonicalProof.verdict === 'PROVEN'
+                             ? 'complete'
+                             : 'retained'
+                           : 'missing'}
                      </span>
                    </p>
                    <p data-testid={`skill-candidate-binding-${goal.id}`}>
