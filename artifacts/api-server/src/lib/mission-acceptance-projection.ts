@@ -3,6 +3,10 @@ import {
   aiGoalsTable,
   db,
 } from "@workspace/db";
+import {
+  toFailureDiagnosisSummary,
+  tryDiagnoseFailure,
+} from "@workspace/ai-orchestrator";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -44,6 +48,26 @@ export type GoalAcceptanceProjection = {
   updatedAt: Date;
 };
 
+export function deriveGoalFailureDiagnosis(
+  goalId: string,
+  projection: Pick<
+    GoalAcceptanceProjection,
+    "executionId" | "outcome" | "reasonCode" | "nextActionCode"
+  >,
+) {
+  if (projection.outcome === "SUCCEEDED") return undefined;
+  const diagnosis = tryDiagnoseFailure({
+    episodeId: goalId,
+    actionId: projection.executionId,
+    acceptanceProjection: {
+      outcome: projection.outcome,
+      reasonCode: projection.reasonCode,
+      nextActionCode: projection.nextActionCode,
+    },
+  });
+  return diagnosis ? toFailureDiagnosisSummary(diagnosis) : undefined;
+}
+
 /**
  * Persist the server-owned acceptance result on the Goal's existing outcome
  * contract. This is a projection only: execution acceptance remains the
@@ -67,6 +91,7 @@ export async function projectGoalAcceptance(
     .for("update");
   if (!goal) return false;
 
+  const failureDiagnosis = deriveGoalFailureDiagnosis(params.goalId, params.projection);
   const acceptance = {
     ...(params.projection.acceptanceId ? { acceptanceId: params.projection.acceptanceId } : {}),
     executionId: params.projection.executionId,
@@ -85,6 +110,7 @@ export async function projectGoalAcceptance(
     ...(params.projection.deliveryReceipt ? { deliveryReceipt: params.projection.deliveryReceipt } : {}),
     ...(params.projection.reasonCode ? { reasonCode: params.projection.reasonCode } : {}),
     ...(params.projection.nextActionCode ? { nextActionCode: params.projection.nextActionCode } : {}),
+    ...(failureDiagnosis ? { failureDiagnosis } : {}),
     updatedAt: params.projection.updatedAt.toISOString(),
   };
   await tx.update(aiGoalsTable)

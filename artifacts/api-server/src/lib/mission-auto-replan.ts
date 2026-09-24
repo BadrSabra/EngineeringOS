@@ -8,6 +8,10 @@ import {
 } from "@workspace/db";
 import { buildMissionPlanPreview } from "@workspace/ai-orchestrator";
 import {
+  FailureDiagnosisSummarySchema,
+  type FailureDiagnosisSummary,
+} from "@workspace/ai-orchestrator";
+import {
   createMissionPlanGoal,
   type MissionPlanMaterialization,
 } from "../routes/ai/missions.js";
@@ -31,6 +35,9 @@ const TERMINAL_REPLAN_FAILURES = new Set([
   "objective_no_longer_mission_eligible",
   "automatic_replan_budget_exhausted",
   "automatic_replan_already_attempted",
+  "failure_diagnosis_invalid",
+  "failure_requires_owner_approval",
+  "failure_not_automatically_retryable",
   "empty_plan",
   "no_eligible_replan_root",
 ]);
@@ -50,6 +57,12 @@ function stringList(value: unknown, max: number, itemMax: number): string[] {
     : [];
 }
 
+function failureDiagnosisFromOutcome(outcome: unknown): FailureDiagnosisSummary | undefined {
+  const acceptance = jsonRecord(jsonRecord(outcome).acceptance);
+  const parsed = FailureDiagnosisSummarySchema.safeParse(acceptance.failureDiagnosis);
+  return parsed.success ? parsed.data : undefined;
+}
+
 function buildReplanContext(goal: {
   id: string;
   blockedReason: string | null;
@@ -61,13 +74,22 @@ function buildReplanContext(goal: {
   const acceptance = jsonRecord(outcome.acceptance);
   const receipt = jsonRecord(acceptance.receipt);
   const stateProjection = jsonRecord(acceptance.stateProjection);
+  const failureDiagnosis = failureDiagnosisFromOutcome(goal.outcomeContract);
   const success = jsonRecord(goal.successCriteria);
   const planRevision = jsonRecord(outcome.planRevision).hash ?? jsonRecord(success.planRevision).hash;
   const nextActionReason = jsonRecord(goal.nextAction).reason;
   return {
     failedGoalId: goal.id,
-    ...(typeof receipt.failureClass === "string" ? { failureClass: receipt.failureClass } : {}),
-    ...(typeof acceptance.reasonCode === "string" ? { failureCode: acceptance.reasonCode } : {}),
+    ...(failureDiagnosis
+      ? { failureDiagnosis, failureClass: failureDiagnosis.kind }
+      : typeof receipt.failureClass === "string"
+        ? { failureClass: receipt.failureClass }
+        : {}),
+    ...(failureDiagnosis
+      ? { failureCode: failureDiagnosis.reasonCode }
+      : typeof acceptance.reasonCode === "string"
+        ? { failureCode: acceptance.reasonCode }
+        : {}),
     affectedPaths: stringList(
       acceptance.affectedPaths ?? receipt.affectedPaths ?? outcome.affectedPaths,
       24,
@@ -87,6 +109,7 @@ function buildReplanContext(goal: {
       ? { hypothesisImpact: outcome.hypothesisImpact.slice(0, 500) }
       : {}),
     nextActions: [
+      ...(failureDiagnosis ? [failureDiagnosis.nextActionCode] : []),
       ...(goal.blockedReason ? [goal.blockedReason] : []),
       ...(typeof nextActionReason === "string" ? [nextActionReason.slice(0, 240)] : []),
       ...stringList(outcome.nextActions, 4, 240),
@@ -181,6 +204,35 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
       ))
       .orderBy(asc(aiGoalsTable.updatedAt), asc(aiGoalsTable.id))
       .limit(1);
+    const failureDiagnosis = failedGoal
+      ? failureDiagnosisFromOutcome(failedGoal.outcomeContract)
+      : undefined;
+    const acceptance = jsonRecord(jsonRecord(failedGoal?.outcomeContract).acceptance);
+    const hasFailureDiagnosis = Object.prototype.hasOwnProperty.call(
+      acceptance,
+      "failureDiagnosis",
+    );
+    if (hasFailureDiagnosis && !failureDiagnosis) {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "failure_diagnosis_invalid",
+      };
+    }
+    if (failureDiagnosis?.requiresApproval) {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "failure_requires_owner_approval",
+      };
+    }
+    if (failureDiagnosis && !failureDiagnosis.retryable) {
+      return {
+        status: "skipped" as const,
+        missionId,
+        reason: "failure_not_automatically_retryable",
+      };
+    }
     const preview = buildMissionPlanPreview({
       message: mission.intent,
       objective: mission.intent,

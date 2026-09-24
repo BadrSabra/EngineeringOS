@@ -28,7 +28,7 @@
 - [Recovery candidate binding](recovery-candidate-binding.md) — bind acceptances to the execution attempt; never compare workspace hashes to project timestamps; partial orientation checkpoints can resume.
 - [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
-- [Automatic Mission replan](mission-auto-replan.md) — failure recovery is bounded and revision-bound; old Goals remain audit history and only new roots dispatch.
+- [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
 - [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.

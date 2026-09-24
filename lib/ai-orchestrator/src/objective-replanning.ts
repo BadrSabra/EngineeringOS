@@ -1,5 +1,8 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
 import { buildObjectiveClaimPlan } from "./objective-claim-plan.js";
+import {
+  FailureDiagnosisSummarySchema,
+} from "./agent-state/failure-contract.js";
 
 export type ObjectiveReplanReadStatus =
   | "READ_COMPLETE"
@@ -17,6 +20,15 @@ export type ObjectiveReplanTarget = {
     | "MISSING_CLAIM_EVIDENCE_PATH"
     | "MISSING_EDGE_CALLER_PATH";
 };
+
+export function isObjectiveEvidenceDiagnosisRetryable(value: unknown): boolean {
+  const parsedDiagnosis = FailureDiagnosisSummarySchema.safeParse(value);
+  if (!parsedDiagnosis.success) return false;
+  const diagnosis = parsedDiagnosis.data;
+  return diagnosis.retryable
+    && !diagnosis.requiresApproval
+    && ["MISSING_REQUIRED_READ", "EVIDENCE_INCOMPLETE"].includes(diagnosis.kind);
+}
 
 function normalizePath(value: string): string {
   const normalized = value

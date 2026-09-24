@@ -73,11 +73,25 @@ export type {
 
 export {
   FailureDiagnosisSchema,
+  FailureDiagnosisSummarySchema,
+  FailureNextActionCodeSchema,
   FailureKindSchema,
+  FailureReasonCodeSchema,
   parseFailureDiagnosis,
+  toFailureDiagnosisSummary,
   toPublicFailureDiagnosis,
 } from "./failure-contract.js";
-export type { FailureDiagnosis, FailureKind, PublicFailureDiagnosis } from "./failure-contract.js";
+export type {
+  FailureDiagnosis,
+  FailureDiagnosisSummary,
+  FailureKind,
+  FailureNextActionCode,
+  FailureReasonCode,
+  PublicFailureDiagnosis,
+} from "./failure-contract.js";
+
+export { diagnoseFailure, tryDiagnoseFailure } from "./failure-diagnosis.js";
+export type { DiagnoseFailureInput } from "./failure-diagnosis.js";
 
 export {
   StrategyCandidateSchema,

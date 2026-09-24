@@ -322,6 +322,64 @@ G9 Revocation Safety
   تستمر وفق ترتيبها في execution plan.
 - **next step:** متابعة PR 7 — Failure Diagnosis.
 
+### 2026-09-24 — PR 7 Failure Diagnosis
+
+- **phase/step:** P5 / PR 7 — Failure Diagnosis
+- **status:** `complete`
+- **what changed:** أضيف `diagnoseFailure` الحتمي من إشارات server-owned في validator
+  receipt وeffect classification وacceptance projection. التصنيف يختار failure kind
+  بأولوية ثابتة، ويصدر reason/next-action codes مقيدة بقوائم allowlist، مع معرفي episode
+  وaction اختياريين. لا يقرأ نصوص provider أو تفاصيل الأخطاء، ولا يخترع diagnosis عند
+  غياب إشارة فشل معروفة. أُبقيت الحقول الجديدة اختيارية في schema v1 حتى تظل البيانات
+  السابقة قابلة للقراءة.
+- **files/schema/contracts touched:** `agent-state/failure-contract.ts`,
+  `agent-state/failure-diagnosis.ts`, `agent-state/index.ts`,
+  `agent-failure-contract.test.ts`.
+- **validation:** ai-orchestrator typecheck؛ API typecheck؛ اختبارات التصنيف
+  `agent-failure-contract.test.ts` (6/6). شغّلنا كامل حزمة ai-orchestrator أيضًا:
+  149 من 151 ملف اختبار نجحت (2266 من 2268 اختبارًا). فشلا الاختبارين أعادا النتيجة
+  نفسها عند التشغيل المنفرد: اختبارا تغطية evidence في forensic integration يتوقعان
+  `EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED` و`PARTIAL` لكن المسار الحالي ينتج رفض excerpt
+  و`NONE`. هذان خارج مسار diagnosis؛ لم يتغير سلوك evidence هنا.
+- **authority/safety impact:** لا يحدد provider failure kind أو action. الدليل والقبول
+  يسبقان إشارات validator العامة عند التعارض، وdirect effect contradiction يأخذ أولوية
+  أعلى من failure نصي أو generic acceptance. projection العام يخرج الأكواد والعدادات
+  فقط ولا يعرض قوائم facts أو نصوصًا خامًا.
+- **remaining/blocker:** PR 7 مكتمل ضمن نطاق التصنيف. يبقى فشلا اختباري forensic
+  integration المذكوران لإصلاح منفصل قبل اعتبار حزمة ai-orchestrator كاملة خضراء.
+- **next step:** PR 8 — Bounded Replan، وربط diagnosis بـ`objective-replanning` و
+  `mission-auto-replan` مع منع إعادة الخطة نفسها وحدود المحاولات الحالية.
+
+### 2026-09-24 — PR 8 Bounded Replan
+
+- **phase/step:** P5 / PR 8 — Bounded Replan
+- **status:** `complete`
+- **what changed:** objective recovery gates its existing two-attempt, read-only loop
+  on a validated retryable `MISSING_REQUIRED_READ` or `EVIDENCE_INCOMPLETE` diagnosis.
+  Goal acceptance now persists a strict diagnosis summary containing only kind, reason
+  code, next-action code, retryability, and approval requirement. Automatic Mission
+  replanning passes the validated summary into the fresh plan context; malformed
+  summaries, approval-required failures, and non-retryable failures block dispatch.
+  The generated planner prompt marks diagnosis as advisory, not authorization.
+- **files/schema/contracts touched:** `agent-state/failure-contract.ts`,
+  `agent-state/failure-diagnosis.ts`, `objective-replanning.ts`,
+  `agents/chat-agent.ts`, `mission-planning.ts`,
+  `mission-acceptance-projection.ts`, `mission-auto-replan.ts`,
+  `routes/ai/missions.ts`, and their focused tests.
+- **validation:** ai-orchestrator typecheck and 22 targeted tests passed, including
+  objective chat recovery; API typecheck and 6 acceptance/auto-replan tests passed;
+  API workflow restarted and `/api/healthz` returned `status: ok`; `git diff --check`
+  passed. The full ai-orchestrator suite was not rerun after PR 8; its last full run
+  had the two forensic evidence-integration failures recorded under PR 7.
+- **authority/safety impact:** diagnosis is derived from server-owned acceptance or
+  evidence coverage. Planner output cannot set it. The objective read loop remains
+  read-only and capped at two targets. Mission automation retains its existing
+  revision check and replan budget; diagnosis never supplies scope or write approval.
+- **remaining/blocker:** PR 8 complete. PR 7's two forensic evidence integration
+  failures remain separate outstanding test issues.
+- **next step:** PR 9 — Strategy Candidates and Replay; preserve current candidate
+  isolation, pairing, and Canonical Proof requirements.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

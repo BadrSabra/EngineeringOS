@@ -6,6 +6,10 @@ import {
   resolveTurnIntent,
   type TurnIntent,
 } from "./turn-intent.js";
+import {
+  FailureDiagnosisSummarySchema,
+  type FailureDiagnosisSummary,
+} from "./agent-state/failure-contract.js";
 
 export type MissionAdmissionKind = "chat" | "project_query" | "mission";
 
@@ -23,6 +27,7 @@ export type MissionReplanContext = {
   failedGoalId?: string;
   failureClass?: string;
   failureCode?: string;
+  failureDiagnosis?: FailureDiagnosisSummary;
   affectedPaths: string[];
   affectedClaims: string[];
   evidenceRefs: string[];
@@ -105,6 +110,9 @@ export function buildMissionPlanPreview(input: {
     turnIntent: intent,
   });
   const admission = classifyAdmission(intent, plan);
+  const failureDiagnosis = input.replanContext?.failureDiagnosis
+    ? FailureDiagnosisSummarySchema.safeParse(input.replanContext.failureDiagnosis)
+    : undefined;
 
   return {
     version: 1,
@@ -116,6 +124,9 @@ export function buildMissionPlanPreview(input: {
         ...(input.replanContext.failedGoalId ? { failedGoalId: input.replanContext.failedGoalId.slice(0, 120) } : {}),
         ...(input.replanContext.failureClass ? { failureClass: input.replanContext.failureClass.slice(0, 80) } : {}),
         ...(input.replanContext.failureCode ? { failureCode: input.replanContext.failureCode.slice(0, 120) } : {}),
+        ...(failureDiagnosis?.success
+          ? { failureDiagnosis: failureDiagnosis.data }
+          : {}),
         affectedPaths: input.replanContext.affectedPaths.slice(0, 24).map((path) => path.slice(0, 500)),
         affectedClaims: input.replanContext.affectedClaims.slice(0, 24).map((claim) => claim.slice(0, 240)),
         evidenceRefs: input.replanContext.evidenceRefs.slice(0, 16).map((ref) => ref.slice(0, 500)),

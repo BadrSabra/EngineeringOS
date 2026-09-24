@@ -534,6 +534,8 @@ server-owned.
 
 ```ts
 type FailureDiagnosis = {
+  episodeId?: string;
+  actionId?: string;
   kind:
     | "NO_PROGRESS"
     | "MISSING_REQUIRED_READ"
@@ -554,6 +556,8 @@ type FailureDiagnosis = {
   requiredObservations: string[];
   retryable: boolean;
   requiresApproval: boolean;
+  reasonCode?: string;
+  nextActionCode?: string;
 };
 ```
 
@@ -1441,15 +1445,32 @@ learningStatus
 
 ### PR 7: Failure Diagnosis
 
-- server-owned failure kinds.
-- reason/next action codes.
-- tests للتصنيف.
+- **الحالة:** `complete` ضمن نطاق التصنيف.
+- `diagnoseFailure` يصنف validator/effect/evidence/acceptance من إشارات server-owned،
+  بترتيب أولوية deterministic؛ provider prose لا يحدد الـkind.
+- reason/next-action codes مقيدة بقوائم معروفة، مع public projection محدود بالعدادات
+  والأكواد؛ لا diagnosis عند غياب إشارة معروفة.
+- اختبارات taxonomy والتعارض نجحت؛ شغّل كامل ai-orchestrator فنجح 149/151 ملفًا.
+  بقي اختبارا forensic evidence integration يعيدان الفشل منفردين (`NONE` بدل `PARTIAL`
+  وgeneric excerpt rejection بدل `EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED`)، وهما خارج
+  PR 7 ويحتاجان إصلاحًا مستقلًا.
 
 ### PR 8: Bounded Replan
 
-- ربط diagnosis بـ`objective-replanning`.
-- ربطه بـ`mission-auto-replan`.
-- الحفاظ على حدود retry.
+- **الحالة:** `complete`.
+- `objective-replanning` now requires a validated retryable read/evidence diagnosis
+  before invoking its existing, two-target, read-only recovery. The server assigns
+  diagnosis from the current evidence gap; provider text cannot open this gate.
+- Mission Goal acceptance persists a strict, code-only diagnosis summary. The
+  automatic replan coordinator validates the summary, carries it into the new
+  `MissionReplanContext`, and blocks malformed, approval-required, or
+  non-retryable diagnoses.
+- Planner context labels diagnosis as advisory rather than authorization. Existing
+  Mission row locking, revision dedupe, automatic-replan budget, dependency-root
+  dispatch, and runtime approval gates remain authoritative.
+- **التحقق:** ai-orchestrator typecheck و22 اختبارًا مستهدفًا، API typecheck و6
+  اختبارات acceptance/auto-replan، ثم restart وفحص health ناجح. آخر تشغيل كامل
+  لحزمة ai-orchestrator موثق في PR 7 (مع فشلي forensic integration).
 
 ### PR 9: Strategy Candidates وReplay
 

@@ -181,7 +181,14 @@ import {
   type SourceRetrievalTelemetry,
   type ToolLoopResult,
 } from "../tool-execution-engine.js";
-import { deriveObjectiveReplanTargets } from "../objective-replanning.js";
+import {
+  deriveObjectiveReplanTargets,
+  isObjectiveEvidenceDiagnosisRetryable,
+} from "../objective-replanning.js";
+import {
+  diagnoseFailure,
+  toFailureDiagnosisSummary,
+} from "../agent-state/index.js";
 import {
   executeValidationTool,
   MAX_REPAIR_ATTEMPTS,
@@ -9147,14 +9154,29 @@ export async function chat(opts: {
     !signal?.aborted
   ) {
     while (objectiveReplanAttempts < objectiveReplanMaxAttempts) {
-      const target = deriveObjectiveReplanTargets({
+      const replanInput = {
         objective,
         retainedPaths: forensicFileContents.keys(),
         readStatuses: prefetchReadStatuses,
         claimState: loopResult.objectiveState?.claims,
         maxTargets: objectiveReplanMaxAttempts,
-      }).find((candidate) => !attemptedObjectiveReplanPaths.has(candidate.path));
-      if (!target) break;
+      };
+      const initialTargets = deriveObjectiveReplanTargets(replanInput);
+      const nextUntargeted = initialTargets.find(
+        (candidate) => !attemptedObjectiveReplanPaths.has(candidate.path),
+      );
+      if (!nextUntargeted) break;
+
+      const failureDiagnosis = toFailureDiagnosisSummary(diagnoseFailure({
+        acceptanceProjection: {
+          outcome: "INCOMPLETE",
+          reasonCode: prefetchReadStatuses.get(nextUntargeted.path) === "READ_TRUNCATED"
+            ? "EVIDENCE_INCOMPLETE"
+            : "MISSING_REQUIRED_READ",
+        },
+      }));
+      if (!isObjectiveEvidenceDiagnosisRetryable(failureDiagnosis)) break;
+      const target = nextUntargeted;
       attemptedObjectiveReplanPaths.add(target.path);
 
       if (executionLedger.isExhausted() || signal?.aborted) break;

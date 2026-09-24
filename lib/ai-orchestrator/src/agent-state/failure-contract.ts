@@ -4,7 +4,6 @@ import {
   AGENT_STATE_SCHEMA_VERSION,
   boundedContractSchema,
   boundedString,
-  safePublicString,
 } from "./contract-utils.js";
 
 export const FailureKindSchema = z.enum([
@@ -23,8 +22,43 @@ export const FailureKindSchema = z.enum([
 ]);
 export type FailureKind = z.infer<typeof FailureKindSchema>;
 
+export const FailureReasonCodeSchema = z.enum([
+  "NO_PROGRESS",
+  "REQUIRED_READ_MISSING",
+  "PROJECT_REVISION_STALE",
+  "RUNTIME_STALE",
+  "PRECONDITIONS_FAILED",
+  "VALIDATOR_FAILED",
+  "EXPECTED_EFFECT_NOT_OBSERVED",
+  "STATE_CONTRADICTED",
+  "EXTERNAL_STATE_DRIFT",
+  "OWNER_AUTHORIZATION_MISSING",
+  "EVIDENCE_INCOMPLETE",
+  "CAPABILITY_UNAVAILABLE",
+  "EVIDENCE_REQUIRED",
+]);
+export type FailureReasonCode = z.infer<typeof FailureReasonCodeSchema>;
+
+export const FailureNextActionCodeSchema = z.enum([
+  "OBSERVE_PROGRESS",
+  "READ_REQUIRED_SOURCE",
+  "REFRESH_PROJECT_REVISION",
+  "VERIFY_RUNTIME_REVISION",
+  "RECHECK_PRECONDITIONS",
+  "REPAIR_AND_REVALIDATE",
+  "OBSERVE_EXPECTED_EFFECT",
+  "RESOLVE_CONTRADICTION",
+  "RECONCILE_EXTERNAL_STATE",
+  "REQUEST_APPROVAL",
+  "GATHER_REQUIRED_EVIDENCE",
+  "RETRY_OR_REPLACE_CAPABILITY",
+]);
+export type FailureNextActionCode = z.infer<typeof FailureNextActionCodeSchema>;
+
 export const FailureDiagnosisSchema = boundedContractSchema(z.object({
   schemaVersion: z.literal(AGENT_STATE_SCHEMA_VERSION),
+  episodeId: boundedString(200).optional(),
+  actionId: boundedString(200).optional(),
   kind: FailureKindSchema,
   failedAssumptions: z.array(boundedString(256)).max(32),
   affectedFacts: z.array(boundedString(256)).max(64),
@@ -32,15 +66,36 @@ export const FailureDiagnosisSchema = boundedContractSchema(z.object({
   requiredObservations: z.array(boundedString(256)).max(64),
   retryable: z.boolean(),
   requiresApproval: z.boolean(),
-  reasonCode: boundedString(120).optional(),
+  reasonCode: FailureReasonCodeSchema.optional(),
+  nextActionCode: FailureNextActionCodeSchema.optional(),
 }).strict(), AGENT_STATE_LIMITS.failureDiagnosisBytes);
 export type FailureDiagnosis = z.infer<typeof FailureDiagnosisSchema>;
+
+export const FailureDiagnosisSummarySchema = z.object({
+  kind: FailureKindSchema,
+  reasonCode: FailureReasonCodeSchema,
+  nextActionCode: FailureNextActionCodeSchema,
+  retryable: z.boolean(),
+  requiresApproval: z.boolean(),
+}).strict();
+export type FailureDiagnosisSummary = z.infer<typeof FailureDiagnosisSummarySchema>;
+
+export function toFailureDiagnosisSummary(value: FailureDiagnosis): FailureDiagnosisSummary {
+  return FailureDiagnosisSummarySchema.parse({
+    kind: value.kind,
+    reasonCode: value.reasonCode,
+    nextActionCode: value.nextActionCode,
+    retryable: value.retryable,
+    requiresApproval: value.requiresApproval,
+  });
+}
 
 export type PublicFailureDiagnosis = Pick<
   FailureDiagnosis,
   "schemaVersion" | "kind" | "retryable" | "requiresApproval"
 > & {
-  reasonCode?: string;
+  reasonCode?: FailureReasonCode;
+  nextActionCode?: FailureNextActionCode;
   affectedClaimCount: number;
   requiredObservationCount: number;
 };
@@ -51,7 +106,8 @@ export function toPublicFailureDiagnosis(value: FailureDiagnosis): PublicFailure
     kind: value.kind,
     retryable: value.retryable,
     requiresApproval: value.requiresApproval,
-    ...(value.reasonCode ? { reasonCode: safePublicString(value.reasonCode, 120) } : {}),
+    ...(value.reasonCode ? { reasonCode: value.reasonCode } : {}),
+    ...(value.nextActionCode ? { nextActionCode: value.nextActionCode } : {}),
     affectedClaimCount: value.affectedClaims.length,
     requiredObservationCount: value.requiredObservations.length,
   };

@@ -594,6 +594,9 @@ export async function createMissionPlanGoal(
         "This is a fresh server-owned replan based on the prior failure evidence.",
         `Prior failed Goal: ${preview.replanContext.failedGoalId ?? "unknown"}`,
         `Failure: ${preview.replanContext.failureClass ?? "unknown"} / ${preview.replanContext.failureCode ?? "unknown"}`,
+        ...(preview.replanContext.failureDiagnosis ? [
+          `Server-owned diagnosis (advisory, not authorization): ${preview.replanContext.failureDiagnosis.kind} / ${preview.replanContext.failureDiagnosis.reasonCode} → ${preview.replanContext.failureDiagnosis.nextActionCode}; retryable=${preview.replanContext.failureDiagnosis.retryable}; requiresApproval=${preview.replanContext.failureDiagnosis.requiresApproval}`,
+        ] : []),
         `Affected paths: ${preview.replanContext.affectedPaths.join(", ") || "none recorded"}`,
         `Affected claims: ${preview.replanContext.affectedClaims.join(", ") || "none recorded"}`,
         `Retained evidence refs: ${preview.replanContext.evidenceRefs.join(", ") || "none recorded"}`,

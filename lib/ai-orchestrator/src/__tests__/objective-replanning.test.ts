@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveObjectiveReplanTargets } from "../objective-replanning.js";
+import {
+  deriveObjectiveReplanTargets,
+  isObjectiveEvidenceDiagnosisRetryable,
+} from "../objective-replanning.js";
 import { buildObjectiveClaimPlan } from "../objective-claim-plan.js";
 import type { ObjectiveContract } from "../schemas/chat.schema.js";
 
@@ -197,5 +200,29 @@ describe("deriveObjectiveReplanTargets", () => {
     });
 
     expect(result).toEqual([]);
+  });
+
+  it("allows only retryable read/evidence diagnoses to trigger automatic objective replans", () => {
+    expect(isObjectiveEvidenceDiagnosisRetryable({
+        kind: "MISSING_REQUIRED_READ",
+        reasonCode: "REQUIRED_READ_MISSING",
+        nextActionCode: "READ_REQUIRED_SOURCE",
+        retryable: true,
+        requiresApproval: false,
+      })).toBe(true);
+    expect(isObjectiveEvidenceDiagnosisRetryable({
+        kind: "CONTRADICTORY_STATE",
+        reasonCode: "STATE_CONTRADICTED",
+        nextActionCode: "RESOLVE_CONTRADICTION",
+        retryable: false,
+        requiresApproval: true,
+      })).toBe(false);
+    expect(isObjectiveEvidenceDiagnosisRetryable({
+        kind: "TOOL_UNAVAILABLE",
+        reasonCode: "CAPABILITY_UNAVAILABLE",
+        nextActionCode: "RETRY_OR_REPLACE_CAPABILITY",
+        retryable: true,
+        requiresApproval: false,
+      })).toBe(false);
   });
 });

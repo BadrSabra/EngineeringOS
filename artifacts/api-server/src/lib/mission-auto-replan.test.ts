@@ -55,7 +55,17 @@ describe("automatic Mission replanning", () => {
       status: "needs_replan",
       successCriteria: { kind: "historical_failure" },
       evidenceContract: { required: true },
-      outcomeContract: {},
+      outcomeContract: {
+        acceptance: {
+          failureDiagnosis: {
+            kind: "EVIDENCE_INCOMPLETE",
+            reasonCode: "EVIDENCE_INCOMPLETE",
+            nextActionCode: "GATHER_REQUIRED_EVIDENCE",
+            retryable: true,
+            requiresApproval: false,
+          },
+        },
+      },
       nextAction: { kind: "replan", reason: "retry from current evidence" },
       createdAt: now,
       updatedAt: now,
@@ -87,10 +97,19 @@ describe("automatic Mission replanning", () => {
       planRevision: {
         replanContext: {
           failedGoalId,
+          failureClass: "EVIDENCE_INCOMPLETE",
+          failureCode: "EVIDENCE_INCOMPLETE",
+          failureDiagnosis: {
+            kind: "EVIDENCE_INCOMPLETE",
+            reasonCode: "EVIDENCE_INCOMPLETE",
+            nextActionCode: "GATHER_REQUIRED_EVIDENCE",
+            retryable: true,
+            requiresApproval: false,
+          },
           affectedPaths: [],
           affectedClaims: [],
           evidenceRefs: [],
-          nextActions: ["retry from current evidence"],
+          nextActions: ["GATHER_REQUIRED_EVIDENCE", "retry from current evidence"],
         },
       },
     });
@@ -190,5 +209,116 @@ describe("automatic Mission replanning", () => {
       .from(eventsTable)
       .where(eq(eventsTable.projectId, projectId));
     expect(events.filter((item) => item.type === "AiMissionReplanBlocked")).toHaveLength(1);
+  });
+
+  it("blocks automatic replanning for approval-required or malformed diagnoses", async () => {
+    const projectId = crypto.randomUUID();
+    const missionId = crypto.randomUUID();
+    const now = new Date();
+    projectIds.push(projectId);
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "test-user",
+      name: `mission-auto-replan-approval-${projectId.slice(0, 8)}`,
+      rootPath: process.cwd(),
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId,
+      userId: "test-user",
+      title: "Approval-bound recovery",
+      intent: "Inspect the source, then fix the blocking issue.",
+      status: "needs_replan",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: crypto.randomUUID(),
+      missionId,
+      projectId,
+      title: "Authorization failure",
+      status: "needs_replan",
+      successCriteria: { kind: "historical_failure" },
+      evidenceContract: { required: true },
+      outcomeContract: {
+        acceptance: {
+          failureDiagnosis: {
+            kind: "AUTHORIZATION_REQUIRED",
+            reasonCode: "OWNER_AUTHORIZATION_MISSING",
+            nextActionCode: "REQUEST_APPROVAL",
+            retryable: false,
+            requiresApproval: true,
+          },
+        },
+      },
+      nextAction: { kind: "replan", reason: "owner authorization required" },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(await autoReplanMission(missionId)).toEqual({
+      status: "skipped",
+      missionId,
+      reason: "failure_requires_owner_approval",
+    });
+    const [mission] = await db
+      .select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, missionId));
+    expect(mission?.status).toBe("blocked");
+
+    const malformedMissionId = crypto.randomUUID();
+    await db.insert(aiMissionsTable).values({
+      id: malformedMissionId,
+      projectId,
+      userId: "test-user",
+      title: "Malformed diagnosis recovery",
+      intent: "Inspect the source, then fix the blocking issue.",
+      status: "needs_replan",
+      scope: { kind: "project", projectId },
+      autonomyPolicy: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: crypto.randomUUID(),
+      missionId: malformedMissionId,
+      projectId,
+      title: "Malformed diagnosis",
+      status: "needs_replan",
+      successCriteria: { kind: "historical_failure" },
+      evidenceContract: { required: true },
+      outcomeContract: {
+        acceptance: {
+          failureDiagnosis: {
+            kind: "AUTHORIZATION_REQUIRED",
+            reasonCode: "PROVIDER_INVENTED_CODE",
+            nextActionCode: "REQUEST_APPROVAL",
+            retryable: false,
+            requiresApproval: true,
+          },
+        },
+      },
+      nextAction: { kind: "replan", reason: "diagnosis is malformed" },
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(await autoReplanMission(malformedMissionId)).toEqual({
+      status: "skipped",
+      missionId: malformedMissionId,
+      reason: "failure_diagnosis_invalid",
+    });
+    const [malformedMission] = await db
+      .select({ status: aiMissionsTable.status })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.id, malformedMissionId));
+    expect(malformedMission?.status).toBe("blocked");
   });
 });

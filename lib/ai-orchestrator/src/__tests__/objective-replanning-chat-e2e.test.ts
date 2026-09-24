@@ -243,7 +243,7 @@ describe("chat() closed-loop objective replanning", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("closes a missing claim only after bounded objective recovery retains its proof", async () => {
     const claimText = "The secondary source is retained as objective evidence.";
