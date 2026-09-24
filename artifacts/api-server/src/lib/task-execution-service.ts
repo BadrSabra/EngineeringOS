@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { posix as posixPath } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
@@ -65,11 +66,22 @@ import {
 import { parseBinaryEvidencePacket } from "@workspace/ai-orchestrator";
 import {
   runRepairValidation,
+  createValidationWorkspace,
   validateRepairValidationScope,
 } from "./ai-repair-validation.js";
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
-import { startEpisodeShadow } from "./agent-state/agent-episode-ledger.js";
+import {
+  appendEpisodeEvent,
+  startEpisode,
+  startEpisodeShadow,
+} from "./agent-state/agent-episode-ledger.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
+import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
+import {
+  buildMissionRepairAction,
+  buildMissionRepairEffectContract,
+} from "./agent-state/mission-repair-effect.js";
+import { hashDeliveryTree } from "./delivery-workspace.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -384,6 +396,8 @@ async function finalizeTaskExecutionAcceptance(params: {
   evidence?: EvidenceSnapshotInput;
   workspaceRoot?: string | null;
   candidateIdentity?: string | null;
+  effectRequired?: boolean;
+  effectBundleId?: string | null;
 }): Promise<{ accepted: boolean; duplicate: boolean }> {
   const taskFinalization: TaskExecutionFinalization = {
     taskId: params.task.id,
@@ -464,6 +478,8 @@ async function finalizeTaskExecutionAcceptance(params: {
     taskObjective: params.taskObjective,
     taskObjectiveStatus: params.taskObjectiveStatus,
     stateProjection: params.receipt.stateProjection,
+    effectRequired: params.effectRequired,
+    effectBundleId: params.effectBundleId,
     taskFinalization,
   });
   if (finalized.duplicate) {
@@ -492,6 +508,8 @@ type MissionToolLoopExecution = {
     validatorReceipts: TaskObjectiveValidatorReceipt[];
     evidence?: EvidenceSnapshotInput;
     candidateIdentity: string;
+    effectRequired: boolean;
+    effectBundleId?: string;
     refs: string[];
     stateProjection: MissionStateProjection;
   };
@@ -518,7 +536,7 @@ function buildMissionStateProjection(params: {
   missingEvidencePaths: string[];
   lastObservation: string;
   nextAction?: string;
-  pendingChanges: PendingChange[];
+  pendingChanges: readonly Pick<PendingChange, "path" | "newContent">[];
   sourceRevision: string;
   candidateRevision?: string;
 }): MissionStateProjection {
@@ -725,6 +743,7 @@ function missionTaskPolicy(params: {
 function missionCandidateIdentity(
   sourceRevision: string,
   pendingChanges: readonly { path: string; newContent: string }[],
+  baseTreeHash?: string,
 ): string {
   const canonical = pendingChanges
     .map((change) => ({
@@ -733,8 +752,273 @@ function missionCandidateIdentity(
     }))
     .sort((left, right) => left.path.localeCompare(right.path));
   return `mission-candidate:${createHash("sha256")
-    .update(JSON.stringify({ sourceRevision, changes: canonical }))
+    .update(JSON.stringify({
+      sourceRevision,
+      ...(baseTreeHash ? { baseTreeHash } : {}),
+      changes: canonical,
+    }))
     .digest("hex")}`;
+}
+
+type CanonicalMissionChange = Pick<PendingChange, "path" | "newContent">;
+
+function normalizeMissionRelativePath(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\0")) {
+    return undefined;
+  }
+  const slashPath = value.replaceAll("\\", "/");
+  if (slashPath.startsWith("/") || /^[a-zA-Z]:/.test(slashPath)) {
+    return undefined;
+  }
+  const normalized = posixPath.normalize(slashPath).replace(/^(?:\.\/)+/, "");
+  if (
+    normalized === "."
+    || normalized === ".."
+    || normalized.startsWith("../")
+    || normalized.startsWith("/")
+  ) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function canonicalizeMissionChanges(
+  changes: readonly PendingChange[],
+  approvedPaths: readonly string[],
+): { valid: true; changes: CanonicalMissionChange[] } | { valid: false; changes: [] } {
+  const approved = new Set(
+    approvedPaths
+      .map(normalizeMissionRelativePath)
+      .filter((path): path is string => Boolean(path)),
+  );
+  if (approved.size === 0) return { valid: false, changes: [] };
+
+  const byPath = new Map<string, CanonicalMissionChange>();
+  let totalBytes = 0;
+  for (const candidate of changes) {
+    const path = normalizeMissionRelativePath(candidate?.path);
+    if (
+      !path
+      || !approved.has(path)
+      || typeof candidate?.newContent !== "string"
+    ) {
+      return { valid: false, changes: [] };
+    }
+    totalBytes += Buffer.byteLength(candidate.newContent, "utf8");
+    if (totalBytes > 8 * 1024 * 1024) {
+      return { valid: false, changes: [] };
+    }
+    // Multiple tool calls can edit the same approved file. The candidate overlay
+    // uses the final content for that path, so retain the last server result.
+    byPath.set(path, { path, newContent: candidate.newContent });
+  }
+
+  return {
+    valid: true,
+    changes: [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path)),
+  };
+}
+
+type MissionRepairCandidateEffectContext = {
+  episodeId: string;
+  action: ReturnType<typeof buildMissionRepairAction>;
+  candidateIdentity: string;
+  baseTreeHash: string;
+  candidateTreeHash: string;
+  beforeObservationId: string;
+  workspace: Awaited<ReturnType<typeof createValidationWorkspace>>;
+};
+
+async function beginMissionRepairCandidateEffect(params: {
+  task: typeof tasksTable.$inferSelect;
+  goal: typeof aiGoalsTable.$inferSelect;
+  executionId: string;
+  correlationId: string;
+  attempt: number;
+  workerId: string;
+  sourceRevision: string;
+  rootPath: string;
+  changes: readonly CanonicalMissionChange[];
+  approvedPaths: readonly string[];
+}): Promise<MissionRepairCandidateEffectContext> {
+  const baseTreeHash = await hashDeliveryTree(params.rootPath);
+  const planRevision = missionPlanRevisionHash(params.goal);
+  const episode = await startEpisode({
+    projectId: params.task.projectId,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    workerId: params.workerId,
+    idempotencyKey: `${params.task.id}:episode:${params.attempt}`,
+    projectRevision: params.sourceRevision,
+    intentKind: "TASK_EXECUTION",
+    scope: {
+      kind: "mission-task",
+      taskId: params.task.id,
+      missionId: params.goal.missionId,
+      goalId: params.goal.id,
+    },
+    missionId: params.goal.missionId,
+    goalId: params.goal.id,
+    ...(planRevision ? { planRevision } : {}),
+  });
+  const candidateIdentity = missionCandidateIdentity(
+    params.sourceRevision,
+    params.changes,
+    baseTreeHash,
+  );
+  const action = buildMissionRepairAction({
+    actionId: `mission-repair:${params.executionId}:${params.attempt}`,
+    episodeId: episode.episodeId,
+    projectId: params.task.projectId,
+    missionId: params.goal.missionId,
+    goalId: params.goal.id,
+    taskId: params.task.id,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    sourceRevision: params.sourceRevision,
+    goalRevision: params.goal.updatedAt.toISOString(),
+    ...(planRevision ? { planRevision } : {}),
+    candidateIdentity,
+    baseTreeHash,
+    approvedPaths: [...params.approvedPaths],
+  });
+  await appendEpisodeEvent({
+    episodeId: episode.episodeId,
+    projectId: params.task.projectId,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    workerId: params.workerId,
+    eventType: "ACTION_REQUESTED",
+    payload: {
+      action,
+      candidateIdentity,
+      baseTreeHash,
+      expectedEffects: action.expectedEffects,
+    },
+    actorType: "worker",
+    actorId: params.workerId,
+    correlationId: params.correlationId,
+  });
+
+  const before = await materializeServerOwnedObservations({
+    projectId: params.task.projectId,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    episodeId: episode.episodeId,
+    projectRevision: params.sourceRevision,
+    materializeWorldState: false,
+    sources: [{
+      kind: "direct_observation",
+      sourceId: `mission-repair:${params.executionId}:${params.attempt}:before`,
+      subject: `project:${params.task.projectId}:task:${params.task.id}:candidate:${candidateIdentity}`,
+      predicate: "workspace.tree_hash",
+      value: baseTreeHash,
+      sourceRevision: params.sourceRevision,
+      observedAt: new Date(),
+    }],
+  });
+  const beforeObservationId = before.observationIds[0];
+  if (!beforeObservationId || before.stale > 0) {
+    throw new Error("mission_repair_before_observation_unavailable");
+  }
+
+  const workspace = await createValidationWorkspace(params.rootPath, params.changes);
+  try {
+    const candidateTreeHash = await hashDeliveryTree(workspace.rootPath);
+    return {
+      episodeId: episode.episodeId,
+      action,
+      candidateIdentity,
+      baseTreeHash,
+      candidateTreeHash,
+      beforeObservationId,
+      workspace,
+    };
+  } catch (error) {
+    await workspace.cleanup();
+    throw error;
+  }
+}
+
+async function finishMissionRepairCandidateEffect(params: {
+  task: typeof tasksTable.$inferSelect;
+  executionId: string;
+  correlationId: string;
+  attempt: number;
+  workerId: string;
+  sourceRevision: string;
+  rootPath: string;
+  context: MissionRepairCandidateEffectContext;
+  validationStatus: "passed" | "failed" | "blocked" | "unavailable" | "skipped" | "not-run";
+}): Promise<{ effectBundleId?: string; observed: boolean }> {
+  const candidateTreeHash = await hashDeliveryTree(params.context.workspace.rootPath);
+  const liveTreeHash = await hashDeliveryTree(params.rootPath);
+  await appendEpisodeEvent({
+    episodeId: params.context.episodeId,
+    projectId: params.task.projectId,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    workerId: params.workerId,
+    eventType: "ACTION_COMMITTED",
+    payload: {
+      actionId: params.context.action.actionId,
+      candidateIdentity: params.context.candidateIdentity,
+      baseTreeHash: params.context.baseTreeHash,
+      candidateTreeHash,
+      validationStatus: params.validationStatus,
+      liveTreeUnchanged: liveTreeHash === params.context.baseTreeHash,
+    },
+    actorType: "worker",
+    actorId: params.workerId,
+    correlationId: params.correlationId,
+  });
+
+  const after = await materializeServerOwnedObservations({
+    projectId: params.task.projectId,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    episodeId: params.context.episodeId,
+    projectRevision: params.sourceRevision,
+    materializeWorldState: false,
+    sources: [{
+      kind: "direct_observation",
+      sourceId: `mission-repair:${params.executionId}:${params.attempt}:after`,
+      subject: `project:${params.task.projectId}:task:${params.task.id}:candidate:${params.context.candidateIdentity}`,
+      predicate: "workspace.tree_hash",
+      value: candidateTreeHash,
+      sourceRevision: params.sourceRevision,
+      observedAt: new Date(),
+    }],
+  });
+  const afterObservationId = after.observationIds[0];
+  if (!afterObservationId || after.stale > 0) {
+    throw new Error("mission_repair_after_observation_unavailable");
+  }
+
+  const verification = await verifyAndPersistEffect({
+    projectId: params.task.projectId,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    episodeId: params.context.episodeId,
+    workerId: params.workerId,
+    action: params.context.action,
+    effectContract: buildMissionRepairEffectContract({
+      projectId: params.task.projectId,
+      taskId: params.task.id,
+      candidateIdentity: params.context.candidateIdentity,
+      candidateTreeHash: params.context.candidateTreeHash,
+      beforeEvidenceRef: params.context.beforeObservationId,
+      afterEvidenceRef: afterObservationId,
+    }),
+    beforeObservationIds: [params.context.beforeObservationId],
+    afterObservationIds: [afterObservationId],
+  });
+  const stableCandidate = candidateTreeHash === params.context.candidateTreeHash;
+  const sourceStillCurrent = liveTreeHash === params.context.baseTreeHash;
+  return {
+    ...(verification.status === "observed" ? { effectBundleId: verification.effectBundleId } : {}),
+    observed: verification.status === "observed" && stableCandidate && sourceStillCurrent,
+  };
 }
 
 function buildMissionTaskObjective(params: {
@@ -810,8 +1094,21 @@ async function executeMissionToolLoop(params: {
   let claimState = params.resumeState?.claimState ?? [];
   let missingEvidencePaths = params.resumeState?.missingEvidencePaths ?? [];
   let lastObservation = params.resumeState?.lastObservation || "tool loop initialized";
-  let completedToolCalls = params.resumeState?.completedToolCalls ?? [];
-  const pendingChanges = params.resumeState?.pendingChanges ?? [];
+  const resumedChanges = params.profile === "mission_repair"
+    ? canonicalizeMissionChanges(
+        params.resumeState?.pendingChanges ?? [],
+        policy.targetPaths,
+      )
+    : { valid: true as const, changes: [] as CanonicalMissionChange[] };
+  const pendingChanges = resumedChanges.valid
+    ? resumedChanges.changes as PendingChange[]
+    : [];
+  let completedToolCalls = (params.resumeState?.completedToolCalls ?? []).filter((call) => {
+    if (call.tool !== "write_file" && call.tool !== "replace_text") return true;
+    if (params.profile !== "mission_repair" || !resumedChanges.valid) return false;
+    const path = normalizeMissionRelativePath(call.args.path);
+    return Boolean(path && pendingChanges.some((change) => change.path === path));
+  });
   const lastToolCallKeyByTool = new Map<string, string>();
   const message = [
     "Server-owned Mission execution.",
@@ -966,26 +1263,73 @@ async function executeMissionToolLoop(params: {
     },
   );
   const output = chat.result;
-  const outputPendingChanges = output.pendingChanges ?? pendingChanges;
-  const candidateIdentity = missionCandidateIdentity(params.workspaceRevision, outputPendingChanges);
-  const stateProjection = buildMissionStateProjection({
-    profile: params.profile,
-    claimState,
-    missingEvidencePaths,
-    lastObservation,
-    pendingChanges: outputPendingChanges,
-    sourceRevision: params.workspaceRevision,
-    candidateRevision: candidateIdentity,
-  });
+  const rawOutputPendingChanges = output.pendingChanges ?? pendingChanges;
+  const normalizedOutputChanges = params.profile === "mission_repair"
+    ? canonicalizeMissionChanges(rawOutputPendingChanges, policy.targetPaths)
+    : { valid: true as const, changes: [] as CanonicalMissionChange[] };
+  const candidateGenerationRejected = params.profile === "mission_repair"
+    && rawOutputPendingChanges.length > 0
+    && (
+      !normalizedOutputChanges.valid
+      || approvalState !== "APPROVED"
+      || Boolean(output._parseError)
+      || Boolean(output._qualityError)
+    );
+  const outputPendingChanges = params.profile === "mission_repair"
+    && normalizedOutputChanges.valid
+    && approvalState === "APPROVED"
+    ? normalizedOutputChanges.changes
+    : [];
+  let candidateIdentity = missionCandidateIdentity(params.workspaceRevision, outputPendingChanges);
+  const effectRequired = params.profile === "mission_repair"
+    && outputPendingChanges.length > 0;
+  let effectBundleId: string | undefined;
+  let effectObserved = false;
   const validatorReceipts: TaskObjectiveValidatorReceipt[] = [];
-  let proofStatus: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" = "INCOMPLETE";
+  let proofStatus: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE" = candidateGenerationRejected
+    ? "UNAVAILABLE"
+    : "INCOMPLETE";
   let evidence: EvidenceSnapshotInput | undefined;
+  let candidateEffectContext: MissionRepairCandidateEffectContext | undefined;
+  let validationResult: Awaited<ReturnType<typeof runRepairValidation>> | undefined;
 
-  if (taskObjective && policy.validationProfile) {
-    const validationAllowed =
-      params.profile !== "mission_repair" || outputPendingChanges.length > 0;
-    const validation = validationAllowed
-      ? await runRepairValidation(
+  try {
+    if (effectRequired) {
+      try {
+        candidateEffectContext = await beginMissionRepairCandidateEffect({
+          task: params.task,
+          goal: params.goal,
+          executionId: params.executionId,
+          correlationId: params.correlationId,
+          attempt: params.expectedAttempt,
+          workerId: params.workerId,
+          sourceRevision: params.workspaceRevision,
+          rootPath: root.canonicalPath,
+          changes: outputPendingChanges,
+          approvedPaths: policy.targetPaths,
+        });
+        candidateIdentity = candidateEffectContext.candidateIdentity;
+      } catch (error) {
+        proofStatus = "UNAVAILABLE";
+        logger.warn(
+          {
+            scope: "task-execution",
+            code: "mission_repair_candidate_action_unavailable",
+            taskId: params.task.id,
+            executionId: params.executionId,
+            error,
+          },
+          "Mission repair candidate action could not be initialized",
+        );
+      }
+    }
+
+    if (taskObjective && policy.validationProfile) {
+      const validationAllowed = !candidateGenerationRejected
+        && (params.profile !== "mission_repair"
+          || (effectRequired && Boolean(candidateEffectContext)));
+      validationResult = validationAllowed
+        ? await runRepairValidation(
           root.canonicalPath,
           policy.validationProfile,
           policy.targetPaths,
@@ -998,48 +1342,89 @@ async function executeMissionToolLoop(params: {
           },
         )
       : undefined;
-    const receiptStatus = validation?.status === "passed"
-      ? "PROVEN" as const
-      : validation?.status === "unavailable" || validation?.status === "blocked"
-        ? "UNAVAILABLE" as const
-        : "INCOMPLETE" as const;
-    const artifactRef = validation?.evidence.artifactRef
-      ?? `validation-result:${params.executionId}:not-run`;
-    validatorReceipts.push({
-      validatorId: "registered-validation.v1",
-      status: receiptStatus,
-      operationId: params.executionId,
-      projectId: params.task.projectId,
-      workspaceRevision: params.workspaceRevision,
-      artifactRef,
-    });
-    const objectiveValidation = validateTaskObjectiveContract({
-      contract: taskObjective,
-      workspaceRevision: params.workspaceRevision,
-      projectId: params.task.projectId,
-      operationId: params.executionId,
-      objectiveValidated: receiptStatus === "PROVEN",
-      evidenceVerdict: receiptStatus === "PROVEN" ? "PROVEN" : "INCOMPLETE",
-      evidenceComplete: receiptStatus === "PROVEN",
-      targetPaths: policy.targetPaths,
-      validatorReceipts,
-    });
-    proofStatus = objectiveValidation.allowed
-      ? "PROVEN"
-      : receiptStatus === "UNAVAILABLE"
-        ? "UNAVAILABLE"
-        : "INCOMPLETE";
-    evidence = {
-      operationId: params.executionId,
-      workspaceRoot: root.canonicalPath,
-      sourceRevision: params.workspaceRevision,
-      candidateIdentity,
-      verdict: proofStatus,
-      required: true,
-      sourceEvidenceRequired: false,
-      reads: [],
-    };
+      const receiptStatus = validationResult?.status === "passed"
+        ? "PROVEN" as const
+        : validationResult?.status === "unavailable" || validationResult?.status === "blocked"
+          ? "UNAVAILABLE" as const
+          : "INCOMPLETE" as const;
+      const artifactRef = validationResult?.evidence.artifactRef
+        ?? `validation-result:${params.executionId}:not-run`;
+      validatorReceipts.push({
+        validatorId: "registered-validation.v1",
+        status: receiptStatus,
+        operationId: params.executionId,
+        projectId: params.task.projectId,
+        workspaceRevision: params.workspaceRevision,
+        artifactRef,
+      });
+      const objectiveValidation = validateTaskObjectiveContract({
+        contract: taskObjective,
+        workspaceRevision: params.workspaceRevision,
+        projectId: params.task.projectId,
+        operationId: params.executionId,
+        objectiveValidated: receiptStatus === "PROVEN",
+        evidenceVerdict: receiptStatus === "PROVEN" ? "PROVEN" : "INCOMPLETE",
+        evidenceComplete: receiptStatus === "PROVEN",
+        targetPaths: policy.targetPaths,
+        validatorReceipts,
+      });
+      proofStatus = objectiveValidation.allowed
+        ? "PROVEN"
+        : receiptStatus === "UNAVAILABLE"
+          ? "UNAVAILABLE"
+          : "INCOMPLETE";
+      evidence = {
+        operationId: params.executionId,
+        workspaceRoot: root.canonicalPath,
+        sourceRevision: params.workspaceRevision,
+        candidateIdentity,
+        verdict: proofStatus,
+        required: true,
+        sourceEvidenceRequired: false,
+        reads: [],
+      };
+    }
+
+    if (effectRequired && candidateEffectContext) {
+      try {
+        const effect = await finishMissionRepairCandidateEffect({
+          task: params.task,
+          executionId: params.executionId,
+          correlationId: params.correlationId,
+          attempt: params.expectedAttempt,
+          workerId: params.workerId,
+          sourceRevision: params.workspaceRevision,
+          rootPath: root.canonicalPath,
+          context: candidateEffectContext,
+          validationStatus: validationResult?.status ?? "not-run",
+        });
+        effectBundleId = effect.effectBundleId;
+        effectObserved = effect.observed;
+        if (!effect.observed) {
+          proofStatus = proofStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "INCOMPLETE";
+        }
+      } catch (error) {
+        proofStatus = proofStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "INCOMPLETE";
+        logger.warn(
+          {
+            scope: "task-execution",
+            code: "mission_repair_candidate_effect_unavailable",
+            taskId: params.task.id,
+            executionId: params.executionId,
+            error,
+          },
+          "Mission repair candidate effect could not be verified",
+        );
+      }
+    } else if (effectRequired) {
+      proofStatus = "UNAVAILABLE";
+    }
+  } finally {
+    if (candidateEffectContext) {
+      await candidateEffectContext.workspace.cleanup();
+    }
   }
+
   const binaryEvidence = (output.binaryEvidence ?? []).flatMap((packet) => {
     const parsed = parseBinaryEvidencePacket(packet, {
       operationId: params.executionId,
@@ -1052,7 +1437,13 @@ async function executeMissionToolLoop(params: {
       packet.operationId === params.executionId
       && packet.workspaceRevision === params.workspaceRevision
     ) ? "PROVEN" as const : "INCOMPLETE" as const;
-    proofStatus = mediaVerdict;
+    proofStatus = taskObjective
+      ? proofStatus === "PROVEN" && mediaVerdict === "PROVEN"
+        ? "PROVEN"
+        : proofStatus === "UNAVAILABLE"
+          ? "UNAVAILABLE"
+          : "INCOMPLETE"
+      : mediaVerdict;
     evidence = {
       ...(evidence ?? {}),
       operationId: params.executionId,
@@ -1066,6 +1457,25 @@ async function executeMissionToolLoop(params: {
       artifacts: binaryEvidence,
     };
   }
+  if (effectRequired && !effectObserved) {
+    proofStatus = proofStatus === "UNAVAILABLE" ? "UNAVAILABLE" : "INCOMPLETE";
+  }
+  if (evidence) {
+    evidence = {
+      ...evidence,
+      candidateIdentity,
+      verdict: proofStatus,
+    };
+  }
+  const stateProjection = buildMissionStateProjection({
+    profile: params.profile,
+    claimState,
+    missingEvidencePaths,
+    lastObservation,
+    pendingChanges: outputPendingChanges,
+    sourceRevision: params.workspaceRevision,
+    candidateRevision: candidateIdentity,
+  });
   const response = typeof output.response === "string"
     ? output.response
     : "Mission tool loop ended without a user-facing response.";
@@ -1091,7 +1501,12 @@ async function executeMissionToolLoop(params: {
       validatorReceipts,
       evidence,
       candidateIdentity,
-      refs: validatorReceipts.map((receipt) => receipt.artifactRef),
+      effectRequired,
+      ...(effectBundleId ? { effectBundleId } : {}),
+      refs: [
+        ...validatorReceipts.map((receipt) => receipt.artifactRef),
+        ...(effectBundleId ? [effectBundleId] : []),
+      ],
       stateProjection,
     },
   };
@@ -1671,6 +2086,8 @@ export async function executeTaskLifecycle(params: {
       evidence: missionExecution?.proof.evidence,
       workspaceRoot: missionExecution?.proof.evidence?.workspaceRoot,
       candidateIdentity: missionExecution?.proof.candidateIdentity,
+      effectRequired: missionExecution?.proof.effectRequired,
+      effectBundleId: missionExecution?.proof.effectBundleId,
     });
     if (!finalized.accepted) {
       throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });

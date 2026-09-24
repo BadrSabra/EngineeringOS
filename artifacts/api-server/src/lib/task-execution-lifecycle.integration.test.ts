@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
+  aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
+  aiAgentEpisodeEventsTable,
   aiExecutionAcceptancesTable,
   aiAgentEpisodesTable,
+  aiAgentObservationsTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -22,12 +28,25 @@ const runAgentWithFallback = vi.hoisted(() => vi.fn(async () => ({
   },
   effectiveProvider: "groq" as const,
 })));
+const chatWithFallback = vi.hoisted(() => vi.fn(async () => ({
+  result: {
+    response: "Mission tool-loop fixture completed.",
+    pendingChanges: [] as Array<{ path: string; newContent: string }>,
+    sources: [],
+  },
+  effectiveProvider: "groq" as const,
+})));
+const runRepairValidation = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
+  status: "passed" as const,
+  evidence: { artifactRef: "fixture-validation-receipt" },
+})));
 
 vi.mock("./ai-route-helpers.js", async () => {
   const actual = await vi.importActual<typeof import("./ai-route-helpers.js")>("./ai-route-helpers.js");
   return {
     ...actual,
     runAgentWithFallback,
+    chatWithFallback,
   };
 });
 
@@ -48,6 +67,14 @@ vi.mock("./task-progress.js", () => ({
   })),
 }));
 
+vi.mock("./ai-repair-validation.js", async () => {
+  const actual = await vi.importActual<typeof import("./ai-repair-validation.js")>("./ai-repair-validation.js");
+  return {
+    ...actual,
+    runRepairValidation,
+  };
+});
+
 import { executeTaskLifecycle } from "./task-execution-service.js";
 
 async function waitForEpisode(executionId: string) {
@@ -66,6 +93,113 @@ async function waitForEpisode(executionId: string) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`Episode was not materialized for execution ${executionId}`);
+}
+
+async function cleanupProjectExecutionData(projectId: string) {
+  await db.delete(aiAgentEpisodeEventsTable).where(eq(aiAgentEpisodeEventsTable.projectId, projectId));
+  await db.delete(aiAgentObservationsTable).where(eq(aiAgentObservationsTable.projectId, projectId));
+  await db.delete(aiAgentEffectsTable).where(eq(aiAgentEffectsTable.projectId, projectId));
+  await db.delete(aiExecutionAcceptancesTable).where(
+    eq(aiExecutionAcceptancesTable.projectId, projectId),
+  );
+  await db.delete(aiAgentEffectBundlesTable).where(eq(aiAgentEffectBundlesTable.projectId, projectId));
+  await db.delete(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
+  await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+}
+
+async function createMissionToolLoopFixture(input: {
+  phase: "execute" | "validate";
+  approvalRequired: boolean;
+}) {
+  const projectId = randomUUID();
+  const missionId = randomUUID();
+  const goalId = randomUUID();
+  const taskId = randomUUID();
+  const now = new Date();
+  const workspaceRoot = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+  const rootPath = await mkdtemp(join(workspaceRoot, "mission-tool-loop-"));
+  await mkdir(join(rootPath, "src"), { recursive: true });
+  await writeFile(join(rootPath, "src", "target.ts"), "export const value = 'base';\n", "utf8");
+
+  await db.insert(projectsTable).values({
+    id: projectId,
+    ownerId: "mission-effect-test-user",
+    name: `mission-effect-${projectId.slice(0, 8)}`,
+    rootPath,
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiMissionsTable).values({
+    id: missionId,
+    projectId,
+    userId: "mission-effect-test-user",
+    title: "Mission repair effect fixture",
+    intent: "Verify a bounded Mission task.",
+    status: "active",
+    scope: { kind: "project", projectId },
+    autonomyPolicy: {},
+    budget: {},
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId,
+    projectId,
+    title: "Verify the candidate",
+    description: "Run the server-owned Mission tool loop.",
+    status: "running",
+    priority: "p1",
+    successCriteria: { objective: "Verify the target source file." },
+    evidenceContract: {},
+    outcomeContract: {
+      planRevision: {
+        hash: `mission-plan-${goalId}`,
+        steps: [{
+          kind: input.phase,
+          files: ["src/target.ts"],
+          validationProfile: "workspace-typecheck",
+          approvalRequired: input.approvalRequired,
+        }],
+      },
+    },
+    nextAction: { kind: "task", taskId },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(tasksTable).values({
+    id: taskId,
+    projectId,
+    goalId,
+    phase: input.phase,
+    title: `Mission ${input.phase} fixture`,
+    prompt: "Use only the server-authorized project scope.",
+    relatedFiles: ["src/target.ts"],
+    status: "verifying",
+    retryCount: 0,
+    maxRetries: 2,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return {
+    projectId,
+    missionId,
+    goalId,
+    taskId,
+    rootPath,
+    now,
+    cleanup: async () => {
+      await cleanupProjectExecutionData(projectId);
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+      await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      await rm(rootPath, { recursive: true, force: true });
+    },
+  };
 }
 
 describe("real durable task execution lifecycle", () => {
@@ -114,6 +248,7 @@ describe("real durable task execution lifecycle", () => {
       expect(outcome.status).toBe("completed");
       expect(outcome.executionId).toEqual(expect.any(String));
       expect(runAgentWithFallback).toHaveBeenCalledTimes(1);
+      await waitForEpisode(outcome.executionId!);
 
       const [task] = await db
         .select({ status: tasksTable.status, workerId: tasksTable.workerId })
@@ -150,10 +285,7 @@ describe("real durable task execution lifecycle", () => {
         resumable: 0,
       });
     } finally {
-      await db.delete(aiExecutionAcceptancesTable).where(
-        eq(aiExecutionAcceptancesTable.projectId, projectId),
-      );
-      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
@@ -222,13 +354,210 @@ describe("real durable task execution lifecycle", () => {
         },
       });
     } finally {
-      await db.delete(aiExecutionAcceptancesTable).where(
-        eq(aiExecutionAcceptancesTable.projectId, projectId),
-      );
-      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("requires a directly observed candidate effect for an approved Mission repair", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: false,
+    });
+    const candidateContent = "export const value = 'candidate';\n";
+    chatWithFallback.mockResolvedValue({
+      result: {
+        response: "Prepared and verified the bounded repair.",
+        pendingChanges: [{ path: "src/target.ts", newContent: candidateContent }],
+        sources: [],
+      },
+      effectiveProvider: "groq",
+    });
+    runRepairValidation.mockResolvedValue({
+      status: "passed",
+      evidence: { artifactRef: "mission-repair-validator-pass" },
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+
+      expect(outcome.ok).toBe(true);
+      expect(outcome.status).toBe("completed");
+      expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+        .toBe("export const value = 'base';\n");
+      expect(runRepairValidation).toHaveBeenCalledTimes(1);
+      expect(runRepairValidation.mock.calls[0]?.[4]).toEqual([
+        { path: "src/target.ts", newContent: candidateContent },
+      ]);
+
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.projectId, fixture.projectId))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        effectBundleId: expect.any(String),
+      });
+
+      const [bundle] = await db
+        .select({ verdict: aiAgentEffectBundlesTable.verdict })
+        .from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.executionId, outcome.executionId!))
+        .limit(1);
+      expect(bundle?.verdict).toBe("OBSERVED");
+      const effects = await db
+        .select({ status: aiAgentEffectsTable.status })
+        .from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, outcome.executionId!));
+      expect(effects).toEqual([{ status: "observed" }]);
+
+      const observations = await db
+        .select({
+          provenance: aiAgentObservationsTable.provenance,
+          predicate: aiAgentObservationsTable.predicate,
+          value: aiAgentObservationsTable.value,
+        })
+        .from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.executionId, outcome.executionId!));
+      expect(observations).toHaveLength(2);
+      expect(observations.every((observation) =>
+        observation.provenance === "DIRECT_OBSERVATION"
+        && observation.predicate === "workspace.tree_hash"
+      )).toBe(true);
+      expect(observations[0]?.value).not.toEqual(observations[1]?.value);
+
+      const episodeEvents = await db
+        .select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, outcome.executionId!));
+      const eventTypes = episodeEvents.map((event) => event.eventType);
+      expect(eventTypes).toContain("ACTION_REQUESTED");
+      expect(eventTypes).toContain("ACTION_COMMITTED");
+      expect(eventTypes).toContain("EFFECT_CLASSIFIED");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("keeps Mission validation read-only and outside the effect gate", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "validate",
+      approvalRequired: false,
+    });
+    const liveContent = "export const value = 'base';\n";
+    chatWithFallback.mockResolvedValue({
+      result: {
+        response: "Validated the current workspace.",
+        // A provider-shaped patch must not turn a validation task into a repair.
+        pendingChanges: [{ path: "src/target.ts", newContent: "export const value = 'injected';\n" }],
+        sources: [],
+      },
+      effectiveProvider: "groq",
+    });
+    runRepairValidation.mockResolvedValue({
+      status: "passed",
+      evidence: { artifactRef: "mission-validate-only-receipt" },
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+
+      expect(outcome.ok).toBe(true);
+      expect(outcome.status).toBe("completed");
+      expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8")).toBe(liveContent);
+      expect(runRepairValidation).toHaveBeenCalledTimes(1);
+      expect(runRepairValidation.mock.calls[0]?.[4]).toEqual([]);
+      expect(await db.select().from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.projectId, fixture.projectId))).toEqual([]);
+      expect(await db.select().from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.projectId, fixture.projectId))).toEqual([]);
+      const events = await db
+        .select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
+      expect(events.map((event) => event.eventType)).not.toContain("ACTION_REQUESTED");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("rejects a Mission repair candidate when plan approval is still pending", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: true,
+    });
+    chatWithFallback.mockResolvedValue({
+      result: {
+        response: "A candidate was returned.",
+        pendingChanges: [{ path: "src/target.ts", newContent: "export const value = 'unapproved';\n" }],
+        sources: [],
+      },
+      effectiveProvider: "groq",
+    });
+    runRepairValidation.mockResolvedValue({
+      status: "passed",
+      evidence: { artifactRef: "must-not-run" },
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+      await waitForEpisode(outcome.executionId!);
+
+      expect(outcome.ok).toBe(true);
+      expect(outcome.status).toBe("verifying");
+      expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+        .toBe("export const value = 'base';\n");
+      expect(runRepairValidation).not.toHaveBeenCalled();
+      expect(await db.select().from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.projectId, fixture.projectId))).toEqual([]);
+      expect(await db.select().from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.projectId, fixture.projectId))).toEqual([]);
+      const events = await db
+        .select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
+      expect(events.map((event) => event.eventType)).not.toContain("ACTION_REQUESTED");
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.projectId, fixture.projectId))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "FAILED",
+        effectBundleId: null,
+      });
+    } finally {
+      await fixture.cleanup();
     }
   });
 
@@ -337,10 +666,7 @@ describe("real durable task execution lifecycle", () => {
       expect(acceptance.deliveryReceipt).toBeUndefined();
       expect(mission?.status).toBe("waiting");
     } finally {
-      await db.delete(aiExecutionAcceptancesTable).where(
-        eq(aiExecutionAcceptancesTable.projectId, projectId),
-      );
-      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      await cleanupProjectExecutionData(projectId);
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
       await db.delete(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
       await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
