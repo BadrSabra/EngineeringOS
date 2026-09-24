@@ -15,6 +15,8 @@ import {
   type RecipeCapabilityRuntime,
   type RecipeEvidence,
   type ValidationRunner,
+  type AgentAction,
+  type EffectContract,
 } from "@workspace/ai-orchestrator";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
@@ -58,8 +60,18 @@ import {
   type ActiveSkillRegistryBinding,
 } from "./skill-registry.js";
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
-import { startEpisodeShadow } from "./agent-state/agent-episode-ledger.js";
+import {
+  appendEpisodeEvent,
+  startEpisode,
+  startEpisodeShadow,
+} from "./agent-state/agent-episode-ledger.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
+import { hashDeliveryTree } from "./delivery-workspace.js";
+import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
+import {
+  buildCandidateValidationAction,
+  buildCandidateValidationEffectContract,
+} from "./agent-state/candidate-validation-effect.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -521,17 +533,107 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     };
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
-  startEpisodeShadow({
-    projectId: params.projectId,
-    executionId: claimed.id,
-    attempt: claimed.attempt,
-    workerId,
-    idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
-    projectRevision: params.sourceRevision,
-    intentKind: "RECIPE_OPERATION",
-    scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
-    ...(params.goalId ? { goalId: params.goalId } : {}),
-  });
+  const candidateValidation = params.recipeId === "candidate.verify";
+  const episode = candidateValidation
+    ? await startEpisode({
+        projectId: params.projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
+        projectRevision: params.sourceRevision,
+        intentKind: "CANDIDATE_VALIDATION",
+        scope: {
+          kind: "recipe",
+          operationId: params.operationId,
+          recipeId: params.recipeId,
+          candidateIdentity: params.candidateIdentity ?? null,
+        },
+        ...(params.goalId ? { goalId: params.goalId } : {}),
+      })
+    : (startEpisodeShadow({
+        projectId: params.projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
+        projectRevision: params.sourceRevision,
+        intentKind: "RECIPE_OPERATION",
+        scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
+        ...(params.goalId ? { goalId: params.goalId } : {}),
+      }), undefined);
+  let candidateValidationAction: AgentAction | undefined;
+  let candidateValidationEffectContract: EffectContract | undefined;
+  let candidateValidationBeforeObservationIds: string[] | undefined;
+  if (candidateValidation) {
+    if (!episode || !params.candidateIdentity || !candidateRoot) {
+      throw new Error("Candidate validation requires an identity and disposable workspace.");
+    }
+    const beforeTreeHash = await hashDeliveryTree(executionRoot);
+    const beforeEvidenceRef = `candidate-validation:${claimed.id}:${claimed.attempt}:before`;
+    const afterEvidenceRef = `candidate-validation:${claimed.id}:${claimed.attempt}:after`;
+    const action = buildCandidateValidationAction({
+      actionId: `action:${claimed.id}:${claimed.attempt}:candidate-validation`,
+      episodeId: episode.episodeId,
+      projectId: params.projectId,
+      operationId: params.operationId,
+      sourceRevision: params.sourceRevision,
+      candidateIdentity: params.candidateIdentity,
+      approvedPaths: normalizedPaths(params.approvedPaths),
+    });
+    candidateValidationAction = action;
+    candidateValidationEffectContract = buildCandidateValidationEffectContract({
+      candidateIdentity: params.candidateIdentity,
+      beforeEvidenceRef,
+      afterEvidenceRef,
+    });
+    await appendEpisodeEvent({
+      episodeId: episode.episodeId,
+      projectId: params.projectId,
+      executionId: claimed.id,
+      attempt: claimed.attempt,
+      workerId,
+      eventType: "ACTION_REQUESTED",
+      payload: {
+        actionId: action.actionId,
+        capabilityId: action.capabilityId,
+        expectedEffects: action.expectedEffects,
+        observationProfile: action.observationProfile,
+      },
+      actorType: "worker",
+      actorId: workerId,
+      correlationId: claimed.id,
+    });
+    const before = await materializeServerOwnedObservations({
+      projectId: params.projectId,
+      executionId: claimed.id,
+      attempt: claimed.attempt,
+      episodeId: episode.episodeId,
+      projectRevision: params.sourceRevision,
+      materializeWorldState: false,
+      sources: [
+        {
+          kind: "direct_observation",
+          sourceId: `${beforeEvidenceRef}:workspace`,
+          sourceRevision: params.sourceRevision,
+          subject: `candidate:${params.candidateIdentity}`,
+          predicate: "workspace.tree_hash",
+          value: beforeTreeHash,
+          evidenceRefs: [beforeEvidenceRef],
+        },
+        {
+          kind: "direct_observation",
+          sourceId: `${beforeEvidenceRef}:status`,
+          sourceRevision: params.sourceRevision,
+          subject: `candidate:${params.candidateIdentity}`,
+          predicate: "validation.status",
+          value: "pending",
+          evidenceRefs: [beforeEvidenceRef],
+        },
+      ],
+    });
+    candidateValidationBeforeObservationIds = before.observationIds;
+  }
   const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
   const runningRecipeBinding = checkpoint?.recipeBinding ?? {
     ...prepared.binding,
@@ -778,6 +880,25 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       },
     });
     if (result.status !== "passed" || overallController.signal.aborted) {
+      if (candidateValidation && episode && candidateValidationAction) {
+        await appendEpisodeEvent({
+          episodeId: episode.episodeId,
+          projectId: params.projectId,
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          workerId,
+          eventType: "ACTION_COMMITTED",
+          payload: {
+            actionId: candidateValidationAction.actionId,
+            capabilityId: candidateValidationAction.capabilityId,
+            status: "failed",
+            reason: overallController.signal.aborted ? "deadline" : "node_failed",
+          },
+          actorType: "worker",
+          actorId: workerId,
+          correlationId: claimed.id,
+        });
+      }
       await failAiExecution({
         executionId: claimed.id,
         workerId,
@@ -866,6 +987,77 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           };
         })
       : [];
+    let candidateEffectBundleId: string | undefined;
+    if (
+      candidateValidation
+      && episode
+      && candidateValidationAction
+      && candidateValidationEffectContract
+      && candidateValidationBeforeObservationIds
+      && params.candidateIdentity
+    ) {
+      await appendEpisodeEvent({
+        episodeId: episode.episodeId,
+        projectId: params.projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        eventType: "ACTION_COMMITTED",
+        payload: {
+          actionId: candidateValidationAction.actionId,
+          capabilityId: candidateValidationAction.capabilityId,
+          status: "completed",
+        },
+        actorType: "worker",
+        actorId: workerId,
+        correlationId: claimed.id,
+      });
+      const afterTreeHash = await hashDeliveryTree(executionRoot);
+      const afterEvidenceRef = `candidate-validation:${claimed.id}:${claimed.attempt}:after`;
+      const after = await materializeServerOwnedObservations({
+        projectId: params.projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        episodeId: episode.episodeId,
+        projectRevision: params.sourceRevision,
+        materializeWorldState: false,
+        sources: [
+          {
+            kind: "direct_observation",
+            sourceId: `${afterEvidenceRef}:workspace`,
+            sourceRevision: params.sourceRevision,
+            subject: `candidate:${params.candidateIdentity}`,
+            predicate: "workspace.tree_hash",
+            value: afterTreeHash,
+            evidenceRefs: [afterEvidenceRef],
+          },
+          {
+            kind: "direct_observation",
+            sourceId: `${afterEvidenceRef}:status`,
+            sourceRevision: params.sourceRevision,
+            subject: `candidate:${params.candidateIdentity}`,
+            predicate: "validation.status",
+            value: "passed",
+            evidenceRefs: [afterEvidenceRef],
+          },
+        ],
+      });
+      const effect = await verifyAndPersistEffect({
+        projectId: params.projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        episodeId: episode.episodeId,
+        workerId,
+        action: candidateValidationAction,
+        effectContract: candidateValidationEffectContract,
+        beforeObservationIds: candidateValidationBeforeObservationIds,
+        afterObservationIds: after.observationIds,
+      });
+      if (effect.status !== "observed") {
+        throw new Error(`candidate_validation_effect_${effect.status}`);
+      }
+      candidateEffectBundleId = effect.effectBundleId;
+    }
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -897,6 +1089,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           .filter((id): id is string => typeof id === "string") : [],
       })),
       recipeReceipt: completedReceipt,
+      ...(candidateEffectBundleId
+        ? { effectRequired: true, effectBundleId: candidateEffectBundleId }
+        : {}),
     });
     if (!completed) {
       const cancelledReceipt = buildRecipeReceipt(
@@ -954,10 +1149,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       throw new Error("Recipe completion lost its durable ownership fence.");
     }
     const receipt = completedReceipt;
-    void materializeServerOwnedObservations({
+    await materializeServerOwnedObservations({
       projectId: params.projectId,
       executionId: claimed.id,
       attempt: receipt.attempt ?? claimed.attempt,
+      ...(episode ? { episodeId: episode.episodeId } : {}),
       projectRevision: receipt.sourceRevision,
       sources: [
         {

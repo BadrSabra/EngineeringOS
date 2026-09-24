@@ -2679,6 +2679,9 @@ export async function completeAiExecution(params: {
   /** Orientation requires complete role coverage in addition to source reads. */
   orientationCoverageComplete?: boolean;
   goalProjection?: GoalExecutionProjection;
+  /** Server-owned effect evidence required before terminal success. */
+  effectRequired?: boolean;
+  effectBundleId?: string | null;
 }): Promise<boolean> {
   const [current] = await db
     .select({
@@ -2896,6 +2899,8 @@ export async function completeAiExecution(params: {
     proposalId: params.proposalId ?? null,
     recipeReceipt: params.recipeReceipt,
     goalProjection: params.goalProjection,
+    effectRequired: params.effectRequired,
+    effectBundleId: params.effectBundleId,
     taskObjective,
     taskObjectiveStatus: params.objectiveValidated ? "PROVEN" : "INCOMPLETE",
     checkpoint: JSON.stringify(checkpointEnvelope),

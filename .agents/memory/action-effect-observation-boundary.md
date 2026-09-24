@@ -18,3 +18,15 @@ effect would make causal credit and PROVEN status vulnerable to false positives.
 through the existing acceptance row, and require every effect in a mutation-required bundle to be
 `observed` before a successful acceptance can become PROVEN. Missing, stale, contradictory, or
 unchanged before/after evidence must remain non-PROVEN.
+
+Candidate validation is a read-only action but still uses the same effect spine: a server-owned
+validation result is observed as a state transition only when paired with fresh direct before/after
+observations; the read-only World State projection may be deferred until after effect acceptance.
+
+**Why:** Validation does not mutate the candidate, but it makes a claim about candidate state that
+must not be accepted from a receipt or provider result alone. Keeping the projection out of the
+gate also avoids making a derived read model a second acceptance authority.
+
+**How to apply:** For `candidate.verify`, persist action request/commit events, materialize direct
+workspace/status observations, classify the effect before terminal acceptance, and pass the bound
+effect bundle through the existing completion finalizer.

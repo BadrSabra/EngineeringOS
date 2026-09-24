@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-24  
-**الوضع:** Foundation مكتملة جزئيًا؛ Cognitive Spine وIndependent Effect Verification غير مكتملين، وكل ما بعدهما يبقى Shadow/read-only
+**الوضع:** Foundation مكتملة جزئيًا؛ Candidate Validation Effect Loop مغلقة كأول vertical slice، بينما تكامل observers الأوسع ما زال Shadow/read-only
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -16,9 +16,9 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `not_started` | يلزم ربط Objective → Episode → Action → Preconditions → Before Observation → Execution → After Observation → Effect → World Delta → Acceptance. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation يربط Episode → Action → Preconditions → Before/After Observation → Effect → Acceptance؛ بقية المسارات لم تُوحّد بعد. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `not_started` | يلزم before/after observations وتصنيف أثر مستقل؛ لا يجوز اشتقاق Effect من acceptance وحدها. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime/Browser/Delivery observers وتصنيفها ما زالت متبقية. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
@@ -219,6 +219,34 @@ G9 Revocation Safety
   وجود contracts أو replay infrastructure لا يثبت generalization.
 - **next step:** تنفيذ Cognitive Action/Observation Spine قبل أي Strategy Learning
   أو live promotion.
+
+### 2026-09-24 — Candidate Validation Effect Loop
+
+- **phase/step:** P3.5 / P5 / Gate B — Candidate Validation vertical slice
+- **status:** `done`
+- **what changed:** مسار `candidate.verify` يبدأ Episode authoritative بعد امتلاك lease،
+  ويبني `AgentAction` و`EffectContract` server-owned، ويسجل
+  `ACTION_REQUESTED` و`ACTION_COMMITTED`. يتم التقاط before/after direct observations
+  لـcandidate tree ونتيجة validation، ثم تصنيف الأثر وحفظ effect bundle قبل
+  `completeAiExecution`. يمرر التنفيذ `effectRequired` و`effectBundleId` إلى
+  acceptance، بينما تبقى receipt/acceptance observations مشتقة فقط.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/recipe-operation-runner.ts`,
+  `artifacts/api-server/src/lib/agent-state/candidate-validation-effect.ts`,
+  `artifacts/api-server/src/lib/agent-state/observation-materializer.ts`,
+  `artifacts/api-server/src/lib/agent-state/effect-observer.ts`,
+  `artifacts/api-server/src/lib/ai-execution-state.ts`,
+  واختبارات `recipe-operation-runner` و`effect-observer`.
+- **validation:** API typecheck؛ recipe runner (8)؛ effect observer وEpisode ledger (11)؛
+  اختبارات Candidate Validation تتثبت من observed effect وdirect observations
+  وaction events وربط acceptance؛ `git diff --check`.
+- **authority/safety impact:** لا يمنح Action صلاحية بذاته؛ profile والتنفيذ وlease
+  server-owned. لا يُقبل النجاح قبل effect bundle observed مربوط بنفس
+  execution/attempt/episode، وmissing/stale/worker-loss لا يرفع `PROVEN`.
+  World State projection مؤجلة لهذه الملاحظات إلى P6 ولا تُستخدم كسلطة قبول.
+- **remaining/blocker:** لا يوجد blocker في Candidate Validation؛ P5 الأوسع ما زالت
+  تحتاج Runtime/Browser/Delivery after-state observers، وP6 يحتاج ربط effect بـWorld Delta.
+- **next step:** إغلاق Gate C بإضافة Runtime/Browser/Delivery after-state observers،
+  مع الحفاظ على نفس AgentAction/effect/acceptance seam.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

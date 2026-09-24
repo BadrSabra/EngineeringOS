@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ P3.5–P14 متبقية
+> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ Candidate Validation Effect Loop مغلقة كأول vertical slice ضمن P3.5/P5، وبقية P3.5–P14 قيد التنفيذ
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -1056,11 +1056,12 @@ task-session-state.ts
 ### Slice B: Mission Validation
 
 ```text
-Mission Goal
-→ task execution
-→ validator
-→ expected effect
-→ observed effect
+candidate
+→ validation profile
+→ before observation
+→ validation action
+→ after observation
+→ effect classification
 → acceptance
 ```
 
@@ -1409,10 +1410,15 @@ learningStatus
 ### PR 5: Effect Observation لشريحة Candidate Validation
 
 - هذه أول vertical slice كاملة، ولا يبدأ learning قبل نجاحها.
-- before/after workspace.
-- validation result.
-- runtime revision عند الحاجة.
-- acceptance integration.
+- `candidate.verify` يبدأ Episode authoritative ويستخدم `AgentAction` و`EffectContract`
+  server-owned.
+- يسجل `ACTION_REQUESTED` و`ACTION_COMMITTED` ثم before/after direct observations
+  للـcandidate workspace وvalidation result.
+- يصنف الأثر ويحفظ effect bundle قبل terminal acceptance، مع binding إلى نفس
+  execution/attempt/episode/revision.
+- missing/stale/contradicted effect لا يسمح بـ`PROVEN`؛ receipts وacceptance تبقى
+  `SERVER_DERIVED`.
+- World State projection لهذه الملاحظات يمكن تأجيلها؛ لا تدخل في acceptance gate.
 
 ### PR 6: Runtime/Browser/Delivery Observers
 
@@ -3939,7 +3945,7 @@ worldRevision =
 
 ### 42.4 P5 — Authoritative Effect Verification
 
-**الحالة:** `NOT STARTED`
+**الحالة:** `PARTIAL — Candidate Validation slice complete`
 
 الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
 
@@ -3971,6 +3977,26 @@ UNKNOWN
 
 لا يجوز استنتاج Effect من acceptance وحدها. غياب after observation أو وجود
 تناقض يبقي النتيجة غير مكتملة ولا يسمح بـ`PROVEN`.
+
+أغلقت شريحة Candidate Validation المسار التالي قبل terminal acceptance:
+
+```text
+ACTION_REQUESTED
+    ↓
+BEFORE_OBSERVATION
+    ↓
+VALIDATE_CANDIDATE
+    ↓
+ACTION_COMMITTED
+    ↓
+AFTER_OBSERVATION
+    ↓
+EFFECT_CLASSIFICATION
+    ↓
+ACCEPTANCE(effectBundleId)
+```
+
+يبقى Runtime/Browser/Delivery after-state خارج هذه الشريحة وينتمي إلى Gate C.
 
 ### 42.5 P5.5 — Unified Action Semantics
 

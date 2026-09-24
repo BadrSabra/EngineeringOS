@@ -1,8 +1,12 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
+  aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
+  aiAgentEpisodeEventsTable,
+  aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiChatSessionsTable,
@@ -214,6 +218,37 @@ describe("recipe operation preparation", () => {
       expect(result.status).toBe("completed");
       expect(result.completedNodeIds).toEqual(fixture.prepared.plan.nodes.map((node) => node.id));
       expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+      const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.executionId, fixture.executionId))
+        .limit(1);
+      expect(bundle).toMatchObject({ verdict: "OBSERVED" });
+      const effects = bundle
+        ? await db.select().from(aiAgentEffectsTable)
+          .where(eq(aiAgentEffectsTable.executionId, fixture.executionId))
+        : [];
+      expect(effects).toHaveLength(1);
+      expect(effects[0]).toMatchObject({
+        capabilityId: "candidate.validation",
+        status: "observed",
+      });
+      const directObservations = await db.select()
+        .from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.executionId, fixture.executionId));
+      expect(directObservations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(4);
+      const episodeEvents = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, fixture.executionId));
+      expect(episodeEvents.map((event) => event.eventType)).toEqual(
+        expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
+      );
+      const [acceptance] = await db.select({ effectBundleId: aiExecutionAcceptancesTable.effectBundleId })
+        .from(aiExecutionAcceptancesTable)
+        .where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ))
+        .limit(1);
+      expect(acceptance?.effectBundleId).toBe(bundle?.id);
     } finally {
       await fixture.cleanup();
     }

@@ -81,11 +81,14 @@ export type MaterializeServerOwnedObservationsInput = {
   attempt: number;
   projectRevision?: string | null;
   episodeId?: string;
+  /** Effect verification can defer the read-only world projection to P6. */
+  materializeWorldState?: boolean;
   sources: readonly ServerOwnedObservationSource[];
 };
 
 export type ObservationMaterializationResult = {
   episodeId: string;
+  observationIds: string[];
   inserted: number;
   duplicates: number;
   stale: number;
@@ -288,6 +291,7 @@ export async function materializeServerOwnedObservations(
     let inserted = 0;
     let duplicates = 0;
     let stale = 0;
+    const observationIds: string[] = [];
     const initialObservationRefs = Array.isArray(episode.observationRefs)
       ? episode.observationRefs.filter((ref): ref is string => typeof ref === "string").slice(0, 128)
       : [];
@@ -309,6 +313,7 @@ export async function materializeServerOwnedObservations(
         .limit(1);
       if (existing) {
         duplicates++;
+        observationIds.push(existing.id);
         observationRefs.add(existing.id);
         continue;
       }
@@ -345,6 +350,7 @@ export async function materializeServerOwnedObservations(
         evidenceRefs: source.sourceRefs,
         sequence: nextSequence++,
       });
+      observationIds.push(observationId);
       observationRefs.add(observationId);
       inserted++;
       if (currentFreshness === "stale") stale++;
@@ -356,26 +362,28 @@ export async function materializeServerOwnedObservations(
         .set({ observationRefs: boundedObservationRefs, updatedAt: new Date() })
         .where(eq(aiAgentEpisodesTable.id, episode.id));
     }
-    return { episodeId: episode.id, inserted, duplicates, stale };
+    return { episodeId: episode.id, observationIds, inserted, duplicates, stale };
   });
 
   // World State is a derived read-only projection. Its failure must not
   // change the already-committed observation or acceptance outcome.
-  try {
-    await materializeWorldStateForProject(input.projectId);
-    // World State is a first-class context slice. Invalidate only that slice
-    // so unrelated project context remains reusable.
-    invalidateContextSlice(input.projectId, "worldState");
-  } catch (error) {
-    logger.warn(
-      {
-        projectId: input.projectId,
-        executionId: input.executionId,
-        episodeId: result.episodeId,
-        error,
-      },
-      "World State materialization failed after observations were committed",
-    );
+  if (input.materializeWorldState !== false) {
+    try {
+      await materializeWorldStateForProject(input.projectId);
+      // World State is a first-class context slice. Invalidate only that slice
+      // so unrelated project context remains reusable.
+      invalidateContextSlice(input.projectId, "worldState");
+    } catch (error) {
+      logger.warn(
+        {
+          projectId: input.projectId,
+          executionId: input.executionId,
+          episodeId: result.episodeId,
+          error,
+        },
+        "World State materialization failed after observations were committed",
+      );
+    }
   }
 
   return result;
