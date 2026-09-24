@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AgentEpisodeShadowCampaignScorecard } from './agentEpisodeShadowCampaignScorecard';
 
 /**
  * Content-free health counters for the server-owned Agent Episode Shadow Ledger. Resets to zero on process restart; it never represents terminal acceptance or World State authority.
@@ -26,4 +27,6 @@ export interface AgentEpisodeShadowHealth {
   terminalImmutableRejections: number;
   /** P95 root episode write latency from the bounded in-process sample. */
   p95LatencyMs: number | null;
+  /** Most recent durable Shadow campaign scorecard, if one has been recorded. */
+  durableScorecard?: AgentEpisodeShadowCampaignScorecard | null;
 }

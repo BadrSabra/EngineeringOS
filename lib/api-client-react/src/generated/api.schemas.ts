@@ -1277,6 +1277,20 @@ export interface JobQueueStats {
   concurrency: number;
 }
 
+export interface AgentEpisodeShadowCampaignScorecard {
+  campaignId: string;
+  writes: number;
+  successes: number;
+  failures: number;
+  staleWorkerRejections: number;
+  sequenceConflicts: number;
+  idempotencyConflicts: number;
+  terminalImmutableRejections: number;
+  p95LatencyMs: number | null;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
+}
+
 /**
  * Content-free health counters for the server-owned Agent Episode Shadow Ledger. Resets to zero on process restart; it never represents terminal acceptance or World State authority.
  */
@@ -1297,6 +1311,8 @@ export interface AgentEpisodeShadowHealth {
   terminalImmutableRejections: number;
   /** P95 root episode write latency from the bounded in-process sample. */
   p95LatencyMs: number | null;
+  /** Most recent durable Shadow campaign scorecard, if one has been recorded. */
+  durableScorecard?: AgentEpisodeShadowCampaignScorecard | null;
 }
 
 /**

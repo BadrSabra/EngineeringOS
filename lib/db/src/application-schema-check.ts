@@ -215,6 +215,18 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "world_revision", dataType: "text", udtName: "text", nullable: true },
       { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
     ] satisfies readonly ColumnContract[],
+    ai_agent_shadow_campaign_events: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "campaign_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "execution_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "attempt", dataType: "integer", udtName: "int4", nullable: false },
+      { name: "idempotency_key_hash", dataType: "text", udtName: "text", nullable: false },
+      { name: "outcome", dataType: "USER-DEFINED", udtName: "ai_agent_shadow_campaign_outcome", nullable: false },
+      { name: "failure_code", dataType: "text", udtName: "text", nullable: true },
+      { name: "latency_ms", dataType: "integer", udtName: "int4", nullable: true },
+      { name: "occurred_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
+    ] satisfies readonly ColumnContract[],
     ai_world_facts: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       { name: "project_id", dataType: "text", udtName: "text", nullable: false },
@@ -765,6 +777,21 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["project_id", "created_at"],
     },
     {
+      name: "uq_ai_agent_shadow_campaign_event_identity",
+      tableName: "ai_agent_shadow_campaign_events",
+      columns: ["campaign_id", "execution_id", "attempt", "idempotency_key_hash"],
+    },
+    {
+      name: "idx_ai_agent_shadow_campaign_events_campaign_time",
+      tableName: "ai_agent_shadow_campaign_events",
+      columns: ["campaign_id", "occurred_at"],
+    },
+    {
+      name: "idx_ai_agent_shadow_campaign_events_project_time",
+      tableName: "ai_agent_shadow_campaign_events",
+      columns: ["project_id", "occurred_at"],
+    },
+    {
       name: "uq_ai_world_facts_project_key_version",
       tableName: "ai_world_facts",
       columns: ["project_id", "subject", "predicate", "version"],
@@ -1113,6 +1140,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     ai_agent_observation_completeness: ["complete", "partial", "failed"],
     ai_agent_observation_freshness: ["fresh", "stale", "unknown"],
     ai_agent_effect_status: ["pending", "observed", "partial", "not_observed", "contradicted", "unknown"],
+    ai_agent_shadow_campaign_outcome: ["success", "failure"],
     ai_world_fact_status: ["believed", "confirmed", "contradicted", "superseded", "retracted"],
     ai_strategy_evaluation_status: [
       "discovered", "pending_replay", "replay_passed", "replay_failed",

@@ -5125,6 +5125,41 @@ components:
           type: integer
           nullable: true
           description: P95 root episode write latency from the bounded in-process sample.
+        durableScorecard:
+          allOf:
+            - $ref: "#/components/schemas/AgentEpisodeShadowCampaignScorecard"
+          nullable: true
+          description: Most recent durable Shadow campaign scorecard, if one has been recorded.
+
+    AgentEpisodeShadowCampaignScorecard:
+      type: object
+      required: [campaignId, writes, successes, failures, staleWorkerRejections, sequenceConflicts, idempotencyConflicts, terminalImmutableRejections, p95LatencyMs, firstOccurredAt, lastOccurredAt]
+      properties:
+        campaignId:
+          type: string
+        writes:
+          type: integer
+        successes:
+          type: integer
+        failures:
+          type: integer
+        staleWorkerRejections:
+          type: integer
+        sequenceConflicts:
+          type: integer
+        idempotencyConflicts:
+          type: integer
+        terminalImmutableRejections:
+          type: integer
+        p95LatencyMs:
+          type: integer
+          nullable: true
+        firstOccurredAt:
+          type: string
+          format: date-time
+        lastOccurredAt:
+          type: string
+          format: date-time
 
     # ─── AI ────────────────────────────────────────────────────────────────────
     GroqKeyStatus:

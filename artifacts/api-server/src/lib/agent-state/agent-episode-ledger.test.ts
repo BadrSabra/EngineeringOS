@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  aiAgentShadowCampaignEventsTable,
   aiExecutionsTable,
   db,
   projectsTable,
@@ -15,6 +16,11 @@ import {
   replayEpisode,
   startEpisode,
 } from "./agent-episode-ledger.js";
+import {
+  loadLatestAgentEpisodeShadowCampaignScorecard,
+  persistAgentEpisodeShadowAttempt,
+} from "./agent-episode-shadow-campaign.js";
+import { resetOperationalCounters } from "../operational-counters.js";
 
 const userId = "agent-episode-ledger-test-user";
 let projectId = "";
@@ -50,6 +56,8 @@ async function createFixture() {
 }
 
 async function removeFixture() {
+  await db.delete(aiAgentShadowCampaignEventsTable)
+    .where(eq(aiAgentShadowCampaignEventsTable.executionId, executionId));
   if (projectId) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
   }
@@ -151,5 +159,43 @@ describe("agent episode ledger", () => {
     expect(JSON.stringify(publicProjection)).not.toContain("/tmp/secret");
     await expect(loadEpisodeForOwner({ userId: "other-user", projectId, episodeId: episode.episodeId }))
       .rejects.toBeInstanceOf(EpisodeLedgerError);
+  });
+
+  it("reads a durable scorecard after in-process counters reset", async () => {
+    await persistAgentEpisodeShadowAttempt({
+      projectId,
+      executionId,
+      attempt: 0,
+      idempotencyKey: `${idempotencyKey}:success`,
+      outcome: "success",
+      latencyMs: 12,
+    });
+    await persistAgentEpisodeShadowAttempt({
+      projectId,
+      executionId,
+      attempt: 0,
+      idempotencyKey: `${idempotencyKey}:success`,
+      outcome: "success",
+      latencyMs: 12,
+    });
+    await persistAgentEpisodeShadowAttempt({
+      projectId,
+      executionId,
+      attempt: 0,
+      idempotencyKey: `${idempotencyKey}:failure`,
+      outcome: "failure",
+      failureCode: "stale_worker",
+      latencyMs: 20,
+    });
+    resetOperationalCounters();
+
+    const scorecard = await loadLatestAgentEpisodeShadowCampaignScorecard();
+    expect(scorecard).toMatchObject({
+      writes: 2,
+      successes: 1,
+      failures: 1,
+      staleWorkerRejections: 1,
+      p95LatencyMs: 20,
+    });
   });
 });

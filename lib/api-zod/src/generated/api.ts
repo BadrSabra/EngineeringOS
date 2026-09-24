@@ -53,7 +53,20 @@ export const GetHealthResponse = zod.object({
   "sequenceConflicts": zod.number().int().describe('Shadow event sequence conflicts observed since startup.'),
   "idempotencyConflicts": zod.number().int().describe('Shadow writes rejected for an idempotency or contract conflict.'),
   "terminalImmutableRejections": zod.number().int().describe('Shadow writes rejected after an episode reached a terminal state.'),
-  "p95LatencyMs": zod.number().int().nullable().describe('P95 root episode write latency from the bounded in-process sample.')
+  "p95LatencyMs": zod.number().int().nullable().describe('P95 root episode write latency from the bounded in-process sample.'),
+  "durableScorecard": zod.object({
+  "campaignId": zod.string(),
+  "writes": zod.number().int(),
+  "successes": zod.number().int(),
+  "failures": zod.number().int(),
+  "staleWorkerRejections": zod.number().int(),
+  "sequenceConflicts": zod.number().int(),
+  "idempotencyConflicts": zod.number().int(),
+  "terminalImmutableRejections": zod.number().int(),
+  "p95LatencyMs": zod.number().int().nullable(),
+  "firstOccurredAt": zod.coerce.date(),
+  "lastOccurredAt": zod.coerce.date()
+}).nullish().describe('Most recent durable Shadow campaign scorecard, if one has been recorded.')
 }).describe('Content-free health counters for the server-owned Agent Episode Shadow Ledger. Resets to zero on process restart; it never represents terminal acceptance or World State authority.\n')
 }).optional().describe('PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.\n'),
   "aiDiagnosticsRetention": zod.object({

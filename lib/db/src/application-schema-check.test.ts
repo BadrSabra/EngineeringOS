@@ -83,7 +83,8 @@ function completeSnapshot() {
     if (
       columnName === "created_at" ||
       columnName === "updated_at" ||
-      columnName === "timestamp"
+      columnName === "timestamp" ||
+      (tableName === "ai_agent_shadow_campaign_events" && columnName === "occurred_at")
     ) {
       return "now()";
     }

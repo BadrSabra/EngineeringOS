@@ -26,6 +26,7 @@ import {
   recordAgentEpisodeShadowStart,
   recordAgentEpisodeShadowSuccess,
 } from "../operational-counters.js";
+import { persistAgentEpisodeShadowAttempt } from "./agent-episode-shadow-campaign.js";
 
 type LedgerTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -398,11 +399,40 @@ export function startEpisodeShadow(input: StartEpisodeInput): void {
   recordAgentEpisodeShadowStart();
   void startEpisode(input)
     .then(() => {
-      recordAgentEpisodeShadowSuccess(Date.now() - startedAt);
+      const latencyMs = Date.now() - startedAt;
+      recordAgentEpisodeShadowSuccess(latencyMs);
+      void persistAgentEpisodeShadowAttempt({
+        projectId: input.projectId,
+        executionId: input.executionId,
+        attempt: input.attempt,
+        idempotencyKey: input.idempotencyKey,
+        outcome: "success",
+        latencyMs,
+      }).catch((error: unknown) => {
+        logger.warn(
+          { scope: "agent-episode-ledger", code: "shadow_campaign_persist_failed", error },
+          "Shadow campaign telemetry persistence failed; execution path remains authoritative",
+        );
+      });
     })
     .catch((error: unknown) => {
       const code = error instanceof EpisodeLedgerError ? error.code : "shadow_write_failed";
+      const latencyMs = Date.now() - startedAt;
       recordAgentEpisodeShadowFailure(code);
+      void persistAgentEpisodeShadowAttempt({
+        projectId: input.projectId,
+        executionId: input.executionId,
+        attempt: input.attempt,
+        idempotencyKey: input.idempotencyKey,
+        outcome: "failure",
+        failureCode: code,
+        latencyMs,
+      }).catch((telemetryError: unknown) => {
+        logger.warn(
+          { scope: "agent-episode-ledger", code: "shadow_campaign_persist_failed", error: telemetryError },
+          "Shadow campaign telemetry persistence failed; execution path remains authoritative",
+        );
+      });
       logger.warn(
         {
           scope: "agent-episode-ledger",
