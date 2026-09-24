@@ -4,6 +4,7 @@ import {
   AgentObservationSchema,
   StrategyCandidateSchema,
   canonicalJsonHash,
+  strategyStatusAfterAcceptedSupport,
   type JsonValue,
   type StrategyCandidate,
 } from "@workspace/ai-orchestrator";
@@ -205,7 +206,6 @@ function candidateStaticHash(candidate: StrategyCandidate): string {
     failureSemantics: candidate.failureSemantics ?? [],
     applicableScopes: candidate.applicableScopes,
     confidence: candidate.confidence,
-    evaluationStatus: candidate.evaluationStatus,
   });
 }
 
@@ -281,7 +281,12 @@ async function persistCandidate(
     ...current.supportingEpisodeIds,
     ...input.candidate.supportingEpisodeIds,
   ])].sort();
-  if (supportIds.length === current.supportingEpisodeIds.length) {
+  const supportChanged = supportIds.length !== current.supportingEpisodeIds.length;
+  const nextEvaluationStatus = strategyStatusAfterAcceptedSupport(
+    stored.evaluationStatus,
+    supportIds,
+  );
+  if (!supportChanged && nextEvaluationStatus === stored.evaluationStatus) {
     return {
       status: "stored",
       candidate: current,
@@ -289,13 +294,14 @@ async function persistCandidate(
       created: Boolean(inserted),
     };
   }
-  if (stored.evaluationStatus !== "discovered") {
+  if (supportChanged && stored.evaluationStatus !== "discovered") {
     return { status: "not_eligible", reason: "candidate_evaluation_started" };
   }
 
   const nextCandidate = StrategyCandidateSchema.parse({
     ...current,
     supportingEpisodeIds: supportIds,
+    evaluationStatus: nextEvaluationStatus,
   });
   const nextHash = canonicalJsonHash(nextCandidate as unknown as JsonValue);
   await tx
@@ -304,6 +310,7 @@ async function persistCandidate(
       candidate: nextCandidate,
       candidateHash: nextHash,
       supportingEpisodeIds: supportIds,
+      evaluationStatus: nextEvaluationStatus,
       updatedAt: now,
     })
     .where(eq(aiStrategyCandidatesTable.id, stored.id));
@@ -633,6 +640,9 @@ export async function extractAcceptedEpisodeStrategy(input: {
       return { status: "not_eligible", reason: "acceptance_not_proven" };
     }
 
+    // Observed effect subjects may contain per-run resources such as runtime
+    // session IDs. Validate those observations above, but key the strategy by
+    // stable action semantics and expected effect predicates instead.
     const signature = {
       projectId: input.projectId,
       sourceRevision: episode.projectRevision,
@@ -643,7 +653,6 @@ export async function extractAcceptedEpisodeStrategy(input: {
       observationProfile: action.observationProfile,
       failureSemantics: action.failureSemantics,
       expectedEffects: expectedEffectNames,
-      effectSubjects: effectSignatures,
     };
     const strategyKey = canonicalJsonHash(signature as unknown as JsonValue);
     const candidate = StrategyCandidateSchema.parse({

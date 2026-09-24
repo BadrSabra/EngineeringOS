@@ -390,11 +390,12 @@ describe("recipe operation preparation", () => {
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
       ].join("\n"),
     );
-    const manager = new WorkspaceRuntimeManager({
+    let manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
       workerId: `runtime-recipe-test:${operationId}`,
     });
     let executionId: string | undefined;
+    const executionIds: string[] = [];
     try {
       await db.insert(projectsTable).values({
         id: projectId,
@@ -427,6 +428,7 @@ describe("recipe operation preparation", () => {
         runtimeStartRunner: createRuntimeStartRunner(manager),
       });
       executionId = result.executionId;
+      executionIds.push(result.executionId);
       expect(result.status).toBe("completed");
 
       const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
@@ -500,9 +502,52 @@ describe("recipe operation preparation", () => {
         created: false,
         candidateHash: candidates[0]?.candidateHash,
       });
+
+      await manager.shutdown();
+      const secondOperationId = crypto.randomUUID();
+      manager = new WorkspaceRuntimeManager({
+        store: createInMemoryWorkspaceRuntimeStore(),
+        workerId: `runtime-recipe-test:${secondOperationId}`,
+      });
+      const secondResult = await runRecipeOperation({
+        projectId,
+        operationId: secondOperationId,
+        sessionId,
+        userId,
+        idempotencyKey: `${secondOperationId}:runtime-effect`,
+        rootPath,
+        sourceRevision,
+        recipeId: "runtime.start",
+        recipeVersion: 1,
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionIds.push(secondResult.executionId);
+      expect(secondResult.status).toBe("completed");
+
+      const candidatesAfterSecondSupport = await db.select().from(aiStrategyCandidatesTable)
+        .where(eq(aiStrategyCandidatesTable.projectId, projectId));
+      expect(candidatesAfterSecondSupport).toHaveLength(1);
+      expect(candidatesAfterSecondSupport[0]).toMatchObject({
+        evaluationStatus: "pending_replay",
+        supportingEpisodeIds: expect.arrayContaining([episode?.id]),
+      });
+      expect(candidatesAfterSecondSupport[0]?.supportingEpisodeIds).toHaveLength(2);
+      expect(candidatesAfterSecondSupport[0]?.candidate).toMatchObject({
+        evaluationStatus: "pending_replay",
+        supportingEpisodeIds: expect.arrayContaining([episode?.id]),
+      });
+      const replayAdmissionRetry = await extractAcceptedEpisodeStrategy({
+        projectId,
+        episodeId: episode!.id,
+      });
+      expect(replayAdmissionRetry).toMatchObject({
+        status: "stored",
+        candidate: { evaluationStatus: "pending_replay" },
+        candidateHash: candidatesAfterSecondSupport[0]?.candidateHash,
+      });
     } finally {
       await manager.shutdown();
-      if (executionId) {
+      for (const executionId of executionIds) {
         await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
         await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
       }

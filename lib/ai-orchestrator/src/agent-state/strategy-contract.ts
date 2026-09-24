@@ -20,6 +20,18 @@ export const StrategyEvaluationStatusSchema = z.enum([
 ]);
 export type StrategyEvaluationStatus = z.infer<typeof StrategyEvaluationStatusSchema>;
 
+/**
+ * Accepted episode support may queue a discovered candidate for replay, but
+ * cannot promote it or change any later lifecycle state.
+ */
+export function strategyStatusAfterAcceptedSupport(
+  currentStatus: StrategyEvaluationStatus,
+  supportingEpisodeIds: readonly string[],
+): StrategyEvaluationStatus {
+  if (currentStatus !== "discovered") return currentStatus;
+  return new Set(supportingEpisodeIds).size >= 2 ? "pending_replay" : "discovered";
+}
+
 export const StrategyCandidateSchema = boundedContractSchema(z.object({
   schemaVersion: z.literal(AGENT_STATE_SCHEMA_VERSION),
   candidateId: boundedString(200),

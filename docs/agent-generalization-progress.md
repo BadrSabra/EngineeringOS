@@ -433,6 +433,30 @@ G9 Revocation Safety
   candidate revision, then use the existing paired-baseline and promotion
   policies for status transitions.
 
+### 2026-09-24 — Strategy Replay Admission Threshold (partial)
+
+- **phase/step:** P10 / PR 9 — minimum evidence before replay admission
+- **status:** `partial`
+- **what changed:** Candidate support remains project- and source-revision-bound.
+  After two distinct accepted supporting episodes are merged, a `discovered`
+  candidate transitions atomically to `pending_replay`. One support episode
+  remains `discovered`; duplicate episode IDs do not satisfy the threshold.
+  Candidate grouping uses stable action/effect predicates rather than raw
+  observed subject IDs, which can be unique to a runtime instance; every
+  supporting episode still retains its own complete, fresh, proof-bound effects.
+  Lifecycle status is no longer treated as immutable strategy content, so
+  retries remain idempotent after admission. New support cannot mutate a
+  candidate after it enters `pending_replay`.
+- **authority/safety impact:** `pending_replay` is not replay acceptance,
+  `replay_passed`, canary, or promotion. Candidates remain unused by planner and
+  runtime policy. No controlled-experiment admission exists yet.
+- **validation:** Added unit coverage for the two-distinct-support rule and
+  preserved lifecycle states; the existing recipe-runner integration assertion
+  continues to cover one-support `discovered` candidates.
+- **remaining/blocker:** No strategy replay worker consumes `pending_replay`
+  candidates yet. Current/held-out corpora, three independent transfer fixtures,
+  proof-bound case receipts, and durable Learning Delta remain unimplemented.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

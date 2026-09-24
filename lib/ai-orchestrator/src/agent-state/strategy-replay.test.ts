@@ -14,12 +14,15 @@ import {
   type PairedBaselineRunResult,
 } from "../benchmark/paired-baseline.js";
 import {
+  strategyStatusAfterAcceptedSupport,
+  type StrategyCandidate,
+} from "./strategy-contract.js";
+import {
   analyzeStrategyReplayEvidence,
   hashStrategyReplayCaseManifest,
   type AnalyzeStrategyReplayEvidenceInput,
   type StrategyReplayCorpusRun,
 } from "./strategy-replay.js";
-import type { StrategyCandidate } from "./strategy-contract.js";
 
 const sourceRevision = "a".repeat(40);
 const cases = getCodeAgentBenchmarkCases();
@@ -236,6 +239,17 @@ function completeEvidence(): AnalyzeStrategyReplayEvidenceInput {
 }
 
 describe("strategy replay evidence analysis", () => {
+  it("queues only two distinct accepted supports and preserves later lifecycle states", () => {
+    expect(strategyStatusAfterAcceptedSupport("discovered", ["episode:one"]))
+      .toBe("discovered");
+    expect(strategyStatusAfterAcceptedSupport("discovered", ["episode:one", "episode:one"]))
+      .toBe("discovered");
+    expect(strategyStatusAfterAcceptedSupport("discovered", ["episode:one", "episode:two"]))
+      .toBe("pending_replay");
+    expect(strategyStatusAfterAcceptedSupport("replay_failed", ["episode:one", "episode:two"]))
+      .toBe("replay_failed");
+  });
+
   it("measures only disjoint paired corpora and never advances candidate status", () => {
     const input = completeEvidence();
     const analysis = analyzeStrategyReplayEvidence(input);

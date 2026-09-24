@@ -1477,8 +1477,9 @@ learningStatus
 - **الحالة الحالية: `partial` (2026-09-24).** extraction/storage deterministic
   وidempotent للحلقات المقبولة ذات الإجراء الواحد: episode مغلقة `achieved`،
   acceptance ناجح، Canonical Proof معاد التحقق منه إلى `PROVEN`، وeffect bundle
-  متطابق بملاحظات direct كاملة وحديثة على المراجعة نفسها. المرشح يبقى
-  `discovered` ولا يُستهلك كـpolicy.
+  متطابق بملاحظات direct كاملة وحديثة على المراجعة نفسها. يبدأ المرشح `discovered`؛
+  وبعد دعم حلقتين مقبولتين مستقلتين ينتقل إلى `pending_replay` فقط، ولا يُستهلك
+  كـpolicy.
 - تسجل أحداث `ACTION_REQUESTED` الجديدة عقدًا server-owned بإصدار وبصمة تشمل
   trigger recipe، preconditions، expected effects، observation profile، وfailure
   semantics. المرشح يحفظ هذه العقود؛ الأحداث القديمة التي لا تحمل العقد تبقى

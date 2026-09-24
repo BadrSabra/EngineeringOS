@@ -98,6 +98,7 @@ export {
   StrategyEvaluationStatusSchema,
   hashStrategyCandidate,
   parseStrategyCandidate,
+  strategyStatusAfterAcceptedSupport,
 } from "./strategy-contract.js";
 export type { StrategyCandidate, StrategyEvaluationStatus } from "./strategy-contract.js";
 
