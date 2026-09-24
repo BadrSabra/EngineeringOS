@@ -74,7 +74,7 @@
 ### YYYY-MM-DD — [اسم الخطوة]
 
 - **phase/step:** [P# / step]
-- **status:** `done` | `partial` | `blocked`
+- **status:** `done` | `partial` | `blocked` | `not_started`
 - **what changed:** [وصف قابل للتحقق]
 - **files/schema/contracts touched:** [المسارات أو الجداول]
 - **validation:** [الأوامر والنتائج]
