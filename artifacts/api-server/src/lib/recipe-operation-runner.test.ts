@@ -34,6 +34,10 @@ import {
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
+import {
+  materializeStrategyReplayCaseProofBinding,
+  verifyStrategyReplayCaseProofBinding,
+} from "./agent-state/strategy-replay-case-proof.js";
 
 const validationCalls: string[] = [];
 
@@ -375,7 +379,7 @@ describe("recipe operation preparation", () => {
     const operationId = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
     const userId = "runtime-recipe-effect-user";
-    const sourceRevision = "runtime-recipe-effect-revision";
+    const sourceRevision = "a".repeat(40);
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "runtime-recipe-effect-"));
     await writeFile(
       path.join(rootPath, "package.json"),
@@ -465,6 +469,41 @@ describe("recipe operation preparation", () => {
         state: "completed",
         verdict: "achieved",
         reasonCode: "CANONICAL_PROOF_PROVEN",
+      });
+      const proofBinding = await materializeStrategyReplayCaseProofBinding({
+        projectId,
+        episodeId: episode!.id,
+      });
+      expect(proofBinding.status).toBe("verified");
+      if (proofBinding.status === "verified") {
+        expect(proofBinding.binding).toMatchObject({
+          projectId,
+          sourceRevision,
+          sourceEpisodeId: episode!.id,
+          executionId,
+          attempt: 0,
+          acceptanceId: expect.any(String),
+          effectBundleId: expect.any(String),
+        });
+        expect(proofBinding.binding.sourceCanonicalProofHash).toMatch(
+          /^[a-f0-9]{64}$/,
+        );
+        expect(await verifyStrategyReplayCaseProofBinding(proofBinding.binding))
+          .toEqual(proofBinding);
+        expect(await verifyStrategyReplayCaseProofBinding({
+          ...proofBinding.binding,
+          sourceCanonicalProofHash: "f".repeat(64),
+        })).toEqual({
+          status: "not_eligible",
+          reason: "binding_mismatch",
+        });
+      }
+      expect(await materializeStrategyReplayCaseProofBinding({
+        projectId: crypto.randomUUID(),
+        episodeId: episode!.id,
+      })).toEqual({
+        status: "not_eligible",
+        reason: "episode_not_found",
       });
       const candidates = await db.select().from(aiStrategyCandidatesTable)
         .where(eq(aiStrategyCandidatesTable.projectId, projectId));

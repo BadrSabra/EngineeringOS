@@ -1488,6 +1488,10 @@ learningStatus
   episode/execution attempt وacceptance وeffect bundle وبصمة Canonical Proof.
   هذا عقد بيانات فقط: يجب على API server إعادة حساب الإثبات من الصفوف الدائمة؛
   لا تكفي البصمة الواردة من manifest لإثبات المصدر أو القبول.
+- API server يعيد حساب source-proof binding لحلقة مقبولة من execution،
+  acceptance، effect bundle، والملاحظات المباشرة، ثم يصدر case ID server-owned.
+  أي binding وارد يُقارن بهذه الهوية المعاد حسابها؛ هذا لا يسجل case manifest
+  ولا يثبت partition/independence، ولا يمثل proof أو receipt لنتيجة replay نفسها.
 - **المتبقي قبل اعتبار PR 9 مكتملًا:** replay مستقل على current وheld-out
   corpus، corpus resolver/executor، cross-project fixtures، durable per-case
   receipts، paired baseline generation، وLearning Delta. لا يُسمح بالترقية أو

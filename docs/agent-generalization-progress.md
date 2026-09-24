@@ -25,7 +25,7 @@
 | P7.5 — Belief and Information Gain | `not_started` | تمثيل uncertainty واختيار observation حسب information gain/cost/risk/authorization/time. |
 | P8 — Diagnosis-aware Replanning | `not_started` | ربط World State وBelief وDiagnosis وcapabilities وexpected effects بخطة bounded جديدة. |
 | P9 — Causal Credit Assignment | `not_started` | فصل causal effect عن enabling/observation/validation/incidental actions. |
-| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ ACTION_REQUESTED يحمل عقدًا server-owned، وعقد replay يربط كل حالة بمرجع Canonical Proof. |
+| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ API يعيد حساب مرجع source proof من سجلات الحلقة والقبول والأثر. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
 | P11 — Learning Validation and Transfer | `not_started` | replay وheld-out وcross-project وnovel composition وLearning Delta مع منع leakage. |
 | P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
@@ -483,6 +483,37 @@ G9 Revocation Safety
 - **next step:** Add a server-owned corpus resolver that verifies each binding
   against durable Canonical Proof and effect rows, then execute only registered
   replay cases in isolated, server-owned profiles.
+
+### 2026-09-24 — Server-Side Source Proof Binding (partial)
+
+- **phase/step:** P10 / PR 9 — recompute case source proof
+- **status:** `partial`
+- **what changed:** Added an API-side materializer for a closed accepted episode.
+  It locks and checks the episode, execution attempt/revision, successful
+  acceptance, observed effect bundle, and complete/fresh direct observations;
+  then it calls the durable Canonical Proof loader and hashes the recomputed
+  proof. The case ID is generated server-side from the source identity. Incoming
+  bindings are now re-derived and compared with the stored proof/effect identity;
+  a supplied digest alone cannot pass verification.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/strategy-replay-case-proof.ts` and
+  `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`.
+- **validation:** The focused accepted-Runtime integration test passed (1 test;
+  11 unrelated tests skipped); API typecheck and `git diff --check` passed.
+  The managed API workflow restarted cleanly and `/api/healthz` returned `ok`.
+  An earlier restart attempt hit `EADDRINUSE`; after verifying the active
+  listener, the managed restart replaced it successfully.
+- **authority/safety impact:** The source-proof digest is now recomputed from
+  durable rows rather than accepted from a caller, and a manifest binding is
+  compared against that recomputation. This helper does not register a case,
+  establish its held-out partition, execute a candidate, persist a replay
+  receipt, or change candidate lifecycle.
+- **remaining/blocker:** No strategy-specific corpus registry or executor exists.
+  The test uses an accepted runtime fixture and is not corpus evidence; replay
+  result proofs and per-case receipts remain unimplemented.
+- **next step:** Resolve only server-registered case manifests, enforce partition
+  and support-episode separation there, and bind each candidate replay result to
+  its own durable proof and receipt before calculating paired metrics.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
