@@ -5,6 +5,7 @@ import {
   aiAgentEpisodesTable,
   aiExecutionsTable,
   db,
+  eventsTable,
 } from "@workspace/db";
 import {
   AgentEpisodeSchema,
@@ -296,6 +297,24 @@ async function appendLocked(
     correlationId: input.correlationId,
     createdAt: now,
   }).returning();
+
+  await tx.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiAgentEpisodeEvent",
+    projectId: input.projectId,
+    ...(episode.goalId ? { goalId: episode.goalId } : {}),
+    payload: {
+      episodeId: episode.id,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      sequence,
+      eventType: input.eventType,
+    },
+    severity: input.eventType === "EPISODE_CANCELLED" ? "warning" : "info",
+    message: "AI agent episode event recorded.",
+    correlationId: input.correlationId ?? input.executionId,
+    timestamp: now,
+  });
 
   await tx.update(aiAgentEpisodesTable).set({
     state: nextState,
