@@ -221,7 +221,7 @@ describe("real durable task execution lifecycle", () => {
         outcomeContract: {
           deliveryRequired: true,
           acceptance: {
-            verdict: "PROVEN",
+            verdict: "INCOMPLETE",
           },
         },
       });
