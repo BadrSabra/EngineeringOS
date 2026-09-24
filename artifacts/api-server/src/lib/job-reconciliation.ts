@@ -73,6 +73,7 @@ import { runScanJob } from "./scan-runner.js";
 import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
+import { reconcileInterruptedApplyChanges } from "./apply-change-reconciliation.js";
 import { recoverPromotion } from "./delivery-workspace.js";
 import { dispatchAutonomousTaskRecoveries } from "./ai-recovery-coordinator.js";
 import {
@@ -94,7 +95,9 @@ const ORPHANED_RUNNING_MESSAGE =
  * visible conflict. This makes the post-crash state known and prevents a
  * partially promoted tree from being reported as successful.
  */
-async function reconcileInterruptedDeliveries(): Promise<number> {
+async function reconcileInterruptedDeliveries(
+  protectedApplyProposalIds: ReadonlySet<string> = new Set(),
+): Promise<number> {
   const proposals = await db
     .select({
       id: aiChangeProposalsTable.id,
@@ -112,6 +115,10 @@ async function reconcileInterruptedDeliveries(): Promise<number> {
   let recovered = 0;
   for (const proposal of proposals) {
     if (!proposal.operationId) continue;
+    // Proof-bound apply executions have their own observation-only recovery
+    // path. Never let the legacy promotion journal replay candidate bytes or
+    // infer acceptance for those proposals.
+    if (protectedApplyProposalIds.has(proposal.id)) continue;
     const journal = await db
       .select({ stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence, payload: aiApplyJournalTable.payload })
       .from(aiApplyJournalTable)
@@ -1098,14 +1105,25 @@ export async function reconcileStuckJobs(): Promise<{
   expiredUploads: number;
 }> {
   try {
-    const [scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads] = await Promise.all([
+    const [scanJobs, discoverySessions, aiTasks, expiredUploads] = await Promise.all([
       reconcileScanJobs(),
       reconcileDiscoverySessions(),
       reconcileAiTasks(),
-      reconcileAiExecutions(),
-      reconcileInterruptedDeliveries(),
       sweepExpiredUploads(),
     ]);
+    // Apply reconciliation depends on execution lease reconciliation. Keep
+    // both passes ordered so the delivery reconciler cannot race a proof-bound
+    // apply and automatically write files from its promotion journal.
+    const aiExecutions = await reconcileAiExecutions();
+    const applyRecovery = await reconcileInterruptedApplyChanges();
+    const legacyDeliveries = await reconcileInterruptedDeliveries(applyRecovery.protectedProposalIds);
+    const deliveries = legacyDeliveries + applyRecovery.reconciled;
+    if (applyRecovery.reconciled > 0) {
+      logger.info(
+        { applyChanges: applyRecovery.reconciled },
+        "startup reconciliation: proof-bound apply states reconciled without filesystem writes",
+      );
+    }
     if (aiExecutions > 0) {
       logger.info({ aiExecutions }, "startup reconciliation: paused interrupted AI executions");
     }

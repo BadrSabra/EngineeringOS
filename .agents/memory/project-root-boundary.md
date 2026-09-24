@@ -8,3 +8,9 @@ Rule: a filesystem path may become a persisted project root only after canonical
 **Why:** the forensic audit showed client-supplied root strings and prefix trust let unrelated or system directories become scan roots; a completion review later caught that LOCAL_FOLDER sessions could forge the managed prefix.
 
 **How to apply:** any new flow that persists or rebinds a project root must go through the shared establishment service and must gate temp-prefix allowances on real source provenance, not string matching. Apply the blocked-system-root policy independently of host environment markers, and re-check root/cwd identity immediately before spawning commands.
+
+Root-establishment integration tests must use a fixture under an allowed project/workspace root; a real directory created directly under `/tmp` is still rejected as a project root.
+
+**Why:** canonical realpath and existence do not override the blocked-system-root policy, so `/tmp` fixtures cannot exercise recovery that requires an admitted project root.
+
+**How to apply:** place disposable project roots under the configured workspace, and remove only the unique fixture subtree during cleanup.

@@ -48,6 +48,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
+import { reconcileInterruptedApplyChanges } from "../lib/apply-change-reconciliation.js";
 import {
   canCreateProposal,
   collectPreviouslyAcceptedPlanningEvidence,
@@ -6134,7 +6135,11 @@ describe("POST /api/ai/chat/apply-changes", () => {
   it("applies a partial hunk selection — only accepted hunks are written via rebase", async () => {
     const id = randomUUID();
     const now = new Date();
-    const projectRoot = await fs.mkdtemp("/tmp/apply-partial-project-");
+    const projectParent = await fs.mkdtemp(
+      `${process.env.WORKSPACE_PATH ?? "/home/runner/workspace"}/.apply-partial-parent-`,
+    );
+    const projectRoot = `${projectParent}/project`;
+    await fs.mkdir(projectRoot);
     await db.insert(projectsTable).values({
       id,
       ownerId: "test-user",
@@ -6260,10 +6265,67 @@ describe("POST /api/ai/chat/apply-changes", () => {
       expect(await fs.readFile(absolutePath, "utf-8")).toBe(
         "const a = 10;\nconst b = 2;\nconst c = 3;\n",
       );
+
+      const [acceptedProof] = await db.select()
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      expect(acceptedProof?.outcome).toBe("SUCCEEDED");
+      // Candidate bytes alone must not release the proposal. Simulate an
+      // interrupted attempt whose effect acceptance was not committed.
+      await db.update(aiChangeProposalsTable)
+        .set({ lifecycle: "blocked", conflictReason: "simulated_process_restart" })
+        .where(eq(aiChangeProposalsTable.id, proposalId));
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          outcome: "FAILED",
+          terminalStatus: "paused",
+          reasonCode: "EXECUTION_LEASE_EXPIRED",
+          effectBundleId: null,
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      const blockedRecovery = await reconcileInterruptedApplyChanges();
+      expect(blockedRecovery.reconciled).toBe(1);
+      expect(blockedRecovery.protectedProposalIds.has(proposalId)).toBe(true);
+      const [blockedProposal] = await db.select({
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
+      expect(blockedProposal).toMatchObject({ status: "applied", lifecycle: "blocked" });
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe(
+        "const a = 10;\nconst b = 2;\nconst c = 3;\n",
+      );
+
+      // Simulate the other crash boundary: the canonical proof is durable, but
+      // the proposal lifecycle projection did not commit.
+      await db.update(aiExecutionAcceptancesTable)
+        .set({
+          outcome: acceptedProof!.outcome,
+          terminalStatus: acceptedProof!.terminalStatus,
+          reasonCode: acceptedProof!.reasonCode,
+          operationId: acceptedProof!.operationId,
+          sourceRevision: acceptedProof!.sourceRevision,
+          candidateIdentity: acceptedProof!.candidateIdentity,
+          effectBundleId: acceptedProof!.effectBundleId,
+        })
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      const recovery = await reconcileInterruptedApplyChanges();
+      expect(recovery.reconciled).toBe(1);
+      expect(recovery.protectedProposalIds.has(proposalId)).toBe(true);
+      const [reconciledProposal] = await db.select({
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+        conflictReason: aiChangeProposalsTable.conflictReason,
+      }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
+      expect(reconciledProposal).toMatchObject({
+        status: "applied",
+        lifecycle: "applied",
+        conflictReason: null,
+      });
     } finally {
       validationSpy.mockRestore();
       await fs.rm(absolutePath, { force: true });
       await fs.rm(projectRoot, { recursive: true, force: true });
+      await fs.rm(projectParent, { recursive: true, force: true });
     }
   });
 

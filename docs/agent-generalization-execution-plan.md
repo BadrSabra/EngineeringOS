@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ Candidate Validation وRuntime start/restart/stop المباشر شرائح محدودة ضمن P3.5/P5، وبقية P3.5–P14 قيد التنفيذ
+> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ Candidate Validation وRuntime start/restart/stop وAI apply-changes مع fail-closed restart reconciliation شرائح محدودة ضمن P3.5/P5؛ عمليات Mission tool-loop المعدّلة وبقية P3.5–P14 قيد التنفيذ
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -4054,8 +4054,27 @@ rollback. يربط effect العقدة بالـcandidate tree hash ومرجعَ�
 لا يوجد `SUCCEEDED` مستنتج، لكن يلزم reconciliation دائم يميز حالة
 applied-but-unaccepted ويغلقها fail-closed. هذه الشريحة لا تدعي ذرية عبر
 filesystem وDB ولا تعتبر proposal status أو journal بديلًا عن direct observation.
-لذلك تبقى P3.5/P5 جزئية إلى أن يغلق مسار التعافي؛ Mission tool-loop mutation لم
-يدخل بعد.
+لذلك بقيت P3.5/P5 جزئية في تلك الشريحة؛ انظر تحديث recovery أدناه. Mission
+tool-loop mutation لم يدخل بعد.
+
+#### Restart reconciliation لـapply-changes — 2026-09-24
+
+تعالج `reconcileInterruptedApplyChanges` الحالات المحجوبة بعد restart بقراءة
+الجذر المثبت والـcandidate workspace المُدار وتصنيف live tree إلى base أو
+candidate أو mixed/unavailable. لا تكتب ملفات ولا تنفذ rollback أو promotion.
+يُطلق proposal lifecycle فقط إذا طابق المرشح والـlive tree، وكان execution
+نفسه يحمل acceptance `SUCCEEDED` وterminal status مكتملًا، وeffect bundle
+`OBSERVED`، وملاحظات before/after مباشرة مرتبطة بالـepisode/attempt، وحدث
+`AiChangesApplied` مطابقًا لهوية proposal وoperation وchange set.
+
+غياب أي جزء من هذا الإثبات، أو اختلاف الشجرة، يسجل قرارًا دائمًا
+`BLOCKED`/`RECOVERY_REQUIRED` ويترك التعديل للمراجعة اليدوية. ترتيب startup هو
+execution reconciliation ثم apply reconciliation ثم legacy delivery
+reconciliation؛ وتُستثنى proposals proof-bound من legacy promotion recovery
+حتى لا تعيد كتابة bytes. اختبار التكامل يغطي candidate tree بلا قبول (يبقى
+محجوبًا ولا تتغير الملفات) ثم قبولًا دائمًا مع lifecycle غير مكتمل (يُستعاد
+projection دون filesystem writes). هذا يغلق التعافي التلقائي المثبت فقط، ولا
+يدعي ذرية بين filesystem وDB أو takeover لمحاولة منتهية.
 
 ### 42.3 P4 — Authoritative Observation and World Integration
 
@@ -4090,7 +4109,7 @@ worldRevision =
 
 ### 42.4 P5 — Authoritative Effect Verification
 
-**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, and first direct apply-changes slice complete; cross-store crash recovery remains open`
+**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, and direct apply-changes Action/Effect with fail-closed restart reconciliation are implemented; unaccepted or ambiguous apply states require explicit recovery, and Mission tool-loop mutations remain outside the spine`
 
 الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
 

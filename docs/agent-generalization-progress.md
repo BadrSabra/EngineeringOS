@@ -16,9 +16,9 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery recipe slices، ومسار AI apply-changes المباشر، تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ عمليات التعديل الفعلية في Mission tool-loop ما زالت خارج spine. تقارير Task وعمليات التحقق read-only ليست أفعال تعديل. World Delta له إغلاق مستقل في P6. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery recipe slices ومسار AI apply-changes المباشر تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. تعافي restart لـapply-changes يتحقق من الإثبات الدائم ويغلق lifecycle دون كتابة ملفات؛ الحالات غير المثبتة تبقى محجوبة. عمليات التعديل الفعلية في Mission tool-loop ما زالت خارج spine. تقارير Task وعمليات التحقق read-only ليست أفعال تعديل. World Delta له إغلاق مستقل في P6. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery Gate C ومسار apply-changes المباشر يستخدمون effect gate؛ تبقى فجوة crash recovery بين filesystem وDB، ومسارات التعافي والـlease/reconnect الأوسع. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery Gate C ومسار apply-changes المباشر يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
@@ -760,6 +760,24 @@ G9 Revocation Safety
 - **next step:** إغلاق نافذة crash recovery/reconciliation لـapply-changes دون
   قبول نجاح غير مثبت، ثم تطبيق العقد على مسارات Mission tool-loop التي تعدل
   workspace فقط؛ التقارير والتحقق read-only تبقى خارج effect gate.
+
+### 2026-09-24 — Fail-closed apply-changes restart reconciliation
+
+- **phase/step:** P3.5 / P5 — recovery لـAI `apply-changes`
+- **status:** `partial`
+- **what changed:** أضيفت reconciliation تقرأ live tree وmanaged candidate وتطابقهما مع proposal وattempt. تفك lifecycle المحجوب فقط إذا كان execution نفسه يحمل acceptance ناجحًا، وeffect bundle مقبولًا، وملاحظات before/after مباشرة، وحدث apply المطابق. تعذر الإثبات يسجل `BLOCKED` أو `RECOVERY_REQUIRED` دون كتابة أو rollback. Startup reconciliation الآن ترتب execution ثم apply ثم legacy delivery، وتحمي proposal proof-bound من legacy promotion replay.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/apply-change-reconciliation.ts`,
+  `artifacts/api-server/src/lib/job-reconciliation.ts`,
+  `artifacts/api-server/src/routes/ai.test.ts`,
+  `artifacts/api-server/src/lib/apply-change-reconciliation.test.ts`,
+  `docs/agent-generalization-progress.md`,
+  `docs/agent-generalization-execution-plan.md`; لا schema migration.
+- **validation:** `pnpm run typecheck`؛ الاختبارات المركزة نجحت (7 اختبارات)؛
+  `git diff --check`؛ أُعيد تشغيل API، و`/api/healthz` رجع HTTP 200 بحالة `ok`،
+  وسجّل workflow بدء الاستماع دون خطأ تشغيل.
+- **authority/safety impact:** proposal status والـjournal وحدهما ليسا proof. لا تتبنى reconciliation filesystem changes، ولا تستنتج نجاحًا من وجود candidate tree؛ يلزم تطابق acceptance/effect/observations/event لنفس execution وattempt.
+- **remaining/blocker:** apply غير المقبول أو ذي الحالة المختلطة يبقى محجوبًا ويتطلب recovery صريحًا؛ لا takeover لمحاولة قديمة. Mission tool-loop mutations لم تدخل Action/Effect spine بعد.
+- **next step:** تطبيق Action/Effect contracts على Mission tool-loop mutations فقط؛ أبقِ التقارير والتحقق read-only خارج effect gate.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
