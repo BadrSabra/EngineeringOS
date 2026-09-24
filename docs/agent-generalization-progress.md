@@ -410,13 +410,28 @@ G9 Revocation Safety
   behavior, skill registry state, authorization, or promotion path changes.
   Failed proof, incomplete/stale observation, mismatched event/effect identity,
   and unsupported multi-action traces produce no candidate.
-- **remaining/blocker:** Current-corpus replay, held-out replay, cross-project
-  fixtures, paired baselines, and Learning Delta are not implemented. PR 9
-  remains partial and no generalization claim is made.
-- **next step:** Build strategy-specific replay over independent, separated
-  corpora, bind each case to its own accepted evidence, enforce cross-project
-  isolation, and require paired baseline plus Learning Delta before any status
-  can advance beyond discovery.
+- **remaining/blocker:** Strategy-specific current-corpus execution, held-out
+  execution, transfer fixtures, paired-run generation, and durable Learning
+  Delta receipts are not implemented. PR 9 remains partial and no
+  generalization claim is made.
+- **replay analysis boundary:** Added a diagnostic-only strategy replay analyzer.
+  It recomputes each paired comparison from retained baseline/candidate runs,
+  checks candidate and revision binding, manifest hashes, disjoint current and
+  held-out cases, source-episode separation, and the documented held-out,
+  transfer, Learning Delta, and calibration thresholds. It never changes a
+  candidate status and is not wired to planning, runtime policy, or promotion.
+- **validation:** Strategy replay analyzer unit tests use synthetic in-memory
+  paired runs only; they do not count as independent replay evidence or as
+  production corpus coverage.
+- **remaining/blocker:** The 34-case Code Agent suite is not a strategy-specific
+  corpus registry, and there is no strategy action executor, case-level accepted
+  proof binding, durable replay receipt, or three-project transfer set. A
+  diagnostic report cannot close these gaps. PR 9 remains partial and no
+  candidate can advance on this analysis alone.
+- **next step:** Add a server-owned strategy corpus and executor, bind every
+  replay case to its accepted evidence/proof, persist its receipt under the
+  candidate revision, then use the existing paired-baseline and promotion
+  policies for status transitions.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

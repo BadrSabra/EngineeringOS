@@ -100,3 +100,16 @@ export {
   parseStrategyCandidate,
 } from "./strategy-contract.js";
 export type { StrategyCandidate, StrategyEvaluationStatus } from "./strategy-contract.js";
+
+export {
+  STRATEGY_REPLAY_POLICY,
+  StrategyReplayEvidenceAnalysisSchema,
+  analyzeStrategyReplayEvidence,
+  hashStrategyReplayCaseManifest,
+} from "./strategy-replay.js";
+export type {
+  AnalyzeStrategyReplayEvidenceInput,
+  StrategyReplayCaseManifestInput,
+  StrategyReplayCorpusRun,
+  StrategyReplayEvidenceAnalysis,
+} from "./strategy-replay.js";
