@@ -31,5 +31,6 @@ export * from "./ai_agent_episodes.js";
 export * from "./ai_agent_observations.js";
 export * from "./ai_agent_effects.js";
 export * from "./ai_agent_effect_bundles.js";
+export * from "./ai_agent_shadow_campaign_events.js";
 export * from "./ai_world_facts.js";
 export * from "./ai_strategy_candidates.js";
