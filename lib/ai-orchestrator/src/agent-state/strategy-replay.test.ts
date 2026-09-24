@@ -21,6 +21,7 @@ import {
   analyzeStrategyReplayEvidence,
   hashStrategyReplayCaseManifest,
   type AnalyzeStrategyReplayEvidenceInput,
+  type StrategyReplayCaseProofBinding,
   type StrategyReplayCorpusRun,
 } from "./strategy-replay.js";
 
@@ -168,6 +169,18 @@ function corpus(args: {
   candidateId: string;
 }): StrategyReplayCorpusRun {
   const pairedRun = pairedRunForCorpus(args);
+  const caseProofBindings = args.caseIds.map((caseId, index) => ({
+    caseId,
+    projectId: args.projectId,
+    sourceRevision: args.revision,
+    sourceEpisodeId: `source-episode:${args.corpusId}:${caseId}`,
+    executionId: `source-execution:${args.corpusId}:${caseId}`,
+    attempt: 0,
+    acceptanceId: `acceptance:${args.corpusId}:${caseId}`,
+    effectBundleId: `effect-bundle:${args.corpusId}:${caseId}`,
+      sourceCanonicalProofHash: (index + 1).toString(16).padStart(64, "0"),
+  } satisfies StrategyReplayCaseProofBinding));
+  const sourceEpisodeIds = caseProofBindings.map((binding) => binding.sourceEpisodeId);
   return {
     corpusId: args.corpusId,
     projectId: args.projectId,
@@ -178,9 +191,11 @@ function corpus(args: {
       sourceRevision: args.revision,
       suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
       caseIds: [...args.caseIds].sort(),
-      sourceEpisodeIds: [],
+      sourceEpisodeIds,
+      caseProofBindings,
     }),
-    sourceEpisodeIds: [],
+    sourceEpisodeIds,
+    caseProofBindings,
     pairedRun,
   };
 }
@@ -294,9 +309,15 @@ describe("strategy replay evidence analysis", () => {
 
   it("rejects training-episode leakage", () => {
     const input = completeEvidence();
+    const changedBindings = [...input.heldOut!.caseProofBindings];
+    changedBindings[0] = {
+      ...changedBindings[0]!,
+      sourceEpisodeId: "episode:accepted-1",
+    };
     input.heldOut = {
       ...input.heldOut!,
-      sourceEpisodeIds: ["episode:accepted-1"],
+      sourceEpisodeIds: changedBindings.map((binding) => binding.sourceEpisodeId),
+      caseProofBindings: changedBindings,
     };
 
     const analysis = analyzeStrategyReplayEvidence(input);
@@ -304,6 +325,55 @@ describe("strategy replay evidence analysis", () => {
     expect(analysis.readiness).toBe("incomplete");
     expect(analysis.blockers.map((blocker) => blocker.code)).toContain(
       "training_episode_leakage",
+    );
+  });
+
+  it("requires a proof binding for every paired case and hashes the binding", () => {
+    const missingBinding = completeEvidence();
+    missingBinding.heldOut = {
+      ...missingBinding.heldOut!,
+      caseProofBindings: missingBinding.heldOut!.caseProofBindings.slice(1),
+    };
+    const missingBindingAnalysis = analyzeStrategyReplayEvidence(missingBinding);
+    expect(missingBindingAnalysis.readiness).toBe("incomplete");
+    expect(missingBindingAnalysis.blockers.map((blocker) => blocker.code)).toContain(
+      "case_proof_binding_mismatch",
+    );
+
+    const changedProof = completeEvidence();
+    const changedBindings = [...changedProof.heldOut!.caseProofBindings];
+    changedBindings[0] = {
+      ...changedBindings[0]!,
+      sourceCanonicalProofHash: "f".repeat(64),
+    };
+    changedProof.heldOut = {
+      ...changedProof.heldOut!,
+      caseProofBindings: changedBindings,
+    };
+    const changedProofAnalysis = analyzeStrategyReplayEvidence(changedProof);
+    expect(changedProofAnalysis.readiness).toBe("incomplete");
+    expect(changedProofAnalysis.blockers.map((blocker) => blocker.code)).toContain(
+      "case_manifest_mismatch",
+    );
+  });
+
+  it("rejects case proof bindings from another project or revision", () => {
+    const input = completeEvidence();
+    const changedBindings = [...input.heldOut!.caseProofBindings];
+    changedBindings[0] = {
+      ...changedBindings[0]!,
+      sourceRevision: "b".repeat(40),
+    };
+    input.heldOut = {
+      ...input.heldOut!,
+      caseProofBindings: changedBindings,
+    };
+
+    const analysis = analyzeStrategyReplayEvidence(input);
+
+    expect(analysis.readiness).toBe("incomplete");
+    expect(analysis.blockers.map((blocker) => blocker.code)).toContain(
+      "case_proof_binding_mismatch",
     );
   });
 
@@ -364,6 +434,7 @@ describe("strategy replay evidence analysis", () => {
       suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
       caseIds: cases.slice(1, 31).map((testCase) => testCase.id).sort(),
       sourceEpisodeIds: [...input.heldOut.sourceEpisodeIds],
+      caseProofBindings: [...input.heldOut.caseProofBindings],
     });
     input.confidenceCalibrationEce = 0.2;
 

@@ -104,12 +104,14 @@ export type { StrategyCandidate, StrategyEvaluationStatus } from "./strategy-con
 
 export {
   STRATEGY_REPLAY_POLICY,
+  StrategyReplayCaseProofBindingSchema,
   StrategyReplayEvidenceAnalysisSchema,
   analyzeStrategyReplayEvidence,
   hashStrategyReplayCaseManifest,
 } from "./strategy-replay.js";
 export type {
   AnalyzeStrategyReplayEvidenceInput,
+  StrategyReplayCaseProofBinding,
   StrategyReplayCaseManifestInput,
   StrategyReplayCorpusRun,
   StrategyReplayEvidenceAnalysis,

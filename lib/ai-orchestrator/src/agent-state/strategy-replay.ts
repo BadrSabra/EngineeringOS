@@ -14,7 +14,7 @@ import {
 } from "../benchmark/paired-baseline.js";
 
 export const STRATEGY_REPLAY_POLICY = {
-  version: 1,
+  version: 2,
   minimumHeldOutCases: 30,
   minimumIndependentTransferFixtures: 3,
   maximumSuccessRegression: 0.02,
@@ -28,6 +28,26 @@ const STRATEGY_REPLAY_SOURCE_REVISION = /^[a-f0-9]{40}$|^[a-f0-9]{64}$/;
 const STRATEGY_REPLAY_DIGEST = /^[a-f0-9]{64}$/;
 const STRATEGY_REPLAY_ID = /^[a-zA-Z0-9._:-]{1,200}$/;
 
+/**
+ * Server-produced reference to the accepted execution that grounds one replay
+ * case. The digest is only a binding here; the API server must recompute the
+ * Canonical Proof before admitting a corpus manifest.
+ */
+export const StrategyReplayCaseProofBindingSchema = z.object({
+  caseId: z.string().regex(STRATEGY_REPLAY_ID),
+  projectId: z.string().regex(STRATEGY_REPLAY_ID),
+  sourceRevision: z.string().regex(STRATEGY_REPLAY_SOURCE_REVISION),
+  sourceEpisodeId: z.string().regex(STRATEGY_REPLAY_ID),
+  executionId: z.string().regex(STRATEGY_REPLAY_ID),
+  attempt: z.number().int().nonnegative(),
+  acceptanceId: z.string().regex(STRATEGY_REPLAY_ID),
+  effectBundleId: z.string().regex(STRATEGY_REPLAY_ID),
+  sourceCanonicalProofHash: z.string().regex(STRATEGY_REPLAY_DIGEST),
+}).strict();
+export type StrategyReplayCaseProofBinding = z.infer<
+  typeof StrategyReplayCaseProofBindingSchema
+>;
+
 export type StrategyReplayCorpusRun = {
   /** Expected to resolve to a server-owned manifest; this analyzer cannot attest that origin. */
   corpusId: string;
@@ -36,6 +56,8 @@ export type StrategyReplayCorpusRun = {
   caseManifestHash: string;
   /** Source episode IDs, when the corpus cases were materialized from episodes. */
   sourceEpisodeIds: readonly string[];
+  /** One server-verified accepted-proof binding is required for every replay case. */
+  caseProofBindings: readonly StrategyReplayCaseProofBinding[];
   pairedRun: PairedBaselineRunResult;
 };
 
@@ -46,6 +68,7 @@ export type StrategyReplayCaseManifestInput = {
   suiteVersion: string;
   caseIds: readonly string[];
   sourceEpisodeIds: readonly string[];
+  caseProofBindings: readonly StrategyReplayCaseProofBinding[];
 };
 
 export function hashStrategyReplayCaseManifest(
@@ -60,6 +83,8 @@ export function hashStrategyReplayCaseManifest(
     suiteVersion: input.suiteVersion,
     caseIds: [...input.caseIds].sort(),
     sourceEpisodeIds: [...input.sourceEpisodeIds].sort(),
+    caseProofBindings: [...input.caseProofBindings]
+      .sort((left, right) => left.caseId.localeCompare(right.caseId)),
   });
 }
 
@@ -87,6 +112,7 @@ const StrategyReplayBlockerCodeSchema = z.enum([
   "corpus_partition_mismatch",
   "duplicate_corpus_identity",
   "case_manifest_mismatch",
+  "case_proof_binding_mismatch",
   "case_partition_overlap",
   "training_episode_leakage",
   "paired_run_invalid",
@@ -179,6 +205,13 @@ function readCaseIds(run: StrategyReplayCorpusRun): string[] {
   return run.pairedRun.comparison.cases.map((result) => result.caseId);
 }
 
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && new Set(left).size === left.length
+    && new Set(right).size === right.length
+    && left.every((value) => right.includes(value));
+}
+
 function verifyCorpusManifest(
   run: StrategyReplayCorpusRun,
   candidate: StrategyCandidate,
@@ -197,6 +230,51 @@ function verifyCorpusManifest(
       "invalid_corpus_identity",
       "incomplete",
       "A replay corpus has missing or malformed server-owned identity fields.",
+    );
+    return false;
+  }
+
+  if (!Array.isArray(run.caseProofBindings) || run.caseProofBindings.length === 0) {
+    addBlocker(
+      blockers,
+      "case_proof_binding_mismatch",
+      "incomplete",
+      "Every replay case must have a server-verified accepted-proof binding.",
+    );
+    return false;
+  }
+  const parsedBindings = run.caseProofBindings.map((binding) =>
+    StrategyReplayCaseProofBindingSchema.safeParse(binding));
+  if (parsedBindings.some((parsed) => !parsed.success)) {
+    addBlocker(
+      blockers,
+      "case_proof_binding_mismatch",
+      "incomplete",
+      "A replay case has a malformed accepted-proof binding.",
+    );
+    return false;
+  }
+  const caseProofBindings = parsedBindings.flatMap((parsed) =>
+    parsed.success ? [parsed.data] : []);
+  const bindingEpisodeIds = caseProofBindings.map((binding) => binding.sourceEpisodeId);
+  const bindingExecutionAttempts = caseProofBindings.map((binding) =>
+    `${binding.executionId}:${binding.attempt}`);
+  const bindingAcceptanceIds = caseProofBindings.map((binding) => binding.acceptanceId);
+  const bindingEffectBundleIds = caseProofBindings.map((binding) => binding.effectBundleId);
+  if (
+    !sameStringSet(bindingEpisodeIds, run.sourceEpisodeIds)
+    || new Set(bindingExecutionAttempts).size !== bindingExecutionAttempts.length
+    || new Set(bindingAcceptanceIds).size !== bindingAcceptanceIds.length
+    || new Set(bindingEffectBundleIds).size !== bindingEffectBundleIds.length
+    || caseProofBindings.some((binding) =>
+      binding.projectId !== run.projectId
+      || binding.sourceRevision !== run.sourceRevision)
+  ) {
+    addBlocker(
+      blockers,
+      "case_proof_binding_mismatch",
+      "incomplete",
+      "Case proof bindings must match the corpus project, revision, and unique source episodes.",
     );
     return false;
   }
@@ -314,17 +392,19 @@ function verifyCorpusManifest(
   const caseIds = readCaseIds(run);
   const candidateCaseIds = candidateRun.observations.map((observation) => observation.caseId);
   const baselineCaseIds = baseline.observations.map((observation) => observation.caseId);
+  const proofCaseIds = caseProofBindings.map((binding) => binding.caseId);
   if (
     caseIds.length === 0 ||
     new Set(caseIds).size !== caseIds.length ||
     canonicalHash([...caseIds].sort()) !== canonicalHash([...candidateCaseIds].sort()) ||
-    canonicalHash([...caseIds].sort()) !== canonicalHash([...baselineCaseIds].sort())
+    canonicalHash([...caseIds].sort()) !== canonicalHash([...baselineCaseIds].sort()) ||
+    !sameStringSet(caseIds, proofCaseIds)
   ) {
     addBlocker(
       blockers,
-      "paired_run_invalid",
+      "case_proof_binding_mismatch",
       "incomplete",
-      "A paired-baseline corpus has missing, duplicate, or mismatched case identities.",
+      "Every paired replay case must have exactly one accepted-proof binding.",
     );
     return false;
   }
@@ -336,6 +416,7 @@ function verifyCorpusManifest(
     suiteVersion: candidateRun.scorecard.suiteVersion,
     caseIds: [...caseIds].sort(),
     sourceEpisodeIds: [...run.sourceEpisodeIds].sort(),
+    caseProofBindings,
   });
   if (expectedManifestHash !== run.caseManifestHash) {
     addBlocker(

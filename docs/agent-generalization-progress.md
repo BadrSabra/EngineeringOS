@@ -25,7 +25,7 @@
 | P7.5 — Belief and Information Gain | `not_started` | تمثيل uncertainty واختيار observation حسب information gain/cost/risk/authorization/time. |
 | P8 — Diagnosis-aware Replanning | `not_started` | ربط World State وBelief وDiagnosis وcapabilities وexpected effects بخطة bounded جديدة. |
 | P9 — Causal Credit Assignment | `not_started` | فصل causal effect عن enabling/observation/validation/incidental actions. |
-| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ ACTION_REQUESTED صار يحمل عقد trigger/preconditions server-owned بإصدار وبصمة. |
+| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ ACTION_REQUESTED يحمل عقدًا server-owned، وعقد replay يربط كل حالة بمرجع Canonical Proof. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
 | P11 — Learning Validation and Transfer | `not_started` | replay وheld-out وcross-project وnovel composition وLearning Delta مع منع leakage. |
 | P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
@@ -456,6 +456,33 @@ G9 Revocation Safety
 - **remaining/blocker:** No strategy replay worker consumes `pending_replay`
   candidates yet. Current/held-out corpora, three independent transfer fixtures,
   proof-bound case receipts, and durable Learning Delta remain unimplemented.
+
+### 2026-09-24 — Replay Case Proof-Binding Contract (partial)
+
+- **phase/step:** P10 / PR 9 — case-level evidence identity
+- **status:** `partial`
+- **what changed:** Strategy replay manifest policy v2 requires one proof binding
+  per paired case. Each binding carries the case, project/revision, source
+  episode, execution attempt, acceptance, observed effect bundle, and
+  **source** Canonical Proof digest. The analyzer checks that the binding set exactly
+  matches baseline and candidate case IDs, rejects duplicate or mismatched
+  source identities, and includes proof bindings in the manifest hash.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/agent-state/strategy-replay.ts`,
+  `lib/ai-orchestrator/src/agent-state/index.ts`, and
+  `lib/ai-orchestrator/src/agent-state/strategy-replay.test.ts`.
+- **validation:** Strategy replay contract tests passed (9); orchestrator
+  typecheck passed; API server typecheck passed; `git diff --check` passed.
+- **authority/safety impact:** The analyzer remains diagnostic-only and cannot
+  update candidate lifecycle. The source-proof digest is only a reference until
+  the API server recomputes it from durable acceptance rows; replay-result proofs
+  still need their own case receipts. No test fixture is treated as corpus
+  evidence.
+- **remaining/blocker:** The API does not yet produce or verify these bindings.
+  There is no registered strategy-specific current/held-out corpus, replay
+  executor, per-case receipt persistence, or Learning Delta record.
+- **next step:** Add a server-owned corpus resolver that verifies each binding
+  against durable Canonical Proof and effect rows, then execute only registered
+  replay cases in isolated, server-owned profiles.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

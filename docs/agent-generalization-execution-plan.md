@@ -1484,9 +1484,14 @@ learningStatus
   trigger recipe، preconditions، expected effects، observation profile، وfailure
   semantics. المرشح يحفظ هذه العقود؛ الأحداث القديمة التي لا تحمل العقد تبقى
   غير مؤهلة. لا تقبل الشريحة الحالية traces متعددة الأفعال.
+- manifest التحليل version 2 يربط كل paired case بـproject/revision وsource
+  episode/execution attempt وacceptance وeffect bundle وبصمة Canonical Proof.
+  هذا عقد بيانات فقط: يجب على API server إعادة حساب الإثبات من الصفوف الدائمة؛
+  لا تكفي البصمة الواردة من manifest لإثبات المصدر أو القبول.
 - **المتبقي قبل اعتبار PR 9 مكتملًا:** replay مستقل على current وheld-out
-  corpus، cross-project fixtures، paired baseline، وLearning Delta. لا يُسمح
-  بالترقية أو التأثير على planner قبل إثبات كل بوابة بهذه الأدلة.
+  corpus، corpus resolver/executor، cross-project fixtures، durable per-case
+  receipts، paired baseline generation، وLearning Delta. لا يُسمح بالترقية أو
+  التأثير على planner قبل إثبات كل بوابة بهذه الأدلة.
 
 ### PR 10: Canary/Promotion وCapability Composition
 
