@@ -7,25 +7,82 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-24  
-**الوضع:** Shadow/read-only في طبقات Episode وObservation وWorld State  
+**الوضع:** Foundation مكتملة جزئيًا؛ Cognitive Spine وIndependent Effect Verification غير مكتملين، وكل ما بعدهما يبقى Shadow/read-only
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
 |---|---|---|
 | P0 — Contracts, baseline, threat model | `done` | عقود agent-state واختبارات parsing/hash/redaction موجودة. |
-| P1 — Episode schema + ledger | `done` | جداول Episode/Observation/Effect/World/Strategy والـledger واختبارات ownership/idempotency/replay موجودة. |
-| P2 — Episode integration in Chat/Mission | `done` | Chat وTask/Recipe وMission/Workflow تستخدم Episode ledger؛ الهوية والـscope والـplan revision مغطاة باختبارات lifecycle. |
-| P3 — Observation materialization | `done` | مصادر server-owned مع completeness/freshness/revision وربط بالـepisode. |
-| P4 — World facts + materialized reader | `partial` | read model، contradictions، supersession، world revision، endpoint محمي وContext projection منجزة؛ تغطية effect/browser/Git الكاملة ليست منجزة بعد. |
-| P5 — Effect contract for candidate validation | `not_started` | يلزم before/after effect bundle وربطه بالـacceptance في نفس المعاملة. |
-| P6 — Runtime/browser/delivery observers | `not_started` | يلزم توحيد observers والتحقق من الأثر بعد التنفيذ. |
-| P7 — Failure diagnosis | `not_started` | تصنيف server-owned للفشل وربطه بالـnext action. |
-| P8 — Bounded hypothesis-aware replan | `not_started` | ربط diagnosis بـobjective/Mission replanning مع no-progress guard. |
-| P9 — Strategy candidate extraction | `not_started` | استخراج strategy من episodes المقبولة دون منحها صلاحية. |
-| P10 — Replay and generalization benchmark | `not_started` | current/held-out/cross-project evaluation وlearning delta. |
-| P11 — Strategy canary/promotion/revocation | `not_started` | promotion مضبوط وrollback/revocation. |
-| P12 — Capability composition | `not_started` | composition آمن عبر contracts وsandbox وshadow replay. |
-| P13 — Multimodal extension | `not_started` | مؤجل إلى ما بعد effect/evidence loop. |
+| P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
+| P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
+| P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
+| P3.5 — Cognitive Action / Observation Spine | `not_started` | يلزم ربط Objective → Episode → Action → Preconditions → Before Observation → Execution → After Observation → Effect → World Delta → Acceptance. |
+| P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
+| P5 — Authoritative Effect Verification | `not_started` | يلزم before/after observations وتصنيف أثر مستقل؛ لا يجوز اشتقاق Effect من acceptance وحدها. |
+| P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
+| P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
+| P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
+| P7.5 — Belief and Information Gain | `not_started` | تمثيل uncertainty واختيار observation حسب information gain/cost/risk/authorization/time. |
+| P8 — Diagnosis-aware Replanning | `not_started` | ربط World State وBelief وDiagnosis وcapabilities وexpected effects بخطة bounded جديدة. |
+| P9 — Causal Credit Assignment | `not_started` | فصل causal effect عن enabling/observation/validation/incidental actions. |
+| P10 — Portable Strategy Extraction | `not_started` | استخراج trigger/preconditions/state transition/effects/failure branches/observation requirements القابلة للنقل. |
+| P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
+| P11 — Learning Validation and Transfer | `not_started` | replay وheld-out وcross-project وnovel composition وLearning Delta مع منع leakage. |
+| P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
+| P13 — Capability composition | `not_started` | composition آمن عبر semantic contracts وsandbox وshadow replay. |
+| P14 — Multimodal extension | `not_started` | مؤجل إلى ما بعد إغلاق effect/evidence/learning gates. |
+
+## Cognitive Spine Reality Check
+
+وجود contract أو schema لا يساوي اكتمال القدرة التشغيلية. يجب تقييم المشروع على
+محورين منفصلين:
+
+1. **Feature/contract completion:** وجود العقود والتخزين والإسقاطات والاختبارات.
+2. **Runtime cognitive integration:** قدرة runtime على ربط الفعل بالملاحظة المستقلة
+   والأثر وتحديث العالم والتشخيص وإعادة التخطيط.
+
+القواعد التالية إلزامية:
+
+- Contract/schema existence ≠ runtime integration.
+- Derived acceptance state ≠ independent observation.
+- World-state materialization ≠ full belief/world model.
+- Episode persistence ≠ closed-loop agent cognition.
+- Strategy schema ≠ strategy learning.
+- Replay infrastructure ≠ generalization.
+
+## Observation Provenance
+
+كل observation يجب أن يعلن مصدره:
+
+```text
+DIRECT_OBSERVATION
+SERVER_DERIVED
+MODEL_INFERRED
+```
+
+- `DIRECT_OBSERVATION` يجوز أن يثبت evidence عن العالم.
+- `SERVER_DERIVED` يجوز أن يثبت facts مشتقة مع الاحتفاظ بمراجعها.
+- `MODEL_INFERRED` يكوّن hypotheses فقط.
+
+لا يجوز إعادة تسمية acceptance أو validation أو model output كـindependent
+runtime observation، ولا يجوز أن تتحول نتيجة `PROVEN` إلى دليل runtime مستقل.
+
+## Generalization Gates
+
+لا تُرقّى capability أو strategy قبل اجتياز البوابات التالية كلّها، لا score
+واحدًا مجمعًا:
+
+```text
+G1 Correctness
+G2 Evidence Integrity
+G3 Effect Verification
+G4 Failure Diagnosis
+G5 Held-out Validation
+G6 Cross-project Transfer
+G7 Novel Composition
+G8 Regression Safety
+G9 Revocation Safety
+```
 
 ## سجل الخطوات
 
@@ -141,6 +198,27 @@
   قبل إعلان Gate A كاملًا. P4 ما زالت جزئية وEffect Loop غير منفذ.
 - **next step:** عزل وإصلاح فشل رحلة Dashboard، ثم إعادة تشغيل Gate A؛ بعد نجاحها فقط
   يبدأ P5 Candidate Validation Effect Loop.
+
+### 2026-09-24 — Cognitive Closure Architecture recalibration
+
+- **phase/step:** Governance / P3–P14 dependency and capability semantics
+- **status:** `done`
+- **what changed:** إعادة توصيف P3 كـWorld State foundation لا كـclosed-loop cognition؛
+  إضافة P3.5 Cognitive Action/Observation Spine، وObservation Provenance،
+  Unified Action Semantics، Belief/Information Gain، Causal Credit Assignment،
+  Self-Model، Transfer، وGeneralization Gates. تحولت الخطة من feature checklist
+  إلى dependency plan يفرق بين contract completion وruntime cognitive integration.
+- **files/schema/contracts touched:** `docs/agent-generalization-progress.md`,
+  `docs/agent-generalization-execution-plan.md`; لا تغييرات runtime أو schema.
+- **validation:** مراجعة اتساق ترتيب P0–P14 ومعايير Definition of Done؛
+  `git diff --check` بعد اكتمال تحديث الوثائق.
+- **authority/safety impact:** لا تغيير في authority؛ `Proof` و`Acceptance`
+  يظلان server-owned، و`DIRECT_OBSERVATION` وحدها لا تُخلط مع derived أو inferred
+  state، ولا تمنح strategy أو World State صلاحية.
+- **remaining/blocker:** P3.5 وP4 وP5 وCausal Learning غير منفذة runtime؛
+  وجود contracts أو replay infrastructure لا يثبت generalization.
+- **next step:** تنفيذ Cognitive Action/Observation Spine قبل أي Strategy Learning
+  أو live promotion.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

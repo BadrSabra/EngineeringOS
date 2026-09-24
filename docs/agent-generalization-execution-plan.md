@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0 وP1 وP2 وP3 منجزة؛ لبّ P4 منجز مع بقاء تغطية الأثر الكاملة؛ P5–P13 متبقية
+> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ P3.5–P14 متبقية
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -29,13 +29,20 @@
 
 ```text
 Agent Episode
-    → Observation
-    → World State
-    → Action Effect
+    → Belief / Hypothesis
+    → Action
+    → Preconditions
+    → Before Observation
+    → Execution
+    → After Observation
+    → Effect Classification
+    → World Delta
     → Acceptance
     → Diagnosis
     → Replan
-    → Offline Learning
+    → Causal Credit
+    → Portable Strategy
+    → Held-out / Cross-project Transfer
     → Controlled Promotion
 ```
 
@@ -147,6 +154,59 @@ REPLAN_REQUIRED
 ```
 
 ولا تتحول إلى `PROVEN`.
+
+### 3.7 Observation Provenance
+
+كل observation يجب أن يعلن provenance صريحًا:
+
+```text
+DIRECT_OBSERVATION
+SERVER_DERIVED
+MODEL_INFERRED
+```
+
+القواعد:
+
+- `DIRECT_OBSERVATION` يجوز أن يثبت evidence عن حالة العالم.
+- `SERVER_DERIVED` يجوز أن يثبت fact مشتقًا مع حفظ مراجع المصدر.
+- `MODEL_INFERRED` يجوز أن يكوّن hypothesis فقط.
+
+يجب ألا تعاد تسمية acceptance أو validation أو model output كـindependent
+runtime observation. وبذلك لا يجوز أن يتحول `PROVEN` المستنتج من acceptance
+إلى دليل runtime مستقل.
+
+### 3.8 Contract completion ليس Runtime cognitive integration
+
+يجب تسجيل الحكم على محورين منفصلين:
+
+1. **Feature/contract completion:** وجود schema وcontract وstorage وprojection
+   واختبارات القبول.
+2. **Runtime cognitive integration:** ربط Objective وAction بالملاحظة المستقلة
+   وEffect وWorld Delta وDiagnosis وReplan داخل runtime.
+
+لذلك:
+
+```text
+Contract/schema existence ≠ runtime integration
+Derived acceptance state ≠ independent observation
+World-state materialization ≠ full belief/world model
+Episode persistence ≠ closed-loop agent cognition
+Strategy schema ≠ strategy learning
+Replay infrastructure ≠ generalization
+```
+
+### 3.9 Non-Goals
+
+لا تعني Generalization:
+
+- unrestricted autonomy.
+- تجاوز authorization أو ownership أو scope.
+- self-modifying production code.
+- اعتبار model output evidence.
+- التعلم مباشرة من provider prose.
+- تحسين benchmark معروف دون held-out validation.
+- حفظ project-specific command sequences كـstrategy قابلة للنقل.
+- إعلان النجاح من acceptance دون independent effect verification.
 
 ---
 
@@ -405,11 +465,70 @@ type EffectContract = {
     | "OBSERVED"
     | "PARTIAL"
     | "NOT_OBSERVED"
-    | "CONTRADICTED";
+    | "CONTRADICTED"
+    | "UNKNOWN";
 };
 ```
 
-### 5.5 Failure Diagnosis
+### 5.5 Unified Action Semantics
+
+كل mutation أو capability invocation يجب أن يظهر كـ`AgentAction` موحد، حتى لا
+تبقى semantics موزعة بين recipe node وtool call وMission action وexecution
+node:
+
+```ts
+type AgentAction = {
+  actionId: string;
+  episodeId: string;
+  capabilityId: string;
+  intent: string;
+  scope: unknown;
+  preconditions: unknown[];
+  expectedEffects: string[];
+  authorization: unknown;
+  risk: "LOW" | "MEDIUM" | "HIGH";
+  idempotencyKey: string;
+  observationProfile: string;
+  failureSemantics: string[];
+};
+```
+
+لا تمنح `AgentAction` صلاحية تنفيذ بذاتها؛ تظل capability registry وapproval
+وprofile server-owned.
+
+### 5.6 Belief and Information Gain
+
+يمثل `World State` ما نعرفه، بينما يمثل `Belief State` ما نعتقد أنه قد يكون
+صحيحًا:
+
+```ts
+type Belief = {
+  beliefId: string;
+  hypothesis: string;
+  supportingObservationIds: string[];
+  contradictingObservationIds: string[];
+  confidence: number;
+  affectedObjective: string;
+  freshness: "FRESH" | "STALE" | "UNKNOWN";
+  environmentScope?: string;
+  requiredObservations: string[];
+};
+```
+
+يجب أن يوازن اختيار observation بين:
+
+```text
+expected information gain
+execution cost
+risk
+authorization
+time
+```
+
+ولا يجوز استخدام confidence الصادر من النموذج كبديل عن هذه الحسابات
+server-owned.
+
+### 5.7 Failure Diagnosis
 
 لا يرسل planner رسالة خطأ خاماً فقط:
 
@@ -438,7 +557,7 @@ type FailureDiagnosis = {
 };
 ```
 
-### 5.6 Strategy Candidate
+### 5.8 Strategy Candidate
 
 لا تخلط هذا مع capability executable:
 
@@ -1418,6 +1537,25 @@ learningStatus
 → controlled promotion
 ```
 
+ويجب أن يثبت النظام أيضًا أنه يستطيع:
+
+1. بناء task-scoped world model.
+2. تمثيل uncertainty وhypotheses صراحة.
+3. اختيار action من capabilities بناءً على الحالة.
+4. تسجيل preconditions وexpected effects.
+5. مراقبة العالم باستقلال قبل وبعد mutation.
+6. تحديد ما تغير فعليًا.
+7. فصل observed facts عن derived facts وmodel hypotheses.
+8. تشخيص assumptions الفاشلة.
+9. إعادة التخطيط بناءً على diagnosis.
+10. إسناد مساهمة النتيجة سببيًا، لا زمنيًا فقط.
+11. استخراج portable strategies من trajectories المقبولة.
+12. اختبار strategies على held-out tasks.
+13. نقلها بين المشاريع والبيئات.
+14. تركيب capabilities عبر semantic preconditions/effects.
+15. promotion وrevocation آمنين.
+16. حفظ authorization وownership وevidence وaudit invariants.
+
 ويجب أن تنجح الحالات السلبية التالية:
 
 ```text
@@ -1449,6 +1587,9 @@ provider claims success without evidence
 → تحسن على مهمة لم تنتج الدرس
 → دون زيادة false-success أو تجاوز الصلاحيات
 ```
+
+ولا يجوز استخدام score واحد لإخفاء فشل correctness أو evidence أو effect أو
+diagnosis أو transfer أو revocation gate.
 
 حتى ذلك الوقت، يبقى المشروع منصة تنفيذ هندسي موثوقة ذات تكيف محلي، وليس نظام تعلم عام مكتمل.
 
@@ -2865,38 +3006,63 @@ ECE <= 0.15
 
 ## 31. ترتيب التنفيذ المعتمد
 
-يجب تنفيذ الوحدات بهذا الترتيب:
+هذا هو dependency plan المعتمد. أسماء الأقسام التنفيذية الأقدم في هذه الوثيقة
+تبقى مواصفات تفصيلية للوحدات، لكن لا يجوز استخدامها لتجاوز ترتيب الاعتماديات
+أدناه:
 
 ```text
-P0  Contracts, baseline, threat model
-P1  Episode schema + ledger
-P2  Episode integration in Chat/Mission
-P3  Observation materialization
-P4  World facts + materialized reader
-P5  Effect contract for candidate validation
-P6  Runtime/browser/delivery observers
-P7  Failure diagnosis
-P8  Bounded hypothesis-aware replan
-P9  Strategy candidate extraction
-P10 Replay and generalization benchmark
-P11 Strategy canary/promotion/revocation
-P12 Capability composition
-P13 Multimodal extension
+P0   Contracts / invariants
+ ↓
+P1   Durable execution
+ ↓
+P2   Evidence / acceptance
+ ↓
+P3   World State foundation
+ ↓
+P3.5 Cognitive Action / Observation Spine
+ ↓
+P4   Independent Observation and World Integration
+ ↓
+P5   Authoritative Effect Verification
+ ↓
+P6   World Delta / Revision Closure
+ ↓
+P7   World-State Failure Diagnosis
+ ↓
+P7.5 Belief + Information Gain
+ ↓
+P8   Diagnosis-Aware / Hypothesis-Aware Replanning
+ ↓
+P9   Causal Credit Assignment
+ ↓
+P10  Portable Strategy Extraction
+ ↓
+P10.5 Agent Capability Self-Model
+ ↓
+P11  Learning Validation and Transfer
+ ↓
+P12  Strategy Promotion / Revocation
+ ↓
+P13  Semantic Capability Composition
+ ↓
+P14  Multimodal Observation
 ```
 
 ### الاعتماديات
 
 ```text
-P0 → P1 → P2 → P3 → P4
-P4 → P5 → P6
-P5/P6 → P7 → P8
-P8 → P9 → P10 → P11
+P0 → P1 → P2 → P3 → P3.5
+P3.5 → P4 → P5 → P6
+P5/P6 → P7 → P7.5 → P8
+P8 → P9 → P10 → P10.5 → P11
 P11 → P12
-P5/P6/P10 → P13
+P5/P6/P11 → P13
+P4/P5/P6/P11 → P14
 ```
 
-لا يبدأ `P9` قبل أن تكون effects وacceptance موثوقة، ولا يبدأ `P12` قبل أن
-تعمل sandbox/replay/promotion.
+لا يبدأ `P10` قبل أن تكون effects وacceptance وcausal attribution موثوقة، ولا
+يبدأ `P12` قبل أن تعمل held-out evaluation وcross-project transfer وpromotion
+gates.
 
 ---
 
@@ -3635,3 +3801,456 @@ execution-scoped evidence/effect snapshot
 الهدف القابل للإثبات في هذه الدورة هو وكيل هندسي يتعلم من آثار مقبولة ضمن
 repository وworkspace وruntime وGit وbrowser وdelivery. لا يشترط هذا الهدف
 تفعيل multimodal أو تحميل capabilities جديدة أو تغيير أوزان النماذج.
+
+---
+
+## 42. Cognitive Closure Architecture — المواصفة السلطوية
+
+هذا القسم يعيد ضبط معنى اكتمال المراحل. وجود schemas أو contracts أو جداول
+لا يكفي لإعلان أن القدرة تعمل داخل runtime. يجب أن يظهر الفرق بين:
+
+```text
+Foundation
+    ↓
+Cognitive Spine
+    ↓
+Independent Observation
+    ↓
+Causal Effect Verification
+    ↓
+World / Belief Update
+    ↓
+Diagnosis
+    ↓
+Replanning
+    ↓
+Causal Learning
+    ↓
+Portable Strategy
+    ↓
+Transfer
+    ↓
+Safe Promotion
+```
+
+### 42.1 P3 — World State Foundation
+
+**الحالة:** `FOUNDATION COMPLETE / COGNITIVE INTEGRATION PARTIAL`
+
+#### المكتمل
+
+- World fact contracts.
+- World-state materialization.
+- Supersession والتناقضات.
+- World revision generation.
+- Current-fact projection.
+
+#### المتبقي
+
+- task-scoped world revision.
+- environment-aware revision.
+- Belief State semantics.
+- فصل provenance بين `DIRECT_OBSERVATION` و`SERVER_DERIVED`
+  و`MODEL_INFERRED`.
+- integration authoritative مع planner.
+- independent observation ingestion.
+
+`World State` هو read model محدود، وليس مصدر صلاحية أو بديلًا عن
+`evidence` و`acceptance`.
+
+### 42.2 P3.5 — Cognitive Action / Observation Spine
+
+**الحالة:** `NOT COMPLETE`
+
+قبل أي learning أو strategy promotion يجب أن تملك كل عملية هندسية spine
+دلالية واحدة:
+
+```text
+Objective
+    ↓
+Episode
+    ↓
+Belief / Hypothesis
+    ↓
+Action
+    ↓
+Preconditions
+    ↓
+Before Observation
+    ↓
+Execution
+    ↓
+After Observation
+    ↓
+Effect Classification
+    ↓
+World Delta
+    ↓
+Acceptance
+```
+
+#### Definition of Done
+
+لكل mutating agent action:
+
+1. يوجد `actionId` ثابت.
+2. يرتبط الفعل بـ`episodeId`.
+3. تسجل preconditions.
+4. تسجل expected effects.
+5. تلتقط before-state observations مستقلة.
+6. ينفذ الفعل عبر action profile server-owned.
+7. تلتقط after-state observations مستقلة.
+8. يصنف الأثر من before/after evidence.
+9. تتم materialization لـworld-state delta.
+10. يشير acceptance إلى effect bundle الناتج.
+11. يحفظ كل evidence provenance الخاص به.
+12. لا يسمح acceptance بتمثيل نفسه كـdirect runtime observation.
+
+### 42.3 P4 — Authoritative Observation and World Integration
+
+**الحالة:** `PARTIAL`
+
+يجب أن تشمل هذه المرحلة:
+
+- independent observation providers.
+- observation provenance.
+- task-scoped world revision.
+- environment revision.
+- monotonic observation sequence.
+- relevant fact versions.
+- world delta.
+- contradiction propagation.
+
+ويجب أن يكون:
+
+```text
+worldRevision =
+  hash(
+    taskScope
+    + projectRevision
+    + environmentRevision
+    + relevantFactVersions
+    + latestObservationSequence
+  )
+```
+
+لا يكفي hash للـcurrent facts وحدها، ولا يجوز أن تثبت observation من execution
+أو revision أخرى أثر تنفيذ جديد.
+
+### 42.4 P5 — Authoritative Effect Verification
+
+**الحالة:** `NOT STARTED`
+
+الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
+
+```text
+ACTION_COMMITTED
+    ↓
+BEFORE_OBSERVATION
+    ↓
+ACTION_EXECUTION
+    ↓
+AFTER_OBSERVATION
+    ↓
+EFFECT_CLASSIFICATION
+    ↓
+WORLD_DELTA
+    ↓
+ACCEPTANCE
+```
+
+القيم المسموحة لـ`EffectStatus`:
+
+```text
+OBSERVED
+PARTIAL
+NOT_OBSERVED
+CONTRADICTED
+UNKNOWN
+```
+
+لا يجوز استنتاج Effect من acceptance وحدها. غياب after observation أو وجود
+تناقض يبقي النتيجة غير مكتملة ولا يسمح بـ`PROVEN`.
+
+### 42.5 P5.5 — Unified Action Semantics
+
+كل mutating capability invocation يجب أن يطبق `AgentAction` ويكشف:
+
+```text
+actionId
+capabilityId
+episodeId
+scope
+preconditions
+expectedEffects
+authorization requirements
+risk
+idempotency semantics
+observation profile
+failure semantics
+```
+
+الهدف أن تصبح recipe node وtool call وMission action وexecution node
+implementations للعقد نفسه، بدل وجود semantics منفصلة. هذا لا يمنح النموذج
+صلاحية جديدة؛ تبقى capability registry وauthorization وprofiles
+server-owned.
+
+### 42.6 P6 — World Delta / Revision Closure
+
+**الحالة:** `NOT STARTED`
+
+تغلق هذه المرحلة العلاقة بين effect bundle وworld state عبر:
+
+- materialized world delta مرتبط بـ`actionId` و`episodeId`.
+- revision قابلة لإعادة البناء.
+- relevant fact versions.
+- freshness وenvironment scope.
+- رفض delta إذا كان مبنيًا على observation stale أو غير متوافق.
+
+### 42.7 P7 — World-State Failure Diagnosis
+
+**الحالة:** `NOT STARTED`
+
+التشخيص يجب أن يجيب:
+
+- أي assumption فشل؟
+- ما world facts المتأثرة؟
+- ما expected effect المفقود؟
+- ما observations التي تناقض الخطة؟
+- ما hypotheses التي ما زالت ممكنة؟
+- ما observation التي تميز بينها؟
+- هل الخطوة التالية `retry` أو `observe` أو `replan` أو `request approval`
+  أو `terminate`؟
+
+Provider failure diagnostics ضرورية، لكنها ليست agent-level failure diagnosis.
+
+### 42.8 P7.5 — Belief and Information Gain
+
+**الحالة:** `NOT STARTED`
+
+يجب أن يمثل النظام uncertainty صراحة عبر:
+
+- hypothesis.
+- supporting observations.
+- contradicting observations.
+- confidence server-owned.
+- affected objective.
+- freshness.
+- environment scope.
+
+ويجب أن يختار observation وفق expected information gain مع موازنة:
+
+```text
+information gain
+execution cost
+risk
+authorization
+time
+```
+
+الهدف ليس تنفيذ المزيد من الأفعال، بل اختيار الملاحظة الأرخص والأكثر أمانًا
+التي تميز بين hypotheses الحالية.
+
+### 42.9 P8 — Diagnosis-Aware / Hypothesis-Aware Replanning
+
+**الحالة:** `NOT STARTED`
+
+مدخلات replanning هي:
+
+```text
+World State
++ Belief State
++ Failure Diagnosis
++ Available Capabilities
++ Expected Effects
+        ↓
+Candidate Plans
+        ↓
+Information / Risk / Cost evaluation
+        ↓
+Bounded Replan
+```
+
+لا يجوز أن يعيد planner المحاولة نفسها بلا تغير معلل في observation أو
+assumption أو strategy، ويجب أن يبقى no-progress guard فعالًا.
+
+### 42.10 P9 — Causal Credit Assignment
+
+**الحالة:** `NOT STARTED`
+
+يجب فصل:
+
+- action contribution.
+- observation contribution.
+- validation-only actions.
+- redundant actions.
+- enabling actions.
+- causal effect.
+- incidental correlation.
+
+القرب الزمني من النجاح ليس دليلًا كافيًا على السببية:
+
+```text
+Temporal proximity is not sufficient evidence of causality.
+```
+
+### 42.11 P10 — Portable Strategy Extraction
+
+**الحالة:** `NOT STARTED`
+
+يجب أن تتكون strategy من:
+
+```text
+trigger condition
++ preconditions
++ abstract state transition
++ expected effects
++ failure branches
++ observation requirements
+```
+
+لا يجوز أن تكون strategy مجرد:
+
+```text
+file X → command Y → command Z
+```
+
+يجب على extractor تطبيع trajectories الخاصة بالمشروع إلى relational strategies
+قابلة للنقل بين المشاريع والبيئات.
+
+### 42.12 P10.5 — Agent Capability Self-Model
+
+**الحالة:** `NOT STARTED`
+
+يصف self-model:
+
+```text
+capability
+reliability
+supported environments
+known failure modes
+cost
+risk
+authorization requirements
+learned applicability
+evidence quality
+```
+
+يجب أن يجيب الوكيل: `What can I reliably do here?`، لا أن يكتفي بقائمة
+الأدوات المتاحة.
+
+### 42.13 P11 — Learning Validation and Transfer
+
+**الحالة:** `NOT STARTED`
+
+```text
+Training Episodes
+        ↓
+Strategy Candidate
+        ↓
+Replay
+        ↓
+Held-out Tasks
+        ↓
+Cross-project Tasks
+        ↓
+Novel Composition
+        ↓
+Learning Delta
+```
+
+لا تعتبر strategy متعلمة لمجرد نجاح replay. يجب أن يثبت التقييم:
+
+```text
+performance(new task, learned strategy)
+    >
+performance(new task, baseline)
+```
+
+مع منع leakage، وإبقاء كل نتيجة proof/acceptance خارج تأثير provider prose.
+
+### 42.14 P12 — Strategy Promotion and Revocation
+
+**الحالة:** `NOT STARTED`
+
+لا تدخل strategy إلى live registry إلا بعد:
+
+- replay مكتمل.
+- held-out validation.
+- cross-project transfer.
+- canary bounded.
+- paired baseline.
+- promotion decision server-owned.
+
+يجب أن تعمل revocation/rollback دون حذف forensic history.
+
+### 42.15 P13 — Semantic Capability Composition
+
+**الحالة:** `NOT STARTED`
+
+composition يجب أن يعتمد على semantic preconditions/effects وauthorization
+وsandbox وshadow replay، لا على concatenation لأوامر أو trajectories محفوظة.
+
+### 42.16 P14 — Multimodal Observation
+
+**الحالة:** `NOT STARTED`
+
+هذا مسار لاحق لا يدخل معيار اكتمال التعميم الهندسي الأساسي قبل إغلاق P3.5 وP4
+وP5 وP9 وP11. لا يجوز أن تستخدم multimodal output كبديل عن independent
+server-owned observation.
+
+### 42.17 Generalization Gates
+
+لا يجوز promotion إلا بعد اجتياز كل gate:
+
+```text
+G1 — Correctness
+G2 — Evidence Integrity
+G3 — Effect Verification
+G4 — Failure Diagnosis
+G5 — Held-out Validation
+G6 — Cross-project Transfer
+G7 — Novel Composition
+G8 — Regression Safety
+G9 — Revocation Safety
+```
+
+لا يستخدم score واحدًا لإخفاء فشل gate منفرد.
+
+### 42.18 General Engineering Agent Definition of Done
+
+لا يعتبر النظام generalized engineering agent إلا عندما يستطيع:
+
+1. بناء world model ضمن task scope.
+2. تمثيل uncertainty صراحة.
+3. اختيار action من capabilities بناءً على الحالة.
+4. تسجيل preconditions وexpected effects.
+5. مراقبة العالم باستقلال قبل وبعد mutation.
+6. تحديد ما تغير فعليًا.
+7. فصل observed facts عن derived facts وhypotheses.
+8. تشخيص assumptions الفاشلة.
+9. إعادة التخطيط بناءً على diagnosis.
+10. إسناد مساهمة النتائج سببيًا.
+11. استخراج strategies قابلة للنقل.
+12. اختبارها على held-out tasks.
+13. نقلها بين المشاريع والبيئات.
+14. تركيب capabilities عبر semantic preconditions/effects.
+15. promotion وrevocation آمنين.
+16. حفظ authorization وownership وevidence وaudit invariants.
+
+### 42.19 Contract مقابل القدرة المكتملة
+
+| Capability | Contract | Storage | Runtime | Closed Loop | Generalized |
+|---|---:|---:|---:|---:|---:|
+| World State | ✓ | ✓ | ✓ | partial | no |
+| Observation | ✓ | ✓ | partial | no | no |
+| Action Semantics | partial | partial | partial | no | no |
+| Effect Verification | ✓ | ✓ | no | no | no |
+| Failure Diagnosis | ✓ | partial | partial | no | no |
+| Replanning | ✓ | ✓ | ✓ | partial | no |
+| Strategy Memory | ✓ | ✓ | no | no | no |
+| Credit Assignment | no | no | no | no | no |
+| Strategy Extraction | partial | partial | no | no | no |
+| Replay | ✓ | ✓ | partial | no | no |
+| Cross-project Transfer | no | no | no | no | no |
+| Capability Composition | ✓ | ✓ | partial | no | no |
