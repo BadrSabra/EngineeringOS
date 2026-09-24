@@ -1433,8 +1433,11 @@ learningStatus
   بعد الدفع، بما في ذلك idempotent reconciliation.
 - لا تكرار acceptance أو promotion engines، ولا تُستخدم receipts أو provider prose
   كدليل effect مستقل.
-- **الحالة الحالية:** `partial`: Browser/Delivery recipe seams وRuntime observer
-  مضافة؛ Runtime action adapter واختبارات recovery/reconnect الشاملة متبقية.
+- **الحالة الحالية:** `complete`: Runtime/Browser/Delivery تستخدم نفس Gate C effect
+  loop، والاختبارات المتكاملة تثبت حفظ effect bundle وربطه بالـacceptance، واستمرار
+  الهوية بعد idempotent replay، ورفض remote drift. Runtime يغطي lease loss واختلاف
+  revision وworker recovery؛ Delivery يغطي reconciliation بعد فقد receipt. لا يكفي
+  provider receipt أو `status: running` كإثبات effect.
 
 ### PR 7: Failure Diagnosis
 

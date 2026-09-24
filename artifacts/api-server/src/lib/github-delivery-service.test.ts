@@ -207,6 +207,38 @@ describe("verified GitHub delivery service", () => {
         remoteTreeHash: localTreeSha,
         operationMarker: `EngineeringOS-Operation: ${operationId}`,
       });
+
+      const driftCalls: string[] = [];
+      const driftedReplay = await executeVerifiedGitHubDelivery({
+        ...params({ projectId, proposalId, operationId, rootPath }),
+        request: async (requestPath, init) => {
+          driftCalls.push(`${init?.method ?? "GET"} ${requestPath}`);
+          if (requestPath.endsWith("/git/ref/heads/main")) {
+            return { object: { sha: remoteCommitHash } };
+          }
+          if (requestPath.endsWith(`/git/commits/${remoteCommitHash}`)) {
+            return {
+              tree: { sha: "unexpected-remote-tree" },
+              message: `Verified delivery\n\nEngineeringOS-Operation: ${operationId}`,
+              parents: [{ sha: parentHash }],
+            };
+          }
+          throw new Error(`unexpected GitHub path: ${requestPath}`);
+        },
+      });
+      expect(driftedReplay).toMatchObject({ status: "unavailable" });
+      expect(driftCalls).toEqual([
+        "GET /repos/example/project/git/ref/heads/main",
+        `GET /repos/example/project/git/commits/${remoteCommitHash}`,
+      ]);
+      const pushEvents = await db.select({ id: eventsTable.id })
+        .from(eventsTable)
+        .where(and(
+          eq(eventsTable.projectId, projectId),
+          eq(eventsTable.type, "GitPushed"),
+          eq(eventsTable.correlationId, operationId),
+        ));
+      expect(pushEvents).toHaveLength(1);
     } finally {
       await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId)).catch(() => undefined);
       await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, projectId)).catch(() => undefined);

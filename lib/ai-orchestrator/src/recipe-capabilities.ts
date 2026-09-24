@@ -227,10 +227,17 @@ function browserCapability(profile: string, runtime: RecipeCapabilityRuntime): C
       if (!runtime.browserValidationRunner) {
         return { status: "unavailable", profile, detail: "Browser validation runner is not enabled for this operation." };
       }
+      if (!context.operationId || !context.revision) {
+        return {
+          status: "blocked",
+          profile,
+          detail: "A durable operation and source revision are required for browser verification.",
+        };
+      }
       const result = await runtime.browserValidationRunner({
         profile,
         rootPath: context.rootPath,
-        operationId: context.operation,
+        operationId: context.operationId,
         revision: context.revision,
         signal: context.signal,
       });

@@ -12,6 +12,7 @@ describe("server recipe definition registry", () => {
       "candidate.verify",
       "database.inspect.project",
       "delivery.push.github",
+      "runtime.start",
       "validation.recover",
     ]);
     expect(registry.resolve("candidate.verify", 1)).toMatchObject({
@@ -19,6 +20,25 @@ describe("server recipe definition registry", () => {
       recipeVersion: 1,
       maxParallelNodes: 1,
       executionPolicy: { maxAttempts: 2, maxTotalTimeoutMs: 900_000 },
+    });
+  });
+
+  it("builds runtime startup from a fixed server-owned recipe node", () => {
+    const registry = createServerRecipeDefinitionRegistry();
+    const recipe = registry.build({
+      recipeId: "runtime.start",
+      recipeVersion: 1,
+      approvedPaths: [],
+    });
+    expect(recipe.nodes).toMatchObject([{
+      id: "runtime-start",
+      capabilityId: "runtime.start",
+      input: {},
+      declaredOutputs: ["status", "profile", "evidence"],
+    }]);
+    expect(registry.resolve("runtime.start", 1)).toMatchObject({
+      maxRisk: "high",
+      executionPolicy: { maxAttempts: 1 },
     });
   });
 

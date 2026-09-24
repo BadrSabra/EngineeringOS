@@ -82,7 +82,8 @@ describe("WorkspaceRuntimeManager", () => {
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
       ].join("\n"),
     );
-    const manager = new WorkspaceRuntimeManager();
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const manager = new WorkspaceRuntimeManager({ store, workerId: "stale-runtime-worker" });
     managers.push(manager);
     const started = await manager.start({
       projectId: "stale-runtime-test",
@@ -93,6 +94,17 @@ describe("WorkspaceRuntimeManager", () => {
     await expect(manager.observeAfterState({
       projectId: "stale-runtime-test",
       sessionId: "old-session",
+      revision: "revision-1",
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+    await expect(manager.observeAfterState({
+      projectId: "stale-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "different-revision",
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+    await store.releaseWorker("stale-runtime-worker");
+    await expect(manager.observeAfterState({
+      projectId: "stale-runtime-test",
+      sessionId: started.sessionId!,
       revision: "revision-1",
     })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
 
@@ -126,7 +138,7 @@ describe("WorkspaceRuntimeManager", () => {
       path.join(root, "server.mjs"),
       [
         "import http from 'node:http';",
-        "const server = http.createServer((_req, res) => res.end('runtime-recovery-ok'));",
+        "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', 'revision-1'); res.end('runtime-recovery-ok'); });",
         "server.listen(Number(process.env.PORT), '127.0.0.1');",
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
       ].join("\n"),
@@ -149,6 +161,20 @@ describe("WorkspaceRuntimeManager", () => {
     expect(adopted.status).toBe("running");
     expect(adopted.pid).toBe(started.pid);
     expect(adopted.port).toBe(started.port);
+    const afterRecovery = await secondWorker.observeAfterState({
+      projectId: "recoverable-project",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+    });
+    expect(afterRecovery).toMatchObject({
+      status: "passed",
+      sessionId: started.sessionId,
+      revision: "revision-1",
+      processAlive: true,
+      portReady: true,
+      healthStatus: 200,
+      servingRevision: "revision-1",
+    });
 
     const stopped = await secondWorker.stop("recoverable-project");
     expect(stopped.status).toBe("stopped");

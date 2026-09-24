@@ -1270,7 +1270,8 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       : parseRecipeOperationBinding(value.recipeBinding);
     if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
     if (recipeBinding && operation?.binding
-      && JSON.stringify(recipeBinding) !== JSON.stringify(operation.binding)) return undefined;
+      && JSON.stringify(recipeBindingIdentity(recipeBinding))
+        !== JSON.stringify(recipeBindingIdentity(operation.binding))) return undefined;
     const capabilityProbe = value.capabilityProbe === undefined
       ? undefined
       : parseCapabilityProbeCheckpoint(value.capabilityProbe);
@@ -1382,26 +1383,30 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
   }
 }
 
+function recipeBindingIdentity(
+  binding: RecipeOperationBinding | null | undefined,
+): Omit<RecipeOperationBinding, "phase" | "leaseOwner" | "leaseUntil"> | null {
+  if (!binding) return null;
+  const {
+    phase: _phase,
+    leaseOwner: _leaseOwner,
+    leaseUntil: _leaseUntil,
+    ...identity
+  } = binding;
+  return identity;
+}
+
 function recipeBindingMatches(
   checkpointRaw: string,
   requestedBinding: RecipeOperationBinding | undefined,
 ): boolean {
   const checkpoint = parseAiExecutionCheckpoint(checkpointRaw);
   const storedBinding = checkpoint?.recipeBinding ?? checkpoint?.operation?.binding ?? null;
-  const bindingIdentity = (binding: RecipeOperationBinding | null | undefined) => {
-    if (!binding) return null;
-    const {
-      phase: _phase,
-      leaseOwner: _leaseOwner,
-      leaseUntil: _leaseUntil,
-      ...identity
-    } = binding;
-    return identity;
-  };
   // Phase and lease fields are worker lifecycle state, not idempotency
   // identity. A replay or reclaim must be able to bind the same candidate
   // after a prior worker advanced the phase or lost its lease.
-  return JSON.stringify(bindingIdentity(storedBinding)) === JSON.stringify(bindingIdentity(requestedBinding));
+  return JSON.stringify(recipeBindingIdentity(storedBinding))
+    === JSON.stringify(recipeBindingIdentity(requestedBinding));
 }
 
 function parseEvidenceProgressCheckpoint(value: unknown): AiEvidenceProgressCheckpoint | undefined {

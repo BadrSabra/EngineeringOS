@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { and, desc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
@@ -23,7 +24,13 @@ import {
 } from "./ai-execution-state.js";
 import * as aiExecutionState from "./ai-execution-state.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
-import { prepareRecipeOperation, runRecipeOperation } from "./recipe-operation-runner.js";
+import {
+  createRuntimeStartRunner,
+  prepareRecipeOperation,
+  runRecipeOperation,
+} from "./recipe-operation-runner.js";
+import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
+import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 
 const validationCalls: string[] = [];
 
@@ -179,7 +186,113 @@ async function createReclaimedRecipeFixture(options: {
   }
 }
 
+async function createGateCRecipeFixture(
+  recipeId: "browser.verify" | "delivery.push.github",
+  approvedPaths: readonly string[] = [],
+) {
+  const projectId = crypto.randomUUID();
+  const operationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
+  const userId = `gate-c-recipe-user:${projectId}`;
+  const sourceRevision = `gate-c-recipe-revision:${projectId}`;
+  const now = new Date();
+  await db.insert(projectsTable).values({
+    id: projectId,
+    ownerId: userId,
+    name: `gate-c-recipe-${projectId.slice(0, 8)}`,
+    rootPath: process.cwd(),
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: `Gate C recipe ${recipeId}`,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const params = {
+    projectId,
+    operationId,
+    sessionId,
+    userId,
+    idempotencyKey: `${operationId}:gate-c-reconnect`,
+    rootPath: process.cwd(),
+    sourceRevision,
+    recipeId,
+    recipeVersion: 1,
+    approvedPaths: [...approvedPaths],
+    ...(recipeId === "delivery.push.github"
+      ? { deliveryMessage: "Deliver the verified proposal" }
+      : {}),
+  };
+  return {
+    params,
+    cleanup: async (executionId?: string) => {
+      if (executionId) {
+        await db.delete(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      }
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    },
+  };
+}
+
+async function assertSuccessfulGateCEffect(executionId: string, capabilityId: string) {
+  const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
+    .where(eq(aiAgentEffectBundlesTable.executionId, executionId))
+    .limit(1);
+  expect(bundle).toMatchObject({ verdict: "OBSERVED" });
+  const effects = await db.select().from(aiAgentEffectsTable)
+    .where(eq(aiAgentEffectsTable.executionId, executionId));
+  expect(effects).toHaveLength(1);
+  expect(effects[0]).toMatchObject({ capabilityId, status: "observed" });
+  const [acceptance] = await db.select({
+    effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+  }).from(aiExecutionAcceptancesTable).where(and(
+    eq(aiExecutionAcceptancesTable.executionId, executionId),
+    eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+  )).limit(1);
+  expect(acceptance?.effectBundleId).toBe(bundle?.id);
+  const observations = await db.select().from(aiAgentObservationsTable)
+    .where(eq(aiAgentObservationsTable.executionId, executionId));
+  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+  const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
+    .from(aiAgentEpisodeEventsTable)
+    .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+  expect(events.map((event) => event.eventType)).toEqual(
+    expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
+  );
+  return bundle?.id;
+}
+
 describe("recipe operation preparation", () => {
+  it("prepares runtime startup with a server runner and project scope", () => {
+    const prepared = prepareRecipeOperation({
+      projectId: "project-runtime",
+      operationId: "operation-runtime",
+      rootPath: process.cwd(),
+      sourceRevision: "revision-runtime",
+      recipeId: "runtime.start",
+      recipeVersion: 1,
+      runtimeStartRunner: async () => ({
+        status: "passed",
+        evidence: { evidenceId: "runtime-after-state" },
+      }),
+    });
+    expect(prepared.plan.nodes).toMatchObject([{
+      capabilityId: "runtime.start",
+      executionContext: {
+        scope: { kind: "project", paths: [] },
+        revision: "revision-runtime",
+      },
+    }]);
+  });
+
   it("prepares a candidate verification recipe with exactly one approved path", () => {
     const prepared = prepareRecipeOperation({
       projectId: "project-1",
@@ -251,6 +364,209 @@ describe("recipe operation preparation", () => {
       expect(acceptance?.effectBundleId).toBe(bundle?.id);
     } finally {
       await fixture.cleanup();
+    }
+  });
+
+  it("classifies a verified runtime after-state before successful acceptance", async () => {
+    const projectId = crypto.randomUUID();
+    const operationId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const userId = "runtime-recipe-effect-user";
+    const sourceRevision = "runtime-recipe-effect-revision";
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "runtime-recipe-effect-"));
+    await writeFile(
+      path.join(rootPath, "package.json"),
+      JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+    );
+    await writeFile(
+      path.join(rootPath, "server.mjs"),
+      [
+        "import http from 'node:http';",
+        `const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', '${sourceRevision}'); res.end('runtime-ready'); });`,
+        "server.listen(Number(process.env.PORT), '127.0.0.1');",
+        "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+      ].join("\n"),
+    );
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      workerId: `runtime-recipe-test:${operationId}`,
+    });
+    let executionId: string | undefined;
+    try {
+      await db.insert(projectsTable).values({
+        id: projectId,
+        ownerId: userId,
+        name: `runtime-recipe-${projectId.slice(0, 8)}`,
+        rootPath,
+        language: "typescript",
+        status: "active",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await db.insert(aiChatSessionsTable).values({
+        id: sessionId,
+        projectId,
+        title: "Runtime recipe effect test",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const result = await runRecipeOperation({
+        projectId,
+        operationId,
+        sessionId,
+        userId,
+        idempotencyKey: `${operationId}:runtime-effect`,
+        rootPath,
+        sourceRevision,
+        recipeId: "runtime.start",
+        recipeVersion: 1,
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionId = result.executionId;
+      expect(result.status).toBe("completed");
+
+      const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.executionId, executionId))
+        .limit(1);
+      expect(bundle).toMatchObject({ verdict: "OBSERVED" });
+      const effects = await db.select().from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, executionId));
+      expect(effects).toHaveLength(1);
+      expect(effects[0]).toMatchObject({
+        capabilityId: "runtime.start",
+        status: "observed",
+      });
+      const [acceptance] = await db.select({
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      }).from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      )).limit(1);
+      expect(acceptance?.effectBundleId).toBe(bundle?.id);
+      const observations = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.executionId, executionId));
+      expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+      const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+      expect(events.map((event) => event.eventType)).toEqual(
+        expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
+      );
+    } finally {
+      await manager.shutdown();
+      if (executionId) {
+        await db.delete(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+        await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      }
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("replays browser verification without losing its accepted effect bundle", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify", ["package.json"]);
+    let executionId: string | undefined;
+    const browserCalls: Array<{ profile: string; operationId?: string; revision?: string }> = [];
+    const params = {
+      ...fixture.params,
+      browserValidationRunner: async ({ profile, operationId: runnerOperationId, revision }: {
+        profile: string;
+        operationId?: string;
+        revision?: string;
+      }) => {
+        browserCalls.push({ profile, operationId: runnerOperationId, revision });
+        return {
+          profile,
+          status: "passed" as const,
+          scenario: "registered browser profile passed",
+          exitCode: 0,
+          command: "server-owned browser profile",
+          stdout: "",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            evidenceId: `browser:${runnerOperationId}`,
+            observedAt: new Date().toISOString(),
+            artifactRef: `browser-preview:${runnerOperationId}`,
+            profileName: profile,
+            revision,
+            operationId: runnerOperationId,
+          },
+        };
+      },
+    };
+    try {
+      const completed = await runRecipeOperation(params);
+      executionId = completed.executionId;
+      expect(completed.status).toBe("completed");
+      const bundleId = await assertSuccessfulGateCEffect(executionId, "browser.verify.default");
+      expect(browserCalls).toEqual([{
+        profile: "default",
+        operationId: fixture.params.operationId,
+        revision: fixture.params.sourceRevision,
+      }]);
+
+      const replay = await runRecipeOperation(params);
+      expect(replay).toMatchObject({
+        executionId,
+        status: "completed",
+        receipt: { status: "completed" },
+      });
+      expect(await assertSuccessfulGateCEffect(executionId, "browser.verify.default")).toBe(bundleId);
+      expect(browserCalls).toHaveLength(1);
+    } finally {
+      await fixture.cleanup(executionId);
+    }
+  });
+
+  it("replays GitHub delivery without duplicating it or detaching acceptance proof", async () => {
+    const fixture = await createGateCRecipeFixture("delivery.push.github");
+    let executionId: string | undefined;
+    const deliveryCalls: string[] = [];
+    const params = {
+      ...fixture.params,
+      githubDeliveryRunner: async ({ projectId, operationId, message }: {
+        projectId: string;
+        operationId: string;
+        message: string;
+      }) => {
+        deliveryCalls.push(`${projectId}:${operationId}:${message}`);
+        return {
+          status: "passed" as const,
+          evidence: {
+            evidenceId: `delivery:${operationId}`,
+            resultHash: "d".repeat(64),
+            artifactRef: `github-delivery:${operationId}`,
+          },
+          remoteCommitHash: "remote-commit",
+          remoteParentHash: "parent-commit",
+          remoteTreeHash: "remote-tree",
+          operationMarker: `EngineeringOS-Operation: ${operationId}`,
+        };
+      },
+    };
+    try {
+      const completed = await runRecipeOperation(params);
+      executionId = completed.executionId;
+      expect(completed.status).toBe("completed");
+      const bundleId = await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit");
+      expect(deliveryCalls).toEqual([
+        `${fixture.params.projectId}:${fixture.params.operationId}:Deliver the verified proposal`,
+      ]);
+
+      const replay = await runRecipeOperation(params);
+      expect(replay).toMatchObject({
+        executionId,
+        status: "completed",
+        receipt: { status: "completed" },
+      });
+      expect(await assertSuccessfulGateCEffect(executionId, "github.push_verified_commit")).toBe(bundleId);
+      expect(deliveryCalls).toHaveLength(1);
+    } finally {
+      await fixture.cleanup(executionId);
     }
   });
 

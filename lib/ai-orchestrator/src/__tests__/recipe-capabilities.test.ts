@@ -29,6 +29,65 @@ describe("recipe capability adapters", () => {
     ]);
   });
 
+  it("requires and forwards the durable browser operation and revision", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const registry = createServerCapabilityRegistry({
+      browserProfiles: ["default"],
+      browserValidationRunner: async (args) => {
+        calls.push(args);
+        return {
+          status: "passed",
+          profile: args.profile,
+          scenario: "browser profile passed",
+          exitCode: 0,
+          command: "server-owned browser profile",
+          stdout: "",
+          stderr: "",
+          failedTests: [],
+          changedFiles: [],
+          evidence: {
+            evidenceId: "browser:verified",
+            observedAt: new Date().toISOString(),
+            artifactRef: "browser-preview:verified",
+            profileName: args.profile,
+            revision: args.revision,
+            operationId: args.operationId,
+          },
+        };
+      },
+    });
+    const context = {
+      rootPath: process.cwd(),
+      projectId: "project-browser",
+      operation: "recipe",
+      authorized: true,
+      approvalState: "APPROVED" as const,
+      scope: { kind: "paths" as const, paths: ["package.json"] },
+      allowedFiles: ["package.json"],
+    };
+
+    await expect(registry.invoke("browser.verify.default", 1, { targetPaths: ["package.json"] }, context))
+      .resolves.toMatchObject({ ok: true, output: { status: "blocked" } });
+    expect(calls).toHaveLength(0);
+
+    await expect(registry.invoke("browser.verify.default", 1, { targetPaths: ["package.json"] }, {
+      ...context,
+      operationId: "operation-browser",
+      revision: "revision-browser",
+    })).resolves.toMatchObject({
+      ok: true,
+      output: {
+        status: "passed",
+        evidence: { evidenceId: "browser:verified" },
+      },
+    });
+    expect(calls).toMatchObject([{
+      profile: "default",
+      operationId: "operation-browser",
+      revision: "revision-browser",
+    }]);
+  });
+
   it("registers external delivery only when the server supplies its runner", () => {
     const calls: Array<Record<string, unknown>> = [];
     const registry = createServerCapabilityRegistry({
@@ -89,7 +148,7 @@ describe("recipe capability adapters", () => {
     expect(registry.list().map((entry) => entry.id)).toContain("runtime.start");
 
     await expect(registry.invoke("runtime.start", 1, {}, {
-      rootPath: "/project",
+      rootPath: process.cwd(),
       projectId: "project-1",
       operation: "recipe",
       operationId: "operation-1",
@@ -103,7 +162,7 @@ describe("recipe capability adapters", () => {
     expect(calls).toHaveLength(0);
 
     await expect(registry.invoke("runtime.start", 1, {}, {
-      rootPath: "/project",
+      rootPath: process.cwd(),
       projectId: "project-1",
       operation: "recipe",
       operationId: "operation-1",
@@ -122,7 +181,7 @@ describe("recipe capability adapters", () => {
     expect(calls).toMatchObject([{
       projectId: "project-1",
       operationId: "operation-1",
-      rootPath: "/project",
+      rootPath: process.cwd(),
       revision: "revision-1",
     }]);
   });

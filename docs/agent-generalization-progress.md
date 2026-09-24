@@ -272,6 +272,56 @@ G9 Revocation Safety
 - **next step:** استكمال Runtime action adapter ثم إضافة اختبارات Gate C المتكاملة لمسارات
   success، stale lease، reconnect، remote drift، وidempotent delivery.
 
+### 2026-09-24 — Runtime Recipe Effect Integration
+
+- **phase/step:** P5 / PR 6 / Gate C — Runtime
+- **status:** `partial`
+- **what changed:** أضيفت وصفة server-owned باسم `runtime.start`، وقدرة لا تقبل مدخلات
+  تحكم من النموذج، ومشغّل يطلب بدء preview ثم يستدعي `observeAfterState` قبل إرجاع
+  الدليل. تم توصيلها بمسار الوصفات المباشر وMission، وربطها بـEpisode وAgentAction
+  وملاحظات before/after وتصنيف الأثر الحالي قبل acceptance. التشغيل من API المباشر
+  يتطلب write access. اختبار recipe متكامل يثبت حفظ effect bundle وربطه بقبول
+  التنفيذ بعد تحقق after-state. الدليل المحفوظ يقتصر على خصائص after-state اللازمة
+  ولا يحتفظ بنص استجابة HTTP.
+- **files/schema/contracts touched:** `recipe-capabilities.ts`,
+  `recipe-definition-registry.ts`, `recipe-contract.ts`,
+  `recipe-operation-runner.ts`, `gate-c-effect.ts`, ومسارات recipe وMission واختباراتها.
+- **validation:** API وai-orchestrator typecheck؛ 20 اختبارًا مستهدفًا في ai-orchestrator
+  و20 في API؛ `git diff --check`.
+- **authority/safety impact:** الـruntime root/revision/profile ثابتة server-owned؛ يتطلب
+  الأثر session وrevision وworker lease وPID/port/HTTP/serving revision، ويفشل مغلقًا عند
+  فقد lease أو اختلاف الهوية. لا يحل receipt أو `status: running` محل after-state أو
+  acceptance.
+- **remaining/blocker:** اختبارات recovery/lease loss/revision/reconnect للـRuntime موجودة،
+  لكن ما زالت اختبارات Gate C المتكاملة مطلوبة لإثبات effect bundle بعد reconnect/replay
+  لـBrowser وDelivery، بما فيها remote drift وidempotent delivery.
+- **next step:** استكمال اختبارات Gate C المتكاملة لـBrowser/Delivery وإثبات ربط effect
+  bundle بالـacceptance بعد reconnect/replay.
+
+### 2026-09-24 — Gate C Browser and Delivery Replay Proof
+
+- **phase/step:** P5 / PR 6 / Gate C — Browser, Delivery
+- **status:** `complete`
+- **what changed:** أكملت اختبارات recipe المتكاملة لـBrowser وGitHub Delivery: لكل منهما
+  `AgentAction` وملاحظتا before/after، effect bundle بحالة `OBSERVED`، وربط bundle نفسه
+  بصف acceptance. إعادة تنفيذ الطلب بمفتاح idempotency نفسه تعيد النتيجة المحفوظة ولا
+  تعيد تشغيل browser أو delivery runner. صار browser runner يتلقى operation ID الدائم
+  وsource revision، ويرفض غيابهما. أضيف اختبار drift يرفض remote tree المخالف دون إنشاء
+  إيصال push إضافي؛ ويغطي اختبار الاستعادة الموجود idempotent reconciliation بعد فقد receipt.
+  طُبّع فحص recipe binding ليقارن هوية الربط دون phase/lease المتغيرة، مع بقاء تحقق الهوية.
+- **files/schema/contracts touched:** `recipe-capabilities.ts`,
+  `ai-execution-state.ts`, `recipe-operation-runner.test.ts`,
+  `recipe-capabilities.test.ts`, `github-delivery-service.test.ts`.
+- **validation:** API وai-orchestrator typecheck؛ 39 اختبارًا مستهدفًا عبر 7 ملفات API؛
+  21 اختبارًا مستهدفًا في ai-orchestrator؛ `git diff --check`.
+- **authority/safety impact:** مراجع browser مرتبطة بهوية operation/revision server-owned.
+  آثار Browser وDelivery لا تُقبل من receipt وحده؛ يلزم after-observation مباشرة وربط
+  effect bundle بالـacceptance. اختلاف remote state يفشل مغلقًا، وإعادة التشغيل لا تكرر
+  mutation مكتملة.
+- **remaining/blocker:** لا عائق معروف ضمن PR 6 / Gate C؛ بقية مراحل خطة تعميم الوكيل
+  تستمر وفق ترتيبها في execution plan.
+- **next step:** متابعة PR 7 — Failure Diagnosis.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

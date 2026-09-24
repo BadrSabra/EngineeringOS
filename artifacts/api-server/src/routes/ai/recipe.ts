@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import { RecipeRequestSchema, toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
 import { and, eq } from "drizzle-orm";
 import { aiChangeProposalsTable, db } from "@workspace/db";
-import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
+import {
+  requireProjectAccess,
+  requireProjectWriteAccess,
+} from "../../middlewares/requireProjectAccess.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import {
   createRuntimeStartRunner,
@@ -13,7 +16,14 @@ import { executeVerifiedGitHubDelivery } from "../../lib/github-delivery-service
 
 const router = Router();
 
-router.post("/ai/projects/:projectId/recipe", requireProjectAccess, async (req, res) => {
+function requireRecipeAccess(req: Parameters<typeof requireProjectAccess>[0], res: Parameters<typeof requireProjectAccess>[1], next: Parameters<typeof requireProjectAccess>[2]) {
+  const access = req.body?.recipeId === "runtime.start"
+    ? requireProjectWriteAccess
+    : requireProjectAccess;
+  return access(req, res, next);
+}
+
+router.post("/ai/projects/:projectId/recipe", requireRecipeAccess, async (req, res) => {
   const rawBody = req.body && typeof req.body === "object" && !Array.isArray(req.body)
     ? req.body as Record<string, unknown>
     : {};

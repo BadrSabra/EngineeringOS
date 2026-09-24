@@ -30,6 +30,10 @@ const { scheduleTaskExecution } = vi.hoisted(() => ({
 
 vi.mock("./recipe-operation-runner.js", () => ({
   runRecipeOperation: recipeRunner,
+  createRuntimeStartRunner: vi.fn(() => async () => ({
+    status: "passed",
+    evidence: { evidenceId: "runtime-test-evidence" },
+  })),
 }));
 
 vi.mock("./github-delivery-service.js", () => ({
