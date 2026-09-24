@@ -33,6 +33,11 @@ import {
   auditLogsTable,
   scanJobsTable,
   aiProviderCredentialsTable,
+  aiAgentEpisodesTable,
+  aiAgentEpisodeEventsTable,
+  aiAgentObservationsTable,
+  aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
 } from "@workspace/db";
 import {
   buildProjectContext,
@@ -42,6 +47,7 @@ import {
   validateGeminiDefaultModels,
 } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
+import * as observationMaterializer from "../lib/agent-state/observation-materializer.js";
 import {
   canCreateProposal,
   collectPreviouslyAcceptedPlanningEvidence,
@@ -6207,6 +6213,49 @@ describe("POST /api/ai/chat/apply-changes", () => {
       // allOk=true → 200; 207 is for partial success only.
       expect(res.status).toBe(200);
       expect(res.body.results[0]).toMatchObject({ ok: true });
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+        attempt: aiExecutionsTable.attempt,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.proposalId, proposalId));
+      expect(execution).toMatchObject({ id: expect.any(String), attempt: expect.any(Number) });
+      const [episode] = await db.select().from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, execution!.id));
+      expect(episode).toMatchObject({
+        executionId: execution!.id,
+        attempt: execution!.attempt,
+        intentKind: "APPLY_CHANGES",
+      });
+      const episodeEvents = await db.select().from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.episodeId, episode!.id));
+      expect(episodeEvents.map((event) => event.eventType)).toEqual(
+        expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
+      );
+      const observations = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.executionId, execution!.id));
+      expect(observations).toHaveLength(2);
+      expect(observations.every((observation) => observation.provenance === "DIRECT_OBSERVATION")).toBe(true);
+      const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.executionId, execution!.id));
+      expect(bundle).toMatchObject({ verdict: "OBSERVED" });
+      const effects = await db.select().from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, execution!.id));
+      expect(effects).toHaveLength(1);
+      expect(effects[0].status).toBe("observed");
+      const [acceptance] = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      expect(acceptance).toMatchObject({ outcome: "SUCCEEDED", effectBundleId: bundle!.id });
+      const [proposal] = await db.select({
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
+      expect(proposal).toMatchObject({ status: "applied", lifecycle: "applied" });
+      const applyEvent = (await db.select().from(eventsTable)
+        .where(eq(eventsTable.projectId, id)))
+        .find((event) => event.type === "AiChangesApplied");
+      expect(applyEvent?.severity).toBe("success");
       // Only the first hunk (a→10) was applied; b stays at 2.
       expect(await fs.readFile(absolutePath, "utf-8")).toBe(
         "const a = 10;\nconst b = 2;\nconst c = 3;\n",
@@ -6214,6 +6263,109 @@ describe("POST /api/ai/chat/apply-changes", () => {
     } finally {
       validationSpy.mockRestore();
       await fs.rm(absolutePath, { force: true });
+      await fs.rm(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not accept success when the direct after-state observation contradicts the candidate", async () => {
+    const id = randomUUID();
+    const now = new Date();
+    const projectRoot = await fs.mkdtemp("/tmp/apply-effect-incomplete-");
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-effect-incomplete-${id.slice(0, 8)}`,
+      rootPath: projectRoot,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `apply-effect-incomplete-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `${projectRoot}/${fileName}`;
+    const original = "export const value = 1;\n";
+    const replacement = "export const value = 2;\n";
+    await fs.writeFile(absolutePath, original, "utf-8");
+    const proposalChanges = [{
+      path: fileName,
+      absolutePath,
+      newContent: replacement,
+      originalContent: original,
+      reason: "Verify fail-closed mutation acceptance",
+      validationProfile: "workspace-typecheck" as const,
+    }];
+    const proposalId = await insertChangeProposal(id, proposalChanges);
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValueOnce({
+        status: "passed",
+        profile: "workspace-typecheck",
+        exitCode: 0,
+        scenario: "Run the workspace TypeScript typecheck.",
+        command: "pnpm run typecheck",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: randomUUID(),
+          observedAt: new Date().toISOString(),
+          artifactRef: "stub",
+        },
+        detail: "Stubbed for fail-closed apply effect test.",
+      });
+    const materialize = observationMaterializer.materializeServerOwnedObservations;
+    const observationSpy = vi.spyOn(observationMaterializer, "materializeServerOwnedObservations")
+      .mockImplementation(async (input) => {
+        const isAfterTreeObservation = input.sources.some((source) =>
+          source.kind === "direct_observation" && source.sourceId.endsWith(":after:tree"),
+        );
+        const materializationInput = isAfterTreeObservation
+          ? {
+              ...input,
+              sources: input.sources.map((source) =>
+                source.kind === "direct_observation" && source.sourceId.endsWith(":after:tree")
+                  ? { ...source, value: "mismatched-tree-hash" }
+                  : source,
+              ),
+            }
+          : input;
+        return materialize(materializationInput);
+      });
+
+    try {
+      const res = await request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({ projectId: id, proposalId, changes: proposalChanges });
+
+      expect(res.status).toBe(207);
+      const [execution] = await db.select({
+        id: aiExecutionsTable.id,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.proposalId, proposalId));
+      expect(execution?.id).toEqual(expect.any(String));
+      const acceptances = await db.select({
+        outcome: aiExecutionAcceptancesTable.outcome,
+        effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      }).from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+      expect(acceptances).toHaveLength(1);
+      expect(acceptances[0].outcome).toBe("FAILED");
+      expect(acceptances[0].effectBundleId).toEqual(expect.any(String));
+      expect(acceptances.some((acceptance) => acceptance.outcome === "SUCCEEDED")).toBe(false);
+      const [proposal] = await db.select({
+        status: aiChangeProposalsTable.status,
+        lifecycle: aiChangeProposalsTable.lifecycle,
+      }).from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposalId));
+      expect(proposal).toMatchObject({ status: "applied", lifecycle: "blocked" });
+      const applyEvent = (await db.select().from(eventsTable)
+        .where(eq(eventsTable.projectId, id)))
+        .find((event) => event.type === "AiChangesApplied");
+      expect(applyEvent?.severity).toBe("warning");
+      expect(await fs.readFile(absolutePath, "utf-8")).toBe(replacement);
+    } finally {
+      observationSpy.mockRestore();
+      validationSpy.mockRestore();
       await fs.rm(projectRoot, { recursive: true, force: true });
     }
   });

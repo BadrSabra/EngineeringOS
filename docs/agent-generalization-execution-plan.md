@@ -3983,8 +3983,79 @@ state للمراجعة والجلسة الجديدة. Stop يتطلب ملاحظ
 السابق وإغلاق المنفذ، بعد ملاحظة مباشرة تثبت أن PID السابق حي والمنفذ مستمع قبل
 الإشارة، مع تحقق session/revision وتحرير الـlease؛ snapshot الإيقاف وحده لا يكفي.
 إعادة الطلب بالمفتاح نفسه تعيد العملية نفسها، وغياب after-state
-صالحة يمنع النجاح. لا يغلق هذا P3.5: AI `apply-changes` وTask execution ما زالا
-خارج spine، كما أن P4 وWorld Delta لهما إغلاق مستقل ولا يُستنتجان من هذه الشرائح.
+صالحة يمنع النجاح. في وقت هذه الشريحة كان AI `apply-changes` وTask execution
+خارج spine؛ انظر تحديث الدمج اللاحق أدناه. كما أن P4 وWorld Delta لهما إغلاق
+مستقل ولا يُستنتجان من هذه الشرائح.
+
+#### عقود دمج مسارات التعديل المتبقية — مراجعة 2026-09-24
+
+**AI `apply-changes`:** يبقى endpoint المباشر نقطة الكتابة الوحيدة لهذه العملية؛
+لا ينفذ model/tool أو generic AI recipe promotion. يعاد استخدام بوابات الموافقة
+الحالية، exact-subset للـproposal، managed root، isolated delivery workspace،
+registered validation، tree/change-set digests، guarded promotion، apply journal،
+rollback وrecovery. هذه السجلات والـhashes أساس إثبات مفيد، لكنها ليست بذاتها
+`Episode` أو `AgentAction` أو direct observations أو effect acceptance.
+
+عند وصل المسار بالـspine يجب أن يبدأ execution/attempt durable منفصل لكل محاولة
+تطبيق، مع `operationId` المستقر كـcorrelation فقط، وهوية proposal/project/revision
+والـcandidate hash وapproved paths. بعد قفل المشروع وإعادة فحص الموافقة والاقتراح،
+يسجل الخادم `ACTION_REQUESTED` وpreconditions وexpected file/tree effects، ثم
+materializes direct before observations للـlive root والملفات المستهدفة قبل
+promotion. لا تبدأ أي كتابة إذا فشل إنشاء هوية الإثبات أو الملاحظة.
+
+بعد الترقية أو rollback، يعيد الخادم قراءة live root والملفات مباشرة، ويقارن
+النتيجة بالـimmutable candidate وبـbase revision. لا يصدر effect `OBSERVED` أو
+نجاح durable إلا عندما تتطابق bytes المرشح والنتيجة، وتثبت الملاحظات نفس
+project/attempt/revision/action. فشل validation أو stale root أو rollback ناجح
+ينهي المحاولة دون نجاح effect؛ rollback غير المكتمل أو نتيجة غير محسومة تبقى
+`PARTIAL`/`UNKNOWN` وتتطلب recovery، ولا يسمح لها بقبول ناجح. يجب ربط effect
+bundle بالـacceptance قبل تحويل proposal إلى نجاح نهائي، مع إبقاء apply journal
+مصدر التعافي لا مصدر direct observation.
+
+**Task execution:** لا يفرض Action/effect gate على `/tasks/:taskId/execute`
+الذي يجري تحققًا read-only، ولا على AI task report الذي ينتهي إلى human review.
+ينطبق العقد على Mission tool-loop أو أي task execution profile server-owned
+يستطيع تعديل workspace فقط. تحفظ durable execution وlease/checkpoint/resume
+الحالية؛ ولكل mutation فعل server-owned مربوط بـtask/goal/phase/attempt/revision،
+وملاحظات مستقلة من workspace/candidate قبل وبعد، وeffect bundle قبل قبول
+الاكتمال. مخرجات النموذج، progress، task receipt، validator receipt أو تبدل
+task status لا تثبت بحد ذاتها أن تغييرات المشروع حدثت.
+
+لا تمنح هذه العقود صلاحية كتابة جديدة ولا توسع generic Mission dispatch أو
+strategy replay. تظل أدوات التنفيذ والـcandidate والـroot والنطاق والمراجعة
+والـobservation providers محددة من الخادم؛ عند غياب الملاحظة أو فقدان lease أو
+تعارض bytes، يبقى التنفيذ غير مكتمل ويستمر التعافي عبر journal/lease القائمين.
+
+#### تنفيذ Apply Changes Action/Effect — شريحة جزئية، 2026-09-24
+
+مسار `POST /api/ai/chat/apply-changes` موصول الآن بعقد
+`approved.source-promotion` مستقل عن هويات Runtime وGitHub delivery. بعد تحقق
+الموافقة exact-subset، إعداد المرشح المعزول، نجاح validation وثبات tree hashes،
+ينشئ الخادم `aiExecution` مستقلًا لكل apply attempt ويطالبه، ثم يبدأ Episode
+`APPLY_CHANGES` و`ACTION_REQUESTED`. تسجل ملاحظة مباشرة قبل الكتابة لقيمة
+`workspace.tree_hash` في live root، ثم ملاحظة مباشرة ثانية بعد promotion أو
+rollback. يربط effect العقدة بالـcandidate tree hash ومرجعَي الملاحظة؛ لا يسمح
+`finalizeExecutionAcceptance` بـ`SUCCEEDED` إلا مع effect bundle `OBSERVED`
+لنفس execution/attempt، ولا يعيد endpoint النجاح HTTP 200 إذا فشل القبول.
+يبقى proposal lifecycle محجوبًا أمام Git commit/push حتى ينجح هذا القبول ثم
+تُطلقه خطوة إسقاط لاحقة؛ فـ`proposal.status = applied` وحده يصف وجود البايتات
+ولا يثبت قبول الأثر.
+
+يبقى القرار والموافقة والمرشح والـvalidation والكتابة والـrollback في endpoint
+القائم؛ لا يختار model أو generic recipe نطاق التغيير ولا تنشأ صلاحية mutation
+جديدة. `operationId` هو correlation فقط، بينما دليل المحاولة مربوط بـexecution
+وattempt وworker. عند تعارض after observation أو عدم توفرها، يبقى القبول
+غير ناجح؛ direct observation الوحيدة في هذه الشريحة هي hash كامل لـlive tree
+قبل وبعد، وليست دليلًا مستقلًا لكل ملف.
+
+**حد معروف:** filesystem promotion منفصلة عن journal/proposal transaction،
+وهذه الأخيرة منفصلة عن acceptance finalizer. ترتيب التنفيذ يحفظ apply/journal
+أولًا ثم acceptance؛ إذا وقع crash بعد promotion أو commit وقبل finalization،
+لا يوجد `SUCCEEDED` مستنتج، لكن يلزم reconciliation دائم يميز حالة
+applied-but-unaccepted ويغلقها fail-closed. هذه الشريحة لا تدعي ذرية عبر
+filesystem وDB ولا تعتبر proposal status أو journal بديلًا عن direct observation.
+لذلك تبقى P3.5/P5 جزئية إلى أن يغلق مسار التعافي؛ Mission tool-loop mutation لم
+يدخل بعد.
 
 ### 42.3 P4 — Authoritative Observation and World Integration
 
@@ -4019,7 +4090,7 @@ worldRevision =
 
 ### 42.4 P5 — Authoritative Effect Verification
 
-**الحالة:** `PARTIAL — Candidate Validation and direct Runtime start/restart/stop slices complete`
+**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, and first direct apply-changes slice complete; cross-store crash recovery remains open`
 
 الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
 

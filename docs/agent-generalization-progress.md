@@ -16,9 +16,9 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery recipe slices تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ ما زالت مسارات AI apply-changes وTask execution خارج spine. World Delta له إغلاق مستقل في P6. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery recipe slices، ومسار AI apply-changes المباشر، تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ عمليات التعديل الفعلية في Mission tool-loop ما زالت خارج spine. تقارير Task وعمليات التحقق read-only ليست أفعال تعديل. World Delta له إغلاق مستقل في P6. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery Gate C يستخدمون effect gate؛ تبقى مسارات التعافي والـlease/reconnect الأوسع. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery Gate C ومسار apply-changes المباشر يستخدمون effect gate؛ تبقى فجوة crash recovery بين filesystem وDB، ومسارات التعافي والـlease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
@@ -700,6 +700,66 @@ G9 Revocation Safety
 - **next step:** تحديد مسار AI `apply-changes` وTask execution والعقود
   server-owned المطلوبة لإدخالهما في spine دون توسيع replay أو صلاحيات mutation؛
   ثم استكمال P4/P5 قبل P6.
+
+### 2026-09-24 — تحديد عقود مسارات التعديل المتبقية
+
+- **phase/step:** P3.5 / P5 — حصر نقاط دمج `apply-changes` وTask execution
+- **status:** `done`
+- **what changed:** حُدد مسار `apply-changes` في `applyChangesHandler`: الموافقة
+  الحالية، exact-subset، مرشح delivery المعزول، preflight والتحقق السلوكي،
+  مقارنة hashes، promotion المحمي، journal وrollback تبقى بواباتها الحالية.
+  مسار apply لا يسجل حاليًا Episode/AgentAction أو direct before/after
+  observations أو effect bundle مربوطًا بقبول durable. كما فُصل Task execution
+  read-only والتحقق/التقرير عن Mission tool-loop الذي قد يعدل workspace؛
+  يلزم action/effect proof للأفعال المعدّلة فقط، لا لكل تقرير أو تحقق.
+- **files/schema/contracts touched:** `docs/agent-generalization-progress.md`,
+  `docs/agent-generalization-execution-plan.md`,
+  `.agents/memory/task-execution-lifecycle.md`; لا تغيير schema أو runtime.
+- **validation:** مراجعة مسارات الملفات والحدود القائمة في `applyChangesHandler`,
+  `/tasks/:taskId/execute` و`executeTaskLifecycle`؛ `git diff --check`.
+- **authority/safety impact:** تبقى موافقة المستخدم، proposal journal، سلامة
+  المرشح، validation والـrollback الحالية هي صاحبة سلطة الكتابة. فصل التقرير
+  والتحقق read-only يمنع اعتبارهما mutation أو اختلاق أثر؛ لا صلاحية جديدة
+  لـMission أو replay.
+- **remaining/blocker:** لا يوجد مسار تعديل جديد موصول بـEpisode/Action/effect
+  acceptance بعد. يلزم بدء هوية تنفيذ/محاولة apply durable، التقاط ملاحظة مباشرة
+  قبل promotion وبعده، وربطها بالأثر والقبول مع إعادة استخدام recovery journal.
+  ثم يطبق العقد نفسه على عمليات Mission tool-loop المعدّلة دون تعميمه على
+  Task outputs غير المعدّلة.
+- **next step:** تنفيذ `apply-changes` كأول مسار تعديل مباشر ضمن spine: هوية
+  attempt وEpisode/Action server-owned، ملاحظات live-root قبل/بعد، effect
+  classification وacceptance قبل نجاح العملية؛ ثم استكمال Mission tool-loop.
+
+### 2026-09-24 — Apply Changes Action/Effect Integration
+
+- **phase/step:** P3.5 / P5 — direct approved source promotion
+- **status:** `partial`
+- **what changed:** أضيف عقد مستقل server-owned لـapproved source promotion.
+  بعد بوابات الموافقة وexact-subset والمرشح المعزول والتحقق وdrift، ينشئ
+  endpoint تنفيذًا ومحاولة جديدين وEpisode `APPLY_CHANGES`، ويسجل
+  `ACTION_REQUESTED` ثم direct before observation لـlive tree hash. بعد promotion
+  أو rollback يعيد قراءة root، يسجل direct after observation و`ACTION_COMMITTED`،
+  ويصنف effect bundle. لا يعيد المسار 200 أو `SUCCEEDED` إلا مع تطابق candidate
+  tree hash، effect `OBSERVED`، وقبول durable مربوط بنفس effect bundle.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/chat.ts`,
+  `artifacts/api-server/src/routes/ai.test.ts`,
+  `artifacts/api-server/src/lib/agent-state/apply-change-effect.ts` واختباره،
+  `docs/agent-generalization-execution-plan.md`؛ لا schema migration ولا توسيع
+  صلاحيات الكتابة.
+- **validation:** API/workspace typecheck؛ 20 اختبار route مستهدفًا و1 builder test؛
+  `git diff --check`؛ أعيد تشغيل API و`/api/healthz` رجع `200` بحالة `ok`.
+- **authority/safety impact:** بقيت موافقة proposal وexact-subset والـcandidate
+  validation والـjournal والـrollback هي حدود الكتابة. `operationId` يظل correlation؛
+  الإثبات مربوط بـexecution/attempt/worker. journal والـreceipt والـproposal status
+  ليست observations مباشرة، ويبقى lifecycle غير قابل لـGit commit حتى ينجح
+  effect acceptance.
+- **remaining/blocker:** promotion على filesystem وjournal/proposal transaction
+  وacceptance ليست ذرية. إذا وقع crash بعد promotion وقبل قبول التنفيذ، يفشل
+  المسار مغلقًا ولا يستنتج النجاح، لكن يلزم reconciliation/recovery دائم لهذه
+  النافذة. Mission tool-loop المعدّل لم يدخل spine بعد.
+- **next step:** إغلاق نافذة crash recovery/reconciliation لـapply-changes دون
+  قبول نجاح غير مثبت، ثم تطبيق العقد على مسارات Mission tool-loop التي تعدل
+  workspace فقط؛ التقارير والتحقق read-only تبقى خارج effect gate.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

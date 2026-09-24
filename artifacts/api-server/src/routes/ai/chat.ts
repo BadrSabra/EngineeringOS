@@ -144,7 +144,12 @@ import {
   ValidationProfileSchema,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
-import { startEpisodeShadow } from "../../lib/agent-state/agent-episode-ledger.js";
+import { appendEpisodeEvent, startEpisode, startEpisodeShadow } from "../../lib/agent-state/agent-episode-ledger.js";
+import {
+  buildApplyChangeAction,
+  buildApplyChangeEffectContract,
+} from "../../lib/agent-state/apply-change-effect.js";
+import { verifyAndPersistEffect } from "../../lib/agent-state/effect-observer.js";
 import {
   materializeServerOwnedObservations,
   type ServerOwnedObservationSource,
@@ -197,6 +202,7 @@ import {
   type AnalysisEvidenceRead,
   validateAnalysisEvidenceCompletion,
 } from "../../lib/ai-execution-state.js";
+import { finalizeExecutionAcceptance } from "../../lib/ai-execution-acceptance.js";
 import {
   buildTaskObjectiveContract,
 } from "../../lib/task-objective-contract.js";
@@ -13481,6 +13487,19 @@ async function applyChangesHandler(req: Request, res: Response) {
       };
     behavioralVerification?: RepairVerificationResult;
   }>;
+  let applyProof: {
+    executionId: string;
+    attempt: number;
+    workerId: string;
+    episodeId: string;
+    action: ReturnType<typeof buildApplyChangeAction>;
+    effectContract: ReturnType<typeof buildApplyChangeEffectContract>;
+    beforeObservationIds: string[];
+    effectBundleId?: string;
+    leaseLost: boolean;
+    terminalFinalized: boolean;
+    heartbeat?: NodeJS.Timeout;
+  } | undefined;
   try {
     // Read and validate the proposal after acquiring the project lock. This
     // prevents two concurrent approvals from both observing "pending" and
@@ -14017,6 +14036,139 @@ async function applyChangesHandler(req: Request, res: Response) {
         liveRootHashBeforePromotion,
       });
     } else {
+      const workerId = `apply-worker:${randomUUID()}`;
+      const durable = await createAiExecution({
+        userId: req.userId,
+        request: {
+          projectId,
+          executionProfile: "approved_source_promotion",
+          turnIntent: "APPLY_CHANGES",
+          operationId: applyAttemptId,
+          message: "Server-owned approved source promotion.",
+          modelMessage: "Server-owned approved source promotion.",
+          workspaceRevision: deliveryWorkspace.baseRevision,
+          workspaceRoot: resolvedRoot,
+          validationTargetPaths: writableChanges.map((change) => change.path),
+          proofRequired: true,
+        },
+        idempotencyKey: `apply-changes:${applyAttemptId}`,
+        correlationId: applyCorrelationId,
+        projectId,
+        proposalId,
+        workspaceRoot: resolvedRoot,
+      });
+      const claimed = await claimAiExecution({
+        executionId: durable.execution.id,
+        userId: req.userId,
+        workerId,
+      });
+      if (!claimed) {
+        throw new Error("apply_execution_claim_failed");
+      }
+      const episode = await startEpisode({
+        projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        idempotencyKey: `${claimed.id}:apply:${claimed.attempt}`,
+        projectRevision: deliveryWorkspace.baseRevision,
+        intentKind: "APPLY_CHANGES",
+        scope: {
+          projectId,
+          proposalId,
+          operationId: applyCorrelationId,
+          applyAttemptId,
+          candidateTreeHash,
+          changeSetHash: effectiveChangeSetHash,
+          approvedPaths: writableChanges.map((change) => change.path),
+        },
+      });
+      const beforeEvidenceRef = `apply:${claimed.id}:${claimed.attempt}:before`;
+      const afterEvidenceRef = `apply:${claimed.id}:${claimed.attempt}:after`;
+      const action = buildApplyChangeAction({
+        actionId: `action:${claimed.id}:${claimed.attempt}:apply`,
+        episodeId: episode.episodeId,
+        projectId,
+        operationId: applyCorrelationId,
+        proposalId,
+        attemptId: applyAttemptId,
+        sourceRevision: deliveryWorkspace.baseRevision,
+        baseTreeHash: deliveryWorkspace.baseTreeHash,
+        candidateTreeHash,
+        changeSetHash: effectiveChangeSetHash,
+        approvedPaths: writableChanges.map((change) => change.path),
+      });
+      const effectContract = buildApplyChangeEffectContract({
+        candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+        candidateTreeHash,
+        beforeEvidenceRef,
+        afterEvidenceRef,
+      });
+      await appendEpisodeEvent({
+        episodeId: episode.episodeId,
+        projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        eventType: "ACTION_REQUESTED",
+        payload: {
+          actionId: action.actionId,
+          capabilityId: action.capabilityId,
+          expectedEffects: action.expectedEffects,
+          action,
+          effectContract,
+        },
+        actorType: "worker",
+        actorId: workerId,
+        correlationId: applyAttemptId,
+        actionRefs: [action.actionId],
+        expectedEffectRefs: [effectContract.effectId],
+      });
+      const before = await materializeServerOwnedObservations({
+        projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        episodeId: episode.episodeId,
+        projectRevision: deliveryWorkspace.baseRevision,
+        materializeWorldState: false,
+        sources: [{
+          kind: "direct_observation",
+          sourceId: `${beforeEvidenceRef}:tree`,
+          sourceRevision: deliveryWorkspace.baseRevision,
+          subject: `project:${proposalId}:${candidateTreeHash}`,
+          predicate: "workspace.tree_hash",
+          value: liveRootHashBeforePromotion,
+          evidenceRefs: [beforeEvidenceRef],
+        }],
+      });
+      let leaseLost = false;
+      const heartbeat = setInterval(() => {
+        void heartbeatAiExecution({
+          executionId: claimed.id,
+          expectedAttempt: claimed.attempt,
+          workerId,
+        }).then((accepted) => {
+          if (!accepted) {
+            leaseLost = true;
+            if (applyProof) applyProof.leaseLost = true;
+          }
+        }).catch(() => {
+          leaseLost = true;
+          if (applyProof) applyProof.leaseLost = true;
+        });
+      }, 10_000);
+      applyProof = {
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        episodeId: episode.episodeId,
+        action,
+        effectContract,
+        beforeObservationIds: before.observationIds,
+        leaseLost,
+        terminalFinalized: false,
+        heartbeat,
+      };
       await appendApplyJournal("WRITING_STARTED", {
         fileCount: writableChanges.length,
         files: writableChanges.map((change) => change.path),
@@ -14036,6 +14188,7 @@ async function applyChangesHandler(req: Request, res: Response) {
       let writeFailure: string | undefined;
       try {
         for (const change of writableChanges) {
+          if (applyProof.leaseLost) throw new Error("apply_execution_lease_lost");
           attemptedChanges.push(change);
           // Directory creation is part of the guarded promotion, not
           // preflight, so an empty parent cannot look like live-root drift.
@@ -14048,6 +14201,7 @@ async function applyChangesHandler(req: Request, res: Response) {
           writtenChanges.push(change);
           results.push({ path: change.path, ok: true });
         }
+        if (applyProof.leaseLost) throw new Error("apply_execution_lease_lost");
         await appendApplyJournal("WRITTEN", {
           files: writtenChanges.map((change) => change.path),
           promotionState: "PROMOTED",
@@ -14200,11 +14354,68 @@ async function applyChangesHandler(req: Request, res: Response) {
       invalidateContextCache(projectId);
     }
 
-    const allOk = responseResults.every((r) => r.ok)
+    let allOk = responseResults.every((r) => r.ok)
       && !verificationNeedsReviewAfterPromotion
       && !promotionMismatch
       && promotedTreeHash === candidateHash;
     const rollbackFailed = rollbackFailures.length > 0;
+    let applyEffectStatus: string | undefined;
+    if (applyProof) {
+      const afterTreeHash = await hashDeliveryTree(resolvedRoot);
+      const afterEvidenceRef = `apply:${applyProof.executionId}:${applyProof.attempt}:after`;
+      const after = await materializeServerOwnedObservations({
+        projectId,
+        executionId: applyProof.executionId,
+        attempt: applyProof.attempt,
+        episodeId: applyProof.episodeId,
+        projectRevision: deliveryWorkspace.baseRevision,
+        materializeWorldState: false,
+        sources: [{
+          kind: "direct_observation",
+          sourceId: `${afterEvidenceRef}:tree`,
+          sourceRevision: deliveryWorkspace.baseRevision,
+          subject: `project:${proposalId}:${candidateHash}`,
+          predicate: "workspace.tree_hash",
+          value: afterTreeHash,
+          evidenceRefs: [afterEvidenceRef],
+        }],
+      });
+      await appendEpisodeEvent({
+        episodeId: applyProof.episodeId,
+        projectId,
+        executionId: applyProof.executionId,
+        attempt: applyProof.attempt,
+        workerId: applyProof.workerId,
+        eventType: "ACTION_COMMITTED",
+        payload: {
+          actionId: applyProof.action.actionId,
+          capabilityId: applyProof.action.capabilityId,
+          status: afterTreeHash === candidateHash && !rollbackFailed ? "promoted" : "rolled_back_or_unknown",
+          afterTreeHash,
+        },
+        actorType: "worker",
+        actorId: applyProof.workerId,
+        correlationId: applyAttemptId,
+        actionRefs: [applyProof.action.actionId],
+        observationRefs: after.observationIds,
+        evidenceRefs: [afterEvidenceRef],
+      });
+      const effect = await verifyAndPersistEffect({
+        projectId,
+        executionId: applyProof.executionId,
+        attempt: applyProof.attempt,
+        episodeId: applyProof.episodeId,
+        workerId: applyProof.workerId,
+        action: applyProof.action,
+        effectContract: applyProof.effectContract,
+        beforeObservationIds: applyProof.beforeObservationIds,
+        afterObservationIds: after.observationIds,
+      });
+      applyProof.effectBundleId = effect.effectBundleId;
+      applyEffectStatus = effect.status;
+      if (effect.status !== "observed") allOk = false;
+      if (applyProof.leaseLost) allOk = false;
+    }
     const applyStatus = rollbackFailed
       ? "ROLLBACK_FAILED"
       : allOk
@@ -14228,6 +14439,7 @@ async function applyChangesHandler(req: Request, res: Response) {
     const preview = appliedPaths.length > 0
       ? appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "")
       : failedPaths.slice(0, 3).join(", ") + (failedPaths.length > 3 ? ` +${failedPaths.length - 3} more` : "");
+    const applyEventId = randomUUID();
     await db.transaction(async (tx) => {
       journalSequence += 1;
       await tx.insert(aiApplyJournalTable).values({
@@ -14290,10 +14502,12 @@ async function applyChangesHandler(req: Request, res: Response) {
         correlationId: applyCorrelationId,
       });
       await tx.insert(eventsTable).values({
-        id: randomUUID(),
+        id: applyEventId,
         type: "AiChangesApplied",
         projectId,
-        severity: rollbackFailed
+        severity: applyProof
+          ? "warning"
+          : rollbackFailed
           ? "error"
           : appliedPaths.length > 0 && !verificationNeedsReviewAfterPromotion
             ? (failedPaths.length > 0 ? "warning" : "success")
@@ -14331,7 +14545,9 @@ async function applyChangesHandler(req: Request, res: Response) {
           .update(aiChangeProposalsTable)
           .set({
             status: "applied",
-            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+            // Git commit/push uses lifecycle=applied as its gate. Hold this
+            // projection blocked until the effect-bound acceptance commits.
+            lifecycle: applyProof || verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
             consumedAt: new Date(),
             validationEvidence: JSON.stringify(validationEvidence),
             baseTreeHash: deliveryWorkspace.baseTreeHash,
@@ -14372,10 +14588,78 @@ async function applyChangesHandler(req: Request, res: Response) {
       }
     });
 
+    let acceptancePassed = !applyProof;
+    if (applyProof) {
+      if (applyProof.heartbeat) {
+        clearInterval(applyProof.heartbeat);
+        applyProof.heartbeat = undefined;
+      }
+      const finalized = await finalizeExecutionAcceptance({
+        executionId: applyProof.executionId,
+        expectedAttempt: applyProof.attempt,
+        workerId: applyProof.workerId,
+        finalizationKey: `apply:${applyProof.executionId}:attempt:${applyProof.attempt}:final`,
+        outcome: allOk ? "SUCCEEDED" : "FAILED",
+        terminalStatus: allOk ? "completed" : "failed",
+        reasonCode: allOk
+          ? "ACCEPTED"
+          : applyProof.leaseLost
+            ? "APPLY_LEASE_LOST"
+            : applyStatus,
+        recoveryState: rollbackFailed
+          ? "REQUIRED"
+          : applyProof.leaseLost || (applyEffectStatus && applyEffectStatus !== "observed")
+            ? "INCOMPLETE"
+            : "NONE",
+        proposalId,
+        workspaceRoot: resolvedRoot,
+        sourceRevision: deliveryWorkspace.baseRevision,
+        effectRequired: true,
+        effectBundleId: applyProof.effectBundleId,
+        evidence: {
+          operationId: applyCorrelationId,
+          workspaceRoot: resolvedRoot,
+          sourceRevision: deliveryWorkspace.baseRevision,
+          candidateIdentity: `${proposalId}:${candidateHash}`,
+          verdict: allOk ? "PROVEN" : "INCOMPLETE",
+          required: true,
+          sourceEvidenceRequired: true,
+          reads: [],
+        },
+      });
+      applyProof.terminalFinalized = finalized.accepted;
+      acceptancePassed = finalized.accepted && allOk;
+      if (acceptancePassed) {
+        const [releasedProposal] = await db.update(aiChangeProposalsTable)
+          .set({ lifecycle: "applied" })
+          .where(and(
+            eq(aiChangeProposalsTable.id, proposalId),
+            eq(aiChangeProposalsTable.projectId, projectId),
+            eq(aiChangeProposalsTable.status, "applied"),
+            eq(aiChangeProposalsTable.lifecycle, "blocked"),
+            eq(aiChangeProposalsTable.candidateTreeHash, candidateHash),
+            eq(aiChangeProposalsTable.promotedTreeHash, candidateHash),
+          ))
+          .returning({ id: aiChangeProposalsTable.id });
+        acceptancePassed = Boolean(releasedProposal);
+        if (acceptancePassed) {
+          // This event is only a notification projection; if its update fails,
+          // the durable acceptance and proposal commit gate remain authoritative.
+          try {
+            await db.update(eventsTable)
+              .set({ severity: "success" })
+              .where(eq(eventsTable.id, applyEventId));
+          } catch {
+            // A stale warning projection is safer than a false success event.
+          }
+        }
+      }
+    }
+
     // Applying a pending change proves only that the guarded file write
     // succeeded. It does not prove that the proposed repair is behaviorally
     // correct, so make that distinction explicit in the response contract.
-    return res.status(rollbackFailed ? 500 : allOk ? 200 : 207).json({
+    return res.status(rollbackFailed ? 500 : allOk && acceptancePassed ? 200 : 207).json({
       results: responseResults,
       correlationId: applyCorrelationId,
       applyStatus,
@@ -14397,7 +14681,37 @@ async function applyChangesHandler(req: Request, res: Response) {
       rollbackFailures,
       validationEvidence,
     });
+  } catch (error) {
+    if (applyProof && !applyProof.terminalFinalized) {
+      if (applyProof.heartbeat) {
+        clearInterval(applyProof.heartbeat);
+        applyProof.heartbeat = undefined;
+      }
+      try {
+        const finalized = await finalizeExecutionAcceptance({
+          executionId: applyProof.executionId,
+          expectedAttempt: applyProof.attempt,
+          workerId: applyProof.workerId,
+          finalizationKey: `apply:${applyProof.executionId}:attempt:${applyProof.attempt}:final`,
+          outcome: "FAILED",
+          terminalStatus: "failed",
+          reasonCode: "APPLY_ROUTE_INTERRUPTED",
+          recoveryState: "INCOMPLETE",
+          proposalId,
+          workspaceRoot: resolvedRoot,
+          effectRequired: true,
+          effectBundleId: applyProof.effectBundleId,
+          error: "apply_route_interrupted",
+        });
+        applyProof.terminalFinalized = finalized.accepted;
+      } catch {
+        // Keep the original route error; the durable execution remains
+        // incomplete and must be resolved through the existing recovery path.
+      }
+    }
+    throw error;
   } finally {
+    if (applyProof?.heartbeat) clearInterval(applyProof.heartbeat);
     await applyLock.release();
   }
 }
