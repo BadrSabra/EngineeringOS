@@ -208,6 +208,24 @@ describe("server-owned effect observer", () => {
     });
     expect(acceptance?.effectBundleId).toBe(first.effectBundleId);
     expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toMatchObject({
+      creditAssignment: {
+        actionId: "action-1",
+        effectId: first.effectId,
+        effectBundleId: first.effectBundleId,
+        causalAttribution: {
+          status: "unproven",
+          reasonCode: "NO_CONTROLLED_COUNTERFACTUAL",
+        },
+        contributions: {
+          effect: { status: "measured", score: 1 },
+          claim: { status: "unknown", score: null },
+          informationGain: { status: "unknown", score: null },
+          failure: { status: "unknown", score: null },
+          redundancy: { status: "unknown", score: null },
+        },
+      },
+    });
   });
 
   it("keeps a stale after observation not observed and blocks PROVEN acceptance", async () => {

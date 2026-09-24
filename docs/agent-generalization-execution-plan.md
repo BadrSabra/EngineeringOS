@@ -1497,10 +1497,17 @@ learningStatus
   candidate/action contract والـsource proof؛ تبقى كل حلقات الدعم مستثناة.
   تحفظ الحالة IDs والبصمات فقط، وإيقاف الموافقة يحذف الحالات المسجلة غير
   المعاد تشغيلها. التسجيل لا ينفذ replay ولا يغير حالة المرشح.
+- يوجد الآن executor server-owned للحالات المسجلة من partition `held_out`،
+  لكنه مقيد حاليًا بوصفة `runtime.start` فقط. يشغّل الحالة في workspace مؤقت
+  مع runtime manager معزول، ويتطلب acceptance عاديًا وCanonical Proof مستقلًا
+  لنتيجة replay، ثم يحفظ receipt دائمًا محدودًا بالهويات والبصمات. يعيد التحقق
+  من الإيصال عند recovery ولا يغير حالة candidate؛ هذا ليس corpus أو دليل
+  generalization.
 - **المتبقي قبل اعتبار PR 9 مكتملًا:** replay مستقل على current وheld-out
-  corpus، corpus resolver/executor، cross-project fixtures، durable per-case
-  receipts، paired baseline generation، وLearning Delta. لا يُسمح بالترقية أو
-  التأثير على planner قبل إثبات كل بوابة بهذه الأدلة.
+  corpus، توسيع resolver/executor إلى corpus evaluation كامل، cross-project
+  fixtures، paired baseline generation، وLearning Delta. التنفيذ الحالي يغطي
+  receipt لحالة held-out مسجلة فقط. لا يُسمح بالترقية أو التأثير على planner
+  قبل إثبات كل بوابة بهذه الأدلة.
 
 ### PR 10: Canary/Promotion وCapability Composition
 
@@ -4134,7 +4141,12 @@ time
 
 ### 42.9 P8 — Diagnosis-Aware / Hypothesis-Aware Replanning
 
-**الحالة:** `NOT STARTED`
+**الحالة:** `PARTIAL`
+
+يوجد bounded objective recovery وMission replan يستهلكان diagnosis summaries
+server-owned. هذا لا يحقق P8 كاملًا: لا يوجد Belief State مربوط بالخطة، ولا
+ترتيب مرشحين بحسب information/risk/cost، ولا hypothesis-aware observation
+selection. يبقى P7.5 شرطًا سابقًا لهذا الإغلاق.
 
 مدخلات replanning هي:
 
@@ -4157,7 +4169,7 @@ assumption أو strategy، ويجب أن يبقى no-progress guard فعالًا
 
 ### 42.10 P9 — Causal Credit Assignment
 
-**الحالة:** `NOT STARTED`
+**الحالة:** `PARTIAL`
 
 يجب فصل:
 
@@ -4174,6 +4186,13 @@ assumption أو strategy، ويجب أن يبقى no-progress guard فعالًا
 ```text
 Temporal proximity is not sufficient evidence of causality.
 ```
+
+بدأ التنفيذ بتسجيل expected-effect coverage داخل `EFFECT_CLASSIFIED`، باستخدام
+نتيجة مقارنة before/after server-owned فقط. هذا القياس advisory؛ لا يثبت السببية.
+تظل claim contribution وinformation gain وfailure contribution وredundancy
+unknown إلى أن ترتبط بإشارات server-owned المناسبة، ويظل causal attribution
+`unproven` دون controlled counterfactual. هذه الشريحة لا تغلق P9 ولا تتجاوز
+اعتمادية P7.5 ثم P8.
 
 ### 42.11 P10 — Portable Strategy Extraction
 

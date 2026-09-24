@@ -22,6 +22,7 @@ import {
   type EffectStatus,
 } from "@workspace/ai-orchestrator";
 import type { JsonValue } from "@workspace/ai-orchestrator";
+import { buildActionCreditAssignment } from "./action-credit-assignment.js";
 
 type EffectObserverTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -261,6 +262,16 @@ export async function verifyAndPersistEffect(
     const classification = classifyEffect({ contract: effectContract, before, after });
     const effectId = randomUUID();
     const effectBundleId = existing?.bundle.id ?? randomUUID();
+    const creditAssignment = buildActionCreditAssignment({
+      actionId: action.actionId,
+      effectId,
+      effectBundleId,
+      effectStatus: classification.status,
+      observedEffectCount: classification.observedEffectCount,
+      expectedEffectCount: effectContract.expectedStateChanges.length,
+      beforeObservationIds: input.beforeObservationIds,
+      afterObservationIds: input.afterObservationIds,
+    });
     const now = new Date();
 
     await tx.insert(aiAgentEffectsTable).values({
@@ -351,12 +362,14 @@ export async function verifyAndPersistEffect(
         status: classification.status,
         beforeObservationIds: [...new Set(input.beforeObservationIds)],
         afterObservationIds: [...new Set(input.afterObservationIds)],
+        creditAssignment,
       },
       payloadHash: canonicalJsonHash({
         effectId,
         effectBundleId,
         actionId: action.actionId,
         status: classification.status,
+        creditAssignment,
       }),
       actorType: "worker",
       actorId: input.workerId,

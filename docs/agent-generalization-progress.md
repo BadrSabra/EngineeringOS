@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-24  
-**الوضع:** Foundation مكتملة جزئيًا؛ Candidate Validation Effect Loop مغلقة، وGate C أصبح جزئيًا مع Runtime/Browser/Delivery after-state seams server-owned، بينما اختبارات recovery/e2e الشاملة ما زالت متبقية
+**الوضع:** P0–P2 مكتملة؛ P3.5/P4/P5 ما زالت جزئية. يوجد bounded replan وP9 effect-credit sidecar كشرائح جزئية، كما يوجد replay مسجل ومحصور في `runtime.start`؛ لا يثبت ذلك generalization ولا يفتح promotion.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -16,15 +16,15 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وBrowser/Delivery recipe nodes تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ Runtime يحتاج ربط recipe/action كامل. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime وBrowser/Delivery recipe slices تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ لم تُغلق بعد تغطية spine لكل action surfaces. World Delta له إغلاق مستقل في P6. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime observer وBrowser/Delivery Gate C seams مضافة، وتبقى recovery/e2e coverage وربط Runtime بالـeffect loop. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime effect loop وBrowser/Delivery Gate C seams مضافة؛ تبقى recovery/lease/reconnect وe2e coverage الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
 | P7.5 — Belief and Information Gain | `not_started` | تمثيل uncertainty واختيار observation حسب information gain/cost/risk/authorization/time. |
-| P8 — Diagnosis-aware Replanning | `not_started` | ربط World State وBelief وDiagnosis وcapabilities وexpected effects بخطة bounded جديدة. |
-| P9 — Causal Credit Assignment | `not_started` | فصل causal effect عن enabling/observation/validation/incidental actions. |
+| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ لم يُربط Belief State أو تقييم information/risk/cost للخطة بعد. |
+| P9 — Causal Credit Assignment | `partial` | سجل effect coverage advisory؛ causal attribution غير مثبت، وclaim/information/failure/redundancy غير محسوبة. |
 | P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ API يعيد حساب مرجع source proof من سجلات الحلقة والقبول والأثر. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
 | P11 — Learning Validation and Transfer | `not_started` | replay وheld-out وcross-project وnovel composition وLearning Delta مع منع leakage. |
@@ -547,6 +547,94 @@ G9 Revocation Safety
 - **next step:** Implement an isolated, server-owned replay executor that
   consumes only registered cases and produces a separate accepted proof and
   durable receipt for each replay run.
+
+### 2026-09-24 — Registered Held-Out Runtime Replay Executor (partial)
+
+- **phase/step:** PR 9 / isolated held-out replay execution
+- **status:** `partial`
+- **what changed:** Added a server-owned executor for registered `held_out`
+  cases, currently restricted to `runtime.start`. It revalidates the source
+  proof and frozen candidate, requires a clean source checkout at the recorded
+  revision, runs in a disposable workspace with a separate in-memory runtime
+  manager, and requires the normal execution acceptance plus a distinct
+  replay Canonical Proof. A durable hash/identity-only receipt is persisted
+  per registered case and revalidated on recovery. Workspace mutation,
+  source drift, and source/candidate identity mismatch fail closed.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/strategy-replay-case-runner.ts`,
+  `strategy-replay-case-proof.ts`, `strategy-replay-case-registry.ts`,
+  `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`, and the
+  registered case/run persistence and protected route.
+- **validation:** API typecheck; `recipe-operation-runner.test.ts` (12/12);
+  `git diff --check`. The API workflow was restarted after the server changes
+  and `/api/healthz` returned `ok`; the later test-only additions did not need
+  a workflow restart.
+- **authority/safety impact:** The executor cannot choose an arbitrary recipe
+  or corpus case, does not use generic Mission shadow replay, and does not
+  mutate candidate lifecycle or planner policy. The replay proof is distinct
+  from the source proof; receipts retain identities and hashes, not prompts,
+  source contents, or episode prose.
+- **remaining/blocker:** This is not a current/held-out corpus or generalization
+  result. Current-corpus runs, broader held-out evaluation, cross-project
+  fixtures, paired baselines, and Learning Delta remain absent. The dependency
+  plan still marks P9 Causal Credit Assignment as not started, so P10/P11
+  evaluation must not advance as if that prerequisite were closed.
+- **next step:** Implement the first server-owned P9 credit-assignment slice.
+  Keep observed effects distinct from causal attribution, and leave
+  unsupported dimensions unknown rather than inferring them from event order.
+
+### 2026-09-24 — P9 Effect-Coverage Credit Sidecar (partial)
+
+- **phase/step:** P9 / server-owned action credit evidence
+- **status:** `partial`
+- **what changed:** `EFFECT_CLASSIFIED` now retains a bounded credit summary.
+  It scores expected-effect coverage only when the server-side before/after
+  classifier resolved the comparison; missing observation coverage remains
+  unknown. Causal attribution is explicitly `unproven` without a controlled
+  counterfactual. Claim closure, information gain, failure contribution, and
+  redundancy remain null/unknown with typed reason codes.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/action-credit-assignment.ts`,
+  `action-credit-assignment.test.ts`, `effect-observer.ts`, and
+  `effect-observer.test.ts`. The existing JSONB event contract was extended;
+  no database migration was needed.
+- **validation:** API typecheck passed; focused action-credit and effect-observer
+  tests passed (8); `git diff --check` passed. The managed API workflow restarted
+  successfully and `/api/healthz` returned `status: ok`.
+- **authority/safety impact:** Advisory telemetry only. It does not change
+  effect classification, acceptance, Canonical Proof, planner behavior, or
+  candidate lifecycle. An observed effect is never relabeled as causal.
+- **remaining/blocker:** This does not close P9. The explicit dependency plan
+  places P7.5 Belief and Information Gain, then P8 hypothesis-aware replanning,
+  before P9 completion. The P9 dimensions beyond direct effect coverage and
+  controlled causal evidence remain unimplemented.
+- **next step:** Start P7.5 Belief and Information Gain. P8's existing bounded
+  diagnosis handoff is partial, not a substitute for Belief State or
+  information/risk/cost-aware observation selection.
+
+### 2026-09-24 — Execution Dependency Order Correction
+
+- **phase/step:** Governance / dependency reconciliation
+- **status:** `partial`
+- **what changed:** Rechecked the ordered dependency graph after the P9 sidecar.
+  The immediately preceding note naming P7.5 as the next step omitted earlier
+  unfinished phases. P3.5, P4, and P5 are still partial; P6 and later work
+  cannot be treated as the next phase until those earlier gaps are closed.
+  The P9 event data remains advisory preparation only and does not unblock
+  PR 9 corpus evaluation, P10 strategy learning, or promotion.
+- **files/schema/contracts touched:** `docs/agent-generalization-progress.md`,
+  `docs/agent-generalization-execution-plan.md`; no runtime or schema change.
+- **validation:** Reconciled the progress matrix and execution order with
+  sections 31, 40, and 42.2–42.10; `git diff --check` is required after this
+  documentation correction.
+- **authority/safety impact:** No runtime authority changed. The replay runner,
+  effect-credit event, acceptance, and candidate lifecycle remain as described
+  in their bounded scopes.
+- **remaining/blocker:** P3.5/P4/P5 gaps remain; replay infrastructure is not
+  corpus validation and P9 remains partial.
+- **next step:** Resume at the earliest open dependency: close the remaining
+  P3.5 action/effect spine, then complete P4 and P5 before beginning P6's
+  World Delta / Revision Closure work.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
