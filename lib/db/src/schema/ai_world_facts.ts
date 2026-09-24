@@ -19,6 +19,8 @@ export const aiWorldFactStatusEnum = pgEnum("ai_world_fact_status", [
 export const aiWorldFactsTable = pgTable("ai_world_facts", {
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
+  taskScope: text("task_scope").notNull().default("project"),
+  environmentRevisionKey: text("environment_revision_key").notNull().default("unknown"),
   subject: text("subject").notNull(),
   predicate: text("predicate").notNull(),
   value: jsonb("value").notNull(),
@@ -32,8 +34,8 @@ export const aiWorldFactsTable = pgTable("ai_world_facts", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("uq_ai_world_facts_project_key_version").on(t.projectId, t.subject, t.predicate, t.version),
-  index("idx_ai_world_facts_project_key").on(t.projectId, t.subject, t.predicate, t.status),
+  uniqueIndex("uq_ai_world_facts_project_key_version").on(t.projectId, t.taskScope, t.environmentRevisionKey, t.subject, t.predicate, t.version),
+  index("idx_ai_world_facts_project_key").on(t.projectId, t.taskScope, t.environmentRevisionKey, t.subject, t.predicate, t.status),
   check("ck_ai_world_facts_version_positive", sql`${t.version} >= 1`),
 ]);
 

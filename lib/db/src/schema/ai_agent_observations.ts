@@ -26,6 +26,8 @@ export const aiAgentObservationsTable = pgTable("ai_agent_observations", {
   projectId: text("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
   executionId: text("execution_id").notNull().references(() => aiExecutionsTable.id, { onDelete: "cascade" }),
   episodeId: text("episode_id").notNull().references(() => aiAgentEpisodesTable.id, { onDelete: "cascade" }),
+  taskScope: text("task_scope").notNull().default("project"),
+  environmentRevisionKey: text("environment_revision_key").notNull().default("unknown"),
   kind: text("kind").notNull(),
   provenance: text("provenance").notNull().default("SERVER_DERIVED"),
   observationRole: text("observation_role").notNull(),
@@ -46,7 +48,7 @@ export const aiAgentObservationsTable = pgTable("ai_agent_observations", {
   sequence: integer("sequence").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("uq_ai_agent_observations_identity").on(t.projectId, t.sourceType, t.sourceId, t.sourceVersion, t.predicate, t.valueHash),
+  uniqueIndex("uq_ai_agent_observations_identity").on(t.projectId, t.taskScope, t.environmentRevisionKey, t.sourceType, t.sourceId, t.sourceVersion, t.predicate, t.valueHash),
   index("idx_ai_agent_observations_episode_sequence").on(t.episodeId, t.sequence),
   index("idx_ai_agent_observations_project_subject").on(t.projectId, t.subject, t.predicate),
   check("ck_ai_agent_observations_sequence_nonnegative", sql`${t.sequence} >= 0`),

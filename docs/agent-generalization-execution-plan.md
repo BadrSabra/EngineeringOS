@@ -4076,6 +4076,21 @@ reconciliation؛ وتُستثنى proposals proof-bound من legacy promotion re
 projection دون filesystem writes). هذا يغلق التعافي التلقائي المثبت فقط، ولا
 يدعي ذرية بين filesystem وDB أو takeover لمحاولة منتهية.
 
+#### Mission repair Action/Effect — 2026-09-25
+
+دخل profile `mission_repair` في Action/Effect spine. الفعل server-owned ويرتبط
+بـMission وGoal وtask والتنفيذ والمحاولة ومراجعات المصدر والخطة وهوية candidate
+والـbase tree hash والمسارات المعتمدة. يلتقط الخادم ملاحظة مباشرة للـlive tree،
+ويضع التغيير داخل disposable validation workspace فقط، ثم يلتقط hash candidate
+بعد التحقق ويصنف الأثر قبل terminal acceptance. لا يسمح النجاح إلا باجتماع
+objective validation الناجح وeffect bundle `OBSERVED` المرتبط بالقبول.
+
+لا يكتب هذا المسار bytes إلى live root ولا يحتفظ ببايتات المرشح بعد تنظيف workspace.
+`mission_observe` و`mission_validate` وتقارير Task تبقى خارج mutation-effect gate؛
+provider-shaped pending changes لا تمنح profile read-only صلاحية repair. هذه
+الشريحة تغلق فجوة `mission_repair` المحددة فقط، ولا تغلق P3.5 أو P4/P5 ككل؛
+task/environment-scoped World State وrevision closure ما زالا مطلوبين.
+
 ### 42.3 P4 — Authoritative Observation and World Integration
 
 **الحالة:** `PARTIAL`
@@ -4107,9 +4122,28 @@ worldRevision =
 لا يكفي hash للـcurrent facts وحدها، ولا يجوز أن تثبت observation من execution
 أو revision أخرى أثر تنفيذ جديد.
 
+#### Scoped World State revision — 2026-09-25
+
+أضيفت شريحة read-only تمرر task scope المشتق من Episode server-owned و
+`environmentRevision` إلى observations/facts. يستخدم dedupe وfact grouping
+وversion/contradiction keys scope والبيئة معًا؛ ويحتفظ `environmentRevisionKey`
+بقيمة identity غير nullable للفهرسة مع إبقاء revision الأصلية nullable. يحسب
+`worldRevision` من project، والـscope/البيئة المطلوبة، وهويات وإصدارات facts
+ومراجعها، وآخر `(episodeId, sequence)` في كل Episode ضمن القراءة. أضيفت filters
+اختيارية إلى reader الداخلي، وظلت القراءة العامة غير المفلترة متوافقة.
+
+أضيفت الأعمدة والفهارس كـschema تغييرات additive دون تغيير أنواع قائمة؛ تبقى
+الصفوف القديمة في project scope، ولا يعاد إسنادها إلى task. الاختبارات تغطي
+العزل بين task scopes والبيئات، وثبات scope بين محاولتين، وتغير revision عند
+تقدم sequence مع ثبات fact المادي. schema apply/check وDB tests وAPI typecheck
+و48 اختبار API مركزًا نجحت.
+لا يمنح هذا الإسقاط صلاحية أو قبولًا، ولا يغير effect proof أو planner. يبقى
+مسار GET العام project-wide، كما لم تُوصل independent authoritative providers
+أو freshness الخاصة بالبيئة أو World Delta/propagation؛ لذلك تظل P4 `PARTIAL`.
+
 ### 42.4 P5 — Authoritative Effect Verification
 
-**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, and direct apply-changes Action/Effect with fail-closed restart reconciliation are implemented; unaccepted or ambiguous apply states require explicit recovery, and Mission tool-loop mutations remain outside the spine`
+**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`
 
 الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
 

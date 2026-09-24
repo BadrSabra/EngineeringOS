@@ -6,6 +6,7 @@ import {
   db,
   projectsTable,
 } from "@workspace/db";
+import type { JsonValue } from "@workspace/ai-orchestrator";
 import { startEpisode } from "./agent-episode-ledger.js";
 import { materializeServerOwnedObservations } from "./observation-materializer.js";
 import {
@@ -68,12 +69,15 @@ async function addRuntimeObservation(input: {
   revision: string;
   profile: string;
   projectRevision?: string;
+  environmentRevision?: string;
+  targetEpisodeId?: string;
+  targetExecutionId?: string;
 }) {
   return materializeServerOwnedObservations({
     projectId,
-    executionId,
+    executionId: input.targetExecutionId ?? executionId,
     attempt: 0,
-    episodeId,
+    episodeId: input.targetEpisodeId ?? episodeId,
     projectRevision: input.projectRevision ?? input.revision,
     sources: [{
       kind: "runtime_receipt",
@@ -81,8 +85,38 @@ async function addRuntimeObservation(input: {
       sourceRevision: input.revision,
       status: "passed",
       profile: input.profile,
+      environmentRevision: input.environmentRevision,
     }],
   });
+}
+
+async function createScopedEpisode(scope: JsonValue, suffix: string) {
+  const scopedExecutionId = `world-state-execution-${suffix}-${randomUUID()}`;
+  const scopedWorkerId = `world-state-worker-${suffix}-${randomUUID()}`;
+  await db.insert(aiExecutionsTable).values({
+    id: scopedExecutionId,
+    projectId,
+    userId,
+    idempotencyKey: `world-state-idempotency-${suffix}-${randomUUID()}`,
+    resumeTokenHash: `world-state-resume-token-hash-${suffix}`,
+    request: JSON.stringify({ projectId, message: "fixture" }),
+    checkpoint: "{}",
+    status: "running",
+    workerId: scopedWorkerId,
+    leaseUntil: new Date(Date.now() + 300_000),
+    baseRevision: "revision-1",
+  });
+  const episode = await startEpisode({
+    projectId,
+    executionId: scopedExecutionId,
+    attempt: 0,
+    workerId: scopedWorkerId,
+    idempotencyKey: `world-state-episode-${suffix}-${randomUUID()}`,
+    projectRevision: "revision-1",
+    intentKind: "TEST",
+    scope,
+  });
+  return { executionId: scopedExecutionId, episodeId: episode.episodeId };
 }
 
 describe("read-only World State projection", () => {
@@ -170,5 +204,103 @@ describe("read-only World State projection", () => {
     state = await getProjectWorldState(projectId);
     expect(state.facts).toHaveLength(1);
     expect(state.currentFacts[0]?.projectRevision).toBe("revision-1");
+  });
+
+  it("isolates facts and contradictions by task scope and environment", async () => {
+    const taskA = await createScopedEpisode({ kind: "task", taskId: "task-a" }, "task-a");
+    const taskB = await createScopedEpisode({ kind: "task", taskId: "task-b" }, "task-b");
+    await addRuntimeObservation({
+      sourceId: "runtime:shared",
+      revision: "revision-1",
+      profile: "profile-a",
+      environmentRevision: "env-a",
+      targetEpisodeId: taskA.episodeId,
+      targetExecutionId: taskA.executionId,
+    });
+    await addRuntimeObservation({
+      sourceId: "runtime:shared",
+      revision: "revision-1",
+      profile: "profile-b",
+      environmentRevision: "env-a",
+      targetEpisodeId: taskB.episodeId,
+      targetExecutionId: taskB.executionId,
+    });
+    await addRuntimeObservation({
+      sourceId: "runtime:shared",
+      revision: "revision-1",
+      profile: "profile-b",
+      environmentRevision: "env-b",
+      targetEpisodeId: taskA.episodeId,
+      targetExecutionId: taskA.executionId,
+    });
+
+    const state = await getProjectWorldState(projectId);
+    expect(state.currentFacts).toHaveLength(3);
+    expect(state.contradictions).toHaveLength(0);
+    expect(new Set(state.facts.map((fact) => fact.taskScope)).size).toBe(2);
+    expect(new Set(state.facts.map((fact) => fact.environmentRevision)).size).toBe(2);
+    expect(new Set(state.facts.map((fact) => `${fact.taskScope}:${fact.environmentRevision}`)).size).toBe(3);
+  });
+
+  it("keeps task scope stable across separate execution attempts", async () => {
+    const taskScope = { kind: "task", taskId: "stable-task" } as const;
+    const firstAttempt = await createScopedEpisode(taskScope, "stable-first");
+    const secondAttempt = await createScopedEpisode(taskScope, "stable-second");
+    const first = await addRuntimeObservation({
+      sourceId: "runtime:stable",
+      revision: "revision-1",
+      profile: "profile-a",
+      environmentRevision: "env-a",
+      targetEpisodeId: firstAttempt.episodeId,
+      targetExecutionId: firstAttempt.executionId,
+    });
+    const second = await addRuntimeObservation({
+      sourceId: "runtime:stable",
+      revision: "revision-1",
+      profile: "profile-a",
+      environmentRevision: "env-a",
+      targetEpisodeId: secondAttempt.episodeId,
+      targetExecutionId: secondAttempt.executionId,
+    });
+
+    expect(first.inserted).toBe(1);
+    expect(second.inserted).toBe(0);
+    expect(second.duplicates).toBe(1);
+    expect(second.observationIds).toEqual(first.observationIds);
+  });
+
+  it("changes the scoped world revision when a new observation sequence is added", async () => {
+    const scoped = await createScopedEpisode({ kind: "task", taskId: "revision-task" }, "revision");
+    await addRuntimeObservation({
+      sourceId: "runtime:revision",
+      revision: "revision-1",
+      profile: "profile-a",
+      environmentRevision: "env-a",
+      targetEpisodeId: scoped.episodeId,
+      targetExecutionId: scoped.executionId,
+    });
+    const first = await getProjectWorldState(projectId);
+    const scope = first.facts[0]?.taskScope;
+    expect(scope).toBeTruthy();
+    const firstScoped = await getProjectWorldState(projectId, {
+      taskScope: scope,
+      environmentRevision: "env-a",
+    });
+    expect(firstScoped.facts).toHaveLength(1);
+    await addRuntimeObservation({
+      sourceId: "runtime:revision",
+      revision: "revision-2",
+      profile: "profile-a",
+      projectRevision: "revision-2",
+      environmentRevision: "env-a",
+      targetEpisodeId: scoped.episodeId,
+      targetExecutionId: scoped.executionId,
+    });
+    const secondScoped = await getProjectWorldState(projectId, {
+      taskScope: scope,
+      environmentRevision: "env-a",
+    });
+    expect(secondScoped.facts).toHaveLength(1);
+    expect(secondScoped.worldRevision).not.toBe(firstScoped.worldRevision);
   });
 });

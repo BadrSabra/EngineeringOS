@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import {
   aiAgentObservationsTable,
   aiWorldFactsTable,
@@ -17,6 +17,8 @@ export type WorldStateFactProjection = {
   predicate: string;
   value: JsonValue;
   valueHash: string;
+  taskScope: string;
+  environmentRevision: string | null;
   version: number;
   status: "believed" | "confirmed" | "contradicted" | "superseded" | "retracted";
   sourceObservationIds: string[];
@@ -55,10 +57,17 @@ function boundedSourceIds(value: unknown): string[] {
 
 function worldRevision(
   projectId: string,
+  requestedTaskScope: string | undefined,
+  requestedEnvironmentRevision: string | null | undefined,
   facts: readonly WorldStateFactProjection[],
+  observations: readonly typeof aiAgentObservationsTable.$inferSelect[],
 ): string {
   const digest = createHash("sha256");
-  digest.update(projectId);
+  digest.update(JSON.stringify([
+    projectId,
+    requestedTaskScope === undefined ? "all" : requestedTaskScope,
+    requestedEnvironmentRevision === undefined ? "all" : requestedEnvironmentRevision,
+  ]));
   for (const fact of [...facts].sort((left, right) => left.id.localeCompare(right.id))) {
     digest.update(JSON.stringify([
       fact.id,
@@ -67,11 +76,53 @@ function worldRevision(
       fact.valueHash,
       fact.version,
       fact.status,
+      fact.taskScope,
       fact.projectRevision,
+      fact.environmentRevision,
       fact.sourceObservationIds,
     ]));
   }
+  const latestSequenceByEpisode = new Map<string, number>();
+  for (const observation of observations) {
+    if (requestedTaskScope !== undefined && observation.taskScope !== requestedTaskScope) continue;
+    if (
+      requestedEnvironmentRevision !== undefined
+      && observation.environmentRevision !== requestedEnvironmentRevision
+    ) {
+      continue;
+    }
+    latestSequenceByEpisode.set(
+      observation.episodeId,
+      Math.max(latestSequenceByEpisode.get(observation.episodeId) ?? -1, observation.sequence),
+    );
+  }
+  for (const [episodeId, sequence] of [...latestSequenceByEpisode].sort(([left], [right]) => left.localeCompare(right))) {
+    digest.update(JSON.stringify([episodeId, sequence]));
+  }
   return digest.digest("hex");
+}
+
+function factScopeKey(
+  taskScope: string,
+  environmentRevision: string | null,
+  subject: string,
+  predicate: string,
+): string {
+  return JSON.stringify([taskScope, environmentRevision, subject, predicate]);
+}
+
+function environmentRevisionIdentity(revision: string | null | undefined): string {
+  return revision ? `revision:${revision}` : "unknown";
+}
+
+function compareObservations(
+  left: typeof aiAgentObservationsTable.$inferSelect,
+  right: typeof aiAgentObservationsTable.$inferSelect,
+): number {
+  return left.createdAt.getTime() - right.createdAt.getTime()
+    || left.episodeId.localeCompare(right.episodeId)
+    || left.sequence - right.sequence
+    || left.id.localeCompare(right.id);
 }
 
 function projectFact(row: typeof aiWorldFactsTable.$inferSelect): WorldStateFactProjection {
@@ -81,6 +132,8 @@ function projectFact(row: typeof aiWorldFactsTable.$inferSelect): WorldStateFact
     predicate: row.predicate,
     value: row.value as JsonValue,
     valueHash: row.valueHash,
+    taskScope: row.taskScope,
+    environmentRevision: row.environmentRevision,
     version: row.version,
     status: row.status,
     sourceObservationIds: boundedSourceIds(row.sourceObservationIds),
@@ -102,7 +155,7 @@ export async function materializeWorldStateForProject(
       .for("update");
     if (!project) throw new Error("world_state_project_not_found");
 
-    const observations = await tx
+    const recentObservations = await tx
       .select()
       .from(aiAgentObservationsTable)
       .where(and(
@@ -110,15 +163,25 @@ export async function materializeWorldStateForProject(
         eq(aiAgentObservationsTable.completeness, "complete"),
         eq(aiAgentObservationsTable.freshness, "fresh"),
       ))
-      .orderBy(asc(aiAgentObservationsTable.createdAt), asc(aiAgentObservationsTable.sequence))
+      .orderBy(
+        desc(aiAgentObservationsTable.createdAt),
+        desc(aiAgentObservationsTable.sequence),
+        desc(aiAgentObservationsTable.id),
+      )
       .limit(2_048);
+    const observations = recentObservations.sort(compareObservations);
 
     const grouped = new Map<string, typeof observations>();
     for (const observation of observations) {
-      const key = `${observation.subject}\u0000${observation.predicate}`;
-      const bucket = grouped.get(key) ?? [];
+      const scopedKey = factScopeKey(
+        observation.taskScope,
+        observation.environmentRevision,
+        observation.subject,
+        observation.predicate,
+      );
+      const bucket = grouped.get(scopedKey) ?? [];
       bucket.push(observation);
-      grouped.set(key, bucket);
+      grouped.set(scopedKey, bucket);
     }
 
     const existing = await tx
@@ -128,7 +191,7 @@ export async function materializeWorldStateForProject(
       .orderBy(desc(aiWorldFactsTable.version));
     const byKey = new Map<string, typeof existing>();
     for (const fact of existing) {
-      const key = `${fact.subject}\u0000${fact.predicate}`;
+      const key = factScopeKey(fact.taskScope, fact.environmentRevision, fact.subject, fact.predicate);
       const bucket = byKey.get(key) ?? [];
       bucket.push(fact);
       byKey.set(key, bucket);
@@ -186,6 +249,8 @@ export async function materializeWorldStateForProject(
         await tx.insert(aiWorldFactsTable).values({
           id: factId,
           projectId,
+          taskScope: valueObservations[0]!.taskScope,
+          environmentRevisionKey: environmentRevisionIdentity(valueObservations[0]!.environmentRevision),
           subject: valueObservations[0]!.subject,
           predicate: valueObservations[0]!.predicate,
           value: valueObservations[0]!.value,
@@ -194,6 +259,7 @@ export async function materializeWorldStateForProject(
           status,
           sourceObservationIds: valueObservations.map((observation) => observation.id).slice(0, MAX_SOURCE_IDS),
           projectRevision: sourceRevision,
+          environmentRevision: valueObservations[0]!.environmentRevision,
           supersedesFactId: sameRevisionConflict ? null : latest?.id,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -201,6 +267,8 @@ export async function materializeWorldStateForProject(
         const projected = {
           id: factId,
           projectId,
+          taskScope: valueObservations[0]!.taskScope,
+          environmentRevisionKey: environmentRevisionIdentity(valueObservations[0]!.environmentRevision),
           subject: valueObservations[0]!.subject,
           predicate: valueObservations[0]!.predicate,
           value: valueObservations[0]!.value,
@@ -209,7 +277,7 @@ export async function materializeWorldStateForProject(
           status,
           sourceObservationIds: valueObservations.map((observation) => observation.id).slice(0, MAX_SOURCE_IDS),
           projectRevision: sourceRevision,
-          environmentRevision: null,
+          environmentRevision: valueObservations[0]!.environmentRevision,
           supersedesFactId: sameRevisionConflict ? null : latest?.id ?? null,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -225,7 +293,14 @@ export async function materializeWorldStateForProject(
       .select()
       .from(aiWorldFactsTable)
       .where(eq(aiWorldFactsTable.projectId, projectId))
-      .orderBy(desc(aiWorldFactsTable.version), asc(aiWorldFactsTable.subject), asc(aiWorldFactsTable.predicate))
+      .orderBy(
+        desc(aiWorldFactsTable.version),
+        asc(aiWorldFactsTable.taskScope),
+        asc(aiWorldFactsTable.environmentRevisionKey),
+        asc(aiWorldFactsTable.subject),
+        asc(aiWorldFactsTable.predicate),
+        asc(aiWorldFactsTable.id),
+      )
       .limit(MAX_FACTS);
     const facts = rows.map(projectFact);
     return {
@@ -233,24 +308,62 @@ export async function materializeWorldStateForProject(
       inserted,
       skipped,
       contradictions,
-      worldRevision: worldRevision(projectId, facts),
+      worldRevision: worldRevision(projectId, undefined, undefined, facts, observations),
     };
   });
 }
 
 export async function getProjectWorldState(
   projectId: string,
+  filter?: { taskScope?: string; environmentRevision?: string | null },
 ): Promise<ProjectWorldStateProjection> {
+  const conditions = [
+    eq(aiWorldFactsTable.projectId, projectId),
+    ...(filter?.taskScope ? [eq(aiWorldFactsTable.taskScope, filter.taskScope)] : []),
+    ...(filter?.environmentRevision === undefined
+      ? []
+      : [filter.environmentRevision === null
+          ? isNull(aiWorldFactsTable.environmentRevision)
+          : eq(aiWorldFactsTable.environmentRevision, filter.environmentRevision)]),
+  ];
   const rows = await db
     .select()
     .from(aiWorldFactsTable)
-    .where(eq(aiWorldFactsTable.projectId, projectId))
-    .orderBy(desc(aiWorldFactsTable.version), asc(aiWorldFactsTable.subject), asc(aiWorldFactsTable.predicate))
+    .where(and(...conditions))
+    .orderBy(
+      desc(aiWorldFactsTable.version),
+      asc(aiWorldFactsTable.taskScope),
+      asc(aiWorldFactsTable.environmentRevisionKey),
+      asc(aiWorldFactsTable.subject),
+      asc(aiWorldFactsTable.predicate),
+      asc(aiWorldFactsTable.id),
+    )
     .limit(MAX_FACTS);
   const facts = rows.map(projectFact);
+  const observations = await db
+    .select()
+    .from(aiAgentObservationsTable)
+    .where(and(
+        eq(aiAgentObservationsTable.projectId, projectId),
+        eq(aiAgentObservationsTable.completeness, "complete"),
+        eq(aiAgentObservationsTable.freshness, "fresh"),
+        ...(filter?.taskScope ? [eq(aiAgentObservationsTable.taskScope, filter.taskScope)] : []),
+        ...(filter?.environmentRevision === undefined
+          ? []
+          : [filter.environmentRevision === null
+              ? isNull(aiAgentObservationsTable.environmentRevision)
+              : eq(aiAgentObservationsTable.environmentRevision, filter.environmentRevision)]),
+      ))
+    .orderBy(
+      desc(aiAgentObservationsTable.createdAt),
+      desc(aiAgentObservationsTable.sequence),
+      desc(aiAgentObservationsTable.id),
+    )
+    .limit(2_048);
+  observations.sort(compareObservations);
   return {
     projectId,
-    worldRevision: worldRevision(projectId, facts),
+    worldRevision: worldRevision(projectId, filter?.taskScope, filter?.environmentRevision, facts, observations),
     facts,
     currentFacts: facts.filter((fact) => fact.status === "believed" || fact.status === "confirmed"),
     contradictions: facts.filter((fact) => fact.status === "contradicted"),

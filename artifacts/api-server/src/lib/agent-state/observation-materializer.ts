@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
@@ -44,6 +44,7 @@ export type ServerOwnedObservationSource =
       nextActionCode?: string | null;
       evidenceComplete: boolean;
       evidenceRefs?: readonly string[];
+      environmentRevision?: string | null;
       observedAt?: Date | string;
     }
   | {
@@ -54,6 +55,7 @@ export type ServerOwnedObservationSource =
       workspaceRevision: string;
       status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
       artifactRef: string;
+      environmentRevision?: string | null;
       observedAt?: Date | string;
     }
   | {
@@ -63,6 +65,7 @@ export type ServerOwnedObservationSource =
       status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
       profile?: string | null;
       candidateIdentity?: string | null;
+      environmentRevision?: string | null;
       observedAt?: Date | string;
     }
   | {
@@ -72,6 +75,7 @@ export type ServerOwnedObservationSource =
       status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
       candidateIdentity?: string | null;
       treeHash?: string | null;
+      environmentRevision?: string | null;
       observedAt?: Date | string;
     };
 
@@ -96,6 +100,31 @@ export type ObservationMaterializationResult = {
 
 function boundedText(value: string, max = MAX_TEXT): string {
   return value.trim().slice(0, max);
+}
+
+function taskScopeIdentity(episode: {
+  id: string;
+  projectId: string;
+  missionId: string | null;
+  goalId: string | null;
+  scope: unknown;
+}): string {
+  if (!episode.scope || typeof episode.scope !== "object" || Array.isArray(episode.scope)) {
+    return `unscoped:${episode.id}`;
+  }
+  const scope = episode.scope as Record<string, unknown>;
+  if (scope.kind === "project" && !episode.missionId && !episode.goalId) return "project";
+  const identity = parseBoundedJson(JSON.stringify({
+    projectId: episode.projectId,
+    missionId: episode.missionId,
+    goalId: episode.goalId,
+    scope,
+  }), MAX_VALUE_BYTES);
+  return `scope:${canonicalJsonHash(identity)}`;
+}
+
+function environmentRevisionIdentity(revision: string | null | undefined): string {
+  return revision ? `revision:${revision}` : "unknown";
 }
 
 function boundedRefs(refs: readonly string[] | undefined): string[] {
@@ -259,7 +288,12 @@ export async function materializeServerOwnedObservations(
     throw new Error("observation_materialization_invalid_source_count");
   }
 
-  const normalized = input.sources.map((source) => normalizeSource(source, input.attempt));
+  const normalized = input.sources.map((source) => {
+    const result = normalizeSource(source, input.attempt);
+    return source.environmentRevision
+      ? { ...result, environmentRevision: boundedText(source.environmentRevision, 2_000) }
+      : result;
+  });
   for (const source of input.sources) {
     if (source.kind === "validator_receipt" && source.projectId !== input.projectId) {
       throw new Error("observation_materialization_project_mismatch");
@@ -278,6 +312,7 @@ export async function materializeServerOwnedObservations(
       .where(and(...episodeFilters))
       .for("update");
     if (!episode) throw new Error("observation_materialization_episode_not_found");
+    const taskScope = taskScopeIdentity(episode);
 
     let nextSequence = 0;
     const [latest] = await tx
@@ -304,6 +339,10 @@ export async function materializeServerOwnedObservations(
         .from(aiAgentObservationsTable)
         .where(and(
           eq(aiAgentObservationsTable.projectId, input.projectId),
+          eq(aiAgentObservationsTable.taskScope, taskScope),
+          source.environmentRevision
+            ? eq(aiAgentObservationsTable.environmentRevision, source.environmentRevision)
+            : isNull(aiAgentObservationsTable.environmentRevision),
           eq(aiAgentObservationsTable.sourceType, source.sourceType),
           eq(aiAgentObservationsTable.sourceId, source.sourceId),
           eq(aiAgentObservationsTable.sourceVersion, source.sourceVersion),
@@ -331,8 +370,10 @@ export async function materializeServerOwnedObservations(
         projectId: input.projectId,
         executionId: input.executionId,
         episodeId: episode.id,
+        taskScope,
+        environmentRevisionKey: environmentRevisionIdentity(source.environmentRevision),
         kind: source.sourceType,
-         provenance: source.provenance,
+        provenance: source.provenance,
         observationRole: source.predicate,
         sourceType: source.sourceType,
         sourceId: source.sourceId,
@@ -344,7 +385,7 @@ export async function materializeServerOwnedObservations(
         sourceRefs: source.sourceRefs,
         observedAt: source.observedAt,
         projectRevision: observationProjectRevision,
-         ...(source.environmentRevision ? { environmentRevision: source.environmentRevision } : {}),
+        ...(source.environmentRevision ? { environmentRevision: source.environmentRevision } : {}),
         completeness: source.completeness,
         freshness: currentFreshness,
         evidenceRefs: source.sourceRefs,

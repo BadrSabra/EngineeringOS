@@ -176,6 +176,8 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "project_id", dataType: "text", udtName: "text", nullable: false },
       { name: "execution_id", dataType: "text", udtName: "text", nullable: false },
       { name: "episode_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "task_scope", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'project'::text/ },
+      { name: "environment_revision_key", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'unknown'::text/ },
       { name: "kind", dataType: "text", udtName: "text", nullable: false },
       { name: "provenance", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'server_derived'::text/ },
       { name: "observation_role", dataType: "text", udtName: "text", nullable: false },
@@ -241,6 +243,8 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     ai_world_facts: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
       { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "task_scope", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'project'::text/ },
+      { name: "environment_revision_key", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'unknown'::text/ },
       { name: "subject", dataType: "text", udtName: "text", nullable: false },
       { name: "predicate", dataType: "text", udtName: "text", nullable: false },
       { name: "value", dataType: "jsonb", udtName: "jsonb", nullable: false },
@@ -796,7 +800,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     {
       name: "uq_ai_agent_observations_identity",
       tableName: "ai_agent_observations",
-      columns: ["project_id", "source_type", "source_id", "source_version", "predicate", "value_hash"],
+      columns: ["project_id", "task_scope", "environment_revision_key", "source_type", "source_id", "source_version", "predicate", "value_hash"],
     },
     {
       name: "idx_ai_agent_observations_episode_sequence",
@@ -851,12 +855,12 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     {
       name: "uq_ai_world_facts_project_key_version",
       tableName: "ai_world_facts",
-      columns: ["project_id", "subject", "predicate", "version"],
+      columns: ["project_id", "task_scope", "environment_revision_key", "subject", "predicate", "version"],
     },
     {
       name: "idx_ai_world_facts_project_key",
       tableName: "ai_world_facts",
-      columns: ["project_id", "subject", "predicate", "status"],
+      columns: ["project_id", "task_scope", "environment_revision_key", "subject", "predicate", "status"],
     },
     {
       name: "uq_ai_strategy_candidates_project_key_version",
