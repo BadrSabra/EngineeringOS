@@ -14,7 +14,7 @@
 |---|---|---|
 | P0 — Contracts, baseline, threat model | `done` | عقود agent-state واختبارات parsing/hash/redaction موجودة. |
 | P1 — Episode schema + ledger | `done` | جداول Episode/Observation/Effect/World/Strategy والـledger واختبارات ownership/idempotency/replay موجودة. |
-| P2 — Episode integration in Chat/Mission | `partial` | Chat وTask/Recipe متكاملة، وربط Mission/Goal مغطى باختبار lifecycle؛ Workflow scope مربوط في Episode لكن يحتاج اختبارًا تكامليًا قبل إغلاق المرحلة. |
+| P2 — Episode integration in Chat/Mission | `done` | Chat وTask/Recipe وMission/Workflow تستخدم Episode ledger؛ الهوية والـscope والـplan revision مغطاة باختبارات lifecycle. |
 | P3 — Observation materialization | `done` | مصادر server-owned مع completeness/freshness/revision وربط بالـepisode. |
 | P4 — World facts + materialized reader | `partial` | read model، contradictions، supersession، world revision، endpoint محمي وContext projection منجزة؛ تغطية effect/browser/Git الكاملة ليست منجزة بعد. |
 | P5 — Effect contract for candidate validation | `not_started` | يلزم before/after effect bundle وربطه بالـacceptance في نفس المعاملة. |
@@ -99,6 +99,23 @@
 - **remaining/blocker:** Workflow integration coverage غير مكتملة؛ P2 تبقى
   `partial` حتى يثبت scope الخاص بـWorkflow عبر lifecycle فعلي.
 - **next step:** إضافة اختبار Workflow task يثبت `workflowId` في Episode scope.
+
+### 2026-09-24 — Workflow Episode identity integration coverage
+
+- **phase/step:** P2 / Workflow task lifecycle identity
+- **status:** `done`
+- **what changed:** أضيفت fixture تكاملية تتحقق من أن Task المرتبط بـWorkflow ينشئ
+  Episode يحمل scope من نوع `workflow-task` مع `workflowId`، ولا يخلط هوية
+  Mission/Goal غير الموجودة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-lifecycle.integration.test.ts`.
+- **validation:** اختبارات lifecycle وEpisode وtask service؛ 18 اختبارًا ناجحًا؛
+  API typecheck ناجح؛ `git diff --check`.
+- **authority/safety impact:** assertion وتوسيع metadata في Shadow ledger فقط؛ لا
+  تغيير في acceptance أو proof أو Mission/Workflow terminal authority.
+- **remaining/blocker:** لا يوجد blocker في P2؛ P4 ما زالت جزئية، وEffect Loop
+  غير منفذ.
+- **next step:** بدء Gate B عبر Candidate Validation Effect Loop، مع تحديث السجل
+  قبل الانتقال إلى observer أو learning لاحق.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
