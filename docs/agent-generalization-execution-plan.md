@@ -1422,10 +1422,19 @@ learningStatus
 
 ### PR 6: Runtime/Browser/Delivery Observers
 
-- توحيد after-state observers.
-- runtime serving revision وhealth marker.
-- browser profile وdelivery remote state.
-- لا تكرار acceptance أو promotion engines.
+- توحيد after-state observers عند recipe node lifecycle مع نفس
+  `AgentAction → BEFORE_OBSERVATION → execution → AFTER_OBSERVATION →
+  verifyAndPersistEffect → existing acceptance` seam.
+- Runtime after-state يتحقق من session/revision/worker lease، PID، port readiness،
+  HTTP health، serving revision، وmarker اختياري؛ لا يكفي `status: running`.
+- Browser evidence يحمل source revision وprofile/session identity وartifact reference
+  من server-owned validation.
+- Delivery after-state يعيد فحص remote branch parent/tree/commit والـoperation marker
+  بعد الدفع، بما في ذلك idempotent reconciliation.
+- لا تكرار acceptance أو promotion engines، ولا تُستخدم receipts أو provider prose
+  كدليل effect مستقل.
+- **الحالة الحالية:** `partial`: Browser/Delivery recipe seams وRuntime observer
+  مضافة؛ Runtime action adapter واختبارات recovery/reconnect الشاملة متبقية.
 
 ### PR 7: Failure Diagnosis
 
@@ -3996,7 +4005,9 @@ EFFECT_CLASSIFICATION
 ACCEPTANCE(effectBundleId)
 ```
 
-يبقى Runtime/Browser/Delivery after-state خارج هذه الشريحة وينتمي إلى Gate C.
+يبقى Runtime action adapter واختبارات Gate C المتكاملة ضمن العمل المتبقي في Gate C؛
+أما Browser/Delivery recipe seams وRuntime after-state contract فأصبحت server-owned
+وموصولة بالـeffect/acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 

@@ -180,6 +180,9 @@ describe("verified GitHub delivery service", () => {
         status: "passed",
         idempotent: true,
         remoteCommitHash,
+        remoteParentHash: parentHash,
+        remoteTreeHash: localTreeSha,
+        operationMarker: `EngineeringOS-Operation: ${operationId}`,
       });
       expect(calls).toEqual([
         "GET /repos/example/project/git/ref/heads/main",
@@ -200,6 +203,9 @@ describe("verified GitHub delivery service", () => {
         operationId,
         commitHash,
         remoteCommitHash,
+        remoteParentHash: parentHash,
+        remoteTreeHash: localTreeSha,
+        operationMarker: `EngineeringOS-Operation: ${operationId}`,
       });
     } finally {
       await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId)).catch(() => undefined);

@@ -103,6 +103,8 @@ describe("browser preview verification", () => {
     };
     const success = await verifyBrowserPreview({
       session, operationId: "op", executionId: "exec",
+      profileName: "dashboard-smoke",
+      expectedRevision: "rev-a",
       steps: [
         { type: "navigate", path: "/" },
         { type: "assert_visible", selector: "[data-testid=ready]" },
@@ -113,6 +115,12 @@ describe("browser preview verification", () => {
     });
     expect(success.status).toBe("passed");
     expect(success.summary).toBe("Dashboard ready");
+    expect(success).toMatchObject({
+      profileName: "dashboard-smoke",
+      sourceRevision: "rev-a",
+      sessionId: "session-b",
+      artifactRef: "browser-preview:session-b:op:exec",
+    });
     expect(success.screenshotPath).toBeUndefined();
     expect(success.summary.length).toBeLessThanOrEqual(PREVIEW_LIMITS.maxSummaryChars);
 

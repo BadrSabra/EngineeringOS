@@ -72,6 +72,12 @@ import {
   buildCandidateValidationAction,
   buildCandidateValidationEffectContract,
 } from "./agent-state/candidate-validation-effect.js";
+import {
+  buildGateCAction,
+  buildGateCEffectContract,
+  gateCEffectIdentity,
+  gateCEffectKind,
+} from "./agent-state/gate-c-effect.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -534,7 +540,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     throw new Error("Recipe operation could not acquire its durable lease.");
   }
   const candidateValidation = params.recipeId === "candidate.verify";
-  const episode = candidateValidation
+  const recipeGateCEffectKind = gateCEffectKind(params.recipeId);
+  const authoritativeEffectRecipe = candidateValidation || Boolean(recipeGateCEffectKind);
+  const episode = authoritativeEffectRecipe
     ? await startEpisode({
         projectId: params.projectId,
         executionId: claimed.id,
@@ -542,7 +550,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         workerId,
         idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
         projectRevision: params.sourceRevision,
-        intentKind: "CANDIDATE_VALIDATION",
+         intentKind: candidateValidation
+           ? "CANDIDATE_VALIDATION"
+           : recipeGateCEffectKind === "browser"
+             ? "BROWSER_VALIDATION"
+             : "GITHUB_DELIVERY",
         scope: {
           kind: "recipe",
           operationId: params.operationId,
@@ -565,6 +577,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let candidateValidationAction: AgentAction | undefined;
   let candidateValidationEffectContract: EffectContract | undefined;
   let candidateValidationBeforeObservationIds: string[] | undefined;
+  let gateCAction: AgentAction | undefined;
+  let gateCEffectContract: EffectContract | undefined;
+  let gateCBeforeObservationIds: string[] | undefined;
+  let gateCEffectBundleId: string | undefined;
   if (candidateValidation) {
     if (!episode || !params.candidateIdentity || !candidateRoot) {
       throw new Error("Candidate validation requires an identity and disposable workspace.");
@@ -633,6 +649,70 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       ],
     });
     candidateValidationBeforeObservationIds = before.observationIds;
+  }
+  if (recipeGateCEffectKind && episode) {
+    const gateNode = prepared.plan.nodes[0];
+    if (!gateNode?.capabilityId) {
+      throw new Error("Gate C recipe is missing a server-owned capability.");
+    }
+    const identity = gateCEffectIdentity({
+      kind: recipeGateCEffectKind,
+      operationId: params.operationId,
+    });
+    const beforeEvidenceRef = `gate-c:${claimed.id}:${claimed.attempt}:before`;
+    const afterEvidenceRef = `gate-c:${claimed.id}:${claimed.attempt}:after`;
+    gateCAction = buildGateCAction({
+      actionId: `action:${claimed.id}:${claimed.attempt}:gate-c`,
+      episodeId: episode.episodeId,
+      projectId: params.projectId,
+      operationId: params.operationId,
+      sourceRevision: params.sourceRevision,
+      recipeId: params.recipeId,
+      capabilityId: gateNode.capabilityId,
+      approvedPaths: normalizedPaths(params.approvedPaths),
+      candidateIdentity: params.candidateIdentity,
+    });
+    gateCEffectContract = buildGateCEffectContract({
+      kind: recipeGateCEffectKind,
+      operationId: params.operationId,
+      beforeEvidenceRef,
+      afterEvidenceRef,
+    });
+    await appendEpisodeEvent({
+      episodeId: episode.episodeId,
+      projectId: params.projectId,
+      executionId: claimed.id,
+      attempt: claimed.attempt,
+      workerId,
+      eventType: "ACTION_REQUESTED",
+      payload: {
+        actionId: gateCAction.actionId,
+        capabilityId: gateCAction.capabilityId,
+        expectedEffects: gateCAction.expectedEffects,
+        observationProfile: gateCAction.observationProfile,
+      },
+      actorType: "worker",
+      actorId: workerId,
+      correlationId: claimed.id,
+    });
+    const before = await materializeServerOwnedObservations({
+      projectId: params.projectId,
+      executionId: claimed.id,
+      attempt: claimed.attempt,
+      episodeId: episode.episodeId,
+      projectRevision: params.sourceRevision,
+      materializeWorldState: false,
+      sources: [{
+        kind: "direct_observation",
+        sourceId: `${beforeEvidenceRef}:${identity.subject}:${identity.predicate}`,
+        sourceRevision: params.sourceRevision,
+        subject: identity.subject,
+        predicate: identity.predicate,
+        value: "pending",
+        evidenceRefs: [beforeEvidenceRef],
+      }],
+    });
+    gateCBeforeObservationIds = before.observationIds;
   }
   const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
   const runningRecipeBinding = checkpoint?.recipeBinding ?? {
@@ -827,6 +907,73 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             && !Array.isArray(evidence)
             && typeof (evidence as { evidenceId?: unknown }).evidenceId === "string",
           );
+          if (recipeGateCEffectKind && episode && gateCAction && gateCEffectContract && gateCBeforeObservationIds) {
+            const identity = gateCEffectIdentity({
+              kind: recipeGateCEffectKind,
+              operationId: params.operationId,
+            });
+            const afterEvidenceRef = `gate-c:${claimed.id}:${claimed.attempt}:after`;
+            const afterStatus = output.status === "passed" && hasVerifiedReceipt ? "passed" : "failed";
+            await appendEpisodeEvent({
+              episodeId: episode.episodeId,
+              projectId: params.projectId,
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              workerId,
+              eventType: "ACTION_COMMITTED",
+              payload: {
+                actionId: gateCAction.actionId,
+                capabilityId: gateCAction.capabilityId,
+                status: afterStatus,
+              },
+              actorType: "worker",
+              actorId: workerId,
+              correlationId: claimed.id,
+            });
+            const afterEvidence = typeof evidence === "object" && evidence && !Array.isArray(evidence)
+              ? evidence as Record<string, unknown>
+              : {};
+            const after = await materializeServerOwnedObservations({
+              projectId: params.projectId,
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              episodeId: episode.episodeId,
+              projectRevision: params.sourceRevision,
+              materializeWorldState: false,
+              sources: [{
+                kind: "direct_observation",
+                sourceId: `${afterEvidenceRef}:${identity.subject}:${identity.predicate}`,
+                sourceRevision: params.sourceRevision,
+                subject: identity.subject,
+                predicate: identity.predicate,
+                value: afterStatus,
+                evidenceRefs: [
+                  afterEvidenceRef,
+                  ...(typeof afterEvidence.evidenceId === "string" ? [afterEvidence.evidenceId] : []),
+                  ...(typeof afterEvidence.artifactRef === "string" ? [afterEvidence.artifactRef] : []),
+                ],
+              }],
+            });
+            const effect = await verifyAndPersistEffect({
+              projectId: params.projectId,
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              episodeId: episode.episodeId,
+              workerId,
+              action: gateCAction,
+              effectContract: gateCEffectContract,
+              beforeObservationIds: gateCBeforeObservationIds,
+              afterObservationIds: after.observationIds,
+            });
+            if (effect.status !== "observed") {
+              return {
+                status: "failed" as const,
+                detail: `Gate C effect was ${effect.status}.`,
+                validationAttempts: 1,
+              };
+            }
+            gateCEffectBundleId = effect.effectBundleId;
+          }
           const passed = output.status === "passed" && hasVerifiedReceipt;
           return {
             status: passed ? "passed" as const : "failed" as const,
@@ -1058,6 +1205,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       }
       candidateEffectBundleId = effect.effectBundleId;
     }
+    const terminalEffectBundleId = candidateEffectBundleId ?? gateCEffectBundleId;
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -1089,8 +1237,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           .filter((id): id is string => typeof id === "string") : [],
       })),
       recipeReceipt: completedReceipt,
-      ...(candidateEffectBundleId
-        ? { effectRequired: true, effectBundleId: candidateEffectBundleId }
+      ...(terminalEffectBundleId
+        ? { effectRequired: true, effectBundleId: terminalEffectBundleId }
         : {}),
     });
     if (!completed) {

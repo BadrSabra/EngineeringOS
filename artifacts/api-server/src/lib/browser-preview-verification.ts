@@ -31,7 +31,10 @@ export type PreviewEvidence = {
   operationId: string;
   executionId: string;
   revision: string;
+  sourceRevision: string;
   sessionId: string;
+  profileName: string;
+  artifactRef: string;
   status: BrowserVerificationStatus;
   summary: string;
   consoleErrors: string[];
@@ -332,6 +335,7 @@ export class PreviewSessionManager {
 export async function verifyBrowserPreview(input: {
   session: PreviewSession;
   expectedRevision?: string;
+  profileName?: string;
   contract?: PreviewValidationContract;
   operationId: string;
   executionId: string;
@@ -342,6 +346,11 @@ export async function verifyBrowserPreview(input: {
 }): Promise<PreviewEvidence> {
   const observedAt = new Date().toISOString();
   const baseOrigin = `http://127.0.0.1:${input.session.port}`;
+  const evidenceContext = {
+    sourceRevision: input.expectedRevision ?? input.session.revision,
+    profileName: input.profileName ?? "browser-preview",
+    artifactRef: `browser-preview:${input.session.id}:${input.operationId}:${input.executionId}`,
+  };
   const consoleErrors: string[] = [];
   if (input.contract) {
     try {
@@ -349,7 +358,7 @@ export async function verifyBrowserPreview(input: {
     } catch (error) {
       return {
         kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
-        revision: input.session.revision, sessionId: input.session.id, status: "failed",
+        revision: input.session.revision, sessionId: input.session.id, ...evidenceContext, status: "failed",
         summary: bounded(error instanceof Error ? error.message : String(error), 500),
         consoleErrors, observedAt,
       };
@@ -358,7 +367,7 @@ export async function verifyBrowserPreview(input: {
   if (input.expectedRevision !== undefined && input.expectedRevision !== input.session.revision) {
     return {
       kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
-      revision: input.session.revision, sessionId: input.session.id, status: "failed",
+      revision: input.session.revision, sessionId: input.session.id, ...evidenceContext, status: "failed",
       summary: "Preview revision is stale and cannot be used as validation evidence.",
       consoleErrors, observedAt,
     };
@@ -366,7 +375,7 @@ export async function verifyBrowserPreview(input: {
   if (input.session.status !== "running") {
     return {
       kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
-      revision: input.session.revision, sessionId: input.session.id, status: "unavailable",
+      revision: input.session.revision, sessionId: input.session.id, ...evidenceContext, status: "unavailable",
       summary: `Preview is ${input.session.status}.`, consoleErrors, observedAt,
     };
   }
@@ -435,13 +444,13 @@ export async function verifyBrowserPreview(input: {
     if (consoleErrors.length > 0) {
       return {
         kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
-        revision: input.session.revision, sessionId: input.session.id, status: "failed",
+        revision: input.session.revision, sessionId: input.session.id, ...evidenceContext, status: "failed",
         summary: "Preview reported one or more Console errors.", consoleErrors, observedAt,
       };
     }
     return {
         kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
-      revision: input.session.revision, sessionId: input.session.id, status: "passed",
+      revision: input.session.revision, sessionId: input.session.id, ...evidenceContext, status: "passed",
         summary: bounded(visibleText || "Preview browser checks passed."),
         ...(screenshotAvailable ? { screenshotAvailable: true } : {}),
       consoleErrors, ...(screenshotPath ? { screenshotPath } : {}), observedAt,
@@ -449,7 +458,7 @@ export async function verifyBrowserPreview(input: {
   } catch (error) {
     return {
       kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
-      revision: input.session.revision, sessionId: input.session.id, status: "failed",
+      revision: input.session.revision, sessionId: input.session.id, ...evidenceContext, status: "failed",
       summary: bounded(error instanceof Error ? error.message : String(error)),
       consoleErrors, observedAt,
     };

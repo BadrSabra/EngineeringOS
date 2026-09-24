@@ -102,6 +102,7 @@ export type RecipeCapabilityRuntime = {
    * controls stay inside the API-side callback.
    */
   githubDeliveryRunner?: GitHubDeliveryRunner;
+  runtimeStartRunner?: RuntimeStartRunner;
 };
 
 export type DatabaseReadResource = "project_summary" | "active_goals" | "recent_events";
@@ -137,7 +138,22 @@ export type GitHubDeliveryRunner = (args: {
   };
   detail?: string;
   remoteCommitHash?: string;
+  remoteParentHash?: string;
+  remoteTreeHash?: string;
+  operationMarker?: string;
   idempotent?: boolean;
+}>;
+
+export type RuntimeStartRunner = (args: {
+  projectId: string;
+  operationId: string;
+  rootPath: string;
+  revision: string;
+  signal?: AbortSignal;
+}) => Promise<{
+  status: "passed" | "blocked" | "unavailable";
+  evidence?: Record<string, unknown>;
+  detail?: string;
 }>;
 
 function validationCapability(
@@ -223,6 +239,62 @@ function browserCapability(profile: string, runtime: RecipeCapabilityRuntime): C
         profile,
         detail: result.detail?.slice(0, 4_000),
         evidence: result.evidence,
+      };
+    },
+  };
+}
+
+function runtimeStartCapability(runtime: RecipeCapabilityRuntime): CapabilityAdapter | undefined {
+  if (!runtime.runtimeStartRunner) return undefined;
+  return {
+    contractVersion: 1,
+    id: "runtime.start",
+    supportedRecipeVersions: [1] as const,
+    policy: {
+      ...DEFAULT_CAPABILITY_POLICY,
+      risk: "high",
+      maxOutputBytes: 32_768,
+    },
+    catalog: {
+      purpose: "Start the server-owned workspace preview and verify its serving state.",
+      inputShape: { type: "object", fields: [] },
+      defaultScope: "project",
+      supportedScopes: ["project"],
+      estimatedCost: "high",
+      mutatesProject: false,
+      keywords: ["runtime", "preview", "serve", "health"],
+      allowedPhases: ["validation", "recovery"],
+      projectIds: [],
+      requiresAuthorization: true,
+      expectedEvidence: ["runtime_verified"],
+    },
+    inputSchema: z.object({}).strict(),
+    outputSchema: z.object({
+      status: z.enum(["passed", "blocked", "unavailable"]),
+      profile: z.literal("runtime"),
+      evidence: z.record(z.unknown()).optional(),
+      detail: z.string().max(4_000).optional(),
+    }).strict(),
+    execute: async (_input, context) => {
+      if (!context.projectId || !context.operationId) {
+        return {
+          status: "blocked",
+          profile: "runtime" as const,
+          detail: "A durable project and operation identity are required for runtime actions.",
+        };
+      }
+      const result = await runtime.runtimeStartRunner!({
+        projectId: context.projectId,
+        operationId: context.operationId,
+        rootPath: context.rootPath,
+        revision: context.revision,
+        signal: context.signal,
+      });
+      return {
+        status: result.status,
+        profile: "runtime" as const,
+        ...(result.evidence ? { evidence: result.evidence } : {}),
+        ...(result.detail ? { detail: result.detail.slice(0, 4_000) } : {}),
       };
     },
   };
@@ -322,6 +394,9 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
       }).optional(),
       detail: z.string().max(4_000).optional(),
       remoteCommitHash: z.string().max(160).optional(),
+      remoteParentHash: z.string().max(160).optional(),
+      remoteTreeHash: z.string().max(160).optional(),
+      operationMarker: z.string().max(300).optional(),
       idempotent: z.boolean().optional(),
     }).strict(),
     execute: async (input, context) => {
@@ -344,6 +419,9 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
         ...(result.evidence ? { evidence: result.evidence } : {}),
         ...(result.detail ? { detail: result.detail } : {}),
         ...(result.remoteCommitHash ? { remoteCommitHash: result.remoteCommitHash } : {}),
+        ...(result.remoteParentHash ? { remoteParentHash: result.remoteParentHash } : {}),
+        ...(result.remoteTreeHash ? { remoteTreeHash: result.remoteTreeHash } : {}),
+        ...(result.operationMarker ? { operationMarker: result.operationMarker } : {}),
         ...(result.idempotent !== undefined ? { idempotent: result.idempotent } : {}),
       };
     },
@@ -425,6 +503,7 @@ function databaseReadCapability(runtime: RecipeCapabilityRuntime): CapabilityAda
 export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime = {}): CapabilityRegistry {
   const githubCapability = githubDeliveryCapability(runtime);
   const databaseCapability = databaseReadCapability(runtime);
+  const runtimeCapability = runtimeStartCapability(runtime);
   const adapters: CapabilityAdapter[] = [
     READ_PROJECT_FILE_CAPABILITY,
     ...VALIDATION_PROFILES.map((profile) => validationCapability(profile, runtime)),
@@ -432,6 +511,7 @@ export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime 
     ...(runtime.commandProfiles ?? []).map((profile) => commandCapability(profile, runtime)),
     ...(databaseCapability ? [databaseCapability] : []),
     ...(githubCapability ? [githubCapability] : []),
+    ...(runtimeCapability ? [runtimeCapability] : []),
   ];
   return new CapabilityRegistry(adapters);
 }

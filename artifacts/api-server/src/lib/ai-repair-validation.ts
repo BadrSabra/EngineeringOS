@@ -718,7 +718,11 @@ export async function runRepairPreviewValidation(input: {
   profileName?: string;
   signal?: AbortSignal;
 }): Promise<ValidationResult> {
-  const result = await verifyBrowserPreview(input);
+  const result = await verifyBrowserPreview({
+    ...input,
+    expectedRevision: input.revision,
+    profileName: input.profileName,
+  });
   const status = result.status === "passed" ? "passed" : result.status;
   return withValidationFailureKind({
     profile: input.profileName ?? "browser-preview",
@@ -735,12 +739,12 @@ export async function runRepairPreviewValidation(input: {
     evidence: {
       evidenceId: `${result.sessionId}:${result.operationId}:${result.executionId}`,
       observedAt: result.observedAt,
-      artifactRef: `browser-preview:${result.sessionId}:${result.operationId}`,
-      profileName: input.profileName ?? "browser-preview",
+      artifactRef: result.artifactRef,
+      profileName: result.profileName,
       permittedOrigin: input.contract?.permittedOrigin,
       revision: result.revision,
       operationId: input.operationId,
-      projectRevision: result.revision,
+      projectRevision: result.sourceRevision,
       screenshotAvailable: result.screenshotAvailable === true || Boolean(result.screenshotPath),
       consoleErrorCount: result.consoleErrors.length,
     },

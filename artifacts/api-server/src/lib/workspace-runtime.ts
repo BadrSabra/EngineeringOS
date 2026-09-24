@@ -27,6 +27,24 @@ const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNP
 
 export type WorkspaceRuntimeStatus = "stopped" | "starting" | "running" | "failed";
 
+export type RuntimeAfterState = {
+  status: "passed" | "failed" | "unavailable";
+  projectId: string;
+  sessionId: string;
+  revision: string;
+  pid: number | null;
+  port: number;
+  processAlive: boolean;
+  portReady: boolean;
+  healthPath: string;
+  healthStatus: number | null;
+  servingRevision: string | null;
+  markerMatched: boolean | null;
+  responseBody: string;
+  observedAt: string;
+  detail: string;
+};
+
 export type WorkspaceRuntimeSnapshot = {
   projectId: string;
   sessionId: string | null;
@@ -62,7 +80,8 @@ export class WorkspaceRuntimeError extends Error {
       | "NO_RUNTIME_PORT"
       | "RUNTIME_START_FAILED"
       | "RUNTIME_STOP_FAILED"
-      | "RUNTIME_OWNERSHIP_BUSY",
+      | "RUNTIME_OWNERSHIP_BUSY"
+      | "RUNTIME_OBSERVATION_STALE",
     public readonly status = 422,
   ) {
     super(message);
@@ -253,6 +272,159 @@ export class WorkspaceRuntimeManager {
     if (session) return this.snapshot(session);
     const persisted = await this.store.get(projectId);
     return persisted ? rowSnapshot(persisted) : this.stoppedSnapshot(projectId);
+  }
+
+  /**
+   * Capture an independent after-state for a server-owned runtime action.
+   * TCP readiness and a running row are not sufficient: the current worker
+   * lease, process identity, HTTP response, serving revision, and optional
+   * marker must all be checked at observation time.
+   */
+  async observeAfterState(input: {
+    projectId: string;
+    sessionId: string;
+    revision: string;
+    healthPath?: string;
+    expectedMarker?: string;
+    signal?: AbortSignal;
+  }): Promise<RuntimeAfterState> {
+    const healthPath = input.healthPath ?? "/";
+    if (!healthPath.startsWith("/") || healthPath.startsWith("//")) {
+      throw new WorkspaceRuntimeError(
+        "Runtime health checks require a project-relative HTTP path.",
+        "RUNTIME_OBSERVATION_STALE",
+        400,
+      );
+    }
+    const session = this.sessions.get(input.projectId);
+    const persisted = await this.store.get(input.projectId);
+    if (
+      !session
+      || !persisted
+      || session.sessionId !== input.sessionId
+      || persisted.sessionId !== input.sessionId
+      || session.revision !== input.revision
+      || persisted.revision !== input.revision
+      || session.workerId !== this.workerId
+      || persisted.workerId !== this.workerId
+      || !persisted.leaseUntil
+      || persisted.leaseUntil <= new Date()
+      || session.status !== "running"
+      || persisted.status !== "running"
+    ) {
+      throw new WorkspaceRuntimeError(
+        "Runtime after-state requires the current running session and worker lease.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
+    if (!session.port) {
+      throw new WorkspaceRuntimeError(
+        "Runtime after-state has no server-owned port.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
+
+    const observedAt = new Date().toISOString();
+    const processAlive = await isPidAlive(session.pid);
+    const portReady = await isPortListening(session.port);
+    if (input.signal?.aborted) {
+      return {
+        status: "unavailable",
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        revision: input.revision,
+        pid: session.pid,
+        port: session.port,
+        processAlive,
+        portReady,
+        healthPath,
+        healthStatus: null,
+        servingRevision: null,
+        markerMatched: null,
+        responseBody: "",
+        observedAt,
+        detail: "Runtime after-state observation was cancelled.",
+      };
+    }
+
+    let healthStatus: number | null = null;
+    let servingRevision: string | null = null;
+    let markerMatched: boolean | null = input.expectedMarker ? false : null;
+    let responseBody = "";
+    let detail = "Runtime is not serving the expected state.";
+    try {
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      input.signal?.addEventListener("abort", abort, { once: true });
+      const timeout = setTimeout(() => controller.abort(), 5_000);
+      try {
+        const response = await fetch(`http://127.0.0.1:${session.port}${healthPath}`, {
+          redirect: "manual",
+          signal: controller.signal,
+        });
+        healthStatus = response.status;
+        responseBody = (await response.text()).replace(/\s+/g, " ").trim().slice(0, 2_000);
+        servingRevision = response.headers.get("x-engineeringos-revision");
+        markerMatched = input.expectedMarker
+          ? responseBody.includes(input.expectedMarker)
+            || response.headers.get("x-engineeringos-marker") === input.expectedMarker
+          : null;
+        const healthPassed = response.status >= 200 && response.status < 300;
+        const revisionPassed = servingRevision === input.revision;
+        const markerPassed = markerMatched !== false;
+        if (processAlive && portReady && healthPassed && revisionPassed && markerPassed) {
+          detail = "Runtime process, port, health, serving revision, and marker were observed.";
+          return {
+            status: "passed",
+            projectId: input.projectId,
+            sessionId: input.sessionId,
+            revision: input.revision,
+            pid: session.pid,
+            port: session.port,
+            processAlive,
+            portReady,
+            healthPath,
+            healthStatus,
+            servingRevision,
+            markerMatched,
+            responseBody,
+            observedAt,
+            detail,
+          };
+        }
+        detail = !healthPassed
+          ? `Runtime health returned HTTP ${response.status}.`
+          : !revisionPassed
+            ? "Runtime served a different revision."
+            : !markerPassed
+              ? "Runtime did not serve the expected marker."
+              : "Runtime process or port readiness was not observed.";
+      } finally {
+        clearTimeout(timeout);
+        input.signal?.removeEventListener("abort", abort);
+      }
+    } catch {
+      detail = "Runtime health response was unavailable.";
+    }
+    return {
+      status: processAlive && portReady ? "failed" : "unavailable",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      revision: input.revision,
+      pid: session.pid,
+      port: session.port,
+      processAlive,
+      portReady,
+      healthPath,
+      healthStatus,
+      servingRevision,
+      markerMatched,
+      responseBody,
+      observedAt,
+      detail,
+    };
   }
 
   async recover(): Promise<void> {

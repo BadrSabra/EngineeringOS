@@ -30,3 +30,15 @@ gate also avoids making a derived read model a second acceptance authority.
 **How to apply:** For `candidate.verify`, persist action request/commit events, materialize direct
 workspace/status observations, classify the effect before terminal acceptance, and pass the bound
 effect bundle through the existing completion finalizer.
+
+Gate C follows the same seam for Browser and Delivery recipe nodes: profile/session/source
+revision and remote commit/parent/tree/operation-marker metadata must come from server-owned
+observers, then be materialized as fresh direct after-state evidence before acceptance.
+
+**Why:** A browser receipt or a local push result can be valid while the served revision or remote
+branch has drifted. Independent after-state identity checks prevent those records from becoming
+false causal proof.
+
+**How to apply:** Runtime observers must fence session, revision, worker lease, PID, port, health,
+and marker; delivery observers must re-read remote branch state after push, including idempotent
+reconciliation. Keep runtime action wiring and reconnect coverage separate until they are proven.

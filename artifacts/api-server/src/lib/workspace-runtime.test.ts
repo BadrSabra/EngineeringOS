@@ -22,7 +22,7 @@ describe("WorkspaceRuntimeManager", () => {
       path.join(root, "server.mjs"),
       [
         "import http from 'node:http';",
-        "const server = http.createServer((_req, res) => res.end('runtime-ok'));",
+        "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', 'revision-1'); res.end('runtime-ok marker-1'); });",
         "server.listen(Number(process.env.PORT), '127.0.0.1');",
         "console.log('runtime fixture ready');",
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
@@ -42,10 +42,63 @@ describe("WorkspaceRuntimeManager", () => {
     expect(started.port).toBeLessThanOrEqual(3099);
     expect(started.command).toBe("pnpm run dev");
 
+    const afterState = await manager.observeAfterState({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+      expectedMarker: "marker-1",
+    });
+    expect(afterState).toMatchObject({
+      status: "passed",
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId,
+      revision: "revision-1",
+      port: started.port,
+      processAlive: true,
+      portReady: true,
+      healthStatus: 200,
+      servingRevision: "revision-1",
+      markerMatched: true,
+    });
+
     const stopped = await manager.stop("project-runtime-test");
     expect(stopped.status).toBe("stopped");
     expect(stopped.pid).toBeNull();
     await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("rejects an after-state observation for a stale runtime session", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-runtime-"));
+    await fs.writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+    );
+    await fs.writeFile(
+      path.join(root, "server.mjs"),
+      [
+        "import http from 'node:http';",
+        "const server = http.createServer((_req, res) => res.end('runtime-ok'));",
+        "server.listen(Number(process.env.PORT), '127.0.0.1');",
+        "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+      ].join("\n"),
+    );
+    const manager = new WorkspaceRuntimeManager();
+    managers.push(manager);
+    const started = await manager.start({
+      projectId: "stale-runtime-test",
+      projectRoot: root,
+      revision: "revision-1",
+    });
+
+    await expect(manager.observeAfterState({
+      projectId: "stale-runtime-test",
+      sessionId: "old-session",
+      revision: "revision-1",
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+
+    await manager.stop("stale-runtime-test");
+    await fs.rm(root, { recursive: true, force: true });
+    expect(started.status).toBe("running");
   });
 
   it("rejects projects without an explicit dev script", async () => {

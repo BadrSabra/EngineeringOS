@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-24  
-**الوضع:** Foundation مكتملة جزئيًا؛ Candidate Validation Effect Loop مغلقة كأول vertical slice، بينما تكامل observers الأوسع ما زال Shadow/read-only
+**الوضع:** Foundation مكتملة جزئيًا؛ Candidate Validation Effect Loop مغلقة، وGate C أصبح جزئيًا مع Runtime/Browser/Delivery after-state seams server-owned، بينما اختبارات recovery/e2e الشاملة ما زالت متبقية
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -16,9 +16,9 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation يربط Episode → Action → Preconditions → Before/After Observation → Effect → Acceptance؛ بقية المسارات لم تُوحّد بعد. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وBrowser/Delivery recipe nodes تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ Runtime يحتاج ربط recipe/action كامل. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime/Browser/Delivery observers وتصنيفها ما زالت متبقية. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime observer وBrowser/Delivery Gate C seams مضافة، وتبقى recovery/e2e coverage وربط Runtime بالـeffect loop. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
@@ -247,6 +247,30 @@ G9 Revocation Safety
   تحتاج Runtime/Browser/Delivery after-state observers، وP6 يحتاج ربط effect بـWorld Delta.
 - **next step:** إغلاق Gate C بإضافة Runtime/Browser/Delivery after-state observers،
   مع الحفاظ على نفس AgentAction/effect/acceptance seam.
+
+### 2026-09-24 — Gate C After-State Observers
+
+- **phase/step:** P3.5 / P5 / Gate C — Runtime, Browser, Delivery
+- **status:** `partial`
+- **what changed:** أضيف Runtime after-state مستقل يتحقق من session/revision/worker lease،
+  PID، TCP port، HTTP health، header `x-engineeringos-revision`، وmarker اختياري.
+  Browser evidence أصبح يحمل source revision وprofile/session identity وartifact reference.
+  GitHub delivery يعيد التحقق من remote branch parent/tree/commit والـoperation marker بعد
+  الدفع، بما في ذلك idempotent recovery. Browser وDelivery recipe nodes تستخدم الآن
+  `AgentAction` و`EffectContract` وbefore/after direct observations قبل terminal acceptance.
+- **files/schema/contracts touched:** `workspace-runtime.ts` واختباراته،
+  `browser-preview-verification.ts` و`ai-repair-validation.ts`، `github-delivery-service.ts`
+  و`recipe-capabilities.ts`، `agent-state/gate-c-effect.ts` و`recipe-operation-runner.ts`.
+- **validation:** API typecheck؛ 27 اختبارًا مستهدفًا لـRuntime/Browser/Delivery/recipe/effect؛
+  `git diff --check`.
+- **authority/safety impact:** after-state لا يعتمد على `status: running` أو receipt فقط؛
+  remote/runtime identity والتحقق server-owned. كل Gate C effect يمر عبر نفس observation
+  وclassification seam، ولا يمنح `AgentAction` صلاحية جديدة ولا يستبدل Proof/Acceptance.
+- **remaining/blocker:** Runtime after-state API موجود لكنه لم يُربط بعد بمسار recipe/action
+  كامل؛ وتبقى اختبارات recovery/lease-loss وbrowser/delivery end-to-end التي تثبت
+  `effectBundleId` عبر reconnect/replay.
+- **next step:** استكمال Runtime action adapter ثم إضافة اختبارات Gate C المتكاملة لمسارات
+  success، stale lease، reconnect، remote drift، وidempotent delivery.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
