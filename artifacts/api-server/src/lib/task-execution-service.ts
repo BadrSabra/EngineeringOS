@@ -69,6 +69,7 @@ import {
 } from "./ai-repair-validation.js";
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 import { startEpisodeShadow } from "./agent-state/agent-episode-ledger.js";
+import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -1650,6 +1651,52 @@ export async function executeTaskLifecycle(params: {
     if (!finalized.accepted) {
       throw Object.assign(new Error("task_state_changed_during_finalize"), { name: "AbortError" });
     }
+    void materializeServerOwnedObservations({
+      projectId: before.projectId,
+      executionId,
+      attempt: taskReceipt.attempt,
+      projectRevision: taskReceipt.revision,
+      sources: [
+        {
+          kind: "acceptance",
+          sourceId: `acceptance:${executionId}:${taskReceipt.attempt}`,
+          sourceRevision: taskReceipt.revision,
+          terminalStatus: taskReceipt.terminalStatus,
+          outcome: terminalOutcome,
+          reasonCode: terminalReasonCode,
+          evidenceComplete: true,
+          evidenceRefs: taskReceipt.evidenceRefs,
+        },
+        {
+          kind: "runtime_receipt",
+          sourceId: `runtime:${executionId}:${taskReceipt.attempt}`,
+          sourceRevision: taskReceipt.revision,
+          status: taskReceipt.terminalStatus === "SUCCEEDED"
+            ? "passed"
+            : taskReceipt.terminalStatus === "CANCELLED"
+              ? "cancelled"
+              : taskReceipt.terminalStatus === "BLOCKED"
+                ? "blocked"
+                : "failed",
+          profile: taskReceipt.executionProfile,
+          candidateIdentity: missionExecution?.proof.candidateIdentity,
+        },
+        ...(missionExecution?.proof.validatorReceipts ?? []).map((receipt) => ({
+          kind: "validator_receipt" as const,
+          validatorId: receipt.validatorId,
+          operationId: receipt.operationId,
+          projectId: receipt.projectId,
+          workspaceRevision: receipt.workspaceRevision,
+          status: receipt.status,
+          artifactRef: receipt.artifactRef,
+        })),
+      ],
+    }).catch((error: unknown) => {
+      logger.warn(
+        { scope: "task-execution", code: "observation_materialization_failed", executionId, error },
+        "Server-owned observation materialization failed after acceptance",
+      );
+    });
     await progress.finish(
       "finalization",
       "completed",

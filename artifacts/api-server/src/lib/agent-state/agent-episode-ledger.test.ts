@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  aiAgentObservationsTable,
   aiAgentShadowCampaignEventsTable,
   aiExecutionsTable,
   db,
@@ -21,6 +22,7 @@ import {
   persistAgentEpisodeShadowAttempt,
 } from "./agent-episode-shadow-campaign.js";
 import { resetOperationalCounters } from "../operational-counters.js";
+import { materializeServerOwnedObservations } from "./observation-materializer.js";
 
 const userId = "agent-episode-ledger-test-user";
 let projectId = "";
@@ -197,5 +199,71 @@ describe("agent episode ledger", () => {
       staleWorkerRejections: 1,
       p95LatencyMs: 20,
     });
+  });
+
+  it("materializes trusted receipts idempotently and records stale revisions", async () => {
+    const episode = await startEpisode(startInput());
+    const sources = [
+      {
+        kind: "acceptance" as const,
+        sourceId: `acceptance:${executionId}:0`,
+        sourceRevision: "revision-1",
+        terminalStatus: "completed",
+        outcome: "SUCCEEDED",
+        reasonCode: "ACCEPTED",
+        evidenceComplete: true,
+        evidenceRefs: ["validator:one"],
+      },
+      {
+        kind: "validator_receipt" as const,
+        validatorId: "registered-validation.v1",
+        operationId: executionId,
+        projectId,
+        workspaceRevision: "revision-1",
+        status: "PROVEN" as const,
+        artifactRef: "validation-result:one",
+      },
+      {
+        kind: "runtime_receipt" as const,
+        sourceId: `runtime:${executionId}:0`,
+        sourceRevision: "revision-1",
+        status: "passed" as const,
+        profile: "mission",
+      },
+      {
+        kind: "delivery_receipt" as const,
+        sourceId: `delivery:${executionId}:0`,
+        sourceRevision: "old-revision",
+        status: "failed" as const,
+        treeHash: "tree-hash",
+      },
+    ];
+
+    const first = await materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      projectRevision: "revision-1",
+      episodeId: episode.episodeId,
+      sources,
+    });
+    const retry = await materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      projectRevision: "revision-1",
+      episodeId: episode.episodeId,
+      sources,
+    });
+    const observations = await db.select()
+      .from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.episodeId, episode.episodeId));
+
+    expect(first).toMatchObject({ inserted: 4, duplicates: 0, stale: 1 });
+    expect(retry).toMatchObject({ inserted: 0, duplicates: 4, stale: 0 });
+    expect(observations).toHaveLength(4);
+    expect(observations.some((observation) => observation.freshness === "stale")).toBe(true);
+    expect(observations.every((observation) => observation.executionId === executionId)).toBe(true);
+    expect(JSON.stringify(observations)).not.toContain("provider");
   });
 });

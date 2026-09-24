@@ -48,6 +48,7 @@ import {
 import { RecipeReceiptSchema, type RecipeReceipt } from "@workspace/ai-orchestrator";
 import { runRepairValidation } from "./ai-repair-validation.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
+import { logger } from "./logger.js";
 import {
   parseTaskObjectiveContract,
   type TaskObjectiveValidatorReceipt,
@@ -58,6 +59,7 @@ import {
 } from "./skill-registry.js";
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 import { startEpisodeShadow } from "./agent-state/agent-episode-ledger.js";
+import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -952,6 +954,54 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       throw new Error("Recipe completion lost its durable ownership fence.");
     }
     const receipt = completedReceipt;
+    void materializeServerOwnedObservations({
+      projectId: params.projectId,
+      executionId: claimed.id,
+      attempt: receipt.attempt ?? claimed.attempt,
+      projectRevision: receipt.sourceRevision,
+      sources: [
+        {
+          kind: "acceptance",
+          sourceId: `acceptance:${claimed.id}:${receipt.attempt ?? claimed.attempt}`,
+          sourceRevision: receipt.sourceRevision,
+          terminalStatus: "completed",
+          outcome: "SUCCEEDED",
+          reasonCode: "ACCEPTED",
+          evidenceComplete: true,
+          evidenceRefs: receipt.evidenceRefs,
+        },
+        {
+          kind: "runtime_receipt",
+          sourceId: `runtime:${claimed.id}:${receipt.attempt ?? claimed.attempt}`,
+          sourceRevision: receipt.sourceRevision,
+          status: "passed",
+          profile: "recipe",
+          candidateIdentity: params.candidateIdentity,
+        },
+        {
+          kind: "delivery_receipt",
+          sourceId: `delivery:${claimed.id}:${receipt.attempt ?? claimed.attempt}`,
+          sourceRevision: receipt.sourceRevision,
+          status: "passed",
+          candidateIdentity: params.candidateIdentity,
+          treeHash: receipt.treeHash ?? receipt.candidateTreeHash,
+        },
+        ...validatorReceipts.map((validator) => ({
+          kind: "validator_receipt" as const,
+          validatorId: validator.validatorId,
+          operationId: validator.operationId,
+          projectId: validator.projectId,
+          workspaceRevision: validator.workspaceRevision,
+          status: validator.status,
+          artifactRef: validator.artifactRef,
+        })),
+      ],
+    }).catch((error: unknown) => {
+      logger.warn(
+        { scope: "recipe-operation", code: "observation_materialization_failed", executionId: claimed.id, error },
+        "Server-owned recipe observation materialization failed after acceptance",
+      );
+    });
     return { executionId: claimed.id, status: "completed", completedNodeIds: result.completedNodeIds, receipt };
   } finally {
     clearTimeout(totalTimer);

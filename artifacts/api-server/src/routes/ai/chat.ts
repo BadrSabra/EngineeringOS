@@ -145,6 +145,10 @@ import {
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { startEpisodeShadow } from "../../lib/agent-state/agent-episode-ledger.js";
+import {
+  materializeServerOwnedObservations,
+  type ServerOwnedObservationSource,
+} from "../../lib/agent-state/observation-materializer.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { establishProjectRoot } from "../../lib/project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
@@ -10825,6 +10829,49 @@ export async function handleChatStream(req: Request, res: Response) {
         res.end();
         return;
       }
+      const materializationExecutionId = aiExecution.id;
+      const chatObservationSources: ServerOwnedObservationSource[] = [
+        {
+          kind: "acceptance",
+          sourceId: `acceptance:${materializationExecutionId}:${aiExecution.attempt}`,
+          sourceRevision: executionRequest.workspaceRevision ?? analysisCorrelation.projectRevision,
+          terminalStatus: "completed",
+          outcome: "SUCCEEDED",
+          reasonCode: "ACCEPTED",
+          evidenceComplete: terminalEvidenceVerdict === "PROVEN" || !proofRequired,
+          evidenceRefs: finalValidation?.kind === "validation"
+            ? [finalValidation.result.evidence.artifactRef]
+            : [],
+        },
+        {
+          kind: "runtime_receipt",
+          sourceId: `runtime:${materializationExecutionId}:${aiExecution.attempt}`,
+          sourceRevision: executionRequest.workspaceRevision ?? analysisCorrelation.projectRevision,
+          status: terminalEvidenceVerdict === "PROVEN" || !proofRequired ? "passed" : "blocked",
+          candidateIdentity: autonomousOperation?.candidateIdentity,
+        },
+        ...taskObjectiveValidatorReceipts.map((source) => ({
+          kind: "validator_receipt" as const,
+          validatorId: source.validatorId,
+          operationId: source.operationId,
+          projectId: source.projectId,
+          workspaceRevision: source.workspaceRevision,
+          status: source.status,
+          artifactRef: source.artifactRef,
+        })),
+      ];
+      void materializeServerOwnedObservations({
+        projectId,
+        executionId: materializationExecutionId,
+        attempt: aiExecution.attempt,
+        projectRevision: executionRequest.workspaceRevision ?? analysisCorrelation.projectRevision,
+        sources: chatObservationSources,
+      }).catch((error: unknown) => {
+        logger.warn(
+          { scope: "chat", code: "observation_materialization_failed", executionId: materializationExecutionId, error },
+          "Server-owned chat observation materialization failed after acceptance",
+        );
+      });
       completedTerminalProjection = await loadTerminalProjection({
         executionId: aiExecution.id,
         sessionId: sessionIdToUse,
