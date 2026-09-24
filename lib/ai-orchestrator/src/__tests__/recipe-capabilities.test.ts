@@ -75,6 +75,58 @@ describe("recipe capability adapters", () => {
     });
   });
 
+  it("starts the runtime only through the server runner and requires a revision", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const registry = createServerCapabilityRegistry({
+      runtimeStartRunner: async (args) => {
+        calls.push(args);
+        return {
+          status: "passed",
+          evidence: { evidenceId: "runtime:verified" },
+        };
+      },
+    });
+    expect(registry.list().map((entry) => entry.id)).toContain("runtime.start");
+
+    await expect(registry.invoke("runtime.start", 1, {}, {
+      rootPath: "/project",
+      projectId: "project-1",
+      operation: "recipe",
+      operationId: "operation-1",
+      authorized: true,
+      approvalState: "APPROVED",
+      scope: { kind: "project", paths: [] },
+    })).resolves.toMatchObject({
+      ok: true,
+      output: { status: "blocked" },
+    });
+    expect(calls).toHaveLength(0);
+
+    await expect(registry.invoke("runtime.start", 1, {}, {
+      rootPath: "/project",
+      projectId: "project-1",
+      operation: "recipe",
+      operationId: "operation-1",
+      revision: "revision-1",
+      authorized: true,
+      approvalState: "APPROVED",
+      scope: { kind: "project", paths: [] },
+    })).resolves.toMatchObject({
+      ok: true,
+      output: {
+        status: "passed",
+        profile: "runtime",
+        evidence: { evidenceId: "runtime:verified" },
+      },
+    });
+    expect(calls).toMatchObject([{
+      projectId: "project-1",
+      operationId: "operation-1",
+      rootPath: "/project",
+      revision: "revision-1",
+    }]);
+  });
+
   it("exposes bounded database reads only through the server-owned runner", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const registry = createServerCapabilityRegistry({
