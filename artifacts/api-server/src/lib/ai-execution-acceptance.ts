@@ -4,6 +4,8 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
+  aiAgentEffectBundlesTable,
+  aiAgentEffectsTable,
   aiExecutionEvidenceReadsTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionsTable,
@@ -180,6 +182,10 @@ export type FinalizeExecutionAcceptanceParams = {
   taskObjective?: TaskObjectiveContract;
   taskObjectiveStatus?: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
   stateProjection?: Record<string, unknown>;
+  /** A mutation-backed acceptance must name the server-owned effect bundle. */
+  effectBundleId?: string | null;
+  /** Persisted request flag indicating that this execution has a mutation effect gate. */
+  effectRequired?: boolean;
 };
 
 /**
@@ -1374,6 +1380,10 @@ export async function finalizeExecutionAcceptance(
     const taskObjective = params.taskObjective
       ?? parseTaskObjectiveContract(storedRequest?.taskObjective);
     const storedProofRequired = storedRequest?.proofRequired === true;
+    const effectRequired =
+      params.effectRequired === true
+      || storedRequest?.effectRequired === true
+      || Boolean(params.effectBundleId);
     const evidenceRequired = storedProofRequired || params.evidence?.required === true;
     const reviewReadyProposal =
       params.outcome === "SUCCEEDED"
@@ -1443,6 +1453,53 @@ export async function finalizeExecutionAcceptance(
     const evidence = normalizeEvidenceSnapshot(effectiveEvidence);
     if (params.outcome === "SUCCEEDED" && evidenceRequired && !evidence.complete && !reviewReadyProposal) {
       return { accepted: false, duplicate: false, reason: evidence.reason ?? "Evidence is incomplete." };
+    }
+
+    let effectBundleId = params.effectBundleId ?? null;
+    if (effectRequired || effectBundleId) {
+      const [effectBundle] = effectBundleId
+        ? await tx.select()
+          .from(aiAgentEffectBundlesTable)
+          .where(and(
+            eq(aiAgentEffectBundlesTable.id, effectBundleId),
+            eq(aiAgentEffectBundlesTable.projectId, execution.projectId),
+            eq(aiAgentEffectBundlesTable.executionId, execution.id),
+            eq(aiAgentEffectBundlesTable.attempt, execution.attempt),
+          ))
+          .limit(1)
+        : await tx.select()
+          .from(aiAgentEffectBundlesTable)
+          .where(and(
+            eq(aiAgentEffectBundlesTable.projectId, execution.projectId),
+            eq(aiAgentEffectBundlesTable.executionId, execution.id),
+            eq(aiAgentEffectBundlesTable.attempt, execution.attempt),
+          ))
+          .limit(1);
+      effectBundleId = effectBundle?.id ?? null;
+      if (params.outcome === "SUCCEEDED" && effectRequired) {
+        if (!effectBundleId || !effectBundle) {
+          return { accepted: false, duplicate: false, reason: "Mutation effect evidence is missing." };
+        }
+        const effectIds = Array.isArray(effectBundle.effectIds)
+          ? effectBundle.effectIds.filter((value): value is string => typeof value === "string")
+          : [];
+        const effects = effectIds.length > 0
+          ? await tx.select()
+            .from(aiAgentEffectsTable)
+            .where(inArray(aiAgentEffectsTable.id, effectIds))
+          : [];
+        if (
+          effects.length !== effectIds.length
+          || effects.length === 0
+          || !effects.every((effect) => effect.status === "observed")
+        ) {
+          return {
+            accepted: false,
+            duplicate: false,
+            reason: "Mutation effect evidence is not observed; PROVEN is unavailable.",
+          };
+        }
+      }
     }
 
     const now = new Date();
@@ -1751,6 +1808,7 @@ export async function finalizeExecutionAcceptance(
       evidenceComplete: evidence.complete ? 1 : 0,
       resumable: params.resumable === true ? 1 : 0,
       messageId: acceptedMessageId,
+       ...(effectBundleId ? { effectBundleId } : {}),
        sourceRevision: canonicalSourceRevision,
        candidateIdentity: canonicalCandidateIdentity,
     };

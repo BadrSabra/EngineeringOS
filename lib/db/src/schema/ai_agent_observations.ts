@@ -27,6 +27,7 @@ export const aiAgentObservationsTable = pgTable("ai_agent_observations", {
   executionId: text("execution_id").notNull().references(() => aiExecutionsTable.id, { onDelete: "cascade" }),
   episodeId: text("episode_id").notNull().references(() => aiAgentEpisodesTable.id, { onDelete: "cascade" }),
   kind: text("kind").notNull(),
+  provenance: text("provenance").notNull().default("SERVER_DERIVED"),
   observationRole: text("observation_role").notNull(),
   sourceType: text("source_type").notNull(),
   sourceId: text("source_id").notNull(),

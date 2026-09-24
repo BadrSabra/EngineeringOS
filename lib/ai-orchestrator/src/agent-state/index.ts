@@ -40,11 +40,20 @@ export type {
   AgentObservation,
   ObservationCompleteness,
   ObservationFreshness,
+  ObservationProvenance,
   ObservationKind,
 } from "./observation-contract.js";
 
 export {
+  AgentActionRiskSchema,
+  AgentActionSchema,
+  parseAgentAction,
+} from "./action-contract.js";
+export type { AgentAction, AgentActionRisk } from "./action-contract.js";
+
+export {
   AgentEffectSchema,
+  classifyEffect,
   EffectAllowedResultSchema,
   EffectContractSchema,
   EffectObservationProfileSchema,
@@ -57,6 +66,7 @@ export type {
   AgentEffect,
   EffectAllowedResult,
   EffectContract,
+  EffectClassification,
   EffectObservationProfile,
   EffectStatus,
 } from "./effect-contract.js";

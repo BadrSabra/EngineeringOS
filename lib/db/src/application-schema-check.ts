@@ -167,6 +167,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "execution_id", dataType: "text", udtName: "text", nullable: false },
       { name: "episode_id", dataType: "text", udtName: "text", nullable: false },
       { name: "kind", dataType: "text", udtName: "text", nullable: false },
+      { name: "provenance", dataType: "text", udtName: "text", nullable: false, defaultExpression: /'server_derived'::text/ },
       { name: "observation_role", dataType: "text", udtName: "text", nullable: false },
       { name: "source_type", dataType: "text", udtName: "text", nullable: false },
       { name: "source_id", dataType: "text", udtName: "text", nullable: false },

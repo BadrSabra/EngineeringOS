@@ -24,6 +24,17 @@ type ObservationFreshness = "fresh" | "stale" | "unknown";
 
 export type ServerOwnedObservationSource =
   | {
+      kind: "direct_observation";
+      sourceId: string;
+      subject: string;
+      predicate: string;
+      value: JsonValue;
+      sourceRevision?: string | null;
+      environmentRevision?: string | null;
+      evidenceRefs?: readonly string[];
+      observedAt?: Date | string;
+    }
+  | {
       kind: "acceptance";
       sourceId: string;
       sourceRevision?: string | null;
@@ -119,6 +130,7 @@ function statusCompleteness(status: string): ObservationCompleteness {
 
 type NormalizedObservation = {
   sourceType: string;
+  provenance: "DIRECT_OBSERVATION" | "SERVER_DERIVED";
   sourceId: string;
   sourceVersion: string;
   subject: string;
@@ -126,6 +138,7 @@ type NormalizedObservation = {
   value: JsonValue;
   sourceRefs: string[];
   observedAt: Date;
+  environmentRevision?: string;
   completeness: ObservationCompleteness;
 };
 
@@ -133,6 +146,21 @@ function normalizeSource(
   source: ServerOwnedObservationSource,
   attempt: number,
 ): NormalizedObservation {
+  if (source.kind === "direct_observation") {
+    return {
+      sourceType: "direct_observation",
+      provenance: "DIRECT_OBSERVATION",
+      sourceId: boundedText(source.sourceId, 500),
+      sourceVersion: sourceVersion(source.sourceRevision, attempt),
+      subject: boundedText(source.subject),
+      predicate: boundedText(source.predicate),
+      value: parseBoundedJson(source.value, MAX_VALUE_BYTES),
+      sourceRefs: boundedRefs(source.evidenceRefs),
+      observedAt: observedAt(source.observedAt),
+      ...(source.environmentRevision ? { environmentRevision: boundedText(source.environmentRevision, 2_000) } : {}),
+      completeness: "complete",
+    };
+  }
   if (source.kind === "acceptance") {
     const value = parseBoundedJson(JSON.stringify({
       terminalStatus: boundedText(source.terminalStatus),
@@ -143,6 +171,7 @@ function normalizeSource(
     }), MAX_VALUE_BYTES);
     return {
       sourceType: "acceptance",
+      provenance: "SERVER_DERIVED",
       sourceId: boundedText(source.sourceId, 500),
       sourceVersion: sourceVersion(source.sourceRevision, attempt),
       subject: `execution:${boundedText(source.sourceId, 500)}`,
@@ -162,6 +191,7 @@ function normalizeSource(
     }), MAX_VALUE_BYTES);
     return {
       sourceType: "validator_receipt",
+      provenance: "SERVER_DERIVED",
       sourceId: boundedText(`${source.validatorId}:${source.operationId}`, 500),
       sourceVersion: sourceVersion(source.workspaceRevision, attempt),
       subject: `execution:${boundedText(source.operationId, 500)}`,
@@ -181,6 +211,7 @@ function normalizeSource(
     }), MAX_VALUE_BYTES);
     return {
       sourceType: "runtime_receipt",
+      provenance: "SERVER_DERIVED",
       sourceId: boundedText(source.sourceId, 500),
       sourceVersion: sourceVersion(source.sourceRevision, attempt),
       subject: `execution:${boundedText(source.sourceId, 500)}`,
@@ -199,6 +230,7 @@ function normalizeSource(
   }), MAX_VALUE_BYTES);
   return {
     sourceType: "delivery_receipt",
+    provenance: "SERVER_DERIVED",
     sourceId: boundedText(source.sourceId, 500),
     sourceVersion: sourceVersion(source.sourceRevision, attempt),
     subject: `execution:${boundedText(source.sourceId, 500)}`,
@@ -295,6 +327,7 @@ export async function materializeServerOwnedObservations(
         executionId: input.executionId,
         episodeId: episode.id,
         kind: source.sourceType,
+         provenance: source.provenance,
         observationRole: source.predicate,
         sourceType: source.sourceType,
         sourceId: source.sourceId,
@@ -306,6 +339,7 @@ export async function materializeServerOwnedObservations(
         sourceRefs: source.sourceRefs,
         observedAt: source.observedAt,
         projectRevision: observationProjectRevision,
+         ...(source.environmentRevision ? { environmentRevision: source.environmentRevision } : {}),
         completeness: source.completeness,
         freshness: currentFreshness,
         evidenceRefs: source.sourceRefs,

@@ -26,6 +26,13 @@ export type ObservationCompleteness = z.infer<typeof ObservationCompletenessSche
 export const ObservationFreshnessSchema = z.enum(["fresh", "stale", "unknown"]);
 export type ObservationFreshness = z.infer<typeof ObservationFreshnessSchema>;
 
+export const ObservationProvenanceSchema = z.enum([
+  "DIRECT_OBSERVATION",
+  "SERVER_DERIVED",
+  "MODEL_INFERRED",
+]).default("SERVER_DERIVED");
+export type ObservationProvenance = z.infer<typeof ObservationProvenanceSchema>;
+
 export const AgentObservationSchema = boundedContractSchema(z.object({
   schemaVersion: z.literal(AGENT_STATE_SCHEMA_VERSION),
   observationId: boundedString(200),
@@ -33,6 +40,7 @@ export const AgentObservationSchema = boundedContractSchema(z.object({
   executionId: boundedString(200),
   episodeId: boundedString(200),
   kind: ObservationKindSchema,
+  provenance: ObservationProvenanceSchema,
   observationRole: boundedString(100),
   sourceType: boundedString(120),
   sourceId: boundedString(256),

@@ -34,6 +34,9 @@ const remediationPlan = {
 
 function completeSnapshot() {
   const defaultFor = (tableName: string, columnName: string) => {
+    if (tableName === "ai_agent_observations" && columnName === "provenance") {
+      return "'SERVER_DERIVED'::text";
+    }
     if (tableName === "ai_agent_episodes" && columnName === "state") {
       return "'created'::ai_agent_episode_state";
     }

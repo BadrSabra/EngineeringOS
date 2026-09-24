@@ -5,8 +5,10 @@ import {
   boundedContractSchema,
   boundedJsonSchema,
   boundedString,
+  canonicalJson,
   canonicalJsonHash,
 } from "./contract-utils.js";
+import type { AgentObservation } from "./observation-contract.js";
 
 export const EffectObservationProfileSchema = z.enum([
   "WORKSPACE",
@@ -24,6 +26,7 @@ export const EffectAllowedResultSchema = z.enum([
   "PARTIAL",
   "NOT_OBSERVED",
   "CONTRADICTED",
+  "UNKNOWN",
 ]);
 export type EffectAllowedResult = z.infer<typeof EffectAllowedResultSchema>;
 
@@ -73,6 +76,109 @@ export const AgentEffectSchema = boundedContractSchema(z.object({
   createdAt: z.string().datetime(),
 }).strict(), AGENT_STATE_LIMITS.effectPayloadBytes);
 export type AgentEffect = z.infer<typeof AgentEffectSchema>;
+
+export type EffectClassification = {
+  status: EffectStatus;
+  missingEffects: string[];
+  contradictionRefs: string[];
+  evidenceRefs: string[];
+  observedEffectCount: number;
+};
+
+function stateKey(subject: string, predicate: string): string {
+  return `${subject}\u0000${predicate}`;
+}
+
+function jsonEquals(left: unknown, right: unknown): boolean {
+  try {
+    return canonicalJson(left as Parameters<typeof canonicalJson>[0])
+      === canonicalJson(right as Parameters<typeof canonicalJson>[0]);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Classifies an effect only from complete, fresh, direct before/after
+ * observations. Acceptance, receipts, and model output are intentionally not
+ * accepted as observation inputs here.
+ */
+export function classifyEffect(input: {
+  contract: EffectContract;
+  before: readonly AgentObservation[];
+  after: readonly AgentObservation[];
+}): EffectClassification {
+  const beforeByKey = new Map(input.before.map((observation) => [
+    stateKey(observation.subject, observation.predicate),
+    observation,
+  ]));
+  const afterByKey = new Map(input.after.map((observation) => [
+    stateKey(observation.subject, observation.predicate),
+    observation,
+  ]));
+  const missingEffects: string[] = [];
+  const contradictionRefs: string[] = [];
+  const evidenceRefs = new Set<string>();
+  let observedEffectCount = 0;
+  let unknownCount = 0;
+
+  for (const expected of input.contract.expectedStateChanges) {
+    const label = `${expected.subject}.${expected.predicate}`;
+    const before = beforeByKey.get(stateKey(expected.subject, expected.predicate));
+    const after = afterByKey.get(stateKey(expected.subject, expected.predicate));
+    for (const observation of [before, after]) {
+      for (const ref of observation?.evidenceRefs ?? []) evidenceRefs.add(ref);
+    }
+
+    const completeDirect = (observation: AgentObservation | undefined): boolean =>
+      Boolean(
+        observation
+        && observation.provenance === "DIRECT_OBSERVATION"
+        && observation.completeness === "complete"
+        && observation.freshness === "fresh",
+      );
+    if (!completeDirect(before) || !completeDirect(after)) {
+      missingEffects.push(label);
+      continue;
+    }
+    if (expected.expectedValue === undefined) {
+      if (jsonEquals(before!.value, after!.value)) {
+        unknownCount++;
+      } else {
+        observedEffectCount++;
+      }
+      continue;
+    }
+    if (!jsonEquals(after!.value, expected.expectedValue)) {
+      contradictionRefs.push(after!.observationId);
+      continue;
+    }
+    if (jsonEquals(before!.value, expected.expectedValue)) {
+      unknownCount++;
+      continue;
+    }
+    observedEffectCount++;
+  }
+
+  let status: EffectStatus;
+  if (contradictionRefs.length > 0) {
+    status = observedEffectCount > 0 ? "partial" : "contradicted";
+  } else if (missingEffects.length > 0) {
+    status = observedEffectCount > 0 ? "partial" : "not_observed";
+  } else if (unknownCount > 0) {
+    status = observedEffectCount > 0 ? "partial" : "unknown";
+  } else {
+    status = "observed";
+  }
+
+  return {
+    status,
+    missingEffects: [...new Set(missingEffects)].slice(0, 64),
+    contradictionRefs: [...new Set(contradictionRefs)].slice(0, 64),
+    evidenceRefs: [...evidenceRefs].slice(0, AGENT_STATE_LIMITS.observationReferences),
+    observedEffectCount,
+  };
+}
 
 export function hashEffectContract(value: EffectContract): string {
   return canonicalJsonHash(value as Parameters<typeof canonicalJsonHash>[0]);
