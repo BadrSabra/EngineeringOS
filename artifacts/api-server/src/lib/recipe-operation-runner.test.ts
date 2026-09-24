@@ -406,8 +406,10 @@ describe("recipe operation preparation", () => {
       path.join(rootPath, "server.mjs"),
       [
         "import http from 'node:http';",
-        "import { readFileSync } from 'node:fs';",
+        "import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';",
         "const revision = readFileSync('node_modules/.cache/revision.txt', 'utf8').trim();",
+        "const replayMutationMarker = 'node_modules/.cache/mutate-next-replay';",
+        "if (existsSync(replayMutationMarker)) { unlinkSync(replayMutationMarker); writeFileSync('.strategy-replay-mutated', 'mutated'); }",
         "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', revision); res.end('runtime-ready'); });",
         "server.listen(Number(process.env.PORT), '127.0.0.1');",
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
@@ -814,6 +816,112 @@ describe("recipe operation preparation", () => {
       });
       expect(candidateAfterReplay[0]?.supportingEpisodeIds)
         .not.toContain(replayResult.receipt.replayEpisodeId);
+
+      const createNextRegisteredReplayCase = async () => {
+        await manager.shutdown();
+        const nextOperationId = crypto.randomUUID();
+        manager = new WorkspaceRuntimeManager({
+          store: createInMemoryWorkspaceRuntimeStore(),
+          workerId: `runtime-recipe-test:${nextOperationId}`,
+        });
+        const nextResult = await runRecipeOperation({
+          projectId,
+          operationId: nextOperationId,
+          sessionId,
+          userId,
+          idempotencyKey: `${nextOperationId}:runtime-effect`,
+          rootPath,
+          sourceRevision,
+          recipeId: "runtime.start",
+          recipeVersion: 1,
+          runtimeStartRunner: createRuntimeStartRunner(manager),
+        });
+        executionIds.push(nextResult.executionId);
+        expect(nextResult.status).toBe("completed");
+        const [sourceEpisode] = await db.select().from(aiAgentEpisodesTable).where(and(
+          eq(aiAgentEpisodesTable.projectId, projectId),
+          eq(aiAgentEpisodesTable.executionId, nextResult.executionId),
+        )).limit(1);
+        expect(sourceEpisode).toBeDefined();
+        const [replayCase] = await db.select().from(aiStrategyReplayCasesTable).where(and(
+          eq(aiStrategyReplayCasesTable.projectId, projectId),
+          eq(aiStrategyReplayCasesTable.sourceEpisodeId, sourceEpisode!.id),
+        )).limit(1);
+        expect(replayCase).toBeDefined();
+        return replayCase!;
+      };
+
+      const dirtySourceCase = await createNextRegisteredReplayCase();
+      const dirtySourceMarker = path.join(rootPath, "dirty-source-marker.txt");
+      await writeFile(dirtySourceMarker, "dirty\n", "utf8");
+      const dirtySourceReplay = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: dirtySourceCase.id,
+        userId,
+      });
+      expect(dirtySourceReplay).toMatchObject({
+        status: "incomplete",
+        recovered: false,
+        receipt: {
+          incompleteReason: "source_revision_mismatch",
+          replayExecutionId: null,
+          replayCanonicalProofHash: null,
+        },
+      });
+      await rm(dirtySourceMarker, { force: true });
+
+      const mutatedWorkspaceCase = await createNextRegisteredReplayCase();
+      await writeFile(
+        path.join(rootPath, "node_modules/.cache/mutate-next-replay"),
+        "mutate\n",
+        "utf8",
+      );
+      const mutatedWorkspaceReplay = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: mutatedWorkspaceCase.id,
+        userId,
+      });
+      expect(mutatedWorkspaceReplay).toMatchObject({
+        status: "incomplete",
+        recovered: false,
+        receipt: {
+          incompleteReason: "replay_identity_mismatch",
+          replayExecutionId: expect.any(String),
+          replayEpisodeId: expect.any(String),
+          replayCanonicalProofHash: null,
+        },
+      });
+      if (mutatedWorkspaceReplay.receipt.replayExecutionId) {
+        executionIds.push(mutatedWorkspaceReplay.receipt.replayExecutionId);
+      }
+
+      const changedHeadCase = await createNextRegisteredReplayCase();
+      await writeFile(path.join(rootPath, "head-change-marker.txt"), "new head\n", "utf8");
+      await execFileAsync("git", ["-C", rootPath, "add", "head-change-marker.txt"]);
+      await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "replay revision drift fixture"]);
+      const changedHeadReplay = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: changedHeadCase.id,
+        userId,
+      });
+      expect(changedHeadReplay).toMatchObject({
+        status: "incomplete",
+        recovered: false,
+        receipt: {
+          incompleteReason: "source_revision_mismatch",
+          replayExecutionId: null,
+          replayCanonicalProofHash: null,
+        },
+      });
+
+      const candidateAfterFailClosedCases = await db.select().from(aiStrategyCandidatesTable)
+        .where(eq(aiStrategyCandidatesTable.projectId, projectId));
+      expect(candidateAfterFailClosedCases[0]).toMatchObject({
+        evaluationStatus: "pending_replay",
+        supportingEpisodeIds: candidateAfterThirdEpisode[0]?.supportingEpisodeIds,
+      });
+      expect(candidateAfterFailClosedCases[0]?.supportingEpisodeIds)
+        .not.toContain(mutatedWorkspaceReplay.receipt.replayEpisodeId);
     } finally {
       await manager.shutdown();
       for (const executionId of executionIds) {
