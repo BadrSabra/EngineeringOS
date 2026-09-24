@@ -14,6 +14,8 @@ import {
   type BrowserValidationRunner,
   type GitHubDeliveryRunner,
   type RuntimeStartRunner,
+  type RuntimeRestartRunner,
+  type RuntimeStopRunner,
   type RecipeCapabilityRuntime,
   type RecipeEvidence,
   type ValidationRunner,
@@ -118,6 +120,8 @@ export type PrepareRecipeOperationParams = {
   browserValidationRunner?: BrowserValidationRunner;
   githubDeliveryRunner?: GitHubDeliveryRunner;
   runtimeStartRunner?: RuntimeStartRunner;
+  runtimeRestartRunner?: RuntimeRestartRunner;
+  runtimeStopRunner?: RuntimeStopRunner;
   databaseReadRunner?: NonNullable<RecipeCapabilityRuntime["databaseReadRunner"]>;
   validationRunner?: ValidationRunner;
   skillBinding?: ActiveSkillRegistryBinding;
@@ -193,6 +197,96 @@ export function createRuntimeStartRunner(
   };
 }
 
+function createRuntimeModeRunner(
+  mode: "restart" | "stop",
+  manager = workspaceRuntime,
+): RuntimeRestartRunner | RuntimeStopRunner {
+  return async ({ projectId, operationId, rootPath, revision, signal }) => {
+    if (signal?.aborted) return { status: "blocked", detail: `Runtime ${mode} was cancelled.` };
+    try {
+      const before = await manager.get(projectId);
+      if (mode === "stop" && (
+        !before.sessionId
+        || before.status !== "running"
+        || before.revision !== revision
+        || before.pid === null
+        || before.port === null
+      )) {
+        return { status: "unavailable", detail: "Runtime stop requires a running session matching the requested revision with PID and port identity." };
+      }
+      const preStopPid = before.pid;
+      const preStopPort = before.port;
+      const stopBeforeState = mode === "stop"
+        ? await manager.observeRunningBeforeStop({
+            projectId,
+            sessionId: before.sessionId!,
+            revision,
+            pid: preStopPid!,
+            port: preStopPort!,
+          })
+        : undefined;
+      if (stopBeforeState && stopBeforeState.status !== "passed") {
+        return {
+          status: "unavailable",
+          detail: stopBeforeState.detail ?? "Runtime process and port were not available before stop.",
+        };
+      }
+      const snapshot = mode === "restart"
+        ? await manager.start({ projectId, projectRoot: rootPath, revision, restart: true })
+        : await manager.stop(projectId);
+      if (mode === "restart") {
+        if (snapshot.status !== "running" || !snapshot.sessionId) {
+          return { status: "unavailable", detail: snapshot.error ?? "Runtime restart did not reach running state." };
+        }
+        const after = await manager.observeAfterState({
+          projectId, sessionId: snapshot.sessionId, revision, signal,
+        });
+        return {
+          status: after.status === "passed" ? "passed" : after.status === "failed" ? "blocked" : "unavailable",
+          evidence: {
+            evidenceId: `runtime:${projectId}:${operationId}:${snapshot.sessionId}:after`,
+            resultHash: createHash("sha256").update(JSON.stringify(after)).digest("hex"),
+            artifactRef: `runtime:${snapshot.sessionId}`,
+            afterState: after,
+          },
+          detail: after.detail,
+        };
+      }
+      if (!snapshot.sessionId) return { status: "unavailable", detail: "Runtime stop did not retain session identity." };
+      const after = await manager.observeStoppedAfterState({
+        projectId, sessionId: before.sessionId!, revision, pid: preStopPid!, port: preStopPort!,
+      });
+      return {
+        status: after.status === "passed" ? "passed" : "unavailable",
+        evidence: {
+          evidenceId: `runtime:${projectId}:${operationId}:${before.sessionId}:after`,
+          resultHash: createHash("sha256")
+            .update(JSON.stringify({ before: stopBeforeState, after }))
+            .digest("hex"),
+          artifactRef: `runtime:${before.sessionId}`,
+          beforeState: stopBeforeState,
+          afterState: { ...after, pid: preStopPid, port: preStopPort },
+        },
+        detail: after.detail,
+      };
+    } catch (error) {
+      return {
+        status: error instanceof WorkspaceRuntimeError && error.code === "RUNTIME_OBSERVATION_STALE"
+          ? "blocked" : "unavailable",
+        detail: error instanceof Error ? error.message.slice(0, 4_000) : `Runtime ${mode} failed.`,
+      };
+    }
+  };
+}
+
+export function createRuntimeRestartRunner(manager = workspaceRuntime): RuntimeRestartRunner {
+  return createRuntimeModeRunner("restart", manager);
+}
+
+export function createRuntimeStopRunner(manager = workspaceRuntime): RuntimeStopRunner {
+  return createRuntimeModeRunner("stop", manager);
+}
+
 function normalizedPaths(paths: readonly string[] | undefined): string[] {
   return [...new Set((paths ?? []).map((value) => value.trim().replaceAll("\\", "/")).filter(Boolean))];
 }
@@ -239,6 +333,8 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       ...(params.browserValidationRunner ? { browserProfiles: ["default"] } : {}),
       ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
       ...(params.runtimeStartRunner ? { runtimeStartRunner: params.runtimeStartRunner } : {}),
+      ...(params.runtimeRestartRunner ? { runtimeRestartRunner: params.runtimeRestartRunner } : {}),
+      ...(params.runtimeStopRunner ? { runtimeStopRunner: params.runtimeStopRunner } : {}),
       databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     },
   );
@@ -253,6 +349,8 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       // Validation and browser profiles operate on a bounded set, even when
       // that set contains one file. "file" is reserved for file-native tools.
       scope: params.recipeId === "runtime.start"
+        || params.recipeId === "runtime.restart"
+        || params.recipeId === "runtime.stop"
         ? { kind: "project", paths: [] }
         : approvedPaths.length > 0
           ? { kind: "paths", paths: approvedPaths }
@@ -340,6 +438,8 @@ function evidenceForNodes(
     const evidenceType = node.capabilityId?.startsWith("browser.verify.")
       ? "browser_verified" as const
       : node.capabilityId === "runtime.start"
+        || node.capabilityId === "runtime.restart"
+        || node.capabilityId === "runtime.stop"
         ? "runtime_verified" as const
       : node.capabilityId?.startsWith("github.push")
         ? "integration_verified" as const
@@ -885,6 +985,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
     ...(params.runtimeStartRunner ? { runtimeStartRunner: params.runtimeStartRunner } : {}),
+    ...(params.runtimeRestartRunner ? { runtimeRestartRunner: params.runtimeRestartRunner } : {}),
+    ...(params.runtimeStopRunner ? { runtimeStopRunner: params.runtimeStopRunner } : {}),
     databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     ...(params.browserValidationRunner
       ? {

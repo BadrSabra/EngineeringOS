@@ -103,6 +103,8 @@ export type RecipeCapabilityRuntime = {
    */
   githubDeliveryRunner?: GitHubDeliveryRunner;
   runtimeStartRunner?: RuntimeStartRunner;
+  runtimeRestartRunner?: RuntimeRestartRunner;
+  runtimeStopRunner?: RuntimeStopRunner;
 };
 
 export type DatabaseReadResource = "project_summary" | "active_goals" | "recent_events";
@@ -155,6 +157,9 @@ export type RuntimeStartRunner = (args: {
   evidence?: Record<string, unknown>;
   detail?: string;
 }>;
+
+export type RuntimeRestartRunner = RuntimeStartRunner;
+export type RuntimeStopRunner = RuntimeStartRunner;
 
 function validationCapability(
   profile: ValidationProfile,
@@ -291,6 +296,59 @@ function runtimeStartCapability(runtime: RecipeCapabilityRuntime): CapabilityAda
         };
       }
       const result = await runtime.runtimeStartRunner!({
+        projectId: context.projectId,
+        operationId: context.operationId,
+        rootPath: context.rootPath,
+        revision: context.revision,
+        signal: context.signal,
+      });
+      return {
+        status: result.status,
+        profile: "runtime" as const,
+        ...(result.evidence ? { evidence: result.evidence } : {}),
+        ...(result.detail ? { detail: result.detail.slice(0, 4_000) } : {}),
+      };
+    },
+  };
+}
+
+function runtimeModeCapability(
+  runtime: RecipeCapabilityRuntime,
+  mode: "restart" | "stop",
+): CapabilityAdapter | undefined {
+  const runner = mode === "restart" ? runtime.runtimeRestartRunner : runtime.runtimeStopRunner;
+  if (!runner) return undefined;
+  const id = `runtime.${mode}` as const;
+  return {
+    contractVersion: 1,
+    id,
+    supportedRecipeVersions: [1] as const,
+    policy: { ...DEFAULT_CAPABILITY_POLICY, risk: "high", maxOutputBytes: 32_768 },
+    catalog: {
+      purpose: `${mode === "restart" ? "Restart" : "Stop"} the server-owned workspace runtime and verify its state.`,
+      inputShape: { type: "object", fields: [] },
+      defaultScope: "project",
+      supportedScopes: ["project"],
+      estimatedCost: "high",
+      mutatesProject: false,
+      keywords: ["runtime", mode],
+      allowedPhases: ["validation", "recovery"],
+      projectIds: [],
+      requiresAuthorization: true,
+      expectedEvidence: ["runtime_verified"],
+    },
+    inputSchema: z.object({}).strict(),
+    outputSchema: z.object({
+      status: z.enum(["passed", "blocked", "unavailable"]),
+      profile: z.literal("runtime"),
+      evidence: z.record(z.unknown()).optional(),
+      detail: z.string().max(4_000).optional(),
+    }).strict(),
+    execute: async (_input, context) => {
+      if (!context.projectId || !context.operationId || !context.revision) {
+        return { status: "blocked", profile: "runtime" as const, detail: "A durable project, operation, and source revision are required." };
+      }
+      const result = await runner({
         projectId: context.projectId,
         operationId: context.operationId,
         rootPath: context.rootPath,
@@ -511,6 +569,8 @@ export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime 
   const githubCapability = githubDeliveryCapability(runtime);
   const databaseCapability = databaseReadCapability(runtime);
   const runtimeCapability = runtimeStartCapability(runtime);
+  const runtimeRestart = runtimeModeCapability(runtime, "restart");
+  const runtimeStop = runtimeModeCapability(runtime, "stop");
   const adapters: CapabilityAdapter[] = [
     READ_PROJECT_FILE_CAPABILITY,
     ...VALIDATION_PROFILES.map((profile) => validationCapability(profile, runtime)),
@@ -519,6 +579,8 @@ export function createServerCapabilityRegistry(runtime: RecipeCapabilityRuntime 
     ...(databaseCapability ? [databaseCapability] : []),
     ...(githubCapability ? [githubCapability] : []),
     ...(runtimeCapability ? [runtimeCapability] : []),
+    ...(runtimeRestart ? [runtimeRestart] : []),
+    ...(runtimeStop ? [runtimeStop] : []),
   ];
   return new CapabilityRegistry(adapters);
 }

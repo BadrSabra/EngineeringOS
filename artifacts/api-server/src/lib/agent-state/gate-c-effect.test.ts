@@ -62,4 +62,36 @@ describe("Gate C effect contracts", () => {
     expect(action.observationProfile).toBe("DELIVERY");
     expect(action.authorization).toMatchObject({ source: "server" });
   });
+
+  it("preserves runtime.start identity while separating restart and stop profiles", () => {
+    const start = gateCEffectIdentity({ kind: "runtime", operationId: "operation-runtime" });
+    expect(start).toEqual({
+      subject: "runtime:operation-runtime",
+      predicate: "serving.status",
+      effectId: "runtime.serving.observed",
+    });
+    const restart = gateCEffectIdentity({ kind: "runtime-restart", operationId: "operation-runtime" });
+    const stop = gateCEffectIdentity({ kind: "runtime-stop", operationId: "operation-runtime" });
+    expect(restart.effectId).not.toBe(start.effectId);
+    expect(stop.effectId).not.toBe(start.effectId);
+    for (const [recipeId, capabilityId] of [
+      ["runtime.restart", "runtime.restart"],
+      ["runtime.stop", "runtime.stop"],
+    ] as const) {
+      const action = buildGateCAction({
+        actionId: `action-${recipeId}`,
+        episodeId: "episode-runtime",
+        projectId: "project-runtime",
+        operationId: "operation-runtime",
+        sourceRevision: "revision-runtime",
+        recipeId,
+        capabilityId,
+        approvedPaths: [],
+      });
+      expect(action.observationProfile).toBe("RUNTIME");
+      expect(action.expectedEffects).toEqual([
+        recipeId === "runtime.restart" ? restart.effectId : stop.effectId,
+      ]);
+    }
+  });
 });

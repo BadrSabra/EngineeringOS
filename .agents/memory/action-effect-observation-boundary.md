@@ -42,3 +42,18 @@ false causal proof.
 **How to apply:** Runtime observers must fence session, revision, worker lease, PID, port, health,
 and marker; delivery observers must re-read remote branch state after push, including idempotent
 reconciliation. Keep runtime action wiring and reconnect coverage separate until they are proven.
+
+For runtime stop, capture the target PID and port before signaling the process and carry both into
+the after-state observer. The persisted terminal row clears its PID, so `pid = null` proves lease
+release only; it does not prove that the old process exited. Before signaling, directly verify that
+the exact owned session is running, the captured PID is alive, and its port is listening. Accept
+stop only after the exact project/session/revision is terminal, ownership is released, the captured
+PID is dead, and the captured port is closed.
+
+**Why:** Clearing PID is part of the stop lifecycle and otherwise makes a terminal snapshot appear
+to prove process death even when the original process identity was never checked. A stale snapshot
+can also claim a stop effect if the process was already dead before the action began.
+
+**How to apply:** Stop adapters must fail closed if pre-stop PID/port identity is missing, and must
+probe those captured identities both before the action and after the durable stop transition before
+emitting direct evidence.

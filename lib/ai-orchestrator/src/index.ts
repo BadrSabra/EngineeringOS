@@ -440,6 +440,8 @@ export type {
   DatabaseReadRunner,
   GitHubDeliveryRunner,
   RuntimeStartRunner,
+  RuntimeRestartRunner,
+  RuntimeStopRunner,
   RecipeCapabilityRuntime,
 } from "./recipe-capabilities.js";
 export {

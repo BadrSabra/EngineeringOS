@@ -210,3 +210,174 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
     expect(acceptances.every((row) => row.effectBundleId === null)).toBe(true);
   });
 });
+
+async function assertRuntimeRouteEvidence(executionId: string, capabilityId: string) {
+  const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
+    .where(eq(aiAgentEffectBundlesTable.executionId, executionId)).limit(1);
+  expect(bundle).toMatchObject({ verdict: "OBSERVED" });
+  const effects = await db.select().from(aiAgentEffectsTable)
+    .where(eq(aiAgentEffectsTable.executionId, executionId));
+  expect(effects).toHaveLength(1);
+  expect(effects[0]).toMatchObject({ capabilityId, status: "observed" });
+  const [acceptance] = await db.select({
+    outcome: aiExecutionAcceptancesTable.outcome,
+    effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+  }).from(aiExecutionAcceptancesTable).where(and(
+    eq(aiExecutionAcceptancesTable.executionId, executionId),
+    eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+  )).limit(1);
+  expect(acceptance?.effectBundleId).toBe(bundle?.id);
+  const observations = await db.select().from(aiAgentObservationsTable)
+    .where(eq(aiAgentObservationsTable.executionId, executionId));
+  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+}
+
+describe.each([
+  { action: "restart", capability: "runtime.restart" },
+  { action: "stop", capability: "runtime.stop" },
+] as const)("POST /api/projects/:projectId/runtime/$action", ({ action, capability }) => {
+  it("uses the real recipe operation and is idempotent", async () => {
+    const fixture = await createProjectFixture();
+    const runtime = createRuntimeMock(fixture.projectId, fixture.sourceRevision);
+    const originalGet = vi.mocked(workspaceRuntime.get);
+    const stopped: WorkspaceRuntimeSnapshot = {
+      ...runtime.snapshot,
+      status: "stopped",
+      stoppedAt: new Date().toISOString(),
+      pid: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    };
+    const operation = action === "restart"
+      ? vi.spyOn(workspaceRuntime, "start").mockResolvedValue(runtime.snapshot)
+      : vi.spyOn(workspaceRuntime, "stop").mockResolvedValue(stopped);
+    if (action === "stop") {
+      originalGet.mockReset()
+        .mockResolvedValueOnce(runtime.snapshot)
+        .mockResolvedValue(stopped);
+      vi.spyOn(workspaceRuntime, "observeRunningBeforeStop").mockResolvedValue({
+        ...runtime.afterState,
+        pid: runtime.snapshot.pid,
+        port: runtime.snapshot.port!,
+        status: "passed",
+        processAlive: true,
+        portReady: true,
+        detail: "Runtime process and port were observed before stop.",
+      });
+      vi.spyOn(workspaceRuntime, "observeStoppedAfterState").mockResolvedValue({
+        ...runtime.afterState,
+        pid: runtime.snapshot.pid,
+        port: runtime.snapshot.port!,
+        status: "passed",
+        processAlive: false,
+        portReady: false,
+        detail: "Runtime process and port closure were observed.",
+      });
+    }
+    const key = `runtime-${action}-route-success-001`;
+    const first = await request(app)
+      .post(`/api/projects/${fixture.projectId}/runtime/${action}`)
+      .set("Idempotency-Key", key);
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.body).toMatchObject({
+      operationStatus: "completed",
+      executionId: expect.any(String),
+      receipt: { status: "completed" },
+    });
+    expect(operation).toHaveBeenCalledTimes(1);
+    await assertRuntimeRouteEvidence(first.body.executionId, capability);
+    const retry = await request(app)
+      .post(`/api/projects/${fixture.projectId}/runtime/${action}`)
+      .set("Idempotency-Key", key);
+    expect(retry.status).toBe(200);
+    expect(retry.body.executionId).toBe(first.body.executionId);
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks an unavailable after-state without successful acceptance", async () => {
+    const fixture = await createProjectFixture();
+    const runtime = createRuntimeMock(fixture.projectId, fixture.sourceRevision, {
+      status: "unavailable",
+      revision: "stale-runtime-revision",
+      detail: "Runtime after-state did not match the requested revision.",
+    });
+    if (action === "stop") {
+      const stopped: WorkspaceRuntimeSnapshot = {
+        ...runtime.snapshot,
+        status: "stopped",
+        stoppedAt: new Date().toISOString(),
+        pid: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      };
+      vi.mocked(workspaceRuntime.get).mockReset()
+        .mockResolvedValueOnce(runtime.snapshot)
+        .mockResolvedValue(stopped);
+      vi.spyOn(workspaceRuntime, "stop").mockResolvedValue(stopped);
+      vi.spyOn(workspaceRuntime, "observeRunningBeforeStop").mockResolvedValue({
+        ...runtime.afterState,
+        status: "passed",
+        processAlive: true,
+        portReady: true,
+        pid: runtime.snapshot.pid,
+        port: runtime.snapshot.port!,
+      });
+      vi.spyOn(workspaceRuntime, "observeStoppedAfterState").mockResolvedValue({
+        ...runtime.afterState,
+        status: "unavailable",
+        pid: runtime.snapshot.pid,
+        port: runtime.snapshot.port!,
+      });
+    } else {
+      vi.spyOn(workspaceRuntime, "start").mockResolvedValue(runtime.snapshot);
+    }
+    const response = await request(app)
+      .post(`/api/projects/${fixture.projectId}/runtime/${action}`)
+      .set("Idempotency-Key", `runtime-${action}-route-stale-001`);
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      operationStatus: "blocked",
+      code: `RUNTIME_${action.toUpperCase()}_NOT_VERIFIED`,
+    });
+    const executions = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, fixture.projectId));
+    const acceptances = await db.select({ outcome: aiExecutionAcceptancesTable.outcome })
+      .from(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, executions[0]!.id));
+    expect(acceptances.some((row) => row.outcome === "SUCCEEDED")).toBe(false);
+  });
+});
+
+describe("POST /api/projects/:projectId/runtime/stop preflight", () => {
+  it("does not stop when the direct pre-stop process observation is unavailable", async () => {
+    const fixture = await createProjectFixture();
+    const runtime = createRuntimeMock(fixture.projectId, fixture.sourceRevision);
+    vi.spyOn(workspaceRuntime, "get").mockResolvedValue(runtime.snapshot);
+    const stop = vi.spyOn(workspaceRuntime, "stop").mockResolvedValue({
+      ...runtime.snapshot,
+      status: "stopped",
+      stoppedAt: new Date().toISOString(),
+      pid: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    });
+    vi.spyOn(workspaceRuntime, "observeRunningBeforeStop").mockResolvedValue({
+      ...runtime.afterState,
+      status: "unavailable",
+      processAlive: false,
+      portReady: false,
+      pid: runtime.snapshot.pid,
+      port: runtime.snapshot.port!,
+      detail: "Runtime process or port was unavailable before stop.",
+    });
+    const response = await request(app)
+      .post(`/api/projects/${fixture.projectId}/runtime/stop`)
+      .set("Idempotency-Key", "runtime-stop-preflight-failure-001");
+    expect(response.status).toBe(409);
+    expect(stop).not.toHaveBeenCalled();
+    const [execution] = await db.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, fixture.projectId));
+    const acceptances = await db.select({ outcome: aiExecutionAcceptancesTable.outcome })
+      .from(aiExecutionAcceptancesTable).where(eq(aiExecutionAcceptancesTable.executionId, execution!.id));
+    expect(acceptances.some((row) => row.outcome === "SUCCEEDED")).toBe(false);
+  });
+});

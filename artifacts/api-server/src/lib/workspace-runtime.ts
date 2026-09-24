@@ -427,6 +427,121 @@ export class WorkspaceRuntimeManager {
     };
   }
 
+  async observeStoppedAfterState(input: {
+    projectId: string;
+    sessionId: string;
+    revision: string;
+    pid: number;
+    port: number;
+  }): Promise<RuntimeAfterState> {
+    if (!Number.isInteger(input.pid) || input.pid <= 0 || !Number.isInteger(input.port) || input.port <= 0) {
+      throw new WorkspaceRuntimeError(
+        "Runtime stop after-state requires the exact pre-stop PID and port.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
+    const persisted = await this.store.get(input.projectId);
+    const session = this.sessions.get(input.projectId);
+    const row = persisted ?? session;
+    if (
+      !row
+      || row.sessionId !== input.sessionId
+      || row.revision !== input.revision
+      || row.status !== "stopped"
+      || row.pid !== null
+      || !row.stoppedAt
+      || row.leaseUntil !== null
+      || row.workerId !== null
+    ) {
+      throw new WorkspaceRuntimeError(
+        "Runtime stop after-state requires the exact stopped session with released ownership.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
+    const processAlive = await isPidAlive(input.pid);
+    const portReady = await isPortListening(input.port);
+    return {
+      status: !processAlive && !portReady ? "passed" : "unavailable",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      revision: input.revision,
+      pid: input.pid,
+      port: input.port,
+      processAlive,
+      portReady,
+      healthPath: "/",
+      healthStatus: null,
+      servingRevision: null,
+      markerMatched: null,
+      responseBody: "",
+      observedAt: new Date().toISOString(),
+      detail: !processAlive && !portReady
+        ? "Runtime process and port closure were observed."
+        : "Runtime process or port remained available after stop.",
+    };
+  }
+
+  async observeRunningBeforeStop(input: {
+    projectId: string;
+    sessionId: string;
+    revision: string;
+    pid: number;
+    port: number;
+  }): Promise<RuntimeAfterState> {
+    const persisted = await this.store.get(input.projectId);
+    const session = this.sessions.get(input.projectId);
+    const now = Date.now();
+    if (
+      !persisted
+      || !session
+      || persisted.sessionId !== input.sessionId
+      || session.sessionId !== input.sessionId
+      || persisted.revision !== input.revision
+      || session.revision !== input.revision
+      || persisted.status !== "running"
+      || session.status !== "running"
+      || persisted.pid !== input.pid
+      || session.pid !== input.pid
+      || persisted.port !== input.port
+      || session.port !== input.port
+      || persisted.workerId !== this.workerId
+      || session.workerId !== this.workerId
+      || !persisted.leaseUntil
+      || persisted.leaseUntil.getTime() <= now
+      || !session.leaseUntil
+      || Date.parse(session.leaseUntil) <= now
+    ) {
+      throw new WorkspaceRuntimeError(
+        "Runtime stop pre-state requires the exact running session and current worker lease.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
+    const processAlive = await isPidAlive(input.pid);
+    const portReady = await isPortListening(input.port);
+    return {
+      status: processAlive && portReady ? "passed" : "unavailable",
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      revision: input.revision,
+      pid: input.pid,
+      port: input.port,
+      processAlive,
+      portReady,
+      healthPath: "/",
+      healthStatus: null,
+      servingRevision: null,
+      markerMatched: null,
+      responseBody: "",
+      observedAt: new Date().toISOString(),
+      detail: processAlive && portReady
+        ? "Runtime process and port were observed before stop."
+        : "Runtime process or port was unavailable before stop.",
+    };
+  }
+
   async recover(): Promise<void> {
     const rows = await this.store.listRecoverable(new Date());
     for (const row of rows) {
@@ -786,6 +901,9 @@ export class WorkspaceRuntimeManager {
     if (session.stopPromise) return session.stopPromise;
     session.stopPromise = (async () => {
       this.stopHeartbeat(session);
+      // Fence the exit handler before signalling the process so a normal
+      // SIGTERM cannot race and reclassify an intentional stop as failed.
+      session.status = finalStatus;
       if (this.supervisor) {
         await this.supervisor.stop({
           projectId: session.projectId,
@@ -795,7 +913,6 @@ export class WorkspaceRuntimeManager {
       } else {
         await terminateProcessGroup(session.pid, session.child);
       }
-      session.status = finalStatus;
       session.stoppedAt = new Date().toISOString();
       session.pid = null;
       session.leaseUntil = null;

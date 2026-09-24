@@ -12,7 +12,9 @@ describe("server recipe definition registry", () => {
       "candidate.verify",
       "database.inspect.project",
       "delivery.push.github",
+      "runtime.restart",
       "runtime.start",
+      "runtime.stop",
       "validation.recover",
     ]);
     expect(registry.resolve("candidate.verify", 1)).toMatchObject({

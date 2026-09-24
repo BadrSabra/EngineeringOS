@@ -16,9 +16,9 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start وBrowser/Delivery recipe slices تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ ما زالت مسارات Runtime restart/stop وAI apply-changes وTask execution خارج spine. World Delta له إغلاق مستقل في P6. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery recipe slices تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ ما زالت مسارات AI apply-changes وTask execution خارج spine. World Delta له إغلاق مستقل في P6. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start المباشر وBrowser/Delivery Gate C يستخدمون effect gate؛ تبقى restart/stop ومسارات التعافي والـlease/reconnect الأوسع. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery Gate C يستخدمون effect gate؛ تبقى مسارات التعافي والـlease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
@@ -667,6 +667,39 @@ G9 Revocation Safety
 - **next step:** Specify distinct server-owned action profiles for Runtime
   restart/stop before adapting those routes; do not label them as `runtime.start`.
   Continue the P3.5/P4/P5 gates before P6 or broader replay evaluation.
+
+### 2026-09-24 — Direct Runtime Restart and Stop Action Spine
+
+- **phase/step:** P3.5 / P5 — direct Runtime restart and stop routes
+- **status:** `partial`
+- **what changed:** أضيفت وصفات وقدرات server-owned منفصلة باسم
+  `runtime.restart` و`runtime.stop`، مع effect/action identities مستقلة مع إبقاء
+  هوية `runtime.start` السابقة كما هي. يمر المساران الآن عبر execution وEpisode
+  وbefore/after direct observations وeffect bundle وacceptance مرتبط به. Restart
+  لا ينجح إلا بعد ملاحظة serving state للمراجعة والجلسة الجديدة. Stop يشترط
+  session فعالة ومطابقة للمراجعة وPID/port معروفين، ويتحقق مباشرة من حياة PID
+  واستماع المنفذ قبل الإشارة؛ بعد الإيقاف يفحص المراقب حالة terminal والـownership
+  المحرر، ثم يثبت موت PID السابق وإغلاق المنفذ. إعادة الطلب بالمفتاح نفسه لا تكرر
+  الأثر، ولا تُحقن القدرات الجديدة في مسارات AI recipe أو Mission.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/recipe-capabilities.ts`,
+  `lib/ai-orchestrator/src/recipe-definition-registry.ts`,
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`,
+  `artifacts/api-server/src/lib/workspace-runtime.ts`,
+  `artifacts/api-server/src/lib/agent-state/gate-c-effect.ts`,
+  `artifacts/api-server/src/routes/runtime.ts` والاختبارات المرتبطة؛ لا migration.
+- **validation:** API typecheck؛ 26 اختبار API مستهدفًا و15 اختبارًا لـ
+  ai-orchestrator؛ `git diff --check`. أُعيد تشغيل API بعد التغييرات النهائية
+  والتحقق من `/api/healthz`.
+- **authority/safety impact:** لا يثبت stop من snapshot أو `pid=null` وحده؛
+  الملاحظة تحمل هوية PID/port قبل الإيقاف وتتحقق من توفرهما قبله وإغلاقهما بعده.
+  فشل الملاحظة أو stale identity يمنع `SUCCEEDED` acceptance. ظل replay المسجل محصورًا في
+  `runtime.start` ولم يتغير generic Mission shadow replay.
+- **remaining/blocker:** P3.5/P4/P5 تبقى جزئية. AI `apply-changes` وTask
+  execution خارج action/effect spine؛ وتبقى ملاحظات البيئة/العالم، والتعافي
+  الأوسع، واختبارات lease/reconnect.
+- **next step:** تحديد مسار AI `apply-changes` وTask execution والعقود
+  server-owned المطلوبة لإدخالهما في spine دون توسيع replay أو صلاحيات mutation؛
+  ثم استكمال P4/P5 قبل P6.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

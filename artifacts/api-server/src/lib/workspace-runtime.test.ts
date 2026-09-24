@@ -61,9 +61,70 @@ describe("WorkspaceRuntimeManager", () => {
       markerMatched: true,
     });
 
+    const beforeStop = await manager.observeRunningBeforeStop({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+      pid: started.pid!,
+      port: started.port!,
+    });
+    expect(beforeStop).toMatchObject({
+      status: "passed",
+      sessionId: started.sessionId,
+      revision: "revision-1",
+      pid: started.pid,
+      port: started.port,
+      processAlive: true,
+      portReady: true,
+    });
+
     const stopped = await manager.stop("project-runtime-test");
     expect(stopped.status).toBe("stopped");
     expect(stopped.pid).toBeNull();
+    const stoppedAfter = await manager.observeStoppedAfterState({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+      pid: started.pid!,
+      port: started.port!,
+    });
+    expect(stoppedAfter).toMatchObject({
+      status: "passed",
+      sessionId: started.sessionId,
+      revision: "revision-1",
+      pid: started.pid,
+      port: started.port,
+      processAlive: false,
+      portReady: false,
+    });
+    await expect(manager.observeStoppedAfterState({
+      projectId: "project-runtime-test",
+      sessionId: "wrong-session",
+      revision: "revision-1",
+      pid: started.pid!,
+      port: started.port!,
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+    await expect(manager.observeStoppedAfterState({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+      pid: 0,
+      port: started.port!,
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+    await expect(manager.observeStoppedAfterState({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+      pid: started.pid!,
+      port: 0,
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+    await expect(manager.observeStoppedAfterState({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "wrong-revision",
+      pid: started.pid!,
+      port: started.port!,
+    })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
     await fs.rm(root, { recursive: true, force: true });
   });
 

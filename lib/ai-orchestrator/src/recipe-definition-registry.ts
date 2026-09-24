@@ -255,6 +255,29 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
       1,
       "high",
     ),
+    ...(["restart", "stop"] as const).map((mode) => definition(
+      `runtime.${mode}`,
+      () => [{
+        id: `runtime-${mode}`,
+        title: `${mode === "restart" ? "Restart" : "Stop"} and verify the server-owned workspace runtime`,
+        capabilityId: `runtime.${mode}`,
+        recipeVersion: 1,
+        input: {},
+        dependsOn: [],
+        declaredOutputs: ["status", "profile", "evidence"],
+      }],
+      {
+        success: {
+          kind: "evidence",
+          nodeId: `runtime-${mode}`,
+          evidenceType: "runtime_verified",
+        },
+        outputs: [],
+      },
+      RUNTIME_POLICY,
+      1,
+      "high",
+    )),
     definition(
       "database.inspect.project",
       () => [{

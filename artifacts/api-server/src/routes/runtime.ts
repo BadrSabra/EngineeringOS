@@ -3,7 +3,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
 import { resolveRootPath } from "../lib/rootpath-validator.js";
-import { createRuntimeStartRunner, runRecipeOperation } from "../lib/recipe-operation-runner.js";
+import {
+  createRuntimeRestartRunner,
+  createRuntimeStartRunner,
+  createRuntimeStopRunner,
+  runRecipeOperation,
+} from "../lib/recipe-operation-runner.js";
 import {
   workspaceRuntime,
   WorkspaceRuntimeError,
@@ -120,14 +125,24 @@ router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, asy
 });
 
 router.post("/projects/:projectId/runtime/restart", requireProjectWriteAccess, async (req, res) => {
+  const project = req.project;
+  const key = req.header("Idempotency-Key") ?? randomUUID();
+  if (key.length < 8 || key.length > 128) {
+    return res.status(400).json({ error: "Idempotency-Key must be 8-128 characters.", code: "IDEMPOTENCY_KEY_INVALID", retryable: false });
+  }
   try {
-    const snapshot = await workspaceRuntime.start({
-      projectId: req.project!.id,
-      projectRoot: req.project!.rootPath,
-      revision: req.project!.updatedAt.toISOString(),
-      restart: true,
+    const root = await resolveRootPath(project!.rootPath, project!.id);
+    if (!root.validRootPath) return res.status(409).json({ error: "The project workspace is unavailable.", code: "ROOT_UNAVAILABLE", retryable: true });
+    const operationId = `runtime-restart:${createHash("sha256").update(JSON.stringify([project!.id, req.userId, key])).digest("hex")}`;
+    const result = await runRecipeOperation({
+      projectId: project!.id, operationId, rootPath: root.validRootPath,
+      sourceRevision: project!.updatedAt.toISOString(), recipeId: "runtime.restart", recipeVersion: 1,
+      userId: req.userId!, idempotencyKey: key, runtimeRestartRunner: createRuntimeRestartRunner(),
     });
-    return res.json(snapshot);
+    const responseBody = { ...await workspaceRuntime.get(project!.id), operationId, executionId: result.executionId, operationStatus: result.status, receipt: toPublicRecipeReceipt(result.receipt) };
+    return result.status === "completed"
+      ? res.json(responseBody)
+      : res.status(409).json({ ...responseBody, error: "Runtime restart was blocked before verified completion.", code: "RUNTIME_RESTART_NOT_VERIFIED", retryable: true });
   } catch (error) {
     const response = runtimeErrorResponse(error);
     return res.status(response.status).json(response.body);
@@ -135,8 +150,24 @@ router.post("/projects/:projectId/runtime/restart", requireProjectWriteAccess, a
 });
 
 router.post("/projects/:projectId/runtime/stop", requireProjectWriteAccess, async (req, res) => {
+  const project = req.project;
+  const key = req.header("Idempotency-Key") ?? randomUUID();
+  if (key.length < 8 || key.length > 128) {
+    return res.status(400).json({ error: "Idempotency-Key must be 8-128 characters.", code: "IDEMPOTENCY_KEY_INVALID", retryable: false });
+  }
   try {
-    return res.json(await workspaceRuntime.stop(req.project!.id));
+    const root = await resolveRootPath(project!.rootPath, project!.id);
+    if (!root.validRootPath) return res.status(409).json({ error: "The project workspace is unavailable.", code: "ROOT_UNAVAILABLE", retryable: true });
+    const operationId = `runtime-stop:${createHash("sha256").update(JSON.stringify([project!.id, req.userId, key])).digest("hex")}`;
+    const result = await runRecipeOperation({
+      projectId: project!.id, operationId, rootPath: root.validRootPath,
+      sourceRevision: project!.updatedAt.toISOString(), recipeId: "runtime.stop", recipeVersion: 1,
+      userId: req.userId!, idempotencyKey: key, runtimeStopRunner: createRuntimeStopRunner(),
+    });
+    const responseBody = { ...await workspaceRuntime.get(project!.id), operationId, executionId: result.executionId, operationStatus: result.status, receipt: toPublicRecipeReceipt(result.receipt) };
+    return result.status === "completed"
+      ? res.json(responseBody)
+      : res.status(409).json({ ...responseBody, error: "Runtime stop was blocked before verified completion.", code: "RUNTIME_STOP_NOT_VERIFIED", retryable: true });
   } catch (error) {
     const response = runtimeErrorResponse(error);
     return res.status(response.status).json(response.body);
