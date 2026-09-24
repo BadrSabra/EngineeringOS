@@ -276,11 +276,11 @@ function runtimeStartCapability(runtime: RecipeCapabilityRuntime): CapabilityAda
       detail: z.string().max(4_000).optional(),
     }).strict(),
     execute: async (_input, context) => {
-      if (!context.projectId || !context.operationId) {
+      if (!context.projectId || !context.operationId || !context.revision) {
         return {
           status: "blocked",
           profile: "runtime" as const,
-          detail: "A durable project and operation identity are required for runtime actions.",
+          detail: "A durable project, operation, and source revision are required for runtime actions.",
         };
       }
       const result = await runtime.runtimeStartRunner!({

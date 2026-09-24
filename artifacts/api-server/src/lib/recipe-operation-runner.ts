@@ -12,6 +12,7 @@ import {
   type ExecutionNode,
   type BrowserValidationRunner,
   type GitHubDeliveryRunner,
+  type RuntimeStartRunner,
   type RecipeCapabilityRuntime,
   type RecipeEvidence,
   type ValidationRunner,
@@ -78,6 +79,7 @@ import {
   gateCEffectIdentity,
   gateCEffectKind,
 } from "./agent-state/gate-c-effect.js";
+import { workspaceRuntime, WorkspaceRuntimeError } from "./workspace-runtime.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -93,6 +95,7 @@ export type PrepareRecipeOperationParams = {
   deliveryMessage?: string;
   browserValidationRunner?: BrowserValidationRunner;
   githubDeliveryRunner?: GitHubDeliveryRunner;
+  runtimeStartRunner?: RuntimeStartRunner;
   databaseReadRunner?: NonNullable<RecipeCapabilityRuntime["databaseReadRunner"]>;
   validationRunner?: ValidationRunner;
   skillBinding?: ActiveSkillRegistryBinding;
@@ -102,6 +105,57 @@ export type PreparedRecipeOperation = {
   plan: ActiveTaskExecutionPlan;
   binding: RecipeOperationBinding;
 };
+
+export function createRuntimeStartRunner(
+  manager = workspaceRuntime,
+): RuntimeStartRunner {
+  return async ({ projectId, operationId, rootPath, revision, signal }) => {
+    if (signal?.aborted) {
+      return { status: "blocked", detail: "Runtime action was cancelled before startup." };
+    }
+    try {
+      const snapshot = await manager.start({
+        projectId,
+        projectRoot: rootPath,
+        revision,
+      });
+      if (snapshot.status !== "running" || !snapshot.sessionId) {
+        return {
+          status: "unavailable",
+          detail: snapshot.error ?? "The workspace runtime did not reach running state.",
+        };
+      }
+      const after = await manager.observeAfterState({
+        projectId,
+        sessionId: snapshot.sessionId,
+        revision,
+        signal,
+      });
+      const evidenceId = `runtime:${projectId}:${operationId}:${snapshot.sessionId}:after`;
+      const resultHash = createHash("sha256")
+        .update(JSON.stringify(after))
+        .digest("hex");
+      return {
+        status: after.status === "passed" ? "passed" as const : after.status === "failed" ? "blocked" as const : "unavailable" as const,
+        evidence: {
+          evidenceId,
+          resultHash,
+          artifactRef: `runtime:${snapshot.sessionId}`,
+          afterState: after,
+        },
+        detail: after.detail,
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message.slice(0, 4_000) : "Runtime action failed.";
+      return {
+        status: error instanceof WorkspaceRuntimeError && error.code === "RUNTIME_OBSERVATION_STALE"
+          ? "blocked" as const
+          : "unavailable" as const,
+        detail,
+      };
+    }
+  };
+}
 
 function normalizedPaths(paths: readonly string[] | undefined): string[] {
   return [...new Set((paths ?? []).map((value) => value.trim().replaceAll("\\", "/")).filter(Boolean))];
@@ -148,6 +202,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
     {
       ...(params.browserValidationRunner ? { browserProfiles: ["default"] } : {}),
       ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+      ...(params.runtimeStartRunner ? { runtimeStartRunner: params.runtimeStartRunner } : {}),
       databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     },
   );
@@ -161,9 +216,11 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       operationId: params.operationId,
       // Validation and browser profiles operate on a bounded set, even when
       // that set contains one file. "file" is reserved for file-native tools.
-      scope: approvedPaths.length > 0
-        ? { kind: "paths", paths: approvedPaths }
-        : { kind: "none", paths: [] },
+      scope: params.recipeId === "runtime.start"
+        ? { kind: "project", paths: [] }
+        : approvedPaths.length > 0
+          ? { kind: "paths", paths: approvedPaths }
+          : { kind: "none", paths: [] },
       allowedFiles: approvedPaths,
       authorized: true,
       approvalState: "APPROVED",
@@ -237,6 +294,8 @@ function evidenceForNodes(
   return Object.fromEntries(nodes.map((node) => {
     const evidenceType = node.capabilityId?.startsWith("browser.verify.")
       ? "browser_verified" as const
+      : node.capabilityId === "runtime.start"
+        ? "runtime_verified" as const
       : node.capabilityId?.startsWith("github.push")
         ? "integration_verified" as const
         : node.capabilityId?.startsWith("database.read")
@@ -554,7 +613,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
            ? "CANDIDATE_VALIDATION"
            : recipeGateCEffectKind === "browser"
              ? "BROWSER_VALIDATION"
-             : "GITHUB_DELIVERY",
+             : recipeGateCEffectKind === "runtime"
+               ? "RUNTIME_START"
+               : "GITHUB_DELIVERY",
         scope: {
           kind: "recipe",
           operationId: params.operationId,
@@ -756,6 +817,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         signal,
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
+    ...(params.runtimeStartRunner ? { runtimeStartRunner: params.runtimeStartRunner } : {}),
     databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     ...(params.browserValidationRunner
       ? {

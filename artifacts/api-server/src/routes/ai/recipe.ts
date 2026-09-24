@@ -5,7 +5,10 @@ import { and, eq } from "drizzle-orm";
 import { aiChangeProposalsTable, db } from "@workspace/db";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
-import { runRecipeOperation } from "../../lib/recipe-operation-runner.js";
+import {
+  createRuntimeStartRunner,
+  runRecipeOperation,
+} from "../../lib/recipe-operation-runner.js";
 import { executeVerifiedGitHubDelivery } from "../../lib/github-delivery-service.js";
 
 const router = Router();
@@ -97,6 +100,7 @@ router.post("/ai/projects/:projectId/recipe", requireProjectAccess, async (req, 
       sourceRevision: project.updatedAt.toISOString(),
       userId: req.userId,
       idempotencyKey,
+      runtimeStartRunner: createRuntimeStartRunner(),
       ...(isDeliveryRecipe && deliveryProposalId && project.gitRemoteUrl
         ? {
             githubDeliveryRunner: async ({ rootPath, projectId, operationId: deliveryOperation, message, signal }) =>

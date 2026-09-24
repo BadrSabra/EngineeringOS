@@ -3,7 +3,9 @@ import type { AgentAction, EffectContract } from "@workspace/ai-orchestrator";
 export type GateCEffectKind = "runtime" | "browser" | "delivery";
 
 export function isGateCEffectRecipe(recipeId: string): boolean {
-  return recipeId === "browser.verify" || recipeId === "delivery.push.github";
+  return recipeId === "runtime.start"
+    || recipeId === "browser.verify"
+    || recipeId === "delivery.push.github";
 }
 
 export function gateCEffectKind(recipeId: string): GateCEffectKind | undefined {

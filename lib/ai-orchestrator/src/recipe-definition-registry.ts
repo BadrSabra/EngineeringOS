@@ -90,6 +90,13 @@ const BROWSER_POLICY: RecipeExecutionPolicy = {
   maxTotalTimeoutMs: 120_000,
 };
 
+const RUNTIME_POLICY: RecipeExecutionPolicy = {
+  ...DEFAULT_RECIPE_EXECUTION_POLICY,
+  maxAttempts: 1,
+  nodeTimeoutMs: 120_000,
+  maxTotalTimeoutMs: 180_000,
+};
+
 export class RecipeDefinitionRegistry {
   private readonly definitions = new Map<string, RecipeDefinition>();
 
@@ -224,6 +231,29 @@ export function createServerRecipeDefinitionRegistry(): RecipeDefinitionRegistry
         outputs: [],
       },
       BROWSER_POLICY,
+    ),
+    definition(
+      "runtime.start",
+      () => [{
+        id: "runtime-start",
+        title: "Start and verify the server-owned workspace runtime",
+        capabilityId: "runtime.start",
+        recipeVersion: 1,
+        input: {},
+        dependsOn: [],
+        declaredOutputs: ["status", "profile", "evidence"],
+      }],
+      {
+        success: {
+          kind: "evidence",
+          nodeId: "runtime-start",
+          evidenceType: "runtime_verified",
+        },
+        outputs: [],
+      },
+      RUNTIME_POLICY,
+      1,
+      "high",
     ),
     definition(
       "database.inspect.project",

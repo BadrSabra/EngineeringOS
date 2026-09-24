@@ -25,7 +25,10 @@ import {
 import { projectGoalAcceptance } from "./mission-acceptance-projection.js";
 import { deliveryWorkspaceExists } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
-import { runRecipeOperation } from "./recipe-operation-runner.js";
+import {
+  createRuntimeStartRunner,
+  runRecipeOperation,
+} from "./recipe-operation-runner.js";
 import { executeVerifiedGitHubDelivery } from "./github-delivery-service.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { logger } from "./logger.js";
@@ -601,6 +604,7 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       candidateWorkspace: candidate?.candidateWorkspace ?? null,
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
+      runtimeStartRunner: createRuntimeStartRunner(),
       ...(skillBinding ? { skillBinding } : {}),
       parentExecutionId: dispatch.delegation.parentExecutionId,
       ...(delivery && project.gitRemoteUrl

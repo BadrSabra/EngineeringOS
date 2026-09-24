@@ -108,7 +108,7 @@ export type EvidencePredicate =
   | { kind: "node_status"; nodeId: string; status: RecipeNodeStatus }
   | { kind: "output_present"; nodeId: string; output: string }
   | { kind: "output_equals"; nodeId: string; output: string; value: unknown }
-  | { kind: "evidence"; nodeId: string; evidenceType: "validation_passed" | "browser_verified" | "artifact_retained" | "integration_verified" | "database_read" }
+  | { kind: "evidence"; nodeId: string; evidenceType: "validation_passed" | "browser_verified" | "runtime_verified" | "artifact_retained" | "integration_verified" | "database_read" }
   | { kind: "all"; predicates: EvidencePredicate[] }
   | { kind: "any"; predicates: EvidencePredicate[] }
   | { kind: "not"; predicate: EvidencePredicate };
@@ -134,7 +134,7 @@ export const EvidencePredicateSchema = z.lazy(() =>
     z.object({
       kind: z.literal("evidence"),
       nodeId: RecipeNodeIdSchema,
-       evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained", "integration_verified", "database_read"]),
+       evidenceType: z.enum(["validation_passed", "browser_verified", "runtime_verified", "artifact_retained", "integration_verified", "database_read"]),
     }).strict(),
     z.object({
       kind: z.literal("all"),
@@ -173,7 +173,7 @@ export const CompiledEvidencePredicateSchema = z.lazy(() =>
     z.object({
       kind: z.literal("evidence"),
       nodeId: z.string().min(1).max(180),
-       evidenceType: z.enum(["validation_passed", "browser_verified", "artifact_retained", "integration_verified", "database_read"]),
+       evidenceType: z.enum(["validation_passed", "browser_verified", "runtime_verified", "artifact_retained", "integration_verified", "database_read"]),
     }).strict(),
     z.object({
       kind: z.literal("all"),
@@ -315,7 +315,7 @@ export type RecipeEvidenceNode = {
   status: RecipeNodeStatus;
   outputs?: Readonly<Record<string, unknown>>;
   evidence?: readonly {
-    type: "validation_passed" | "browser_verified" | "artifact_retained" | "integration_verified" | "database_read";
+    type: "validation_passed" | "browser_verified" | "runtime_verified" | "artifact_retained" | "integration_verified" | "database_read";
   }[];
 };
 
