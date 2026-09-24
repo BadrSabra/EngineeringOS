@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   aiExecutionAcceptancesTable,
+  aiAgentEpisodesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
@@ -47,6 +48,24 @@ vi.mock("./task-progress.js", () => ({
 }));
 
 import { executeTaskLifecycle } from "./task-execution-service.js";
+
+async function waitForEpisode(executionId: string) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [episode] = await db
+      .select({
+        missionId: aiAgentEpisodesTable.missionId,
+        goalId: aiAgentEpisodesTable.goalId,
+        planRevision: aiAgentEpisodesTable.planRevision,
+        scope: aiAgentEpisodesTable.scope,
+      })
+      .from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, executionId))
+      .limit(1);
+    if (episode) return episode;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Episode was not materialized for execution ${executionId}`);
+}
 
 describe("real durable task execution lifecycle", () => {
   afterEach(() => {
@@ -179,7 +198,10 @@ describe("real durable task execution lifecycle", () => {
       priority: "p1",
       successCriteria: {},
       evidenceContract: {},
-      outcomeContract: { deliveryRequired: true },
+      outcomeContract: {
+        deliveryRequired: true,
+        planRevision: { hash: "mission-plan-episode-1" },
+      },
       nextAction: { kind: "task", taskId },
       createdAt: now,
       updatedAt: now,
@@ -208,6 +230,18 @@ describe("real durable task execution lifecycle", () => {
       });
 
       expect(outcome.ok).toBe(true);
+      const episode = await waitForEpisode(outcome.executionId!);
+      expect(episode).toMatchObject({
+        missionId,
+        goalId,
+        planRevision: "mission-plan-episode-1",
+        scope: {
+          kind: "mission-task",
+          taskId,
+          missionId,
+          goalId,
+        },
+      });
       const [goal] = await db
         .select({ status: aiGoalsTable.status, outcomeContract: aiGoalsTable.outcomeContract })
         .from(aiGoalsTable)
