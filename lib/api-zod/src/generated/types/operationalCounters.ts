@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AgentEpisodeShadowHealth } from './agentEpisodeShadowHealth';
 
 /**
  * PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.
@@ -22,4 +23,5 @@ export interface OperationalCounters {
   mutationsWithoutAudit: number;
   /** Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls. */
   rateLimiterFailOpenCount: number;
+  agentEpisodeShadow: AgentEpisodeShadowHealth;
 }

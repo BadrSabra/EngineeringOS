@@ -5061,7 +5061,7 @@ components:
 
     OperationalCounters:
       type: object
-      required: [auditWriteFailures, auditWritesPending, auditWritesRecovered, auditPersistenceUnavailable, mutationsWithoutAudit, rateLimiterFailOpenCount]
+      required: [auditWriteFailures, auditWritesPending, auditWritesRecovered, auditPersistenceUnavailable, mutationsWithoutAudit, rateLimiterFailOpenCount, agentEpisodeShadow]
       description: >
         PR-2: In-process counters for degraded subsystems. Resets to zero on
         process restart. A non-zero value means a best-effort or fail-open
@@ -5089,6 +5089,42 @@ components:
           description: >
             Number of times the LLM rate limiter failed open due to a DB error.
             Non-zero means the per-project call budget was not enforced for those calls.
+        agentEpisodeShadow:
+          $ref: "#/components/schemas/AgentEpisodeShadowHealth"
+
+    AgentEpisodeShadowHealth:
+      type: object
+      required: [writes, successes, failures, staleWorkerRejections, sequenceConflicts, idempotencyConflicts, terminalImmutableRejections, p95LatencyMs]
+      description: >
+        Content-free health counters for the server-owned Agent Episode Shadow
+        Ledger. Resets to zero on process restart; it never represents terminal
+        acceptance or World State authority.
+      properties:
+        writes:
+          type: integer
+          description: Number of Shadow episode write attempts since startup.
+        successes:
+          type: integer
+          description: Number of Shadow episode writes that committed successfully.
+        failures:
+          type: integer
+          description: Number of Shadow episode writes that were rejected or failed.
+        staleWorkerRejections:
+          type: integer
+          description: Shadow writes rejected because the worker lease was stale or absent.
+        sequenceConflicts:
+          type: integer
+          description: Shadow event sequence conflicts observed since startup.
+        idempotencyConflicts:
+          type: integer
+          description: Shadow writes rejected for an idempotency or contract conflict.
+        terminalImmutableRejections:
+          type: integer
+          description: Shadow writes rejected after an episode reached a terminal state.
+        p95LatencyMs:
+          type: integer
+          nullable: true
+          description: P95 root episode write latency from the bounded in-process sample.
 
     # ─── AI ────────────────────────────────────────────────────────────────────
     GroqKeyStatus:

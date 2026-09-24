@@ -44,7 +44,17 @@ export const GetHealthResponse = zod.object({
   "auditWritesRecovered": zod.number().int().describe('Audit rows recovered after an earlier write failure.'),
   "auditPersistenceUnavailable": zod.number().int().describe('Audit destination or durable outbox persistence failures since startup.'),
   "mutationsWithoutAudit": zod.number().int().describe('Committed mutations whose audit intent could not be durably retained.'),
-  "rateLimiterFailOpenCount": zod.number().int().describe('Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls.\n')
+  "rateLimiterFailOpenCount": zod.number().int().describe('Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls.\n'),
+  "agentEpisodeShadow": zod.object({
+  "writes": zod.number().int().describe('Number of Shadow episode write attempts since startup.'),
+  "successes": zod.number().int().describe('Number of Shadow episode writes that committed successfully.'),
+  "failures": zod.number().int().describe('Number of Shadow episode writes that were rejected or failed.'),
+  "staleWorkerRejections": zod.number().int().describe('Shadow writes rejected because the worker lease was stale or absent.'),
+  "sequenceConflicts": zod.number().int().describe('Shadow event sequence conflicts observed since startup.'),
+  "idempotencyConflicts": zod.number().int().describe('Shadow writes rejected for an idempotency or contract conflict.'),
+  "terminalImmutableRejections": zod.number().int().describe('Shadow writes rejected after an episode reached a terminal state.'),
+  "p95LatencyMs": zod.number().int().nullable().describe('P95 root episode write latency from the bounded in-process sample.')
+}).describe('Content-free health counters for the server-owned Agent Episode Shadow Ledger. Resets to zero on process restart; it never represents terminal acceptance or World State authority.\n')
 }).optional().describe('PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.\n'),
   "aiDiagnosticsRetention": zod.object({
   "status": zod.enum(['success', 'failed']),

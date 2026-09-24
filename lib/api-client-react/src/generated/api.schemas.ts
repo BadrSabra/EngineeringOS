@@ -1278,6 +1278,28 @@ export interface JobQueueStats {
 }
 
 /**
+ * Content-free health counters for the server-owned Agent Episode Shadow Ledger. Resets to zero on process restart; it never represents terminal acceptance or World State authority.
+ */
+export interface AgentEpisodeShadowHealth {
+  /** Number of Shadow episode write attempts since startup. */
+  writes: number;
+  /** Number of Shadow episode writes that committed successfully. */
+  successes: number;
+  /** Number of Shadow episode writes that were rejected or failed. */
+  failures: number;
+  /** Shadow writes rejected because the worker lease was stale or absent. */
+  staleWorkerRejections: number;
+  /** Shadow event sequence conflicts observed since startup. */
+  sequenceConflicts: number;
+  /** Shadow writes rejected for an idempotency or contract conflict. */
+  idempotencyConflicts: number;
+  /** Shadow writes rejected after an episode reached a terminal state. */
+  terminalImmutableRejections: number;
+  /** P95 root episode write latency from the bounded in-process sample. */
+  p95LatencyMs: number | null;
+}
+
+/**
  * PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.
  */
 export interface OperationalCounters {
@@ -1293,6 +1315,7 @@ export interface OperationalCounters {
   mutationsWithoutAudit: number;
   /** Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls. */
   rateLimiterFailOpenCount: number;
+  agentEpisodeShadow: AgentEpisodeShadowHealth;
 }
 
 export type AiDiagnosticsRetentionHealthStatus = typeof AiDiagnosticsRetentionHealthStatus[keyof typeof AiDiagnosticsRetentionHealthStatus];

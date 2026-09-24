@@ -13,6 +13,12 @@ describe("GET /healthz", () => {
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("status");
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("attemptedAt");
     expect(res.body.aiDiagnosticsRetention).toHaveProperty("completedAt");
+    expect(res.body.operationalCounters.agentEpisodeShadow).toMatchObject({
+      writes: expect.any(Number),
+      successes: expect.any(Number),
+      failures: expect.any(Number),
+    });
+    expect(res.body.operationalCounters.agentEpisodeShadow).toHaveProperty("p95LatencyMs");
     for (const key of [
       "chatRowsScanned",
       "chatRowsPruned",

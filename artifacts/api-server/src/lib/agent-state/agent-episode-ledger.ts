@@ -21,6 +21,11 @@ import {
   type JsonValue,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../logger.js";
+import {
+  recordAgentEpisodeShadowFailure,
+  recordAgentEpisodeShadowStart,
+  recordAgentEpisodeShadowSuccess,
+} from "../operational-counters.js";
 
 type LedgerTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -389,17 +394,25 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
  * path remains authoritative.
  */
 export function startEpisodeShadow(input: StartEpisodeInput): void {
-  void startEpisode(input).catch((error: unknown) => {
-    logger.warn(
-      {
-        scope: "agent-episode-ledger",
-        code: error instanceof EpisodeLedgerError ? error.code : "shadow_write_failed",
-        executionId: input.executionId,
-        attempt: input.attempt,
-      },
-      "Shadow episode write failed; existing execution path remains authoritative",
-    );
-  });
+  const startedAt = Date.now();
+  recordAgentEpisodeShadowStart();
+  void startEpisode(input)
+    .then(() => {
+      recordAgentEpisodeShadowSuccess(Date.now() - startedAt);
+    })
+    .catch((error: unknown) => {
+      const code = error instanceof EpisodeLedgerError ? error.code : "shadow_write_failed";
+      recordAgentEpisodeShadowFailure(code);
+      logger.warn(
+        {
+          scope: "agent-episode-ledger",
+          code,
+          executionId: input.executionId,
+          attempt: input.attempt,
+        },
+        "Shadow episode write failed; existing execution path remains authoritative",
+      );
+    });
 }
 
 export async function appendEpisodeEvent(input: AppendEpisodeEventInput): Promise<AgentEpisodeEvent> {

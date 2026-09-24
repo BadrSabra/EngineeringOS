@@ -8,6 +8,7 @@
 
 export * from './activeProviderStatus';
 export * from './activeProviderStatusProvider';
+export * from './agentEpisodeShadowHealth';
 export * from './aiAcceptanceDisposition';
 export * from './aiAcceptanceDispositionFailureKind';
 export * from './aiAcceptanceDispositionNextActionCode';

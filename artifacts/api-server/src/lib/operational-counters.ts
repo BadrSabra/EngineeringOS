@@ -16,6 +16,7 @@
  *   rateLimiterFailOpenCount — DB error caused the LLM rate limiter to allow
  *                             the request without enforcing the per-project
  *                             call budget.
+ *   agentEpisodeShadow       — bounded Shadow Ledger write health since startup.
  *
  * Counters reset to zero on process restart. For persistent tracking, forward
  * logs that reference these events to an external monitoring system — each
@@ -28,6 +29,25 @@ let _auditWritesRecovered = 0;
 let _auditPersistenceUnavailable = 0;
 let _mutationsWithoutAudit = 0;
 let _rateLimiterFailOpenCount = 0;
+let _agentEpisodeShadowWrites = 0;
+let _agentEpisodeShadowSuccesses = 0;
+let _agentEpisodeShadowFailures = 0;
+let _agentEpisodeShadowStaleWorkerRejections = 0;
+let _agentEpisodeShadowSequenceConflicts = 0;
+let _agentEpisodeShadowIdempotencyConflicts = 0;
+let _agentEpisodeShadowTerminalImmutableRejections = 0;
+const _agentEpisodeShadowLatencies: number[] = [];
+
+function boundedLatency(value: number): number {
+  return Math.max(0, Math.min(Math.round(value), 60_000));
+}
+
+function shadowLatencyP95(): number | null {
+  if (_agentEpisodeShadowLatencies.length === 0) return null;
+  const sorted = [..._agentEpisodeShadowLatencies].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+  return sorted[index] ?? null;
+}
 
 /** Increment every time an audit_logs insert fails. */
 export function incrementAuditFailures(): void {
@@ -64,6 +84,26 @@ export function incrementRateLimiterFailOpen(): void {
   _rateLimiterFailOpenCount++;
 }
 
+export function recordAgentEpisodeShadowStart(): void {
+  _agentEpisodeShadowWrites++;
+}
+
+export function recordAgentEpisodeShadowSuccess(latencyMs: number): void {
+  _agentEpisodeShadowSuccesses++;
+  _agentEpisodeShadowLatencies.push(boundedLatency(latencyMs));
+  if (_agentEpisodeShadowLatencies.length > 256) {
+    _agentEpisodeShadowLatencies.splice(0, _agentEpisodeShadowLatencies.length - 256);
+  }
+}
+
+export function recordAgentEpisodeShadowFailure(code: string): void {
+  _agentEpisodeShadowFailures++;
+  if (code === "stale_worker") _agentEpisodeShadowStaleWorkerRejections++;
+  if (code === "sequence_conflict") _agentEpisodeShadowSequenceConflicts++;
+  if (code === "invalid_contract") _agentEpisodeShadowIdempotencyConflicts++;
+  if (code === "terminal_immutable") _agentEpisodeShadowTerminalImmutableRejections++;
+}
+
 /** Current snapshot of all operational counters. */
 export function getOperationalCounters(): {
   auditWriteFailures: number;
@@ -72,6 +112,16 @@ export function getOperationalCounters(): {
   auditPersistenceUnavailable: number;
   mutationsWithoutAudit: number;
   rateLimiterFailOpenCount: number;
+  agentEpisodeShadow: {
+    writes: number;
+    successes: number;
+    failures: number;
+    staleWorkerRejections: number;
+    sequenceConflicts: number;
+    idempotencyConflicts: number;
+    terminalImmutableRejections: number;
+    p95LatencyMs: number | null;
+  };
 } {
   return {
     auditWriteFailures: _auditWriteFailures,
@@ -80,6 +130,16 @@ export function getOperationalCounters(): {
     auditPersistenceUnavailable: _auditPersistenceUnavailable,
     mutationsWithoutAudit: _mutationsWithoutAudit,
     rateLimiterFailOpenCount: _rateLimiterFailOpenCount,
+    agentEpisodeShadow: {
+      writes: _agentEpisodeShadowWrites,
+      successes: _agentEpisodeShadowSuccesses,
+      failures: _agentEpisodeShadowFailures,
+      staleWorkerRejections: _agentEpisodeShadowStaleWorkerRejections,
+      sequenceConflicts: _agentEpisodeShadowSequenceConflicts,
+      idempotencyConflicts: _agentEpisodeShadowIdempotencyConflicts,
+      terminalImmutableRejections: _agentEpisodeShadowTerminalImmutableRejections,
+      p95LatencyMs: shadowLatencyP95(),
+    },
   };
 }
 
@@ -91,4 +151,12 @@ export function resetOperationalCounters(): void {
   _auditPersistenceUnavailable = 0;
   _mutationsWithoutAudit = 0;
   _rateLimiterFailOpenCount = 0;
+  _agentEpisodeShadowWrites = 0;
+  _agentEpisodeShadowSuccesses = 0;
+  _agentEpisodeShadowFailures = 0;
+  _agentEpisodeShadowStaleWorkerRejections = 0;
+  _agentEpisodeShadowSequenceConflicts = 0;
+  _agentEpisodeShadowIdempotencyConflicts = 0;
+  _agentEpisodeShadowTerminalImmutableRejections = 0;
+  _agentEpisodeShadowLatencies.length = 0;
 }
