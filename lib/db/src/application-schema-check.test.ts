@@ -49,6 +49,12 @@ function completeSnapshot() {
     if (tableName === "ai_strategy_candidates" && columnName === "evaluation_status") {
       return "'discovered'::ai_strategy_evaluation_status";
     }
+    if (tableName === "projects" && columnName === "strategy_replay_opt_in") {
+      return "false";
+    }
+    if (tableName === "ai_strategy_replay_case_runs" && columnName === "status") {
+      return null;
+    }
     if (columnName === "status") return "'pending'::task_status";
     if (columnName === "priority") return "'p2'::task_priority";
     if (columnName === "level") return "'info'::log_level";

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, notExists } from "drizzle-orm";
 import {
   AgentEffectSchema,
   StrategyCandidateSchema,
@@ -12,6 +12,7 @@ import {
   aiAgentEffectsTable,
   aiAgentEpisodesTable,
   aiStrategyCandidatesTable,
+  aiStrategyReplayCaseRunsTable,
   aiStrategyReplayCasesTable,
   db,
   projectsTable,
@@ -29,7 +30,7 @@ type StrategyReplayCaseTransaction = Parameters<Parameters<typeof db.transaction
 const SOURCE_REVISION = /^[a-f0-9]{40}$|^[a-f0-9]{64}$/;
 const BOUNDED_ID = z.string().min(1).max(200);
 
-const RegisteredCaseDefinitionSchema = z.object({
+export const RegisteredStrategyReplayCaseDefinitionSchema = z.object({
   schemaVersion: z.literal(1),
   caseId: BOUNDED_ID,
   projectId: BOUNDED_ID,
@@ -47,6 +48,9 @@ const RegisteredCaseDefinitionSchema = z.object({
   actionContractHash: z.string().regex(/^[a-f0-9]{64}$/),
   recipeId: BOUNDED_ID,
 }).strict();
+
+export type RegisteredStrategyReplayCaseDefinition =
+  z.infer<typeof RegisteredStrategyReplayCaseDefinitionSchema>;
 
 export type ProspectiveStrategyReplayCaseRegistration =
   | {
@@ -74,7 +78,17 @@ export async function deleteUnreplayedStrategyReplayCases(
   projectId: string,
 ): Promise<number> {
   const removed = await tx.delete(aiStrategyReplayCasesTable)
-    .where(eq(aiStrategyReplayCasesTable.projectId, projectId))
+    .where(and(
+      eq(aiStrategyReplayCasesTable.projectId, projectId),
+      notExists(
+        tx.select({ id: aiStrategyReplayCaseRunsTable.id })
+          .from(aiStrategyReplayCaseRunsTable)
+          .where(eq(
+            aiStrategyReplayCaseRunsTable.caseRegistrationId,
+            aiStrategyReplayCasesTable.id,
+          )),
+      ),
+    ))
     .returning({ id: aiStrategyReplayCasesTable.id });
   return removed.length;
 }
@@ -170,6 +184,10 @@ export async function registerProspectiveStrategyReplayCase(input: {
       || !SOURCE_REVISION.test(episode.projectRevision)
       || episode.projectRevision !== proofResult.binding.sourceRevision
     ) {
+      return { status: "skipped", reason: "episode_not_eligible" };
+    }
+    const episodeScope = asRecord(episode.scope);
+    if (asRecord(episodeScope?.strategyReplayCase)) {
       return { status: "skipped", reason: "episode_not_eligible" };
     }
 
@@ -321,7 +339,7 @@ export async function registerProspectiveStrategyReplayCase(input: {
       return { status: "skipped", reason: "candidate_mismatch" };
     }
 
-    const definition = RegisteredCaseDefinitionSchema.safeParse({
+    const definition = RegisteredStrategyReplayCaseDefinitionSchema.safeParse({
       schemaVersion: 1,
       caseId: proofResult.binding.caseId,
       projectId: input.projectId,

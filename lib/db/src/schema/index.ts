@@ -35,3 +35,4 @@ export * from "./ai_agent_shadow_campaign_events.js";
 export * from "./ai_world_facts.js";
 export * from "./ai_strategy_candidates.js";
 export * from "./ai_strategy_replay_cases.js";
+export * from "./ai_strategy_replay_case_runs.js";

@@ -1,6 +1,7 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { and, desc, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -13,6 +14,7 @@ import {
   aiExecutionsTable,
   aiChatSessionsTable,
   aiStrategyCandidatesTable,
+  aiStrategyReplayCaseRunsTable,
   aiStrategyReplayCasesTable,
   db,
   projectsTable,
@@ -43,24 +45,32 @@ import {
   deleteUnreplayedStrategyReplayCases,
   registerProspectiveStrategyReplayCase,
 } from "./agent-state/strategy-replay-case-registry.js";
+import { runRegisteredStrategyReplayCase } from "./agent-state/strategy-replay-case-runner.js";
 
 const validationCalls: string[] = [];
+const execFileAsync = promisify(execFile);
 
-vi.mock("./ai-repair-validation.js", () => ({
-  runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => {
-    validationCalls.push(profile);
-    return {
-      status: "passed",
-      profile,
-      detail: `mock validation for ${profile}`,
-      evidence: {
-        evidenceId: `mock-evidence-${validationCalls.length}`,
-        observedAt: new Date().toISOString(),
-        artifactRef: `mock-validation:${profile}`,
-      },
-    };
-  }),
-}));
+vi.mock("./ai-repair-validation.js", async () => {
+  const actual = await vi.importActual<typeof import("./ai-repair-validation.js")>(
+    "./ai-repair-validation.js",
+  );
+  return {
+    ...actual,
+    runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => {
+      validationCalls.push(profile);
+      return {
+        status: "passed",
+        profile,
+        detail: `mock validation for ${profile}`,
+        evidence: {
+          evidenceId: `mock-evidence-${validationCalls.length}`,
+          observedAt: new Date().toISOString(),
+          artifactRef: `mock-validation:${profile}`,
+        },
+      };
+    }),
+  };
+});
 
 async function createReclaimedRecipeFixture(options: {
   includePassedEvidence?: boolean;
@@ -384,8 +394,10 @@ describe("recipe operation preparation", () => {
     const operationId = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
     const userId = "runtime-recipe-effect-user";
-    const sourceRevision = "a".repeat(40);
-    const rootPath = await mkdtemp(path.join(os.tmpdir(), "runtime-recipe-effect-"));
+    let sourceRevision: string;
+    const rootPath = await mkdtemp(
+      path.join(process.cwd(), ".engineeringos-delivery-test-runtime-replay-"),
+    );
     await writeFile(
       path.join(rootPath, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
@@ -394,10 +406,25 @@ describe("recipe operation preparation", () => {
       path.join(rootPath, "server.mjs"),
       [
         "import http from 'node:http';",
-        `const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', '${sourceRevision}'); res.end('runtime-ready'); });`,
+        "import { readFileSync } from 'node:fs';",
+        "const revision = readFileSync('node_modules/.cache/revision.txt', 'utf8').trim();",
+        "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', revision); res.end('runtime-ready'); });",
         "server.listen(Number(process.env.PORT), '127.0.0.1');",
         "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
       ].join("\n"),
+    );
+    await writeFile(path.join(rootPath, ".gitignore"), "node_modules/\n", "utf8");
+    await execFileAsync("git", ["-C", rootPath, "init", "-q"]);
+    await execFileAsync("git", ["-C", rootPath, "config", "user.name", "EngineeringOS Fixture"]);
+    await execFileAsync("git", ["-C", rootPath, "config", "user.email", "fixture@example.com"]);
+    await execFileAsync("git", ["-C", rootPath, "add", ".gitignore", "package.json", "server.mjs"]);
+    await execFileAsync("git", ["-C", rootPath, "commit", "-qm", "runtime replay fixture"]);
+    sourceRevision = (await execFileAsync("git", ["-C", rootPath, "rev-parse", "HEAD"])).stdout.trim();
+    await mkdir(path.join(rootPath, "node_modules/.cache"), { recursive: true });
+    await writeFile(
+      path.join(rootPath, "node_modules/.cache/revision.txt"),
+      `${sourceRevision}\n`,
+      "utf8",
     );
     let manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
@@ -672,6 +699,121 @@ describe("recipe operation preparation", () => {
       )).resolves.toBe(1);
       expect(await db.select().from(aiStrategyReplayCasesTable)
         .where(eq(aiStrategyReplayCasesTable.projectId, projectId))).toHaveLength(0);
+      const replayRegistration = await registerProspectiveStrategyReplayCase({
+        projectId,
+        episodeId: thirdEpisode!.id,
+      });
+      expect(["registered", "already_registered"]).toContain(replayRegistration.status);
+      const [registeredReplayCase] = await db.select().from(aiStrategyReplayCasesTable)
+        .where(eq(aiStrategyReplayCasesTable.projectId, projectId));
+      expect(registeredReplayCase).toBeDefined();
+
+      const replayResult = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: registeredReplayCase!.id,
+        userId,
+      });
+      expect(replayResult.status, JSON.stringify(replayResult.receipt, null, 2)).toBe("proven");
+      expect(replayResult.recovered).toBe(false);
+      expect(replayResult.receipt).toMatchObject({
+        status: "proven",
+        partition: "held_out",
+        projectId,
+        caseRegistrationId: registeredReplayCase!.id,
+        candidateId: candidateAfterThirdEpisode[0]?.id,
+        candidateHash: candidateAfterThirdEpisode[0]?.candidateHash,
+        sourceEpisodeId: registeredReplayCase!.sourceEpisodeId,
+        sourceExecutionId: thirdResult.executionId,
+        replayExecutionId: expect.any(String),
+        replayEpisodeId: expect.any(String),
+        replayAcceptanceId: expect.any(String),
+        replayEffectBundleId: expect.any(String),
+        replayCanonicalProofHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        workspaceTreeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(replayResult.receipt.replayExecutionId).not.toBe(thirdResult.executionId);
+      expect(replayResult.receipt.replayEpisodeId).not.toBe(registeredReplayCase!.sourceEpisodeId);
+      expect(replayResult.receipt.replayAcceptanceId).not.toBe(
+        (registeredReplayCase!.caseDefinition as { acceptanceId: string }).acceptanceId,
+      );
+      expect(replayResult.receipt.replayEffectBundleId).not.toBe(
+        (registeredReplayCase!.caseDefinition as { effectBundleId: string }).effectBundleId,
+      );
+      expect(replayResult.receipt.replayCanonicalProofHash).not.toBe(
+        (registeredReplayCase!.caseDefinition as { sourceCanonicalProofHash: string }).sourceCanonicalProofHash,
+      );
+
+      const replayExecutionId = replayResult.receipt.replayExecutionId!;
+      executionIds.push(replayExecutionId);
+      const [replayEpisode] = await db.select().from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.projectId, projectId),
+        eq(aiAgentEpisodesTable.id, replayResult.receipt.replayEpisodeId!),
+      ));
+      expect(replayEpisode).toMatchObject({
+        executionId: replayExecutionId,
+        projectRevision: sourceRevision,
+      });
+      expect(replayEpisode?.scope).toMatchObject({
+        strategyReplayCase: {
+          caseRegistrationId: registeredReplayCase!.id,
+          caseId: (registeredReplayCase!.caseDefinition as { caseId: string }).caseId,
+          candidateId: candidateAfterThirdEpisode[0]?.id,
+          candidateHash: candidateAfterThirdEpisode[0]?.candidateHash,
+          sourceEpisodeId: registeredReplayCase!.sourceEpisodeId,
+          sourceCanonicalProofHash:
+            (registeredReplayCase!.caseDefinition as { sourceCanonicalProofHash: string }).sourceCanonicalProofHash,
+        },
+      });
+
+      const runsAfterReplay = await db.select().from(aiStrategyReplayCaseRunsTable)
+        .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, registeredReplayCase!.id));
+      expect(runsAfterReplay).toHaveLength(1);
+      expect(runsAfterReplay[0]).toMatchObject({
+        status: "proven",
+        replayExecutionId,
+        replayEpisodeId: replayResult.receipt.replayEpisodeId,
+        replayAttempt: replayResult.receipt.replayAttempt,
+      });
+      expect(runsAfterReplay[0]?.receipt).toEqual(replayResult.receipt);
+
+      const episodesBeforeRecovery = await db.select({ id: aiAgentEpisodesTable.id })
+        .from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
+      const executionsBeforeRecovery = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      const recoveredReplay = await runRegisteredStrategyReplayCase({
+        projectId,
+        caseRegistrationId: registeredReplayCase!.id,
+        userId,
+      });
+      expect(recoveredReplay).toEqual({
+        status: "proven",
+        receipt: replayResult.receipt,
+        recovered: true,
+      });
+      expect(await db.select({ id: aiAgentEpisodesTable.id }).from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.projectId, projectId))).toHaveLength(episodesBeforeRecovery.length);
+      expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId))).toHaveLength(executionsBeforeRecovery.length);
+      expect(await db.select().from(aiStrategyReplayCaseRunsTable)
+        .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, registeredReplayCase!.id)))
+        .toHaveLength(1);
+
+      await expect(runRegisteredStrategyReplayCase({
+        projectId: crypto.randomUUID(),
+        caseRegistrationId: registeredReplayCase!.id,
+        userId,
+      })).rejects.toThrow("Registered Strategy Replay case is not eligible.");
+      await expect(db.transaction((tx) =>
+        deleteUnreplayedStrategyReplayCases(tx, projectId),
+      )).resolves.toBe(0);
+      const candidateAfterReplay = await db.select().from(aiStrategyCandidatesTable)
+        .where(eq(aiStrategyCandidatesTable.projectId, projectId));
+      expect(candidateAfterReplay[0]).toMatchObject({
+        evaluationStatus: "pending_replay",
+        supportingEpisodeIds: candidateAfterThirdEpisode[0]?.supportingEpisodeIds,
+      });
+      expect(candidateAfterReplay[0]?.supportingEpisodeIds)
+        .not.toContain(replayResult.receipt.replayEpisodeId);
     } finally {
       await manager.shutdown();
       for (const executionId of executionIds) {

@@ -12,6 +12,7 @@ import {
   createRuntimeStartRunner,
   runRecipeOperation,
 } from "../../lib/recipe-operation-runner.js";
+import { runRegisteredStrategyReplayCase } from "../../lib/agent-state/strategy-replay-case-runner.js";
 import { executeVerifiedGitHubDelivery } from "../../lib/github-delivery-service.js";
 
 const router = Router();
@@ -143,5 +144,35 @@ router.post("/ai/projects/:projectId/recipe", requireRecipeAccess, async (req, r
     });
   }
 });
+
+router.post(
+  "/ai/projects/:projectId/strategy-replay-cases/:caseRegistrationId/run",
+  requireProjectWriteAccess,
+  async (req, res) => {
+    const project = req.project;
+    if (!project || !req.userId) {
+      return res.status(500).json({ error: "Project context unavailable" });
+    }
+    try {
+      const result = await runRegisteredStrategyReplayCase({
+        projectId: project.id,
+        caseRegistrationId: typeof req.params.caseRegistrationId === "string"
+          ? req.params.caseRegistrationId
+          : "",
+        userId: req.userId,
+      });
+      return res.status(result.status === "proven" ? 200 : 409).json({
+        status: result.status,
+        recovered: result.recovered,
+        receipt: result.receipt,
+      });
+    } catch {
+      return res.status(409).json({
+        error: "Strategy Replay could not prove this case.",
+        code: "STRATEGY_REPLAY_INCOMPLETE",
+      });
+    }
+  },
+);
 
 export default router;

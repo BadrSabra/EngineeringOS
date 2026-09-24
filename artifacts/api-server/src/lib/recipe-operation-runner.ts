@@ -321,6 +321,15 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   proofRequired?: boolean;
   parentExecutionId?: string | null;
   delegationBudget?: Partial<ExecutionDelegationBudget>;
+  strategyReplayContext?: {
+    caseRegistrationId: string;
+    caseId: string;
+    candidateId: string;
+    candidateHash: string;
+    sourceEpisodeId: string;
+    sourceCanonicalProofHash: string;
+    expectedActionContractHash: string;
+  };
 };
 
 function evidenceForNodes(
@@ -657,6 +666,18 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           operationId: params.operationId,
           recipeId: params.recipeId,
           candidateIdentity: params.candidateIdentity ?? null,
+          ...(params.strategyReplayContext
+            ? {
+                strategyReplayCase: {
+                  caseRegistrationId: params.strategyReplayContext.caseRegistrationId,
+                  caseId: params.strategyReplayContext.caseId,
+                  candidateId: params.strategyReplayContext.candidateId,
+                  candidateHash: params.strategyReplayContext.candidateHash,
+                  sourceEpisodeId: params.strategyReplayContext.sourceEpisodeId,
+                  sourceCanonicalProofHash: params.strategyReplayContext.sourceCanonicalProofHash,
+                },
+              }
+            : {}),
         },
         ...(params.goalId ? { goalId: params.goalId } : {}),
       })
@@ -678,6 +699,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let gateCEffectContract: EffectContract | undefined;
   let gateCBeforeObservationIds: string[] | undefined;
   let gateCEffectBundleId: string | undefined;
+  let strategyReplayActionContractMatches = true;
   if (candidateValidation) {
     if (!episode || !params.candidateIdentity || !candidateRoot) {
       throw new Error("Candidate validation requires an identity and disposable workspace.");
@@ -773,6 +795,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       candidateIdentity: params.candidateIdentity,
     });
     const actionContract = strategyActionContract(action);
+    strategyReplayActionContractMatches = !params.strategyReplayContext
+      || canonicalJsonHash(actionContract) === params.strategyReplayContext.expectedActionContractHash;
     gateCAction = action;
     gateCEffectContract = buildGateCEffectContract({
       kind: recipeGateCEffectKind,
@@ -984,6 +1008,12 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             if (!checkpointed) {
               return { status: "blocked" as const, detail: "Recipe could not durably record the external delivery intent." };
             }
+          }
+          if (params.strategyReplayContext && !strategyReplayActionContractMatches) {
+            return {
+              status: "blocked" as const,
+              detail: "The registered strategy action contract no longer matches the server recipe.",
+            };
           }
           const invocation = await registry.invoke(
             node.capabilityId!,
@@ -1402,7 +1432,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       throw new Error("Recipe completion lost its durable ownership fence.");
     }
     const receipt = completedReceipt;
-    if (episode) {
+    if (episode && !params.strategyReplayContext) {
       try {
         const extraction = await extractAcceptedEpisodeStrategy({
           projectId: params.projectId,
