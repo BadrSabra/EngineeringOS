@@ -60,6 +60,14 @@ const BrowserProfileBody = z.object({
   steps: z.array(BrowserStepSchema).min(1).max(PREVIEW_LIMITS.maxSteps),
   timeoutMs: z.number().int().min(1).max(PREVIEW_LIMITS.maxValidationMs).default(PREVIEW_LIMITS.maxValidationMs),
 }).strict();
+const WorldStateQuery = z.object({
+  taskScope: z.string().trim().min(1).max(200).optional(),
+  environmentRevision: z.string().trim().min(1).max(2_000).optional(),
+  environmentRevisionUnbound: z.literal("true").optional(),
+}).passthrough().refine(
+  (query) => !(query.environmentRevision !== undefined && query.environmentRevisionUnbound !== undefined),
+  { path: ["environmentRevision"], message: "Choose a revision value or an unbound revision filter, not both." },
+);
 
 function publicBrowserProfile(
   profile: typeof browserValidationProfilesTable.$inferSelect,
@@ -183,8 +191,23 @@ router.delete("/projects/:projectId/browser-validation-profiles/:name", requireP
 // deliberately behind the normal project access gate and cannot mutate
 // execution, acceptance, planning, or permissions.
 router.get("/projects/:projectId/world-state", requireProjectAccess, async (req, res) => {
+  const parsedQuery = WorldStateQuery.safeParse(req.query);
+  if (!parsedQuery.success) {
+    return res.status(400).json({
+      error: "Invalid World State filters.",
+      reason: "invalid_world_state_query",
+    });
+  }
+  const query = parsedQuery.data;
+  const filter: { taskScope?: string; environmentRevision?: string | null } = {};
+  if (query.taskScope !== undefined) filter.taskScope = query.taskScope;
+  if (query.environmentRevisionUnbound === "true") {
+    filter.environmentRevision = null;
+  } else if (query.environmentRevision !== undefined) {
+    filter.environmentRevision = query.environmentRevision;
+  }
   try {
-    return res.json(await getProjectWorldState(req.project!.id));
+    return res.json(await getProjectWorldState(req.project!.id, filter));
   } catch (error) {
     logger.error(
       { projectId: req.project!.id, error },
