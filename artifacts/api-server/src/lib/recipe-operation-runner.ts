@@ -80,6 +80,7 @@ import {
   gateCEffectKind,
 } from "./agent-state/gate-c-effect.js";
 import { workspaceRuntime, WorkspaceRuntimeError } from "./workspace-runtime.js";
+import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -1373,6 +1374,47 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       throw new Error("Recipe completion lost its durable ownership fence.");
     }
     const receipt = completedReceipt;
+    if (episode) {
+      try {
+        const extraction = await extractAcceptedEpisodeStrategy({
+          projectId: params.projectId,
+          episodeId: episode.episodeId,
+        });
+        if (extraction.status === "stored") {
+          logger.info(
+            {
+              scope: "recipe-operation",
+              executionId: claimed.id,
+              episodeId: episode.episodeId,
+              candidateId: extraction.candidate.candidateId,
+              created: extraction.created,
+            },
+            "Accepted episode strategy candidate extracted",
+          );
+        } else {
+          logger.info(
+            {
+              scope: "recipe-operation",
+              executionId: claimed.id,
+              episodeId: episode.episodeId,
+              reason: extraction.reason,
+            },
+            "Accepted episode was not eligible for strategy extraction",
+          );
+        }
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "strategy_candidate_extraction_failed",
+            executionId: claimed.id,
+            episodeId: episode.episodeId,
+            error,
+          },
+          "Strategy extraction failed without changing the accepted recipe outcome",
+        );
+      }
+    }
     await materializeServerOwnedObservations({
       projectId: params.projectId,
       executionId: claimed.id,

@@ -3,6 +3,8 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
+  aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
   aiExecutionAcceptancesTable,
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -27,6 +29,7 @@ import {
   type ExecutionProofProjection,
 } from "./execution-proof.js";
 import { loadCanonicalProof } from "./proof-foundation.js";
+import { canonicalJsonHash } from "@workspace/ai-orchestrator";
 
 export const ACCEPTANCE_NEXT_ACTION_CODES = [
   "NONE",
@@ -936,6 +939,111 @@ export type FinalizeExecutionAcceptanceResult = {
   reason?: string;
 };
 
+async function closeEpisodeAfterCanonicalProof(input: {
+  tx: AcceptanceTransaction;
+  execution: typeof aiExecutionsTable.$inferSelect;
+  acceptance: typeof aiExecutionAcceptancesTable.$inferSelect;
+  now: Date;
+}): Promise<void> {
+  const { tx, execution, acceptance, now } = input;
+  const proof = acceptance.disposition && typeof acceptance.disposition === "object"
+    ? parseExecutionProofProjection(
+        (acceptance.disposition as Record<string, unknown>).proof,
+      )
+    : undefined;
+  if (
+    acceptance.outcome !== "SUCCEEDED"
+    || acceptance.terminalStatus !== "completed"
+    || !acceptance.effectBundleId
+    || proof?.verdict !== "PROVEN"
+  ) {
+    return;
+  }
+
+  const [episode] = await tx
+    .select()
+    .from(aiAgentEpisodesTable)
+    .where(and(
+      eq(aiAgentEpisodesTable.projectId, execution.projectId),
+      eq(aiAgentEpisodesTable.executionId, execution.id),
+      eq(aiAgentEpisodesTable.attempt, execution.attempt),
+    ))
+    .for("update");
+  if (
+    !episode
+    || episode.projectRevision !== acceptance.sourceRevision
+    || episode.closedAt
+    || episode.state !== "verifying"
+  ) {
+    return;
+  }
+
+  const payload = {
+    verdict: "achieved",
+    reasonCode: "CANONICAL_PROOF_PROVEN",
+    acceptanceId: acceptance.id,
+    effectBundleId: acceptance.effectBundleId,
+  };
+  const payloadHash = canonicalJsonHash(payload);
+  const [existingEvent] = await tx
+    .select({ id: aiAgentEpisodeEventsTable.id })
+    .from(aiAgentEpisodeEventsTable)
+    .where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
+      eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+      eq(aiAgentEpisodeEventsTable.payloadHash, payloadHash),
+    ))
+    .limit(1);
+  if (!existingEvent) {
+    const [lastEvent] = await tx
+      .select({ sequence: aiAgentEpisodeEventsTable.sequence })
+      .from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.episodeId, episode.id))
+      .orderBy(desc(aiAgentEpisodeEventsTable.sequence))
+      .limit(1);
+    const sequence = (lastEvent?.sequence ?? -1) + 1;
+    await tx.insert(aiAgentEpisodeEventsTable).values({
+      id: randomUUID(),
+      episodeId: episode.id,
+      projectId: execution.projectId,
+      executionId: execution.id,
+      attempt: execution.attempt,
+      sequence,
+      eventType: "EPISODE_TERMINAL",
+      payload,
+      payloadHash,
+      actorType: "server",
+      actorId: "acceptance-finalizer",
+      correlationId: execution.id,
+      createdAt: now,
+    });
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiAgentEpisodeEvent",
+      projectId: execution.projectId,
+      ...(episode.goalId ? { goalId: episode.goalId } : {}),
+      payload: {
+        episodeId: episode.id,
+        executionId: execution.id,
+        attempt: execution.attempt,
+        sequence,
+        eventType: "EPISODE_TERMINAL",
+      },
+      severity: "info",
+      message: "AI agent episode closed after canonical acceptance.",
+      correlationId: execution.id,
+      timestamp: now,
+    });
+  }
+  await tx.update(aiAgentEpisodesTable).set({
+    state: "completed",
+    verdict: "achieved",
+    reasonCode: "CANONICAL_PROOF_PROVEN",
+    closedAt: now,
+    updatedAt: now,
+  }).where(eq(aiAgentEpisodesTable.id, episode.id));
+}
+
 export type PublicExecutionAcceptance = {
   attempt: number;
   terminalStatus: string;
@@ -1519,6 +1627,12 @@ export async function finalizeExecutionAcceptance(
           reason: "Finalization key belongs to another execution attempt.",
         };
       }
+      await closeEpisodeAfterCanonicalProof({
+        tx,
+        execution,
+        acceptance: existingByKey,
+        now,
+      });
       return { accepted: true, duplicate: true, acceptance: existingByKey };
     }
 
@@ -1555,6 +1669,12 @@ export async function finalizeExecutionAcceptance(
           && existing.terminalStatus === "paused",
         );
         if (!reclaimOwnsLiveLease) {
+          await closeEpisodeAfterCanonicalProof({
+            tx,
+            execution,
+            acceptance: existing,
+            now,
+          });
           return { accepted: true, duplicate: true, acceptance: existing };
         }
         replaceExistingLeasePause = true;
@@ -1838,6 +1958,12 @@ export async function finalizeExecutionAcceptance(
         ? { accepted: true, duplicate: true, acceptance: concurrentAcceptance }
         : { accepted: false, duplicate: false, reason: "Acceptance insert failed." };
     }
+    await closeEpisodeAfterCanonicalProof({
+      tx,
+      execution,
+      acceptance,
+      now,
+    });
 
     if (params.finalMessageId) {
       await tx.update(aiChatMessagesTable)

@@ -7,10 +7,12 @@ import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
   aiChatSessionsTable,
+  aiStrategyCandidatesTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -31,6 +33,7 @@ import {
 } from "./recipe-operation-runner.js";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
+import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
 
 const validationCalls: string[] = [];
 
@@ -453,6 +456,37 @@ describe("recipe operation preparation", () => {
       expect(events.map((event) => event.eventType)).toEqual(
         expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
       );
+      const [episode] = await db.select().from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, executionId))
+        .limit(1);
+      expect(episode).toMatchObject({
+        state: "completed",
+        verdict: "achieved",
+        reasonCode: "CANONICAL_PROOF_PROVEN",
+      });
+      const candidates = await db.select().from(aiStrategyCandidatesTable)
+        .where(eq(aiStrategyCandidatesTable.projectId, projectId));
+      expect(candidates).toHaveLength(1);
+      expect(candidates[0]).toMatchObject({
+        evaluationStatus: "discovered",
+        confidence: "0",
+        supportingEpisodeIds: [episode?.id],
+      });
+      expect(candidates[0]?.candidate).toMatchObject({
+        triggerConditions: [],
+        preconditions: [],
+        recommendedActionOrder: ["runtime.start"],
+        evaluationStatus: "discovered",
+      });
+      const extractionRetry = await extractAcceptedEpisodeStrategy({
+        projectId,
+        episodeId: episode!.id,
+      });
+      expect(extractionRetry).toMatchObject({
+        status: "stored",
+        created: false,
+        candidateHash: candidates[0]?.candidateHash,
+      });
     } finally {
       await manager.shutdown();
       if (executionId) {

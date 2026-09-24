@@ -1474,13 +1474,18 @@ learningStatus
 
 ### PR 9: Strategy Candidates وReplay
 
-- extraction من accepted episodes.
-- storage.
-- current corpus.
-- held-out corpus.
-- cross-project fixtures.
-- learning delta.
-- لا تستخدم candidate كـpolicy قبل اجتياز replay.
+- **الحالة الحالية: `partial` (2026-09-24).** نُفذت شريحة extraction/storage
+  الوصفية للحلقات ذات الإجراء الواحد فقط: episode مغلقة `achieved`، acceptance
+  ناجح، Canonical Proof معاد التحقق منه إلى `PROVEN`، وeffect bundle متطابق
+  بملاحظات direct كاملة وحديثة على المراجعة نفسها. التخزين deterministic
+  وidempotent؛ المرشح يبقى `discovered` ولا يُستهلك كـpolicy.
+- لا تحفظ الأحداث الحالية trigger/precondition contracts، لذلك تبقى حقولها
+  فارغة ولا تُستنتج من prose أو scope أو receipts. لا تقبل الشريحة الحالية
+  traces متعددة الأفعال.
+- **المتبقي قبل اعتبار PR 9 مكتملًا:** current-corpus replay وheld-out replay
+  المنفصل وcross-project fixtures وpaired baselines وLearning Delta. يلزم أولًا
+  تسجيل trigger/precondition contracts من مصدر server-owned كي يكون replay
+  ذا معنى. لا يُسمح بالترقية أو التأثير على planner قبل اجتياز هذه البوابات.
 
 ### PR 10: Canary/Promotion وCapability Composition
 
