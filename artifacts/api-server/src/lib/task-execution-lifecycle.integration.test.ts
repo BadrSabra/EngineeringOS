@@ -10,6 +10,7 @@ import {
   db,
   projectsTable,
   tasksTable,
+  workflowsTable,
 } from "@workspace/db";
 
 const runAgentWithFallback = vi.hoisted(() => vi.fn(async () => ({
@@ -154,6 +155,79 @@ describe("real durable task execution lifecycle", () => {
       );
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
       await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
+
+  it("binds workflow task episodes to the workflow scope", async () => {
+    const projectId = randomUUID();
+    const workflowId = randomUUID();
+    const taskId = randomUUID();
+    const now = new Date();
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "workflow-episode-test-user",
+      name: `workflow-episode-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/workflow-episode-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(workflowsTable).values({
+      id: workflowId,
+      projectId,
+      name: "Episode identity workflow",
+      description: "Fixture for workflow-scoped episode identity.",
+      status: "idle",
+      phases: [],
+      executionCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      workflowId,
+      title: "Workflow episode task",
+      prompt: "Complete the deterministic workflow fixture task",
+      status: "verifying",
+      retryCount: 0,
+      maxRetries: 2,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    try {
+      const outcome = await executeTaskLifecycle({
+        taskId,
+        userId: "workflow-episode-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: now.toISOString(),
+      });
+
+      expect(outcome.ok).toBe(true);
+      const episode = await waitForEpisode(outcome.executionId!);
+      expect(episode).toMatchObject({
+        missionId: null,
+        goalId: null,
+        planRevision: null,
+        scope: {
+          kind: "workflow-task",
+          taskId,
+          workflowId,
+        },
+      });
+    } finally {
+      await db.delete(aiExecutionAcceptancesTable).where(
+        eq(aiExecutionAcceptancesTable.projectId, projectId),
+      );
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
