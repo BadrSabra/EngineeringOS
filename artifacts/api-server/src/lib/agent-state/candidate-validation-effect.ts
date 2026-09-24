@@ -21,6 +21,7 @@ export function buildCandidateValidationAction(input: {
     episodeId: input.episodeId,
     capabilityId: CANDIDATE_VALIDATION_CAPABILITY_ID,
     intent: "Validate the immutable candidate against the server-owned validation profile.",
+    triggerConditions: [{ kind: "server_recipe", recipeId: "candidate.verify" }],
     scope: {
       projectId: input.projectId,
       operationId: input.operationId,

@@ -8,6 +8,7 @@ import {
   createServerRecipeDefinitionRegistry,
   evaluateRecipeEvidencePredicate,
   executeExecutionNodePlan,
+  canonicalJsonHash,
   type ActiveTaskExecutionPlan,
   type ExecutionNode,
   type BrowserValidationRunner,
@@ -18,6 +19,7 @@ import {
   type ValidationRunner,
   type AgentAction,
   type EffectContract,
+  type JsonValue,
 } from "@workspace/ai-orchestrator";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
@@ -81,6 +83,24 @@ import {
 } from "./agent-state/gate-c-effect.js";
 import { workspaceRuntime, WorkspaceRuntimeError } from "./workspace-runtime.js";
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
+
+function strategyActionContract(action: AgentAction): {
+  contractVersion: 1;
+  triggerConditions: JsonValue[];
+  preconditions: string[];
+  expectedEffects: string[];
+  observationProfile: string;
+  failureSemantics: string[];
+} {
+  return {
+    contractVersion: 1,
+    triggerConditions: (action.triggerConditions ?? []) as JsonValue[],
+    preconditions: action.preconditions,
+    expectedEffects: action.expectedEffects,
+    observationProfile: action.observationProfile,
+    failureSemantics: action.failureSemantics,
+  };
+}
 
 export type PrepareRecipeOperationParams = {
   projectId: string;
@@ -673,6 +693,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       candidateIdentity: params.candidateIdentity,
       approvedPaths: normalizedPaths(params.approvedPaths),
     });
+    const actionContract = strategyActionContract(action);
     candidateValidationAction = action;
     candidateValidationEffectContract = buildCandidateValidationEffectContract({
       candidateIdentity: params.candidateIdentity,
@@ -691,6 +712,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         capabilityId: action.capabilityId,
         expectedEffects: action.expectedEffects,
         observationProfile: action.observationProfile,
+        actionContract,
+        actionContractHash: canonicalJsonHash(actionContract),
       },
       actorType: "worker",
       actorId: workerId,
@@ -737,7 +760,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     });
     const beforeEvidenceRef = `gate-c:${claimed.id}:${claimed.attempt}:before`;
     const afterEvidenceRef = `gate-c:${claimed.id}:${claimed.attempt}:after`;
-    gateCAction = buildGateCAction({
+    const action = buildGateCAction({
       actionId: `action:${claimed.id}:${claimed.attempt}:gate-c`,
       episodeId: episode.episodeId,
       projectId: params.projectId,
@@ -748,6 +771,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       approvedPaths: normalizedPaths(params.approvedPaths),
       candidateIdentity: params.candidateIdentity,
     });
+    const actionContract = strategyActionContract(action);
+    gateCAction = action;
     gateCEffectContract = buildGateCEffectContract({
       kind: recipeGateCEffectKind,
       operationId: params.operationId,
@@ -762,10 +787,12 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       workerId,
       eventType: "ACTION_REQUESTED",
       payload: {
-        actionId: gateCAction.actionId,
-        capabilityId: gateCAction.capabilityId,
-        expectedEffects: gateCAction.expectedEffects,
-        observationProfile: gateCAction.observationProfile,
+        actionId: action.actionId,
+        capabilityId: action.capabilityId,
+        expectedEffects: action.expectedEffects,
+        observationProfile: action.observationProfile,
+        actionContract,
+        actionContractHash: canonicalJsonHash(actionContract),
       },
       actorType: "worker",
       actorId: workerId,

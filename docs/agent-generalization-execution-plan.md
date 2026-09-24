@@ -1474,18 +1474,18 @@ learningStatus
 
 ### PR 9: Strategy Candidates وReplay
 
-- **الحالة الحالية: `partial` (2026-09-24).** نُفذت شريحة extraction/storage
-  الوصفية للحلقات ذات الإجراء الواحد فقط: episode مغلقة `achieved`، acceptance
-  ناجح، Canonical Proof معاد التحقق منه إلى `PROVEN`، وeffect bundle متطابق
-  بملاحظات direct كاملة وحديثة على المراجعة نفسها. التخزين deterministic
-  وidempotent؛ المرشح يبقى `discovered` ولا يُستهلك كـpolicy.
-- لا تحفظ الأحداث الحالية trigger/precondition contracts، لذلك تبقى حقولها
-  فارغة ولا تُستنتج من prose أو scope أو receipts. لا تقبل الشريحة الحالية
-  traces متعددة الأفعال.
-- **المتبقي قبل اعتبار PR 9 مكتملًا:** current-corpus replay وheld-out replay
-  المنفصل وcross-project fixtures وpaired baselines وLearning Delta. يلزم أولًا
-  تسجيل trigger/precondition contracts من مصدر server-owned كي يكون replay
-  ذا معنى. لا يُسمح بالترقية أو التأثير على planner قبل اجتياز هذه البوابات.
+- **الحالة الحالية: `partial` (2026-09-24).** extraction/storage deterministic
+  وidempotent للحلقات المقبولة ذات الإجراء الواحد: episode مغلقة `achieved`،
+  acceptance ناجح، Canonical Proof معاد التحقق منه إلى `PROVEN`، وeffect bundle
+  متطابق بملاحظات direct كاملة وحديثة على المراجعة نفسها. المرشح يبقى
+  `discovered` ولا يُستهلك كـpolicy.
+- تسجل أحداث `ACTION_REQUESTED` الجديدة عقدًا server-owned بإصدار وبصمة تشمل
+  trigger recipe، preconditions، expected effects، observation profile، وfailure
+  semantics. المرشح يحفظ هذه العقود؛ الأحداث القديمة التي لا تحمل العقد تبقى
+  غير مؤهلة. لا تقبل الشريحة الحالية traces متعددة الأفعال.
+- **المتبقي قبل اعتبار PR 9 مكتملًا:** replay مستقل على current وheld-out
+  corpus، cross-project fixtures، paired baseline، وLearning Delta. لا يُسمح
+  بالترقية أو التأثير على planner قبل إثبات كل بوابة بهذه الأدلة.
 
 ### PR 10: Canary/Promotion وCapability Composition
 

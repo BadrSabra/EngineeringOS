@@ -14,3 +14,9 @@ Managed Vite dashboard workflows can report a stale port-in-use failure even whe
 **Why:** A previous dashboard start failed only because an old listener occupied the assigned port; the managed restart and isolated replacement-process check both passed afterward.
 
 **How to apply:** Treat a port-only dashboard startup failure as a workflow lifecycle issue first. Restart the exact artifact workflow and verify the replacement listener rather than changing Vite port configuration.
+
+An API workflow marked failed may still have an old server child or listener alive. Workflow status alone does not establish whether the API is serving or which process owns its port.
+
+**Why:** An API startup reported `EADDRINUSE` while a local health request still succeeded; restarting the managed API workflow replaced the stale process and started cleanly.
+
+**How to apply:** For API port conflicts, verify the listener owner and health endpoint before changing code or starting another server. Restart the exact artifact workflow once, then confirm the replacement process and health response.

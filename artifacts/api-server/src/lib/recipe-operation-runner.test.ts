@@ -473,9 +473,22 @@ describe("recipe operation preparation", () => {
         supportingEpisodeIds: [episode?.id],
       });
       expect(candidates[0]?.candidate).toMatchObject({
-        triggerConditions: [],
-        preconditions: [],
+        triggerConditions: [{ kind: "server_recipe", recipeId: "runtime.start" }],
+        preconditions: [
+          "The runtime root and revision are server-owned.",
+          "The current worker lease owns the runtime session.",
+        ],
+        observationRequirements: [{
+          kind: "direct_before_after",
+          profile: "RUNTIME",
+          completeness: "complete",
+          freshness: "fresh",
+        }],
         recommendedActionOrder: ["runtime.start"],
+        failureSemantics: [
+          "A missing, stale, or unavailable after-state cannot produce PROVEN.",
+          "A contradictory after-state requires a bounded failure or replan.",
+        ],
         evaluationStatus: "discovered",
       });
       const extractionRetry = await extractAcceptedEpisodeStrategy({

@@ -39,6 +39,10 @@ type StrategyExtractionResult =
         | "missing_effect_bundle"
         | "effect_bundle_mismatch"
         | "event_stream_invalid"
+        | "event_identity_mismatch"
+        | "event_actor_mismatch"
+        | "event_payload_hash_mismatch"
+        | "terminal_event_invalid"
         | "unsupported_action_trace"
         | "effect_evidence_incomplete"
         | "candidate_evaluation_started";
@@ -48,6 +52,10 @@ type AcceptedAction = {
   actionId: string;
   capabilityId: string;
   expectedEffects: string[];
+  triggerConditions: JsonValue[];
+  preconditions: string[];
+  observationProfile: string;
+  failureSemantics: string[];
 };
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -59,6 +67,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function actionRequest(value: unknown): AcceptedAction | undefined {
   const record = asRecord(value);
   const expectedEffects = record?.expectedEffects;
+  const contract = asRecord(record?.actionContract);
+  const triggers = contract?.triggerConditions;
+  const preconditions = contract?.preconditions;
+  const contractEffects = contract?.expectedEffects;
+  const failureSemantics = contract?.failureSemantics;
   if (
     typeof record?.actionId !== "string"
     || !record.actionId.trim()
@@ -67,6 +80,23 @@ function actionRequest(value: unknown): AcceptedAction | undefined {
     || !Array.isArray(expectedEffects)
     || expectedEffects.length === 0
     || !expectedEffects.every((effect) => typeof effect === "string" && effect.trim().length > 0)
+    || !contract
+    || contract.contractVersion !== 1
+    || typeof record.actionContractHash !== "string"
+    || record.actionContractHash !== canonicalJsonHash(contract as unknown as JsonValue)
+    || !Array.isArray(triggers)
+    || triggers.length === 0
+    || !Array.isArray(preconditions)
+    || preconditions.length === 0
+    || !preconditions.every((condition) => typeof condition === "string" && condition.trim().length > 0)
+    || !Array.isArray(contractEffects)
+    || contractEffects.length !== expectedEffects.length
+    || !contractEffects.every((effect, index) => effect === expectedEffects[index])
+    || typeof contract.observationProfile !== "string"
+    || !contract.observationProfile.trim()
+    || !Array.isArray(failureSemantics)
+    || failureSemantics.length === 0
+    || !failureSemantics.every((value) => typeof value === "string" && value.trim().length > 0)
   ) {
     return undefined;
   }
@@ -74,6 +104,10 @@ function actionRequest(value: unknown): AcceptedAction | undefined {
     actionId: record.actionId,
     capabilityId: record.capabilityId,
     expectedEffects: expectedEffects as string[],
+    triggerConditions: triggers as JsonValue[],
+    preconditions: preconditions as string[],
+    observationProfile: contract.observationProfile,
+    failureSemantics: failureSemantics as string[],
   };
 }
 
@@ -165,8 +199,10 @@ function candidateStaticHash(candidate: StrategyCandidate): string {
     candidateId: candidate.candidateId,
     triggerConditions: candidate.triggerConditions,
     preconditions: candidate.preconditions,
+    observationRequirements: candidate.observationRequirements ?? [],
     recommendedActionOrder: candidate.recommendedActionOrder,
     expectedEffects: candidate.expectedEffects,
+    failureSemantics: candidate.failureSemantics ?? [],
     applicableScopes: candidate.applicableScopes,
     confidence: candidate.confidence,
     evaluationStatus: candidate.evaluationStatus,
@@ -355,17 +391,33 @@ export async function extractAcceptedEpisodeStrategy(input: {
         || row.executionId !== episode.executionId
         || row.attempt !== episode.attempt
         || row.sequence !== index
-        || row.payloadHash !== payloadHash
       ) {
-        return { status: "not_eligible", reason: "event_stream_invalid" };
+        return { status: "not_eligible", reason: "event_identity_mismatch" };
+      }
+      if (
+        row.eventType !== "EPISODE_CREATED"
+        && row.actorType === "worker"
+        && row.actorId !== episode.workerId
+      ) {
+        return { status: "not_eligible", reason: "event_actor_mismatch" };
+      }
+      if (row.payloadHash !== payloadHash) {
+        return { status: "not_eligible", reason: "event_payload_hash_mismatch" };
       }
     }
     const terminalEvent = eventRows.find((event) => event.eventType === "EPISODE_TERMINAL");
+    const terminalPayload = terminalEvent ? asRecord(terminalEvent.payload) : undefined;
     if (
       !terminalEvent
-      || asRecord(terminalEvent.payload)?.verdict !== "achieved"
+      || terminalEvent.actorType !== "server"
+      || terminalEvent.actorId !== "acceptance-finalizer"
+      || terminalEvent.correlationId !== execution.id
+      || terminalPayload?.verdict !== "achieved"
+      || terminalPayload.acceptanceId !== acceptance.id
+      || terminalPayload.effectBundleId !== acceptance.effectBundleId
+      || terminalPayload.reasonCode !== "CANONICAL_PROOF_PROVEN"
     ) {
-      return { status: "not_eligible", reason: "event_stream_invalid" };
+      return { status: "not_eligible", reason: "terminal_event_invalid" };
     }
 
     const requests = eventRows.filter((event) => event.eventType === "ACTION_REQUESTED");
@@ -374,11 +426,21 @@ export async function extractAcceptedEpisodeStrategy(input: {
       return { status: "not_eligible", reason: "unsupported_action_trace" };
     }
     const action = actionRequest(requests[0]!.payload);
+    const episodeScope = asRecord(episode.scope);
+    const actionTrigger = action?.triggerConditions.length === 1
+      ? asRecord(action.triggerConditions[0])
+      : undefined;
     if (
       !action
       || requests[0]!.correlationId !== execution.id
+      || requests[0]!.actorType !== "worker"
+      || requests[0]!.actorId !== episode.workerId
       || commits[0]!.correlationId !== execution.id
+      || commits[0]!.actorType !== "worker"
+      || commits[0]!.actorId !== episode.workerId
       || !actionCommitMatches(commits[0]!.payload, action)
+      || actionTrigger?.kind !== "server_recipe"
+      || actionTrigger.recipeId !== episodeScope?.recipeId
     ) {
       return { status: "not_eligible", reason: "unsupported_action_trace" };
     }
@@ -471,6 +533,8 @@ export async function extractAcceptedEpisodeStrategy(input: {
       || classifiedEvents.some((event) => {
         const payload = asRecord(event.payload);
         return event.correlationId !== execution.id
+          || event.actorType !== "worker"
+          || event.actorId !== episode.workerId
           || payload?.effectBundleId !== bundle.id
           || payload?.status !== "observed";
       })
@@ -573,7 +637,11 @@ export async function extractAcceptedEpisodeStrategy(input: {
       projectId: input.projectId,
       sourceRevision: episode.projectRevision,
       intentKind: episode.intentKind,
+      triggerConditions: action.triggerConditions,
+      preconditions: action.preconditions,
       capabilityId: action.capabilityId,
+      observationProfile: action.observationProfile,
+      failureSemantics: action.failureSemantics,
       expectedEffects: expectedEffectNames,
       effectSubjects: effectSignatures,
     };
@@ -585,12 +653,17 @@ export async function extractAcceptedEpisodeStrategy(input: {
         strategyKey,
         version: 1,
       } as unknown as JsonValue)}`,
-      // The current event contract does not retain action trigger or
-      // precondition contracts. Keep them empty rather than infer them.
-      triggerConditions: [],
-      preconditions: [],
+      triggerConditions: action.triggerConditions,
+      preconditions: action.preconditions,
+      observationRequirements: [{
+        kind: "direct_before_after",
+        profile: action.observationProfile,
+        completeness: "complete",
+        freshness: "fresh",
+      }],
       recommendedActionOrder: [action.capabilityId],
       expectedEffects: expectedEffectNames,
+      failureSemantics: action.failureSemantics,
       supportingEpisodeIds: [episode.id],
       contradictingEpisodeIds: [],
       applicableScopes: [episode.intentKind],

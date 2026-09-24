@@ -16,6 +16,7 @@ export const AgentActionSchema = boundedContractSchema(z.object({
   episodeId: boundedString(200),
   capabilityId: boundedString(200),
   intent: boundedString(512),
+  triggerConditions: z.array(boundedJsonSchema(8 * 1024)).max(32).optional(),
   scope: boundedJsonSchema(16 * 1024),
   preconditions: z.array(boundedString(512)).max(64),
   expectedEffects: z.array(boundedString(256)).max(64),

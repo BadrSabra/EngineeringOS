@@ -66,6 +66,7 @@ export function buildGateCAction(input: {
       : kind === "runtime"
         ? "Start the server-owned preview and verify its serving state."
         : "Verify the committed delivery against the remote branch state.",
+    triggerConditions: [{ kind: "server_recipe", recipeId: input.recipeId }],
     scope: {
       projectId: input.projectId,
       operationId: input.operationId,

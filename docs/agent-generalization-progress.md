@@ -25,7 +25,7 @@
 | P7.5 — Belief and Information Gain | `not_started` | تمثيل uncertainty واختيار observation حسب information gain/cost/risk/authorization/time. |
 | P8 — Diagnosis-aware Replanning | `not_started` | ربط World State وBelief وDiagnosis وcapabilities وexpected effects بخطة bounded جديدة. |
 | P9 — Causal Credit Assignment | `not_started` | فصل causal effect عن enabling/observation/validation/incidental actions. |
-| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة ذات أثر مباشر؛ trigger/preconditions غير المتاحة لا تُستنتج. |
+| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ ACTION_REQUESTED صار يحمل عقد trigger/preconditions server-owned بإصدار وبصمة. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
 | P11 — Learning Validation and Transfer | `not_started` | replay وheld-out وcross-project وnovel composition وLearning Delta مع منع leakage. |
 | P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
@@ -392,27 +392,31 @@ G9 Revocation Safety
   backed by complete, fresh, direct before/after observations at the episode
   revision. Successful proof-bearing effect episodes now close atomically with
   acceptance; recipe execution then attempts extraction as a best-effort sidecar.
+  New `ACTION_REQUESTED` events retain a versioned, hashed server-owned action
+  contract: recipe trigger, preconditions, expected effects, observation profile,
+  and failure semantics. Extraction checks event actor and episode-scope identity.
 - **candidate boundary:** Stored candidates remain `discovered`, have confidence
-  `0`, and are not read by planner or runtime policy. Current action events do not
-  retain trigger or precondition contracts, so those candidate fields remain
-  empty; extraction does not infer them from provider prose, episode scope, or
-  receipts. Candidate identity is project- and revision-bound, and retries merge
-  supporting episode IDs idempotently.
+  `0`, and are not read by planner or runtime policy. Legacy action events without
+  the versioned contract remain ineligible; extraction does not infer triggers
+  or preconditions from provider prose or receipts. Candidate identity is project-
+  and revision-bound, and retries merge supporting episode IDs idempotently.
 - **validation:** API server typecheck and `git diff --check` passed. The focused
-  recipe-operation, effect-observer, and acceptance suites passed (32 tests),
-  including accepted runtime-effect extraction and idempotent extraction retry.
+  recipe-operation, effect-observer, acceptance, and Gate C suites passed (34
+  tests), including accepted runtime-effect extraction and idempotent extraction
+  retry. The managed API workflow restarted successfully and `/api/healthz`
+  returned `ok`.
   The API workflow restarted successfully and reported the server listening.
 - **authority/safety impact:** Strategy candidates are data only. No planner
   behavior, skill registry state, authorization, or promotion path changes.
   Failed proof, incomplete/stale observation, mismatched event/effect identity,
   and unsupported multi-action traces produce no candidate.
 - **remaining/blocker:** Current-corpus replay, held-out replay, cross-project
-  fixtures, paired baselines, and Learning Delta are not implemented. Empty
-  trigger/precondition contracts also block meaningful strategy replay. PR 9
+  fixtures, paired baselines, and Learning Delta are not implemented. PR 9
   remains partial and no generalization claim is made.
-- **next step:** Define and persist server-owned trigger/precondition contracts
-  at action creation, then build strategy-specific paired replay over separated
-  current and held-out corpora with cross-project rejection and Learning Delta.
+- **next step:** Build strategy-specific replay over independent, separated
+  corpora, bind each case to its own accepted evidence, enforce cross-project
+  isolation, and require paired baseline plus Learning Delta before any status
+  can advance beyond discovery.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
