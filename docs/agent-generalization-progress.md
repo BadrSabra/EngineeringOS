@@ -14,7 +14,7 @@
 |---|---|---|
 | P0 — Contracts, baseline, threat model | `done` | عقود agent-state واختبارات parsing/hash/redaction موجودة. |
 | P1 — Episode schema + ledger | `done` | جداول Episode/Observation/Effect/World/Strategy والـledger واختبارات ownership/idempotency/replay موجودة. |
-| P2 — Episode integration in Chat/Mission | `partial` | Chat وTask/Recipe متكاملة؛ تكامل Mission/Workflow يحتاج تأكيدًا أو استكمالًا قبل إغلاق المرحلة. |
+| P2 — Episode integration in Chat/Mission | `partial` | Chat وTask/Recipe متكاملة، وأضيف ربط هوية Mission/Goal وWorkflow scope عند إنشاء Episode؛ رحلة Mission/Workflow الكاملة ما زالت تحتاج اختبار تكاملي وإغلاقًا موثقًا. |
 | P3 — Observation materialization | `done` | مصادر server-owned مع completeness/freshness/revision وربط بالـepisode. |
 | P4 — World facts + materialized reader | `partial` | read model، contradictions، supersession، world revision، endpoint محمي وContext projection منجزة؛ تغطية effect/browser/Git الكاملة ليست منجزة بعد. |
 | P5 — Effect contract for candidate validation | `not_started` | يلزم before/after effect bundle وربطه بالـacceptance في نفس المعاملة. |
@@ -65,6 +65,24 @@
   بدء Gate B.
 - **next step:** إكمال Mission/Workflow Episode integration ثم تنفيذ Candidate
   Validation Effect Loop كأول vertical slice كاملة.
+
+### 2026-09-24 — Mission/Workflow Episode identity wiring
+
+- **phase/step:** P2 / Episode identity at task execution
+- **status:** `partial`
+- **what changed:** ربط Episodes الناتجة من Task execution بـ`missionId` و`goalId`
+  و`planRevision` عند وجود Goal، وتمييز Workflow tasks داخل الـscope بواسطة
+  `workflowId`. ظل المسار Shadow-only.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/task-execution-service.ts`,
+  `artifacts/api-server/src/lib/task-execution-service.test.ts`.
+- **validation:** اختبار task execution المستهدف؛ 8 اختبارات ناجحة؛
+  `git diff --check`.
+- **authority/safety impact:** لا تغيير في acceptance أو proof أو Mission state أو
+  permissions؛ Episode write ما زال غير authoritative.
+- **remaining/blocker:** لم تثبت بعد رحلة Mission/Workflow end-to-end أو تكامل
+  Episode مع كل terminal/recovery projections.
+- **next step:** إضافة اختبار تكاملي يثبت الهوية عبر Mission dispatch وresume/
+  retry قبل بدء Gate B.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAiTaskExecutionReceipt,
   classifyTaskExecutionFailure,
+  missionPlanRevisionHash,
 } from "./task-execution-service.js";
 
 function result(overrides: Record<string, unknown> = {}) {
@@ -98,5 +99,29 @@ describe("AI task execution failure classification", () => {
       reasonCode: "EXECUTION_CANCELLED",
       retryable: false,
     });
+  });
+});
+
+describe("Mission episode identity", () => {
+  it("derives the active plan revision from the goal outcome contract", () => {
+    expect(missionPlanRevisionHash({
+      outcomeContract: { planRevision: { hash: " outcome-plan-1 " } },
+      successCriteria: {},
+    } as never)).toBe("outcome-plan-1");
+  });
+
+  it("falls back to the goal success criteria plan revision", () => {
+    expect(missionPlanRevisionHash({
+      outcomeContract: {},
+      successCriteria: { planRevision: { hash: "success-plan-1" } },
+    } as never)).toBe("success-plan-1");
+  });
+
+  it("rejects missing or malformed plan revisions", () => {
+    expect(missionPlanRevisionHash(undefined)).toBeUndefined();
+    expect(missionPlanRevisionHash({
+      outcomeContract: { planRevision: { hash: 42 } },
+      successCriteria: {},
+    } as never)).toBeUndefined();
   });
 });

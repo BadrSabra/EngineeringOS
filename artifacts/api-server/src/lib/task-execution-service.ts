@@ -674,6 +674,15 @@ function jsonRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+export function missionPlanRevisionHash(goal: typeof aiGoalsTable.$inferSelect | undefined): string | undefined {
+  const outcome = jsonRecord(goal?.outcomeContract);
+  const success = jsonRecord(goal?.successCriteria);
+  const revision = jsonRecord(outcome.planRevision ?? success.planRevision);
+  return typeof revision.hash === "string" && revision.hash.trim()
+    ? revision.hash.trim()
+    : undefined;
+}
+
 function missionTaskPolicy(params: {
   task: typeof tasksTable.$inferSelect;
   goal: typeof aiGoalsTable.$inferSelect | undefined;
@@ -1236,6 +1245,19 @@ export async function executeTaskLifecycle(params: {
   }
   const executionAttempt = claimedExecution.attempt;
   const executionRevision = claimedExecution.baseRevision ?? executionWorkspaceRevision;
+  const episodePlanRevision = missionPlanRevisionHash(missionGoal);
+  const episodeScope = {
+    kind: missionGoal
+      ? "mission-task"
+      : before.workflowId
+        ? "workflow-task"
+        : "task",
+    taskId: before.id,
+    ...(missionGoal
+      ? { missionId: missionGoal.missionId, goalId: missionGoal.id }
+      : {}),
+    ...(before.workflowId ? { workflowId: before.workflowId } : {}),
+  } as const;
   startEpisodeShadow({
     projectId: before.projectId,
     executionId,
@@ -1244,8 +1266,10 @@ export async function executeTaskLifecycle(params: {
     idempotencyKey: `${before.id}:episode:${executionAttempt}`,
     projectRevision: executionRevision ?? "unknown",
     intentKind: "TASK_EXECUTION",
-    scope: { kind: "task", taskId: before.id },
+    scope: episodeScope,
+    ...(missionGoal ? { missionId: missionGoal.missionId } : {}),
     ...(before.goalId ? { goalId: before.goalId } : {}),
+    ...(episodePlanRevision ? { planRevision: episodePlanRevision } : {}),
   });
   const claimedCheckpoint = parseAiExecutionCheckpoint(claimedExecution.checkpoint);
   const missionResumeState = parseMissionToolLoopCheckpoint(claimedCheckpoint);
