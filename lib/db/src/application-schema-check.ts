@@ -60,6 +60,16 @@ type EnumRow = {
  */
 export const APPLICATION_SCHEMA_CONTRACT = {
   tables: {
+    projects: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "strategy_replay_opt_in",
+        dataType: "boolean",
+        udtName: "bool",
+        nullable: false,
+        defaultExpression: /false/,
+      },
+    ] satisfies readonly ColumnContract[],
     workspace_runtime: [],
     // Provider telemetry is release-critical even though its payload columns
     // are owned by the AI diagnostics contract rather than execution proof.
@@ -258,6 +268,20 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "source_revision", dataType: "text", udtName: "text", nullable: false },
       { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
       { name: "updated_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
+    ] satisfies readonly ColumnContract[],
+    ai_strategy_replay_cases: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "candidate_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "source_episode_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "case_definition", dataType: "jsonb", udtName: "jsonb", nullable: false },
+      {
+        name: "created_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
     ] satisfies readonly ColumnContract[],
     tasks: [
       { name: "id", dataType: "text", udtName: "text", nullable: false },
@@ -813,6 +837,16 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       columns: ["project_id", "evaluation_status"],
     },
     {
+      name: "uq_ai_strategy_replay_cases_candidate_episode",
+      tableName: "ai_strategy_replay_cases",
+      columns: ["candidate_id", "source_episode_id"],
+    },
+    {
+      name: "idx_ai_strategy_replay_cases_project_candidate",
+      tableName: "ai_strategy_replay_cases",
+      columns: ["project_id", "candidate_id"],
+    },
+    {
       name: "uq_ai_usage_events_attempt_id",
       tableName: "ai_usage_events",
       columns: ["attempt_id"],
@@ -1081,6 +1115,27 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       tableName: "ai_strategy_candidates",
       columnName: "project_id",
       foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_strategy_replay_cases",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_strategy_replay_cases",
+      columnName: "candidate_id",
+      foreignTableName: "ai_strategy_candidates",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "ai_strategy_replay_cases",
+      columnName: "source_episode_id",
+      foreignTableName: "ai_agent_episodes",
       foreignColumnName: "id",
       deleteRule: "CASCADE",
     },

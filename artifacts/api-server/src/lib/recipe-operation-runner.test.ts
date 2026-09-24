@@ -13,6 +13,7 @@ import {
   aiExecutionsTable,
   aiChatSessionsTable,
   aiStrategyCandidatesTable,
+  aiStrategyReplayCasesTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -38,6 +39,10 @@ import {
   materializeStrategyReplayCaseProofBinding,
   verifyStrategyReplayCaseProofBinding,
 } from "./agent-state/strategy-replay-case-proof.js";
+import {
+  deleteUnreplayedStrategyReplayCases,
+  registerProspectiveStrategyReplayCase,
+} from "./agent-state/strategy-replay-case-registry.js";
 
 const validationCalls: string[] = [];
 
@@ -584,6 +589,89 @@ describe("recipe operation preparation", () => {
         candidate: { evaluationStatus: "pending_replay" },
         candidateHash: candidatesAfterSecondSupport[0]?.candidateHash,
       });
+
+      const casesBeforeOptIn = await db.select().from(aiStrategyReplayCasesTable)
+        .where(eq(aiStrategyReplayCasesTable.projectId, projectId));
+      expect(casesBeforeOptIn).toHaveLength(0);
+      const [projectBeforeOptIn] = await db.select().from(projectsTable)
+        .where(eq(projectsTable.id, projectId));
+      expect(projectBeforeOptIn?.strategyReplayOptIn).toBe(false);
+
+      await db.update(projectsTable)
+        .set({ strategyReplayOptIn: true })
+        .where(eq(projectsTable.id, projectId));
+      await manager.shutdown();
+      const thirdOperationId = crypto.randomUUID();
+      manager = new WorkspaceRuntimeManager({
+        store: createInMemoryWorkspaceRuntimeStore(),
+        workerId: `runtime-recipe-test:${thirdOperationId}`,
+      });
+      const thirdResult = await runRecipeOperation({
+        projectId,
+        operationId: thirdOperationId,
+        sessionId,
+        userId,
+        idempotencyKey: `${thirdOperationId}:runtime-effect`,
+        rootPath,
+        sourceRevision,
+        recipeId: "runtime.start",
+        recipeVersion: 1,
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionIds.push(thirdResult.executionId);
+      expect(thirdResult.status).toBe("completed");
+
+      const [thirdEpisode] = await db.select().from(aiAgentEpisodesTable).where(and(
+        eq(aiAgentEpisodesTable.projectId, projectId),
+        eq(aiAgentEpisodesTable.executionId, thirdResult.executionId),
+      ));
+      expect(thirdEpisode).toBeDefined();
+      const registrationCheck = await registerProspectiveStrategyReplayCase({
+        projectId,
+        episodeId: thirdEpisode!.id,
+      });
+      if (registrationCheck.status === "skipped") {
+        throw new Error(`Expected eligible replay case registration, received ${JSON.stringify(registrationCheck)}`);
+      }
+      expect(["registered", "already_registered"]).toContain(registrationCheck.status);
+
+      const casesAfterOptIn = await db.select().from(aiStrategyReplayCasesTable)
+        .where(eq(aiStrategyReplayCasesTable.projectId, projectId));
+      expect(casesAfterOptIn).toHaveLength(1);
+      expect(casesAfterOptIn[0]).toMatchObject({
+        candidateId: candidatesAfterSecondSupport[0]?.id,
+        sourceEpisodeId: expect.any(String),
+      });
+      expect(casesAfterOptIn[0]?.caseDefinition).toMatchObject({
+        schemaVersion: 1,
+        projectId,
+        candidateId: candidatesAfterSecondSupport[0]?.id,
+        candidateHash: candidatesAfterSecondSupport[0]?.candidateHash,
+        sourceRevision,
+        sourceEpisodeId: casesAfterOptIn[0]?.sourceEpisodeId,
+        sourceExecutionId: thirdResult.executionId,
+        recipeId: "runtime.start",
+        actionContractHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        sourceCanonicalProofHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(casesAfterOptIn[0]?.caseDefinition).not.toHaveProperty("prompt");
+      expect(casesAfterOptIn[0]?.caseDefinition).not.toHaveProperty("chatText");
+      expect(casesAfterOptIn[0]?.caseDefinition).not.toHaveProperty("sourceContents");
+
+      const candidateAfterThirdEpisode = await db.select().from(aiStrategyCandidatesTable)
+        .where(eq(aiStrategyCandidatesTable.projectId, projectId));
+      expect(candidateAfterThirdEpisode[0]?.supportingEpisodeIds).toHaveLength(2);
+      expect(candidateAfterThirdEpisode[0]?.supportingEpisodeIds)
+        .not.toContain(casesAfterOptIn[0]?.sourceEpisodeId);
+      await expect(registerProspectiveStrategyReplayCase({
+        projectId,
+        episodeId: casesAfterOptIn[0]!.sourceEpisodeId,
+      })).resolves.toMatchObject({ status: "already_registered" });
+      await expect(db.transaction((tx) =>
+        deleteUnreplayedStrategyReplayCases(tx, projectId),
+      )).resolves.toBe(1);
+      expect(await db.select().from(aiStrategyReplayCasesTable)
+        .where(eq(aiStrategyReplayCasesTable.projectId, projectId))).toHaveLength(0);
     } finally {
       await manager.shutdown();
       for (const executionId of executionIds) {

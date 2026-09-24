@@ -515,6 +515,39 @@ G9 Revocation Safety
   and support-episode separation there, and bind each candidate replay result to
   its own durable proof and receipt before calculating paired metrics.
 
+### 2026-09-24 — Prospective Strategy Replay Case Registration (partial)
+
+- **phase/step:** P10 / PR 9 — opt-in prospective corpus admission
+- **status:** `partial`
+- **what changed:** Added a project-owner setting for future Strategy Replay
+  case registration, disabled by default. Only a later accepted recipe episode
+  that matches one frozen `pending_replay` candidate can be registered. Matching
+  reuses the accepted-action parser and strategy-key calculation, verifies the
+  full accepted effect bundle and recomputes its source Canonical Proof binding.
+  Every supporting episode remains excluded. Turning consent off stops future
+  registration and removes all registered cases, which are currently
+  unreplayed.
+- **files/schema/contracts touched:** Project schema and PATCH contract,
+  application schema gate, `ai_strategy_replay_cases`, Project Detail settings,
+  and recipe-operation registration.
+- **authority/safety impact:** Case capsules retain only project/candidate/
+  episode/execution identities and hashes, including the action-contract and
+  recomputed source-proof hashes. Prompts, chat text, source contents, and
+  arbitrary episode prose are not stored. Registration does not run replay,
+  change candidate status, or affect planner/runtime behavior.
+- **validation:** API and dashboard typechecks passed. The full
+  `recipe-operation-runner.test.ts` suite passed (12 tests), and the project
+  consent route test passed. The broader `projects.test.ts` run passed 35/36;
+  its unrelated graph-scan test exceeded its existing 5-second wait under suite
+  load, then passed when run alone. `git diff --check` passed.
+- **remaining/blocker:** No isolated Strategy Replay executor, held-out
+  partition resolver, replay-result Canonical Proof, durable case receipt,
+  paired baseline generation, transfer fixtures, or Learning Delta exists.
+  Registered cases are not replay evidence and PR 9 remains partial.
+- **next step:** Implement an isolated, server-owned replay executor that
+  consumes only registered cases and produces a separate accepted proof and
+  durable receipt for each replay run.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

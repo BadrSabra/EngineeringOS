@@ -83,6 +83,7 @@ import {
 } from "./agent-state/gate-c-effect.js";
 import { workspaceRuntime, WorkspaceRuntimeError } from "./workspace-runtime.js";
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
+import { registerProspectiveStrategyReplayCase } from "./agent-state/strategy-replay-case-registry.js";
 
 function strategyActionContract(action: AgentAction): {
   contractVersion: 1;
@@ -1429,6 +1430,40 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             "Accepted episode was not eligible for strategy extraction",
           );
         }
+    if (
+      extraction.status === "not_eligible"
+      && extraction.reason === "candidate_evaluation_started"
+    ) {
+      try {
+        const registration = await registerProspectiveStrategyReplayCase({
+          projectId: params.projectId,
+          episodeId: episode.episodeId,
+        });
+        if (registration.status === "registered") {
+          logger.info(
+            {
+              scope: "recipe-operation",
+              executionId: claimed.id,
+              episodeId: episode.episodeId,
+              caseId: registration.caseId,
+              candidateId: registration.candidateId,
+            },
+            "Prospective Strategy Replay case registered",
+          );
+        }
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "strategy_replay_case_registration_failed",
+            executionId: claimed.id,
+            episodeId: episode.episodeId,
+            error,
+          },
+          "Strategy Replay case registration failed without changing the accepted recipe outcome",
+        );
+      }
+    }
       } catch (error) {
         logger.warn(
           {

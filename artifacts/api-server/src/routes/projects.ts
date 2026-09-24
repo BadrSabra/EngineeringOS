@@ -33,6 +33,7 @@ import { establishProjectRoot } from "../lib/project-root.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { getProjectWorldState } from "../lib/agent-state/world-state.js";
+import { deleteUnreplayedStrategyReplayCases } from "../lib/agent-state/strategy-replay-case-registry.js";
 import {
   requireProjectAccess,
   requireProjectWriteAccess,
@@ -258,14 +259,21 @@ router.patch("/projects/:projectId", requireProjectWriteAccess, async (req, res)
       .set({ ...body, updatedAt: new Date() })
       .where(eq(projectsTable.id, projectId)).returning();
     if (rows[0]) {
+      const removedReplayCaseCount = body.strategyReplayOptIn === false
+        ? await deleteUnreplayedStrategyReplayCases(tx, projectId)
+        : undefined;
+      const changedFields = {
+        ...body,
+        ...(removedReplayCaseCount === undefined ? {} : { removedReplayCaseCount }),
+      };
       await tx.insert(eventsTable).values({
         id: randomUUID(), type: "ProjectUpdated", projectId,
         severity: "info", message: `Project "${rows[0].name}" updated`, correlationId,
-        payload: { changedFields: body },
+        payload: { changedFields },
       });
       await recordAuditInTransaction(tx, {
         entityType: "project", entityId: projectId, action: "updated",
-        projectId, changedFields: body, stateBefore: before,
+        projectId, actor: req.userId, changedFields, stateBefore: before,
         stateAfter: rows[0], correlationId,
       });
     }

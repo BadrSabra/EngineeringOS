@@ -17,6 +17,8 @@ export interface Project {
   language: string;
   framework?: string;
   status: ProjectStatus;
+  /** Whether this project may register future proof-bound Strategy Replay cases. Defaults to false. */
+  strategyReplayOptIn: boolean;
   qualityScore?: number;
   lastScanAt?: Date;
   createdAt: Date;

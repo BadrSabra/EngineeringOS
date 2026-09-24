@@ -4174,6 +4174,8 @@ export interface Project {
   language: string;
   framework?: string;
   status: ProjectStatus;
+  /** Whether this project may register future proof-bound Strategy Replay cases. Defaults to false. */
+  strategyReplayOptIn: boolean;
   qualityScore?: number;
   lastScanAt?: string;
   createdAt: string;
@@ -4202,6 +4204,8 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   status?: UpdateProjectInputStatus;
+  /** Enable or disable future proof-bound Strategy Replay case registration for this project. */
+  strategyReplayOptIn?: boolean;
 }
 
 export interface ScanResult {

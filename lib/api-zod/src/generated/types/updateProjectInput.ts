@@ -11,4 +11,6 @@ export interface UpdateProjectInput {
   name?: string;
   description?: string;
   status?: UpdateProjectInputStatus;
+  /** Enable or disable future proof-bound Strategy Replay case registration for this project. */
+  strategyReplayOptIn?: boolean;
 }

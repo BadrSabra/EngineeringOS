@@ -1492,6 +1492,11 @@ learningStatus
   acceptance، effect bundle، والملاحظات المباشرة، ثم يصدر case ID server-owned.
   أي binding وارد يُقارن بهذه الهوية المعاد حسابها؛ هذا لا يسجل case manifest
   ولا يثبت partition/independence، ولا يمثل proof أو receipt لنتيجة replay نفسها.
+- يمكن لمالك المشروع تفعيل تسجيل prospective cases، وهو متوقف افتراضيًا. بعد
+  تجميد المرشح عند `pending_replay`، لا يُسجل إلا episode مقبول لاحق يطابق
+  candidate/action contract والـsource proof؛ تبقى كل حلقات الدعم مستثناة.
+  تحفظ الحالة IDs والبصمات فقط، وإيقاف الموافقة يحذف الحالات المسجلة غير
+  المعاد تشغيلها. التسجيل لا ينفذ replay ولا يغير حالة المرشح.
 - **المتبقي قبل اعتبار PR 9 مكتملًا:** replay مستقل على current وheld-out
   corpus، corpus resolver/executor، cross-project fixtures، durable per-case
   receipts، paired baseline generation، وLearning Delta. لا يُسمح بالترقية أو

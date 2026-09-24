@@ -7726,7 +7726,7 @@ components:
     # ─── Project ───────────────────────────────────────────────────────────────
     Project:
       type: object
-      required: [id, ownerId, name, rootPath, language, status, createdAt, updatedAt]
+      required: [id, ownerId, name, rootPath, language, status, strategyReplayOptIn, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -7746,6 +7746,9 @@ components:
         status:
           type: string
           enum: [active, scanning, paused, archived]
+        strategyReplayOptIn:
+          type: boolean
+          description: Whether this project may register future proof-bound Strategy Replay cases. Defaults to false.
         qualityScore:
           type: number
         lastScanAt:
@@ -7785,6 +7788,9 @@ components:
         status:
           type: string
           enum: [active, scanning, paused, archived]
+        strategyReplayOptIn:
+          type: boolean
+          description: Enable or disable future proof-bound Strategy Replay case registration for this project.
 
     ScanResult:
       type: object

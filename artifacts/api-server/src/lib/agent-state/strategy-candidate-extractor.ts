@@ -49,7 +49,7 @@ type StrategyExtractionResult =
         | "candidate_evaluation_started";
     };
 
-type AcceptedAction = {
+export type AcceptedAction = {
   actionId: string;
   capabilityId: string;
   expectedEffects: string[];
@@ -65,7 +65,7 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function actionRequest(value: unknown): AcceptedAction | undefined {
+export function parseAcceptedActionRequest(value: unknown): AcceptedAction | undefined {
   const record = asRecord(value);
   const expectedEffects = record?.expectedEffects;
   const contract = asRecord(record?.actionContract);
@@ -171,6 +171,37 @@ function normalizedEffectSignature(
   return (changes as Array<{ subject: string; predicate: string }>)
     .sort((left, right) =>
       left.subject.localeCompare(right.subject) || left.predicate.localeCompare(right.predicate));
+}
+
+export function expectedEffectNamesFromParsedEffects(
+  effects: readonly ReturnType<typeof AgentEffectSchema.parse>[],
+): string[] | undefined {
+  const signatures = effects.map((effect) => normalizedEffectSignature(effect));
+  if (signatures.length === 0 || signatures.some((signature) => !signature)) return undefined;
+  const names = [...new Set(effects.flatMap((effect) =>
+    (normalizedEffectSignature(effect) ?? [])
+      .map((change) => `${effect.capabilityId}:${change.predicate}`)))].sort();
+  return names.length > 0 ? names : undefined;
+}
+
+export function computeAcceptedStrategyKey(input: {
+  projectId: string;
+  sourceRevision: string;
+  intentKind: string;
+  action: AcceptedAction;
+  expectedEffectNames: string[];
+}): string {
+  return canonicalJsonHash({
+    projectId: input.projectId,
+    sourceRevision: input.sourceRevision,
+    intentKind: input.intentKind,
+    triggerConditions: input.action.triggerConditions,
+    preconditions: input.action.preconditions,
+    capabilityId: input.action.capabilityId,
+    observationProfile: input.action.observationProfile,
+    failureSemantics: input.action.failureSemantics,
+    expectedEffects: input.expectedEffectNames,
+  } as unknown as JsonValue);
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -432,7 +463,7 @@ export async function extractAcceptedEpisodeStrategy(input: {
     if (requests.length !== 1 || commits.length !== 1) {
       return { status: "not_eligible", reason: "unsupported_action_trace" };
     }
-    const action = actionRequest(requests[0]!.payload);
+    const action = parseAcceptedActionRequest(requests[0]!.payload);
     const episodeScope = asRecord(episode.scope);
     const actionTrigger = action?.triggerConditions.length === 1
       ? asRecord(action.triggerConditions[0])
@@ -565,10 +596,8 @@ export async function extractAcceptedEpisodeStrategy(input: {
     if (effectSignatures.some((signature) => !signature)) {
       return { status: "not_eligible", reason: "effect_evidence_incomplete" };
     }
-    const expectedEffectNames = [...new Set(parsedEffects.flatMap((effect) =>
-      (normalizedEffectSignature(effect) ?? [])
-        .map((change) => `${effect.capabilityId}:${change.predicate}`)))].sort();
-    if (expectedEffectNames.length === 0) {
+    const expectedEffectNames = expectedEffectNamesFromParsedEffects(parsedEffects);
+    if (!expectedEffectNames) {
       return { status: "not_eligible", reason: "effect_evidence_incomplete" };
     }
 
@@ -643,18 +672,13 @@ export async function extractAcceptedEpisodeStrategy(input: {
     // Observed effect subjects may contain per-run resources such as runtime
     // session IDs. Validate those observations above, but key the strategy by
     // stable action semantics and expected effect predicates instead.
-    const signature = {
+    const strategyKey = computeAcceptedStrategyKey({
       projectId: input.projectId,
       sourceRevision: episode.projectRevision,
       intentKind: episode.intentKind,
-      triggerConditions: action.triggerConditions,
-      preconditions: action.preconditions,
-      capabilityId: action.capabilityId,
-      observationProfile: action.observationProfile,
-      failureSemantics: action.failureSemantics,
-      expectedEffects: expectedEffectNames,
-    };
-    const strategyKey = canonicalJsonHash(signature as unknown as JsonValue);
+      action,
+      expectedEffectNames,
+    });
     const candidate = StrategyCandidateSchema.parse({
       schemaVersion: "1",
       candidateId: `strategy-candidate:${canonicalJsonHash({

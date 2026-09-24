@@ -5,6 +5,7 @@ import {
   useGetProject,
   useGetProjectSummary,
   useScanProject,
+  useUpdateProject,
   useListTasks,
   useGetGraphSummary,
   getGetProjectSummaryQueryKey,
@@ -64,6 +65,27 @@ export default function ProjectDetail() {
   });
   const { data: rawProject, isLoading: loadingProject, isError: projectError, error: projectErrorValue, refetch: refetchProject, isRefetching: projectRefreshing, dataUpdatedAt } = projectQuery;
   const project = useMonotonicData(rawProject, rawProject?.updatedAt);
+  const updateProject = useUpdateProject();
+  const [strategyReplayOptInError, setStrategyReplayOptInError] = useState<string | null>(null);
+
+  const setStrategyReplayOptIn = (nextValue: boolean) => {
+    setStrategyReplayOptInError(null);
+    updateProject.mutate(
+      { projectId, data: { strategyReplayOptIn: nextValue } },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({
+            queryKey: getGetProjectQueryKey(projectId),
+          });
+        },
+        onError: (error) => {
+          setStrategyReplayOptInError(
+            error instanceof Error ? error.message : 'Could not update Strategy Replay consent.',
+          );
+        },
+      },
+    );
+  };
 
   const { data: summary, isLoading: loadingSummary, isError: summaryError, refetch: refetchSummary } = useGetProjectSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetProjectSummaryQueryKey(projectId) },
@@ -265,6 +287,61 @@ export default function ProjectDetail() {
                 <span className="text-foreground break-all">{value}</span>
               </div>
             ))}
+          </div>
+          <div className="mt-4 rounded-lg border border-border bg-secondary/20 p-4">
+            <div className="flex items-start gap-3">
+              <input
+                id="strategy-replay-opt-in"
+                type="checkbox"
+                role="switch"
+                checked={Boolean(project.strategyReplayOptIn)}
+                disabled={updateProject.isPending}
+                onChange={(event) => setStrategyReplayOptIn(event.target.checked)}
+                aria-describedby="strategy-replay-opt-in-description"
+                data-testid="toggle-strategy-replay-opt-in"
+                className="mt-1 h-4 w-4 accent-primary disabled:opacity-50"
+              />
+              <div className="min-w-0">
+                <label
+                  htmlFor="strategy-replay-opt-in"
+                  className="font-sans text-sm font-medium text-foreground"
+                >
+                  Allow future Strategy Replay case registration
+                </label>
+                <p
+                  id="strategy-replay-opt-in-description"
+                  className="mt-1 font-sans text-xs leading-relaxed text-muted-foreground"
+                >
+                  Off by default. Only new, accepted recipe episodes that match a frozen
+                  pending candidate can be registered. Stored cases contain IDs and proof
+                  hashes, not prompts, chat text, or source contents.
+                </p>
+                <p className="mt-1 font-sans text-xs leading-relaxed text-muted-foreground">
+                  Turning this off removes registered cases that have not been replayed.
+                  It does not change the candidate.
+                </p>
+                <p
+                  role="status"
+                  data-testid="status-strategy-replay-opt-in"
+                  className="mt-2 font-sans text-xs font-medium text-foreground"
+                >
+                  {updateProject.isPending
+                    ? 'Saving…'
+                    : project.strategyReplayOptIn
+                      ? 'Enabled'
+                      : 'Disabled'}
+                </p>
+                {strategyReplayOptInError && (
+                  <p
+                    role="alert"
+                    data-testid="error-strategy-replay-opt-in"
+                    className="mt-1 font-sans text-xs text-destructive"
+                  >
+                    {strategyReplayOptInError}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

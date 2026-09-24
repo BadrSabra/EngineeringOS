@@ -677,6 +677,34 @@ describe("Project ownership scoping (PR-02/PR-03)", () => {
     expect(res.status).toBe(403);
   });
 
+  it("lets the owner change Strategy Replay consent and returns the persisted setting", async () => {
+    const projectId = await insertProject(`/tmp/replay-consent-${randomUUID()}`);
+    cleanupQueue.push(projectId);
+
+    const initial = await request(app).get(`/api/projects/${projectId}`);
+    expect(initial.status).toBe(200);
+    expect(initial.body.strategyReplayOptIn).toBe(false);
+
+    const enabled = await request(app)
+      .patch(`/api/projects/${projectId}`)
+      .send({ strategyReplayOptIn: true });
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.strategyReplayOptIn).toBe(true);
+
+    const disabled = await request(app)
+      .patch(`/api/projects/${projectId}`)
+      .send({ strategyReplayOptIn: false });
+    expect(disabled.status).toBe(200);
+    expect(disabled.body.strategyReplayOptIn).toBe(false);
+
+    const [persisted] = await db.select().from(projectsTable)
+      .where(eq(projectsTable.id, projectId));
+    expect(persisted?.strategyReplayOptIn).toBe(false);
+    const projectUpdates = await db.select().from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(projectUpdates.map((event) => event.type)).toContain("ProjectUpdated");
+  });
+
   it("PATCH a project not owned by the requester returns 403 and does not mutate it", async () => {
     const otherId = await insertProject("/tmp/other-patch-" + randomUUID(), "someone-else");
     cleanupQueue.push(otherId);

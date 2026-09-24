@@ -114,6 +114,7 @@ function makeLoadedContext(
       language: "TypeScript",
       framework: null,
       status: "active",
+      strategyReplayOptIn: false,
       qualityScore: 90,
       rootPath: "/project",
       description: null,

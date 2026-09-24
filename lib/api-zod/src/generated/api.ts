@@ -124,6 +124,7 @@ export const ListProjectsResponseItem = zod.object({
   "language": zod.string(),
   "framework": zod.string().optional(),
   "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "strategyReplayOptIn": zod.boolean().describe('Whether this project may register future proof-bound Strategy Replay cases. Defaults to false.'),
   "qualityScore": zod.number().optional(),
   "lastScanAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
@@ -152,6 +153,7 @@ export const CreateProjectResponse = zod.object({
   "language": zod.string(),
   "framework": zod.string().optional(),
   "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "strategyReplayOptIn": zod.boolean().describe('Whether this project may register future proof-bound Strategy Replay cases. Defaults to false.'),
   "qualityScore": zod.number().optional(),
   "lastScanAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
@@ -175,6 +177,7 @@ export const GetProjectResponse = zod.object({
   "language": zod.string(),
   "framework": zod.string().optional(),
   "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "strategyReplayOptIn": zod.boolean().describe('Whether this project may register future proof-bound Strategy Replay cases. Defaults to false.'),
   "qualityScore": zod.number().optional(),
   "lastScanAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
@@ -192,7 +195,8 @@ export const UpdateProjectParams = zod.object({
 export const UpdateProjectBody = zod.object({
   "name": zod.string().optional(),
   "description": zod.string().optional(),
-  "status": zod.enum(['active', 'scanning', 'paused', 'archived']).optional()
+  "status": zod.enum(['active', 'scanning', 'paused', 'archived']).optional(),
+  "strategyReplayOptIn": zod.boolean().optional().describe('Enable or disable future proof-bound Strategy Replay case registration for this project.')
 })
 
 export const UpdateProjectResponse = zod.object({
@@ -204,6 +208,7 @@ export const UpdateProjectResponse = zod.object({
   "language": zod.string(),
   "framework": zod.string().optional(),
   "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "strategyReplayOptIn": zod.boolean().describe('Whether this project may register future proof-bound Strategy Replay cases. Defaults to false.'),
   "qualityScore": zod.number().optional(),
   "lastScanAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),
@@ -3292,6 +3297,7 @@ export const ImportProjectResponse = zod.object({
   "language": zod.string(),
   "framework": zod.string().optional(),
   "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "strategyReplayOptIn": zod.boolean().describe('Whether this project may register future proof-bound Strategy Replay cases. Defaults to false.'),
   "qualityScore": zod.number().optional(),
   "lastScanAt": zod.coerce.date().optional(),
   "createdAt": zod.coerce.date(),

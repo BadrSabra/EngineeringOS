@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, real, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, real, pgEnum, index, boolean } from "drizzle-orm/pg-core";
 
 export const projectStatusEnum = pgEnum("project_status", [
   "active",
@@ -23,6 +23,8 @@ export const projectsTable = pgTable("projects", {
   language: text("language").notNull(),
   framework: text("framework"),
   status: projectStatusEnum("status").notNull().default("active"),
+  /** Project-owner consent for future proof-bound Strategy Replay case registration. */
+  strategyReplayOptIn: boolean("strategy_replay_opt_in").notNull().default(false),
   qualityScore: real("quality_score"),
   lastScanAt: timestamp("last_scan_at"),
   /** HTTPS remote URL for git push/pull — e.g. https://github.com/user/repo.git */
