@@ -16,9 +16,9 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime وBrowser/Delivery recipe slices تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ لم تُغلق بعد تغطية spine لكل action surfaces. World Delta له إغلاق مستقل في P6. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start وBrowser/Delivery recipe slices تستخدم Episode → Action → Before/After Observation → Effect → Acceptance؛ ما زالت مسارات Runtime restart/stop وAI apply-changes وTask execution خارج spine. World Delta له إغلاق مستقل في P6. |
 | P4 — Authoritative Observation and World Integration | `partial` | يلزم independent observation providers، provenance، task-scoped/environment revisions، observation sequence وcontradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime effect loop وBrowser/Delivery Gate C seams مضافة؛ تبقى recovery/lease/reconnect وe2e coverage الأوسع. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start المباشر وBrowser/Delivery Gate C يستخدمون effect gate؛ تبقى restart/stop ومسارات التعافي والـlease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
@@ -635,6 +635,38 @@ G9 Revocation Safety
 - **next step:** Resume at the earliest open dependency: close the remaining
   P3.5 action/effect spine, then complete P4 and P5 before beginning P6's
   World Delta / Revision Closure work.
+
+### 2026-09-24 — Direct Runtime Start Action Spine
+
+- **phase/step:** P3.5 / P5 — direct Runtime start route
+- **status:** `partial`
+- **what changed:** Routed `POST /projects/:projectId/runtime/start` through the
+  registered `runtime.start` recipe runner, using a canonical project root,
+  durable execution and Episode ownership, server-owned action/effect contracts,
+  direct before/after observations, and acceptance linked to the observed effect
+  bundle. A supplied `Idempotency-Key` maps to a stable operation identity;
+  the existing runtime snapshot response is preserved with execution and receipt
+  metadata added. Unavailable after-state remains blocked. The combined runner
+  test also exposed and fixed the persisted `EFFECT_CLASSIFIED` hash projection:
+  new credit sidecars are now hash-bound, while legacy event hashes remain valid.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/runtime.ts`,
+  `artifacts/api-server/src/routes/runtime.test.ts`,
+  `artifacts/api-server/src/lib/agent-state/strategy-candidate-extractor.ts`;
+  no schema migration.
+- **validation:** API typecheck; `runtime.test.ts` and
+  `recipe-operation-runner.test.ts` passed (14 tests); `git diff --check`;
+  API workflow restarted and `/api/healthz` returned `status: ok`.
+- **authority/safety impact:** The route still requires project write access;
+  runtime profile, root, revision, execution, observations, and acceptance remain
+  server-owned. Same-key retries do not start a second runtime operation.
+  Generic Mission shadow replay and the registered strategy replay scope were
+  unchanged.
+- **remaining/blocker:** P3.5/P5 remain partial. Direct Runtime restart/stop,
+  AI `apply-changes`, and Task execution do not yet use this authoritative spine;
+  P4 observation/world integration remains incomplete.
+- **next step:** Specify distinct server-owned action profiles for Runtime
+  restart/stop before adapting those routes; do not label them as `runtime.start`.
+  Continue the P3.5/P4/P5 gates before P6 or broader replay evaluation.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

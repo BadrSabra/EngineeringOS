@@ -1,5 +1,9 @@
 import { Router } from "express";
+import { createHash, randomUUID } from "node:crypto";
+import { toPublicRecipeReceipt } from "@workspace/ai-orchestrator";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
+import { resolveRootPath } from "../lib/rootpath-validator.js";
+import { createRuntimeStartRunner, runRecipeOperation } from "../lib/recipe-operation-runner.js";
 import {
   workspaceRuntime,
   WorkspaceRuntimeError,
@@ -39,16 +43,79 @@ router.get("/projects/:projectId/runtime", requireProjectAccess, async (req, res
 });
 
 router.post("/projects/:projectId/runtime/start", requireProjectWriteAccess, async (req, res) => {
-  try {
-    const snapshot = await workspaceRuntime.start({
-      projectId: req.project!.id,
-      projectRoot: req.project!.rootPath,
-      revision: req.project!.updatedAt.toISOString(),
+  const project = req.project;
+  if (!project || !req.userId) {
+    return res.status(401).json({
+      error: "Project owner context is unavailable.",
+      code: "RUNTIME_START_AUTH_REQUIRED",
+      retryable: false,
     });
-    return res.json(snapshot);
+  }
+
+  const suppliedIdempotencyKey = req.header("Idempotency-Key");
+  if (
+    suppliedIdempotencyKey !== undefined
+    && (suppliedIdempotencyKey.length < 8 || suppliedIdempotencyKey.length > 128)
+  ) {
+    return res.status(400).json({
+      error: "Idempotency-Key must be 8-128 characters.",
+      code: "IDEMPOTENCY_KEY_INVALID",
+      retryable: false,
+    });
+  }
+  const idempotencyKey = suppliedIdempotencyKey ?? randomUUID();
+  const operationId = `runtime-start:${createHash("sha256")
+    .update(JSON.stringify([project.id, req.userId, idempotencyKey]))
+    .digest("hex")}`;
+
+  try {
+    const root = await resolveRootPath(project.rootPath, project.id);
+    if (!root.validRootPath) {
+      return res.status(409).json({
+        error: "The project workspace is unavailable.",
+        code: "ROOT_UNAVAILABLE",
+        retryable: true,
+      });
+    }
+
+    const result = await runRecipeOperation({
+      projectId: project.id,
+      operationId,
+      rootPath: root.validRootPath,
+      sourceRevision: project.updatedAt.toISOString(),
+      recipeId: "runtime.start",
+      recipeVersion: 1,
+      userId: req.userId,
+      idempotencyKey,
+      runtimeStartRunner: createRuntimeStartRunner(),
+    });
+    const snapshot = await workspaceRuntime.get(project.id);
+    const responseBody = {
+      ...snapshot,
+      operationId,
+      executionId: result.executionId,
+      operationStatus: result.status,
+      receipt: toPublicRecipeReceipt(result.receipt),
+    };
+    if (result.status !== "completed") {
+      return res.status(409).json({
+        ...responseBody,
+        error: "Runtime startup was blocked before verified completion.",
+        code: "RUNTIME_START_NOT_VERIFIED",
+        retryable: true,
+      });
+    }
+    return res.json(responseBody);
   } catch (error) {
-    const response = runtimeErrorResponse(error);
-    return res.status(response.status).json(response.body);
+    if (error instanceof WorkspaceRuntimeError || error instanceof RuntimeObservationError) {
+      const response = runtimeErrorResponse(error);
+      return res.status(response.status).json(response.body);
+    }
+    return res.status(409).json({
+      error: "Runtime startup could not be completed.",
+      code: "RUNTIME_START_EXECUTION_BLOCKED",
+      retryable: true,
+    });
   }
 });
 

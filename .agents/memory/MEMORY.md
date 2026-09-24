@@ -154,3 +154,4 @@
 - [Existing schema type compatibility](schema-compatibility.md) — preserve established PostgreSQL column types during additive Drizzle work unless an explicit cast migration is approved.
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
 - [Strategy replay acceptance](strategy-replay-acceptance.md) — use normal recipe acceptance, then validate a distinct replay Canonical Proof and unchanged workspace hash.
+- [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.

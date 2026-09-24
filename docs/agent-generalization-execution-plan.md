@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ Candidate Validation Effect Loop مغلقة كأول vertical slice ضمن P3.5/P5، وبقية P3.5–P14 قيد التنفيذ
+> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ Candidate Validation وRuntime start المباشر شريحتان محدودتان ضمن P3.5/P5، وبقية P3.5–P14 قيد التنفيذ
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -3972,6 +3972,16 @@ Acceptance
 11. يحفظ كل evidence provenance الخاص به.
 12. لا يسمح acceptance بتمثيل نفسه كـdirect runtime observation.
 
+#### شريحة تنفيذ جزئية — 2026-09-24
+
+المسار المباشر `POST /projects/:projectId/runtime/start` يستخدم الآن recipe
+`runtime.start` المسجل، مع جذر ومراجعة وaction profile يملكها الخادم، وEpisode
+وتنفيذ durable، وملاحظات before/after، وتصنيف أثر، وacceptance مرتبطة بـeffect
+bundle. إعادة الطلب بـ`Idempotency-Key` نفسه تعيد العملية نفسها؛ غياب after-state
+صالحة يمنع النجاح. هذا لا يغلق P3.5: مسارات Runtime restart/stop وAI
+`apply-changes` وTask execution ما زالت خارج spine، كما أن إغلاق World Delta
+مستقل ولا يُستنتج من هذه الشريحة.
+
 ### 42.3 P4 — Authoritative Observation and World Integration
 
 **الحالة:** `PARTIAL`
@@ -4005,7 +4015,7 @@ worldRevision =
 
 ### 42.4 P5 — Authoritative Effect Verification
 
-**الحالة:** `PARTIAL — Candidate Validation slice complete`
+**الحالة:** `PARTIAL — Candidate Validation and direct Runtime start slices complete`
 
 الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
 
@@ -4056,7 +4066,8 @@ EFFECT_CLASSIFICATION
 ACCEPTANCE(effectBundleId)
 ```
 
-يبقى Runtime action adapter واختبارات Gate C المتكاملة ضمن العمل المتبقي في Gate C؛
+أصبح مسار Runtime start المباشر موصولًا بالـeffect/acceptance seam عبر recipe
+مسجل. تبقى adapters مستقلة لمسارات Runtime restart/stop واختبارات Gate C الأوسع؛
 أما Browser/Delivery recipe seams وRuntime after-state contract فأصبحت server-owned
 وموصولة بالـeffect/acceptance seam.
 

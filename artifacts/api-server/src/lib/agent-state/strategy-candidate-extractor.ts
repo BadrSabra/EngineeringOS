@@ -214,14 +214,20 @@ function sameStringSet(left: readonly string[], right: readonly string[]): boole
 function persistedEventPayloadHash(row: typeof aiAgentEpisodeEventsTable.$inferSelect): string {
   const payload = asRecord(row.payload);
   if (row.eventType === "EFFECT_CLASSIFIED" && payload) {
-    // The effect observer's legacy deduplication hash covers its stable
-    // identity projection, while the payload also retains observation refs.
-    return canonicalJsonHash({
+    // Effect events use a stable identity projection rather than hashing their
+    // observation-ref list. Newer events also bind the advisory credit record;
+    // preserve the legacy projection for older persisted rows.
+    const identity = {
       effectId: payload.effectId,
       effectBundleId: payload.effectBundleId,
       actionId: payload.actionId,
       status: payload.status,
-    } as unknown as JsonValue);
+    };
+    return canonicalJsonHash(
+      Object.prototype.hasOwnProperty.call(payload, "creditAssignment")
+        ? { ...identity, creditAssignment: payload.creditAssignment } as unknown as JsonValue
+        : identity as unknown as JsonValue,
+    );
   }
   return canonicalJsonHash(row.payload as JsonValue);
 }
