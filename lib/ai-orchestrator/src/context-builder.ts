@@ -75,6 +75,7 @@ const SLICE_TO_LOADER_KEY: Record<SliceId, ContextLoadSection | "project"> = {
   graphSummary:  "graphEntities",   // graph entities + relationships → one slice
   recentEvents:  "events",
   workflows:     "workflows",
+  worldState:    "worldState",
 };
 
 /** Maps a loader ContextLoadSection to the SliceId it contributes to. */
@@ -85,6 +86,7 @@ const SECTION_TO_SLICE: Partial<Record<ContextLoadSection, SliceId>> = {
   graphRelationships: "graphSummary",
   events:             "recentEvents",
   workflows:          "workflows",
+  worldState:         "worldState",
 };
 
 /** Ordered list of string fields that become ContextSlices. */
@@ -95,6 +97,7 @@ const SLICE_FIELDS: Array<{ id: SliceId; key: keyof ProjectContext }> = [
   { id: "graphSummary",  key: "graphSummary" },
   { id: "recentEvents",  key: "recentEvents" },
   { id: "workflows",     key: "workflows" },
+  { id: "worldState",    key: "worldState" },
 ];
 
 // ─── Admission assembly ───────────────────────────────────────────────────────
@@ -192,6 +195,15 @@ function assembleContext(
       sliceMap.get("workflows")!.admissionDecision,
       health?.workflows?.status,
     ),
+    ...(sliceMap.get("worldState")
+      ? {
+          worldState: applyDecision(
+            sliceMap.get("worldState")!.content,
+            sliceMap.get("worldState")!.admissionDecision,
+            health?.worldState?.status,
+          ),
+        }
+      : {}),
     ...(health ? { contextHealth: health } : {}),
   };
   return result;

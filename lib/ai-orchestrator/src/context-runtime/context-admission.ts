@@ -33,6 +33,7 @@ const SLICE_IMPORTANCE: Record<SliceId, number> = {
   graphSummary:   5,
   recentEvents:   4,
   workflows:      3,
+  worldState:     4,
 };
 
 function decideSlice(

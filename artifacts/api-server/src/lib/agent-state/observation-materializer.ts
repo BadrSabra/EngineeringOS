@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import {
   canonicalJsonHash,
+  invalidateContextSlice,
   parseBoundedJson,
   type JsonValue,
 } from "@workspace/ai-orchestrator";
@@ -328,6 +329,9 @@ export async function materializeServerOwnedObservations(
   // change the already-committed observation or acceptance outcome.
   try {
     await materializeWorldStateForProject(input.projectId);
+    // World State is a first-class context slice. Invalidate only that slice
+    // so unrelated project context remains reusable.
+    invalidateContextSlice(input.projectId, "worldState");
   } catch (error) {
     logger.warn(
       {

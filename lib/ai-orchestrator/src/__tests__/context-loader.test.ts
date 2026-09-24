@@ -58,6 +58,7 @@ vi.mock("@workspace/db", () => ({
   eventsTable: { _t: "events" },
   workflowsTable: { _t: "workflows" },
   scanJobsTable: { _t: "scanJobs" },
+  aiWorldFactsTable: { _t: "aiWorldFacts" },
   eq: vi.fn(),
   desc: vi.fn((c: unknown) => c),
   asc: vi.fn((c: unknown) => c),
@@ -73,6 +74,7 @@ import {
   eventsTable,
   workflowsTable,
   scanJobsTable,
+  aiWorldFactsTable,
 } from "@workspace/db";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
@@ -82,6 +84,7 @@ import {
   loadGraph,
   loadEvents,
   loadWorkflow,
+  loadWorldState,
   loadScanJobs,
   loadProjectContext,
 } from "../context-loader.js";
@@ -214,6 +217,31 @@ function makeWorkflow(overrides?: Partial<Record<string, unknown>>) {
 function makeScanJob(status = "completed") {
   return { status, error: null, finishedAt: new Date("2026-07-18") };
 }
+
+describe("loadWorldState", () => {
+  beforeEach(() => _tableData.clear());
+
+  it("returns the bounded persisted fact projection", async () => {
+    _tableData.set(aiWorldFactsTable as object, [{
+      id: "fact-001",
+      subject: "execution:fixture",
+      predicate: "runtime.status",
+      value: { status: "passed" },
+      valueHash: "hash-001",
+      version: 1,
+      status: "believed",
+      projectRevision: "revision-1",
+      supersedesFactId: null,
+    }]);
+    await expect(loadWorldState(q, PROJECT_ID)).resolves.toEqual([
+      expect.objectContaining({
+        id: "fact-001",
+        status: "believed",
+        projectRevision: "revision-1",
+      }),
+    ]);
+  });
+});
 
 // ─── loadProject ──────────────────────────────────────────────────────────────
 

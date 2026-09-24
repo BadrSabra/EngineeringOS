@@ -15,7 +15,8 @@ export type SliceId =
   | "latestMetrics"
   | "graphSummary"
   | "recentEvents"
-  | "workflows";
+  | "workflows"
+  | "worldState";
 
 /**
  * Admission decision produced by the Admission Engine for each slice.

@@ -70,6 +70,7 @@ export const DEFAULT_LIFETIME_POLICY: Required<LifetimePolicy> = {
   graphSummary:  { ttlMs: 3 * 60_000,  decayThreshold: 0.80, archiveThreshold: 2.5  },
   recentEvents:  { ttlMs: 20_000,      decayThreshold: 0.70, archiveThreshold: 1.5  },
   workflows:     { ttlMs: 2 * 60_000,  decayThreshold: 0.80, archiveThreshold: 2.0  },
+  worldState:    { ttlMs: 30_000,      decayThreshold: 0.75, archiveThreshold: 1.5  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

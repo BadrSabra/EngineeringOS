@@ -74,6 +74,7 @@ const SLICE_TO_SECTIONS: Record<SliceId, string[]> = {
   graphSummary:  ["graphEntities", "graphRelationships"],
   recentEvents:  ["events"],
   workflows:     ["workflows"],
+  worldState:    ["worldState"],
 };
 
 /**

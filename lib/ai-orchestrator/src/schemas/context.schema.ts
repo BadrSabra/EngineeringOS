@@ -41,6 +41,7 @@ export const ContextHealthSchema = z.object({
   graphRelationships: ContextSliceHealthSchema,
   events: ContextSliceHealthSchema,
   workflows: ContextSliceHealthSchema,
+  worldState: ContextSliceHealthSchema.optional(),
 }).strict().transform((health) => {
   // Preserve compatibility with older callers that treat context metadata as
   // a non-empty prompt value when iterating parsed context fields.
@@ -71,6 +72,8 @@ const AgentContextBaseSchema = z
     graphSummary: z.string().min(1),
     recentEvents: z.string().min(1),
     workflows: z.string().min(1),
+    /** Bounded server-owned World State projection; never an authority source. */
+    worldState: z.string().min(1).optional(),
     /** Structural flag: true only when a real scan has completed successfully. */
     metricsVerified: z.boolean(),
     /** Immutable revision/completeness contract for all downstream work. */
@@ -137,6 +140,7 @@ const ServerOwnedContextHealthSchema = z.object({
   graphRelationships: ServerOwnedContextSliceHealthSchema,
   events: ServerOwnedContextSliceHealthSchema,
   workflows: ServerOwnedContextSliceHealthSchema,
+  worldState: ServerOwnedContextSliceHealthSchema.optional(),
 }).strict();
 
 const ServerOwnedAgentContextSchema = AgentContextBaseSchema.extend({
@@ -151,6 +155,7 @@ const DEFAULT_CONTEXT_HEALTH: ContextHealth = {
   graphRelationships: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
   events: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
   workflows: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
+  worldState: { status: "not_requested", source: "migration", rowCount: 0, loadedAt: 0, freshness: "missing", admissionDecision: "DROP", lifetimeStage: "archived" },
 };
 
 const DEFAULT_CONTEXT_INTENT: z.infer<typeof ContextIntentSchema> = {

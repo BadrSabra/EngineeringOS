@@ -8,6 +8,7 @@ import {
   eventsTable,
   workflowsTable,
   scanJobsTable,
+  aiWorldFactsTable,
   type Project,
   type Task,
   type MetricRecord,
@@ -37,6 +38,11 @@ export type MetricRow = MetricRecord;
 export type GraphEntityRow = GraphEntity;
 export type EventRow = Event;
 export type WorkflowRow = Workflow;
+export type WorldStateFactRow = Pick<
+  typeof aiWorldFactsTable.$inferSelect,
+  "id" | "subject" | "predicate" | "value" | "valueHash" | "version"
+  | "status" | "projectRevision" | "supersedesFactId"
+>;
 
 // ─── Projection DTOs ──────────────────────────────────────────────────────────
 // These narrow the full $inferSelect types to the columns we actually SELECT
@@ -106,7 +112,8 @@ export type ContextLoadSection =
   | "graphEntities"
   | "graphRelationships"
   | "events"
-  | "workflows";
+  | "workflows"
+  | "worldState";
 
 export type BuildProjectContextOptions = {
   sections?: ContextLoadSection[];
@@ -127,6 +134,8 @@ export type LoadedProjectContext = {
   relationships: GraphRelationshipRow[];
   recentEvents: EventRow[];
   rawWorkflows: WorkflowRow[];
+  /** Bounded persisted World State facts; never provider-authored. */
+  worldState?: WorldStateFactRow[];
   latestScanJob: ScanJobRow | undefined;
   scanVerified: boolean;
   contextManifest: import("./context-manifest.js").ContextManifest;
@@ -145,6 +154,7 @@ const ALL_CONTEXT_SECTIONS: readonly ContextLoadSection[] = [
   "graphRelationships",
   "events",
   "workflows",
+  "worldState",
 ];
 
 function resolveContextSections(
@@ -405,6 +415,29 @@ export async function loadWorkflow(
     .limit(25);
 }
 
+/** Load a bounded read-only World State projection for the project. */
+export async function loadWorldState(
+  tx: Queryable,
+  projectId: string,
+): Promise<WorldStateFactRow[]> {
+  return tx
+    .select({
+      id: aiWorldFactsTable.id,
+      subject: aiWorldFactsTable.subject,
+      predicate: aiWorldFactsTable.predicate,
+      value: aiWorldFactsTable.value,
+      valueHash: aiWorldFactsTable.valueHash,
+      version: aiWorldFactsTable.version,
+      status: aiWorldFactsTable.status,
+      projectRevision: aiWorldFactsTable.projectRevision,
+      supersedesFactId: aiWorldFactsTable.supersedesFactId,
+    })
+    .from(aiWorldFactsTable)
+    .where(eq(aiWorldFactsTable.projectId, projectId))
+    .orderBy(desc(aiWorldFactsTable.version), asc(aiWorldFactsTable.subject), asc(aiWorldFactsTable.predicate))
+    .limit(64) as Promise<WorldStateFactRow[]>;
+}
+
 /**
  * Load the most recent scan job (status/error/finishedAt only), or undefined.
  * Always fetched regardless of section gating — used for scan-verification.
@@ -461,6 +494,7 @@ export async function loadProjectContext(
         graphResult,
         eventsResult,
         workflowsResult,
+        worldStateResult,
         scanResult,
       ] = await Promise.all([
         guardedLoad(() => loadProject(q, projectId), options.signal, deadlineAt), // throws on missing project
@@ -538,6 +572,19 @@ export async function loadProjectContext(
               value: [],
               status: "empty",
             }),
+        wants("worldState")
+          ? safeLoad(
+              () => loadWorldState(q, projectId),
+              [] as WorldStateFactRow[],
+              "worldState",
+              projectId,
+              options.signal,
+              deadlineAt,
+            )
+          : Promise.resolve<SafeLoadResult<WorldStateFactRow[]>>({
+              value: [],
+              status: "empty",
+            }),
         safeLoad(
           () => loadScanJobs(q, projectId),
           undefined,
@@ -553,6 +600,7 @@ export async function loadProjectContext(
       const { entities, relationships } = graphResult.value;
       const recentEvents = eventsResult.value;
       const rawWorkflows = workflowsResult.value;
+      const worldState = worldStateResult.value;
 
       const latestScanJob = scanResult.value;
       const scanResultRow = latestScanJob?.result;
@@ -650,6 +698,7 @@ export async function loadProjectContext(
        setMeta("graphRelationships", "db:graph_relationships", graphResultFor(relationships.length), relationships.length, ["graphEntities"], 60);
        setMeta("events", "db:events", eventsResult, recentEvents.length, [], 15);
        setMeta("workflows", "db:workflows", workflowsResult, rawWorkflows.length, [], 25);
+      setMeta("worldState", "db:world_state", worldStateResult, worldState.length, [], 64);
       const sliceMetadata: ReadonlyMap<ContextLoadSection | "project", SliceMetadata> = _meta;
 
       return {
@@ -660,6 +709,7 @@ export async function loadProjectContext(
         relationships,
         recentEvents,
         rawWorkflows,
+        worldState,
         latestScanJob,
         scanVerified,
         contextManifest,

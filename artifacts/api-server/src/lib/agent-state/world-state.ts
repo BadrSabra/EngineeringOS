@@ -166,7 +166,14 @@ export async function materializeWorldStateForProject(
         // previous belief instead of making the new value contradictory.
         const status = sameRevisionConflict ? "contradicted" as const : "believed" as const;
         if (status === "contradicted") contradictions++;
-        if (latest && latest.valueHash !== valueHash) {
+        if (
+          latest
+          && latest.valueHash !== valueHash
+          && (
+            sameRevisionConflict
+            || (latest.status !== "contradicted" && latest.status !== "retracted")
+          )
+        ) {
           await tx.update(aiWorldFactsTable)
             .set({
               status: sameRevisionConflict ? "contradicted" : "superseded",

@@ -35,6 +35,7 @@ function buildContextHealth(loaded: LoadedProjectContext): ContextHealth {
     "graphRelationships",
     "events",
     "workflows",
+    "worldState",
   ] as const;
   const health = Object.fromEntries(
     sections.map((section) => {
@@ -417,6 +418,38 @@ function buildWorkflowSummary(loaded: LoadedProjectContext): string {
   return workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet";
 }
 
+function buildWorldStateSummary(loaded: LoadedProjectContext): string {
+  const facts = loaded.worldState ?? [];
+  const stateSummary = buildSliceSummary(
+    loaded,
+    "worldState",
+    "World State",
+    "No trusted World State facts are available yet.",
+  );
+  if (stateSummary) return stateSummary;
+  if (facts.length === 0) return "No trusted World State facts are available yet.";
+
+  const current = facts.filter((fact) => fact.status === "believed" || fact.status === "confirmed");
+  const contradictions = facts.filter((fact) => fact.status === "contradicted");
+  const safeValue = (value: unknown): string => {
+    try {
+      return JSON.stringify(value).slice(0, 240);
+    } catch {
+      return "[unserializable server-owned value]";
+    }
+  };
+  const lines = [
+    `Trusted facts: ${facts.length} (current: ${current.length}, contradictions: ${contradictions.length})`,
+  ];
+  for (const fact of [...current, ...contradictions].slice(0, 32)) {
+    lines.push(
+      `- [${fact.status}] ${fact.subject} ${fact.predicate} = ${safeValue(fact.value)} (revision: ${fact.projectRevision})`,
+    );
+  }
+  if (facts.length > 32) lines.push("- Additional World State facts omitted by the bounded projection.");
+  return lines.join("\n");
+}
+
 export function buildProjectContextFromLoadedContext(
   loaded: LoadedProjectContext,
 ): ProjectContext {
@@ -428,6 +461,7 @@ export function buildProjectContextFromLoadedContext(
     latestScanEvidence: buildScanEvidenceSummary(loaded),
     graphSummary: buildGraphSummary(loaded, loaded.contextManifest.projectRevision),
     recentEvents: buildEventSummary(loaded),
+    worldState: buildWorldStateSummary(loaded),
     metricsVerified: loaded.scanVerified,
     contextHealth: buildContextHealth(loaded),
   };

@@ -93,6 +93,7 @@ vi.mock("@workspace/db", () => ({
   eventsTable:              { _t: "events" },
   workflowsTable:           { _t: "workflows" },
   scanJobsTable:            { _t: "scanJobs" },
+  aiWorldFactsTable:        { _t: "aiWorldFacts" },
   // Extra drizzle exports used by context-builder (not query-related)
   eq:   vi.fn(),
   desc: vi.fn((c: unknown) => c),
@@ -110,6 +111,7 @@ import {
   eventsTable,
   workflowsTable,
   scanJobsTable,
+  aiWorldFactsTable,
 } from "@workspace/db";
 import {
   buildProjectContext,
@@ -441,6 +443,37 @@ describe("buildProjectContext → AgentContextSchema", () => {
     const second = await buildProjectContext(PROJECT_ID);
     expect(second.project).toBe(first.project);
     expect(second.project).not.toContain("MutatedProject");
+  });
+
+  it("includes only the bounded server-owned World State projection", async () => {
+    _tableData.set(aiWorldFactsTable as object, [{
+      id: "fact-001",
+      subject: "execution:fixture",
+      predicate: "runtime.status",
+      value: { status: "passed" },
+      valueHash: "hash-001",
+      version: 1,
+      status: "believed",
+      projectRevision: "revision-1",
+      supersedesFactId: null,
+    }]);
+
+    const context = await buildProjectContext(PROJECT_ID, {
+      sections: [
+        "tasks",
+        "metrics",
+        "graphEntities",
+        "graphRelationships",
+        "worldState",
+      ],
+    });
+    expect(context.worldState).toContain("Trusted facts: 1");
+    expect(context.worldState).toContain("execution:fixture runtime.status");
+    expect(context.contextHealth?.worldState).toMatchObject({
+      status: "loaded",
+      source: "db:world_state",
+      rowCount: 1,
+    });
   });
 
   it("re-evaluates lifetime policy on an unexpired cached context", async () => {
