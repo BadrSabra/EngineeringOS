@@ -32,6 +32,7 @@ import { runScanJob } from "../lib/scan-runner.js";
 import { establishProjectRoot } from "../lib/project-root.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
+import { getProjectWorldState } from "../lib/agent-state/world-state.js";
 import {
   requireProjectAccess,
   requireProjectWriteAccess,
@@ -175,6 +176,24 @@ router.delete("/projects/:projectId/browser-validation-profiles/:name", requireP
     eq(browserValidationProfilesTable.name, String(req.params.name)),
   ));
   return res.status(204).send();
+});
+
+// World State is a read-only projection of server-owned observations. It is
+// deliberately behind the normal project access gate and cannot mutate
+// execution, acceptance, planning, or permissions.
+router.get("/projects/:projectId/world-state", requireProjectAccess, async (req, res) => {
+  try {
+    return res.json(await getProjectWorldState(req.project!.id));
+  } catch (error) {
+    logger.error(
+      { projectId: req.project!.id, error },
+      "GET /projects/:projectId/world-state failed",
+    );
+    return res.status(500).json({
+      error: "World State is temporarily unavailable.",
+      reason: "world_state_unavailable",
+    });
+  }
 });
 
 // Create project — ownerId always comes from the authenticated request,

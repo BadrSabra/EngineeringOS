@@ -161,7 +161,10 @@ export async function materializeWorldStateForProject(
           && latest.valueHash !== valueHash
           && latest.projectRevision === sourceRevision,
         );
-        const status = sameRevisionConflict || values.size > 1 ? "contradicted" as const : "believed" as const;
+        // Multiple values are only a contradiction when they describe the
+        // same project revision. Values from a newer revision supersede the
+        // previous belief instead of making the new value contradictory.
+        const status = sameRevisionConflict ? "contradicted" as const : "believed" as const;
         if (status === "contradicted") contradictions++;
         if (latest && latest.valueHash !== valueHash) {
           await tx.update(aiWorldFactsTable)

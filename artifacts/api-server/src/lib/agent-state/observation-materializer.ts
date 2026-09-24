@@ -10,6 +10,8 @@ import {
   parseBoundedJson,
   type JsonValue,
 } from "@workspace/ai-orchestrator";
+import { logger } from "../logger.js";
+import { materializeWorldStateForProject } from "./world-state.js";
 
 const MAX_SOURCES = 32;
 const MAX_SOURCE_REFS = 8;
@@ -227,7 +229,7 @@ export async function materializeServerOwnedObservations(
       throw new Error("observation_materialization_project_mismatch");
     }
   }
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const episodeFilters = [
       eq(aiAgentEpisodesTable.projectId, input.projectId),
       eq(aiAgentEpisodesTable.executionId, input.executionId),
@@ -321,4 +323,22 @@ export async function materializeServerOwnedObservations(
     }
     return { episodeId: episode.id, inserted, duplicates, stale };
   });
+
+  // World State is a derived read-only projection. Its failure must not
+  // change the already-committed observation or acceptance outcome.
+  try {
+    await materializeWorldStateForProject(input.projectId);
+  } catch (error) {
+    logger.warn(
+      {
+        projectId: input.projectId,
+        executionId: input.executionId,
+        episodeId: result.episodeId,
+        error,
+      },
+      "World State materialization failed after observations were committed",
+    );
+  }
+
+  return result;
 }
