@@ -7,4 +7,4 @@ Release quality-gate children that invoke a release runner must explicitly reuse
 
 **Why:** The quality gate holds the shared lock for the whole campaign; a nested runner that acquires it independently will report a false database-isolation collision even though the campaign is correctly serialized.
 
-**How to apply:** Keep lock reuse opt-in for the focused child path, run deployment post-build checks through `scripts/run-release-validation.mjs` with bounded lock-wait behavior, and let standalone release-runner invocations acquire and clean up their own lock.
+**How to apply:** Keep lock reuse opt-in for the focused child path, run deployment post-build checks through `scripts/run-release-validation.mjs` with bounded lock-wait behavior, and let standalone release-runner invocations acquire and clean up their own lock. After an interrupted managed journey, verify the owner PID before retrying; only remove lock metadata when that owner is demonstrably dead.

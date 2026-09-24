@@ -117,6 +117,31 @@
 - **next step:** بدء Gate B عبر Candidate Validation Effect Loop، مع تحديث السجل
   قبل الانتقال إلى observer أو learning لاحق.
 
+### 2026-09-24 — Mission recipe Canonical Proof gate verification
+
+- **phase/step:** P2 / Mission and Workflow terminal proof
+- **status:** `partial`
+- **what changed:** تم تثبيت والتحقق من أن إغلاق Goal/Mission في مسار recipe لا يعتمد
+  على recipe receipt أو projection وحدهما؛ بل يمر عبر execution وacceptance وproof
+  وsource/candidate/delivery bindings، ويعود إلى `verifying` عند غياب proof المقبول.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/mission-runtime.ts`,
+  `artifacts/api-server/src/lib/proof-foundation.ts`,
+  `artifacts/api-server/src/lib/mission-runtime-recipe.test.ts`,
+  وschema التطوير لحقول `ai_executions` وacceptance.
+- **validation:** `pnpm --filter @workspace/db run push` نجح؛ اختبارات
+  `mission-runtime-recipe.test.ts` (6) و`mission-runtime.test.ts` و`missions.test.ts`
+  (25) نجحت؛ API typecheck و`git diff --check` نجحا؛ API restart smoke نجح.
+  رحلة Dashboard الأوسع وصلت إلى 45 نجاحًا من 49 مع 3 فشل و1 skipped، ونجح
+  teardown والتنظيف، لذلك لم تُعتبر تغطية Gate A المتكاملة مغلقة.
+- **authority/safety impact:** لا يوجد bypass للـCanonical Proof؛ acceptance وserver-owned
+  evidence والهوية المرتبطة بالتنفيذ تبقى مصدر الحقيقة، وreceipt/projection تظل
+  إسقاطًا غير كافٍ وحده.
+- **remaining/blocker:** ما زالت رحلة Dashboard تحتوي فشلين في authenticated shell وMission
+  management وفشلًا في عرض `Current execution acceptance` بعد reconnect؛ يلزم عزلها
+  قبل إعلان Gate A كاملًا. P4 ما زالت جزئية وEffect Loop غير منفذ.
+- **next step:** عزل وإصلاح فشل رحلة Dashboard، ثم إعادة تشغيل Gate A؛ بعد نجاحها فقط
+  يبدأ P5 Candidate Validation Effect Loop.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
