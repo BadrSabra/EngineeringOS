@@ -47,6 +47,25 @@
 - **next step:** إغلاق تكامل Episode مع Mission/Workflow، ثم بدء P5 Effect
   Observation.
 
+### 2026-09-24 — Architectural review وroadmap calibration
+
+- **phase/step:** Governance / إعادة معايرة ترتيب P2–P13
+- **status:** `done`
+- **what changed:** تثبيت Effect-backed Generalization كمحور للخطة؛ جعل إغلاق
+  Mission/Workflow شرطًا قبل Effect Enforcement؛ إعادة ترتيب observers وdiagnosis
+  وreplan وreplay؛ إبقاء World State read model محدودًا؛ وتأجيل Multimodal إلى
+  مسار لاحق منفصل.
+- **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`,
+  `docs/agent-generalization-progress.md`; لا تغييرات runtime أو schema.
+- **validation:** مراجعة اتساق الخطة مع acceptance/proof وMission/Goal وrecipe/
+  capability وshadow replay؛ `git diff --check` بعد اكتمال التعديل.
+- **authority/safety impact:** لا تغيير في authority؛ لا World State أو strategy
+  memory أو benchmark يمنح acceptance أو permission أو promotion.
+- **remaining/blocker:** P2 ما زالت `partial`؛ يلزم إغلاق Episode integration قبل
+  بدء Gate B.
+- **next step:** إكمال Mission/Workflow Episode integration ثم تنفيذ Candidate
+  Validation Effect Loop كأول vertical slice كاملة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

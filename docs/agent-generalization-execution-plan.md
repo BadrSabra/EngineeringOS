@@ -1270,6 +1270,7 @@ learningStatus
 
 - إنشاء وربط episodes.
 - references فقط.
+- يجب إغلاق تكامل Mission/Workflow قبل اعتبار Episode integration مكتملة.
 - لا تغيير acceptance.
 
 ### PR 3: Observation Materializer
@@ -1281,46 +1282,60 @@ learningStatus
 
 - facts وworld revision.
 - read-only projection.
+- تحديد scope وربط world revision بالـproject/environment/observation versions قبل أي
+  enforcement.
+- لا تستخدم World State كمصدر صلاحية أو كبديل عن acceptance/proof.
 - لا replan تلقائي.
 
 ### PR 5: Effect Observation لشريحة Candidate Validation
 
+- هذه أول vertical slice كاملة، ولا يبدأ learning قبل نجاحها.
 - before/after workspace.
 - validation result.
 - runtime revision عند الحاجة.
 - acceptance integration.
 
-### PR 6: Failure Diagnosis
+### PR 6: Runtime/Browser/Delivery Observers
+
+- توحيد after-state observers.
+- runtime serving revision وhealth marker.
+- browser profile وdelivery remote state.
+- لا تكرار acceptance أو promotion engines.
+
+### PR 7: Failure Diagnosis
 
 - server-owned failure kinds.
 - reason/next action codes.
 - tests للتصنيف.
 
-### PR 7: Bounded Replan
+### PR 8: Bounded Replan
 
 - ربط diagnosis بـ`objective-replanning`.
 - ربطه بـ`mission-auto-replan`.
 - الحفاظ على حدود retry.
 
-### PR 8: Strategy Candidates
+### PR 9: Strategy Candidates وReplay
 
 - extraction من accepted episodes.
 - storage.
-- لا promotion.
-
-### PR 9: Replay وGeneralization Benchmark
-
 - current corpus.
 - held-out corpus.
 - cross-project fixtures.
 - learning delta.
+- لا تستخدم candidate كـpolicy قبل اجتياز replay.
 
-### PR 10: Capability Composition
+### PR 10: Canary/Promotion وCapability Composition
 
-- تركيب primitives.
+- canary وrollback/revocation.
+- إعادة استخدام promotion path الحالي.
+- تركيب primitives بعد نجاح replay والـeffect gates.
 - sandbox.
 - shadow replay.
-- promotion path الحالي.
+
+### Track لاحق: Multimodal Extension
+
+- لا يدخل في معيار اكتمال Engineering Generalization الأساسي.
+- يبدأ فقط بعد ثبات effect/evidence loop ووجود benchmark منفصل.
 
 ---
 
@@ -3498,3 +3513,125 @@ next: P5 Effect Observation
 
 هذا الإلزام توثيقي وتشغيلي، ولا يمنح الوكيل صلاحية جديدة. تبقى حدود
 `Proof` و`Acceptance` و`Mission` و`Capability` كما هي محددة في هذه الوثيقة.
+
+---
+
+## 41. نتيجة التقييم المعماري وإعادة معايرة التنفيذ
+
+أظهرت المراجعة أن الاتجاه المعماري متوافق بدرجة عالية مع البنية الحالية،
+لكن قيمة التعميم لا تثبت بإضافة schemas أو projections أو جداول جديدة. محور
+الخطة هو **Effect-backed Generalization**:
+
+```text
+accepted execution
+→ before observation
+→ server-owned action
+→ after observation
+→ effect classification
+→ acceptance binding
+→ diagnosis/replan
+→ replay-backed learning
+```
+
+### 41.1 حدود التوافق مع البنية الحالية
+
+يجب أن تكون الإضافات الجديدة `adapter` أو `projection` أو `materializer` فوق
+السلطات الحالية، لا مصادر سلطة موازية:
+
+| المجال | المصدر المالك |
+|---|---|
+| terminal outcome وPROVEN | `ai_execution_acceptances` وProof |
+| durable execution والـleases | `ai_executions` والـworker ownership |
+| Mission dependencies وGoal lifecycle | Mission/Goal runtime |
+| capability execution | server-owned capability/recipe registry |
+| promotion | shadow replay وpaired baseline وpromotion policy الحالية |
+| current cross-execution state | World State projection المحدودة |
+| context المعروض للنموذج | bounded Context projection |
+
+لا يجوز إنشاء Mission runtime أو Acceptance أو Promotion pipeline ثانية لتحقيق
+هذه الخطة. Failure Diagnosis يترجم إلى العقود الحالية، وBounded Replan يربط
+`objective-replanning` و`mission-auto-replan` بدل إنشاء state machine موازية.
+
+### 41.2 بوابات الاعتماد الجديدة
+
+لا ينتقل التنفيذ إلى البوابة التالية إلا بعد تحقق السابقة وتسجيلها في سجل
+التقدم:
+
+```text
+Gate A: إغلاق Episode integration في Chat/Task/Recipe/Mission/Workflow
+→ Gate B: Candidate Validation Effect Loop كامل
+→ Gate C: Runtime/Browser/Delivery after-state observers
+→ Gate D: Diagnosis وBounded Replan
+→ Gate E: Strategy extraction وcurrent/held-out/cross-project replay
+→ Gate F: canary وpromotion وrevocation
+→ Gate G: Capability Composition
+```
+
+تظل Multimodal Extension مسارًا لاحقًا منفصلًا، ولا تدخل في معيار اكتمال
+التعميم الهندسي الأساسي.
+
+### 41.3 قيود World State وworld revision
+
+World State في هذه الخطة هو read model محدود، وليس مخزن صلاحيات أو بديلًا عن
+evidence وacceptance. قبل استخدامه في أي وضع Enforced يجب أن يكون `worldRevision`
+قابلًا لإعادة البناء من scope واضح، ويتضمن على الأقل:
+
+```text
+project identity
+→ project revision
+→ environment/runtime revision عند الحاجة
+→ relevant observation versions
+→ deterministic observation sequence
+```
+
+يجب التفريق بين:
+
+```text
+project World State projection
+```
+
+و:
+
+```text
+execution-scoped evidence/effect snapshot
+```
+
+ولا يجوز أن تثبت observation من execution أو revision أخرى أثر تنفيذ جديد.
+
+### 41.4 بوابة Effect قبل التعلم
+
+لا يبدأ Strategy Extraction أو أي استخدام حي لـstrategy candidate قبل نجاح
+شريحة Candidate Validation كاملة، وتشمل:
+
+- precondition validation.
+- before observation.
+- action profile server-owned.
+- after observation.
+- expected/observed effect classification.
+- evidence references.
+- binding إلى acceptance بنفس execution وattempt وrevision.
+- حالات سلبية تثبت `no PROVEN` عند missing أو contradicted effect.
+
+وجود Effect Contract أو جدول effect وحده لا يحقق هذه البوابة.
+
+### 41.5 المقاييس المبكرة
+
+تبدأ القياسات من Effect Loop، ولا تؤجل إلى benchmark النهائي:
+
+- effect completeness.
+- false-success rate.
+- stale-plan detection.
+- replan precision وno-progress rate.
+- evidence acquisition cost.
+- duplicate/retry idempotency.
+- held-out improvement.
+- cross-project transfer.
+- authorization وscope violations.
+
+لا تعتبر الزيادة في عدد episodes أو strategies دليلًا على generalization.
+
+### 41.6 قرار النطاق
+
+الهدف القابل للإثبات في هذه الدورة هو وكيل هندسي يتعلم من آثار مقبولة ضمن
+repository وworkspace وruntime وGit وbrowser وdelivery. لا يشترط هذا الهدف
+تفعيل multimodal أو تحميل capabilities جديدة أو تغيير أوزان النماذج.
