@@ -67,11 +67,61 @@ describe("recipe read-only invocation contract", () => {
 
   it("supports the registered project-data reader and rejects effectful or unknown capabilities", () => {
     expect(isReadOnlyRecipeCapability("database.read_project")).toBe(true);
-    expect(isReadOnlyRecipeCapability("project.read_file")).toBe(false);
+    expect(isReadOnlyRecipeCapability("project.read_file")).toBe(true);
     expect(isReadOnlyRecipeCapability("runtime.start")).toBe(false);
     expect(isReadOnlyRecipeCapability("github.push_verified_commit")).toBe(false);
     expect(isReadOnlyRecipeCapability("validation.run.workspace-typecheck")).toBe(false);
     expect(isReadOnlyRecipeCapability("unknown.capability")).toBe(false);
+  });
+
+  it("tracks file reads without persisting paths or file-bearing node IDs", () => {
+    const filePath = "src/private-module.ts";
+    const input = {
+      episodeId: "episode-file-read",
+      executionId: "execution-file-read",
+      executionAttempt: 1,
+      node: invocationNode({
+        id: `read-${filePath}`,
+        capabilityId: "project.read_file",
+        capabilityInput: { path: filePath },
+        executionContext: {
+          projectId: "project-1",
+          operation: "recipe",
+          scope: { kind: "file", paths: [filePath] },
+          rootPath: null,
+          revision: "source-revision-1",
+        },
+      }),
+      nodeAttempt: 1,
+      projectId: "project-1",
+      projectRevision: "source-revision-1",
+    };
+    const contract = buildRecipeReadOnlyInvocationContract(input);
+
+    expect(contract).toMatchObject({
+      capabilityId: "project.read_file",
+      scope: { kind: "file" },
+      nodeId: expect.stringMatching(/^node:[a-f0-9]{32}$/),
+      scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      inputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(JSON.stringify(contract)).not.toContain(filePath);
+    const otherPathContract = buildRecipeReadOnlyInvocationContract({
+      ...input,
+      node: invocationNode({
+        id: "read-src/other-module.ts",
+        capabilityId: "project.read_file",
+        capabilityInput: { path: "src/other-module.ts" },
+        executionContext: {
+          projectId: "project-1",
+          operation: "recipe",
+          scope: { kind: "file", paths: ["src/other-module.ts"] },
+          rootPath: null,
+          revision: "source-revision-1",
+        },
+      }),
+    });
+    expect(otherPathContract?.scopeHash).not.toBe(contract?.scopeHash);
   });
 
   it("fails closed when the server-owned scope or revision is missing", () => {

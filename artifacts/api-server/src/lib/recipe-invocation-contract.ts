@@ -5,7 +5,10 @@ import {
 } from "@workspace/ai-orchestrator";
 
 // Add IDs only when both execution and output/evidence semantics are read-only.
-const READ_ONLY_RECIPE_CAPABILITIES = new Set(["database.read_project"]);
+const READ_ONLY_RECIPE_CAPABILITIES = new Set([
+  "database.read_project",
+  "project.read_file",
+]);
 
 export type RecipeReadOnlyInvocationContract = {
   contractVersion: 1;
@@ -27,6 +30,15 @@ export function isReadOnlyRecipeCapability(
 ): boolean {
   return typeof capabilityId === "string"
     && READ_ONLY_RECIPE_CAPABILITIES.has(capabilityId);
+}
+
+export function recipeInvocationNodeId(
+  capabilityId: string | null | undefined,
+  nodeId: string,
+): string {
+  return capabilityId === "project.read_file"
+    ? `node:${canonicalJsonHash(nodeId).slice(0, 32)}`
+    : nodeId;
 }
 
 export function hashJsonValue(value: unknown): string | undefined {
@@ -63,6 +75,9 @@ export function buildRecipeReadOnlyInvocationContract(input: {
   }
   const inputHash = hashJsonValue(node.capabilityInput);
   if (!inputHash) return undefined;
+  const scopeValue = scope as JsonValue;
+  const fileRead = capabilityId === "project.read_file";
+  const persistedScope = fileRead ? { kind: "file" } : scopeValue;
   return {
     contractVersion: 1,
     recordKind: "recipe_capability_invocation",
@@ -76,14 +91,14 @@ export function buildRecipeReadOnlyInvocationContract(input: {
       capabilityId,
       recipeVersion: node.recipeVersion,
     }),
-    nodeId: node.id,
+    nodeId: recipeInvocationNodeId(capabilityId, node.id),
     nodeAttempt: input.nodeAttempt,
     capabilityId,
     recipeVersion: node.recipeVersion,
     projectRevision: input.projectRevision,
     capabilityRevision,
-    scope: scope as JsonValue,
-    scopeHash: canonicalJsonHash(scope),
+    scope: persistedScope,
+    scopeHash: canonicalJsonHash(scopeValue),
     inputHash,
   };
 }

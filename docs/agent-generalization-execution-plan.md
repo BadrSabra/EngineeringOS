@@ -4812,7 +4812,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.inspect.project has a best-effort read-only pilot; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and provider tool calls remain`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file have best-effort read-only pilots; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and provider tool calls remain`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4848,7 +4848,9 @@ Mission repair وapproved apply-changes اللذين كانا يحملان ال�
 overlay. لا يعد `ACTION_COMMITTED` هنا إثبات أثر؛ يبقى aggregate candidate
 EffectBundle وحده بوابة القبول. يحتفظ استخراج الاستراتيجية بـ`actionContract`/hash
 بوصفهما إسقاط تعلم منفصلًا، ويتحقق من اتساقه مع الفعل. تبقى الأحداث التاريخية ذات
-الإسقاط المختزل قابلة للقراءة، وتظل P5.5 جزئية حتى تُغطى جميع recipe nodes
+الإسقاط المختزل قابلة للقراءة. يشمل pilot القراءة الآن `database.read_project`
+و`project.read_file`؛ في قراءة الملفات يُحفظ نوع النطاق وhash النطاق/المدخل بدل
+المسار أو معرّف node المحتوي عليه. تظل P5.5 جزئية حتى تُغطى جميع recipe nodes
 وprovider tool calls دون تغيير حدود الصلاحية.
 
 ### 42.6 P6 — World Delta / Revision Closure

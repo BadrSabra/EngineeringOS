@@ -75,6 +75,7 @@ import {
   buildRecipeReadOnlyInvocationContract,
   hashJsonValue,
   isReadOnlyRecipeCapability,
+  recipeInvocationNodeId,
 } from "./recipe-invocation-contract.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
@@ -1316,7 +1317,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 scope: "recipe-operation",
                 code: "shadow_recipe_invocation_contract_unavailable",
                 executionId: claimed.id,
-                nodeId: node.id,
+                nodeId: recipeInvocationNodeId(node.capabilityId, node.id),
                 capabilityId: node.capabilityId,
               },
               "Shadow recipe invocation identity is incomplete; continuing without advisory events",
@@ -1386,7 +1387,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 scope: "recipe-operation",
                 code: "recipe_capability_invocation_threw",
                 executionId: claimed.id,
-                nodeId: node.id,
+                nodeId: recipeInvocationNodeId(node.capabilityId, node.id),
                 error,
               },
               "Recipe capability invocation threw",

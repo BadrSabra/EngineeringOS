@@ -1431,6 +1431,33 @@ G9 Revocation Safety
   `AgentAction` في P5.5 قبل إضافة مسارات Action/Effect جديدة؛ لا تبدأ P6 أو
   P7 أو P7.5.
 
+### 42.33 P5.5 — توسيع هوية القراءة لـproject.read_file (2026-09-25)
+
+- **phase/step:** P5.5 — read-only recipe invocation identity
+- **status:** `partial`
+- **what changed:** أضيف `project.read_file` إلى allowlist الصريح لأحداث
+  الاستدعاء read-only. هوية الحدث تربط Episode والتنفيذ والمحاولة والقدرة
+  والمراجعة والنطاق؛ تحفظ مسارات الملفات كـhash فقط، وتستخدم scope عامًّا
+  (`kind: file`) ومعرّف node مجزّأً حتى لا تظهر المسارات في حدث التدقيق. لا ينشئ
+  هذا المسار `AgentAction` كاملًا أو `EffectBundle`.
+- **files/schema/contracts touched:** `recipe-invocation-contract.ts` واختباراته،
+  `recipe-operation-runner.ts`، خطة التنفيذ وسجل التقدم؛ لا تغييرات schema.
+- **validation:** API typecheck نجح؛ اختبار عقد القراءة 4/4؛ ملف اختبارات
+  `recipe-operation-runner.test.ts` نجح 13/14، مع إخفاق متكرر في اختبار runtime
+  غير المعدّل الذي يتوقع 4 ملاحظات مباشرة بينما يجد 5. اختبار `database.read_project`
+  يمر داخل التشغيل الكامل، لكن تشغيله وحده عبر test-name filter لم يجد حدث الطلب؛
+  يلزم تفسير فرق سلوك fixture قبل اعتبار مسار التكامل محكمًا. `git diff --check`
+  نجح؛ أُعيد تشغيل API وظهر `Server listening`.
+- **authority/safety impact:** لا capability أو صلاحية جديدة؛ يبقى التنفيذ
+  والـregistry والنطاق server-owned. لا تحفظ أحداث الملف محتوى أو مسارات خامًا،
+  ولا تستخدم القراءة لإثبات Action/Effect أو القبول. لا تعديل لقاعدة الإنتاج.
+- **remaining/blocker:** P5.5 ما زالت جزئية؛ استدعاءات provider وبقية recipe
+  nodes تحتاج جردًا وتغطية بهوية دائمة. يلزم أيضًا تسوية إخفاق اختبار runtime
+  والتحقق من fixture القراءة read-only دون توسيع نطاق الصلاحية.
+- **next step:** أكمل جرد invocation surfaces التي تملك Episode دائمًا، ثم وحّد
+  تسجيل النتيجة والفشل فيها قبل إضافة أي مسار Action/Effect؛ لا تبدأ P6 أو P7
+  أو P7.5.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
