@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة؛ P5.5 بدأت بعقد موحد لأحداث `ACTION_REQUESTED` المرتبطة بـEpisode، لكنها لا تغطي بعد كل recipe node أو tool call. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
 | P4 — Independent Observation and World Integration | `partial` | توجد task/environment-scoped World State وAPI filters، وملاحظات receipt-time، وهوية launch للـruntime وبصمة validator قبل spawn. هذه هويات/ملاحظات server-owned وليست إثباتًا مستقلًا لبيئة child process؛ يلزم إغلاق مصادر الملاحظة المستقلة وWorld Delta/contradiction propagation. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction؛ بوابة عابرة مطلوبة قبل توسيع Action/Effect integrations. |
+| P5.5 — Unified Action Semantics | `partial` | كل كتابة جديدة لـ`ACTION_REQUESTED` عبر Episode تتطلب `AgentAction` كاملًا؛ recipe candidate/Gate C انضمت للعقد، وMission repair/apply-changes تستخدمانه بالفعل. التغطية الشاملة للـrecipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي قبل توسيع التعلم: تمثيل uncertainty واختيار observation وفق information gain/cost/risk/authorization/time. |
@@ -61,7 +61,7 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 وstrategy learning إلى أن تُغلق الحلقة المعرفية. اتبع الاعتماديات في §31، مع
 ترتيب العمل التالي:
 
-1. توحيد `AgentAction` عبر recipe/tool/Mission/execution nodes (P5.5).
+1. استكمال توحيد `AgentAction` عبر recipe/tool/Mission/execution nodes (P5.5).
 2. إغلاق independent observations من المصدر الفعلي قبل/بعد action (P4).
 3. إكمال effect verification وربطه بتلك الملاحظات (P5).
 4. بناء World Delta قابل لإعادة البناء (P6).
@@ -986,6 +986,34 @@ G9 Revocation Safety
   الشريحة.
 - **next step:** ربط بصمة validator من حد spawn الفعلي بإيصالها server-owned،
   مع إبقاء freshness خارج proof وacceptance.
+
+### 2026-09-25 — P5.5 Canonical Action Request Events
+
+- **phase/step:** P5.5 — توحيد عقد ACTION_REQUESTED عبر مسارات Episode
+- **status:** `partial`
+- **what changed:** أصبحت كتابات `ACTION_REQUESTED` الجديدة عبر Episode تتطلب
+  `AgentAction` صالحًا مرتبطًا بالـEpisode، وتتحقق من تطابق aliases عند وجودها.
+  يضيف ledger تلقائيًا `actionRefs` و`expectedEffectRefs` من العقد. أضيفت
+  `AgentAction` كاملة إلى أحداث recipe candidate وGate C مع الحفاظ على
+  `actionContract`/hash المستخدمين لاستخراج الاستراتيجية؛ ويتحقق extractor من
+  تطابق الإسقاط مع الفعل. تبقى الأحداث التاريخية ذات الإسقاط المختزل قابلة
+  للقراءة، وتمنع مطابقة `actionId` إعادة كتابة أحداث مكررة عند استئناف محاولة قديمة.
+- **files/schema/contracts touched:**
+  `lib/ai-orchestrator/src/agent-state/action-contract.ts` و`index.ts` واختبار
+  العقد؛ `artifacts/api-server/src/lib/agent-state/agent-episode-ledger.ts`
+  واختباره؛ `recipe-operation-runner.ts` واختباره؛
+  `strategy-candidate-extractor.ts`؛ وخطة التنفيذ وسجل التقدم.
+- **validation:** API typecheck؛ اختبار عقد AI: 9/9؛ اختبارات Episode ledger وrecipe:
+  20/20؛ اختبارات task execution وMission: 26/26؛ API restart وhealth و
+  `git diff --check` موثقة بعد التحقق النهائي.
+- **authority/safety impact:** لم تتغير capability registry أو authorization أو
+  approval أو scope أو acceptance. أُضيف fail-closed contract validation وربط
+  المراجع؛ لم تُمنح أي صلاحية جديدة.
+- **remaining/blocker:** لا تملك كل recipe node أو provider tool call حتى الآن
+  سجل Action موحدًا لكل invocation؛ تبقى P5.5 جزئية ولا تمثل هذه الخطوة إغلاق
+  P4/P5 أو World Delta.
+- **next step:** تغطية الاستدعاءات المتبقية بعقد Action بعد التحقق server-side من
+  capability manifest والصلاحية الحالية، مع إثبات حد Episode دون تغيير authority.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

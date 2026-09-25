@@ -47,9 +47,15 @@ export type {
 export {
   AgentActionRiskSchema,
   AgentActionSchema,
+  AgentActionRequestedPayloadSchema,
   parseAgentAction,
+  parseAgentActionRequestedPayload,
 } from "./action-contract.js";
-export type { AgentAction, AgentActionRisk } from "./action-contract.js";
+export type {
+  AgentAction,
+  AgentActionRequestedPayload,
+  AgentActionRisk,
+} from "./action-contract.js";
 
 export {
   AgentEffectSchema,

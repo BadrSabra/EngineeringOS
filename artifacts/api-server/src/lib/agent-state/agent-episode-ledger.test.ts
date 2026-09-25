@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiAgentShadowCampaignEventsTable,
   aiExecutionsTable,
@@ -126,6 +127,65 @@ describe("agent episode ledger", () => {
     expect(retry.eventId).toBe(first.eventId);
     expect(second.sequence).toBe(2);
     expect(replay.events.map((event) => event.sequence)).toEqual([0, 1, 2]);
+  });
+
+  it("requires canonical actions on request events and records their episode references", async () => {
+    const episode = await startEpisode(startInput());
+    await expect(appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_REQUESTED",
+      payload: { actionId: "action-invalid", capabilityId: "test.capability" },
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
+
+    const action = {
+      schemaVersion: "1",
+      actionId: "action-ledger-test",
+      episodeId: episode.episodeId,
+      capabilityId: "test.capability",
+      intent: "Exercise the canonical action event contract.",
+      scope: { projectId },
+      preconditions: ["The execution lease belongs to this worker."],
+      expectedEffects: ["test.effect.observed"],
+      authorization: { source: "server" },
+      risk: "LOW",
+      idempotencyKey: `${idempotencyKey}:action`,
+      observationProfile: "WORKSPACE",
+      failureSemantics: ["Missing evidence remains incomplete."],
+    } as const;
+    const requestPayload = {
+      action,
+      actionId: action.actionId,
+      capabilityId: action.capabilityId,
+      expectedEffects: action.expectedEffects,
+    };
+    const requestedEvent = await appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_REQUESTED",
+      payload: requestPayload,
+    }));
+    await db.update(aiAgentEpisodesTable).set({
+      actionRefs: [],
+      expectedEffectRefs: [],
+    }).where(eq(aiAgentEpisodesTable.id, episode.episodeId));
+    const exactRetry = await appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_REQUESTED",
+      payload: requestPayload,
+    }));
+    expect(exactRetry.eventId).toBe(requestedEvent.eventId);
+    const retriedRequest = await appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_REQUESTED",
+      payload: { action },
+    }));
+
+    const replay = await replayEpisode({ userId, projectId, episodeId: episode.episodeId });
+    expect(retriedRequest.eventId).toBe(requestedEvent.eventId);
+    expect(replay.episode.actionRefs).toContain(action.actionId);
+    expect(replay.episode.expectedEffectRefs).toContain("test.effect.observed");
+
+    await expect(appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_REQUESTED",
+      payload: {
+        action: { ...action, episodeId: "another-episode" },
+      },
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
   });
 
   it("keeps terminal outcomes immutable, including cancellation", async () => {

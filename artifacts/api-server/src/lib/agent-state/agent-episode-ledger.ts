@@ -16,6 +16,8 @@ import {
   type EpisodeState,
   type EpisodeVerdict,
   canonicalJsonHash,
+  parseAgentAction,
+  parseAgentActionRequestedPayload,
   parseBoundedJson,
   toPublicAgentEpisode,
   type JsonValue,
@@ -237,6 +239,31 @@ function appendUnique(current: unknown, additions: readonly string[] | undefined
   return [...new Set([...values, ...(additions ?? [])])];
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+async function persistRequestedActionReferences(
+  tx: LedgerTransaction,
+  episode: typeof aiAgentEpisodesTable.$inferSelect,
+  input: AppendEpisodeEventInput,
+  action: ReturnType<typeof parseAgentActionRequestedPayload>["action"],
+): Promise<void> {
+  await tx.update(aiAgentEpisodesTable).set({
+    actionRefs: appendUnique(episode.actionRefs, [
+      ...(input.actionRefs ?? []),
+      action.actionId,
+    ]),
+    expectedEffectRefs: appendUnique(episode.expectedEffectRefs, [
+      ...(input.expectedEffectRefs ?? []),
+      ...action.expectedEffects,
+    ]),
+    updatedAt: new Date(),
+  }).where(eq(aiAgentEpisodesTable.id, episode.id));
+}
+
 function nextStateForEvent(current: EpisodeState, eventType: EpisodeEventType): EpisodeState {
   if (EVENT_STATE[eventType]) {
     const next = EVENT_STATE[eventType]!;
@@ -276,13 +303,73 @@ async function appendLocked(
   }
 
   const payload = parseBoundedJson(input.payload, 32 * 1024);
+  let requestedAction: ReturnType<typeof parseAgentActionRequestedPayload>["action"] | undefined;
+  if (input.eventType === "ACTION_REQUESTED") {
+    try {
+      requestedAction = parseAgentActionRequestedPayload(payload).action;
+    } catch {
+      ledgerError("invalid_contract", "ACTION_REQUESTED requires a valid canonical AgentAction.");
+    }
+    if (requestedAction?.episodeId !== episode.id) {
+      ledgerError("invalid_contract", "ACTION_REQUESTED action does not belong to this episode.");
+    }
+  }
   const payloadHash = canonicalJsonHash(payload);
   const [existing] = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
     eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
     eq(aiAgentEpisodeEventsTable.eventType, input.eventType),
     eq(aiAgentEpisodeEventsTable.payloadHash, payloadHash),
   )).limit(1);
-  if (existing) return eventToContract(existing);
+  if (existing) {
+    if (requestedAction) {
+      await persistRequestedActionReferences(tx, episode, input, requestedAction);
+    }
+    return eventToContract(existing);
+  }
+  if (input.eventType === "ACTION_REQUESTED" && requestedAction) {
+    const priorRequests = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_REQUESTED"),
+    )).orderBy(asc(aiAgentEpisodeEventsTable.sequence));
+    const priorRequest = priorRequests.find((row) => {
+      const previousPayload = asRecord(row.payload);
+      const previousAction = asRecord(previousPayload?.action);
+      return previousAction?.actionId === requestedAction!.actionId
+        || previousPayload?.actionId === requestedAction!.actionId;
+    });
+    if (priorRequest) {
+      const previousPayload = asRecord(priorRequest.payload);
+      const previousActionValue = previousPayload?.action;
+      if (previousActionValue !== undefined) {
+        let previousAction: ReturnType<typeof parseAgentAction>;
+        try {
+          previousAction = parseAgentAction(previousActionValue);
+        } catch {
+          ledgerError("invalid_contract", "Existing ACTION_REQUESTED action is malformed.");
+        }
+        if (canonicalJsonHash(previousAction!) !== canonicalJsonHash(requestedAction)) {
+          ledgerError("invalid_contract", "ACTION_REQUESTED action identity was reused with different semantics.");
+        }
+      } else {
+        const previousExpectedEffects = previousPayload?.expectedEffects;
+        const currentPayload = asRecord(payload);
+        if (
+          previousPayload?.capabilityId !== requestedAction.capabilityId
+          || !Array.isArray(previousExpectedEffects)
+          || previousExpectedEffects.length !== requestedAction.expectedEffects.length
+          || !previousExpectedEffects.every((effect, index) => effect === requestedAction!.expectedEffects[index])
+          || (
+            typeof previousPayload?.actionContractHash === "string"
+            && previousPayload.actionContractHash !== currentPayload?.actionContractHash
+          )
+        ) {
+          ledgerError("invalid_contract", "Legacy ACTION_REQUESTED identity conflicts with the canonical action.");
+        }
+      }
+      await persistRequestedActionReferences(tx, episode, input, requestedAction);
+      return eventToContract(priorRequest);
+    }
+  }
 
   const [last] = await tx
     .select({ sequence: aiAgentEpisodeEventsTable.sequence })
@@ -332,8 +419,14 @@ async function appendLocked(
   await tx.update(aiAgentEpisodesTable).set({
     state: nextState,
     observationRefs: appendUnique(episode.observationRefs, input.observationRefs),
-    actionRefs: appendUnique(episode.actionRefs, input.actionRefs),
-    expectedEffectRefs: appendUnique(episode.expectedEffectRefs, input.expectedEffectRefs),
+    actionRefs: appendUnique(episode.actionRefs, [
+      ...(input.actionRefs ?? []),
+      ...(requestedAction ? [requestedAction.actionId] : []),
+    ]),
+    expectedEffectRefs: appendUnique(episode.expectedEffectRefs, [
+      ...(input.expectedEffectRefs ?? []),
+      ...(requestedAction?.expectedEffects ?? []),
+    ]),
     observedEffectRefs: appendUnique(episode.observedEffectRefs, input.observedEffectRefs),
     evidenceRefs: appendUnique(episode.evidenceRefs, input.evidenceRefs),
     updatedAt: now,

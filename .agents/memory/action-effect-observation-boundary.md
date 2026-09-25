@@ -19,6 +19,18 @@ through the existing acceptance row, and require every effect in a mutation-requ
 `observed` before a successful acceptance can become PROVEN. Missing, stale, contradictory, or
 unchanged before/after evidence must remain non-PROVEN.
 
+New episode-backed `ACTION_REQUESTED` writes must persist the canonical `AgentAction` and derive
+episode action/effect references from it. Keep historical reduced strategy projections readable;
+when an in-flight retry encounters one, deduplicate by `actionId` and compare the available semantic
+projection rather than appending a second request or rewriting immutable history.
+
+**Why:** Deploys can resume attempts created by an older version. Rewriting their append-only events
+is unsafe, while duplicating a request can corrupt later strategy extraction or effect attribution.
+
+**How to apply:** Use the full action as the contract for new writes. Treat older projections only as
+compatibility evidence, reject semantic conflicts, and keep strategy-learning projections separate
+from authorization and execution authority.
+
 Candidate validation is a read-only action but still uses the same effect spine: a server-owned
 validation result is observed as a state transition only when paired with fresh direct before/after
 observations; the read-only World State projection may be deferred until after effect acceptance.

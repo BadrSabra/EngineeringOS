@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentActionSchema,
+  AgentActionRequestedPayloadSchema,
   AgentEffectSchema,
   EffectContractSchema,
   classifyEffect,
@@ -17,6 +18,22 @@ const contract = {
   observationProfile: "TEST" as const,
   requiredEvidence: ["validation-1"],
   allowedResult: "OBSERVED" as const,
+};
+
+const action = {
+  schemaVersion: "1" as const,
+  actionId: "action-1",
+  episodeId: "episode-1",
+  capabilityId: "validation",
+  intent: "Run the validation capability",
+  scope: { projectId: "project-1" },
+  preconditions: ["workspace is available"],
+  expectedEffects: ["effect-1"],
+  authorization: { source: "server" },
+  risk: "LOW" as const,
+  idempotencyKey: "action-1",
+  observationProfile: "TEST",
+  failureSemantics: ["Do not claim success without a direct after observation."],
 };
 
 function observation(overrides: Partial<AgentObservation>): AgentObservation {
@@ -78,21 +95,25 @@ describe("agent effect contract", () => {
   });
 
   it("requires an action to declare the effect contract it is about to execute", () => {
-    expect(AgentActionSchema.safeParse({
-      schemaVersion: "1",
-      actionId: "action-1",
-      episodeId: "episode-1",
-      capabilityId: "validation",
-      intent: "Run the validation capability",
-      scope: { projectId: "project-1" },
-      preconditions: ["workspace is available"],
-      expectedEffects: ["effect-1"],
-      authorization: { source: "server" },
-      risk: "LOW",
-      idempotencyKey: "action-1",
-      observationProfile: "TEST",
-      failureSemantics: ["Do not claim success without a direct after observation."],
+    expect(AgentActionSchema.safeParse(action).success).toBe(true);
+  });
+
+  it("requires request-event aliases to match the canonical action", () => {
+    expect(AgentActionRequestedPayloadSchema.safeParse({
+      action,
+      actionId: action.actionId,
+      capabilityId: action.capabilityId,
+      expectedEffects: action.expectedEffects,
+      actionContract: { contractVersion: 1 },
     }).success).toBe(true);
+    expect(AgentActionRequestedPayloadSchema.safeParse({
+      action,
+      actionId: "different-action",
+    }).success).toBe(false);
+    expect(AgentActionRequestedPayloadSchema.safeParse({
+      action,
+      expectedEffects: ["different-effect"],
+    }).success).toBe(false);
   });
 
   it("classifies a complete transition as observed", () => {

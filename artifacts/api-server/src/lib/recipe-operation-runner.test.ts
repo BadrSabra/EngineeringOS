@@ -293,12 +293,39 @@ async function assertSuccessfulGateCEffect(executionId: string, capabilityId: st
   const observations = await db.select().from(aiAgentObservationsTable)
     .where(eq(aiAgentObservationsTable.executionId, executionId));
   expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
-  const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
+  const events = await db.select({
+    eventType: aiAgentEpisodeEventsTable.eventType,
+    payload: aiAgentEpisodeEventsTable.payload,
+  })
     .from(aiAgentEpisodeEventsTable)
     .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
   expect(events.map((event) => event.eventType)).toEqual(
     expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
   );
+  const requestedAction = (
+    events.find((event) => event.eventType === "ACTION_REQUESTED")?.payload as {
+      action?: {
+        actionId?: string;
+        capabilityId?: string;
+        episodeId?: string;
+        expectedEffects?: string[];
+      };
+    } | undefined
+  )?.action;
+  expect(requestedAction).toMatchObject({
+    actionId: expect.any(String),
+    capabilityId,
+    episodeId: expect.any(String),
+    expectedEffects: [expect.any(String)],
+  });
+  if (!requestedAction?.actionId || !requestedAction.expectedEffects?.[0]) {
+    throw new Error("Recipe ACTION_REQUESTED event did not retain its canonical action.");
+  }
+  const [episode] = await db.select().from(aiAgentEpisodesTable)
+    .where(eq(aiAgentEpisodesTable.executionId, executionId))
+    .limit(1);
+  expect(episode?.actionRefs).toContain(requestedAction.actionId);
+  expect(episode?.expectedEffectRefs).toContain(requestedAction.expectedEffects[0]);
   return bundle?.id;
 }
 

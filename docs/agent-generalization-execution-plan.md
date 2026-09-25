@@ -4318,7 +4318,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `NOT STARTED — execution priority before expanding P4/P5 integrations`
+**الحالة:** `PARTIAL — episode-backed ACTION_REQUESTED writes require the canonical AgentAction; generic recipe/tool invocation coverage remains`
 
 كل mutating capability invocation يجب أن يطبق `AgentAction` ويكشف:
 
@@ -4341,6 +4341,15 @@ implementations للعقد نفسه، بدل وجود semantics منفصلة. ه
 صلاحية جديدة؛ تبقى capability registry وauthorization وprofiles
 server-owned. تبدأ الخطوة التالية بهذه الوحدة لأنها توحد الهوية والعقد قبل
 إضافة مسارات Action/Effect جديدة.
+
+تتطلب كتابات `ACTION_REQUESTED` الجديدة عبر Episode الآن الفعل الكامل، وتتحقق
+من ارتباطه بالحلقة وتطابق aliases الاختيارية. يضيف ledger مراجع الفعل والآثار
+المتوقعة من العقد. تشمل التغطية recipe candidate وGate C، إضافة إلى مساري
+Mission repair وapproved apply-changes اللذين كانا يحملان الفعل الكامل. يحتفظ
+استخراج الاستراتيجية بـ`actionContract`/hash بوصفهما إسقاط تعلم منفصلًا، ويتحقق
+من اتساقه مع الفعل. تبقى الأحداث التاريخية ذات الإسقاط المختزل قابلة للقراءة،
+وتظل P5.5 جزئية حتى تُغطى جميع recipe nodes وprovider tool calls دون تغيير
+حدود الصلاحية.
 
 ### 42.6 P6 — World Delta / Revision Closure
 
@@ -4643,7 +4652,7 @@ spine واعتماديات §31، بما فيها Belief/Information Gain قبل
 |---|---:|---:|---:|---:|---:|
 | World State | ✓ | ✓ | ✓ | partial | no |
 | Observation | ✓ | ✓ | partial | partial in bounded runtime slices | no |
-| Action Semantics | partial | partial | partial | no | no |
+| Action Semantics | ✓ | partial | partial | partial in bounded episode-backed paths | no |
 | Effect Verification | ✓ | ✓ | partial across bounded vertical slices | partial | no |
 | Failure Diagnosis | ✓ | partial | partial provider-level primitives | no | no |
 | Replanning | ✓ | ✓ | ✓ | partial | no |
@@ -4714,6 +4723,10 @@ Episode revision. يظل تأكيد التشغيل الفعلي مسؤولية o
 - لدى P3.5/P4/P5 runtime integrations حقيقية في مسارات محدودة:
   `Episode → Action → Before → Execute → After → Effect → Acceptance`.
   لا تعني هذه الشرائح أن كل المسارات موحدة أو أن P4/P5 مكتملتان.
+- بدأت P5.5 بتوحيد كل كتابات `ACTION_REQUESTED` الجديدة عبر Episode على عقد
+  `AgentAction` كامل، مع الحفاظ على projections التاريخية للاستراتيجية
+  والتوافق مع استئناف المحاولات القديمة. لا يشمل ذلك بعد كل recipe node أو
+  provider tool call؛ لا تزال P5.5 جزئية.
 - `effectBundle` و`environmentRevision` وحدهما لا يغلقان P4/P5؛ يلزم
   independent before/after observation من مصدر الفعل الفعلي وربط effect
   verified بـWorld Delta، مع إبقاء acceptance بوابة مستقلة.
@@ -4743,3 +4756,23 @@ Episode revision. يظل تأكيد التشغيل الفعلي مسؤولية o
 ```
 
 لا تبدأ phase توسعية أو promotion قبل إثبات بوابات هذه الحلقة.
+
+### 42.23 P5.5 — Canonical action request event contract (2026-09-25)
+
+تتحقق Episode ledger الآن من أن كل `ACTION_REQUESTED` جديد يحتوي `AgentAction`
+صالحًا، وأن `episodeId` وaliases الاختيارية تطابق العقد. تُستمد
+`actionRefs` و`expectedEffectRefs` من الفعل بدل الاعتماد على كل منتج حدث كي
+يمررهما يدويًا. أضيف الفعل الكامل إلى أحداث candidate validation وGate C
+مع الإبقاء على `actionContract`/hash كإسقاط منفصل لاستخراج الاستراتيجية.
+
+يبقى تحليل الأحداث التاريخية متوافقًا مع payloads المختزلة؛ وعلى إعادة المحاولة
+تُطابق الأحداث بحسب `actionId` مع التحقق من عدم إعادة استخدام الهوية بدلالات
+مختلفة. لا يتغير authorization أو approval أو scope أو dispatch أو acceptance،
+ولا ينشئ هذا العقد أي صلاحية. شملت validation API typecheck، واختبارات عقد AI
+(9)، Episode ledger/recipe (20)، وtask execution/Mission (26)، ثم API restart
+وفحص health و`git diff --check`.
+
+هذه خطوة جزئية في P5.5 وليست توحيدًا لكل capability invocation. ما زال يلزم
+تحديد/إرفاق حدود Episode موثوقة بمسارات recipe nodes وprovider tool calls
+المتبقية، بعد التحقق server-side من manifest والصلاحيات القائمة، قبل توسيع
+Action/Effect integrations.

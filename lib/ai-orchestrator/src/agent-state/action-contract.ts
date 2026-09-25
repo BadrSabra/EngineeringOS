@@ -28,6 +28,49 @@ export const AgentActionSchema = boundedContractSchema(z.object({
 }).strict(), AGENT_STATE_LIMITS.effectPayloadBytes);
 export type AgentAction = z.infer<typeof AgentActionSchema>;
 
+export const AgentActionRequestedPayloadSchema = boundedContractSchema(
+  z.object({
+    action: AgentActionSchema,
+    actionId: boundedString(200).optional(),
+    capabilityId: boundedString(200).optional(),
+    expectedEffects: z.array(boundedString(256)).max(64).optional(),
+  }).passthrough().superRefine((payload, ctx) => {
+    if (payload.actionId !== undefined && payload.actionId !== payload.action.actionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["actionId"],
+        message: "actionId must match the canonical action",
+      });
+    }
+    if (payload.capabilityId !== undefined && payload.capabilityId !== payload.action.capabilityId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["capabilityId"],
+        message: "capabilityId must match the canonical action",
+      });
+    }
+    if (
+      payload.expectedEffects !== undefined
+      && (
+        payload.expectedEffects.length !== payload.action.expectedEffects.length
+        || payload.expectedEffects.some((effect, index) => effect !== payload.action.expectedEffects[index])
+      )
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expectedEffects"],
+        message: "expectedEffects must match the canonical action",
+      });
+    }
+  }),
+  AGENT_STATE_LIMITS.episodeEventPayloadBytes,
+);
+export type AgentActionRequestedPayload = z.infer<typeof AgentActionRequestedPayloadSchema>;
+
 export function parseAgentAction(value: unknown): AgentAction {
   return AgentActionSchema.parse(value);
+}
+
+export function parseAgentActionRequestedPayload(value: unknown): AgentActionRequestedPayload {
+  return AgentActionRequestedPayloadSchema.parse(value);
 }

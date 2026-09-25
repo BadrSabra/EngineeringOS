@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
+  AgentActionSchema,
   AgentEffectSchema,
   AgentObservationSchema,
   StrategyCandidateSchema,
@@ -73,6 +74,9 @@ export function parseAcceptedActionRequest(value: unknown): AcceptedAction | und
   const preconditions = contract?.preconditions;
   const contractEffects = contract?.expectedEffects;
   const failureSemantics = contract?.failureSemantics;
+  const fullActionResult = record?.action === undefined
+    ? undefined
+    : AgentActionSchema.safeParse(record.action);
   if (
     typeof record?.actionId !== "string"
     || !record.actionId.trim()
@@ -98,8 +102,30 @@ export function parseAcceptedActionRequest(value: unknown): AcceptedAction | und
     || !Array.isArray(failureSemantics)
     || failureSemantics.length === 0
     || !failureSemantics.every((value) => typeof value === "string" && value.trim().length > 0)
+    || (record.action !== undefined && !fullActionResult?.success)
   ) {
     return undefined;
+  }
+  if (fullActionResult?.success) {
+    const action = fullActionResult.data;
+    const projectedStrategyContract = {
+      contractVersion: 1,
+      triggerConditions: action.triggerConditions ?? [],
+      preconditions: action.preconditions,
+      expectedEffects: action.expectedEffects,
+      observationProfile: action.observationProfile,
+      failureSemantics: action.failureSemantics,
+    };
+    if (
+      action.actionId !== record.actionId
+      || action.capabilityId !== record.capabilityId
+      || action.expectedEffects.length !== expectedEffects.length
+      || action.expectedEffects.some((effect: string, index: number) => effect !== expectedEffects[index])
+      || canonicalJsonHash(projectedStrategyContract as unknown as JsonValue)
+        !== canonicalJsonHash(contract as unknown as JsonValue)
+    ) {
+      return undefined;
+    }
   }
   return {
     actionId: record.actionId,
