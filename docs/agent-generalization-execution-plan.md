@@ -4819,7 +4819,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream records eligible provider reads on its execution Episode; non-streaming /api/ai/chat has no durable execution/attempt and remains outside per-invocation coverage; additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream records eligible provider reads on its execution Episode; non-streaming /api/ai/chat is not covered because it has no durable execution/attempt before tool dispatch; architectural decision: add a real per-request execution lifecycle before the first eligible tool invocation, not a callback-only patch or synthetic identity; runtime implementation is pending; additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4871,6 +4871,34 @@ validators أو browser أو command كقراءات من `mutatesProject: false`
 تثبت قبولًا أو أثرًا. لا يمرر `/api/ai/chat` غير المتدفق callback مماثلًا ولا
 يملك في المسار الحالي execution/attempt دائمًا؛ لا تنشأ له هوية اصطناعية لسد
 الفجوة. أدوات analysis graph/API و`refresh_project_scan` تبقى خارج هذا العقد.
+
+#### قرار lifecycle للدردشة غير المتدفقة — معتمد تصميميًا، غير منفذ
+
+لا تضف `onReadOnlyInvocation` وحده إلى `/api/ai/chat` ولا تنشئ Episode أو
+`attemptId` مؤقتًا. قبل أول eligible tool invocation يجب أن يملك الطلب
+`ai_execution` ومحاولة durable وworker/lease صالحة، ثم Episode مرتبطة بها.
+تشارك كل invocations داخل الطلب هوية execution/attempt نفسها؛ لا ينشأ تنفيذ
+جديد لكل أداة. يمكن إبقاء الطلبات التي لا تستدعي أدوات خارج هذا lifecycle، لكن
+لا تسجل لها Episode قرائيًا بلا owner durable.
+
+عند نجاح الطلب أو فشله أو إلغائه، تُنهى المحاولة والتنفيذ صراحةً، وتبقى
+invocations المسجلة قابلة للإسناد؛ لا يترك فشل الأداة Episode يتيمة أو طلبًا
+عالقًا. يسجل read-only invocation Observation/Invocation evidence فقط، ولا
+ينشئ `EffectBundle` تلقائيًا. لا تتغير دلالة استجابة الدردشة أو acceptance في
+هذا العمل. يجب مراجعة مدى كفاية جداول التنفيذ وEpisode الحالية قبل اقتراح أي
+schema؛ لا تغيير schema أو بيانات إنتاج ضمن قرار التصميم الحالي.
+
+معايير الاختبار قبل تعديل runtime:
+
+- مسار النجاح: execution ومحاولة مملوكان قبل الأداة، ثم invocation وObservation
+  مرتبطان بهما، ثم terminal completion للمحاولة والتنفيذ.
+- فشل الأداة: تحفظ invocation القابلة للإسناد، وتصبح المحاولة والتنفيذ terminal
+  وفق العقد، ولا تبقى Episode يتيمة.
+- عدة أدوات في الطلب الواحد: تشترك في `executionId` و`attempt` نفسيهما.
+- طلب بلا tool invocation: لا ينشئ Episode قرائيًا بلا owner، ولا يغير response
+  أو acceptance semantics.
+- اختبار cancellation/lease loss يمنع worker غير المالك من إنهاء lifecycle أو
+  حفظ نتيجة invocation بعد فقدان الملكية.
 
 ### 42.6 P6 — World Delta / Revision Closure
 
@@ -5839,3 +5867,22 @@ P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المرا�
 `observation-materializer.ts` و`effect-observer.ts` و`world-state.ts` و
 `mission-auto-replan.ts` ومسار `apply-changes`؛ لم تُشغّل اختبارات في هذا
 التحديث التوثيقي. لا تغييرات code/schema أو بيانات إنتاج.
+
+### 42.40 P5.5 — قرار lifecycle دائم للدردشة غير المتدفقة (2026-09-25)
+
+**القرار:** سد فجوة `/api/ai/chat` غير المتدفق عبر lifecycle تنفيذ دائم، لا
+عبر callback منفرد أو `attemptId` اصطناعي. قبل أول tool invocation مؤهل، ينشئ
+أو يطالب الخادم بـexecution ومحاولة وworker/lease صالحة، ويربط Episode بهوية
+المحاولة. تبقى جميع invocations للطلب على الهوية نفسها، ويُغلق lifecycle
+صراحةً عند النجاح أو الفشل أو الإلغاء.
+
+قراءات الأدوات تسجل Observation/Invocation evidence فقط؛ لا ينشأ `EffectBundle`
+للقراءة. تبقى استجابة `/api/ai/chat` وقواعد acceptance كما هي. الطلب الذي لا
+يستخدم الأدوات لا يكتسب Episode بلا owner durable. تُراجع قابلية إعادة استخدام
+الجداول والعقود الحالية أولًا؛ لا يُفترض احتياج schema جديدة ولا يُجرى أي تغيير
+في schema أو production ضمن تثبيت القرار.
+
+قبول implementation لاحقًا يتطلب اختبارات النجاح، وفشل tool، وتعدد الأدوات
+على execution/attempt واحد، وطلب بلا أدوات، والإلغاء أو فقد lease، مع إثبات
+عدم وجود orphan Episode أو terminal execution عالق. هذا القرار يظل داخل P5.5؛
+لا يبدأ P6 أو P7 أو P7.5 ولا يغير dependency graph في §31.
