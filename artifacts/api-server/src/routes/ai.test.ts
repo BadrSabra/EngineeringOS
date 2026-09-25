@@ -1218,6 +1218,100 @@ describe("POST /api/ai/chat", () => {
       .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toEqual([]);
   });
 
+  it.each([
+    { route: "non-streaming", path: "/api/ai/chat", streamed: false },
+    { route: "streamed", path: "/api/ai/chat/stream", streamed: true },
+  ])("records read-only analysis tool calls on one $route chat Episode", async ({ path, streamed }) => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat, resolveTurnIntent } = await import("@workspace/ai-orchestrator");
+    expect(resolveTurnIntent("Find the API route definitions in this project.").requiresTools)
+      .toBe(true);
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      const chatInput = input as unknown as {
+        analysisToolRunner?: import("@workspace/ai-orchestrator").AnalysisToolRunner;
+        analysisCorrelation?: import("@workspace/ai-orchestrator").AnalysisCorrelation;
+      };
+      const runner = chatInput.analysisToolRunner;
+      const correlation = chatInput.analysisCorrelation;
+      if (!runner || !correlation) {
+        throw new Error("chat analysis read runner was not server-authorized");
+      }
+
+      const [graphResult, apiResult] = await Promise.all([
+        runner("query_knowledge_graph", {
+          operation: "search",
+          entity: "auth",
+        }, undefined, correlation),
+        runner("discover_project_apis", {
+          query: "auth",
+        }, undefined, correlation),
+      ]);
+      expect(graphResult.status).toBe("complete");
+      expect(apiResult.status).toBe("complete");
+      return {
+        response: "The API route summary is ready.",
+        sources: [],
+        pendingChanges: [],
+      };
+    });
+
+    const response = await request(app)
+      .post(path)
+      .send({ projectId, message: "Find the API route definitions in this project." });
+
+    expect(response.status).toBe(200);
+    if (streamed) {
+      expect(lastSseEvent(response.text)).toMatchObject({
+        type: "done",
+        message: { outcome: "SUCCEEDED" },
+      });
+    }
+    const executions = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(executions).toHaveLength(1);
+    const execution = executions[0]!;
+    const episodes = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, execution.id));
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]).toMatchObject({
+      executionId: execution.id,
+      attempt: execution.attempt,
+      verdict: "incomplete",
+    });
+    const events = await db.select().from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.episodeId, episodes[0]!.id));
+    const requested = events.filter((event) => event.eventType === "OBSERVATION_REQUESTED");
+    const recorded = events.filter((event) => event.eventType === "OBSERVATION_RECORDED");
+    expect(requested).toHaveLength(2);
+    expect(recorded).toHaveLength(2);
+    expect(requested.map((event) => (event.payload as Record<string, unknown>).toolName))
+      .toEqual(expect.arrayContaining([
+        "analysis:query_knowledge_graph",
+        "analysis:discover_project_apis",
+      ]));
+    expect(new Set(requested.map((event) =>
+      (event.payload as Record<string, unknown>).invocationId,
+    ))).toEqual(new Set(recorded.map((event) =>
+      (event.payload as Record<string, unknown>).invocationId,
+    )));
+    for (const event of [...requested, ...recorded]) {
+      expect((event.payload as Record<string, unknown>).inputHash).toMatch(/^[a-f0-9]{64}$/);
+      expect((event.payload as Record<string, unknown>).manifestHash).toMatch(/^[a-f0-9]{64}$/);
+    }
+    for (const event of recorded) {
+      expect((event.payload as Record<string, unknown>).status).toBe("completed");
+      expect((event.payload as Record<string, unknown>).outputHash).toMatch(/^[a-f0-9]{64}$/);
+    }
+    expect(JSON.stringify(events)).not.toContain("auth");
+    expect(await db.select().from(aiAgentEffectBundlesTable)
+      .where(eq(aiAgentEffectBundlesTable.executionId, execution.id))).toEqual([]);
+    if (!streamed) {
+      expect(await db.select().from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution.id))).toEqual([]);
+    }
+  });
+
   it("cancels a non-streaming chat execution without letting the worker complete it", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

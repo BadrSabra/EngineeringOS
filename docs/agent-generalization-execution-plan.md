@@ -4819,7 +4819,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream records eligible provider reads on its execution Episode; non-streaming /api/ai/chat is not covered because it has no durable execution/attempt before tool dispatch; architectural decision: add a real per-request execution lifecycle before the first eligible tool invocation, not a callback-only patch or synthetic identity; runtime implementation is pending; additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream and non-streaming /api/ai/chat record eligible provider reads on their durable execution Episodes; both direct-chat routes also record server-owned query_knowledge_graph and discover_project_apis reads with manifest/scope/revision correlation; non-streaming /api/ai/chat creates its real per-request execution/attempt before the first eligible invocation; refresh_project_scan remains outside read-only observation; Mission graph/API tools remain unavailable without Mission-owned manifest/scope/revision wiring`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4865,21 +4865,25 @@ validators أو browser أو command كقراءات من `mutatesProject: false`
 جزئية حتى تُغطى بقية recipe nodes وprovider tool calls المؤهلة دون تغيير حدود
 الصلاحية.
 
-في `/api/ai/chat/stream` يربط `onReadOnlyInvocation` القراءة المؤهلة بـEpisode
-وexecution/attempt/worker، ويسجل hashes للمدخلات والـmanifest والـscope والنتيجة
-قبل استهلاكها؛ تنتهي هذه Episodes بـ`incomplete` و`CHAT_OBSERVATION_ONLY`، فلا
-تثبت قبولًا أو أثرًا. لا يمرر `/api/ai/chat` غير المتدفق callback مماثلًا ولا
-يملك في المسار الحالي execution/attempt دائمًا؛ لا تنشأ له هوية اصطناعية لسد
-الفجوة. أدوات analysis graph/API و`refresh_project_scan` تبقى خارج هذا العقد.
+في `/api/ai/chat/stream` و`/api/ai/chat` غير المتدفق، تسجل قراءات provider
+المؤهلة على Episode وexecution/attempt/worker المملوكة للخادم؛ ينشئ المسار
+غير المتدفق lifecycle دائمًا قبل أول invocation مؤهل، ولا ينشئه إن لم تقع قراءة.
+كلا المسارين يلفّ runner التحليل server-owned لملاحظات
+`query_knowledge_graph` و`discover_project_apis` فقط، ويسجل hashes للمدخلات
+والـmanifest الكامل والـscope والنتيجة قبل استهلاكها. أحداث Observation لا تنشئ
+`AgentAction` أو `EffectBundle` ولا تغير دلالات استجابة الدردشة أو acceptance؛
+Episode observation-only تبقى `incomplete`. لا ينطبق هذا العقد على
+`refresh_project_scan` لأنه يغير scan state، ولا يجعل graph/API tools متاحة في
+Mission دون manifest/scope/revision خاص بها.
 
-#### قرار lifecycle للدردشة غير المتدفقة — معتمد تصميميًا، غير منفذ
+#### lifecycle الدردشة غير المتدفقة — منفذ ضمن P5.5
 
 لا تضف `onReadOnlyInvocation` وحده إلى `/api/ai/chat` ولا تنشئ Episode أو
-`attemptId` مؤقتًا. قبل أول eligible tool invocation يجب أن يملك الطلب
-`ai_execution` ومحاولة durable وworker/lease صالحة، ثم Episode مرتبطة بها.
-تشارك كل invocations داخل الطلب هوية execution/attempt نفسها؛ لا ينشأ تنفيذ
-جديد لكل أداة. يمكن إبقاء الطلبات التي لا تستدعي أدوات خارج هذا lifecycle، لكن
-لا تسجل لها Episode قرائيًا بلا owner durable.
+`attemptId` مؤقتًا. التنفيذ الحالي يحقق الشرط بإنشاء `ai_execution` ومحاولة
+durable وworker/lease صالحة قبل تمرير نتيجة أول tool invocation مؤهل، ثم يربط
+Episode بها. تشترك كل invocations داخل الطلب في execution/attempt نفسها؛ لا
+ينشأ تنفيذ جديد لكل أداة. الطلبات التي لا تستدعي أداة تبقى خارج هذا lifecycle،
+ولا تسجل Episode قرائيًا بلا owner durable.
 
 عند نجاح الطلب أو فشله أو إلغائه، تُنهى المحاولة والتنفيذ صراحةً، وتبقى
 invocations المسجلة قابلة للإسناد؛ لا يترك فشل الأداة Episode يتيمة أو طلبًا
@@ -4888,7 +4892,7 @@ invocations المسجلة قابلة للإسناد؛ لا يترك فشل ال
 هذا العمل. يجب مراجعة مدى كفاية جداول التنفيذ وEpisode الحالية قبل اقتراح أي
 schema؛ لا تغيير schema أو بيانات إنتاج ضمن قرار التصميم الحالي.
 
-معايير الاختبار قبل تعديل runtime:
+معايير الاختبار:
 
 - مسار النجاح: execution ومحاولة مملوكان قبل الأداة، ثم invocation وObservation
   مرتبطان بهما، ثم terminal completion للمحاولة والتنفيذ.
@@ -4899,6 +4903,13 @@ schema؛ لا تغيير schema أو بيانات إنتاج ضمن قرار ا�
   أو acceptance semantics.
 - اختبار cancellation/lease loss يمنع worker غير المالك من إنهاء lifecycle أو
   حفظ نتيجة invocation بعد فقدان الملكية.
+
+تحققت اختبارات المسارات من مشاركة `executionId`/`attempt` بين قراءات التحليل
+المباشرة، وكتابة الطلب قبل النتيجة، وبقاء Episode غير مكتملة وعدم إنشاء
+`EffectBundle`. تحتفظ الدردشة المتدفقة بدلالات acceptance القائمة لنجاح المحادثة؛
+هذا acceptance ليس إثباتًا لقراءة التحليل ولا ينشئه callback الملاحظة. اختبارات
+مساري الدردشة المركزة نجحت `2/2`، ونجح API typecheck؛ أعيد تشغيل API workflow
+وسجل `Server listening`. بقية P5.5 ما زالت جزئية.
 
 ### 42.6 P6 — World Delta / Revision Closure
 

@@ -241,7 +241,10 @@ import {
   redactUserFacingText,
   redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
-import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+import {
+  createProjectAnalysisToolRunner,
+  wrapReadOnlyAnalysisToolRunner,
+} from "../../lib/ai-analysis-tools.js";
 import { runScanJob } from "../../lib/scan-runner.js";
 import { heavyJobQueue } from "../../lib/job-queue.js";
 import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
@@ -5824,7 +5827,69 @@ router.post("/ai/chat", async (req, res) => {
              : undefined,
           validationTargetPaths: validationOnlyTargetPaths,
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
-          analysisToolRunner,
+          analysisToolRunner: analysisToolRunner
+            ? wrapReadOnlyAnalysisToolRunner(analysisToolRunner, async (invocation) => {
+                await ensureChatObservationLifecycle();
+                await assertChatObservationOwned();
+                if (
+                  !chatObservationExecution
+                  || !chatObservationWorkerId
+                  || !chatObservationEpisode
+                ) {
+                  throw new Error("Chat analysis observation provenance is unavailable");
+                }
+                const execution = chatObservationExecution;
+                const episode = chatObservationEpisode;
+                const invocationId = createHash("sha256")
+                  .update([
+                    execution.id,
+                    String(execution.attempt),
+                    invocation.toolCallId,
+                    invocation.toolName,
+                    invocation.inputHash,
+                    invocation.manifestHash,
+                    invocation.operationId,
+                  ].join("\0"), "utf8")
+                  .digest("hex");
+                const scopeHash = createHash("sha256")
+                  .update(JSON.stringify({
+                    projectId,
+                    scope: episode.scope,
+                    projectRevision: invocation.projectRevision,
+                    analysisOperationId: invocation.operationId,
+                    manifestHash: invocation.manifestHash,
+                  }), "utf8")
+                  .digest("hex");
+                await appendEpisodeEvent({
+                  episodeId: episode.episodeId,
+                  projectId,
+                  executionId: execution.id,
+                  attempt: execution.attempt,
+                  workerId: chatObservationWorkerId,
+                  eventType: invocation.phase === "requested"
+                    ? "OBSERVATION_REQUESTED"
+                    : "OBSERVATION_RECORDED",
+                  payload: {
+                    invocationId,
+                    toolName: invocation.toolName,
+                    scopeHash,
+                    projectRevision: invocation.projectRevision,
+                    inputHash: invocation.inputHash,
+                    manifestHash: invocation.manifestHash,
+                    ...(invocation.phase === "recorded" ? {
+                      ...(invocation.status ? { status: invocation.status } : {}),
+                      ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                      ...(invocation.diagnosticCode
+                        ? { diagnosticCode: invocation.diagnosticCode }
+                        : {}),
+                    } : {}),
+                  },
+                  actorType: "worker",
+                  actorId: chatObservationWorkerId,
+                  correlationId: execution.operationId ?? execution.id,
+                });
+              })
+            : undefined,
           analysisCorrelation,
           onReadOnlyInvocation: async (invocation) => {
             await ensureChatObservationLifecycle();
@@ -9570,7 +9635,62 @@ export async function handleChatStream(req: Request, res: Response) {
                }
              : {}),
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
-          analysisToolRunner,
+          analysisToolRunner: analysisToolRunner
+            ? wrapReadOnlyAnalysisToolRunner(analysisToolRunner, async (invocation) => {
+                if (!chatObservationEpisode || !aiExecution || !executionWorkerId) {
+                  throw new Error("Chat analysis observation provenance is unavailable");
+                }
+                await assertStreamExecutionOwned();
+                const invocationId = createHash("sha256")
+                  .update([
+                    aiExecution.id,
+                    String(aiExecution.attempt),
+                    invocation.toolCallId,
+                    invocation.toolName,
+                    invocation.inputHash,
+                    invocation.manifestHash,
+                    invocation.operationId,
+                  ].join("\0"), "utf8")
+                  .digest("hex");
+                const scopeHash = createHash("sha256")
+                  .update(JSON.stringify({
+                    projectId,
+                    scope: chatObservationEpisode.scope,
+                    projectRevision: invocation.projectRevision,
+                    analysisOperationId: invocation.operationId,
+                    manifestHash: invocation.manifestHash,
+                  }), "utf8")
+                  .digest("hex");
+                await appendEpisodeEvent({
+                  episodeId: chatObservationEpisode.episodeId,
+                  projectId,
+                  executionId: aiExecution.id,
+                  attempt: aiExecution.attempt,
+                  workerId: executionWorkerId,
+                  eventType: invocation.phase === "requested"
+                    ? "OBSERVATION_REQUESTED"
+                    : "OBSERVATION_RECORDED",
+                  payload: {
+                    invocationId,
+                    toolName: invocation.toolName,
+                    scopeHash,
+                    projectRevision: invocation.projectRevision,
+                    inputHash: invocation.inputHash,
+                    manifestHash: invocation.manifestHash,
+                    ...(invocation.phase === "recorded" ? {
+                      ...(invocation.status ? { status: invocation.status } : {}),
+                      ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                      ...(invocation.diagnosticCode
+                        ? { diagnosticCode: invocation.diagnosticCode }
+                        : {}),
+                    } : {}),
+                  },
+                  actorType: "worker",
+                  actorId: executionWorkerId,
+                  correlationId: aiExecution.operationId ?? aiExecution.id,
+                });
+              })
+            : undefined,
           analysisCorrelation,
           onReadOnlyInvocation: async (invocation) => {
             if (!chatObservationEpisode || !aiExecution || !executionWorkerId) {

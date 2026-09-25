@@ -2,6 +2,7 @@ import { db, graphEntitiesTable, projectsTable } from "@workspace/db";
 import { and, eq, ilike } from "drizzle-orm";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash, randomUUID } from "node:crypto";
 import {
   getImpactedEntities,
   getNeighborhood,
@@ -10,6 +11,7 @@ import {
   type GraphEntity,
 } from "@workspace/knowledge-engine";
 import { SCANNER_VERSION } from "@workspace/scanner";
+import { ANALYSIS_TOOL_DEFINITIONS } from "@workspace/ai-orchestrator";
 import type {
   AnalysisCorrelation,
   AnalysisFailureCategory,
@@ -23,7 +25,113 @@ const HARD_MAX_MS = 30_000;
 const MAX_GIT_HISTORY_PATHS = 6;
 const MAX_GIT_HISTORY_ENTRIES_PER_PATH = 8;
 const MAX_GIT_HISTORY_BUFFER = 256 * 1024;
+const OBSERVED_READ_ONLY_ANALYSIS_TOOLS = new Set([
+  "query_knowledge_graph",
+  "discover_project_apis",
+]);
+const ANALYSIS_TOOL_MANIFEST_HASH = createHash("sha256")
+  .update(JSON.stringify(ANALYSIS_TOOL_DEFINITIONS), "utf8")
+  .digest("hex");
 const execFileAsync = promisify(execFile);
+
+export type ReadOnlyAnalysisObservation = {
+  phase: "requested" | "recorded";
+  toolCallId: string;
+  toolName: string;
+  inputHash: string;
+  manifestHash: string;
+  operationId: string;
+  projectRevision: string;
+  status?: "completed" | "failed";
+  outputHash?: string;
+  diagnosticCode?: string;
+};
+
+/**
+ * Adds fail-closed observation boundaries around the explicitly read-only
+ * analysis tools. refresh_project_scan remains outside this contract because
+ * it advances persisted scan state rather than performing a simple read.
+ */
+export function wrapReadOnlyAnalysisToolRunner(
+  runner: AnalysisToolRunner,
+  observe: (invocation: ReadOnlyAnalysisObservation) => Promise<void>,
+): AnalysisToolRunner {
+  return async (name, args, signal, correlation, deadlineAt) => {
+    if (!OBSERVED_READ_ONLY_ANALYSIS_TOOLS.has(name)) {
+      return runner(name, args, signal, correlation, deadlineAt);
+    }
+    if (!hasUsableCorrelation(correlation)) {
+      throw new Error("analysis_read_observation_correlation_unavailable");
+    }
+
+    const toolCallId = randomUUID();
+    const inputHash = createHash("sha256")
+      .update(JSON.stringify(args), "utf8")
+      .digest("hex");
+    const manifestHash = ANALYSIS_TOOL_MANIFEST_HASH;
+    const baseObservation = {
+      toolCallId,
+      toolName: `analysis:${name}`,
+      inputHash,
+      manifestHash,
+      operationId: correlation.operationId,
+      projectRevision: correlation.projectRevision,
+    };
+    await observe({ ...baseObservation, phase: "requested" });
+
+    let result: AnalysisToolResult;
+    try {
+      result = await runner(name, args, signal, correlation, deadlineAt);
+    } catch (error) {
+      await observe({
+        ...baseObservation,
+        phase: "recorded",
+        status: "failed",
+        diagnosticCode: "ANALYSIS_TOOL_THROWN",
+      });
+      throw error;
+    }
+
+    const resultCorrelation = result.correlation;
+    if (
+      result.status === "complete"
+      && (
+        resultCorrelation?.operationId !== correlation.operationId
+        || resultCorrelation.projectId !== correlation.projectId
+        || typeof resultCorrelation.projectRevision !== "string"
+        || resultCorrelation.projectRevision.length === 0
+      )
+    ) {
+      await observe({
+        ...baseObservation,
+        phase: "recorded",
+        status: "failed",
+        diagnosticCode: "ANALYSIS_CORRELATION_INVALID",
+      });
+      throw new Error("analysis_read_observation_result_correlation_invalid");
+    }
+
+    await observe({
+      ...baseObservation,
+      phase: "recorded",
+      projectRevision: resultCorrelation?.projectRevision ?? correlation.projectRevision,
+      status: result.status === "complete" ? "completed" : "failed",
+      ...(result.status === "complete"
+        ? {
+            outputHash: createHash("sha256")
+              .update(result.output, "utf8")
+              .digest("hex"),
+          }
+        : {}),
+      ...(result.failureCategory
+        ? { diagnosticCode: `ANALYSIS_${result.failureCategory.toUpperCase()}` }
+        : result.status !== "complete"
+          ? { diagnosticCode: `ANALYSIS_${result.status.toUpperCase()}` }
+          : {}),
+    });
+    return result;
+  };
+}
 
 function bounded(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value);

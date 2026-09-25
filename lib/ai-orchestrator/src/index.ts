@@ -513,6 +513,7 @@ export type {
   AnalysisToolResult,
   AnalysisToolStatus,
 } from "./tools/analysis-tools.js";
+export { ANALYSIS_TOOL_DEFINITIONS } from "./tools/analysis-tools.js";
 
 export {
   extractJson,
