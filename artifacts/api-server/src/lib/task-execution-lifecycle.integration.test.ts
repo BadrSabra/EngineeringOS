@@ -601,18 +601,23 @@ describe("real durable task execution lifecycle", () => {
         expect.arrayContaining(["OBSERVATION_REQUESTED", "OBSERVATION_RECORDED"]),
       );
       const observationRequest = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
+      const gitScopeHash = (observationRequest?.payload as { scopeHash?: string } | undefined)?.scopeHash;
       expect(observationRequest?.payload).toMatchObject({
         observationId: expect.any(String),
         toolCallId: "provider-read-mission-1",
         toolName: "git_diff",
         inputHash: "c".repeat(64),
         manifestHash: "d".repeat(64),
+        scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        scopePolicyVersion: "mission-read-scope-v1",
         projectRevision: fixture.now.toISOString(),
         authorization: "server_owned",
       });
       const observationRecorded = events.find((event) => event.eventType === "OBSERVATION_RECORDED");
       expect(observationRecorded?.payload).toMatchObject({
         observationId: (observationRequest?.payload as { observationId: string }).observationId,
+        scopeHash: gitScopeHash,
+        scopePolicyVersion: "mission-read-scope-v1",
         status: "completed",
         outputHash: "e".repeat(64),
         projectRevision: fixture.now.toISOString(),
@@ -633,17 +638,23 @@ describe("real durable task execution lifecycle", () => {
         event.eventType === "OBSERVATION_RECORDED"
         && (event.payload as { toolName?: string }).toolName === "project.list_tree",
       );
+      const treeScopeHash = (treeRequest?.payload as { scopeHash?: string } | undefined)?.scopeHash;
       expect(treeRequest?.payload).toMatchObject({
         toolCallId: "provider-tree-mission-1",
+        scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        scopePolicyVersion: "mission-read-scope-v1",
         projectRevision: fixture.now.toISOString(),
         authorization: "server_owned",
       });
       expect(treeRecorded?.payload).toMatchObject({
         observationId: (treeRequest?.payload as { observationId: string }).observationId,
+        scopeHash: treeScopeHash,
+        scopePolicyVersion: "mission-read-scope-v1",
         status: "completed",
         outputHash: "a".repeat(64),
         projectRevision: fixture.now.toISOString(),
       });
+      expect(treeScopeHash).not.toBe(gitScopeHash);
       const baseParams = chatWithFallback.mock.calls.at(-1)?.[1] as {
         onMutationInvocation?: unknown;
       } | undefined;

@@ -88,6 +88,11 @@ import {
   buildMissionRepairToolAction,
 } from "./agent-state/mission-repair-effect.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
+import {
+  buildMissionReadScopeHash,
+  isMissionReadScopeToolName,
+  MISSION_READ_SCOPE_POLICY_VERSION,
+} from "./mission-read-scope.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -1179,14 +1184,6 @@ async function executeMissionToolLoop(params: {
     string,
     ReturnType<typeof buildMissionRepairToolAction>
   >();
-  const missionReadOnlyToolNames = new Set([
-    "read_file",
-    "read_file_range",
-    "project.list_tree",
-    "git_status",
-    "git_diff",
-    "git_log",
-  ]);
   const onMutationInvocation:
     | import("@workspace/ai-orchestrator").MutationToolInvocationCallback
     | undefined =
@@ -1290,25 +1287,50 @@ async function executeMissionToolLoop(params: {
         }
       : undefined;
   const recordedObservationIds = new Set<string>();
+  const requestedObservationScopeHashes = new Map<string, string>();
   const onReadOnlyInvocation: ReadOnlyToolInvocationCallback | undefined =
     async (invocation) => {
       if (
-        !missionReadOnlyToolNames.has(invocation.toolName)
+        !isMissionReadScopeToolName(invocation.toolName)
         || !invocation.toolCallId.trim()
         || !/^[a-f0-9]{64}$/.test(invocation.inputHash)
         || !/^[a-f0-9]{64}$/.test(invocation.manifestHash)
       ) {
         throw new Error("mission_read_observation_identity_invalid");
       }
+      const scopeHash = buildMissionReadScopeHash({
+        projectId: params.task.projectId,
+        missionId: params.goal.missionId,
+        goalId: params.goal.id,
+        taskId: params.task.id,
+        profile: params.profile,
+        projectRevision: params.workspaceRevision,
+        toolName: invocation.toolName,
+        approvedTargetPaths: policy.targetPaths,
+        manifestHash: invocation.manifestHash,
+      });
+      const invocationKey = [
+        invocation.toolCallId,
+        invocation.toolName,
+        invocation.inputHash,
+        invocation.manifestHash,
+      ].join("\0");
+      if (invocation.phase === "recorded") {
+        if (recordedObservationIds.has(
+          `${invocationKey}\0${scopeHash}`,
+        )) {
+          return;
+        }
+        if (requestedObservationScopeHashes.get(invocationKey) !== scopeHash) {
+          throw new Error("mission_read_scope_hash_mismatch");
+        }
+      }
       const observationId = createHash("sha256")
         .update(
-          `${params.task.projectId}\0${params.executionId}\0${params.expectedAttempt}\0${params.workspaceRevision}\0${invocation.toolCallId}\0${invocation.inputHash}\0${invocation.manifestHash}`,
+          `${params.task.projectId}\0${params.executionId}\0${params.expectedAttempt}\0${params.workspaceRevision}\0${invocation.toolCallId}\0${invocation.inputHash}\0${invocation.manifestHash}\0${scopeHash}`,
           "utf8",
         )
         .digest("hex");
-      if (invocation.phase === "recorded" && recordedObservationIds.has(observationId)) {
-        return;
-      }
       const [currentProject] = await db
         .select({ updatedAt: projectsTable.updatedAt })
         .from(projectsTable)
@@ -1327,6 +1349,8 @@ async function executeMissionToolLoop(params: {
             toolName: invocation.toolName,
             inputHash: invocation.inputHash,
             manifestHash: invocation.manifestHash,
+            scopeHash,
+            scopePolicyVersion: MISSION_READ_SCOPE_POLICY_VERSION,
             projectRevision: params.workspaceRevision,
             authorization: "server_owned",
           }
@@ -1336,6 +1360,8 @@ async function executeMissionToolLoop(params: {
             toolName: invocation.toolName,
             inputHash: invocation.inputHash,
             manifestHash: invocation.manifestHash,
+            scopeHash,
+            scopePolicyVersion: MISSION_READ_SCOPE_POLICY_VERSION,
             projectRevision: params.workspaceRevision,
             status: revisionMatches ? invocation.status ?? "failed" : "failed",
             ...(
@@ -1365,8 +1391,10 @@ async function executeMissionToolLoop(params: {
         actorId: params.workerId,
         correlationId: params.correlationId,
       });
-      if (invocation.phase === "recorded") {
-        recordedObservationIds.add(observationId);
+      if (invocation.phase === "requested") {
+        requestedObservationScopeHashes.set(invocationKey, scopeHash);
+      } else {
+        recordedObservationIds.add(`${invocationKey}\0${scopeHash}`);
         if (!revisionMatches && invocation.status === "completed") {
           throw new Error("mission_project_revision_changed_after_read");
         }
