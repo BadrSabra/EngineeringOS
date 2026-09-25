@@ -1855,9 +1855,10 @@ schema والهوية والـpolicy.
 
 ## 18. مخطط البيانات: الحالة الفعلية والعقود المنطقية
 
-هذا القسم يصف الحالة القائمة، لا تعليمات لإعادة إنشاء الجداول. مخططات §18.2–§18.6
-تطابق Drizzle الحالي؛ عند أي اختلاف تكون `lib/db/src/schema` هي المرجع، وأي تغيير
-لاحق يحتاج migration إضافية ومراجعة توافق لا إعادة تطبيق التصميم الأولي.
+هذا القسم يلخص الحقول والقيود الحالية ذات الصلة؛ ليس DDL حرفيًا ولا يسرد كل
+default أو اسم index. لا يُستخدم لإعادة إنشاء الجداول. المرجع الدقيق هو
+`lib/db/src/schema`، وأي تغيير لاحق يحتاج migration إضافية ومراجعة توافق لا
+إعادة تطبيق التصميم الأولي.
 
 ### 18.1 مبدأ التخزين
 
@@ -1870,12 +1871,12 @@ schema والهوية والـpolicy.
 - `events`: project event feed.
 - `ai_skill_registry`: promoted executable skills.
 
-تضاف جداول متخصصة لأن كل نوع من البيانات له lifecycle مختلف. لا يوضع
+تستخدم جداول متخصصة لأن كل نوع من البيانات له lifecycle مختلف. لا يوضع
 world state أو learning state في `checkpoint` أو `recipeReceipt`.
 
 ### 18.2 جدول `ai_agent_episodes`
 
-المخطط المنطقي الإلزامي:
+ملخص الحقول والقيود الحالية:
 
 ```text
 id                  text primary key
@@ -3771,6 +3772,9 @@ episode-public-redaction
 
 ## 37. سجل بوابة الانتقال التاريخية P1 إلى P2
 
+يسجل النص التالي معيار الانتقال عند إعداد الخطة؛ لا يعيد فتح P1/P2 أو يغيّر
+ترتيب التنفيذ الحالي في §31 وحالة الإنجاز في §42.
+
 لا يبدأ Observation Materialization إلا إذا تحققت الشروط التالية:
 
 ```text
@@ -3790,6 +3794,9 @@ shadow overhead p95 < 50ms per event
 ---
 
 ## 38. قيود Pull Request الأول — مرجع تاريخي
+
+هذه قيود نطاق PR الأول في الخطة الأصلية، وليست حظرًا على شرائح التنفيذ الحالية.
+لا تستخدمها لتجاوز dependency graph في §31 أو الحالة الفعلية في §42.
 
 لا يضم أول PR أياً من التالي:
 
@@ -4082,7 +4089,7 @@ Safe Promotion
 
 ### 42.2 P3.5 — Cognitive Action / Observation Spine
 
-**الحالة:** `NOT COMPLETE`
+**الحالة:** `PARTIAL — implemented vertical slices exist; unified closure across the full agent remains incomplete`
 
 قبل أي learning أو strategy promotion يجب أن تملك كل capability invocation
 هوية Episode/Action ونطاقًا server-owned. تمثيل Belief/Hypothesis اختياري حتى
