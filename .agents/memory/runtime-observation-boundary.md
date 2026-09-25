@@ -30,3 +30,11 @@ Resolve a runtime listener only from the active server-owned session PID, port, 
 **Why:** health responses and the direct `pnpm` PID can describe different processes. Socket ownership plus process-tree membership identifies the actual serving process without exposing an endpoint that accepts arbitrary PIDs.
 
 **How to apply:** use only the manager's leased session identity and server-owned port; never accept process IDs or ports from a caller or model. A missing `/proc/net/tcp6` table can mean IPv6 is disabled and may be treated as an empty table; other procfs read failures remain unknown.
+
+### Recovery and heartbeat ownership
+
+Recovery claims and lease writes must remain bound to the exact project, session, worker, and expected lifecycle status. Before and after supervisor adoption, re-resolve the listener from the server-owned session. For a running session, heartbeat renews only after listener ownership and supervisor identity are confirmed; `starting` may renew its own lease without implying health. If procfs or supervisor evidence is temporarily unknown, release the lease and local ownership for the periodic recovery sweep; do not kill the process or mark it failed. Stop/restart must not replace a running session whose listener owner cannot be verified.
+
+**Why:** a transient observation failure is not evidence that the serving process is dead or safe to replace, while stale workers must not retain leases or mutate a newer session.
+
+**How to apply:** make claims and conditional updates session-scoped, preserve unknown as retryable, and keep recovery targeted when invoked by a project-specific stop or restart. Only stop a runtime after the current session and worker ownership have been re-established.

@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import {
   databaseWorkspaceRuntimeStore,
+  createInMemoryWorkspaceRuntimeStore,
   RUNTIME_LEASE_MS,
 } from "./workspace-runtime-store.js";
 
@@ -76,5 +77,54 @@ describe("database workspace runtime store", () => {
     });
     expect(takeover?.workerId).toBe("worker-b");
     expect(takeover?.sessionId).toBe("session-b");
+  });
+});
+
+describe("in-memory workspace runtime store session fencing", () => {
+  it("rejects recovery claims and lease writes for a replaced session", async () => {
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const now = new Date();
+    await store.begin({
+      projectId: "fenced-runtime-project",
+      projectRoot: "/workspace/project",
+      sessionId: "session-old",
+      revision: "revision-old",
+      environmentRevision: null,
+      workerId: "worker-a",
+      now,
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
+    });
+    await store.begin({
+      projectId: "fenced-runtime-project",
+      projectRoot: "/workspace/project",
+      sessionId: "session-new",
+      revision: "revision-new",
+      environmentRevision: null,
+      workerId: "worker-a",
+      now: new Date(now.getTime() + 1),
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS + 1),
+    });
+
+    expect(await store.claimRecovery({
+      id: "fenced-runtime-project",
+      sessionId: "session-old",
+      workerId: "worker-b",
+      now: new Date(now.getTime() + RUNTIME_LEASE_MS + 2),
+      leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS * 2),
+    })).toBeUndefined();
+    expect(await store.updateOwnedSession(
+      "fenced-runtime-project",
+      "session-old",
+      "worker-a",
+      { leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS * 3) },
+    )).toBe(false);
+    expect(await store.updateOwnedSession(
+      "fenced-runtime-project",
+      "session-new",
+      "worker-a",
+      { leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS * 3) },
+      "running",
+    )).toBe(false);
+    expect((await store.get("fenced-runtime-project"))?.sessionId).toBe("session-new");
   });
 });

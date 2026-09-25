@@ -6,9 +6,11 @@ import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 
 const managers: WorkspaceRuntimeManager[] = [];
+const roots: string[] = [];
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.shutdown()));
+  await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
 describe("WorkspaceRuntimeManager", () => {
@@ -356,5 +358,116 @@ describe("WorkspaceRuntimeManager", () => {
     const stopped = await secondWorker.stop("recoverable-project");
     expect(stopped.status).toBe("stopped");
     await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("retries recovery and heartbeat after unknown listener ownership without killing the runtime", async () => {
+    const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
+    roots.push(root);
+    await fs.writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ scripts: { dev: "node server.mjs" } }),
+    );
+    await fs.writeFile(
+      path.join(root, "server.mjs"),
+      [
+        "import http from 'node:http';",
+        "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', 'revision-1'); res.end('runtime-retry-ok'); });",
+        "server.listen(Number(process.env.PORT), '127.0.0.1');",
+        "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+      ].join("\n"),
+    );
+
+    const store = createInMemoryWorkspaceRuntimeStore();
+    const firstWorker = new WorkspaceRuntimeManager({ store, workerId: "retry-worker-a" });
+    let listenerOwnership: "known" | "unknown" = "unknown";
+    const secondWorker = new WorkspaceRuntimeManager({
+      store,
+      workerId: "retry-worker-b",
+      heartbeatIntervalMs: 20,
+      listenerResolver: async ({ launchPid, port }) => listenerOwnership === "known"
+        ? {
+            status: "known" as const,
+            reasonCode: "listener_owned_by_runtime_process" as const,
+            port,
+            pid: typeof launchPid === "number" ? launchPid : 1,
+            identityDigest: "a".repeat(64),
+            observedAt: new Date().toISOString(),
+          }
+        : {
+            status: "unknown" as const,
+            reasonCode: "listener_not_in_runtime_tree" as const,
+            port: null,
+            pid: null,
+            identityDigest: null,
+            observedAt: new Date().toISOString(),
+          },
+    });
+    managers.push(firstWorker, secondWorker);
+    const started = await firstWorker.start({
+      projectId: "recoverable-runtime-retry",
+      projectRoot: root,
+      revision: "revision-1",
+      attestationIdentity: {
+        projectId: "recoverable-runtime-retry",
+        operationId: "operation-runtime-retry",
+        executionId: "execution-runtime-retry",
+        executionAttempt: 1,
+        episodeId: "episode-runtime-retry",
+        revision: "revision-1",
+      },
+    });
+    expect(started.status).toBe("running");
+    await firstWorker.shutdown({ preserveProcesses: true });
+
+    await secondWorker.recover();
+    let row = await store.get("recoverable-runtime-retry");
+    expect(row).toMatchObject({
+      status: "running",
+      workerId: null,
+      leaseUntil: null,
+      pid: started.pid,
+      port: started.port,
+    });
+    expect(await fetch(`http://127.0.0.1:${started.port}`).then((response) => response.text()))
+      .toBe("runtime-retry-ok");
+
+    listenerOwnership = "known";
+    await secondWorker.recover();
+    expect((await secondWorker.get("recoverable-runtime-retry")).leaseUntil).not.toBeNull();
+
+    listenerOwnership = "unknown";
+    const retryDeadline = Date.now() + 2_000;
+    do {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      row = await store.get("recoverable-runtime-retry");
+    } while (row?.workerId && Date.now() < retryDeadline);
+    expect(row).toMatchObject({
+      status: "running",
+      workerId: null,
+      leaseUntil: null,
+      pid: started.pid,
+      port: started.port,
+    });
+    expect(await fetch(`http://127.0.0.1:${started.port}`).then((response) => response.text()))
+      .toBe("runtime-retry-ok");
+
+    await expect(secondWorker.start({
+      projectId: "recoverable-runtime-retry",
+      projectRoot: root,
+      revision: "revision-2",
+      restart: true,
+    })).rejects.toMatchObject({ code: "RUNTIME_OWNERSHIP_BUSY" });
+    expect((await store.get("recoverable-runtime-retry"))?.sessionId).toBe(started.sessionId);
+    expect(await fetch(`http://127.0.0.1:${started.port}`).then((response) => response.text()))
+      .toBe("runtime-retry-ok");
+
+    const stopWhileUnknown = await secondWorker.stop("recoverable-runtime-retry");
+    expect(stopWhileUnknown.status).toBe("running");
+    expect(await fetch(`http://127.0.0.1:${started.port}`).then((response) => response.text()))
+      .toBe("runtime-retry-ok");
+
+    listenerOwnership = "known";
+    const stopped = await secondWorker.stop("recoverable-runtime-retry");
+    expect(stopped.status).toBe("stopped");
   });
 });

@@ -5585,3 +5585,29 @@ procfs الأخرى فتبقى fail-closed.
 `git diff --check`؛ API workflow restart وظهور `Server listening`. لا تغيير schema
 أو قاعدة الإنتاج. بقيت P3.5/P4/P5 جزئية: recovery/heartbeat لا يعيدان بعد إثبات
 listener ownership باستمرار؛ لم يبدأ P6 أو P7 أو P7.5.
+
+### 42.32 P4/P5 — Runtime recovery and heartbeat listener ownership fencing (2026-09-25)
+
+أصبح recovery مربوطًا بهوية المشروع والجلسة والـworker عند claim وتحرير
+الـlease. يتحقق من ملكية listener قبل تبني supervisor وبعده، ولا يحتفظ بالـlease
+إذا كانت الملاحظة `unknown` أو لم تطابق نتيجة supervisor هوية الجلسة. تظل
+العملية حية ويعاد إدراج الصف في دورة recovery التالية؛ لا تتحول حالة الجلسة إلى
+`failed` لمجرد تعذر procfs أو supervisor.
+
+تجديد heartbeat لجلسة `running` مشروط بإثبات listener ومطابقة supervisor
+قبل/بعد adoption، ثم كتابة lease بشرط تطابق project/session/worker والحالة
+المتوقعة في الصف. أما جلسة `starting` فتجدد lease لمالكها الحالي فقط خلال مهلة
+البدء؛ لا يعني ذلك إثبات readiness أو health. stop/restart يستردان المشروع
+المطلوب وحده، ولا يقتلان أو يستبدلان جلسة running تعذر إثبات مالكها.
+
+غطي ذلك اختبار فقدان listener مؤقتًا ثم عودته: يظل process حيًا، يحرر recovery
+والـheartbeat الـlease، ويرفض stop الآمن حتى يعود الإثبات؛ بعدها ينجح recovery
+والإيقاف المقصود. claims والـlease writes المتأخرة لا تعدل session أحدث ولا
+تتجاوز status الانتقالية.
+
+نجح API typecheck و5 ملفات Vitest مركزة (25/25)، ثم إعادة اختبار runtime/store
+بعد إضافة تحقق restart refusal (8/8)، و`git diff --check`؛ أعيد تشغيل API workflow
+ووصل إلى `Server listening`. لا تغيير schema أو قاعدة الإنتاج.
+هذه شريحة جزئية من P3.5/P4/P5 ولا تقدم observation مستقلة إلى World State أو
+World Delta. تبقى المراحل جزئية؛ الخطوة التالية في الترتيب هي توحيد دلالات
+`AgentAction` ضمن P5.5، دون بدء P6 أو P7 أو P7.5.

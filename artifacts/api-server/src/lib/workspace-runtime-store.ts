@@ -38,11 +38,19 @@ export interface WorkspaceRuntimeStore {
   }): Promise<WorkspaceRuntime | undefined>;
   claimRecovery(input: {
     id: string;
+    sessionId: string;
     workerId: string;
     now: Date;
     leaseUntil: Date;
   }): Promise<WorkspaceRuntime | undefined>;
   updateOwned(projectId: string, workerId: string, patch: RuntimeStorePatch): Promise<boolean>;
+  updateOwnedSession(
+    projectId: string,
+    sessionId: string,
+    workerId: string,
+    patch: RuntimeStorePatch,
+    expectedStatus?: WorkspaceRuntime["status"],
+  ): Promise<boolean>;
   releaseWorker(workerId: string): Promise<void>;
   listRecoverable(now: Date): Promise<WorkspaceRuntime[]>;
 }
@@ -127,6 +135,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
       })
       .where(and(
         eq(workspaceRuntimeTable.id, input.id),
+        eq(workspaceRuntimeTable.sessionId, input.sessionId),
         inArray(workspaceRuntimeTable.status, ["starting", "running"]),
         or(
           isNull(workspaceRuntimeTable.workerId),
@@ -146,6 +155,22 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
         eq(workspaceRuntimeTable.projectId, projectId),
         eq(workspaceRuntimeTable.workerId, workerId),
       ))
+      .returning({ id: workspaceRuntimeTable.id });
+    return Boolean(row);
+  },
+
+  async updateOwnedSession(projectId, sessionId, workerId, patch, expectedStatus) {
+    const identity = and(
+      eq(workspaceRuntimeTable.projectId, projectId),
+      eq(workspaceRuntimeTable.sessionId, sessionId),
+      eq(workspaceRuntimeTable.workerId, workerId),
+    );
+    const [row] = await db
+      .update(workspaceRuntimeTable)
+      .set({ ...patch, updatedAt: patch.updatedAt ?? new Date() })
+      .where(expectedStatus
+        ? and(identity, eq(workspaceRuntimeTable.status, expectedStatus))
+        : identity)
       .returning({ id: workspaceRuntimeTable.id });
     return Boolean(row);
   },
@@ -218,7 +243,11 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
     },
     async claimRecovery(input) {
       const row = [...rows.values()].find((candidate) => candidate.id === input.id);
-      if (!row || !["starting", "running"].includes(row.status)) return undefined;
+      if (
+        !row
+        || row.sessionId !== input.sessionId
+        || !["starting", "running"].includes(row.status)
+      ) return undefined;
       if (row.workerId && row.workerId !== input.workerId && row.leaseUntil && row.leaseUntil > input.now) {
         return undefined;
       }
@@ -231,6 +260,17 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
     async updateOwned(projectId, workerId, patch) {
       const row = rows.get(projectId);
       if (!row || row.workerId !== workerId) return false;
+      Object.assign(row, patch, { updatedAt: patch.updatedAt ?? new Date() });
+      return true;
+    },
+    async updateOwnedSession(projectId, sessionId, workerId, patch, expectedStatus) {
+      const row = rows.get(projectId);
+      if (
+        !row
+        || row.sessionId !== sessionId
+        || row.workerId !== workerId
+        || (expectedStatus && row.status !== expectedStatus)
+      ) return false;
       Object.assign(row, patch, { updatedAt: patch.updatedAt ?? new Date() });
       return true;
     },

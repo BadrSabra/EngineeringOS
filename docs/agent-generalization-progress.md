@@ -1402,6 +1402,35 @@ G9 Revocation Safety
 - **next step:** اربط تعافي runtime وتجديد lease بإعادة إثبات owner/session،
   دون قتل runtime لمجرد تعذر رصد مؤقت، ثم تابع إغلاق P4/P5 بالترتيب.
 
+### 42.32 P4/P5 — ربط recovery وheartbeat بملكية listener (2026-09-25)
+
+- **phase/step:** P4/P5 — runtime recovery and heartbeat ownership fencing
+- **status:** `done`
+- **what changed:** claim recovery أصبح مربوطًا بـproject/session/worker. يتحقق
+  recovery من listener قبل وبعد supervisor adoption؛ وإذا تعذر الإثبات أو لم
+  تطابق نتيجة supervisor الجلسة، يحرر lease لإعادة المحاولة دون قتل العملية أو
+  تحويلها إلى failed. جلسة running لا تجدد heartbeat إلا بعد إثبات listener
+  ومطابقة adoption، وتجديدها مشروط بـsession وworker والحالة الحالية في الصف.
+  جلسة starting تجدد lease للـworker والجلسة المالكين فقط، دون ادعاء health.
+  stop/restart يستخدمان recovery موجهًا للمشروع، ولا يوقفان أو يستبدلان جلسة
+  لا يمكن إثبات مالكها.
+- **files/schema/contracts touched:** `workspace-runtime.ts` و
+  `workspace-runtime-store.ts` واختبارات runtime/store، وسجل التنفيذ؛ لا schema
+  migration أو تعديل قاعدة الإنتاج.
+- **validation:** API typecheck؛ 5 ملفات Vitest مركزة، 25/25، ثم إعادة اختبار
+  runtime/store بعد إضافة restart refusal، 8/8؛ `git diff --check`؛ API workflow
+  restart وظهور `Server listening`.
+- **authority/safety impact:** lease writes وrecovery claims مربوطة بهوية
+  session؛ فقدان procfs/supervisor observation يحرر ownership ولا يقتل الخدمة
+  ولا يمنح قبولًا. تعذر الإثبات أثناء stop يبقي الجلسة نشطة، وrestart لا يبدأ
+  بديلًا. لا تغيير production database.
+- **remaining/blocker:** P3.5/P4/P5 ما زالت جزئية؛ هذه الخطوة تغلق recovery/
+  heartbeat ownership fence فقط، ولا تنشئ independent World observation أو
+  World Delta. لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** استأنف الإغلاق المرحلي حسب الخطة، بدءًا من توحيد دلالات
+  `AgentAction` في P5.5 قبل إضافة مسارات Action/Effect جديدة؛ لا تبدأ P6 أو
+  P7 أو P7.5.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
