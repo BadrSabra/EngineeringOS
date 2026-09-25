@@ -519,54 +519,66 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
  * path remains authoritative.
  */
 export function startEpisodeShadow(input: StartEpisodeInput): void {
+  void startEpisodeShadowWithEpisode(input);
+}
+
+/**
+ * Best-effort shadow start for callers that need the episode identity for
+ * advisory telemetry. A failed Episode write must never take ownership from
+ * the existing execution or acceptance path.
+ */
+export async function startEpisodeShadowWithEpisode(
+  input: StartEpisodeInput,
+): Promise<AgentEpisode | undefined> {
   const startedAt = Date.now();
   recordAgentEpisodeShadowStart();
-  void startEpisode(input)
-    .then(() => {
-      const latencyMs = Date.now() - startedAt;
-      recordAgentEpisodeShadowSuccess(latencyMs);
-      void persistAgentEpisodeShadowAttempt({
-        projectId: input.projectId,
-        executionId: input.executionId,
-        attempt: input.attempt,
-        idempotencyKey: input.idempotencyKey,
-        outcome: "success",
-        latencyMs,
-      }).catch((error: unknown) => {
-        logger.warn(
-          { scope: "agent-episode-ledger", code: "shadow_campaign_persist_failed", error },
-          "Shadow campaign telemetry persistence failed; execution path remains authoritative",
-        );
-      });
-    })
-    .catch((error: unknown) => {
-      const code = error instanceof EpisodeLedgerError ? error.code : "shadow_write_failed";
-      const latencyMs = Date.now() - startedAt;
-      recordAgentEpisodeShadowFailure(code);
-      void persistAgentEpisodeShadowAttempt({
-        projectId: input.projectId,
-        executionId: input.executionId,
-        attempt: input.attempt,
-        idempotencyKey: input.idempotencyKey,
-        outcome: "failure",
-        failureCode: code,
-        latencyMs,
-      }).catch((telemetryError: unknown) => {
-        logger.warn(
-          { scope: "agent-episode-ledger", code: "shadow_campaign_persist_failed", error: telemetryError },
-          "Shadow campaign telemetry persistence failed; execution path remains authoritative",
-        );
-      });
+  try {
+    const episode = await startEpisode(input);
+    const latencyMs = Date.now() - startedAt;
+    recordAgentEpisodeShadowSuccess(latencyMs);
+    void persistAgentEpisodeShadowAttempt({
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      idempotencyKey: input.idempotencyKey,
+      outcome: "success",
+      latencyMs,
+    }).catch((error: unknown) => {
       logger.warn(
-        {
-          scope: "agent-episode-ledger",
-          code,
-          executionId: input.executionId,
-          attempt: input.attempt,
-        },
-        "Shadow episode write failed; existing execution path remains authoritative",
+        { scope: "agent-episode-ledger", code: "shadow_campaign_persist_failed", error },
+        "Shadow campaign telemetry persistence failed; execution path remains authoritative",
       );
     });
+    return episode;
+  } catch (error) {
+    const code = error instanceof EpisodeLedgerError ? error.code : "shadow_write_failed";
+    const latencyMs = Date.now() - startedAt;
+    recordAgentEpisodeShadowFailure(code);
+    void persistAgentEpisodeShadowAttempt({
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      idempotencyKey: input.idempotencyKey,
+      outcome: "failure",
+      failureCode: code,
+      latencyMs,
+    }).catch((telemetryError: unknown) => {
+      logger.warn(
+        { scope: "agent-episode-ledger", code: "shadow_campaign_persist_failed", error: telemetryError },
+        "Shadow campaign telemetry persistence failed; execution path remains authoritative",
+      );
+    });
+    logger.warn(
+      {
+        scope: "agent-episode-ledger",
+        code,
+        executionId: input.executionId,
+        attempt: input.attempt,
+      },
+      "Shadow episode write failed; existing execution path remains authoritative",
+    );
+    return undefined;
+  }
 }
 
 export async function appendEpisodeEvent(input: AppendEpisodeEventInput): Promise<AgentEpisodeEvent> {

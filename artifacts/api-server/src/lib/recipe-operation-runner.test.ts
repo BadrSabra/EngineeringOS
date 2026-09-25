@@ -274,6 +274,63 @@ async function createGateCRecipeFixture(
   };
 }
 
+async function createDatabaseReadRecipeFixture() {
+  const projectId = crypto.randomUUID();
+  const operationId = crypto.randomUUID();
+  const sessionId = crypto.randomUUID();
+  const userId = `recipe-database-read-user:${projectId}`;
+  const sourceRevision = `recipe-database-read-revision:${projectId}`;
+  const now = new Date();
+  await db.insert(projectsTable).values({
+    id: projectId,
+    ownerId: userId,
+    name: `recipe-database-read-${projectId.slice(0, 8)}`,
+    rootPath: process.cwd(),
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Database read recipe invocation test",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return {
+    params: {
+      projectId,
+      operationId,
+      sessionId,
+      userId,
+      idempotencyKey: `${operationId}:database-read`,
+      rootPath: process.cwd(),
+      sourceRevision,
+      recipeId: "database.inspect.project",
+      recipeVersion: 1,
+    },
+    cleanup: async () => {
+      const executions = await db.select({ id: aiExecutionsTable.id })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      for (const execution of executions) {
+        await db.delete(aiExecutionAcceptancesTable)
+          .where(eq(aiExecutionAcceptancesTable.executionId, execution.id));
+        await db.delete(aiAgentEpisodeEventsTable)
+          .where(eq(aiAgentEpisodeEventsTable.executionId, execution.id));
+        await db.delete(aiAgentObservationsTable)
+          .where(eq(aiAgentObservationsTable.executionId, execution.id));
+        await db.delete(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.executionId, execution.id));
+      }
+      await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
+      await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    },
+  };
+}
+
 async function assertSuccessfulGateCEffect(executionId: string, capabilityId: string) {
   const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
     .where(eq(aiAgentEffectBundlesTable.executionId, executionId))
@@ -328,6 +385,105 @@ async function assertSuccessfulGateCEffect(executionId: string, capabilityId: st
   expect(episode?.expectedEffectRefs).toContain(requestedAction.expectedEffects[0]);
   return bundle?.id;
 }
+
+describe("read-only recipe invocation events", () => {
+  it("records a database read invocation and bounded result in the shadow Episode", async () => {
+    const fixture = await createDatabaseReadRecipeFixture();
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        databaseReadRunner: async ({ projectId, operationId, resource }) => ({
+          status: "passed",
+          rows: [{ id: projectId, resource }],
+          evidence: {
+            evidenceId: `database-read:${operationId}`,
+            resultHash: "database-read-result-hash",
+          },
+        }),
+      });
+      expect(result.status).toBe("completed");
+
+      const events = await db.select({
+        episodeId: aiAgentEpisodeEventsTable.episodeId,
+        eventType: aiAgentEpisodeEventsTable.eventType,
+        payload: aiAgentEpisodeEventsTable.payload,
+      }).from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, result.executionId));
+      const requested = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
+      const recorded = events.find((event) => event.eventType === "OBSERVATION_RECORDED");
+      expect(requested).toBeDefined();
+      expect(recorded).toBeDefined();
+      expect(recorded?.episodeId).toBe(requested?.episodeId);
+
+      const requestPayload = requested!.payload as Record<string, unknown>;
+      const resultPayload = recorded!.payload as Record<string, unknown>;
+      expect(requestPayload).toMatchObject({
+        contractVersion: 1,
+        recordKind: "recipe_capability_invocation",
+        nodeId: "read-project-data",
+        nodeAttempt: 1,
+        capabilityId: "database.read_project",
+        recipeVersion: 1,
+        projectRevision: fixture.params.sourceRevision,
+        capabilityRevision: fixture.params.sourceRevision,
+        scope: expect.any(Object),
+        scopeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        inputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        invocationId: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(resultPayload).toMatchObject({
+        ...requestPayload,
+        outcome: "completed",
+        capabilityStatus: "passed",
+        resultHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        evidenceRefs: [`database-read:${fixture.params.operationId}`],
+      });
+      expect(JSON.stringify(resultPayload)).not.toContain('"rows"');
+
+      const [episode] = await db.select({
+        evidenceRefs: aiAgentEpisodesTable.evidenceRefs,
+      }).from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, result.executionId))
+        .limit(1);
+      expect(episode?.evidenceRefs).toContain(`database-read:${fixture.params.operationId}`);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("records a failed database read without persisting its detail text", async () => {
+    const fixture = await createDatabaseReadRecipeFixture();
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        databaseReadRunner: async ({ resource }) => ({
+          status: "unavailable",
+          resource,
+          detail: "sensitive database failure detail",
+        }),
+      });
+      expect(result.status).toBe("blocked");
+
+      const events = await db.select({
+        eventType: aiAgentEpisodeEventsTable.eventType,
+        payload: aiAgentEpisodeEventsTable.payload,
+      }).from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, result.executionId));
+      const requested = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
+      const recorded = events.find((event) => event.eventType === "OBSERVATION_RECORDED");
+      expect(requested).toBeDefined();
+      expect(recorded?.payload).toMatchObject({
+        outcome: "failed",
+        capabilityStatus: "unavailable",
+        failureCode: "CAPABILITY_RESULT_NOT_PASSED",
+        evidenceRefs: [],
+      });
+      expect(JSON.stringify(recorded?.payload)).not.toContain("sensitive database failure detail");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+});
 
 describe("recipe operation preparation", () => {
   it("prepares runtime startup with a server runner and project scope", () => {

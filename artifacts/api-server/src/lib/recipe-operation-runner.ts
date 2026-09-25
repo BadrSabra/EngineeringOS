@@ -69,6 +69,7 @@ import {
   appendEpisodeEvent,
   startEpisode,
   startEpisodeShadow,
+  startEpisodeShadowWithEpisode,
 } from "./agent-state/agent-episode-ledger.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
@@ -104,6 +105,117 @@ function strategyActionContract(action: AgentAction): {
     observationProfile: action.observationProfile,
     failureSemantics: action.failureSemantics,
   };
+}
+
+type DatabaseReadInvocationContract = {
+  contractVersion: 1;
+  recordKind: "recipe_capability_invocation";
+  invocationId: string;
+  nodeId: string;
+  nodeAttempt: number;
+  capabilityId: "database.read_project";
+  recipeVersion: number;
+  projectRevision: string;
+  capabilityRevision: string;
+  scope: JsonValue;
+  scopeHash: string;
+  inputHash: string;
+};
+
+function hashJsonValue(value: unknown): string | undefined {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return undefined;
+    return canonicalJsonHash(JSON.parse(serialized) as JsonValue);
+  } catch {
+    return undefined;
+  }
+}
+
+function databaseReadInvocationContract(input: {
+  episodeId: string;
+  executionId: string;
+  executionAttempt: number;
+  node: ActiveTaskExecutionPlan["nodes"][number];
+  nodeAttempt: number;
+  projectId: string;
+  projectRevision: string;
+}): DatabaseReadInvocationContract | undefined {
+  const { node } = input;
+  const scope = node.executionContext?.scope;
+  const capabilityRevision = node.executionContext?.revision;
+  if (
+    node.capabilityId !== "database.read_project"
+    || node.recipeVersion === undefined
+    || scope === undefined
+    || typeof capabilityRevision !== "string"
+  ) {
+    return undefined;
+  }
+  const inputHash = hashJsonValue(node.capabilityInput);
+  if (!inputHash) return undefined;
+  return {
+    contractVersion: 1,
+    recordKind: "recipe_capability_invocation",
+    invocationId: canonicalJsonHash({
+      episodeId: input.episodeId,
+      projectId: input.projectId,
+      executionId: input.executionId,
+      executionAttempt: input.executionAttempt,
+      nodeId: node.id,
+      nodeAttempt: input.nodeAttempt,
+      capabilityId: node.capabilityId,
+      recipeVersion: node.recipeVersion,
+    }),
+    nodeId: node.id,
+    nodeAttempt: input.nodeAttempt,
+    capabilityId: "database.read_project",
+    recipeVersion: node.recipeVersion,
+    projectRevision: input.projectRevision,
+    capabilityRevision,
+    scope: scope as JsonValue,
+    scopeHash: canonicalJsonHash(scope),
+    inputHash,
+  };
+}
+
+async function appendShadowRecipeInvocationEvent(
+  input: Parameters<typeof appendEpisodeEvent>[0],
+): Promise<boolean> {
+  try {
+    await appendEpisodeEvent(input);
+    return true;
+  } catch (error) {
+    logger.warn(
+      {
+        scope: "recipe-operation",
+        code: "shadow_recipe_invocation_event_write_failed",
+        executionId: input.executionId,
+        episodeId: input.episodeId,
+        eventType: input.eventType,
+        error,
+      },
+      "Shadow recipe invocation event could not be recorded; recipe execution remains authoritative",
+    );
+    return false;
+  }
+}
+
+async function waitForShadowInvocationEpisode(
+  promise: ReturnType<typeof startEpisodeShadowWithEpisode> | undefined,
+): Promise<Awaited<ReturnType<typeof startEpisodeShadowWithEpisode>>> {
+  if (!promise) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), 250);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export type PrepareRecipeOperationParams = {
@@ -753,6 +865,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const candidateValidation = params.recipeId === "candidate.verify";
   const recipeGateCEffectKind = gateCEffectKind(params.recipeId);
   const authoritativeEffectRecipe = candidateValidation || Boolean(recipeGateCEffectKind);
+  const tracksDatabaseReadInvocation = params.recipeId === "database.inspect.project";
   const validationEnvironmentProfile = candidateValidation
     ? serverEnvironmentProfile("CANDIDATE_VALIDATION", {
         kind: "recipe",
@@ -803,17 +916,24 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         },
         ...(params.goalId ? { goalId: params.goalId } : {}),
       })
-    : (startEpisodeShadow({
-        projectId: params.projectId,
-        executionId: claimed.id,
-        attempt: claimed.attempt,
-        workerId,
-        idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
-        projectRevision: params.sourceRevision,
-        intentKind: "RECIPE_OPERATION",
-        scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
-        ...(params.goalId ? { goalId: params.goalId } : {}),
-      }), undefined);
+    : undefined;
+  const shadowEpisodeInput = {
+    projectId: params.projectId,
+    executionId: claimed.id,
+    attempt: claimed.attempt,
+    workerId,
+    idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
+    projectRevision: params.sourceRevision,
+    intentKind: "RECIPE_OPERATION",
+    scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
+    ...(params.goalId ? { goalId: params.goalId } : {}),
+  };
+  const shadowInvocationEpisodePromise = !authoritativeEffectRecipe && tracksDatabaseReadInvocation
+    ? startEpisodeShadowWithEpisode(shadowEpisodeInput)
+    : undefined;
+  if (!authoritativeEffectRecipe && !tracksDatabaseReadInvocation) {
+    startEpisodeShadow(shadowEpisodeInput);
+  }
   let candidateValidationAction: AgentAction | undefined;
   let candidateValidationEffectContract: EffectContract | undefined;
   let candidateValidationBeforeObservationIds: string[] | undefined;
@@ -1047,6 +1167,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let checkpointSequence = claimed.checkpointVersion;
   let latestNodes = resumedNodes;
   try {
+    const shadowInvocationEpisode = await waitForShadowInvocationEpisode(shadowInvocationEpisodePromise);
     const result = await executeExecutionNodePlan({
       nodes: resumedNodes,
       maxParallelNodes: prepared.binding.concurrencyBudget.maxInFlightNodes,
@@ -1150,24 +1271,115 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               detail: "The registered strategy action contract no longer matches the server recipe.",
             };
           }
-          const invocation = await registry.invoke(
-            node.capabilityId!,
-            node.recipeVersion!,
-            node.capabilityInput,
-            {
-              rootPath: executionRoot,
-              operation: "recipe",
+          const tracksThisInvocation = tracksDatabaseReadInvocation
+            && !authoritativeEffectRecipe
+            && node.capabilityId === "database.read_project";
+          const invocationContract = tracksThisInvocation && shadowInvocationEpisode
+            ? databaseReadInvocationContract({
+                episodeId: shadowInvocationEpisode.episodeId,
+                executionId: claimed.id,
+                executionAttempt: claimed.attempt,
+                node,
+                nodeAttempt: context.attempt,
+                projectId: params.projectId,
+                projectRevision: params.sourceRevision,
+              })
+            : undefined;
+          if (tracksThisInvocation && shadowInvocationEpisode && !invocationContract) {
+            logger.warn(
+              {
+                scope: "recipe-operation",
+                code: "shadow_recipe_invocation_contract_unavailable",
+                executionId: claimed.id,
+                nodeId: node.id,
+                capabilityId: node.capabilityId,
+              },
+              "Shadow recipe invocation identity is incomplete; continuing without advisory events",
+            );
+          }
+          const invocationRequestRecorded = invocationContract
+            ? await appendShadowRecipeInvocationEvent({
+                episodeId: shadowInvocationEpisode!.episodeId,
+                projectId: params.projectId,
+                executionId: claimed.id,
+                attempt: claimed.attempt,
+                workerId,
+                eventType: "OBSERVATION_REQUESTED",
+                payload: invocationContract,
+                actorType: "worker",
+                actorId: workerId,
+                correlationId: claimed.id,
+              })
+            : false;
+          const recordInvocationResult = async (result: {
+            outcome: "completed" | "failed" | "rejected";
+            resultHash?: string;
+            capabilityStatus?: string;
+            failureCode?: string;
+            evidenceRefs: string[];
+          }) => {
+            if (!invocationContract || !invocationRequestRecorded || !shadowInvocationEpisode) return;
+            await appendShadowRecipeInvocationEvent({
+              episodeId: shadowInvocationEpisode.episodeId,
               projectId: params.projectId,
-              operationId: params.operationId,
-              signal: nodeController.signal,
-              scope: node.executionContext?.scope,
-              allowedFiles: node.allowedFiles,
-              approvalState: "APPROVED",
-              authorized: true,
-              revision: node.executionContext?.revision,
-            },
-          );
-          if (!invocation.ok) return { status: "failed" as const, detail: invocation.code };
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              workerId,
+              eventType: "OBSERVATION_RECORDED",
+              payload: { ...invocationContract, ...result },
+              actorType: "worker",
+              actorId: workerId,
+              correlationId: claimed.id,
+              ...(result.evidenceRefs.length ? { evidenceRefs: result.evidenceRefs } : {}),
+            });
+          };
+          let invocation: Awaited<ReturnType<typeof registry.invoke>>;
+          try {
+            invocation = await registry.invoke(
+              node.capabilityId!,
+              node.recipeVersion!,
+              node.capabilityInput,
+              {
+                rootPath: executionRoot,
+                operation: "recipe",
+                projectId: params.projectId,
+                operationId: params.operationId,
+                signal: nodeController.signal,
+                scope: node.executionContext?.scope,
+                allowedFiles: node.allowedFiles,
+                approvalState: "APPROVED",
+                authorized: true,
+                revision: node.executionContext?.revision,
+              },
+            );
+          } catch (error) {
+            logger.warn(
+              {
+                scope: "recipe-operation",
+                code: "recipe_capability_invocation_threw",
+                executionId: claimed.id,
+                nodeId: node.id,
+                error,
+              },
+              "Recipe capability invocation threw",
+            );
+            await recordInvocationResult({
+              outcome: "failed",
+              resultHash: canonicalJsonHash({ outcome: "failed", failureCode: "INVOCATION_THROWN" }),
+              failureCode: "INVOCATION_THROWN",
+              evidenceRefs: [],
+            });
+            return { status: "failed" as const, detail: "Recipe capability invocation failed.", validationAttempts: 1 };
+          }
+          if (!invocation.ok) {
+            await recordInvocationResult({
+              outcome: "rejected",
+              resultHash: canonicalJsonHash({ outcome: "rejected", failureCode: invocation.code }),
+              failureCode: invocation.code,
+              evidenceRefs: [],
+            });
+            return { status: "failed" as const, detail: invocation.code };
+          }
           const output = invocation.output as Record<string, unknown>;
           outputs.set(node.id, output);
           const evidence = output.evidence;
@@ -1246,6 +1458,26 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             gateCEffectBundleId = effect.effectBundleId;
           }
           const passed = output.status === "passed" && hasVerifiedReceipt;
+          const invocationEvidenceRefs = evidence
+            && typeof evidence === "object"
+            && !Array.isArray(evidence)
+            && typeof (evidence as { evidenceId?: unknown }).evidenceId === "string"
+            ? [(evidence as { evidenceId: string }).evidenceId]
+            : [];
+          const outputHash = hashJsonValue(output);
+          await recordInvocationResult({
+            outcome: passed ? "completed" : "failed",
+            ...(outputHash ? { resultHash: outputHash } : {}),
+            ...(typeof output.status === "string" ? { capabilityStatus: output.status } : {}),
+            ...(!passed
+              ? {
+                  failureCode: output.status === "passed"
+                    ? "VERIFIED_EVIDENCE_MISSING"
+                    : "CAPABILITY_RESULT_NOT_PASSED",
+                }
+              : {}),
+            evidenceRefs: invocationEvidenceRefs,
+          });
           return {
             status: passed ? "passed" as const : "failed" as const,
             detail: JSON.stringify(output).slice(0, prepared.binding.missionBudget.maxOutputBytes),

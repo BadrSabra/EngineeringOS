@@ -4796,7 +4796,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — episode-backed ACTION_REQUESTED writes require the canonical AgentAction; generic recipe/tool invocation coverage remains`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.inspect.project has a best-effort read-only invocation pilot; other recipe nodes and provider tool calls remain`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع

@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. هذه acceptances effect-backed ومحددة بهدف كل شريحة؛ لا تتضمن World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وهوية launch للـruntime وبصمة validator قبل spawn، لكنها لا تثبت وحدها بيئة child process. المتبقي إغلاق مصادر الملاحظة المستقلة وpropagation للتناقضات؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation، بما فيه read-only وprovider tool calls، يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned؛ القراءة لا تحتاج `AgentAction` كاملًا. كل mutation وeffect-gated validation، وكل كتابة جديدة لـ`ACTION_REQUESTED`، تتطلب العقد الكامل. recipe candidate/Gate C وMission repair/apply-changes تستخدمه؛ تغطية كل recipe nodes وprovider tool calls لم تكتمل. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. تُسجل recipe القراءة `database.inspect.project` أحداث ظلّية `OBSERVATION_REQUESTED/RECORDED` best-effort؛ mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. بقية recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1135,6 +1135,39 @@ G9 Revocation Safety
 - **remaining/blocker:** مراجعة المستخدم للوثيقتين وإغلاق بوابة الجاهزية.
 - **next step:** انتظار مراجعة المستخدم؛ لا يبدأ أي تغيير كود قبل موافقة صريحة
   على إغلاق البوابة.
+
+### 2026-09-25 — P5.5 Read-only Recipe Invocation Pilot
+
+- **phase/step:** P5.5 / `database.inspect.project` read-only invocation
+- **status:** `partial`
+- **what changed:** أضيف تسجيل ظلّي best-effort لحدثي
+  `OBSERVATION_REQUESTED` و`OBSERVATION_RECORDED`. يربط الطلب Episode وexecution
+  وattempt وrecipe node وcapability وscope/revision hashes؛ وتقتصر النتيجة على
+  status وresult hash ومراجع evidence أو failure code. لا تتضمن أحداث Episode
+  الظلية rows أو نصوص تفاصيل الفشل؛ بقيت إسقاطات التنفيذ الحالية دون تغيير.
+  ولا يؤثر تعذر Episode أو كتابة الأحداث على مسار التنفيذ.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`,
+  `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`,
+  `artifacts/api-server/src/lib/agent-state/agent-episode-ledger.ts`,
+  `docs/agent-generalization-execution-plan.md`,
+  `docs/agent-generalization-progress.md`; no database schema change.
+- **validation:** `pnpm run typecheck:libs` passed;
+  `pnpm --filter @workspace/api-server run typecheck` passed;
+  `cd artifacts/api-server && pnpm exec vitest run src/lib/recipe-operation-runner.test.ts -t 'prepares'`
+  passed (2 tests); `git diff --check` passed. The DB-backed recipe tests are
+  blocked during setup by development-schema drift, including missing
+  `projects.strategy_replay_opt_in`. The API build succeeded, but startup's
+  schema-readiness gate then failed on missing schema objects. No schema sync
+  was run.
+- **authority/safety impact:** Read-only advisory telemetry only. No
+  authorization, mutation/effect, acceptance, or proof semantics changed.
+- **remaining/blocker:** Success/failure integration tests and API restart
+  require resolving the development database schema mismatch. Remaining recipe
+  nodes and provider tool calls are still outside this pilot.
+- **next step:** Get approval before applying the repository's development
+  schema; then run the DB-backed tests and restart the API. Continue the ordered
+  P3.5/P4/P5 work before starting P6.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
