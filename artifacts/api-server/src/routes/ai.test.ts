@@ -60,6 +60,7 @@ import { scheduleAiTaskExecution } from "./ai/tasks.js";
 import {
   createAiExecution,
   reconcileAiExecutions,
+  requestAiExecutionCancel,
 } from "../lib/ai-execution-state.js";
 import { finalizeExecutionAcceptance } from "../lib/ai-execution-acceptance.js";
 import { resolveStructuredRetryAfter } from "../lib/structured-task-execution.js";
@@ -1076,6 +1077,252 @@ describe("POST /api/ai/chat", () => {
       .post("/api/ai/chat")
       .send({ projectId: randomUUID(), message: "   " });
     expect(res.status).toBe(400);
+  });
+
+  it("does not create a durable execution or Episode when no read tool is invoked", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "Hello.",
+      sources: [],
+      pendingChanges: [],
+    } as never);
+
+    const response = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "hello" });
+
+    expect(response.status).toBe(200);
+    expect(await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))).toEqual([]);
+    expect(await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.projectId, projectId))).toEqual([]);
+  });
+
+  it("terminalizes the observation execution when provider work fails after a read starts", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    let recordedReadRequest = false;
+    vi.mocked(mockChat).mockImplementation(async (input) => {
+      if (!recordedReadRequest) {
+        const onReadOnlyInvocation = (
+          input as unknown as {
+            onReadOnlyInvocation?: import("@workspace/ai-orchestrator")
+              .ReadOnlyToolInvocationCallback;
+          }
+        ).onReadOnlyInvocation;
+        await onReadOnlyInvocation!({
+          phase: "requested",
+          toolCallId: "chat-failed-read",
+          toolName: "read_file",
+          inputHash: "1".repeat(64),
+          manifestHash: "2".repeat(64),
+        });
+        recordedReadRequest = true;
+      }
+      throw new Error("synthetic chat provider failure");
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "hello" });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution).toMatchObject({
+      status: "failed",
+      workerId: null,
+      leaseUntil: null,
+    });
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, execution!.id));
+    expect(episode?.state).not.toBe("running");
+    const events = await db.select().from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.executionId, execution!.id));
+    expect(events.some((event) => event.eventType === "OBSERVATION_REQUESTED")).toBe(true);
+    expect(events.some((event) => event.eventType === "EPISODE_TERMINAL")).toBe(true);
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toEqual([]);
+  });
+
+  it("shares one durable execution across read invocations without creating acceptance", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      const onReadOnlyInvocation = (
+        input as unknown as {
+          onReadOnlyInvocation?: import("@workspace/ai-orchestrator")
+            .ReadOnlyToolInvocationCallback;
+        }
+      ).onReadOnlyInvocation;
+      expect(onReadOnlyInvocation).toBeDefined();
+      for (const [index, toolName] of [
+        [1, "read_file"],
+        [2, "git_status"],
+      ] as const) {
+        const invocation = {
+          toolCallId: `chat-read-${index}`,
+          toolName,
+          inputHash: String(index).repeat(64),
+          manifestHash: "f".repeat(64),
+        };
+        await onReadOnlyInvocation!({ ...invocation, phase: "requested" });
+        await onReadOnlyInvocation!({
+          ...invocation,
+          phase: "recorded",
+          status: "completed",
+          outputHash: String(index + 2).repeat(64),
+        });
+      }
+      return {
+        response: "The requested summary is ready.",
+        sources: [],
+        pendingChanges: [],
+      };
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "hello" });
+
+    expect(response.status).toBe(200);
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution).toMatchObject({
+      status: "completed",
+      attempt: expect.any(Number),
+      workerId: null,
+      leaseUntil: null,
+      finalMessageId: expect.any(String),
+    });
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, execution!.id));
+    expect(episode).toMatchObject({
+      executionId: execution!.id,
+      attempt: execution!.attempt,
+      verdict: "incomplete",
+    });
+    expect(episode!.state).not.toBe("running");
+    const events = await db.select().from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.executionId, execution!.id));
+    expect(events.filter((event) => event.eventType === "OBSERVATION_REQUESTED")).toHaveLength(2);
+    expect(events.filter((event) => event.eventType === "OBSERVATION_RECORDED")).toHaveLength(2);
+    expect(new Set(events.map((event) => `${event.executionId}:${event.attempt}`))).toEqual(
+      new Set([`${execution!.id}:${execution!.attempt}`]),
+    );
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toEqual([]);
+  });
+
+  it("cancels a non-streaming chat execution without letting the worker complete it", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      const onReadOnlyInvocation = (
+        input as unknown as {
+          onReadOnlyInvocation?: import("@workspace/ai-orchestrator")
+            .ReadOnlyToolInvocationCallback;
+        }
+      ).onReadOnlyInvocation;
+      await onReadOnlyInvocation!({
+        phase: "requested",
+        toolCallId: "chat-cancel-read",
+        toolName: "read_file",
+        inputHash: "a".repeat(64),
+        manifestHash: "b".repeat(64),
+      });
+      const [execution] = await db.select().from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      await requestAiExecutionCancel({
+        executionId: execution!.id,
+        userId: execution!.userId,
+      });
+      return {
+        response: "This response must not complete after cancellation.",
+        sources: [],
+        pendingChanges: [],
+      };
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "hello" });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution?.status).toBe("cancelled");
+    expect(execution?.finalMessageId).toBeNull();
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, execution!.id));
+    expect(episode?.state).toBe("cancelled");
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))).toEqual([]);
+  });
+
+  it("does not let a former worker record or close an observation after lease ownership changes", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      const onReadOnlyInvocation = (
+        input as unknown as {
+          onReadOnlyInvocation?: import("@workspace/ai-orchestrator")
+            .ReadOnlyToolInvocationCallback;
+        }
+      ).onReadOnlyInvocation;
+      const invocation = {
+        toolCallId: "chat-lease-loss-read",
+        toolName: "read_file" as const,
+        inputHash: "c".repeat(64),
+        manifestHash: "d".repeat(64),
+      };
+      await onReadOnlyInvocation!({ ...invocation, phase: "requested" });
+      const [execution] = await db.select().from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      await db.update(aiExecutionsTable)
+        .set({ workerId: "replacement-worker" })
+        .where(eq(aiExecutionsTable.id, execution!.id));
+
+      await expect(onReadOnlyInvocation!({
+        ...invocation,
+        phase: "recorded",
+        status: "completed",
+        outputHash: "e".repeat(64),
+      })).rejects.toThrow(/ownership|lease/i);
+      return {
+        response: "The stale worker must not return a completed observation.",
+        sources: [],
+        pendingChanges: [],
+      };
+    });
+
+    const response = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "hello" });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    expect(execution).toMatchObject({
+      status: "running",
+      workerId: "replacement-worker",
+    });
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, execution!.id));
+    expect(episode?.state).toBe("running");
+    const events = await db.select().from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.executionId, execution!.id));
+    expect(events.some((event) =>
+      event.eventType === "OBSERVATION_RECORDED"
+      || event.eventType === "EPISODE_TERMINAL"
+      || event.eventType === "EPISODE_CANCELLED",
+    )).toBe(false);
   });
 
   it("preserves deterministic PROJECT_QUERY provenance across JSON and history reload", async () => {

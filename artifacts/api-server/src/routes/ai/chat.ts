@@ -198,6 +198,7 @@ import {
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
   shouldCreateAutonomousOperation,
+  terminalizeChatObservationExecution,
   unregisterAiExecutionController,
   type AiExecutionCheckpoint,
   type AiOrientationRoleManifest,
@@ -5426,6 +5427,18 @@ router.post("/ai/chat", async (req, res) => {
       hint: "File changes are still being written for this project — wait a moment, then retry.",
     });
   }
+  let chatObservationExecution:
+    | Awaited<ReturnType<typeof createAiExecution>>["execution"]
+    | undefined;
+  let chatObservationEpisode: Awaited<ReturnType<typeof startEpisode>> | undefined;
+  let chatObservationWorkerId: string | undefined;
+  let chatObservationHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let chatObservationStartPromise: Promise<void> | undefined;
+  let chatObservationLeaseLost = false;
+  let chatObservationTerminal = false;
+  let chatObservationSucceeded = false;
+  let chatObservationFinalMessageId: string | null = null;
+  const chatObservationAbortController = new AbortController();
   try {
     const baseProjectContext = await buildProjectContext(projectId, {
       plan: contextExecutionPlan,
@@ -5563,11 +5576,222 @@ router.post("/ai/chat", async (req, res) => {
     const sessionIdToUse = existingSession?.id ?? sessionId ?? randomUUID();
     const sourceEvidenceRequiredForTurn =
       turnIntent.requiresEvidence || projectOrientationTurn;
+    const ensureChatObservationLifecycle = async (): Promise<void> => {
+      if (chatObservationStartPromise) {
+        await chatObservationStartPromise;
+        return;
+      }
+      chatObservationStartPromise = (async () => {
+        const workerId = randomUUID();
+        const request: AiExecutionRequestEnvelope = {
+          projectId,
+          turnIntent: turnIntent.kind,
+          operationId: analysisCorrelation.operationId,
+          ...(existingSession ? { sessionId: sessionIdToUse } : {}),
+          message,
+          modelMessage: message,
+          workspaceRevision: analysisCorrelation.projectRevision,
+          workspaceRoot: validRootPath ?? null,
+          ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
+          validationTargetPaths: [],
+          // This route keeps its existing chat acceptance rules. The durable
+          // row tracks worker/lease ownership only; it is not proof authority.
+          proofRequired: false,
+        };
+        const created = await createAiExecution({
+          userId: req.userId,
+          request,
+          idempotencyKey: randomUUID(),
+          projectId,
+          ...(existingSession ? { sessionId: sessionIdToUse } : {}),
+          linkedTaskId: effectiveLinkedTaskId,
+          correlationId: analysisCorrelation.operationId,
+          workspaceRoot: validRootPath ?? null,
+        });
+        if (!created.created) {
+          throw new Error("Could not create a unique chat observation execution");
+        }
+        const claimed = await claimAiExecution({
+          executionId: created.execution.id,
+          userId: req.userId,
+          workerId,
+        });
+        if (!claimed) {
+          await terminalizeChatObservationExecution({
+            executionId: created.execution.id,
+            userId: req.userId,
+            expectedAttempt: created.execution.attempt,
+            status: "failed",
+            error: "The chat observation execution could not be claimed.",
+          });
+          throw new Error("Chat observation execution claim was rejected");
+        }
+        chatObservationExecution = claimed;
+        chatObservationWorkerId = workerId;
+        await registerAiExecutionController(
+          claimed.id,
+          chatObservationAbortController,
+        );
+        chatObservationHeartbeatTimer = setInterval(() => {
+          void heartbeatAiExecution({
+            executionId: claimed.id,
+            expectedAttempt: claimed.attempt,
+            workerId,
+          }).then((accepted) => {
+            if (!accepted && !chatObservationAbortController.signal.aborted) {
+              chatObservationLeaseLost = true;
+              chatObservationAbortController.abort(
+                new Error("Chat observation execution lease expired"),
+              );
+            }
+          }).catch((error) => {
+            if (!chatObservationAbortController.signal.aborted) {
+              chatObservationLeaseLost = true;
+              chatObservationAbortController.abort(error);
+            }
+            logger.warn(
+              { error, executionId: claimed.id },
+              "Non-streaming chat observation heartbeat failed",
+            );
+          });
+        }, AI_EXECUTION_HEARTBEAT_INTERVAL_MS);
+        const ownsLease = await ownsAiExecutionLease({
+          executionId: claimed.id,
+          workerId,
+        });
+        if (!ownsLease) {
+          if (!chatObservationAbortController.signal.aborted) {
+            chatObservationLeaseLost = true;
+            chatObservationAbortController.abort(
+              new Error("Chat observation execution lease is unavailable"),
+            );
+          }
+          throw new Error("Chat observation execution lease was rejected");
+        }
+        chatObservationEpisode = await startEpisode({
+          projectId,
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          workerId,
+          idempotencyKey: `${sessionIdToUse}:chat-observation:${claimed.attempt}`,
+          projectRevision: analysisCorrelation.projectRevision,
+          intentKind: "CHAT_TURN",
+          scope: {
+            kind: "chat",
+            sessionId: sessionIdToUse,
+            turnIntent: turnIntent.kind,
+          },
+          ...(effectiveLinkedTaskId
+            ? { objectiveContractId: effectiveLinkedTaskId }
+            : {}),
+        });
+      })();
+      await chatObservationStartPromise;
+    };
+    const assertChatObservationOwned = async (): Promise<void> => {
+      if (
+        !chatObservationExecution
+        || !chatObservationWorkerId
+        || chatObservationLeaseLost
+      ) {
+        throw new Error("Chat observation execution ownership is unavailable");
+      }
+      if (chatObservationAbortController.signal.aborted) {
+        throw new Error("Chat observation execution was cancelled");
+      }
+      const ownsLease = await ownsAiExecutionLease({
+        executionId: chatObservationExecution.id,
+        workerId: chatObservationWorkerId,
+      });
+      if (!ownsLease) {
+        chatObservationLeaseLost = true;
+        chatObservationAbortController.abort(
+          new Error("Chat observation execution lease expired"),
+        );
+        throw new Error("Chat observation execution lease expired");
+      }
+    };
+    const settleChatObservationBeforeResponse = async (
+      requestedStatus: "completed" | "failed" | "cancelled",
+      requestedReasonCode: string,
+      finalMessageId: string | null = chatObservationFinalMessageId,
+    ): Promise<boolean> => {
+      if (
+        !chatObservationExecution
+        || !chatObservationWorkerId
+        || chatObservationTerminal
+      ) return true;
+      if (chatObservationLeaseLost) return false;
+
+      let terminalStatus = chatObservationAbortController.signal.aborted
+        ? "cancelled" as const
+        : requestedStatus;
+      let reasonCode = terminalStatus === "cancelled"
+        ? "CHAT_CANCELLED"
+        : requestedReasonCode;
+      if (terminalStatus === "completed" && !chatObservationEpisode) {
+        terminalStatus = "failed";
+        reasonCode = "CHAT_EPISODE_START_FAILED";
+      }
+      if (chatObservationEpisode) {
+        try {
+          await closeEpisode({
+            episodeId: chatObservationEpisode.episodeId,
+            projectId,
+            executionId: chatObservationExecution.id,
+            attempt: chatObservationExecution.attempt,
+            workerId: chatObservationWorkerId,
+            eventType: terminalStatus === "cancelled"
+              ? "EPISODE_CANCELLED"
+              : "EPISODE_TERMINAL",
+            payload: {
+              verdict: terminalStatus === "completed" ? "incomplete" : terminalStatus,
+              reasonCode,
+            },
+            verdict: terminalStatus === "completed" ? "incomplete" : terminalStatus,
+            reasonCode,
+            actorType: "worker",
+            actorId: chatObservationWorkerId,
+            correlationId:
+              chatObservationExecution.operationId ?? chatObservationExecution.id,
+          });
+        } catch (error) {
+          logger.warn(
+            {
+              error,
+              executionId: chatObservationExecution.id,
+              episodeId: chatObservationEpisode.episodeId,
+            },
+            "Non-streaming chat observation Episode could not be closed before response",
+          );
+          if (terminalStatus === "completed") {
+            terminalStatus = "failed";
+            reasonCode = "CHAT_EPISODE_CLOSE_FAILED";
+          }
+        }
+      }
+      const terminalized = await terminalizeChatObservationExecution({
+        executionId: chatObservationExecution.id,
+        userId: req.userId,
+        expectedAttempt: chatObservationExecution.attempt,
+        workerId: chatObservationWorkerId,
+        status: terminalStatus,
+        finalMessageId,
+        error: terminalStatus === "completed" ? undefined : reasonCode,
+      });
+      if (terminalized) {
+        chatObservationTerminal = true;
+        chatObservationSucceeded =
+          terminalStatus === "completed" && Boolean(chatObservationEpisode);
+      }
+      return terminalized;
+    };
     try {
       const chatOut = await chatWithFallback(
         req.userId,
         {
           message,
+          signal: chatObservationAbortController.signal,
           history: projectProviderHistory(historyRows, providerHistoryPolicy),
           projectContext,
           executionPlan: contextExecutionPlan,
@@ -5602,6 +5826,65 @@ router.post("/ai/chat", async (req, res) => {
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
+          onReadOnlyInvocation: async (invocation) => {
+            await ensureChatObservationLifecycle();
+            await assertChatObservationOwned();
+            if (
+              !chatObservationExecution
+              || !chatObservationWorkerId
+              || !chatObservationEpisode
+            ) {
+              throw new Error("Chat read observation provenance is unavailable");
+            }
+            const execution = chatObservationExecution;
+            const episode = chatObservationEpisode;
+            const invocationId = createHash("sha256")
+              .update([
+                execution.id,
+                String(execution.attempt),
+                invocation.toolCallId,
+                invocation.toolName,
+                invocation.inputHash,
+                invocation.manifestHash,
+              ].join("\0"), "utf8")
+              .digest("hex");
+            const scopeHash = createHash("sha256")
+              .update(JSON.stringify({
+                projectId,
+                scope: episode.scope,
+                projectRevision: episode.projectRevision,
+                manifestHash: invocation.manifestHash,
+              }), "utf8")
+              .digest("hex");
+            await appendEpisodeEvent({
+              episodeId: episode.episodeId,
+              projectId,
+              executionId: execution.id,
+              attempt: execution.attempt,
+              workerId: chatObservationWorkerId,
+              eventType: invocation.phase === "requested"
+                ? "OBSERVATION_REQUESTED"
+                : "OBSERVATION_RECORDED",
+              payload: {
+                invocationId,
+                toolName: invocation.toolName,
+                scopeHash,
+                projectRevision: episode.projectRevision,
+                inputHash: invocation.inputHash,
+                manifestHash: invocation.manifestHash,
+                ...(invocation.phase === "recorded" ? {
+                  ...(invocation.status ? { status: invocation.status } : {}),
+                  ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                  ...(invocation.diagnosticCode
+                    ? { diagnosticCode: invocation.diagnosticCode }
+                    : {}),
+                } : {}),
+              },
+              actorType: "worker",
+              actorId: chatObservationWorkerId,
+              correlationId: execution.operationId ?? execution.id,
+            });
+          },
           executionLedger,
           projectOrientation: projectOrientationTurn,
           onProviderAttempt: (attempt) => recordAiUsageAttempt({
@@ -5624,6 +5907,9 @@ router.post("/ai/chat", async (req, res) => {
         undefined,
         (step) => traceSteps.push(step),
       );
+      if (chatObservationExecution) {
+        await assertChatObservationOwned();
+      }
       result = terminalizeUnsupportedChatResponse(chatOut.result);
       if (result._parseError) {
         result = {
@@ -5722,6 +6008,10 @@ router.post("/ai/chat", async (req, res) => {
         }).catch((persistError) => {
           logger.error({ persistError, sessionId: sessionIdToUse }, "chat: failed to persist provider failure");
         });
+        await settleChatObservationBeforeResponse(
+          "failed",
+          `CHAT_PROVIDER_${err.code}`,
+        );
         if (handleOrchestratorError(err, res, {
           projectId,
           operation: "chat",
@@ -5837,6 +6127,11 @@ router.post("/ai/chat", async (req, res) => {
       // The HTTP request completed, but the assistant turn did not. Keep the
       // response transport-compatible with normal chat while making the
       // terminal non-success explicit in every field.
+      await settleChatObservationBeforeResponse(
+        "failed",
+        terminalOutcome.code ?? "CHAT_TURN_FAILED",
+        failedMessage.id,
+      );
       return res.status(200).json({
         sessionId: sessionIdToUse,
         turnIntent: turnIntent.kind,
@@ -5923,6 +6218,7 @@ router.post("/ai/chat", async (req, res) => {
           recoveryState: "REQUIRED",
         },
       }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "quality failure persistence failed"));
+      await settleChatObservationBeforeResponse("failed", "CHAT_QUALITY_REVIEW");
       return res.status(422).json({
         error: "quality_review_low",
         code: quality.code,
@@ -5942,6 +6238,7 @@ router.post("/ai/chat", async (req, res) => {
       const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
         ? deriveForensicDiagnostic(traceSteps)
         : undefined;
+      await settleChatObservationBeforeResponse("failed", "CHAT_MODEL_OUTPUT_INVALID");
       return res.status(422).json({
         error: "model_output_invalid",
         code: "model_output_invalid",
@@ -5966,6 +6263,10 @@ router.post("/ai/chat", async (req, res) => {
         const forensicDiagnostic = turnIntent.requiresEvidence && turnIntent.kind !== "PROJECT_QUERY"
           ? deriveForensicDiagnostic(traceSteps)
           : undefined;
+        await settleChatObservationBeforeResponse(
+          "failed",
+          "CHAT_CORRELATION_REPORT_INVALID",
+        );
         return res.status(422).json({
           error: "The forensic report could not be validated and was not completed.",
           code: error.code,
@@ -6062,6 +6363,9 @@ router.post("/ai/chat", async (req, res) => {
         })
       : undefined;
 
+    if (chatObservationExecution) {
+      await assertChatObservationOwned();
+    }
     const assistantMsg = await db.transaction(async (tx) => {
       if (existingSession) {
         await tx
@@ -6213,6 +6517,22 @@ router.post("/ai/chat", async (req, res) => {
       }
       return msg;
     });
+    chatObservationFinalMessageId = assistantMsg.id;
+    if (chatObservationExecution && chatObservationWorkerId) {
+      await assertChatObservationOwned();
+      const terminalized = await settleChatObservationBeforeResponse(
+        chatObservationEpisode ? "completed" : "failed",
+        chatObservationEpisode
+          ? "CHAT_OBSERVATION_ONLY"
+          : "CHAT_EPISODE_START_FAILED",
+        assistantMsg.id,
+      );
+      if (!terminalized) {
+        throw new Error("Chat observation execution could not be terminalized");
+      }
+    } else {
+      chatObservationSucceeded = true;
+    }
     // Evidence-bound and forensic plans are stateless in both directions:
     // do not persist their source-derived response as future navigation memory.
     const orientationMemoryAllowed =
@@ -6313,7 +6633,121 @@ router.post("/ai/chat", async (req, res) => {
         : undefined,
     });
   } finally {
-    await applyProbe.release();
+    if (chatObservationHeartbeatTimer) {
+      clearInterval(chatObservationHeartbeatTimer);
+      chatObservationHeartbeatTimer = undefined;
+    }
+    try {
+      if (
+        chatObservationExecution
+        && chatObservationWorkerId
+        && !chatObservationTerminal
+      ) {
+        if (chatObservationLeaseLost) {
+          await reconcileAiExecutions({ expiredOnly: true }).catch((error) => {
+            logger.warn(
+              { error, executionId: chatObservationExecution!.id },
+              "Non-streaming chat lease-loss reconciliation failed",
+            );
+          });
+        } else {
+          const cancelled = chatObservationAbortController.signal.aborted;
+          let terminalStatus: "completed" | "failed" | "cancelled" =
+            cancelled
+              ? "cancelled"
+              : chatObservationSucceeded && chatObservationEpisode
+                ? "completed"
+                : "failed";
+          let reasonCode = terminalStatus === "completed"
+            ? "CHAT_OBSERVATION_ONLY"
+            : terminalStatus === "cancelled"
+              ? "CHAT_CANCELLED"
+              : chatObservationEpisode
+                ? "CHAT_TURN_FAILED"
+                : "CHAT_OBSERVATION_START_FAILED";
+          if (chatObservationEpisode) {
+            try {
+              await closeEpisode({
+                episodeId: chatObservationEpisode.episodeId,
+                projectId,
+                executionId: chatObservationExecution.id,
+                attempt: chatObservationExecution.attempt,
+                workerId: chatObservationWorkerId,
+                eventType: terminalStatus === "cancelled"
+                  ? "EPISODE_CANCELLED"
+                  : "EPISODE_TERMINAL",
+                payload: {
+                  verdict: terminalStatus === "completed" ? "incomplete" : terminalStatus,
+                  reasonCode,
+                },
+                verdict: terminalStatus === "completed" ? "incomplete" : terminalStatus,
+                reasonCode,
+                actorType: "worker",
+                actorId: chatObservationWorkerId,
+                correlationId:
+                  chatObservationExecution.operationId ?? chatObservationExecution.id,
+              });
+            } catch (error) {
+              logger.warn(
+                {
+                  error,
+                  executionId: chatObservationExecution.id,
+                  episodeId: chatObservationEpisode.episodeId,
+                },
+                "Non-streaming chat observation Episode could not be closed",
+              );
+              if (terminalStatus === "completed") {
+                terminalStatus = "failed";
+                reasonCode = "CHAT_EPISODE_CLOSE_FAILED";
+              }
+            }
+          }
+          const terminalized = await terminalizeChatObservationExecution({
+            executionId: chatObservationExecution.id,
+            userId: req.userId,
+            expectedAttempt: chatObservationExecution.attempt,
+            workerId: chatObservationWorkerId,
+            status: terminalStatus,
+            finalMessageId: chatObservationFinalMessageId,
+            error: terminalStatus === "completed"
+              ? undefined
+              : reasonCode,
+          });
+          if (terminalized) {
+            chatObservationTerminal = true;
+          } else {
+            logger.warn(
+              {
+                executionId: chatObservationExecution.id,
+                attempt: chatObservationExecution.attempt,
+                terminalStatus,
+              },
+              "Non-streaming chat execution terminal update lost its ownership gate",
+            );
+            chatObservationLeaseLost = true;
+            await reconcileAiExecutions({ expiredOnly: true }).catch((error) => {
+              logger.warn(
+                { error, executionId: chatObservationExecution!.id },
+                "Non-streaming chat terminal reconciliation failed",
+              );
+            });
+          }
+        }
+      }
+    } catch (error) {
+      logger.error(
+        { error, executionId: chatObservationExecution?.id ?? null },
+        "Non-streaming chat observation lifecycle finalization failed",
+      );
+    } finally {
+      if (chatObservationExecution) {
+        unregisterAiExecutionController(
+          chatObservationExecution.id,
+          chatObservationAbortController,
+        );
+      }
+      await applyProbe.release();
+    }
   }
 });
 

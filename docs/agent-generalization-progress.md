@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية ولديها شرائح runtime محدودة. P5.5 تشمل Action محدودًا لـ`mission_repair` وقراءتي recipe fail-closed، كما يسجل `/api/ai/chat/stream` قراءات provider المؤهلة؛ أما `/api/ai/chat` غير المتدفق فلا يملك execution/attempt دائمًا ولا يغطي كل invocation. اعتمد التصميم lifecycle تنفيذ دائمًا لهذا المسار قبل أول tool invocation مؤهل؛ لم يُنفذ runtime بعد. قبول Effect لا ينشئ حاليًا التزامًا عامًا durable لانتقال المعرفة، ولا يظهر استهلاك مباشر لـWorld State في مسار القرار المفحوص. توجد primitives جزئية لـP7/P8/P9/P10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية ولديها شرائح runtime محدودة. P5.5 تشمل Action محدودًا لـ`mission_repair` وقراءتي recipe fail-closed، كما يسجل `/api/ai/chat/stream` قراءات provider المؤهلة. أصبح `/api/ai/chat` غير المتدفق ينشئ execution/attempt وEpisode عند أول invocation قرائي مؤهل، ويشاركها بين القراءات ويغلقها مع حواجز ownership؛ لا ينشئ lifecycle بلا قراءة ولا يغيّر acceptance أو ينشئ EffectBundle. لا تزال P5.5 جزئية على بقية الأسطح. قبول Effect لا ينشئ حاليًا التزامًا عامًا durable لانتقال المعرفة، ولا يظهر استهلاك مباشر لـWorld State في مسار القرار المفحوص. توجد primitives جزئية لـP7/P8/P9/P10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` و`project.list_tree` بالطلب والنتيجة hash-only، مع بقاء allowlist Mission ضيقة. المسار المتدفق `/api/ai/chat/stream` يسجل قراءات provider المؤهلة على Episode المرتبط بالمحاولة، بما فيها file/list/search/Git/code-navigation/package/binary؛ أما `/api/ai/chat` غير المتدفق فلا يملك execution/attempt دائمًا وما زال خارج تغطية per-invocation. اعتمد التصميم lifecycle دائمًا للطلبات التي تستدعي أدوات: execution ومحاولة وworker/lease قبل أول invocation مؤهل، وهوية مشتركة لكل أدوات الطلب، وإنهاء صريح للنجاح والفشل والإلغاء؛ التنفيذ مؤجل ولا توجد هوية اصطناعية. أدوات analysis graph/API لا تدخل هذه القائمة و`refresh_project_scan` stateful وخارج callback القرائي. لا تنشئ القراءات `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` و`project.list_tree` بالطلب والنتيجة hash-only، مع بقاء allowlist Mission ضيقة. المسار المتدفق `/api/ai/chat/stream` يسجل قراءات provider المؤهلة على Episode المرتبط بالمحاولة، بما فيها file/list/search/Git/code-navigation/package/binary. أما `/api/ai/chat` غير المتدفق فينشئ execution/attempt وworker/lease وEpisode عند أول invocation قرائي مؤهل، ويشارك هوية المحاولة ويسجل الطلب/النتيجة hash-only ثم يغلق قبل إرسال response؛ لا ينشئها إن لم تقع قراءة، ولا ينشئ `AgentAction` أو `EffectBundle` أو acceptance. أدوات analysis graph/API لا تدخل هذه القائمة و`refresh_project_scan` stateful وخارج callback القرائي. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `not_started` | يلزم فصل `EffectBundle` عن `WorldTransition`، وربط التحول بـbefore/after observations وfact versions وscope/freshness ومراجعتَي العالم. يجب أن ينشئ كل أثر مؤهل التزام materialization durable/idempotent ينتهي بنتيجة صريحة، من دون إبطال acceptance؛ ويجب إثبات أن القرار التالي يستهلك `resultingWorldRevision`. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan، لكن لا يوجد تشخيص مبني على `WorldTransition` أو ربط كامل بين الافتراضات والحقائق المتأثرة والملاحظة الفاصلة. إعادة تخطيط Mission قد تستخدم تشخيصًا و`replanContext`، كما يمكنها بناء الخطة من intent والسياق المتاح عند غياب تشخيص صالح؛ لذلك ليست الحلقة حاليًا diagnosis-aware بالكامل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1661,6 +1661,30 @@ G9 Revocation Safety
 - **next step:** أبقِ العمل الحالي توثيقيًا؛ لا تعدّل runtime. عند استئناف التنفيذ،
   ابدأ بمراجعة عقود وجداول التنفيذ الحالية مقابل معايير القبول في §42.40، ثم نفّذ
   lifecycle ضمن P5.5 فقط.
+
+### 42.41 P5.5 — تنفيذ lifecycle الدردشة غير المتدفقة (2026-09-25)
+
+- **phase/step:** P5.5 — `/api/ai/chat` read-only invocation lifecycle
+- **status:** `partial`
+- **what changed:** يبدأ execution وclaim وEpisode كسولًا عند أول callback قرائي
+  مؤهل. جميع قراءات الطلب تستخدم execution/attempt واحدة وتكتب هويات ومحتوى
+  محدودًا ومجزأً في أحداث Observation. يغلق المسار Episode وينهي execution قبل
+  إرسال response نهائي؛ الطلب بلا قراءة لا ينشئ execution أو Episode. الإلغاء
+  وفقد lease يمنعان العامل القديم من تسجيل نتيجة أو إنهاء المحاولة.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/chat.ts`،
+  `artifacts/api-server/src/lib/ai-execution-state.ts`،
+  `artifacts/api-server/src/routes/ai.test.ts`؛ لا schema أو بيانات إنتاج.
+- **validation:** `pnpm --filter @workspace/api-server typecheck` نجح؛
+  `pnpm --filter @workspace/api-server exec vitest run src/routes/ai.test.ts -t "POST /api/ai/chat"`
+  نجح (75 اختبارًا، 109 متجاوزة)؛ اختبارات lifecycle المركزة نجحت (5/5)؛
+  `git diff --check` نجح.
+- **authority/safety impact:** لا تتغير صلاحيات الأدوات أو استجابة الدردشة أو
+  acceptance. القراءات لا تنشئ `EffectBundle`؛ كل كتابة event وإغلاق مشروطة
+  بهوية المحاولة وworker/lease الحاليين.
+- **remaining/blocker:** لا عائق لهذه الشريحة. تبقى P5.5 جزئية على الأسطح
+  الأخرى؛ لا schema أو production data، ولا توسع إلى P6 أو P7 أو P7.5.
+- **next step:** استمر في إغلاق فجوات P5.5 المتبقية فقط وفق ترتيب الخطة، مع إبقاء
+  أي توسيع للقبول أو آثار الكتابة خارج هذه الشريحة.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

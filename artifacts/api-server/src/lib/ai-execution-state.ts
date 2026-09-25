@@ -2913,6 +2913,65 @@ export async function completeAiExecution(params: {
   return result.accepted;
 }
 
+/**
+ * Close the control-plane lifecycle used by non-streaming chat observations.
+ *
+ * This deliberately does not create an ai_execution_acceptances row. The
+ * existing chat response and acceptance contracts remain authoritative; this
+ * update only closes the worker/lease record that owns the observation Episode.
+ */
+export async function terminalizeChatObservationExecution(params: {
+  executionId: string;
+  userId: string;
+  expectedAttempt: number;
+  workerId?: string;
+  status: "completed" | "failed" | "cancelled";
+  finalMessageId?: string | null;
+  error?: string;
+}): Promise<boolean> {
+  const now = new Date();
+  const workerOwned = Boolean(params.workerId);
+  const statusCondition = workerOwned
+    ? params.status === "cancelled"
+      ? inArray(aiExecutionsTable.status, ["running", "cancelling"])
+      : eq(aiExecutionsTable.status, "running")
+    : eq(aiExecutionsTable.status, "queued");
+  const ownershipConditions = workerOwned
+    ? [
+        eq(aiExecutionsTable.workerId, params.workerId!),
+        gt(aiExecutionsTable.leaseUntil, now),
+        ...(params.status === "cancelled"
+          ? []
+          : [isNull(aiExecutionsTable.cancelRequestedAt)]),
+      ]
+    : [isNull(aiExecutionsTable.workerId)];
+  const terminalError = params.status === "completed"
+    ? null
+    : (params.error ?? "Chat observation execution ended before successful completion").slice(0, 500);
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: params.status,
+      workerId: null,
+      leaseUntil: null,
+      updatedAt: now,
+      completedAt: now,
+      finalMessageId: params.finalMessageId ?? null,
+      error: terminalError,
+      checkpoint: sql`jsonb_set(${aiExecutionsTable.checkpoint}::jsonb, '{stage}', to_jsonb(${params.status}::text), true)::text`,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
+      statusCondition,
+      ...ownershipConditions,
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
 export async function failAiExecution(params: {
   executionId: string;
   workerId: string;

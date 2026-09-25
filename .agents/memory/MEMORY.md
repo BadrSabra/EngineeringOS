@@ -10,7 +10,7 @@
 - [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.
 - [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
-- [Gap query routing](gap-query-routing.md) — weakness/gap questions must bypass low-risk chat and enter proof-backed PROJECT_QUERY without broad-audit escalation.
+- [Project-query planning and proof](project-query-acceptance-index.md) — target-aware reads, retained evidence, claims, recovery, and response parity are linked across durable project-query contracts.
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
 - [Recovery telemetry semantics](recovery-telemetry-semantics.md) — provider fallback, forensic recovery, and resume are separate layers; ledger recovery counts are intentionally narrower.
@@ -19,7 +19,6 @@
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
 - [Session state concurrency](session-state-concurrency.md) — qualify resumable state writes by turn timestamp; a conditional value expression can still lose after row-lock waits.
 - [Resumable chat idempotency](resumable-chat-idempotency.md) — resume attempts preserve one user turn while assistant outcomes remain independently auditable.
-- [Project query retry contract](project-query-retry-contract.md) — targeted project-query retries create fresh executions while preserving the server-owned evidence scope.
 - [Terminal projection identity](terminal-projection-identity.md) — terminal outcomes must bind execution, attempt, message, and session consistently across DB, SSE, history, and status.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
@@ -47,7 +46,6 @@
 - [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
 - [AI verification boundary](ai-verification-boundary.md) — AI-generated remediation steps are narrative outcomes; only server-owned checks can satisfy automatic verification gates.
-- [Project-query semantic acceptance](project-query-semantic-acceptance.md) — complete source reads never prove a proof-required PROJECT_QUERY without accepted claims and a verified objective verdict.
 - [Provider tool-call manifests](provider-tool-call-manifests.md) — validate provider calls against the full authorized manifest even when iteration exposure is narrowed by cache or phase state.
 - [Request execution ledger](request-execution-ledger.md) — one request budget spans fallback, planning, tools, children, synthesis, and recovery; keep it separate from evidence state.
 - [AI budget admission](ai-budget-admission.md) — reserve each provider fallback attempt before work; token-limit reservation remains a separate contract.
@@ -67,8 +65,6 @@
 - [Resume attempt rotation](durable-acceptance-attempt-rotation.md) — rotate the immutable acceptance attempt when the resume token is claimed, not when the token is merely issued.
 - [Deterministic command routing](deterministic-command-routing.md) — named local report/build commands need an explicit server dispatcher, not generic AI action classification.
 - [Cancellation content precedence](cancellation-content-precedence.md) — a terminal cancellation must own persisted assistant content; lower-level empty/validation fallbacks must not leak into cancelled turns.
-- [Project-query target binding](project-query-target-binding.md) — architecture/project questions need target-aware read planning; provider success and citations alone cannot accept an unrelated answer.
-- [Ambiguous target planning](ambiguous-target-planning.md) — unresolved project targets may use only high-confidence bounded candidates; otherwise retain source-first discovery and avoid graph expansion.
 - [SSE recovery authority](sse-recovery-authority.md) — transport keepalive is separate from lease ownership; after EOF, durable status and acceptance decide recovery.
 - [Cancellation registration race](cancellation-registration-race.md) — cancel can win before the worker registers its controller; re-read durable state after registration and abort immediately.
 - [Dashboard proof fixture contracts](dashboard-proof-fixtures.md) — proof-bearing resumable fixtures must preserve proofRequired through terminal/reload state or the proof panel correctly disappears.
@@ -85,20 +81,12 @@
 - [OpenRouter throttling and checkpoints](openrouter-throttling-checkpoints.md) — model cooldowns stay separate from provider circuit; live scorecards persist after each case.
 - [OpenRouter provider activation](openrouter-provider-activation.md) — managed provisioning may be blocked by account status; use the existing server-side key path and verify live catalog startup.
 - [Embedded objective evidence](embedded-objective-evidence.md) — embedded-AI claims need server-owned evidence materialization; provider-only citations can leave complete reads unaccepted.
-- [Project-query direct-stream acceptance](project-query-direct-stream-acceptance.md) — direct streaming must emit decision trace and accepted-claim evidence before project-query acceptance can finalize.
-- [Project-query terminal parity](project-query-terminal-parity.md) — accepted project queries must not lose objective verdicts in public projections or emit generic forensic incompleteness.
-- [Objective evidence range ownership](objective-evidence-range-ownership.md) — server-computed claim windows must override provider-selected ranges when proving behavioral objectives.
-- [Objective locator recovery](objective-locator-recovery.md) — bounded objective recovery needs a server-owned locator for every required path; first-path prefetch alone cannot recover later truncated reads.
-- [Objective claim closure](objective-claim-closure.md) — complete retained windows still need a surviving response-bound claim projection before PROJECT_QUERY can be accepted.
-- [Project-query stream parity](project-query-stream-parity.md) — targeted objective evidence handoff must run before every SSE terminal return, not only the shared non-streaming gate.
-- [Session objective parity](session-objective-parity.md) — resumable session state and execution requests must carry the same dynamically derived project-query claims.
 - [Execution provenance binding](execution-provenance-binding.md) — durable AI reads and acceptance must stay bound to the same managed root and workspace revision.
 - [Workspace runtime boundary](workspace-runtime-boundary.md) — project-owned previews may be supervised; Replit-managed artifact workflows must not be replaced or claimed by the app.
 - [Implementation plan evidence continuity](implementation-plan-evidence-continuity.md) — implementation plans reuse accepted evidence only when its files and workspace revision still match.
 - [Orientation manifest fallback](orientation-manifest-fallback.md) — never persist a partial role manifest after planner fallback; later retries can hydrate it as immutable valid scope.
 - [Orientation recovery telemetry](orientation-recovery-telemetry.md) — malformed project-orientation recovery must consume the request ledger and usage contract, not only increment a local terminal counter.
 - [Orientation deterministic fallback](project-orientation-deterministic-fallback.md) — complete role reads can produce a bounded server-owned answer when provider synthesis fails; missing roles remain incomplete.
-- [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
 - [Retry generation coherence](retry-generation-coherence.md) — adaptive retry tests must track token and request generations independently; only the current token bound to the current request may claim.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
@@ -115,7 +103,6 @@
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.
 - [Project orientation responses](project-orientation.md) — functional explanations use a presentation-safe context and lead with purpose, components, flow, then a few indicators.
 - [Project orientation evidence scheduler](project-orientation-evidence-scheduler.md) — role paths must enter the server-owned evidence manifest, not remain a final coverage diagnostic.
-- [Acceptance coverage target binding](acceptance-coverage-target-binding.md) — cross-task acceptance requests must not become embedded-AI queries from incidental provider/analysis keywords.
 - [Durable orientation role manifest](orientation-role-manifest.md) — preserve the server-owned role-to-path mapping across resume and provider fallback; never replan it mid-execution.
 - [Orientation acceptance boundary](orientation-acceptance.md) — complete role coverage is the orientation proof gate; do not force orientation through targeted project-query analysis evidence.
 - [Orientation proof compatibility](orientation-acceptance-proof.md) — proof-required orientation needs an explicit acceptance branch that maps role coverage to server-owned evidence.
@@ -127,10 +114,8 @@
 - [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
-- [Project-query proof reads](project-query-proof-reads.md) — proof-required PROJECT_QUERY turns must force retained source reads even when raw intent classification says evidence is optional.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
 - [Chat SSE fixture lifecycle](chat-sse-fixture-lifecycle.md) — SSE fixtures must expose running executions to controller registration and reset cancellation state between tests.
-- [Project-query synthesis references](project-query-synthesis-references.md) — provider prose may use server-owned claimRefs/flowRefs; evidence and closure stay server-owned.
 - [Closed-loop integration fixtures](closed-loop-integration-fixtures.md) — isolate post-loop replan orchestration from the scheduler’s normal forced-evidence coverage.
 - [Claim-level evidence planning](claim-level-planning.md) — derive bounded reads from missing claim paths and retain accepted proof refs across recovery.
 - [Objective replan evidence](objective-replan-evidence.md) — recovered windows must enter objective materialization and claim closure, not remain telemetry-only.
@@ -157,3 +142,4 @@
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
 - [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable proposal lifecycle blocked until its attempt-bound observed effect is durably accepted.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Separate environment identity/freshness from project freshness and keep it outside effect or acceptance authority.
+- [Non-stream chat terminal barrier](chat-terminal-response-barrier.md) — Await durable chat lifecycle settlement before sending JSON; response completion may outrun async `finally` cleanup.
