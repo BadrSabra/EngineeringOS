@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import {
   aiAgentObservationsTable,
   aiWorldFactsTable,
@@ -10,6 +10,7 @@ import type { JsonValue } from "@workspace/ai-orchestrator";
 
 const MAX_FACTS = 256;
 const MAX_SOURCE_IDS = 16;
+const MAX_SCOPED_OBSERVATION_IDS = 128;
 
 export type WorldStateFactProjection = {
   id: string;
@@ -44,6 +45,14 @@ export type WorldStateMaterializationResult = {
   skipped: number;
   contradictions: number;
   worldRevision: string;
+};
+
+export type WorldStateMaterializationOptions = {
+  /**
+   * Restrict fact creation/updates to these exact observations. The returned
+   * revision still represents the full project projection.
+   */
+  observationIds?: readonly string[];
 };
 
 function asString(value: Date | string): string {
@@ -149,7 +158,18 @@ function projectFact(row: typeof aiWorldFactsTable.$inferSelect): WorldStateFact
 
 export async function materializeWorldStateForProject(
   projectId: string,
+  options: WorldStateMaterializationOptions = {},
 ): Promise<WorldStateMaterializationResult> {
+  const scopedObservationIds = options.observationIds === undefined
+    ? undefined
+    : [...new Set(options.observationIds)];
+  if (scopedObservationIds && (
+    scopedObservationIds.length === 0
+    || scopedObservationIds.length > MAX_SCOPED_OBSERVATION_IDS
+    || scopedObservationIds.some((id) => !id.trim() || id.length > 2_000)
+  )) {
+    throw new Error("world_state_observation_scope_invalid");
+  }
   return db.transaction(async (tx) => {
     const [project] = await tx
       .select({ id: projectsTable.id })
@@ -158,22 +178,31 @@ export async function materializeWorldStateForProject(
       .for("update");
     if (!project) throw new Error("world_state_project_not_found");
 
+    const eligibleObservationConditions = [
+      eq(aiAgentObservationsTable.projectId, projectId),
+      eq(aiAgentObservationsTable.completeness, "complete"),
+      eq(aiAgentObservationsTable.freshness, "fresh"),
+      ne(aiAgentObservationsTable.environmentFreshness, "stale"),
+    ];
     const recentObservations = await tx
       .select()
       .from(aiAgentObservationsTable)
       .where(and(
-        eq(aiAgentObservationsTable.projectId, projectId),
-        eq(aiAgentObservationsTable.completeness, "complete"),
-        eq(aiAgentObservationsTable.freshness, "fresh"),
-        ne(aiAgentObservationsTable.environmentFreshness, "stale"),
+        ...eligibleObservationConditions,
+        ...(scopedObservationIds
+          ? [inArray(aiAgentObservationsTable.id, scopedObservationIds)]
+          : []),
       ))
       .orderBy(
         desc(aiAgentObservationsTable.createdAt),
         desc(aiAgentObservationsTable.sequence),
         desc(aiAgentObservationsTable.id),
       )
-      .limit(2_048);
+      .limit(scopedObservationIds?.length ?? 2_048);
     const observations = recentObservations.sort(compareObservations);
+    if (scopedObservationIds && observations.length !== scopedObservationIds.length) {
+      throw new Error("world_state_observation_scope_incomplete");
+    }
 
     const grouped = new Map<string, typeof observations>();
     for (const observation of observations) {
@@ -323,12 +352,25 @@ export async function materializeWorldStateForProject(
       )
       .limit(MAX_FACTS);
     const facts = rows.map(projectFact);
+    const revisionObservations = scopedObservationIds
+      ? await tx
+          .select()
+          .from(aiAgentObservationsTable)
+          .where(and(...eligibleObservationConditions))
+          .orderBy(
+            desc(aiAgentObservationsTable.createdAt),
+            desc(aiAgentObservationsTable.sequence),
+            desc(aiAgentObservationsTable.id),
+          )
+          .limit(2_048)
+      : observations;
+    revisionObservations.sort(compareObservations);
     return {
       projectId,
       inserted,
       skipped,
       contradictions,
-      worldRevision: worldRevision(projectId, undefined, undefined, facts, observations),
+      worldRevision: worldRevision(projectId, undefined, undefined, facts, revisionObservations),
     };
   });
 }

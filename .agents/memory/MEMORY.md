@@ -142,4 +142,5 @@
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
 - [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable proposal lifecycle blocked until its attempt-bound observed effect is durably accepted.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Separate environment identity/freshness from project freshness and keep it outside effect or acceptance authority.
+- [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
 - [Non-stream chat terminal barrier](chat-terminal-response-barrier.md) — Await durable chat lifecycle settlement before sending JSON; response completion may outrun async `finally` cleanup.

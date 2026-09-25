@@ -317,6 +317,63 @@ describe("read-only World State projection", () => {
     expect(secondScoped.worldRevision).not.toBe(firstScoped.worldRevision);
   });
 
+  it("materializes only selected transition observations while hashing the full project projection", async () => {
+    await materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId,
+      projectRevision: "revision-1",
+      materializeWorldState: false,
+      sources: [
+        {
+          kind: "direct_observation",
+          sourceId: `p6-runtime-after:${randomUUID()}`,
+          sourceRevision: "revision-1",
+          subject: "runtime:session-p6",
+          predicate: "runtime.after_state",
+          value: { status: "running", processAlive: true, portReady: true },
+          evidenceRefs: ["p6-runtime-after"],
+        },
+        {
+          kind: "direct_observation",
+          sourceId: `p6-synthetic-before:${randomUUID()}`,
+          sourceRevision: "revision-1",
+          subject: "runtime:operation-p6",
+          predicate: "serving.status",
+          value: "pending",
+          evidenceRefs: ["p6-synthetic-before"],
+        },
+      ],
+    });
+    const episodeObservations = await db
+      .select()
+      .from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.episodeId, episodeId));
+    const afterObservation = episodeObservations.find(
+      (observation) => observation.predicate === "runtime.after_state",
+    );
+    expect(afterObservation).toBeDefined();
+
+    const materialized = await materializeWorldStateForProject(projectId, {
+      observationIds: [afterObservation!.id],
+    });
+    const state = await getProjectWorldState(projectId);
+
+    expect(materialized.inserted).toBe(1);
+    expect(materialized.worldRevision).toBe(state.worldRevision);
+    expect(state.facts).toEqual([
+      expect.objectContaining({
+        subject: "runtime:session-p6",
+        predicate: "runtime.after_state",
+        status: "believed",
+      }),
+    ]);
+    await expect(materializeWorldStateForProject(projectId, {
+      observationIds: [`missing:${randomUUID()}`],
+    })).rejects.toThrow("world_state_observation_scope_incomplete");
+  });
+
   it("binds environment freshness to the server-owned episode snapshot", async () => {
     const rootPath = await mkdtemp(join(process.cwd(), "world-environment-"));
     try {

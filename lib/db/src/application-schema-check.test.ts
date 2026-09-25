@@ -35,13 +35,17 @@ const remediationPlan = {
 function completeSnapshot() {
   const defaultFor = (tableName: string, columnName: string) => {
     if (
-      (tableName === "ai_agent_observations" || tableName === "ai_world_facts")
+      (tableName === "ai_agent_observations"
+        || tableName === "ai_world_facts"
+        || tableName === "ai_world_transitions")
       && columnName === "task_scope"
     ) {
       return "'project'::text";
     }
     if (
-      (tableName === "ai_agent_observations" || tableName === "ai_world_facts")
+      (tableName === "ai_agent_observations"
+        || tableName === "ai_world_facts"
+        || tableName === "ai_world_transitions")
       && columnName === "environment_revision_key"
     ) {
       return "'unknown'::text";
@@ -50,6 +54,9 @@ function completeSnapshot() {
       (tableName === "ai_agent_observations" || tableName === "ai_world_facts")
       && columnName === "environment_freshness"
     ) {
+      return "'unknown'::ai_agent_observation_freshness";
+    }
+    if (tableName === "ai_world_transitions" && columnName === "freshness") {
       return "'unknown'::ai_agent_observation_freshness";
     }
     if (tableName === "ai_agent_observations" && columnName === "provenance") {
@@ -63,6 +70,9 @@ function completeSnapshot() {
     }
     if (tableName === "ai_world_facts" && columnName === "status") {
       return "'believed'::ai_world_fact_status";
+    }
+    if (tableName === "ai_world_transitions" && columnName === "status") {
+      return "'pending'::ai_world_transition_status";
     }
     if (tableName === "ai_strategy_candidates" && columnName === "evaluation_status") {
       return "'discovered'::ai_strategy_evaluation_status";
@@ -88,6 +98,8 @@ function completeSnapshot() {
       (tableName === "ai_agent_effects" &&
         ["before_observation_ids", "after_observation_ids", "missing_effects", "contradiction_refs", "evidence_refs"].includes(columnName)) ||
       (tableName === "ai_world_facts" && columnName === "source_observation_ids") ||
+      (tableName === "ai_world_transitions" &&
+        ["before_observation_ids", "after_observation_ids", "materialized_observation_ids", "parent_fact_refs", "changed_fact_refs", "evidence_refs"].includes(columnName)) ||
       (tableName === "ai_strategy_candidates" &&
         ["supporting_episode_ids", "contradicting_episode_ids"].includes(columnName))
     ) {
