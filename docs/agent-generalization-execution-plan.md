@@ -4819,7 +4819,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream and non-streaming /api/ai/chat record eligible provider reads on their durable execution Episodes; both direct-chat routes also record server-owned query_knowledge_graph and discover_project_apis reads with manifest/scope/revision correlation; non-streaming /api/ai/chat creates its real per-request execution/attempt before the first eligible invocation; refresh_project_scan remains outside read-only observation; Mission graph/API tools remain unavailable without Mission-owned manifest/scope/revision wiring`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads enforce server-owned scope and record hash-only observations but still lack a per-invocation scopeHash; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream and non-streaming /api/ai/chat record eligible provider reads on their durable execution Episodes; both direct-chat routes also record server-owned query_knowledge_graph and discover_project_apis reads with manifest/scope/revision correlation; non-streaming /api/ai/chat creates its real per-request execution/attempt before the first eligible invocation; refresh_project_scan remains outside read-only observation; Mission graph/API tools remain unavailable without Mission-owned manifest/scope/revision wiring`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4862,8 +4862,9 @@ EffectBundle وحده بوابة القبول. يحتفظ استخراج الا�
 النطاق وhash النطاق/المدخل بدل المسار أو معرّف node المحتوي عليه. إغلاق Episode
 القراءة لا ينشئ `AgentAction` أو `EffectBundle` ولا يثبت قبولًا. لا تُصنف
 validators أو browser أو command كقراءات من `mutatesProject: false`. تظل P5.5
-جزئية حتى تُغطى بقية recipe nodes وprovider tool calls المؤهلة دون تغيير حدود
-الصلاحية.
+جزئية لأن أحداث Mission read لا تحفظ بعدُ scopeHash للنطاق المحسوم لكل invocation.
+تبقى capabilities الأخرى غير الموجودة في allowlists خارج النطاق، ولا تُفعّل
+بمجرد وجود contract لقراءة مشابهة.
 
 في `/api/ai/chat/stream` و`/api/ai/chat` غير المتدفق، تسجل قراءات provider
 المؤهلة على Episode وexecution/attempt/worker المملوكة للخادم؛ ينشئ المسار
@@ -4875,6 +4876,22 @@ validators أو browser أو command كقراءات من `mutatesProject: false`
 Episode observation-only تبقى `incomplete`. لا ينطبق هذا العقد على
 `refresh_project_scan` لأنه يغير scan state، ولا يجعل graph/API tools متاحة في
 Mission دون manifest/scope/revision خاص بها.
+
+#### نتيجة جرد تغطية P5.5
+
+الجرد الكامل حسب السطح وحالة lifecycle موجود في سجل التقدم §42.43. النتيجة:
+
+- `COVERED`: قراءتا recipe `database.read_project` و`project.read_file`؛ جميع
+  provider reads المسموح بها في مساري chat؛ وقراءتا analysis
+  `query_knowledge_graph` و`discover_project_apis` في مساري chat؛ وmutations
+  المحدودة ذات Action lifecycle الموثق.
+- `REMAINING`: قراءات Mission المسموح بها لديها owner/attempt/revision و
+  `OBSERVATION_REQUESTED/RECORDED`، والنطاق مفروض server-side، لكن يجب إضافة
+  fingerprint hash-only للنطاق الدقيق إلى أحداث invocation.
+- `EXPLICITLY OUT OF SCOPE`: أدوات Mission غير المدرجة في manifest؛
+  `refresh_project_scan` بوصفه scan-state mutation؛ وvalidator/browser/command/
+  runtime/delivery عند تدقيق read-only. لا يضيف هذا الجرد أي صلاحية أو lifecycle
+  جديدًا، ولا يبدأ P6.
 
 #### lifecycle الدردشة غير المتدفقة — منفذ ضمن P5.5
 

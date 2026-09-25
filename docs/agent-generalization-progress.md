@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` و`project.list_tree` بالطلب والنتيجة hash-only، مع بقاء allowlist Mission ضيقة. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة على Episode المرتبط بالمحاولة، بما فيها file/list/search/Git/code-navigation/package/binary، ويسجلان أيضًا قراءتي التحليل المملوكتين للخادم `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. ينشئ `/api/ai/chat` غير المتدفق execution/attempt وworker/lease وEpisode عند أول invocation قرائي مؤهل ويغلقه قبل إرسال response؛ لا ينشئه إن لم تقع قراءة. الملاحظات لا تنشئ `AgentAction` أو `EffectBundle` ولا تغير دلالات acceptance. لا تُفعّل أدوات analysis graph/API في Mission؛ و`refresh_project_scan` stateful وخارج callback القرائي. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد مع scope وscopeHash؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` و`project.list_tree` بالطلب والنتيجة hash-only، ويفرض الخادم نطاقًا ضيقًا؛ لكن حدث Mission لا يحفظ حاليًا scopeHash مستقلًا للنطاق المحسوم. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة على Episode المرتبط بالمحاولة، بما فيها file/list/search/Git/code-navigation/package/binary، ويسجلان أيضًا قراءتي التحليل المملوكتين للخادم `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. ينشئ `/api/ai/chat` غير المتدفق execution/attempt وworker/lease وEpisode عند أول invocation قرائي مؤهل ويغلقه قبل إرسال response؛ لا ينشئه إن لم تقع قراءة. الملاحظات لا تنشئ `AgentAction` أو `EffectBundle` ولا تغير دلالات acceptance. لا تُفعّل أدوات analysis graph/API في Mission؛ و`refresh_project_scan` stateful وخارج callback القرائي. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `not_started` | يلزم فصل `EffectBundle` عن `WorldTransition`، وربط التحول بـbefore/after observations وfact versions وscope/freshness ومراجعتَي العالم. يجب أن ينشئ كل أثر مؤهل التزام materialization durable/idempotent ينتهي بنتيجة صريحة، من دون إبطال acceptance؛ ويجب إثبات أن القرار التالي يستهلك `resultingWorldRevision`. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan، لكن لا يوجد تشخيص مبني على `WorldTransition` أو ربط كامل بين الافتراضات والحقائق المتأثرة والملاحظة الفاصلة. إعادة تخطيط Mission قد تستخدم تشخيصًا و`replanContext`، كما يمكنها بناء الخطة من intent والسياق المتاح عند غياب تشخيص صالح؛ لذلك ليست الحلقة حاليًا diagnosis-aware بالكامل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1713,6 +1713,43 @@ G9 Revocation Safety
   لا يوجد blocker runtime لهذه الشريحة.
 - **next step:** تابع فجوات P5.5 الموثقة فقط، ولا توسع صلاحيات الأدوات أو
   acceptance.
+
+### 42.43 P5.5 — جرد تغطية invocation (2026-09-25)
+
+- **phase/step:** P5.5 — invocation coverage inventory and audit
+- **status:** `partial`
+- **what changed:** طوبق كل سطح recipe وMission والدردشة المباشرة حسب class،
+  execution/attempt/worker، scope/revision، أحداث الطلب/النتيجة أو Action،
+  الإنهاء والفشل المغلق. لا توجد recipe read إضافية خارج
+  `database.read_project` و`project.read_file`. قراءات provider في مساري الدردشة
+  وقراءتا analysis المباشرتان مغطاة. نطاق Mission يُفرض من الخادم ويُربط
+  بالـEpisode/المحاولة/revision، لكن أحداث القراءة لا تسجل fingerprint مستقلًا
+  للنطاق الدقيق؛ هذه فجوة provenance متبقية، وليست نقصًا في enforcement الحالي.
+- **coverage matrix:**
+
+  | السطح | التصنيف | owner/scope/revision | evidence/lifecycle | الحكم |
+  |---|---|---|---|---|
+  | Recipe `database.read_project` (recipe `database.inspect.project`) و`project.read_file` | read-only | execution/attempt/worker والـlease من recipe runner؛ contract يحمل project/capability revisions وscope/scopeHash/inputHash | `OBSERVATION_REQUESTED` قبل invocation و`OBSERVATION_RECORDED` قبل تمرير النتيجة، مع evidence refs وإغلاق terminal fail-closed | `COVERED` |
+  | Provider reads في `/api/ai/chat` و`/api/ai/chat/stream`: `read_file`, `read_file_range`, `project.list_tree`, `git_status`, `git_diff`, `git_log`, `list_directory`, `search_code`, `symbol_search`, `ast_navigation`, `inspect_dependencies`, `inspect_binary` | read-only | execution/attempt/worker؛ manifestHash وscopeHash وprojectRevision من الخادم | الطلب قبل reader، النتيجة قبل الاستهلاك؛ no-tool non-stream لا ينشئ Episode؛ إغلاق terminal وownership fenced | `COVERED` |
+  | Direct-chat `query_knowledge_graph` و`discover_project_apis` | read-only | server-owned operation/project/revision correlation؛ full analysis-manifest hash وscopeHash | request/record قبل وبعد runner، مع input/output hashes، والتحقق من correlation | `COVERED` للمسارين فقط |
+  | Mission `read_file`, `read_file_range`, `project.list_tree`, `git_status`, `git_diff`, `git_log` | read-only محدود | execution/attempt/worker/lease وprojectRevision مملوكة للخادم؛ exact target paths enforced في dispatch | أحداث طلب/نتيجة وrevision guards موجودة؛ لا يوجد scopeHash مستقل للنطاق المحسوم في payload | `REMAINING` لإكمال scope provenance hash-only؛ لا توسعة allowlist |
+  | Mission `symbol_search`, `ast_navigation`, `inspect_dependencies`, `inspect_binary`, `list_directory`, `search_code` وأدوات analysis graph/API | read-capable لكن غير مخولة في Mission حاليًا | ليست في Mission provider manifest ولا يوجد لها Mission-owned scope/revision contract | لا invocation في هذا السياق؛ direct-chat المقابل مغطى حيث هو مخول | `EXPLICITLY OUT OF SCOPE` في Mission |
+  | `mission_repair` المعتمدة: `write_file` و`replace_text` | mutation داخل candidate overlay | AgentAction يربط execution/attempt/worker وapproved scope/source/plan revisions | `ACTION_REQUESTED` قبل staging و`ACTION_COMMITTED` بعد staging؛ القبول يبقى للـaggregate EffectBundle | `COVERED` ضمن الشريحة المحدودة، لا كقراءة |
+  | `refresh_project_scan`، validators/browser/command/runtime/delivery وغيرها من stateful/effect tools | mutation أو validation/stateful، لا read-only | لكل سطح runner/policy مختلف؛ لا تستنتج القراءة من `mutatesProject:false` | خارج عقد Observation هذا؛ `refresh_project_scan` يغيّر scan state | `EXPLICITLY OUT OF SCOPE` لهذه القراءة؛ يحتاج mutation contract منفصلًا إذا أُدرج لاحقًا |
+
+- **files/schema/contracts touched:** تحديث سجل التقدم وخطة التنفيذ فقط؛ لا
+  تغييرات runtime أو schema أو بيانات إنتاج.
+- **validation:** مراجعة code dispatch/registry/ledger عبر الجرد؛ اختبارات
+  المسارات السابقة والتحقق من حالة API workflow المسجلة في §42.42؛ لا اختبارات
+  runtime جديدة في هذه الخطوة التوثيقية.
+- **authority/safety impact:** لا تغييرات allowlist أو authority. لا يُفعّل أي
+  tool غير مخول في Mission، ولا تتحول الملاحظة إلى Action أو Effect أو
+  acceptance. `refresh_project_scan` مصنف stateful لا read-only.
+- **remaining/blocker:** فجوة scope fingerprint لملاحظات Mission read هي العمل
+  الأقرب داخل P5.5؛ تبقى P5.5 جزئية. لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** أضف scopeHash مشتقًا من server-owned Mission read policy إلى
+  أحداث طلب/نتيجة Mission مع اختبارات تطابق التنفيذ والمحاولة والنطاق والمراجعة؛
+  لا توسع manifest أو تبدأ World Delta.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
