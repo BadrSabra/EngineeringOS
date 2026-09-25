@@ -4812,7 +4812,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and provider tool calls remain`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and tool calls remain`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -5641,3 +5641,24 @@ Episode واحدة وأحداث طلب/نتيجة/إنهاء غير مكررة �
 Action/Effect؛ اختبارات runner والعقد 18/18، API typecheck، `git diff --check`،
 وإعادة تشغيل API حتى `Server listening`. لا schema migration أو تعديل لقاعدة
 الإنتاج. تبقى P5.5 جزئية؛ لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.34 P5.5 — Git read-tool Episode observations (2026-09-25)
+
+وسّع الجرد allowlist قراءات provider فقط إلى `git_status` و`git_diff` و`git_log`
+إلى جانب أدوات قراءة الملفات. هذه الأدوات تستخدم أوامر Git ثابتة عبر `execFile`
+ولا تغيّر المشروع؛ `git_diff` يحصر المسار الاختياري داخل root المشروع. وهي متاحة
+ضمن `mission_observe` و`mission_validate` فقط، بعد allowlist server-owned ونجاح
+authorization.
+
+يُسجل `OBSERVATION_REQUESTED` قبل تنفيذ القارئ، ثم `OBSERVATION_RECORDED` مع
+status وhash للناتج. لا تحفظ أحداث Episode محتوى diff أو رسائل commit أو path
+المدخل. فشل تسجيل الطلب يمنع التنفيذ، وفشل تسجيل النتيجة يحجب المخرج. يظل هذا
+Observation فقط، ولا ينشئ Action أو Effect أو Canonical Proof أو acceptance.
+لم تتغير recipe registry أو Gate-C أو candidate validation؛ كما بقيت adapters
+server-owned للـruntime والـvalidator والـacceptance خارج provider tool telemetry.
+
+التحقق: اختبار محرك الأدوات 165/165، واختبار Mission validation DB-backed 1/1،
+وtypecheck لكل من `ai-orchestrator` وAPI، و`git diff --check`؛ أُعيد تشغيل API
+وظهر `Server listening`. لا تغييرات schema أو قاعدة الإنتاج. تظل P5.5 جزئية؛
+أدوات التحليل والقراءات الأخرى تحتاج تدقيق أهلية مستقلًا قبل إدخالها. لا تبدأ
+P6 أو P7 أو P7.5.

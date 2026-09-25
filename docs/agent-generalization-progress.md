@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. في `mission_repair` تسجل الكتابات المعتمدة أيضًا Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. لا تتضمن acceptances World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، والآن رصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. لا تنشئ القراءة `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وprovider tool calls لم تكتمل. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` بالطلب والنتيجة hash-only. لا تنشئ هذه القراءات `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وtool calls تحتاج تدقيقًا وتغطية. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1460,6 +1460,32 @@ G9 Revocation Safety
   read-only. لم يبدأ P6 أو P7 أو P7.5.
 - **next step:** تابع P5.5 فقط عبر invocation surfaces المؤهلة، مع إبقاء الفصل
   بين Audit وObservation وEffect وAcceptance؛ لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.34 P5.5 — تسجيل قراءات Git على Episode الخاص بـMission (2026-09-25)
+
+- **phase/step:** P5.5 — read-only provider tool invocation
+- **status:** `partial`
+- **what changed:** أضيفت `git_status` و`git_diff` و`git_log` إلى allowlist الصريح لقراءات
+  `mission_observe` و`mission_validate`. بعد نجاح authorization يسجل callback
+  `OBSERVATION_REQUESTED` قبل تنفيذ Git الثابت عبر `execFile`، ثم
+  `OBSERVATION_RECORDED` ببصمة الناتج فقط. لا يحفظ Episode مخرجات diff أو رسائل
+  commit أو المسار الاختياري لـ`git_diff`؛ وفشل حفظ الطلب يمنع التنفيذ، وفشل حفظ
+  النتيجة يحجب المخرج.
+- **files/schema/contracts touched:** `tool-execution-engine.ts` و
+  `task-execution-service.ts` واختباراتهما؛ تحديث سجل التقدم. لا تغييرات schema
+  أو قاعدة الإنتاج.
+- **validation:** اختبارات محرك الأدوات 165/165؛ اختبار Mission validation
+  DB-backed 1/1؛ typecheck لـ`ai-orchestrator` وAPI؛ `git diff --check`؛ أُعيد
+  تشغيل API وظهر `Server listening`.
+- **authority/safety impact:** allowlist محدودة للقراءات الثلاث ضمن
+  `mission_observe`/`mission_validate` فقط. لا Action أو EffectBundle أو Canonical
+  Proof أو acceptance، ولم تتغير adapters server-owned للملاحظات، Gate-C أو
+  candidate validation.
+- **remaining/blocker:** P5.5 ما زالت جزئية؛ بقية recipe nodes وأدوات التحليل
+  والقراءة الأخرى تحتاج تدقيق أهلية منفصلًا. browser وcommand وvalidator وscan
+  refresh ليست قراءات مؤهلة لهذا العقد. لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** تابع تدقيق الأسطح المؤهلة ضمن P5.5 فقط، ثم اختبر invariants
+  الشاملة قبل إغلاق المرحلة؛ لا تبدأ P6 أو P7 أو P7.5.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

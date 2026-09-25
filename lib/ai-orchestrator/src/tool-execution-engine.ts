@@ -467,7 +467,14 @@ export type MutationToolInvocationCallback = (
 export type ReadOnlyToolInvocation = {
   phase: "requested" | "recorded";
   toolCallId: string;
-  toolName: "read_file" | "read_file_range" | "list_directory" | "search_code";
+  toolName:
+    | "read_file"
+    | "read_file_range"
+    | "list_directory"
+    | "search_code"
+    | "git_status"
+    | "git_diff"
+    | "git_log";
   inputHash: string;
   manifestHash: string;
   status?: "completed" | "failed" | "cancelled";
@@ -484,6 +491,9 @@ const MISSION_READ_ONLY_TOOL_NAMES = new Set<ReadOnlyToolInvocation["toolName"]>
   "read_file_range",
   "list_directory",
   "search_code",
+  "git_status",
+  "git_diff",
+  "git_log",
 ]);
 
 export function hashProviderToolManifest(manifest: readonly ToolDefinitionLike[] | undefined): string | undefined {

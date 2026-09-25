@@ -253,6 +253,81 @@ describe("executeSingleTool", () => {
     expect(JSON.stringify(callback.mock.calls)).not.toContain("src/foo.ts");
   });
 
+  it.each(["git_status", "git_diff", "git_log"] as const)(
+    "records authorized %s reads with hashes instead of Git output",
+    async (name) => {
+      const { executeSingleTool } = await import("../tool-execution-engine.js");
+      const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+      const privateOutput = "diff --git a/src/secret.ts b/src/secret.ts\n+PRIVATE_CHANGE";
+      GIT_TOOL_MOCK.mockResolvedValueOnce(privateOutput);
+      const args: Record<string, string> = name === "git_diff" ? { path: "src/secret.ts" } : {};
+      const result = await executeSingleTool({
+        name,
+        args,
+        rootPath: "/project",
+        pendingChanges: [],
+        allowedToolNames: new Set([name]),
+        toolManifestHash: "f".repeat(64),
+        toolCallId: `provider-${name}-1`,
+        onReadOnlyInvocation: callback,
+      });
+
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") expect(result.output).toBe(privateOutput);
+      expect(GIT_TOOL_MOCK).toHaveBeenCalledTimes(1);
+      expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+        .toEqual(["requested", "recorded"]);
+      expect(callback.mock.calls[0]?.[0]).toMatchObject({
+        toolCallId: `provider-${name}-1`,
+        toolName: name,
+        inputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        manifestHash: "f".repeat(64),
+      });
+      expect(callback.mock.calls[1]?.[0]).toMatchObject({
+        status: "completed",
+        outputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(JSON.stringify(callback.mock.calls)).not.toContain(privateOutput);
+      expect(JSON.stringify(callback.mock.calls)).not.toContain("src/secret.ts");
+    },
+  );
+
+  it("fails closed when Git observation persistence fails", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const requestFailure = vi.fn(async () => { throw new Error("ledger unavailable"); });
+    const blocked = await executeSingleTool({
+      name: "git_status",
+      args: {},
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["git_status"]),
+      toolManifestHash: "a".repeat(64),
+      toolCallId: "provider-git-request-fail",
+      onReadOnlyInvocation: requestFailure,
+    });
+    expect(blocked.kind).toBe("failed");
+    expect(GIT_TOOL_MOCK).not.toHaveBeenCalled();
+
+    const resultFailure = vi.fn(async (invocation: ReadOnlyToolInvocation) => {
+      if (invocation.phase === "recorded") throw new Error("ledger unavailable");
+    });
+    const withheld = await executeSingleTool({
+      name: "git_diff",
+      args: { path: "src/private.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["git_diff"]),
+      toolManifestHash: "b".repeat(64),
+      toolCallId: "provider-git-result-fail",
+      onReadOnlyInvocation: resultFailure,
+    });
+    expect(withheld.kind).toBe("failed");
+    if (withheld.kind === "failed") expect(withheld.safeMessage).toContain("output was withheld");
+    expect(GIT_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(resultFailure.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "recorded"]);
+  });
+
   it("does not record unauthorized reads or writes as read-only observations", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
     const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);

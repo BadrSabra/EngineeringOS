@@ -503,10 +503,14 @@ describe("real durable task execution lifecycle", () => {
     chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
       const baseParams = args[1] as {
         onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
+        allowedToolNames?: string[];
       };
+      expect(baseParams.allowedToolNames).toEqual(
+        expect.arrayContaining(["git_status", "git_diff", "git_log"]),
+      );
       const invocation = {
         toolCallId: "provider-read-mission-1",
-        toolName: "read_file" as const,
+        toolName: "git_diff" as const,
         inputHash: "c".repeat(64),
         manifestHash: "d".repeat(64),
       };
@@ -568,7 +572,7 @@ describe("real durable task execution lifecycle", () => {
       expect(observationRequest?.payload).toMatchObject({
         observationId: expect.any(String),
         toolCallId: "provider-read-mission-1",
-        toolName: "read_file",
+        toolName: "git_diff",
         inputHash: "c".repeat(64),
         manifestHash: "d".repeat(64),
         projectRevision: fixture.now.toISOString(),

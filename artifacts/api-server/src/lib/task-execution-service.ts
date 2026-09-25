@@ -1178,6 +1178,9 @@ async function executeMissionToolLoop(params: {
     "read_file_range",
     "list_directory",
     "search_code",
+    "git_status",
+    "git_diff",
+    "git_log",
   ]);
   const onMutationInvocation:
     | import("@workspace/ai-orchestrator").MutationToolInvocationCallback
@@ -1365,9 +1368,9 @@ async function executeMissionToolLoop(params: {
       onMutationInvocation,
       onReadOnlyInvocation,
       allowedToolNames: params.profile === "mission_observe"
-        ? ["read_file", "read_file_range", "list_directory", "search_code"]
+        ? ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log"]
         : params.profile === "mission_validate"
-          ? ["read_file", "read_file_range", "list_directory", "search_code", "run_validation"]
+          ? ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "run_validation"]
           : [
               "read_file",
               "read_file_range",
