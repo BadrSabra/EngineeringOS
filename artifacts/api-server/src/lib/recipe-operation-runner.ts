@@ -21,6 +21,7 @@ import {
   type ValidationRunner,
   type AgentAction,
   type EffectContract,
+  type EpisodeVerdict,
   type JsonValue,
 } from "@workspace/ai-orchestrator";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -67,9 +68,9 @@ import {
 import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 import {
   appendEpisodeEvent,
+  closeEpisode,
   startEpisode,
   startEpisodeShadow,
-  startEpisodeShadowWithEpisode,
 } from "./agent-state/agent-episode-ledger.js";
 import {
   buildRecipeReadOnlyInvocationContract,
@@ -138,7 +139,7 @@ function strategyActionContract(action: AgentAction): {
   };
 }
 
-async function appendShadowRecipeInvocationEvent(
+async function appendRecipeInvocationEvent(
   input: Parameters<typeof appendEpisodeEvent>[0],
 ): Promise<boolean> {
   try {
@@ -148,32 +149,15 @@ async function appendShadowRecipeInvocationEvent(
     logger.warn(
       {
         scope: "recipe-operation",
-        code: "shadow_recipe_invocation_event_write_failed",
+        code: "recipe_invocation_event_write_failed",
         executionId: input.executionId,
         episodeId: input.episodeId,
         eventType: input.eventType,
         error,
       },
-      "Shadow recipe invocation event could not be recorded; recipe execution remains authoritative",
+      "Recipe invocation provenance could not be recorded",
     );
     return false;
-  }
-}
-
-async function waitForShadowInvocationEpisode(
-  promise: ReturnType<typeof startEpisodeShadowWithEpisode> | undefined,
-): Promise<Awaited<ReturnType<typeof startEpisodeShadowWithEpisode>>> {
-  if (!promise) return undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), 250);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 
@@ -934,7 +918,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         ...(params.goalId ? { goalId: params.goalId } : {}),
       })
     : undefined;
-  const shadowEpisodeInput = {
+  const recipeEpisodeInput = {
     projectId: params.projectId,
     executionId: claimed.id,
     attempt: claimed.attempt,
@@ -945,11 +929,74 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
     ...(params.goalId ? { goalId: params.goalId } : {}),
   };
-  const shadowInvocationEpisodePromise = tracksReadOnlyRecipeInvocation
-    ? startEpisodeShadowWithEpisode(shadowEpisodeInput)
-    : undefined;
+  let readOnlyInvocationEpisode: Awaited<ReturnType<typeof startEpisode>> | undefined;
+  if (tracksReadOnlyRecipeInvocation) {
+    try {
+      readOnlyInvocationEpisode = await startEpisode(recipeEpisodeInput);
+    } catch (error) {
+      logger.warn(
+        {
+          scope: "recipe-operation",
+          code: "read_only_recipe_episode_start_failed",
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          error,
+        },
+        "Read-only recipe execution stopped because its Episode could not be created",
+      );
+      const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
+      await failAiExecution({
+        executionId: claimed.id,
+        workerId,
+        error: "Read-only recipe invocation provenance could not be established.",
+        recipeBinding: checkpoint?.recipeBinding ?? {
+          ...prepared.binding,
+          phase: "running",
+          leaseOwner: workerId,
+          leaseUntil: new Date(Date.now() + 300_000).toISOString(),
+        },
+      });
+      throw new Error("Read-only recipe invocation provenance could not be established.");
+    }
+  }
+  let readOnlyInvocationEpisodeCloseAttempted = false;
+  const closeReadOnlyInvocationEpisode = async (
+    verdict: EpisodeVerdict,
+    reasonCode: string,
+  ): Promise<void> => {
+    if (!readOnlyInvocationEpisode || readOnlyInvocationEpisodeCloseAttempted) return;
+    readOnlyInvocationEpisodeCloseAttempted = true;
+    try {
+      await closeEpisode({
+        episodeId: readOnlyInvocationEpisode.episodeId,
+        projectId: params.projectId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        workerId,
+        eventType: verdict === "cancelled" ? "EPISODE_CANCELLED" : "EPISODE_TERMINAL",
+        payload: { verdict, reasonCode },
+        verdict,
+        reasonCode,
+        actorType: "worker",
+        actorId: workerId,
+        correlationId: claimed.id,
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          scope: "recipe-operation",
+          code: "read_only_recipe_episode_close_failed",
+          executionId: claimed.id,
+          episodeId: readOnlyInvocationEpisode.episodeId,
+          verdict,
+          error,
+        },
+        "Read-only recipe Episode could not be closed",
+      );
+    }
+  };
   if (!authoritativeEffectRecipe && !tracksReadOnlyRecipeInvocation) {
-    startEpisodeShadow(shadowEpisodeInput);
+    startEpisodeShadow(recipeEpisodeInput);
   }
   let candidateValidationAction: AgentAction | undefined;
   let candidateValidationEffectContract: EffectContract | undefined;
@@ -1192,7 +1239,6 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let checkpointSequence = claimed.checkpointVersion;
   let latestNodes = resumedNodes;
   try {
-    const shadowInvocationEpisode = await waitForShadowInvocationEpisode(shadowInvocationEpisodePromise);
     const result = await executeExecutionNodePlan({
       nodes: resumedNodes,
       maxParallelNodes: prepared.binding.concurrencyBudget.maxInFlightNodes,
@@ -1300,9 +1346,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             && !authoritativeEffectRecipe
             && isReadOnlyRecipeCapability(node.capabilityId)
             && Boolean(node.capabilityId && registry.has(node.capabilityId));
-          const invocationContract = tracksThisInvocation && shadowInvocationEpisode
+          const invocationContract = tracksThisInvocation && readOnlyInvocationEpisode
             ? buildRecipeReadOnlyInvocationContract({
-                episodeId: shadowInvocationEpisode.episodeId,
+                episodeId: readOnlyInvocationEpisode.episodeId,
                 executionId: claimed.id,
                 executionAttempt: claimed.attempt,
                 node,
@@ -1311,21 +1357,26 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 projectRevision: params.sourceRevision,
               })
             : undefined;
-          if (tracksThisInvocation && shadowInvocationEpisode && !invocationContract) {
+          if (tracksThisInvocation && !invocationContract) {
             logger.warn(
               {
                 scope: "recipe-operation",
-                code: "shadow_recipe_invocation_contract_unavailable",
+                code: "recipe_invocation_contract_unavailable",
                 executionId: claimed.id,
                 nodeId: recipeInvocationNodeId(node.capabilityId, node.id),
                 capabilityId: node.capabilityId,
               },
-              "Shadow recipe invocation identity is incomplete; continuing without advisory events",
+              "Read-only recipe invocation identity is incomplete; blocking the capability call",
             );
+            return {
+              status: "blocked" as const,
+              detail: "Read-only recipe invocation provenance is unavailable.",
+              validationAttempts: 1,
+            };
           }
           const invocationRequestRecorded = invocationContract
-            ? await appendShadowRecipeInvocationEvent({
-                episodeId: shadowInvocationEpisode!.episodeId,
+            ? await appendRecipeInvocationEvent({
+                episodeId: readOnlyInvocationEpisode!.episodeId,
                 projectId: params.projectId,
                 executionId: claimed.id,
                 attempt: claimed.attempt,
@@ -1337,16 +1388,24 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 correlationId: claimed.id,
               })
             : false;
+          if (tracksThisInvocation && !invocationRequestRecorded) {
+            return {
+              status: "blocked" as const,
+              detail: "Read-only recipe request provenance could not be recorded.",
+              validationAttempts: 1,
+            };
+          }
           const recordInvocationResult = async (result: {
             outcome: "completed" | "failed" | "rejected";
             resultHash?: string;
             capabilityStatus?: string;
             failureCode?: string;
             evidenceRefs: string[];
-          }) => {
-            if (!invocationContract || !invocationRequestRecorded || !shadowInvocationEpisode) return;
-            await appendShadowRecipeInvocationEvent({
-              episodeId: shadowInvocationEpisode.episodeId,
+          }): Promise<boolean> => {
+            if (!tracksThisInvocation) return true;
+            if (!invocationContract || !invocationRequestRecorded || !readOnlyInvocationEpisode) return false;
+            return appendRecipeInvocationEvent({
+              episodeId: readOnlyInvocationEpisode.episodeId,
               projectId: params.projectId,
               executionId: claimed.id,
               attempt: claimed.attempt,
@@ -1372,7 +1431,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 operationId: params.operationId,
                 executionId: claimed.id,
                 executionAttempt: claimed.attempt,
-                ...(episode ? { episodeId: episode.episodeId } : {}),
+                ...((episode ?? readOnlyInvocationEpisode)
+                  ? { episodeId: (episode ?? readOnlyInvocationEpisode)!.episodeId }
+                  : {}),
                 signal: nodeController.signal,
                 scope: node.executionContext?.scope,
                 allowedFiles: node.allowedFiles,
@@ -1564,7 +1625,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             ? [(evidence as { evidenceId: string }).evidenceId]
             : [];
           const outputHash = hashJsonValue(output);
-          await recordInvocationResult({
+          const invocationResultRecorded = await recordInvocationResult({
             outcome: passed ? "completed" : "failed",
             ...(outputHash ? { resultHash: outputHash } : {}),
             ...(typeof output.status === "string" ? { capabilityStatus: output.status } : {}),
@@ -1577,6 +1638,14 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               : {}),
             evidenceRefs: invocationEvidenceRefs,
           });
+          if (tracksThisInvocation && !invocationResultRecorded) {
+            outputs.delete(node.id);
+            return {
+              status: "blocked" as const,
+              detail: "Read-only recipe result provenance could not be recorded.",
+              validationAttempts: 1,
+            };
+          }
           return {
             status: passed ? "passed" as const : "failed" as const,
             detail: JSON.stringify(output).slice(0, prepared.binding.missionBudget.maxOutputBytes),
@@ -1629,6 +1698,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       },
     });
     if (result.status !== "passed" || overallController.signal.aborted) {
+      await closeReadOnlyInvocationEpisode(
+        overallController.signal.aborted ? "cancelled" : "blocked",
+        overallController.signal.aborted ? "RECIPE_EXECUTION_CANCELLED" : "RECIPE_NODE_EXECUTION_FAILED",
+      );
       if (candidateValidation && episode && candidateValidationAction) {
         await appendEpisodeEvent({
           episodeId: episode.episodeId,
@@ -1671,6 +1744,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       ? evaluateRecipeEvidencePredicate(prepared.plan.outcomeContract.success, evidence)
       : false;
     if (advanced.status !== "succeeded" || outcome !== true) {
+      await closeReadOnlyInvocationEpisode("blocked", "RECIPE_OUTCOME_CONTRACT_FAILED");
       await failAiExecution({
         executionId: claimed.id,
         workerId,
@@ -1747,6 +1821,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         })
       : [];
     if (evidenceRefs.length !== result.nodes.length) {
+      await closeReadOnlyInvocationEpisode("blocked", "RECIPE_EVIDENCE_INCOMPLETE");
       await failAiExecution({
         executionId: claimed.id,
         workerId,
@@ -1856,6 +1931,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       candidateEffectBundleId = effect.effectBundleId;
     }
     const terminalEffectBundleId = candidateEffectBundleId ?? gateCEffectBundleId;
+    await closeReadOnlyInvocationEpisode("achieved", "READ_ONLY_INVOCATIONS_RECORDED");
     const completed = await completeAiExecution({
       executionId: claimed.id,
       workerId,
@@ -2161,6 +2237,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     });
     return { executionId: claimed.id, status: "completed", completedNodeIds: result.completedNodeIds, receipt };
   } finally {
+    if (readOnlyInvocationEpisode && !readOnlyInvocationEpisodeCloseAttempted) {
+      await closeReadOnlyInvocationEpisode("failed", "RECIPE_EXECUTION_INTERRUPTED");
+    }
     clearTimeout(totalTimer);
     clearInterval(heartbeatTimer);
     unregisterAiExecutionController(claimed.id, overallController);

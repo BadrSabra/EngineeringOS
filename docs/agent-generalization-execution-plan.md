@@ -4812,7 +4812,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file have best-effort read-only pilots; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and provider tool calls remain`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and provider tool calls remain`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4848,10 +4848,15 @@ Mission repair وapproved apply-changes اللذين كانا يحملان ال�
 overlay. لا يعد `ACTION_COMMITTED` هنا إثبات أثر؛ يبقى aggregate candidate
 EffectBundle وحده بوابة القبول. يحتفظ استخراج الاستراتيجية بـ`actionContract`/hash
 بوصفهما إسقاط تعلم منفصلًا، ويتحقق من اتساقه مع الفعل. تبقى الأحداث التاريخية ذات
-الإسقاط المختزل قابلة للقراءة. يشمل pilot القراءة الآن `database.read_project`
-و`project.read_file`؛ في قراءة الملفات يُحفظ نوع النطاق وhash النطاق/المدخل بدل
-المسار أو معرّف node المحتوي عليه. تظل P5.5 جزئية حتى تُغطى جميع recipe nodes
-وprovider tool calls دون تغيير حدود الصلاحية.
+الإسقاط المختزل قابلة للقراءة. تُسجل قراءتا `database.read_project` و
+`project.read_file` على Episode canonical واحد لكل execution attempt: يُحفظ
+`OBSERVATION_REQUESTED` قبل استدعاء القارئ، ويُحجب الاستدعاء إذا فشل حفظه؛ ولا
+يُمرر الناتج إذا فشل حفظ `OBSERVATION_RECORDED`. في قراءة الملفات يُحفظ نوع
+النطاق وhash النطاق/المدخل بدل المسار أو معرّف node المحتوي عليه. إغلاق Episode
+القراءة لا ينشئ `AgentAction` أو `EffectBundle` ولا يثبت قبولًا. لا تُصنف
+validators أو browser أو command كقراءات من `mutatesProject: false`. تظل P5.5
+جزئية حتى تُغطى بقية recipe nodes وprovider tool calls المؤهلة دون تغيير حدود
+الصلاحية.
 
 ### 42.6 P6 — World Delta / Revision Closure
 
@@ -5613,3 +5618,26 @@ listener ownership باستمرار؛ لم يبدأ P6 أو P7 أو P7.5.
 هذه شريحة جزئية من P3.5/P4/P5 ولا تقدم observation مستقلة إلى World State أو
 World Delta. تبقى المراحل جزئية؛ الخطوة التالية في الترتيب هي توحيد دلالات
 `AgentAction` ضمن P5.5، دون بدء P6 أو P7 أو P7.5.
+
+### 42.33 P5.5 — Canonical read-only recipe invocation provenance (2026-09-25)
+
+تُربط قراءات recipe الصريحة `database.read_project` و`project.read_file` بـEpisode
+canonical واحد مربوط بالتنفيذ والمحاولة. يُسجل `OBSERVATION_REQUESTED` قبل دخول
+capability reader؛ تعذر إنشاء Episode يستدعي محاولة إنهاء execution عبر
+`failAiExecution` ثم يوقف المسار، وتعذر حفظ الطلب يمنع استدعاء القارئ. بعد
+القراءة يُحفظ hash النتيجة ومراجع evidence في
+`OBSERVATION_RECORDED`؛ إذا تعذر حفظ النتيجة تُحجب البيانات ويُمنع مرورها إلى
+العقد اللاحقة. تحفظ قراءة الملف scope عامًّا وhash للمدخل والنطاق ومعرّف node،
+لا المسار أو المحتوى.
+
+يُغلق Episode القراءة بنتيجة recipe، لكن هذا الإغلاق ملاحظة تشغيلية فقط: لا ينشئ
+`AgentAction` أو `EffectBundle` أو Canonical Proof ولا يثبت أثرًا أو قبولًا.
+التصنيف allowlist صريح؛ browser وcommand وvalidator ليست قراءات، وحقول
+`mutatesProject` لا تمنح أهلية read-only. بقيت Gate-C وcandidate validation
+كما هما.
+
+التحقق: اختبار DB-backed يثبت وجود الطلب داخل callback قبل كشف الصفوف، ووحدة
+Episode واحدة وأحداث طلب/نتيجة/إنهاء غير مكررة ومن Episode نفسه، وعدم إنشاء
+Action/Effect؛ اختبارات runner والعقد 18/18، API typecheck، `git diff --check`،
+وإعادة تشغيل API حتى `Server listening`. لا schema migration أو تعديل لقاعدة
+الإنتاج. تبقى P5.5 جزئية؛ لا تبدأ P6 أو P7 أو P7.5.

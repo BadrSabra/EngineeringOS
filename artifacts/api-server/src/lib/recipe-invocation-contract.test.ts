@@ -71,6 +71,8 @@ describe("recipe read-only invocation contract", () => {
     expect(isReadOnlyRecipeCapability("runtime.start")).toBe(false);
     expect(isReadOnlyRecipeCapability("github.push_verified_commit")).toBe(false);
     expect(isReadOnlyRecipeCapability("validation.run.workspace-typecheck")).toBe(false);
+    expect(isReadOnlyRecipeCapability("browser.verify.smoke-test")).toBe(false);
+    expect(isReadOnlyRecipeCapability("command.run.workspace-test")).toBe(false);
     expect(isReadOnlyRecipeCapability("unknown.capability")).toBe(false);
   });
 

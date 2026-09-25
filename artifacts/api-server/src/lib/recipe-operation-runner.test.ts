@@ -387,19 +387,34 @@ async function assertSuccessfulGateCEffect(executionId: string, capabilityId: st
 }
 
 describe("read-only recipe invocation events", () => {
-  it("records a database read invocation and bounded result in the shadow Episode", async () => {
+  it("records a database read invocation before exposing data on its canonical Episode", async () => {
     const fixture = await createDatabaseReadRecipeFixture();
     try {
       const result = await runRecipeOperation({
         ...fixture.params,
-        databaseReadRunner: async ({ projectId, operationId, resource }) => ({
-          status: "passed",
-          rows: [{ id: projectId, resource }],
-          evidence: {
-            evidenceId: `database-read:${operationId}`,
-            resultHash: "database-read-result-hash",
-          },
-        }),
+        databaseReadRunner: async ({ projectId, operationId, resource }) => {
+          const episodes = await db.select({ id: aiAgentEpisodesTable.id })
+            .from(aiAgentEpisodesTable)
+            .where(eq(aiAgentEpisodesTable.projectId, projectId));
+          expect(episodes).toHaveLength(1);
+          const episodeId = episodes[0]?.id;
+          if (!episodeId) throw new Error("read-only recipe Episode was not created");
+          const requests = await db.select({ id: aiAgentEpisodeEventsTable.id })
+            .from(aiAgentEpisodeEventsTable)
+            .where(and(
+              eq(aiAgentEpisodeEventsTable.episodeId, episodeId),
+              eq(aiAgentEpisodeEventsTable.eventType, "OBSERVATION_REQUESTED"),
+            ));
+          expect(requests).toHaveLength(1);
+          return {
+            status: "passed",
+            rows: [{ id: projectId, resource }],
+            evidence: {
+              evidenceId: `database-read:${operationId}`,
+              resultHash: "database-read-result-hash",
+            },
+          };
+        },
       });
       expect(result.status).toBe("completed");
 
@@ -411,9 +426,28 @@ describe("read-only recipe invocation events", () => {
         .where(eq(aiAgentEpisodeEventsTable.executionId, result.executionId));
       const requested = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
       const recorded = events.find((event) => event.eventType === "OBSERVATION_RECORDED");
+      const created = events.find((event) => event.eventType === "EPISODE_CREATED");
+      const terminal = events.find((event) => event.eventType === "EPISODE_TERMINAL");
       expect(requested).toBeDefined();
       expect(recorded).toBeDefined();
+      expect(created).toBeDefined();
+      expect(terminal).toBeDefined();
+      expect(events.filter((event) => event.eventType === "OBSERVATION_REQUESTED")).toHaveLength(1);
+      expect(events.filter((event) => event.eventType === "OBSERVATION_RECORDED")).toHaveLength(1);
+      expect(events.filter((event) => event.eventType === "EPISODE_CREATED")).toHaveLength(1);
+      expect(events.filter((event) => event.eventType === "EPISODE_TERMINAL")).toHaveLength(1);
       expect(recorded?.episodeId).toBe(requested?.episodeId);
+      expect(created?.episodeId).toBe(requested?.episodeId);
+      expect(terminal?.episodeId).toBe(requested?.episodeId);
+      expect(terminal?.payload).toMatchObject({
+        verdict: "achieved",
+        reasonCode: "READ_ONLY_INVOCATIONS_RECORDED",
+      });
+      expect(events.filter((event) => [
+        "ACTION_REQUESTED",
+        "ACTION_COMMITTED",
+        "EFFECT_CLASSIFIED",
+      ].includes(event.eventType))).toHaveLength(0);
 
       const requestPayload = requested!.payload as Record<string, unknown>;
       const resultPayload = recorded!.payload as Record<string, unknown>;
@@ -440,12 +474,27 @@ describe("read-only recipe invocation events", () => {
       });
       expect(JSON.stringify(resultPayload)).not.toContain('"rows"');
 
-      const [episode] = await db.select({
+      const episodes = await db.select({
+        id: aiAgentEpisodesTable.id,
+        state: aiAgentEpisodesTable.state,
+        verdict: aiAgentEpisodesTable.verdict,
         evidenceRefs: aiAgentEpisodesTable.evidenceRefs,
       }).from(aiAgentEpisodesTable)
-        .where(eq(aiAgentEpisodesTable.executionId, result.executionId))
-        .limit(1);
+        .where(eq(aiAgentEpisodesTable.executionId, result.executionId));
+      expect(episodes).toHaveLength(1);
+      const [episode] = episodes;
+      expect(episode).toMatchObject({
+        id: requested?.episodeId,
+        state: "completed",
+        verdict: "achieved",
+      });
       expect(episode?.evidenceRefs).toContain(`database-read:${fixture.params.operationId}`);
+      const effects = await db.select().from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, result.executionId));
+      const effectBundles = await db.select().from(aiAgentEffectBundlesTable)
+        .where(eq(aiAgentEffectBundlesTable.executionId, result.executionId));
+      expect(effects).toHaveLength(0);
+      expect(effectBundles).toHaveLength(0);
     } finally {
       await fixture.cleanup();
     }
@@ -689,12 +738,32 @@ describe("recipe operation preparation", () => {
       expect(acceptance?.effectBundleId).toBe(bundle?.id);
       const observations = await db.select().from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, executionId));
-      expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(4);
+      const directObservations = observations.filter((row) => row.provenance === "DIRECT_OBSERVATION");
       const runtimeReceipt = observations.find((row) => row.sourceType === "runtime_receipt");
       const runtimeSnapshot = await manager.get(projectId);
       expect(runtimeReceipt?.value).toMatchObject({ sessionId: runtimeSnapshot.sessionId });
       expect(runtimeReceipt?.environmentRevision).toBe(runtimeSnapshot.environmentRevision);
       expect(runtimeReceipt?.environmentFreshness).toBe("fresh");
+      const childProcessObservation = directObservations.find(
+        (row) => row.sourceType === "child_process_attestation",
+      );
+      expect(directObservations.map((row) => row.sourceId).length).toBe(
+        new Set(directObservations.map((row) => row.sourceId)).size,
+      );
+      expect(directObservations.filter(
+        (row) => row.sourceType === "child_process_attestation",
+      )).toHaveLength(1);
+      expect(childProcessObservation).toMatchObject({
+        predicate: "runtime.child_process_environment",
+        provenance: "DIRECT_OBSERVATION",
+        subject: `runtime:${runtimeSnapshot.sessionId}`,
+        sourceId: `runtime-child-process:${runtimeSnapshot.sessionId}`,
+        sourceRefs: expect.arrayContaining([`runtime:${runtimeSnapshot.sessionId}`]),
+      });
+      expect(childProcessObservation?.value).toMatchObject({
+        bindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        sessionId: runtimeSnapshot.sessionId,
+      });
       const runtimeAfterState = observations.find((row) => (
         row.sourceType === "direct_observation"
         && row.predicate === "runtime.after_state"

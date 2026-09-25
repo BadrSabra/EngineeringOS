@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة؛ P5.5 تشمل الآن دورة Action محدودة لاستدعاءات file mutation المعتمدة في `mission_repair`، لكنها لا تغطي بعد كل recipe node أو tool call. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة؛ P5.5 تشمل دورة Action محدودة لاستدعاءات file mutation المعتمدة في `mission_repair`، كما تسجل قراءتي recipe الصريحتين `database.read_project` و`project.read_file` على Episode canonical fail-closed. لا تغطي بعد كل recipe node أو tool call. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. في `mission_repair` تسجل الكتابات المعتمدة أيضًا Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. لا تتضمن acceptances World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، والآن رصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. تُسجل recipe القراءة `database.inspect.project` أحداث ظلّية `OBSERVATION_REQUESTED/RECORDED` best-effort؛ mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وprovider tool calls لم تكتمل. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. لا تنشئ القراءة `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1431,32 +1431,35 @@ G9 Revocation Safety
   `AgentAction` في P5.5 قبل إضافة مسارات Action/Effect جديدة؛ لا تبدأ P6 أو
   P7 أو P7.5.
 
-### 42.33 P5.5 — توسيع هوية القراءة لـproject.read_file (2026-09-25)
+### 42.33 P5.5 — تثبيت provenance لقراءات recipe الصريحة (2026-09-25)
 
 - **phase/step:** P5.5 — read-only recipe invocation identity
 - **status:** `partial`
-- **what changed:** أضيف `project.read_file` إلى allowlist الصريح لأحداث
-  الاستدعاء read-only. هوية الحدث تربط Episode والتنفيذ والمحاولة والقدرة
-  والمراجعة والنطاق؛ تحفظ مسارات الملفات كـhash فقط، وتستخدم scope عامًّا
-  (`kind: file`) ومعرّف node مجزّأً حتى لا تظهر المسارات في حدث التدقيق. لا ينشئ
-  هذا المسار `AgentAction` كاملًا أو `EffectBundle`.
+- **what changed:** تستخدم القراءتان المسموحتان صراحةً `database.read_project` و
+  `project.read_file` Episode canonical واحدًا مربوطًا بالتنفيذ والمحاولة. يسجل
+  `OBSERVATION_REQUESTED` قبل استدعاء القارئ؛ فشل إنشاء Episode يستدعي محاولة
+  إنهاء execution عبر `failAiExecution` ثم يوقف المسار، وفشل تسجيل الطلب يحجب
+  الاستدعاء. يسجل `OBSERVATION_RECORDED` hash
+  الناتج ومراجع evidence؛ فشل التسجيل يحجب البيانات ويوقف العقد اللاحقة. لا
+  تحفظ أحداث قراءة الملف المسار أو المحتوى؛ scope ونطاق المدخل ومعرّف node
+  ممثلة بهويات عامة وhashes. أضيفت assertions تستبعد browser وcommand من
+  تصنيف read-only وتثبت عدم إنشاء Action أو EffectBundle للقراءة.
 - **files/schema/contracts touched:** `recipe-invocation-contract.ts` واختباراته،
-  `recipe-operation-runner.ts`، خطة التنفيذ وسجل التقدم؛ لا تغييرات schema.
-- **validation:** API typecheck نجح؛ اختبار عقد القراءة 4/4؛ ملف اختبارات
-  `recipe-operation-runner.test.ts` نجح 13/14، مع إخفاق متكرر في اختبار runtime
-  غير المعدّل الذي يتوقع 4 ملاحظات مباشرة بينما يجد 5. اختبار `database.read_project`
-  يمر داخل التشغيل الكامل، لكن تشغيله وحده عبر test-name filter لم يجد حدث الطلب؛
-  يلزم تفسير فرق سلوك fixture قبل اعتبار مسار التكامل محكمًا. `git diff --check`
-  نجح؛ أُعيد تشغيل API وظهر `Server listening`.
-- **authority/safety impact:** لا capability أو صلاحية جديدة؛ يبقى التنفيذ
-  والـregistry والنطاق server-owned. لا تحفظ أحداث الملف محتوى أو مسارات خامًا،
-  ولا تستخدم القراءة لإثبات Action/Effect أو القبول. لا تعديل لقاعدة الإنتاج.
-- **remaining/blocker:** P5.5 ما زالت جزئية؛ استدعاءات provider وبقية recipe
-  nodes تحتاج جردًا وتغطية بهوية دائمة. يلزم أيضًا تسوية إخفاق اختبار runtime
-  والتحقق من fixture القراءة read-only دون توسيع نطاق الصلاحية.
-- **next step:** أكمل جرد invocation surfaces التي تملك Episode دائمًا، ثم وحّد
-  تسجيل النتيجة والفشل فيها قبل إضافة أي مسار Action/Effect؛ لا تبدأ P6 أو P7
-  أو P7.5.
+  `recipe-operation-runner.ts` واختباراته، سجل التنفيذ وذاكرة المشروع؛ لا
+  تغييرات schema أو قاعدة الإنتاج.
+- **validation:** اختبار runner والعقد 18/18؛ اختبار DB-backed يثبت أن حدث
+  الطلب موجود داخل callback قبل كشف الصفوف، وأن الطلب والنتيجة والإنهاء تخص
+  Episode واحدًا وغير مكررة؛ API typecheck و`git diff --check` نجحا؛ أُعيد تشغيل
+  API وظهر `Server listening`.
+- **authority/safety impact:** لا capability أو صلاحية جديدة، ولا تصنيف من
+  `mutatesProject: false`. تظل Gate-C وcandidate validation دون تغيير. أحداث
+  القراءة observations فقط، لا تثبت Action/Effect أو Canonical Proof أو القبول؛
+  لا تعديل لقاعدة الإنتاج.
+- **remaining/blocker:** P5.5 ما زالت جزئية؛ provider tool calls وبقية recipe
+  nodes تتطلب تدقيق أهلية وتغطية. validators وbrowser وcommand مستبعدة من
+  read-only. لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** تابع P5.5 فقط عبر invocation surfaces المؤهلة، مع إبقاء الفصل
+  بين Audit وObservation وEffect وAcceptance؛ لا تبدأ P6 أو P7 أو P7.5.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
