@@ -196,6 +196,88 @@ describe("executeFileTool — bounded source reads", () => {
       },
     });
   });
+
+  it("lists only bounded metadata from the fixed project root without following symlinks", async () => {
+    const root = path.join("/tmp", `mission-tree-${process.pid}-${Date.now()}`);
+    const outside = `${root}-outside`;
+    const rootLink = `${root}-link`;
+    await fs.mkdir(path.join(root, "src", "nested"), { recursive: true });
+    await fs.mkdir(path.join(root, "secrets"), { recursive: true });
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(path.join(root, "README.md"), "PRIVATE_SOURCE_BYTES", "utf-8");
+    await fs.writeFile(path.join(root, ".env"), "TOKEN=hidden", "utf-8");
+    await fs.writeFile(path.join(root, "secrets", "notes.txt"), "SECRET_CONTENT", "utf-8");
+    await fs.writeFile(path.join(root, "src", "index.ts"), "SOURCE_CONTENT", "utf-8");
+    await fs.writeFile(path.join(root, "src", "nested", "too-deep.ts"), "TOO_DEEP", "utf-8");
+    await fs.writeFile(path.join(outside, "outside.ts"), "OUTSIDE_CONTENT", "utf-8");
+    await fs.symlink(outside, path.join(root, "linked"), "dir");
+    await fs.symlink(root, rootLink, "dir");
+
+    try {
+      const result = await executeFileTool("project.list_tree", {}, root, []);
+      const tree = JSON.parse(result) as {
+        kind: string;
+        root: string;
+        maxDepth: number;
+        maxEntries: number;
+        truncated: boolean;
+        entries: Array<{ path: string; kind: string; sizeBytes?: number }>;
+      };
+      const paths = tree.entries.map((entry) => entry.path);
+
+      expect(tree).toMatchObject({
+        kind: "project_tree",
+        root: ".",
+        maxDepth: 2,
+        maxEntries: 100,
+      });
+      expect(paths).toEqual(expect.arrayContaining(["README.md", "src", "src/index.ts", "src/nested"]));
+      expect(paths).not.toEqual(expect.arrayContaining([
+        ".env",
+        "secrets",
+        "secrets/notes.txt",
+        "src/nested/too-deep.ts",
+        "linked",
+      ]));
+      expect(result).not.toContain("PRIVATE_SOURCE_BYTES");
+      expect(result).not.toContain("SOURCE_CONTENT");
+      expect(result).not.toContain("OUTSIDE_CONTENT");
+      expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(24_000);
+      expect(tree.entries.find((entry) => entry.path === "README.md")).toMatchObject({
+        kind: "file",
+        sizeBytes: Buffer.byteLength("PRIVATE_SOURCE_BYTES", "utf8"),
+      });
+
+      await expect(
+        executeFileTool("project.list_tree", { path: "." }, root, []),
+      ).rejects.toThrow("project_tree_arguments_not_allowed");
+      await expect(
+        executeFileTool("project.list_tree", {}, rootLink, []),
+      ).rejects.toThrow("project_tree_root_not_directory");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(outside, { recursive: true, force: true });
+      await fs.rm(rootLink, { force: true });
+    }
+  });
+
+  it("caps project tree entries and marks the result as truncated", async () => {
+    const root = path.join("/tmp", `mission-tree-limit-${process.pid}-${Date.now()}`);
+    await fs.mkdir(root, { recursive: true });
+    try {
+      await Promise.all(
+        Array.from({ length: 125 }, (_, index) =>
+          fs.writeFile(path.join(root, `entry-${String(index).padStart(3, "0")}.txt`), "x", "utf-8"),
+        ),
+      );
+      const result = await executeFileTool("project.list_tree", {}, root, []);
+      const tree = JSON.parse(result) as { truncated: boolean; entries: unknown[] };
+      expect(tree.entries).toHaveLength(100);
+      expect(tree.truncated).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("executeFileTool — read_file_range (SR-003)", () => {

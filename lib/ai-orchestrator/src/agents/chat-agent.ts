@@ -4691,6 +4691,7 @@ export function buildProviderTools(
   compoundExecution = false,
   compoundWrite = true,
   toolMode: ToolMode = "workspace",
+  authorizedToolManifestNames?: readonly string[],
 ) {
   const policy = resolveToolPolicy({
     provider,
@@ -4710,7 +4711,14 @@ export function buildProviderTools(
     );
     return undefined;
   }
-  const tools = getAllowedToolDefinitions(policy);
+  const authorizedNames = authorizedToolManifestNames
+    ? new Set(authorizedToolManifestNames)
+    : undefined;
+  const tools = getAllowedToolDefinitions(policy).filter((tool) => {
+    const name = tool.function.name;
+    if (name === "project.list_tree" && !authorizedNames?.has(name)) return false;
+    return !authorizedNames || authorizedNames.has(name);
+  });
   const scopedTools =
     toolMode === "project-read-only"
       ? tools.filter((tool) => PROJECT_CHAT_READ_TOOL_NAMES.has(tool.function.name))
@@ -4725,6 +4733,7 @@ export function buildProviderTools(
             "read_file_range",
             "list_directory",
             "search_code",
+            ...(authorizedNames?.has("project.list_tree") ? ["project.list_tree"] : []),
             "git_status",
             "git_diff",
             "git_log",
@@ -4738,11 +4747,24 @@ export function buildProviderTools(
       : orderedForensicRoots.length > 0
       ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
       : executionMode === "forensic"
-      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
+      ? tools.filter((tool) => [
+          "read_file",
+          "read_file_range",
+          "list_directory",
+          "search_code",
+          ...(authorizedNames?.has("project.list_tree") ? ["project.list_tree"] : []),
+          "git_status",
+          "git_diff",
+          "git_log",
+          "refresh_project_scan",
+          "query_knowledge_graph",
+          "discover_project_apis",
+        ].includes(tool.function.name))
       : executionMode === "repair_plan"
       ? tools.filter((tool) =>
           [
             "read_file",
+            ...(authorizedNames?.has("project.list_tree") ? ["project.list_tree"] : []),
             "replace_text",
             "write_file",
             ...(allowValidationTools ? ["run_validation"] : []),
@@ -6140,6 +6162,12 @@ export async function chat(opts: {
   onMutationInvocation?: MutationToolInvocationCallback;
   /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
   onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
+  /** Server-owned complete provider manifest for a scoped Mission execution. */
+  authorizedToolManifestNames?: readonly string[];
+  /** Server-owned Mission dispatch allowlist, rechecked after model tool selection. */
+  allowedToolNames?: readonly string[];
+  /** Immutable exact source-read scope for Mission file and path-filtered diff calls. */
+  missionReadPathScope?: readonly string[];
   /**
    * Server-authorized Build handoff gate for the registered run_validation tool.
    * This is intentionally separate from classifier output.
@@ -7441,7 +7469,11 @@ export async function chat(opts: {
   // the provider normalizer and the configuration guard still need the full
   // authorized source-evidence surface.
   const projectReadToolMode =
-    optionalProjectReadCapability ? "project-read-only" as const : "workspace" as const;
+    opts.authorizedToolManifestNames
+      ? "workspace" as const
+      : optionalProjectReadCapability
+        ? "project-read-only" as const
+        : "workspace" as const;
   const toolManifest = modelHasTools
     ? buildProviderTools(
         providerId,
@@ -7450,11 +7482,12 @@ export async function chat(opts: {
         false,
         false,
         [],
-        false,
-        false,
+        opts.authorizedToolManifestNames ? allowValidationTools : false,
+        opts.authorizedToolManifestNames ? allowAnalysisTools : false,
         false,
         true,
-         projectReadToolMode,
+        projectReadToolMode,
+        opts.authorizedToolManifestNames,
       )
     : undefined;
   const projectChatToolMode: "workspace" | "project-read-only" = projectReadToolMode;
@@ -7475,11 +7508,22 @@ export async function chat(opts: {
         turnIntent.compoundExecution,
         turnIntent.compoundWrite,
         projectChatToolMode,
+        opts.authorizedToolManifestNames,
       )
     : undefined;
-  const executionToolManifest = sourceEvidenceRequired ? toolManifest : undefined;
+  const executionToolManifest =
+    sourceEvidenceRequired || opts.onReadOnlyInvocation
+      ? toolManifest
+      : undefined;
+  const manifestRequiresSourceReadSurface =
+    !opts.authorizedToolManifestNames
+    || (
+      opts.authorizedToolManifestNames.includes("read_file")
+      && opts.authorizedToolManifestNames.includes("read_file_range")
+    );
   if (
     modelHasTools &&
+    manifestRequiresSourceReadSurface &&
     (!toolManifest
       || !toolManifest.some((tool) => tool.function.name === "read_file")
       || !toolManifest.some((tool) => tool.function.name === "read_file_range"))
@@ -8568,6 +8612,11 @@ export async function chat(opts: {
           apiKey,
           tools,
           toolManifest: executionToolManifest,
+          allowedToolNames: opts.allowedToolNames
+            ? [...opts.allowedToolNames]
+            : undefined,
+          missionReadPathScope: opts.missionReadPathScope,
+          onReadOnlyInvocation: opts.onReadOnlyInvocation,
           rootPath,
           pendingChanges: nodePendingChanges,
           initialFileContents: nodeInitialContents,
@@ -9021,20 +9070,54 @@ export async function chat(opts: {
     // block every read, including already-prefetched evidence, and leave the
     // model looping on READ_PATH_POLICY_BLOCKED. Apply the isolated manifest
     // only when it contains at least one concrete file.
-    allowedToolNames:
-      capabilityProbeRequest
-        ? completeCapabilityProbeEvidence && completeActiveObjectiveManifest
-          ? []
-          : ["read_file", "read_file_range"]
-        : singleFileForensicMode && singleFilePaths.length > 0
-          ? ["read_file"]
-          : undefined,
-    allowedReadPaths:
-      singleFileForensicMode && singleFilePaths.length > 0
-        ? singleFilePaths
-        : turnIntent.projectTarget
-          ? [...turnIntent.projectTarget.primaryPaths]
-          : undefined,
+    allowedToolNames: (() => {
+      const isolatedToolNames =
+        capabilityProbeRequest
+          ? completeCapabilityProbeEvidence && completeActiveObjectiveManifest
+            ? []
+            : ["read_file", "read_file_range"]
+          : singleFileForensicMode && singleFilePaths.length > 0
+            ? ["read_file"]
+            : undefined;
+      if (opts.allowedToolNames === undefined) return isolatedToolNames;
+      if (isolatedToolNames === undefined) return [...opts.allowedToolNames];
+      const isolated = new Set(isolatedToolNames);
+      return opts.allowedToolNames.filter((name) => isolated.has(name));
+    })(),
+    allowedReadPaths: (() => {
+      const contextualReadPaths =
+        singleFileForensicMode && singleFilePaths.length > 0
+          ? singleFilePaths
+          : turnIntent.projectTarget
+            ? [...turnIntent.projectTarget.primaryPaths]
+            : undefined;
+      if (opts.missionReadPathScope === undefined) return contextualReadPaths;
+      if (contextualReadPaths === undefined) return [...opts.missionReadPathScope];
+      const normalizeMissionScopePath = (value: string): string | undefined => {
+        const slashPath = value.replaceAll("\\", "/");
+        if (
+          slashPath.startsWith("/")
+          || /^[a-zA-Z]:/.test(slashPath)
+          || slashPath.split("/").includes("..")
+        ) {
+          return undefined;
+        }
+        const normalized = slashPath
+          .split("/")
+          .filter((segment) => segment && segment !== ".")
+          .join("/");
+        return normalized || undefined;
+      };
+      const approved = new Set(
+        opts.missionReadPathScope
+          .map(normalizeMissionScopePath)
+          .filter((readPath): readPath is string => Boolean(readPath)),
+      );
+      return contextualReadPaths.filter((readPath) =>
+        approved.has(normalizeMissionScopePath(readPath) ?? ""),
+      );
+    })(),
+    missionReadPathScope: opts.missionReadPathScope,
     // Preserve the server-owned objective manifest at the tool-loop boundary.
     // The scope policy alone can reject unrelated paths, but the ordered
     // evidence cursor and forced recovery require the complete objective.
@@ -9238,7 +9321,7 @@ export async function chat(opts: {
           apiKey,
           capability: modelDecision.capability,
           tools: objectiveReplanTools,
-          toolManifest: objectiveReplanTools,
+          toolManifest: toolManifest ?? objectiveReplanTools,
           rootPath,
           pendingChanges,
           initialFileContents: new Map(forensicFileContents),
@@ -9247,8 +9330,14 @@ export async function chat(opts: {
           retainedFileContents: retainedEvidence,
           objectiveEvidenceSources: objectiveLocatorSources,
           objective: loopObjective,
-          allowedToolNames: ["read_file", "read_file_range"],
+          allowedToolNames: opts.allowedToolNames
+            ? opts.allowedToolNames.filter((name) =>
+                name === "read_file" || name === "read_file_range",
+              )
+            : ["read_file", "read_file_range"],
           allowedReadPaths: [target.path],
+          missionReadPathScope: opts.missionReadPathScope,
+          onReadOnlyInvocation: opts.onReadOnlyInvocation,
           firstEvidenceTargetPath: target.path,
           objectiveScopePolicy: objective.scopePolicy,
           orderedForensicRoots:

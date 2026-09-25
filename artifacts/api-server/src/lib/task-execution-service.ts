@@ -1103,6 +1103,12 @@ async function executeMissionToolLoop(params: {
   if (!project) throw new Error("mission_project_not_found");
   const root = await establishProjectRoot(project.rootPath);
   if (!root.ok) throw new Error("mission_project_root_unavailable");
+  if (
+    !params.workspaceRevision
+    || project.updatedAt?.toISOString() !== params.workspaceRevision
+  ) {
+    throw new Error("mission_project_revision_changed_before_execution");
+  }
 
   const policy = missionTaskPolicy({
     task: params.task,
@@ -1176,8 +1182,7 @@ async function executeMissionToolLoop(params: {
   const missionReadOnlyToolNames = new Set([
     "read_file",
     "read_file_range",
-    "list_directory",
-    "search_code",
+    "project.list_tree",
     "git_status",
     "git_diff",
     "git_log",
@@ -1284,61 +1289,108 @@ async function executeMissionToolLoop(params: {
           repairToolActions.delete(actionId);
         }
       : undefined;
+  const recordedObservationIds = new Set<string>();
   const onReadOnlyInvocation: ReadOnlyToolInvocationCallback | undefined =
-    (params.profile === "mission_observe" || params.profile === "mission_validate")
-      ? async (invocation) => {
-          if (
-            !missionReadOnlyToolNames.has(invocation.toolName)
-            || !invocation.toolCallId.trim()
-            || !/^[a-f0-9]{64}$/.test(invocation.inputHash)
-            || !/^[a-f0-9]{64}$/.test(invocation.manifestHash)
-          ) {
-            throw new Error("mission_read_observation_identity_invalid");
+    async (invocation) => {
+      if (
+        !missionReadOnlyToolNames.has(invocation.toolName)
+        || !invocation.toolCallId.trim()
+        || !/^[a-f0-9]{64}$/.test(invocation.inputHash)
+        || !/^[a-f0-9]{64}$/.test(invocation.manifestHash)
+      ) {
+        throw new Error("mission_read_observation_identity_invalid");
+      }
+      const observationId = createHash("sha256")
+        .update(
+          `${params.task.projectId}\0${params.executionId}\0${params.expectedAttempt}\0${params.workspaceRevision}\0${invocation.toolCallId}\0${invocation.inputHash}\0${invocation.manifestHash}`,
+          "utf8",
+        )
+        .digest("hex");
+      if (invocation.phase === "recorded" && recordedObservationIds.has(observationId)) {
+        return;
+      }
+      const [currentProject] = await db
+        .select({ updatedAt: projectsTable.updatedAt })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, params.task.projectId))
+        .limit(1);
+      const revisionMatches =
+        currentProject?.updatedAt?.toISOString() === params.workspaceRevision;
+      if (invocation.phase === "requested" && !revisionMatches) {
+        throw new Error("mission_project_revision_changed_before_read");
+      }
+      const episode = await getMissionRepairEpisode();
+      const payload = invocation.phase === "requested"
+        ? {
+            observationId,
+            toolCallId: invocation.toolCallId,
+            toolName: invocation.toolName,
+            inputHash: invocation.inputHash,
+            manifestHash: invocation.manifestHash,
+            projectRevision: params.workspaceRevision,
+            authorization: "server_owned",
           }
-          const observationId = createHash("sha256")
-            .update(
-              `${params.task.projectId}\0${params.executionId}\0${params.expectedAttempt}\0${params.workspaceRevision}\0${invocation.toolCallId}\0${invocation.inputHash}\0${invocation.manifestHash}`,
-              "utf8",
-            )
-            .digest("hex");
-          const episode = await getMissionRepairEpisode();
-          const payload = invocation.phase === "requested"
-            ? {
-                observationId,
-                toolCallId: invocation.toolCallId,
-                toolName: invocation.toolName,
-                inputHash: invocation.inputHash,
-                manifestHash: invocation.manifestHash,
-                projectRevision: params.workspaceRevision,
-                authorization: "server_owned",
-              }
-            : {
-                observationId,
-                toolCallId: invocation.toolCallId,
-                toolName: invocation.toolName,
-                inputHash: invocation.inputHash,
-                manifestHash: invocation.manifestHash,
-                projectRevision: params.workspaceRevision,
-                status: invocation.status ?? "failed",
-                ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
-                ...(invocation.diagnosticCode ? { diagnosticCode: invocation.diagnosticCode.slice(0, 120) } : {}),
-              };
-          await appendEpisodeEvent({
-            episodeId: episode.episodeId,
-            projectId: params.task.projectId,
-            executionId: params.executionId,
-            attempt: params.expectedAttempt,
-            workerId: params.workerId,
-            eventType: invocation.phase === "requested"
-              ? "OBSERVATION_REQUESTED"
-              : "OBSERVATION_RECORDED",
-            payload: payload as Parameters<typeof appendEpisodeEvent>[0]["payload"],
-            actorType: "worker",
-            actorId: params.workerId,
-            correlationId: params.correlationId,
-          });
+        : {
+            observationId,
+            toolCallId: invocation.toolCallId,
+            toolName: invocation.toolName,
+            inputHash: invocation.inputHash,
+            manifestHash: invocation.manifestHash,
+            projectRevision: params.workspaceRevision,
+            status: revisionMatches ? invocation.status ?? "failed" : "failed",
+            ...(
+              revisionMatches && invocation.outputHash
+                ? { outputHash: invocation.outputHash }
+                : {}
+            ),
+            ...(
+              !revisionMatches
+                ? { diagnosticCode: "PROJECT_REVISION_CHANGED" }
+                : invocation.diagnosticCode
+                  ? { diagnosticCode: invocation.diagnosticCode.slice(0, 120) }
+                  : {}
+            ),
+          };
+      await appendEpisodeEvent({
+        episodeId: episode.episodeId,
+        projectId: params.task.projectId,
+        executionId: params.executionId,
+        attempt: params.expectedAttempt,
+        workerId: params.workerId,
+        eventType: invocation.phase === "requested"
+          ? "OBSERVATION_REQUESTED"
+          : "OBSERVATION_RECORDED",
+        payload: payload as Parameters<typeof appendEpisodeEvent>[0]["payload"],
+        actorType: "worker",
+        actorId: params.workerId,
+        correlationId: params.correlationId,
+      });
+      if (invocation.phase === "recorded") {
+        recordedObservationIds.add(observationId);
+        if (!revisionMatches && invocation.status === "completed") {
+          throw new Error("mission_project_revision_changed_after_read");
         }
-      : undefined;
+      }
+    };
+  const missionFileReadToolNames = policy.targetPaths.length > 0
+    ? ["read_file", "read_file_range"]
+    : [];
+  const missionProjectObservationToolNames =
+    params.profile === "mission_observe" || params.profile === "mission_validate"
+      ? ["project.list_tree", "git_status", "git_diff", "git_log"]
+      : [];
+  const missionMutationToolNames = onMutationInvocation
+    ? ["replace_text", "write_file"]
+    : [];
+  const missionValidationToolNames = allowValidationTools
+    ? ["run_validation"]
+    : [];
+  const missionToolNames = [
+    ...missionFileReadToolNames,
+    ...missionProjectObservationToolNames,
+    ...missionMutationToolNames,
+    ...missionValidationToolNames,
+  ];
 
   const chat = await chatWithFallback(
     params.userId,
@@ -1367,19 +1419,9 @@ async function executeMissionToolLoop(params: {
       allowExecutionTools: params.profile !== "mission_observe" && approvalState === "APPROVED",
       onMutationInvocation,
       onReadOnlyInvocation,
-      allowedToolNames: params.profile === "mission_observe"
-        ? ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log"]
-        : params.profile === "mission_validate"
-          ? ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "run_validation"]
-          : [
-              "read_file",
-              "read_file_range",
-              "list_directory",
-              "search_code",
-              "replace_text",
-              "write_file",
-              "run_validation",
-            ],
+      allowedToolNames: missionToolNames,
+      authorizedToolManifestNames: missionToolNames,
+      missionReadPathScope: policy.targetPaths,
       validationRunner: allowValidationTools
         ? async (
             validationProfile: string,
@@ -1840,20 +1882,52 @@ export async function executeTaskLifecycle(params: {
     missionGoal?.outcomeContract,
     before.phase,
   );
-  const executionWorkspaceRevision = params.workspaceRevision
-    ?? (missionGoal && isMissionToolLoopProfile(executionProfile)
-      ? before.updatedAt.toISOString()
-      : undefined);
+  let executionWorkspaceRevision = params.workspaceRevision;
   let executionWorkspaceRoot: string | undefined;
   if (missionGoal && isMissionToolLoopProfile(executionProfile)) {
     const [project] = await db
-      .select({ rootPath: projectsTable.rootPath })
+      .select({
+        rootPath: projectsTable.rootPath,
+        updatedAt: projectsTable.updatedAt,
+      })
       .from(projectsTable)
       .where(eq(projectsTable.id, before.projectId))
       .limit(1);
     if (project) {
+      const currentProjectRevision = project.updatedAt?.toISOString();
+      if (!currentProjectRevision) {
+        return {
+          ok: false,
+          status: "conflict",
+          errorCode: "mission_project_revision_unavailable",
+        };
+      }
+      if (
+        params.workspaceRevision
+        && params.workspaceRevision !== currentProjectRevision
+      ) {
+        return {
+          ok: false,
+          status: "conflict",
+          errorCode: "mission_project_revision_changed",
+        };
+      }
+      executionWorkspaceRevision = currentProjectRevision;
       const established = await establishProjectRoot(project.rootPath);
-      if (established.ok) executionWorkspaceRoot = established.canonicalPath;
+      if (!established.ok) {
+        return {
+          ok: false,
+          status: "conflict",
+          errorCode: "mission_project_root_unavailable",
+        };
+      }
+      executionWorkspaceRoot = established.canonicalPath;
+    } else {
+      return {
+        ok: false,
+        status: "conflict",
+        errorCode: "mission_project_not_found",
+      };
     }
   }
   const allowed = params.expectedStatuses ?? ["pending", "queued", "verifying"];

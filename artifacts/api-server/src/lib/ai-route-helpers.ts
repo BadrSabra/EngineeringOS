@@ -861,6 +861,8 @@ export async function chatWithFallback(
      executionMode?: "forensic" | "repair_plan";
      allowExecutionTools?: boolean;
      allowedToolNames?: readonly string[];
+     authorizedToolManifestNames?: readonly string[];
+     missionReadPathScope?: readonly string[];
       /** Server-owned, proof-critical lifecycle for approved Mission repair writes. */
       onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
      /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
@@ -1116,6 +1118,8 @@ export async function chatWithFallback(
          executionMode: baseParams.executionMode,
          allowExecutionTools: baseParams.allowExecutionTools,
          allowedToolNames: baseParams.allowedToolNames,
+         authorizedToolManifestNames: baseParams.authorizedToolManifestNames,
+         missionReadPathScope: baseParams.missionReadPathScope,
          onReadOnlyInvocation: baseParams.onReadOnlyInvocation,
         browserValidationRunner: baseParams.browserValidationRunner,
         browserValidationContext: baseParams.browserValidationContext,

@@ -490,6 +490,9 @@ describe("real durable task execution lifecycle", () => {
       phase: "validate",
       approvalRequired: false,
     });
+    await db.update(tasksTable)
+      .set({ updatedAt: new Date(fixture.now.getTime() - 60_000) })
+      .where(eq(tasksTable.id, fixture.taskId));
     const liveContent = "export const value = 'base';\n";
     chatWithFallback.mockResolvedValue({
       result: {
@@ -503,11 +506,26 @@ describe("real durable task execution lifecycle", () => {
     chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
       const baseParams = args[1] as {
         onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
-        allowedToolNames?: string[];
+        allowedToolNames?: readonly string[];
+        authorizedToolManifestNames?: readonly string[];
+        missionReadPathScope?: readonly string[];
       };
       expect(baseParams.allowedToolNames).toEqual(
-        expect.arrayContaining(["git_status", "git_diff", "git_log"]),
+        expect.arrayContaining([
+          "read_file",
+          "read_file_range",
+          "project.list_tree",
+          "git_status",
+          "git_diff",
+          "git_log",
+          "run_validation",
+        ]),
       );
+      expect(baseParams.allowedToolNames).not.toEqual(
+        expect.arrayContaining(["list_directory", "search_code"]),
+      );
+      expect(baseParams.authorizedToolManifestNames).toEqual(baseParams.allowedToolNames);
+      expect(baseParams.missionReadPathScope).toEqual(["src/target.ts"]);
       const invocation = {
         toolCallId: "provider-read-mission-1",
         toolName: "git_diff" as const,
@@ -520,6 +538,19 @@ describe("real durable task execution lifecycle", () => {
         phase: "recorded",
         status: "completed",
         outputHash: "e".repeat(64),
+      });
+      const treeInvocation = {
+        toolCallId: "provider-tree-mission-1",
+        toolName: "project.list_tree" as const,
+        inputHash: "f".repeat(64),
+        manifestHash: "d".repeat(64),
+      };
+      await baseParams.onReadOnlyInvocation?.({ ...treeInvocation, phase: "requested" });
+      await baseParams.onReadOnlyInvocation?.({
+        ...treeInvocation,
+        phase: "recorded",
+        status: "completed",
+        outputHash: "a".repeat(64),
       });
       return {
         result: {
@@ -542,7 +573,6 @@ describe("real durable task execution lifecycle", () => {
         provider: { provider: "groq", apiKey: "fixture-provider" },
         trigger: "reconciliation",
         expectedStatuses: ["verifying"],
-        workspaceRevision: fixture.now.toISOString(),
       });
 
       expect(outcome.ok).toBe(true);
@@ -564,7 +594,9 @@ describe("real durable task execution lifecycle", () => {
         })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
-      expect(events.map((event) => event.eventType)).not.toContain("ACTION_REQUESTED");
+      expect(events
+        .filter((event) => /^(ACTION|EFFECT|PROOF|ACCEPTANCE)/.test(event.eventType)))
+        .toHaveLength(0);
       expect(events.map((event) => event.eventType)).toEqual(
         expect.arrayContaining(["OBSERVATION_REQUESTED", "OBSERVATION_RECORDED"]),
       );
@@ -593,10 +625,105 @@ describe("real durable task execution lifecycle", () => {
       expect(observationRecorded?.attempt).toBe(observationRequest?.attempt);
       expect(JSON.stringify(observationRequest?.payload)).not.toContain("src/target.ts");
       expect(JSON.stringify(observationRecorded?.payload)).not.toContain("Validated the current workspace.");
+      const treeRequest = events.find((event) =>
+        event.eventType === "OBSERVATION_REQUESTED"
+        && (event.payload as { toolName?: string }).toolName === "project.list_tree",
+      );
+      const treeRecorded = events.find((event) =>
+        event.eventType === "OBSERVATION_RECORDED"
+        && (event.payload as { toolName?: string }).toolName === "project.list_tree",
+      );
+      expect(treeRequest?.payload).toMatchObject({
+        toolCallId: "provider-tree-mission-1",
+        projectRevision: fixture.now.toISOString(),
+        authorization: "server_owned",
+      });
+      expect(treeRecorded?.payload).toMatchObject({
+        observationId: (treeRequest?.payload as { observationId: string }).observationId,
+        status: "completed",
+        outputHash: "a".repeat(64),
+        projectRevision: fixture.now.toISOString(),
+      });
       const baseParams = chatWithFallback.mock.calls.at(-1)?.[1] as {
         onMutationInvocation?: unknown;
       } | undefined;
       expect(baseParams?.onMutationInvocation).toBeUndefined();
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
+  it("records a failed Mission observation when the project revision changes mid-read", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "validate",
+      approvalRequired: false,
+    });
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-tree-revision-drift",
+        toolName: "project.list_tree" as const,
+        inputHash: "1".repeat(64),
+        manifestHash: "2".repeat(64),
+      };
+      await baseParams.onReadOnlyInvocation?.({ ...invocation, phase: "requested" });
+      await db.update(projectsTable)
+        .set({ updatedAt: new Date(fixture.now.getTime() + 1_000) })
+        .where(eq(projectsTable.id, fixture.projectId));
+      await expect(
+        baseParams.onReadOnlyInvocation?.({
+          ...invocation,
+          phase: "recorded",
+          status: "completed",
+          outputHash: "3".repeat(64),
+        }),
+      ).rejects.toThrow("mission_project_revision_changed_after_read");
+      return {
+        result: {
+          response: "The project changed during the read; no tree result was delivered.",
+          pendingChanges: [],
+          sources: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    try {
+      await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-revision-drift-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+      });
+      const events = await db
+        .select({
+          eventType: aiAgentEpisodeEventsTable.eventType,
+          payload: aiAgentEpisodeEventsTable.payload,
+        })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
+      const request = events.find((event) =>
+        event.eventType === "OBSERVATION_REQUESTED"
+        && (event.payload as { toolCallId?: string }).toolCallId === "provider-tree-revision-drift",
+      );
+      const recorded = events.find((event) =>
+        event.eventType === "OBSERVATION_RECORDED"
+        && (event.payload as { toolCallId?: string }).toolCallId === "provider-tree-revision-drift",
+      );
+
+      expect(request?.payload).toMatchObject({
+        projectRevision: fixture.now.toISOString(),
+        authorization: "server_owned",
+      });
+      expect(recorded?.payload).toMatchObject({
+        status: "failed",
+        diagnosticCode: "PROJECT_REVISION_CHANGED",
+        projectRevision: fixture.now.toISOString(),
+      });
+      expect(recorded?.payload).not.toHaveProperty("outputHash");
     } finally {
       await fixture.cleanup();
     }

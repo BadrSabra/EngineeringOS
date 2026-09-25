@@ -5687,3 +5687,24 @@ callback بسبب دلالات التنفيذ أو الحالة أو القبو�
 `task.updatedAt` في `workspaceRevision`؛ لا يُمرر هذا كـanalysis
 `projectRevision` دون تحقق server-owned. لا تغييرات code/schema/production في
 هذا الجرد. تبقى P5.5 جزئية؛ لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.36 P5.5 — Bounded Mission project-tree observation (2026-09-25)
+
+أضيفت قدرة واحدة ومحدودة هي `project.list_tree`: لا تقبل path أو limits من
+النموذج، وتعمل من managed project root الذي يثبته الخادم. الحد الأقصى للعمق
+2 وللنتائج 100، مع حدود إضافية للـscan وحجم المخرجات؛ الناتج metadata فقط
+مع تخطي symlinks والمجلدات المولدة والمسارات الحساسة.
+
+يمرر task service manifest Mission انتقائيًا وscope مستقلًا exact لقراءات
+الملفات؛ لا يظهر `list_directory` أو `search_code` في هذا manifest، ويعاد
+فحص الصلاحية عند dispatcher. يستخدم `projects.updatedAt` بوصفه project
+revision بدل `task.updatedAt`، ويُفحص قبل وبعد القراءة. يسجل Episode
+`OBSERVATION_REQUESTED` قبل القراءة و`OBSERVATION_RECORDED` قبل استهلاك
+الناتج؛ عند revision drift يسجل فشلًا بلا `outputHash` ويحجب الأداة النتيجة.
+
+هذه Observation فقط: لا Action أو Effect أو Proof أو Acceptance، ولا تغييرات
+schema أو قاعدة الإنتاج، ولا يبدأ P6 أو P7 أو P7.5. اختبارات file-tools و
+Mission observation نجحت (36/36)، واختبارات task lifecycle نجحت (7/7)،
+ونجح typecheck لحزم orchestrator وAPI وdashboard. أعيد تشغيل API وdashboard؛
+سجل API `Server listening` وظهر dashboard preview دون أخطاء browser. تظل
+P5.5 جزئية.

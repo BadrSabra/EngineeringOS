@@ -1518,6 +1518,32 @@ G9 Revocation Safety
   واحدةً واحدة مع request-before-read وrecord-before-consume؛ لا تصنف كل
   `mutatesProject:false` على أنها قراءة.
 
+### 42.36 P5.5 — شجرة مشروع محدودة لملاحظة Mission (2026-09-25)
+
+- **phase/step:** P5.5 — bounded Mission project-tree observation
+- **status:** `partial`
+- **what changed:** إضافة `project.list_tree` بلا معاملات من النموذج، بجذر
+  managed ثابت، وعمق 2 و100 نتيجة وحدود scan/output ثابتة. يعيد بيانات وصفية
+  فقط، ويتخطى symlinks والمسارات الحساسة والمجلدات المولدة. Mission يمرر
+  manifest انتقائيًا وscope ملفات exact؛ لا تظهر أدوات `list_directory` أو
+  `search_code` في provider manifest الخاص به.
+- **files/schema/contracts touched:** file-tools وtool policy/dispatcher
+  وchat-agent وtask execution service واختبارات الوحدة والتكامل وسجل P5.5؛
+  لا تغييرات schema أو قاعدة الإنتاج.
+- **validation:** اختبارات file tools وMission observation (36/36)،
+  integration lifecycle (7/7)، وtypecheck لحزم orchestrator وAPI وdashboard.
+  أعيد تشغيل API وdashboard؛ API سجّل `Server listening` وظهر preview
+  dashboard دون أخطاء browser.
+- **authority/safety impact:** `projects.updatedAt` هو revision المصدر،
+  ويتحقق الخادم منه قبل وبعد كل Observation؛ يرفض أو يحجب النتيجة عند drift.
+  تسجل `OBSERVATION_REQUESTED` قبل القراءة و`OBSERVATION_RECORDED` قبل
+  استهلاك النتيجة. `outputHash` يعرّف النتيجة فقط، ولا ينشئ Action أو Effect
+  أو Proof أو Acceptance.
+- **remaining/blocker:** لا يوجد عائق لهذه القدرة المحدودة. تظل P5.5 جزئية؛
+  لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** لا توسع صلاحيات Mission ضمن هذه الخطوة. أي قدرة أخرى تحتاج
+  manifest وscope وrevision وعقد Observation منفصلًا.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -46,6 +46,7 @@ export type ToolAuthorization = {
 const FILE_READ_TOOL_NAMES = new Set([
   "read_file",
   "read_file_range",
+  "project.list_tree",
   "list_directory",
   "search_code",
   "symbol_search",
@@ -196,6 +197,9 @@ export function authorizeToolInvocation(opts: {
 }): ToolAuthorization {
   const known = new Set([...FILE_READ_TOOL_NAMES, ...FILE_WRITE_TOOL_NAMES, ...GIT_TOOL_NAMES, ...EXECUTION_TOOL_NAMES, ...ANALYSIS_TOOL_NAMES]);
   if (!known.has(opts.toolName)) return { allowed: false, reason: "unknown_tool" };
+  if (opts.toolName === "project.list_tree" && !opts.allowedTools?.has(opts.toolName)) {
+    return { allowed: false, reason: "tool_not_in_manifest" };
+  }
   if (opts.allowedTools && !opts.allowedTools.has(opts.toolName)) {
     return { allowed: false, reason: "tool_not_in_manifest" };
   }

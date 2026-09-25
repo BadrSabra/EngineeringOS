@@ -30,6 +30,11 @@ const MAX_TARGETED_READ_LINES = 4_000; // read_file_range window cap
 const MAX_TARGETED_READ_BYTES = 128_000; // safety byte cap on a targeted window
 const MAX_FULL_REPLACEMENT_BYTES = 128_000; // full-file write safety cap remains independent from read previews
 const MAX_SEARCH_LINES = 50;
+const MAX_PROJECT_TREE_DEPTH = 2;
+const MAX_PROJECT_TREE_ENTRIES = 100;
+const MAX_PROJECT_TREE_SCANNED_ENTRIES = 5_000;
+const MAX_PROJECT_TREE_DIRECTORY_ENTRIES = 1_000;
+const MAX_PROJECT_TREE_OUTPUT_BYTES = 24_000;
 const READ_TRUNCATION_MARKER =
   "\n\n[... output truncated at 128 KB by the read tool; this is a display limit, not evidence that the file is incomplete or corrupted. Do not infer missing code from this marker. Use targeted search_code or replace_text for exact source-level evidence. ...]";
 const FORENSIC_READ_TRUNCATION_MARKER =
@@ -37,6 +42,8 @@ const FORENSIC_READ_TRUNCATION_MARKER =
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".next", "__pycache__", ".venv", "build", "coverage"]);
 const BLOCKED_SENSITIVE_PATH =
   /(?:^|[/\\])(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.htpasswd|credentials(?:\.[^/\\]*)?|(?:service[-_.]?account|.*(?:private|secret|token|credential)).*\.(?:json|ya?ml|toml|ini|cfg|conf)|id_(?:rsa|dsa|ecdsa)|.*\.(?:pem|key|p12|pfx|jks|kdbx|gpg|asc))$/i;
+const BLOCKED_TREE_SEGMENT =
+  /^(?:\.?env(?:\..*)?|secrets?|credentials?(?:\..*)?|private(?:\..*)?|.*(?:secret|token|credential).*)$/i;
 
 export function isSensitiveProjectPath(filePath: string): boolean {
   return BLOCKED_SENSITIVE_PATH.test(filePath);
@@ -182,6 +189,19 @@ export const FILE_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ["path", "startLine", "endLine"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "project.list_tree",
+      description:
+        "List a bounded, metadata-only tree of the server-managed project root. The root is fixed by the server; no path or file-content reads are accepted.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
       },
     },
   },
@@ -388,6 +408,134 @@ async function safePath(resolvedRoot: string, filePath: string): Promise<string 
  * unchanged, so raw-only paths (single-file pre-read) and genuine source that
  * merely starts with a "File:" token are never mangled.
  */
+type ProjectTreeEntry = {
+  path: string;
+  kind: "directory" | "file";
+  sizeBytes?: number;
+};
+
+function isSensitiveTreePath(relativePath: string): boolean {
+  return isSensitiveProjectPath(relativePath)
+    || relativePath.split("/").some((segment) => BLOCKED_TREE_SEGMENT.test(segment));
+}
+
+async function listManagedProjectTree(rootPath: string): Promise<string> {
+  const absoluteRoot = path.resolve(rootPath);
+  const rootStat = await fs.lstat(absoluteRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error("project_tree_root_not_directory");
+  }
+  const canonicalRoot = await fs.realpath(absoluteRoot);
+  if (canonicalRoot !== absoluteRoot) {
+    throw new Error("project_tree_root_not_canonical");
+  }
+
+  const entries: ProjectTreeEntry[] = [];
+  let scannedEntries = 0;
+  let truncated = false;
+
+  const verifyDirectory = async (absolutePath: string): Promise<void> => {
+    const stat = await fs.lstat(absolutePath);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error("project_tree_directory_changed");
+    }
+    const realPath = await fs.realpath(absolutePath);
+    if (
+      realPath !== absolutePath
+      || (realPath !== canonicalRoot && !realPath.startsWith(`${canonicalRoot}${path.sep}`))
+    ) {
+      throw new Error("project_tree_path_outside_root");
+    }
+  };
+
+  const walk = async (relativeDirectory: string, depth: number): Promise<void> => {
+    const absoluteDirectory = relativeDirectory
+      ? path.join(canonicalRoot, ...relativeDirectory.split("/"))
+      : canonicalRoot;
+    await verifyDirectory(absoluteDirectory);
+
+    const directory = await fs.opendir(absoluteDirectory);
+    const children: Array<{ name: string; kind: "directory" | "file" }> = [];
+    try {
+      for await (const item of directory) {
+        scannedEntries += 1;
+        if (
+          scannedEntries > MAX_PROJECT_TREE_SCANNED_ENTRIES
+          || children.length >= MAX_PROJECT_TREE_DIRECTORY_ENTRIES
+        ) {
+          throw new Error("project_tree_scan_limit_exceeded");
+        }
+        if (item.isSymbolicLink() || (!item.isDirectory() && !item.isFile())) continue;
+        if (item.isDirectory() && SKIP_DIRS.has(item.name)) continue;
+        const childPath = relativeDirectory ? `${relativeDirectory}/${item.name}` : item.name;
+        if (isSensitiveTreePath(childPath)) continue;
+        children.push({ name: item.name, kind: item.isDirectory() ? "directory" : "file" });
+      }
+    } finally {
+      await directory.close().catch(() => undefined);
+    }
+
+    children.sort((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1
+        : left.kind === right.kind ? 0 : left.kind === "directory" ? -1 : 1,
+    );
+
+    for (const child of children) {
+      if (entries.length >= MAX_PROJECT_TREE_ENTRIES) {
+        truncated = true;
+        return;
+      }
+      const childRelativePath = relativeDirectory
+        ? `${relativeDirectory}/${child.name}`
+        : child.name;
+      const childAbsolutePath = path.join(canonicalRoot, ...childRelativePath.split("/"));
+      const childStat = await fs.lstat(childAbsolutePath);
+      if (childStat.isSymbolicLink()) continue;
+      if (child.kind === "directory") {
+        if (!childStat.isDirectory()) continue;
+        entries.push({ path: childRelativePath, kind: "directory" });
+        if (depth + 1 < MAX_PROJECT_TREE_DEPTH) {
+          await walk(childRelativePath, depth + 1);
+          if (entries.length >= MAX_PROJECT_TREE_ENTRIES) {
+            truncated ||= children.at(-1) !== child;
+            return;
+          }
+        }
+      } else {
+        if (!childStat.isFile()) continue;
+        entries.push({
+          path: childRelativePath,
+          kind: "file",
+          sizeBytes: childStat.size,
+        });
+      }
+    }
+  };
+
+  await walk("", 0);
+  const result = {
+    kind: "project_tree",
+    root: ".",
+    maxDepth: MAX_PROJECT_TREE_DEPTH,
+    maxEntries: MAX_PROJECT_TREE_ENTRIES,
+    truncated,
+    entries,
+  };
+  let output = JSON.stringify(result);
+  while (
+    Buffer.byteLength(output, "utf8") > MAX_PROJECT_TREE_OUTPUT_BYTES
+    && result.entries.length > 0
+  ) {
+    result.entries.pop();
+    result.truncated = true;
+    output = JSON.stringify(result);
+  }
+  if (Buffer.byteLength(output, "utf8") > MAX_PROJECT_TREE_OUTPUT_BYTES) {
+    throw new Error("project_tree_output_limit_exceeded");
+  }
+  return output;
+}
+
 export function stripReadFileWrapper(body: string): string {
   const lines = body.split("\n");
   if (
@@ -429,6 +577,13 @@ export async function executeFileTool(
   }
 
   switch (toolName) {
+    case "project.list_tree": {
+      if (Object.keys(args).length > 0) {
+        throw new Error("project_tree_arguments_not_allowed");
+      }
+      return listManagedProjectTree(rootPath);
+    }
+
     // ── read_file ─────────────────────────────────────────────────────────────
     case "read_file": {
       if (isSensitiveProjectPath(args.path ?? "")) {

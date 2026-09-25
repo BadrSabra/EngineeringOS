@@ -325,7 +325,8 @@ const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((t) => t.fun
 function untrustedToolOutput(name: string, output: string, args: Record<string, string>): string {
   const source = GIT_TOOL_NAMES.has(name)
     ? "git" as const
-    : name === "read_file" || name === "read_file_range" || name === "list_directory" || name === "search_code"
+    : name === "read_file" || name === "read_file_range" || name === "project.list_tree"
+      || name === "list_directory" || name === "search_code"
       || CODE_NAVIGATION_TOOL_NAMES_SET.has(name)
       || PACKAGE_TOOL_NAMES_SET.has(name)
       || BINARY_TOOL_NAMES_SET.has(name)
@@ -470,8 +471,7 @@ export type ReadOnlyToolInvocation = {
   toolName:
     | "read_file"
     | "read_file_range"
-    | "list_directory"
-    | "search_code"
+    | "project.list_tree"
     | "git_status"
     | "git_diff"
     | "git_log";
@@ -489,8 +489,7 @@ export type ReadOnlyToolInvocationCallback = (
 const MISSION_READ_ONLY_TOOL_NAMES = new Set<ReadOnlyToolInvocation["toolName"]>([
   "read_file",
   "read_file_range",
-  "list_directory",
-  "search_code",
+  "project.list_tree",
   "git_status",
   "git_diff",
   "git_log",
@@ -518,6 +517,15 @@ function toolInputHash(args: Record<string, string>): string {
   return createHash("sha256")
     .update(JSON.stringify(Object.fromEntries(Object.entries(args).sort(([left], [right]) => left.localeCompare(right)))), "utf8")
     .digest("hex");
+}
+
+function normalizeMissionScopedReadPath(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value || value.includes("\0")) return undefined;
+  const slashPath = value.replaceAll("\\", "/");
+  if (slashPath.startsWith("/") || /^[a-zA-Z]:/.test(slashPath)) return undefined;
+  const segments = slashPath.split("/").filter((segment) => segment && segment !== ".");
+  if (segments.length === 0 || segments.some((segment) => segment === "..")) return undefined;
+  return segments.join("/");
 }
 
 export type SingleToolOpts = {
@@ -556,6 +564,8 @@ export type SingleToolOpts = {
   approvedValidationProfiles?: readonly string[];
   /** Server-owned effective tool manifest, checked again at dispatch. */
   allowedToolNames?: ReadonlySet<string>;
+  /** Exact file paths authorized for Mission source reads; undefined means non-Mission. */
+  missionReadPathScope?: readonly string[];
   /** Cancellation signal owned by the durable execution controller. */
   signal?: AbortSignal;
   /** Server-owned action lifecycle hook for specifically authorized file mutations. */
@@ -900,6 +910,51 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         safeMessage: `Tool "${name}" was blocked by the server authorization gate (${authorization.reason}).`,
       };
     }
+    if (name === "project.list_tree" && Object.keys(effectiveArgs).length > 0) {
+      return {
+        kind: "failed",
+        failureKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        safeMessage: "The project tree tool accepts no model-selected path or limit arguments.",
+      };
+    }
+    if (opts.missionReadPathScope !== undefined) {
+      const approvedPaths = new Set(
+        opts.missionReadPathScope
+          .map(normalizeMissionScopedReadPath)
+          .filter((value): value is string => Boolean(value)),
+      );
+      if (name === "list_directory" || name === "search_code") {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "Generic directory listing and project-wide search are not authorized for this Mission read scope.",
+        };
+      }
+      if (name === "read_file" || name === "read_file_range") {
+        const requestedPath = normalizeMissionScopedReadPath(effectiveArgs.path);
+        if (!requestedPath || !approvedPaths.has(requestedPath)) {
+          return {
+            kind: "failed",
+            failureKind: "unavailable",
+            diagnosticCode: "TOOL_UNAVAILABLE",
+            safeMessage: "The requested source path is outside the server-approved Mission read scope.",
+          };
+        }
+      }
+      if (name === "git_diff" && effectiveArgs.path) {
+        const requestedPath = normalizeMissionScopedReadPath(effectiveArgs.path);
+        if (!requestedPath || !approvedPaths.has(requestedPath)) {
+          return {
+            kind: "failed",
+            failureKind: "unavailable",
+            diagnosticCode: "TOOL_UNAVAILABLE",
+            safeMessage: "The requested diff path is outside the server-approved Mission read scope.",
+          };
+        }
+      }
+    }
     readCallback = opts.onReadOnlyInvocation
       && MISSION_READ_ONLY_TOOL_NAMES.has(name as ReadOnlyToolInvocation["toolName"])
       ? opts.onReadOnlyInvocation
@@ -1150,6 +1205,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       case "read_file":
       case "read_file_range":
         if (effectiveArgs.path) source = effectiveArgs.path;
+        break;
+      case "project.list_tree":
+        source = "project tree";
         break;
       case "list_directory":
         source = `directory: ${effectiveArgs.path ?? "."}`;
@@ -1671,6 +1729,8 @@ export type ToolLoopOpts = {
    * project-relative paths.
    */
   allowedReadPaths?: string[];
+  /** Immutable Mission read scope, checked again at the final dispatcher. */
+  missionReadPathScope?: readonly string[];
 
   /**
    * AI-OBJ-008: objective-specific evidence scope. Primary paths are ordinary
@@ -6136,6 +6196,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           approvedFilePaths,
           approvedValidationProfiles,
           allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
+          missionReadPathScope: opts.missionReadPathScope,
           analysisToolRunner: opts.analysisToolRunner,
           analysisCorrelation: opts.analysisCorrelation,
           analysisDeadlineAt: executionLedger?.deadlineAt,
