@@ -144,7 +144,12 @@ import {
   ValidationProfileSchema,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
-import { appendEpisodeEvent, startEpisode, startEpisodeShadow } from "../../lib/agent-state/agent-episode-ledger.js";
+import {
+  appendEpisodeEvent,
+  closeEpisode,
+  startEpisode,
+  startEpisodeShadowWithEpisode,
+} from "../../lib/agent-state/agent-episode-ledger.js";
 import {
   buildApplyChangeAction,
   buildApplyChangeEffectContract,
@@ -7816,7 +7821,7 @@ export async function handleChatStream(req: Request, res: Response) {
       analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
 
-    startEpisodeShadow({
+    const chatObservationEpisode = await startEpisodeShadowWithEpisode({
       projectId,
       executionId: aiExecution.id,
       attempt: aiExecution.attempt,
@@ -7831,6 +7836,42 @@ export async function handleChatStream(req: Request, res: Response) {
       },
       ...(effectiveLinkedTaskId ? { objectiveContractId: effectiveLinkedTaskId } : {}),
     });
+    let chatObservationEpisodeCloseAttempted = false;
+    const closeChatObservationEpisode = async (
+      verdict: "incomplete" | "cancelled",
+      reasonCode: string,
+    ): Promise<void> => {
+      if (!chatObservationEpisode || chatObservationEpisodeCloseAttempted || executionLeaseLost) return;
+      chatObservationEpisodeCloseAttempted = true;
+      try {
+        await closeEpisode({
+          episodeId: chatObservationEpisode.episodeId,
+          projectId,
+          executionId: aiExecution!.id,
+          attempt: aiExecution!.attempt,
+          workerId: executionWorkerId!,
+          eventType: verdict === "cancelled" ? "EPISODE_CANCELLED" : "EPISODE_TERMINAL",
+          payload: { verdict, reasonCode },
+          verdict,
+          reasonCode,
+          actorType: "worker",
+          actorId: executionWorkerId!,
+          correlationId: aiExecution!.operationId ?? aiExecution!.id,
+        });
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "chat-route",
+            code: "chat_observation_episode_close_failed",
+            executionId: aiExecution!.id,
+            episodeId: chatObservationEpisode.episodeId,
+            verdict,
+            error,
+          },
+          "Chat observation Episode could not be closed",
+        );
+      }
+    };
 
     const providerHistoryPolicy = resolveProviderHistoryPolicy({
       turnIntent: streamTurnIntent,
@@ -8946,10 +8987,40 @@ export async function handleChatStream(req: Request, res: Response) {
         }]
       : undefined;
 
+    const assertStreamExecutionOwned = async (): Promise<void> => {
+      if (!aiExecution || !executionWorkerId) {
+        throw new Error("AI execution ownership is unavailable");
+      }
+      if (executionLeaseLost) {
+        throw new Error("AI execution lease expired");
+      }
+      if (activeExecutionAbortController.signal.aborted) {
+        throw new Error("AI execution cancellation requested");
+      }
+      let owned: boolean;
+      try {
+        owned = await ownsAiExecutionLease({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId,
+        });
+      } catch (error) {
+        executionLeaseLost = true;
+        activeExecutionAbortController.abort(new Error("AI execution lease could not be verified"));
+        throw error;
+      }
+      if (!owned) {
+        executionLeaseLost = true;
+        activeExecutionAbortController.abort(new Error("AI execution lease expired"));
+        throw new Error("AI execution lease expired");
+      }
+    };
+
     let result: Awaited<ReturnType<typeof chat>>;
     let endedBeforeEvidence = false;
     try {
-      const chatOut = await chatWithFallback(
+      const chatOut = await (async () => {
+        try {
+          return await chatWithFallback(
         req.userId,
         {
           message: modelMessage,
@@ -9017,30 +9088,7 @@ export async function handleChatStream(req: Request, res: Response) {
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
            ...(aiExecution ? {
-             assertExecutionOwned: async () => {
-               if (executionLeaseLost) {
-                 throw new Error("AI execution lease expired");
-               }
-               if (activeExecutionAbortController.signal.aborted) {
-                 throw new Error("AI execution cancellation requested");
-               }
-               let owned: boolean;
-               try {
-                 owned = await ownsAiExecutionLease({
-                   executionId: aiExecution!.id,
-                   workerId: executionWorkerId!,
-                 });
-               } catch (error) {
-                 executionLeaseLost = true;
-                 activeExecutionAbortController.abort(new Error("AI execution lease could not be verified"));
-                 throw error;
-               }
-               if (!owned) {
-                 executionLeaseLost = true;
-                 activeExecutionAbortController.abort(new Error("AI execution lease expired"));
-                 throw new Error("AI execution lease expired");
-               }
-             },
+              assertExecutionOwned: assertStreamExecutionOwned,
            } : {}),
           turnIntent: streamTurnIntent,
            projectOrientation: projectOrientationExecution,
@@ -9090,6 +9138,56 @@ export async function handleChatStream(req: Request, res: Response) {
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
           analysisToolRunner,
           analysisCorrelation,
+          onReadOnlyInvocation: async (invocation) => {
+            if (!chatObservationEpisode || !aiExecution || !executionWorkerId) {
+              throw new Error("Chat read observation provenance is unavailable");
+            }
+            await assertStreamExecutionOwned();
+            const invocationId = createHash("sha256")
+              .update([
+                aiExecution.id,
+                String(aiExecution.attempt),
+                invocation.toolCallId,
+                invocation.toolName,
+                invocation.inputHash,
+                invocation.manifestHash,
+              ].join("\0"), "utf8")
+              .digest("hex");
+            const scopeHash = createHash("sha256")
+              .update(JSON.stringify({
+                projectId,
+                scope: chatObservationEpisode.scope,
+                projectRevision: chatObservationEpisode.projectRevision,
+                manifestHash: invocation.manifestHash,
+              }), "utf8")
+              .digest("hex");
+            await appendEpisodeEvent({
+              episodeId: chatObservationEpisode.episodeId,
+              projectId,
+              executionId: aiExecution.id,
+              attempt: aiExecution.attempt,
+              workerId: executionWorkerId,
+              eventType: invocation.phase === "requested"
+                ? "OBSERVATION_REQUESTED"
+                : "OBSERVATION_RECORDED",
+              payload: {
+                invocationId,
+                toolName: invocation.toolName,
+                scopeHash,
+                projectRevision: chatObservationEpisode.projectRevision,
+                inputHash: invocation.inputHash,
+                manifestHash: invocation.manifestHash,
+                ...(invocation.phase === "recorded" ? {
+                  ...(invocation.status ? { status: invocation.status } : {}),
+                  ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                  ...(invocation.diagnosticCode ? { diagnosticCode: invocation.diagnosticCode } : {}),
+                } : {}),
+              },
+              actorType: "worker",
+              actorId: executionWorkerId,
+              correlationId: aiExecution.operationId ?? aiExecution.id,
+            });
+          },
            ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
           executionLedger,
           ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
@@ -9119,7 +9217,16 @@ export async function handleChatStream(req: Request, res: Response) {
         { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
         onStreamReset,
         onStep,
-      );
+          );
+        } finally {
+          await closeChatObservationEpisode(
+            activeExecutionAbortController.signal.aborted && !executionLeaseLost
+              ? "cancelled"
+              : "incomplete",
+            "CHAT_OBSERVATION_ONLY",
+          );
+        }
+      })();
       result = terminalizeUnsupportedChatResponse(chatOut.result);
       if (result._parseError) {
         result = {

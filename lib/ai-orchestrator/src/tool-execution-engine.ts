@@ -471,10 +471,16 @@ export type ReadOnlyToolInvocation = {
   toolName:
     | "read_file"
     | "read_file_range"
+    | "list_directory"
+    | "search_code"
     | "project.list_tree"
     | "git_status"
     | "git_diff"
-    | "git_log";
+    | "git_log"
+    | "symbol_search"
+    | "ast_navigation"
+    | "inspect_dependencies"
+    | "inspect_binary";
   inputHash: string;
   manifestHash: string;
   status?: "completed" | "failed" | "cancelled";
@@ -493,6 +499,16 @@ const MISSION_READ_ONLY_TOOL_NAMES = new Set<ReadOnlyToolInvocation["toolName"]>
   "git_status",
   "git_diff",
   "git_log",
+]);
+
+const PROJECT_READ_ONLY_TOOL_NAMES = new Set<ReadOnlyToolInvocation["toolName"]>([
+  ...MISSION_READ_ONLY_TOOL_NAMES,
+  "list_directory",
+  "search_code",
+  "symbol_search",
+  "ast_navigation",
+  "inspect_dependencies",
+  "inspect_binary",
 ]);
 
 export function hashProviderToolManifest(manifest: readonly ToolDefinitionLike[] | undefined): string | undefined {
@@ -955,8 +971,11 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         }
       }
     }
+    const observableReadOnlyToolNames = opts.missionReadPathScope !== undefined
+      ? MISSION_READ_ONLY_TOOL_NAMES
+      : PROJECT_READ_ONLY_TOOL_NAMES;
     readCallback = opts.onReadOnlyInvocation
-      && MISSION_READ_ONLY_TOOL_NAMES.has(name as ReadOnlyToolInvocation["toolName"])
+      && observableReadOnlyToolNames.has(name as ReadOnlyToolInvocation["toolName"])
       ? opts.onReadOnlyInvocation
       : undefined;
     readInvocationBase = readCallback
