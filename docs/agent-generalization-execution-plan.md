@@ -587,10 +587,17 @@ type HypothesisOutcomeForecast = {
   observationRef: string;
   outcomes: Array<{ outcomeKey: string; probability: number }>;
   provenance: "MODEL_INFERRED" | "SERVER_DERIVED";
+  calibrationStatus: "unvalidated" | "validated_for_scope" | "out_of_scope";
+  calibrationScopeRef?: string;
 };
 
 type ExperimentCandidateAssessment = {
   observationRef: string; // server-owned observation profile/reference
+  decisionRef: string; // objective-bound pending decision/evidence question
+  outcomeDecisionMap: Array<{
+    outcomeKey: string;
+    nextDecisionCode: string; // server-owned decision branch
+  }>;
   forecasts: HypothesisOutcomeForecast[];
   expectedInformationGain: number; // server-computed
   estimatedCost: number; // versioned server-owned units
@@ -604,10 +611,15 @@ type RegisteredHypothesisExperiment = {
   episodeId: string;
   objectiveContractId: string;
   beliefRevision: string;
+  hypothesisSetId: string;
   competingHypothesisIds: string[];
   hypothesisWeights: Array<{ hypothesisId: string; beliefWeight: number }>;
   candidates: ExperimentCandidateAssessment[];
   selectedObservationRef: string;
+  selectionMode:
+    | "fixed_safe_probe"
+    | "human_approved"
+    | "calibrated_information_gain";
   selectionPolicyVersion: string;
   predictionRegisteredAt: string; // before observation dispatch
 };
@@ -627,6 +639,11 @@ type HypothesisExperimentResult = {
 تكون `hypothesisWeights` server-owned ومطبّعة إلى 1 عبر البدائل النشطة، مع
 `OTHER/UNKNOWN` عندما لا يغطي فضاء الفرضيات كل الاحتمالات. لا يستخدم provider
 confidence بدل هذه الأوزان.
+
+لا يصح هذا التوزيع إلا إذا كانت hypotheses في `hypothesisSetId` بدائل متنافية
+وشاملة للسؤال والنطاق نفسيهما، مع `OTHER/UNKNOWN` لأي احتمال غير ممثل. إذا كانت
+الفرضيات متداخلة أو تصف أبعادًا مستقلة، لا يعاد تطبيعها قسرًا ولا يستخدم عليها
+حساب entropy هذا؛ تبقى التجربة unresolved حتى يوجد تمثيل احتمالي مناسب.
 
 هذه عقود مستهدفة وليست schema منفذة. يحفظ التسجيل snapshot غير قابل للتعديل من
 المراجعة والفرضيات والتوقعات وتقييم المرشحين؛ تحفظ النتيجة وتحديث Belief كأحداث
@@ -661,10 +678,25 @@ time
 server-owned.
 
 لا يختار النظام إلا بين observations مسموحة ومأمونة وذات تكلفة قابلة للتقدير؛
-ومن بين المرشحين الذين يحققون حد التمييز المعلوماتي server-owned، يختار أقل
-كلفة مقدرة، مع كسر التعادل بالمخاطر ثم الوقت. إذا لم يوجد مرشح مؤهل أو لم تكن
-التوقعات قابلة للتقييم، يبقى belief غير محسوم ولا ينفذ تجربة تخمينية. تسجل
-التوقعات النموذجية كـ`MODEL_INFERRED` فقط؛ لا تثبت حقيقة ولا تمنح authorization.
+ولا يكفي أن تزيد observation المعلومات: يجب أن ترتبط بقرار قائم داخل objective
+أو بدليل مطلوب لقبوله. إذا لم تغيّر أي outcome محتملة الخطوة التالية أو evidence
+المطلوبة، تستبعد حتى لو كان `expectedInformationGain` موجبًا. ومن بين المرشحين
+المأذونين والآمنين وذوي الأثر القرارّي الذين يحققون حد التمييز المعلوماتي
+server-owned، يختار أقل كلفة مقدرة، مع كسر التعادل بالمخاطر ثم الوقت. إذا لم يوجد
+مرشح مؤهل أو لم تكن التوقعات قابلة للتقييم، يبقى belief غير محسوم ولا ينفذ
+تجربة تخمينية.
+
+التوقعات غير المعايرة أو الخارجة عن scope تبقى shadow/advisory ولا تقود اختيارًا
+آليًا. في bootstrap يختار الخادم probe ثابتًا وآمنًا لا يعتمد على forecast، أو
+يختار الإنسان observation من مجموعة مأذونة؛ تسجل forecasts والنتائج لجمع بيانات
+معايرة مستقلة. لا يفعل `calibrated_information_gain` إلا عندما يثبت evaluator
+server-owned المعايرة في scope مناسب. يبقى حد ECE العام في §25.4 شرط promotion،
+ولا تستبدل به نتيجة معايرة من scope مختلف.
+
+تسجل التوقعات النموذجية كـ`MODEL_INFERRED` فقط؛ لا تثبت حقيقة ولا تمنح
+authorization. ويجب أن يربط outcome schema صراحةً النتائج غير القابلة للرصد،
+وفشل أداة القياس، وتغير البيئة، والنتائج الخارجة عن التوقع؛ لا تتحول هذه الحالات
+إلى تناقض ضد hypothesis لمجرد غياب evidence.
 
 يحسب الخادم expected information gain من توزيع Belief server-owned وتوزيعات
 outcome المسجلة لكل observation candidate، وفق policy versioned؛ مثلًا:
