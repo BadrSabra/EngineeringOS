@@ -176,6 +176,7 @@ import {
   type AgentLoopClaimState,
   type AgentLoopToolCall,
   type MutationToolInvocationCallback,
+  type ReadOnlyToolInvocationCallback,
   type ReadStatus,
   mergeReadStatus,
   EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
@@ -6137,6 +6138,8 @@ export async function chat(opts: {
   onStep?: (step: AgentStep) => void;
   /** Server-owned proof hook for approved Mission repair file-tool invocations. */
   onMutationInvocation?: MutationToolInvocationCallback;
+  /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
+  onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
   /**
    * Server-authorized Build handoff gate for the registered run_validation tool.
    * This is intentionally separate from classifier output.
@@ -9063,6 +9066,7 @@ export async function chat(opts: {
     executionLedger,
     onStep: relayAgentStep,
     onMutationInvocation: opts.onMutationInvocation,
+    onReadOnlyInvocation: opts.onReadOnlyInvocation,
   });
   if (
     capabilityProbeRequest &&

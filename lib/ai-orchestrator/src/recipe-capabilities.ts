@@ -129,6 +129,9 @@ export type GitHubDeliveryRunner = (args: {
   rootPath: string;
   projectId: string;
   operationId: string;
+  executionId?: string;
+  executionAttempt?: number;
+  sourceRevision?: string;
   message: string;
   signal?: AbortSignal;
 }) => Promise<{
@@ -144,6 +147,29 @@ export type GitHubDeliveryRunner = (args: {
   remoteTreeHash?: string;
   operationMarker?: string;
   idempotent?: boolean;
+  afterState?: {
+    status: "passed";
+    projectId: string;
+    operationId: string;
+    executionId?: string;
+    executionAttempt?: number;
+    sourceRevision?: string;
+    proposalId: string;
+    remoteUrl: string;
+    branch: string;
+    expectedCommitHash: string;
+    remoteCommitHash: string;
+    expectedParentHash: string;
+    remoteParentHash: string;
+    expectedTreeHash: string;
+    remoteTreeHash: string;
+    remoteParentCount: number;
+    candidateTreeHash?: string;
+    committedTreeHash?: string;
+    operationMarker: string;
+    markerMatched: boolean;
+    observedAt: string;
+  };
 }>;
 
 export type RuntimeStartRunner = (args: {
@@ -232,17 +258,27 @@ function browserCapability(profile: string, runtime: RecipeCapabilityRuntime): C
       if (!runtime.browserValidationRunner) {
         return { status: "unavailable", profile, detail: "Browser validation runner is not enabled for this operation." };
       }
-      if (!context.operationId || !context.revision) {
+      if (
+        !context.projectId
+        || !context.operationId
+        || !context.revision
+        || !context.executionId
+        || !Number.isInteger(context.executionAttempt)
+        || (context.executionAttempt as number) < 0
+      ) {
         return {
           status: "blocked",
           profile,
-          detail: "A durable operation and source revision are required for browser verification.",
+          detail: "A durable project, operation, execution attempt, and source revision are required for browser verification.",
         };
       }
       const result = await runtime.browserValidationRunner({
         profile,
         rootPath: context.rootPath,
+        projectId: context.projectId,
         operationId: context.operationId,
+        executionId: context.executionId,
+        executionAttempt: context.executionAttempt,
         revision: context.revision,
         signal: context.signal,
       });
@@ -463,19 +499,52 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
       remoteTreeHash: z.string().max(160).optional(),
       operationMarker: z.string().max(300).optional(),
       idempotent: z.boolean().optional(),
+      afterState: z.object({
+        status: z.literal("passed"),
+        projectId: z.string().min(1).max(500),
+        operationId: z.string().min(1).max(500),
+        executionId: z.string().min(1).max(500).optional(),
+        executionAttempt: z.number().int().min(0).optional(),
+        sourceRevision: z.string().min(1).max(2_000).optional(),
+        proposalId: z.string().min(1).max(500),
+        remoteUrl: z.string().min(1).max(500),
+        branch: z.string().min(1).max(240),
+        expectedCommitHash: z.string().min(1).max(160),
+        remoteCommitHash: z.string().min(1).max(160),
+        expectedParentHash: z.string().min(1).max(160),
+        remoteParentHash: z.string().min(1).max(160),
+        expectedTreeHash: z.string().min(1).max(160),
+        remoteTreeHash: z.string().min(1).max(160),
+        remoteParentCount: z.number().int().min(0),
+        candidateTreeHash: z.string().min(1).max(160).optional(),
+        committedTreeHash: z.string().min(1).max(160).optional(),
+        operationMarker: z.string().min(1).max(300),
+        markerMatched: z.boolean(),
+        observedAt: z.string().min(1).max(80),
+      }).strict().optional(),
     }).strict(),
     execute: async (input, context) => {
       const parsedInput = inputSchema.parse(input);
-      if (!context.projectId || !context.operationId) {
+      if (
+        !context.projectId
+        || !context.operationId
+        || !context.revision
+        || !context.executionId
+        || !Number.isInteger(context.executionAttempt)
+        || (context.executionAttempt as number) < 0
+      ) {
         return {
           status: "blocked",
-          detail: "A durable project and operation identity are required for external delivery.",
+          detail: "A durable project, operation, execution attempt, and source revision are required for external delivery.",
         };
       }
       const result = await runtime.githubDeliveryRunner!({
         rootPath: context.rootPath,
         projectId: context.projectId,
         operationId: context.operationId,
+        executionId: context.executionId,
+        executionAttempt: context.executionAttempt,
+        sourceRevision: context.revision,
         message: parsedInput.message,
         signal: context.signal,
       });
@@ -488,6 +557,7 @@ function githubDeliveryCapability(runtime: RecipeCapabilityRuntime): CapabilityA
         ...(result.remoteTreeHash ? { remoteTreeHash: result.remoteTreeHash } : {}),
         ...(result.operationMarker ? { operationMarker: result.operationMarker } : {}),
         ...(result.idempotent !== undefined ? { idempotent: result.idempotent } : {}),
+        ...(result.afterState ? { afterState: result.afterState } : {}),
       };
     },
   };

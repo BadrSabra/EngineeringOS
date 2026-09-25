@@ -14,7 +14,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage, RawGroqResponse } from "../groq-client.js";
-import type { AgentStep, MutationToolInvocation } from "../tool-execution-engine.js";
+import type {
+  AgentStep,
+  MutationToolInvocation,
+  ReadOnlyToolInvocation,
+} from "../tool-execution-engine.js";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
 import { GroqClientError } from "../errors.js";
 import { createExecutionLedger } from "../execution-ledger.js";
@@ -195,6 +199,133 @@ describe("executeSingleTool", () => {
     }
     expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/foo.ts" }, "/project", []);
     expect(GIT_TOOL_MOCK).not.toHaveBeenCalled();
+  });
+
+  it("records an authorized Mission read only after authorization and with bounded hashes", async () => {
+    const { executeSingleTool, hashProviderToolManifest } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+    const manifest = [
+      {
+        type: "function" as const,
+        function: {
+          name: "read_file",
+          description: "read",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      },
+      {
+        type: "function" as const,
+        function: {
+          name: "list_directory",
+          description: "list",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      },
+    ];
+    const fullManifestHash = hashProviderToolManifest(manifest);
+    expect(fullManifestHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(fullManifestHash).not.toBe(hashProviderToolManifest([manifest[0]!]));
+    expect(hashProviderToolManifest([...manifest].reverse())).toBe(fullManifestHash);
+    const result = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/foo.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
+      toolManifestHash: fullManifestHash!,
+      toolCallId: "provider-read-1",
+      onReadOnlyInvocation: callback,
+    });
+
+    expect(result.kind).toBe("ok");
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "recorded"]);
+    expect(callback.mock.calls[0]?.[0]).toMatchObject({
+      toolCallId: "provider-read-1",
+      toolName: "read_file",
+      manifestHash: fullManifestHash,
+    });
+    expect(callback.mock.calls[0]?.[0].inputHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(callback.mock.calls[1]?.[0]).toMatchObject({
+      status: "completed",
+      outputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(JSON.stringify(callback.mock.calls)).not.toContain("src/foo.ts");
+  });
+
+  it("does not record unauthorized reads or writes as read-only observations", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+    const denied = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/foo.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["list_directory"]),
+      toolManifestHash: "a".repeat(64),
+      toolCallId: "blocked-read",
+      onReadOnlyInvocation: callback,
+    });
+    expect(denied.kind).toBe("failed");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+
+    await executeSingleTool({
+      name: "write_file",
+      args: { path: "src/foo.ts", content: "new value" },
+      rootPath: "/project",
+      pendingChanges: [],
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      allowedToolNames: new Set(["write_file"]),
+      toolManifestHash: "b".repeat(64),
+      toolCallId: "approved-write",
+      onReadOnlyInvocation: callback,
+    });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before a read when its observation cannot be persisted", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async () => { throw new Error("ledger unavailable"); });
+    const result = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/foo.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
+      toolManifestHash: "b".repeat(64),
+      toolCallId: "provider-read-fail",
+      onReadOnlyInvocation: callback,
+    });
+
+    expect(result.kind).toBe("failed");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+  });
+
+  it("withholds a completed read when its result event cannot be persisted", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async (invocation: ReadOnlyToolInvocation) => {
+      if (invocation.phase === "recorded") throw new Error("ledger unavailable");
+    });
+    const result = await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/foo.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["read_file"]),
+      toolManifestHash: "c".repeat(64),
+      toolCallId: "provider-read-result-fail",
+      onReadOnlyInvocation: callback,
+    });
+
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") {
+      expect(result.safeMessage).toContain("output was withheld");
+    }
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "recorded"]);
   });
 
   it("forces complete=true for uncached forensic reads", async () => {
@@ -695,6 +826,60 @@ describe("executeToolLoop", () => {
         ]),
       }),
     );
+  });
+
+  it("binds read callbacks to the full manifest, not the narrowed provider tool list", async () => {
+    const {
+      executeToolLoop,
+      hashProviderToolManifest,
+    } = await import("../tool-execution-engine.js");
+    const fullManifest = [
+      {
+        type: "function" as const,
+        function: {
+          name: "read_file",
+          description: "read",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      },
+      {
+        type: "function" as const,
+        function: {
+          name: "list_directory",
+          description: "list",
+          parameters: { type: "object", properties: { path: { type: "string" } } },
+        },
+      },
+    ];
+    const exposedTools = [fullManifest[0]!];
+    const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("normalized-provider-read-id", "read_file", { path: "src/proof.ts" })]),
+        makeResponse("read completed"),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: exposedTools,
+      toolManifest: fullManifest,
+      allowedToolNames: ["read_file"],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      onReadOnlyInvocation: callback,
+    });
+
+    expect(result.kind).toBe("response");
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "recorded"]);
+    expect(callback.mock.calls[0]?.[0]).toMatchObject({
+      toolCallId: "normalized-provider-read-id",
+      manifestHash: hashProviderToolManifest(fullManifest),
+    });
+    expect(hashProviderToolManifest(fullManifest))
+      .not.toBe(hashProviderToolManifest(exposedTools));
   });
 
   it("returns an authoritative incomplete result when a declared claim is open", async () => {

@@ -24,6 +24,9 @@ export type VerifiedGitHubDeliveryParams = {
   projectId: string;
   proposalId: string;
   operationId: string;
+  executionId?: string;
+  executionAttempt?: number;
+  sourceRevision?: string;
   rootPath: string;
   remoteUrl: string;
   branch: string;
@@ -48,6 +51,29 @@ export type VerifiedGitHubDeliveryResult = {
   treeHash?: string;
   changedPaths?: string[];
   idempotent?: boolean;
+  afterState?: {
+    status: "passed";
+    projectId: string;
+    operationId: string;
+    executionId?: string;
+    executionAttempt?: number;
+    sourceRevision?: string;
+    proposalId: string;
+    remoteUrl: string;
+    branch: string;
+    expectedCommitHash: string;
+    remoteCommitHash: string;
+    expectedParentHash: string;
+    remoteParentHash: string;
+    expectedTreeHash: string;
+    remoteTreeHash: string;
+    remoteParentCount: number;
+    candidateTreeHash?: string;
+    committedTreeHash?: string;
+    operationMarker: string;
+    markerMatched: boolean;
+    observedAt: string;
+  };
 };
 
 type DeliveryProof = {
@@ -91,24 +117,65 @@ function resultHash(value: Record<string, unknown>): string {
 }
 
 function passedResult(params: {
+  projectId: string;
+  proposalId: string;
   operationId: string;
-  commitHash: string;
-  remoteCommitHash: string;
-  remoteParentHash?: string;
-  remoteTreeHash?: string;
+  executionId?: string;
+  executionAttempt?: number;
+  sourceRevision?: string;
+  remoteUrl: string;
+  branch: string;
+  expectedCommitHash: string;
+  expectedParentHash: string;
+  expectedTreeHash: string;
+  remoteState: Awaited<ReturnType<typeof getGitHubBranchState>>;
   candidateTreeHash?: string;
-  treeHash?: string;
+  committedTreeHash?: string;
   changedPaths: string[];
   idempotent?: boolean;
 }): VerifiedGitHubDeliveryResult {
+  const marker = operationMarker(params.operationId);
+  const remoteParentHash = params.remoteState.parentHashes[0];
+  if (!remoteParentHash) {
+    throw new GitHubConnectorError(
+      "GitHub delivery remote after-state has no parent commit.",
+      "GITHUB_DELIVERY_AFTER_STATE_MISMATCH",
+      409,
+    );
+  }
+  const remoteCommitHash = params.remoteState.commitHash;
+  const remoteTreeHash = params.remoteState.treeHash;
+  const afterState = {
+    status: "passed" as const,
+    projectId: params.projectId,
+    operationId: params.operationId,
+    ...(params.executionId ? { executionId: params.executionId } : {}),
+    ...(params.executionAttempt !== undefined ? { executionAttempt: params.executionAttempt } : {}),
+    ...(params.sourceRevision ? { sourceRevision: params.sourceRevision } : {}),
+    proposalId: params.proposalId,
+    remoteUrl: params.remoteUrl,
+    branch: params.branch,
+    expectedCommitHash: params.expectedCommitHash,
+    remoteCommitHash,
+    expectedParentHash: params.expectedParentHash,
+    remoteParentHash,
+    expectedTreeHash: params.expectedTreeHash,
+    remoteTreeHash,
+    remoteParentCount: params.remoteState.parentHashes.length,
+    ...(params.candidateTreeHash ? { candidateTreeHash: params.candidateTreeHash } : {}),
+    ...(params.committedTreeHash ? { committedTreeHash: params.committedTreeHash } : {}),
+    operationMarker: marker,
+    markerMatched: params.remoteState.message.includes(marker),
+    observedAt: new Date().toISOString(),
+  };
   const hash = resultHash({
     operationId: params.operationId,
-    commitHash: params.commitHash,
-    remoteCommitHash: params.remoteCommitHash,
-    ...(params.remoteParentHash ? { remoteParentHash: params.remoteParentHash } : {}),
-    ...(params.remoteTreeHash ? { remoteTreeHash: params.remoteTreeHash } : {}),
+    commitHash: params.expectedCommitHash,
+    remoteCommitHash,
+    remoteParentHash,
+    remoteTreeHash,
     ...(params.candidateTreeHash ? { candidateTreeHash: params.candidateTreeHash } : {}),
-    ...(params.treeHash ? { treeHash: params.treeHash } : {}),
+    ...(params.committedTreeHash ? { treeHash: params.committedTreeHash } : {}),
     changedPaths: params.changedPaths,
   });
   return {
@@ -118,14 +185,15 @@ function passedResult(params: {
       resultHash: hash,
       artifactRef: `github-delivery:${params.operationId}:${hash}`,
     },
-    remoteCommitHash: params.remoteCommitHash,
-    ...(params.remoteParentHash ? { remoteParentHash: params.remoteParentHash } : {}),
-    ...(params.remoteTreeHash ? { remoteTreeHash: params.remoteTreeHash } : {}),
-    operationMarker: operationMarker(params.operationId),
+    remoteCommitHash,
+    remoteParentHash,
+    remoteTreeHash,
+    operationMarker: marker,
     ...(params.candidateTreeHash ? { candidateTreeHash: params.candidateTreeHash } : {}),
-    ...(params.treeHash ? { treeHash: params.treeHash } : {}),
+    ...(params.committedTreeHash ? { treeHash: params.committedTreeHash } : {}),
     changedPaths: params.changedPaths,
     ...(params.idempotent ? { idempotent: true } : {}),
+    afterState,
   };
 }
 
@@ -268,13 +336,20 @@ export async function executeVerifiedGitHubDelivery(
         existingPush.commitHash,
       );
       return passedResult({
+        projectId: params.projectId,
+        proposalId: params.proposalId,
         operationId: params.operationId,
-        commitHash: existingPush.commitHash,
-        remoteCommitHash: remoteAfterState.commitHash,
-        remoteParentHash: remoteAfterState.parentHashes[0],
-        remoteTreeHash: remoteAfterState.treeHash,
+        executionId: params.executionId,
+        executionAttempt: params.executionAttempt,
+        sourceRevision: params.sourceRevision,
+        remoteUrl: params.remoteUrl,
+        branch: params.branch,
+        expectedCommitHash: existingPush.commitHash,
+        expectedParentHash: localIdentity.parentHash,
+        expectedTreeHash: localIdentity.treeHash,
+        remoteState: remoteAfterState,
         candidateTreeHash: proposal.candidateTreeHash ?? undefined,
-        treeHash: proposal.committedTreeHash ?? undefined,
+        committedTreeHash: proposal.committedTreeHash ?? undefined,
         changedPaths: Array.isArray(existingPush.changedPaths)
           ? existingPush.changedPaths.filter((value): value is string => typeof value === "string")
           : [],
@@ -340,13 +415,20 @@ export async function executeVerifiedGitHubDelivery(
       });
       assertRemoteAfterState(remoteAfterState, localIdentity, params.operationId, commitHash);
     const result = passedResult({
+      projectId: params.projectId,
+      proposalId: params.proposalId,
       operationId: params.operationId,
-      commitHash,
-      remoteCommitHash: pushed.remoteCommitHash,
-        remoteParentHash: remoteAfterState.parentHashes[0],
-        remoteTreeHash: remoteAfterState.treeHash,
+      executionId: params.executionId,
+      executionAttempt: params.executionAttempt,
+      sourceRevision: params.sourceRevision,
+      remoteUrl: params.remoteUrl,
+      branch: params.branch,
+      expectedCommitHash: commitHash,
+      expectedParentHash: localIdentity.parentHash,
+      expectedTreeHash: localIdentity.treeHash,
+      remoteState: remoteAfterState,
       candidateTreeHash: proposal.candidateTreeHash,
-      treeHash: committedTreeHash,
+      committedTreeHash,
       changedPaths: pushed.changedPaths,
     });
 
@@ -357,9 +439,9 @@ export async function executeVerifiedGitHubDelivery(
       branch: params.branch,
       remoteUrl: params.remoteUrl,
       commitHash,
-      remoteCommitHash: pushed.remoteCommitHash,
-       remoteParentHash: remoteAfterState.parentHashes[0],
-       remoteTreeHash: remoteAfterState.treeHash,
+      remoteCommitHash: remoteAfterState.commitHash,
+      remoteParentHash: remoteAfterState.parentHashes[0],
+      remoteTreeHash: remoteAfterState.treeHash,
       changedPaths: pushed.changedPaths,
       deliveryProof,
     });
@@ -373,7 +455,8 @@ export async function executeVerifiedGitHubDelivery(
           branch: params.branch,
           ...(params.request ? { request: params.request } : {}),
         });
-        const alreadyApplied = branchState.treeHash === localIdentity.treeHash
+        const alreadyApplied = branchState.commitHash === commitHash
+          && branchState.treeHash === localIdentity.treeHash
           && branchState.parentHashes.length === 1
           && branchState.parentHashes[0] === localIdentity.parentHash
           && branchState.message.includes(operationMarker(params.operationId));
@@ -382,13 +465,20 @@ export async function executeVerifiedGitHubDelivery(
             ? commitEvidence.committedPaths.filter((value): value is string => typeof value === "string")
             : [];
           const result = passedResult({
+            projectId: params.projectId,
+            proposalId: params.proposalId,
             operationId: params.operationId,
-            commitHash,
-            remoteCommitHash: branchState.commitHash,
-            remoteParentHash: branchState.parentHashes[0],
-            remoteTreeHash: branchState.treeHash,
+            executionId: params.executionId,
+            executionAttempt: params.executionAttempt,
+            sourceRevision: params.sourceRevision,
+            remoteUrl: params.remoteUrl,
+            branch: params.branch,
+            expectedCommitHash: commitHash,
+            expectedParentHash: localIdentity.parentHash,
+            expectedTreeHash: localIdentity.treeHash,
+            remoteState: branchState,
             candidateTreeHash: proposal.candidateTreeHash ?? undefined,
-            treeHash: proposal.committedTreeHash ?? undefined,
+            committedTreeHash: proposal.committedTreeHash ?? undefined,
             changedPaths,
             idempotent: true,
           });

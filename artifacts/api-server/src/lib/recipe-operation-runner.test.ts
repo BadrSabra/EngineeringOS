@@ -689,12 +689,31 @@ describe("recipe operation preparation", () => {
       expect(acceptance?.effectBundleId).toBe(bundle?.id);
       const observations = await db.select().from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, executionId));
-      expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+      expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(3);
       const runtimeReceipt = observations.find((row) => row.sourceType === "runtime_receipt");
       const runtimeSnapshot = await manager.get(projectId);
       expect(runtimeReceipt?.value).toMatchObject({ sessionId: runtimeSnapshot.sessionId });
       expect(runtimeReceipt?.environmentRevision).toBe(runtimeSnapshot.environmentRevision);
       expect(runtimeReceipt?.environmentFreshness).toBe("fresh");
+      const runtimeAfterState = observations.find((row) => (
+        row.sourceType === "direct_observation"
+        && row.predicate === "runtime.after_state"
+      ));
+      expect(runtimeAfterState).toMatchObject({
+        provenance: "DIRECT_OBSERVATION",
+        environmentFreshness: "fresh",
+      });
+      expect(runtimeAfterState?.value).toMatchObject({
+        after: {
+          projectId,
+          sessionId: runtimeSnapshot.sessionId,
+          revision: sourceRevision,
+          processAlive: true,
+          portReady: true,
+          healthStatus: 200,
+          servingRevision: sourceRevision,
+        },
+      });
       const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));

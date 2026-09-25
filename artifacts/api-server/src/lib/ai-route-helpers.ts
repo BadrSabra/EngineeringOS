@@ -863,6 +863,8 @@ export async function chatWithFallback(
      allowedToolNames?: readonly string[];
       /** Server-owned, proof-critical lifecycle for approved Mission repair writes. */
       onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
+     /** Server-owned observation lifecycle for explicitly authorized Mission reads. */
+     onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
     browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
     browserValidationContext?: { operationId?: string; revision?: string };
     approvedValidationProfiles?: readonly string[];
@@ -1114,6 +1116,7 @@ export async function chatWithFallback(
          executionMode: baseParams.executionMode,
          allowExecutionTools: baseParams.allowExecutionTools,
          allowedToolNames: baseParams.allowedToolNames,
+         onReadOnlyInvocation: baseParams.onReadOnlyInvocation,
         browserValidationRunner: baseParams.browserValidationRunner,
         browserValidationContext: baseParams.browserValidationContext,
         approvedValidationProfiles: baseParams.approvedValidationProfiles,

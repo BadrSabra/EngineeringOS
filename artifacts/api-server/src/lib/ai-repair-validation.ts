@@ -770,9 +770,11 @@ export async function runRepairRuntimeValidation(
  * can never be interpreted as a passed repair.
  */
 export async function runRepairPreviewValidation(input: {
+  projectId: string;
   session: PreviewSession;
   operationId: string;
   executionId: string;
+  executionAttempt?: number;
   revision: string;
   contract: PreviewValidationContract;
   steps: readonly PreviewStep[];
@@ -800,13 +802,21 @@ export async function runRepairPreviewValidation(input: {
       : [],
     changedFiles: [],
     evidence: {
+      kind: result.kind,
       evidenceId: `${result.sessionId}:${result.operationId}:${result.executionId}`,
       observedAt: result.observedAt,
+      projectId: input.projectId,
+      operationId: result.operationId,
+      executionId: result.executionId,
+      ...(input.executionAttempt !== undefined ? { executionAttempt: input.executionAttempt } : {}),
+      sessionId: result.sessionId,
+      status: result.status,
       artifactRef: result.artifactRef,
       profileName: result.profileName,
+      origin: result.origin,
       permittedOrigin: input.contract?.permittedOrigin,
       revision: result.revision,
-      operationId: input.operationId,
+      sourceRevision: result.sourceRevision,
       projectRevision: result.sourceRevision,
       screenshotAvailable: result.screenshotAvailable === true || Boolean(result.screenshotPath),
       consoleErrorCount: result.consoleErrors.length,

@@ -18,6 +18,7 @@ import {
   type AgentLoopToolCall,
   type PendingChange,
   type ValidationProfile,
+  type ReadOnlyToolInvocationCallback,
 } from "@workspace/ai-orchestrator";
 import {
   createAiExecution,
@@ -1164,6 +1165,12 @@ async function executeMissionToolLoop(params: {
     string,
     ReturnType<typeof buildMissionRepairToolAction>
   >();
+  const missionReadOnlyToolNames = new Set([
+    "read_file",
+    "read_file_range",
+    "list_directory",
+    "search_code",
+  ]);
   const onMutationInvocation:
     | import("@workspace/ai-orchestrator").MutationToolInvocationCallback
     | undefined =
@@ -1266,6 +1273,61 @@ async function executeMissionToolLoop(params: {
           repairToolActions.delete(actionId);
         }
       : undefined;
+  const onReadOnlyInvocation: ReadOnlyToolInvocationCallback | undefined =
+    (params.profile === "mission_observe" || params.profile === "mission_validate")
+      ? async (invocation) => {
+          if (
+            !missionReadOnlyToolNames.has(invocation.toolName)
+            || !invocation.toolCallId.trim()
+            || !/^[a-f0-9]{64}$/.test(invocation.inputHash)
+            || !/^[a-f0-9]{64}$/.test(invocation.manifestHash)
+          ) {
+            throw new Error("mission_read_observation_identity_invalid");
+          }
+          const observationId = createHash("sha256")
+            .update(
+              `${params.task.projectId}\0${params.executionId}\0${params.expectedAttempt}\0${params.workspaceRevision}\0${invocation.toolCallId}\0${invocation.inputHash}\0${invocation.manifestHash}`,
+              "utf8",
+            )
+            .digest("hex");
+          const episode = await getMissionRepairEpisode();
+          const payload = invocation.phase === "requested"
+            ? {
+                observationId,
+                toolCallId: invocation.toolCallId,
+                toolName: invocation.toolName,
+                inputHash: invocation.inputHash,
+                manifestHash: invocation.manifestHash,
+                projectRevision: params.workspaceRevision,
+                authorization: "server_owned",
+              }
+            : {
+                observationId,
+                toolCallId: invocation.toolCallId,
+                toolName: invocation.toolName,
+                inputHash: invocation.inputHash,
+                manifestHash: invocation.manifestHash,
+                projectRevision: params.workspaceRevision,
+                status: invocation.status ?? "failed",
+                ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                ...(invocation.diagnosticCode ? { diagnosticCode: invocation.diagnosticCode.slice(0, 120) } : {}),
+              };
+          await appendEpisodeEvent({
+            episodeId: episode.episodeId,
+            projectId: params.task.projectId,
+            executionId: params.executionId,
+            attempt: params.expectedAttempt,
+            workerId: params.workerId,
+            eventType: invocation.phase === "requested"
+              ? "OBSERVATION_REQUESTED"
+              : "OBSERVATION_RECORDED",
+            payload: payload as Parameters<typeof appendEpisodeEvent>[0]["payload"],
+            actorType: "worker",
+            actorId: params.workerId,
+            correlationId: params.correlationId,
+          });
+        }
+      : undefined;
 
   const chat = await chatWithFallback(
     params.userId,
@@ -1293,6 +1355,7 @@ async function executeMissionToolLoop(params: {
       executionMode: params.profile === "mission_observe" ? "forensic" : "repair_plan",
       allowExecutionTools: params.profile !== "mission_observe" && approvalState === "APPROVED",
       onMutationInvocation,
+      onReadOnlyInvocation,
       allowedToolNames: params.profile === "mission_observe"
         ? ["read_file", "read_file_range", "list_directory", "search_code"]
         : params.profile === "mission_validate"

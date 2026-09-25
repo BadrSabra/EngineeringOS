@@ -30,6 +30,7 @@ import type { ProviderStrategy } from "./provider-strategy.js";
 import { createExecutionLedger, type ExecutionLedger } from "./execution-ledger.js";
 import type { ModelCapability } from "./openrouter/model-catalog.js";
 import { authorizeToolInvocation, type ToolDefinitionLike } from "./tool-policy.js";
+import { canonicalJsonHash, type JsonValue } from "./agent-state/contract-utils.js";
 import type { PendingChange } from "./schemas/chat.schema.js";
 import type { TaskType } from "./quality/task-profile.js";
 import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
@@ -463,6 +464,52 @@ export type MutationToolInvocationCallback = (
   invocation: MutationToolInvocation,
 ) => void | Promise<void>;
 
+export type ReadOnlyToolInvocation = {
+  phase: "requested" | "recorded";
+  toolCallId: string;
+  toolName: "read_file" | "read_file_range" | "list_directory" | "search_code";
+  inputHash: string;
+  manifestHash: string;
+  status?: "completed" | "failed" | "cancelled";
+  outputHash?: string;
+  diagnosticCode?: string;
+};
+
+export type ReadOnlyToolInvocationCallback = (
+  invocation: ReadOnlyToolInvocation,
+) => void | Promise<void>;
+
+const MISSION_READ_ONLY_TOOL_NAMES = new Set<ReadOnlyToolInvocation["toolName"]>([
+  "read_file",
+  "read_file_range",
+  "list_directory",
+  "search_code",
+]);
+
+export function hashProviderToolManifest(manifest: readonly ToolDefinitionLike[] | undefined): string | undefined {
+  if (!manifest) return undefined;
+  try {
+    const normalized = [...manifest]
+      .map((tool) => ({
+        name: tool.function.name,
+        description: tool.function.description ?? null,
+        parameters: tool.function.parameters,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    return canonicalJsonHash(
+      JSON.parse(JSON.stringify(normalized)) as JsonValue,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function toolInputHash(args: Record<string, string>): string {
+  return createHash("sha256")
+    .update(JSON.stringify(Object.fromEntries(Object.entries(args).sort(([left], [right]) => left.localeCompare(right)))), "utf8")
+    .digest("hex");
+}
+
 export type SingleToolOpts = {
   /** Registered tool name (e.g. "read_file", "git_status"). */
   name: string;
@@ -503,6 +550,10 @@ export type SingleToolOpts = {
   signal?: AbortSignal;
   /** Server-owned action lifecycle hook for specifically authorized file mutations. */
   onMutationInvocation?: MutationToolInvocationCallback;
+  /** Server-owned observation lifecycle for explicitly authorized Mission read tools. */
+  onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
+  /** Hash of the complete server-owned provider authorization manifest. */
+  toolManifestHash?: string;
   /** Provider tool-call identity, used only as an input to server-owned correlation. */
   toolCallId?: string;
 };
@@ -798,6 +849,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   const isBinaryTool = BINARY_TOOL_NAMES_SET.has(name);
   const isExecutionTool = EXECUTION_TOOL_NAMES.has(name);
   const isAnalysisTool = ANALYSIS_TOOL_NAMES.has(name);
+  let readCallback: ReadOnlyToolInvocationCallback | undefined;
+  let readInvocationBase: {
+    toolCallId: string;
+    toolName: ReadOnlyToolInvocation["toolName"];
+    inputHash: string;
+    manifestHash: string;
+  } | undefined;
 
   if (!isGitTool && !isFileTool && !isCodeNavigationTool && !isPackageTool && !isBinaryTool && !isExecutionTool && !isAnalysisTool) {
     return {
@@ -831,6 +889,42 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         diagnosticCode: "TOOL_UNAVAILABLE",
         safeMessage: `Tool "${name}" was blocked by the server authorization gate (${authorization.reason}).`,
       };
+    }
+    readCallback = opts.onReadOnlyInvocation
+      && MISSION_READ_ONLY_TOOL_NAMES.has(name as ReadOnlyToolInvocation["toolName"])
+      ? opts.onReadOnlyInvocation
+      : undefined;
+    readInvocationBase = readCallback
+      ? {
+          toolCallId: opts.toolCallId?.trim() ?? "",
+          toolName: name as ReadOnlyToolInvocation["toolName"],
+          inputHash: toolInputHash(effectiveArgs),
+          manifestHash: opts.toolManifestHash ?? "",
+        }
+      : undefined;
+    if (readCallback && readInvocationBase) {
+      if (
+        !readInvocationBase.toolCallId
+        || !/^[a-f0-9]{64}$/.test(readInvocationBase.inputHash)
+        || !/^[a-f0-9]{64}$/.test(readInvocationBase.manifestHash)
+      ) {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not identify this read observation; the read did not execute.",
+        };
+      }
+      try {
+        await readCallback({ ...readInvocationBase, phase: "requested" });
+      } catch {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not record this read observation; the read did not execute.",
+        };
+      }
     }
     if (isAnalysisTool && !opts.analysisToolRunner) {
       return {
@@ -1001,6 +1095,32 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       }
     }
 
+    if (readCallback && readInvocationBase) {
+      const recorded = analysisFailure
+        ? {
+            phase: "recorded" as const,
+            status: opts.signal?.aborted || analysisFailure?.failureKind === "cancelled"
+              ? "cancelled" as const
+              : "failed" as const,
+            diagnosticCode: analysisFailure?.diagnosticCode ?? "TOOL_EXECUTION_FAILED",
+          }
+        : {
+            phase: "recorded" as const,
+            status: "completed" as const,
+            outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
+          };
+      try {
+        await readCallback({ ...readInvocationBase, ...recorded });
+      } catch {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not record the read result; the read output was withheld.",
+        };
+      }
+    }
+
     if (analysisFailure) {
       console.error(JSON.stringify({
         scope: "tool-execution-engine",
@@ -1056,6 +1176,23 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   } catch (error) {
     if (mutationInvocationActive) {
       pendingChanges.splice(mutationPendingStart);
+    }
+    if (readCallback && readInvocationBase) {
+      try {
+        await readCallback({
+          ...readInvocationBase,
+          phase: "recorded",
+          status: opts.signal?.aborted ? "cancelled" : "failed",
+          diagnosticCode: opts.signal?.aborted ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+        });
+      } catch {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not record the read failure; the read result was withheld.",
+        };
+      }
     }
     const errorMessage = error instanceof Error ? error.message : String(error);
     const cancelled = opts.signal?.aborted === true;
@@ -1568,6 +1705,8 @@ export type ToolLoopOpts = {
   onStep?: (step: AgentStep) => void;
   /** Proof-critical hook; unlike onStep, failures block and roll back a file mutation. */
   onMutationInvocation?: MutationToolInvocationCallback;
+  /** Server-owned observation lifecycle for explicitly authorized Mission read tools. */
+  onReadOnlyInvocation?: ReadOnlyToolInvocationCallback;
 
   /** Request-owned budget shared across every orchestration phase. */
   executionLedger?: ExecutionLedger;
@@ -5992,6 +6131,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           analysisDeadlineAt: executionLedger?.deadlineAt,
           signal,
           onMutationInvocation: opts.onMutationInvocation,
+          onReadOnlyInvocation: opts.onReadOnlyInvocation,
+          toolManifestHash: hashProviderToolManifest(toolManifest),
         });
         toolCompleted = toolResult.kind === "ok";
       } finally {

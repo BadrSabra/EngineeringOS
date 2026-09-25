@@ -46,8 +46,11 @@ export type CommandRunner = (request: {
 export type BrowserValidationRunner = (request: {
   profile: string;
   rootPath: string;
+  projectId?: string;
   pendingChanges?: readonly PendingChange[];
   operationId?: string;
+  executionId?: string;
+  executionAttempt?: number;
   revision?: string;
   signal?: AbortSignal;
 }) => Promise<ValidationResult>;

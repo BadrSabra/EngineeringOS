@@ -4726,7 +4726,7 @@ identity (42.20–42.21) هما handoff attestations server-owned، وليسا �
 
 ### 42.4 P5 — Authoritative Effect Verification
 
-**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`
+**الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop with field-validated process/port/health/revision after-state, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`
 
 الـacceptances في الشرائح المذكورة هنا effect-backed ومحددة بأهداف التنفيذ
 الخاصة بها، وقد تحدث قبل P6؛ لا تدعي materialization لـWorld Delta ولا تغلق
@@ -5436,7 +5436,50 @@ capability. لا يتغير authorization أو Action/Effect أو acceptance؛ �
 العادي دون `--force`. نجحت فحوص application/audit/operator schema واختبارات
 Mission DB-backed (6)، recipe contract/runner (17)، وAPI typecheck.
 
-هذه تغطية جزئية: لا تُضف capabilities أخرى قبل تدقيق تنفيذها وعقد نتيجتها؛
-تبقى provider tool invocation paths وأجزاء P3.5/P4/P5 غير مكتملة. الخطوة التالية
-هي تتبّع أداة provider للقراءة إلى Episode بعد التحقق من manifest والصلاحيات
-server-side. لا تبدأ P6 أو P7 أو P7.5.
+هذه تغطية جزئية: لا تُضف capabilities أخرى قبل تدقيق تنفيذها وعقد نتيجتها.
+اكتمل تتبّع قراءة provider إلى Episode في §42.26؛ وتبقى أجزاء P3.5/P4/P5
+الأخرى غير مكتملة. الشريحة التالية الموثقة لبوابة runtime موضحة في §42.27.
+لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.26 P5.5 — Provider read-tool invocation observations (2026-09-25)
+
+يمرر `ReadOnlyToolInvocationCallback` من Mission service عبر `chatWithFallback`
+و`chat-agent` و`executeToolLoop` إلى `executeSingleTool`. يعمل التسجيل فقط بعد
+نجاح registry/authorization وقبل dispatch، ولأسماء القراءة المحددة
+`read_file` و`read_file_range` و`list_directory` و`search_code`. تُحسب بصمة
+manifest من كامل القائمة server-owned بترتيب ثابت، مستقلة عن `allowedToolNames`
+المضيّقة. يُربط الحدث بـEpisode Mission الحالي وبـexecution/attempt/revision،
+ويحفظ tool-call ID وhash المدخلات والنتيجة فقط؛ لا تحفظ arguments أو المسار أو
+محتوى القراءة.
+
+يسجل `OBSERVATION_REQUESTED` قبل تنفيذ القراءة، ثم
+`OBSERVATION_RECORDED` للحالة المكتملة أو الفاشلة/الملغاة. فشل كتابة الطلب يمنع
+القراءة، وفشل كتابة النتيجة يمنع تمرير محتواها إلى النموذج. يقتصر ربط Episode على
+`mission_observe` و`mission_validate`؛ لم تُضف أحداث durable للدردشة العادية
+ذات shadow Episode غير المحتفظ به. لا يوجد تغيير schema أو توسعة authorization
+أو تعديل Action/Effect أو acceptance؛ الأحداث ملاحظات لا تثبت أثرًا ولا تمنح
+صلاحية.
+
+نجح workspace typecheck وVitest (45 ملفًا، 6,803 اختبارات) واختبار Mission
+lifecycle DB-backed (6/6). هذه تغطية P5.5 جزئية؛ تبقى أجزاء P3.5/P4/P5 الأخرى
+وأي مسار دردشة لا يملك Episode دائمًا خارج هذا التسجيل. لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.27 P3.5/P4/P5 — Gate C runtime after-state field validation (2026-09-25)
+
+أصبح تصنيف أثر `runtime.start` و`runtime.restart` و`runtime.stop` معتمدًا على
+`RuntimeAfterState` server-observed ومقيدًا بهوية المشروع والجلسة والمراجعة،
+بدل استنتاج after-state من `output.status` أو وجود receipt. يتطلب start/restart
+عملية حية، ومنفذًا مستمعًا، وHTTP 2xx، ومراجعة serving مطابقة، وألا يفشل فحص
+marker. يتطلب stop before-state حيًا ومطابقًا، ثم after-state متوقفًا مع تطابق
+PID والمنفذ بين الرصدين.
+
+تُحفظ حقول after-state المحدودة كملاحظة `DIRECT_OBSERVATION` مرتبطة بـEpisode،
+وتشير `ACTION_COMMITTED` إلى observation IDs. لا تحفظ تفاصيل الاستجابة أو
+response body. الحالة المفقودة أو المشوهة أو غير المطابقة تفشل Gate C دون
+إنشاء ملاحظة after-state؛ أما الرصد الكامل المتناقض فيحفظ كـfailed ولا يحقق
+الأثر المتوقع. ما زال إكمال recipe يتطلب شروطه القائمة؛ لم تتغير سلطة
+acceptance أو شروط تحقق Browser/Delivery، ولم يتغير schema.
+
+نجحت اختبارات Gate C runtime بعد-state واختبارات runner المرتبطة، وworkspace
+typecheck و`git diff --check`. هذه شريحة جزئية فقط: بقيت أجزاء P3.5/P4/P5
+الأوسع غير مكتملة. لم يبدأ P6 أو P7 أو P7.5.

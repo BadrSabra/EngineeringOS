@@ -251,6 +251,10 @@ export type CapabilityExecutionContext = {
   projectId?: string;
   /** Server-owned durable operation identity; never accepted from capability input. */
   operationId?: string;
+  /** Durable execution identity for evidence that must be bound to one run. */
+  executionId?: string;
+  /** Current durable execution attempt; used to reject replayed evidence. */
+  executionAttempt?: number;
   /** Server-owned approved profile set, if the capability uses profiles. */
   approvedCommandProfiles?: ReadonlySet<string>;
   /** Server-owned scope copied from the current recipe node. */

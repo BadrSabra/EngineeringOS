@@ -500,6 +500,32 @@ describe("real durable task execution lifecycle", () => {
       },
       effectiveProvider: "groq",
     });
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onReadOnlyInvocation?: import("@workspace/ai-orchestrator").ReadOnlyToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-read-mission-1",
+        toolName: "read_file" as const,
+        inputHash: "c".repeat(64),
+        manifestHash: "d".repeat(64),
+      };
+      await baseParams.onReadOnlyInvocation?.({ ...invocation, phase: "requested" });
+      await baseParams.onReadOnlyInvocation?.({
+        ...invocation,
+        phase: "recorded",
+        status: "completed",
+        outputHash: "e".repeat(64),
+      });
+      return {
+        result: {
+          response: "Validated the current workspace.",
+          pendingChanges: [{ path: "src/target.ts", newContent: "export const value = 'injected';\n" }],
+          sources: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
     runRepairValidation.mockResolvedValue({
       status: "passed",
       evidence: { artifactRef: "mission-validate-only-receipt" },
@@ -526,12 +552,43 @@ describe("real durable task execution lifecycle", () => {
         .where(eq(aiAgentEffectsTable.projectId, fixture.projectId))).toEqual([]);
       const events = await db
         .select({
+          episodeId: aiAgentEpisodeEventsTable.episodeId,
+          executionId: aiAgentEpisodeEventsTable.executionId,
+          attempt: aiAgentEpisodeEventsTable.attempt,
           eventType: aiAgentEpisodeEventsTable.eventType,
           payload: aiAgentEpisodeEventsTable.payload,
         })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
       expect(events.map((event) => event.eventType)).not.toContain("ACTION_REQUESTED");
+      expect(events.map((event) => event.eventType)).toEqual(
+        expect.arrayContaining(["OBSERVATION_REQUESTED", "OBSERVATION_RECORDED"]),
+      );
+      const observationRequest = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
+      expect(observationRequest?.payload).toMatchObject({
+        observationId: expect.any(String),
+        toolCallId: "provider-read-mission-1",
+        toolName: "read_file",
+        inputHash: "c".repeat(64),
+        manifestHash: "d".repeat(64),
+        projectRevision: fixture.now.toISOString(),
+        authorization: "server_owned",
+      });
+      const observationRecorded = events.find((event) => event.eventType === "OBSERVATION_RECORDED");
+      expect(observationRecorded?.payload).toMatchObject({
+        observationId: (observationRequest?.payload as { observationId: string }).observationId,
+        status: "completed",
+        outputHash: "e".repeat(64),
+        projectRevision: fixture.now.toISOString(),
+      });
+      expect(observationRequest?.episodeId).toEqual(expect.any(String));
+      expect(observationRecorded?.episodeId).toBe(observationRequest?.episodeId);
+      expect(observationRequest?.executionId).toEqual(expect.any(String));
+      expect(observationRecorded?.executionId).toBe(observationRequest?.executionId);
+      expect(observationRequest?.attempt).toEqual(expect.any(Number));
+      expect(observationRecorded?.attempt).toBe(observationRequest?.attempt);
+      expect(JSON.stringify(observationRequest?.payload)).not.toContain("src/target.ts");
+      expect(JSON.stringify(observationRecorded?.payload)).not.toContain("Validated the current workspace.");
       const baseParams = chatWithFallback.mock.calls.at(-1)?.[1] as {
         onMutationInvocation?: unknown;
       } | undefined;

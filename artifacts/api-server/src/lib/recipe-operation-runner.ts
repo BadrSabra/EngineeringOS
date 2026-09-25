@@ -87,6 +87,9 @@ import {
 import {
   buildGateCAction,
   buildGateCEffectContract,
+  buildBrowserGateCAfterObservation,
+  buildDeliveryGateCAfterObservation,
+  buildRuntimeGateCAfterObservation,
   gateCEffectIdentity,
   gateCEffectKind,
 } from "./agent-state/gate-c-effect.js";
@@ -1280,6 +1283,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 operation: "recipe",
                 projectId: params.projectId,
                 operationId: params.operationId,
+                executionId: claimed.id,
+                executionAttempt: claimed.attempt,
                 signal: nodeController.signal,
                 scope: node.executionContext?.scope,
                 allowedFiles: node.allowedFiles,
@@ -1331,7 +1336,90 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               operationId: params.operationId,
             });
             const afterEvidenceRef = `gate-c:${claimed.id}:${claimed.attempt}:after`;
-            const afterStatus = output.status === "passed" && hasVerifiedReceipt ? "passed" : "failed";
+            const isRuntimeGateC = recipeGateCEffectKind === "runtime"
+              || recipeGateCEffectKind === "runtime-restart"
+              || recipeGateCEffectKind === "runtime-stop";
+            const runtimeAfterObservation = isRuntimeGateC
+              ? buildRuntimeGateCAfterObservation({
+                  recipeId: params.recipeId,
+                  projectId: params.projectId,
+                  sourceRevision: params.sourceRevision,
+                  evidence,
+                })
+              : undefined;
+            const expectedProfileName = gateCAction.capabilityId.startsWith("browser.verify.")
+              ? gateCAction.capabilityId.slice("browser.verify.".length)
+              : "default";
+            const browserAfterObservation = recipeGateCEffectKind === "browser"
+              ? buildBrowserGateCAfterObservation({
+                  projectId: params.projectId,
+                  operationId: params.operationId,
+                  executionId: claimed.id,
+                  executionAttempt: claimed.attempt,
+                  sourceRevision: params.sourceRevision,
+                  expectedProfileName,
+                  output,
+                })
+              : undefined;
+            const deliveryAfterObservation = recipeGateCEffectKind === "delivery"
+              ? buildDeliveryGateCAfterObservation({
+                  projectId: params.projectId,
+                  operationId: params.operationId,
+                  executionId: claimed.id,
+                  executionAttempt: claimed.attempt,
+                  sourceRevision: params.sourceRevision,
+                  output,
+                })
+              : undefined;
+            const gateCAfterObservation = runtimeAfterObservation
+              ?? browserAfterObservation
+              ?? deliveryAfterObservation;
+            const afterStatus = gateCAfterObservation?.effectValue ?? "failed";
+            const statePredicate = isRuntimeGateC
+              ? "runtime.after_state"
+              : recipeGateCEffectKind === "browser"
+                ? "browser.after_state"
+                : "delivery.after_state";
+            const stateSubject = isRuntimeGateC && runtimeAfterObservation
+              ? `runtime:${runtimeAfterObservation.sessionId}`
+              : identity.subject;
+            const afterSources = gateCAfterObservation
+              ? [
+                  {
+                    kind: "direct_observation" as const,
+                    sourceId: `${afterEvidenceRef}:${identity.subject}:${identity.predicate}`,
+                    sourceRevision: params.sourceRevision,
+                    subject: identity.subject,
+                    predicate: identity.predicate,
+                    value: afterStatus,
+                    evidenceRefs: [afterEvidenceRef, ...gateCAfterObservation.sourceRefs],
+                    observedAt: gateCAfterObservation.observedAt,
+                  },
+                  {
+                    kind: "direct_observation" as const,
+                    sourceId: `${afterEvidenceRef}:${statePredicate}`,
+                    sourceRevision: params.sourceRevision,
+                    subject: stateSubject,
+                    predicate: statePredicate,
+                    value: gateCAfterObservation.facts,
+                    evidenceRefs: [afterEvidenceRef, ...gateCAfterObservation.sourceRefs],
+                    observedAt: gateCAfterObservation.observedAt,
+                  },
+                ]
+              : [];
+            const after = afterSources.length > 0
+              ? await materializeServerOwnedObservations({
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  episodeId: episode.episodeId,
+                  environmentRootPath: executionRoot,
+                  projectRevision: params.sourceRevision,
+                  materializeWorldState: false,
+                  sources: afterSources,
+                })
+              : undefined;
+            const afterObservationIds = after?.observationIds ?? [];
             await appendEpisodeEvent({
               episodeId: episode.episodeId,
               projectId: params.projectId,
@@ -1347,32 +1435,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               actorType: "worker",
               actorId: workerId,
               correlationId: claimed.id,
+              actionRefs: [gateCAction.actionId],
+              observationRefs: afterObservationIds,
+              evidenceRefs: gateCAfterObservation
+                ? [afterEvidenceRef, ...gateCAfterObservation.sourceRefs]
+                : [],
             });
-            const afterEvidence = typeof evidence === "object" && evidence && !Array.isArray(evidence)
-              ? evidence as Record<string, unknown>
-              : {};
-            const after = await materializeServerOwnedObservations({
-              projectId: params.projectId,
-              executionId: claimed.id,
-              attempt: claimed.attempt,
-              episodeId: episode.episodeId,
-              environmentRootPath: executionRoot,
-              projectRevision: params.sourceRevision,
-              materializeWorldState: false,
-              sources: [{
-                kind: "direct_observation",
-                sourceId: `${afterEvidenceRef}:${identity.subject}:${identity.predicate}`,
-                sourceRevision: params.sourceRevision,
-                subject: identity.subject,
-                predicate: identity.predicate,
-                value: afterStatus,
-                evidenceRefs: [
-                  afterEvidenceRef,
-                  ...(typeof afterEvidence.evidenceId === "string" ? [afterEvidence.evidenceId] : []),
-                  ...(typeof afterEvidence.artifactRef === "string" ? [afterEvidence.artifactRef] : []),
-                ],
-              }],
-            });
+            if (gateCBeforeObservationIds.length === 0 || afterObservationIds.length === 0) {
+              return {
+                status: "failed" as const,
+                detail: "Gate C effect is missing a verified before-state or after-state.",
+                validationAttempts: 1,
+              };
+            }
             const effect = await verifyAndPersistEffect({
               projectId: params.projectId,
               executionId: claimed.id,
@@ -1382,7 +1457,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               action: gateCAction,
               effectContract: gateCEffectContract,
               beforeObservationIds: gateCBeforeObservationIds,
-              afterObservationIds: after.observationIds,
+              afterObservationIds,
             });
             if (effect.status !== "observed") {
               return {
@@ -1832,6 +1907,17 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             && !Array.isArray(value)
           ))
       : undefined;
+    const runtimeGateCEffectKind = gateCEffectKind(params.recipeId);
+    const runtimeAfterObservation = runtimeEvidence
+      && runtimeGateCEffectKind
+      && runtimeGateCEffectKind.startsWith("runtime")
+      ? buildRuntimeGateCAfterObservation({
+          recipeId: params.recipeId,
+          projectId: params.projectId,
+          sourceRevision: params.sourceRevision,
+          evidence: runtimeEvidence,
+        })
+      : undefined;
     await materializeServerOwnedObservations({
       projectId: params.projectId,
       executionId: claimed.id,
@@ -1866,6 +1952,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               : null,
           } : {}),
         },
+        ...(runtimeAfterObservation && runtimeGateCEffectKind ? [{
+          kind: "direct_observation" as const,
+          sourceId: `gate-c:${claimed.id}:${claimed.attempt}:after:runtime-state`,
+          sourceRevision: params.sourceRevision,
+          subject: `runtime:${runtimeAfterObservation.sessionId}`,
+          predicate: "runtime.after_state",
+          value: runtimeAfterObservation.facts,
+          evidenceRefs: [
+            `gate-c:${claimed.id}:${claimed.attempt}:after`,
+            ...runtimeAfterObservation.sourceRefs,
+          ],
+          observedAt: runtimeAfterObservation.observedAt,
+        }] : []),
         {
           kind: "delivery_receipt",
           sourceId: `delivery:${claimed.id}:${receipt.attempt ?? claimed.attempt}`,

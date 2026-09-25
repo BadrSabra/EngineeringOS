@@ -34,6 +34,7 @@ export type PreviewEvidence = {
   sourceRevision: string;
   sessionId: string;
   profileName: string;
+  origin: string;
   artifactRef: string;
   status: BrowserVerificationStatus;
   summary: string;
@@ -349,6 +350,7 @@ export async function verifyBrowserPreview(input: {
   const evidenceContext = {
     sourceRevision: input.expectedRevision ?? input.session.revision,
     profileName: input.profileName ?? "browser-preview",
+    origin: baseOrigin,
     artifactRef: `browser-preview:${input.session.id}:${input.operationId}:${input.executionId}`,
   };
   const consoleErrors: string[] = [];

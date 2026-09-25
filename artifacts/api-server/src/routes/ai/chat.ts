@@ -8857,7 +8857,7 @@ export async function handleChatStream(req: Request, res: Response) {
     const browserValidationProfileName = requestedBrowserValidationProfile;
     const browserValidationManager = browserValidationProfile ? new PreviewSessionManager() : undefined;
     const browserValidationRunner = browserValidationProfileName && validRootPath
-      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+        ? async (request: { profile: string; rootPath: string; projectId?: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; executionId?: string; executionAttempt?: number; revision?: string; signal?: AbortSignal }) => {
           if (!browserValidationProfile || request.profile !== browserValidationProfile.name) {
             return {
               profile: request.profile, status: "unavailable" as const,
@@ -8889,9 +8889,11 @@ export async function handleChatStream(req: Request, res: Response) {
             const playwright = await import("playwright");
             browser = await playwright.chromium.launch({ headless: true }) as unknown as PreviewBrowser;
             return await runRepairPreviewValidation({
+              projectId: request.projectId ?? projectId,
               session,
               operationId: request.operationId ?? analysisCorrelation.operationId,
-              executionId: aiExecution?.id ?? "browser-validation",
+              executionId: request.executionId ?? aiExecution?.id ?? "browser-validation",
+              executionAttempt: request.executionAttempt ?? aiExecution?.attempt,
               revision: request.revision ?? analysisCorrelation.projectRevision,
               contract: {
                 revision: request.revision ?? analysisCorrelation.projectRevision,

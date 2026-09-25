@@ -1,6 +1,444 @@
-import type { AgentAction, EffectContract } from "@workspace/ai-orchestrator";
+import type { AgentAction, EffectContract, JsonValue } from "@workspace/ai-orchestrator";
 
 export type GateCEffectKind = "runtime" | "runtime-restart" | "runtime-stop" | "browser" | "delivery";
+
+type RuntimeStateSnapshot = {
+  status: "passed" | "failed" | "unavailable";
+  projectId: string;
+  sessionId: string;
+  revision: string;
+  pid: number;
+  port: number;
+  processAlive: boolean;
+  portReady: boolean;
+  healthStatus: number | null;
+  servingRevision: string | null;
+  markerMatched: boolean | null;
+  observedAt: string;
+};
+
+export type GateCServerAfterObservation = {
+  effectValue: "passed" | "failed";
+  observedAt: string;
+  facts: Record<string, JsonValue>;
+  sourceRefs: string[];
+};
+
+export type RuntimeGateCAfterObservation = GateCServerAfterObservation & {
+  sessionId: string;
+};
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function boundedIdentity(value: unknown, maxLength = 500): string | undefined {
+  return typeof value === "string" && value.trim() && value.length <= maxLength
+    ? value
+    : undefined;
+}
+
+function parseRuntimeState(value: unknown): RuntimeStateSnapshot | undefined {
+  const state = record(value);
+  if (!state) return undefined;
+  const status = state.status;
+  const projectId = boundedIdentity(state.projectId);
+  const sessionId = boundedIdentity(state.sessionId);
+  const revision = boundedIdentity(state.revision, 2_000);
+  const observedAt = boundedIdentity(state.observedAt, 80);
+  const healthStatus = state.healthStatus;
+  const servingRevision = typeof state.servingRevision === "string"
+    ? boundedIdentity(state.servingRevision, 2_000)
+    : state.servingRevision === null ? null : undefined;
+  const markerMatched = state.markerMatched;
+  if (
+    (status !== "passed" && status !== "failed" && status !== "unavailable")
+    || !projectId
+    || !sessionId
+    || !revision
+    || !observedAt
+    || !Number.isFinite(Date.parse(observedAt))
+    || !Number.isInteger(state.pid)
+    || (state.pid as number) <= 0
+    || !Number.isInteger(state.port)
+    || (state.port as number) <= 0
+    || typeof state.processAlive !== "boolean"
+    || typeof state.portReady !== "boolean"
+    || (healthStatus !== null && (
+      !Number.isInteger(healthStatus)
+      || (healthStatus as number) < 100
+      || (healthStatus as number) > 599
+    ))
+    || servingRevision === undefined
+    || (markerMatched !== null && typeof markerMatched !== "boolean")
+  ) {
+    return undefined;
+  }
+  return {
+    status,
+    projectId,
+    sessionId,
+    revision,
+    pid: state.pid as number,
+    port: state.port as number,
+    processAlive: state.processAlive,
+    portReady: state.portReady,
+    healthStatus: healthStatus as number | null,
+    servingRevision,
+    markerMatched: markerMatched as boolean | null,
+    observedAt: new Date(observedAt).toISOString(),
+  };
+}
+
+function isServingState(state: RuntimeStateSnapshot, revision: string): boolean {
+  return state.status === "passed"
+    && state.processAlive
+    && state.portReady
+    && state.healthStatus !== null
+    && state.healthStatus >= 200
+    && state.healthStatus < 300
+    && state.servingRevision === revision
+    && state.markerMatched !== false;
+}
+
+function runtimeStateFacts(state: RuntimeStateSnapshot): Record<string, JsonValue> {
+  return {
+    status: state.status,
+    projectId: state.projectId,
+    sessionId: state.sessionId,
+    revision: state.revision,
+    pid: state.pid,
+    port: state.port,
+    processAlive: state.processAlive,
+    portReady: state.portReady,
+    healthStatus: state.healthStatus,
+    servingRevision: state.servingRevision,
+    markerMatched: state.markerMatched,
+    observedAt: state.observedAt,
+  };
+}
+
+/**
+ * Classify only server-observed runtime after-state. Capability status and
+ * receipt identity are deliberately not used as a substitute for the runtime
+ * process/port/HTTP observations.
+ */
+export function buildRuntimeGateCAfterObservation(input: {
+  recipeId: string;
+  projectId: string;
+  sourceRevision: string;
+  evidence: unknown;
+}): RuntimeGateCAfterObservation | undefined {
+  if (
+    input.recipeId !== "runtime.start"
+    && input.recipeId !== "runtime.restart"
+    && input.recipeId !== "runtime.stop"
+  ) {
+    return undefined;
+  }
+  const evidence = record(input.evidence);
+  const evidenceSessionId = boundedIdentity(evidence?.sessionId);
+  const after = parseRuntimeState(evidence?.afterState);
+  if (
+    !evidence
+    || !evidenceSessionId
+    || !after
+    || after.projectId !== input.projectId
+    || after.sessionId !== evidenceSessionId
+    || after.revision !== input.sourceRevision
+  ) {
+    return undefined;
+  }
+
+  const isStop = input.recipeId === "runtime.stop";
+  const before = isStop ? parseRuntimeState(evidence.beforeState) : undefined;
+  if (
+    isStop
+    && (
+      !before
+      || before.projectId !== input.projectId
+      || before.sessionId !== evidenceSessionId
+      || before.revision !== input.sourceRevision
+    )
+  ) {
+    return undefined;
+  }
+
+  const passed = isStop
+    ? Boolean(
+        before
+        && isServingState(before, input.sourceRevision)
+        && after.status === "passed"
+        && !after.processAlive
+        && !after.portReady
+        && after.pid === before.pid
+        && after.port === before.port
+        && after.healthStatus === null
+        && after.servingRevision === null
+        && after.markerMatched === null
+      )
+    : isServingState(after, input.sourceRevision);
+
+  const facts: Record<string, JsonValue> = isStop
+    ? {
+        before: runtimeStateFacts(before!),
+        after: runtimeStateFacts(after),
+      }
+    : { after: runtimeStateFacts(after) };
+  const sourceRefs = ["evidenceId", "artifactRef", "resultHash"]
+    .map((key) => boundedIdentity(evidence[key]))
+    .filter((value): value is string => Boolean(value));
+  return {
+    effectValue: passed ? "passed" : "failed",
+    sessionId: evidenceSessionId,
+    observedAt: after.observedAt,
+    facts,
+    sourceRefs: [...new Set(sourceRefs)],
+  };
+}
+
+function observedAt(value: unknown): string | undefined {
+  const raw = boundedIdentity(value, 80);
+  if (!raw || !Number.isFinite(Date.parse(raw))) return undefined;
+  return new Date(raw).toISOString();
+}
+
+function loopbackHttpOrigin(value: unknown): string | undefined {
+  const raw = boundedIdentity(value, 500);
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== "http:"
+      || url.hostname !== "127.0.0.1"
+      || !url.port
+      || url.username
+      || url.password
+      || url.pathname !== "/"
+      || url.search
+      || url.hash
+    ) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function evidenceSourceRefs(value: unknown): string[] {
+  const evidence = record(value);
+  if (!evidence) return [];
+  return [...new Set(
+    ["evidenceId", "artifactRef", "resultHash"]
+      .map((key) => boundedIdentity(evidence[key]))
+      .filter((item): item is string => Boolean(item)),
+  )];
+}
+
+export function buildBrowserGateCAfterObservation(input: {
+  projectId: string;
+  operationId: string;
+  executionId: string;
+  executionAttempt: number;
+  sourceRevision: string;
+  expectedProfileName: string;
+  output: unknown;
+}): GateCServerAfterObservation | undefined {
+  const output = record(input.output);
+  const evidence = record(output?.evidence);
+  if (!output || !evidence) return undefined;
+
+  const projectId = boundedIdentity(evidence.projectId);
+  const operationId = boundedIdentity(evidence.operationId);
+  const executionId = boundedIdentity(evidence.executionId);
+  const executionAttempt = evidence.executionAttempt;
+  const sourceRevision = boundedIdentity(evidence.sourceRevision, 2_000);
+  const servingRevision = boundedIdentity(evidence.revision, 2_000);
+  const sessionId = boundedIdentity(evidence.sessionId);
+  const profileName = boundedIdentity(evidence.profileName, 80);
+  const artifactRef = boundedIdentity(evidence.artifactRef, 500);
+  const origin = loopbackHttpOrigin(evidence.origin);
+  const permittedOrigin = loopbackHttpOrigin(evidence.permittedOrigin);
+  const time = observedAt(evidence.observedAt);
+  const status = evidence.status;
+  const consoleErrorCount = evidence.consoleErrorCount;
+  if (
+    projectId !== input.projectId
+    || operationId !== input.operationId
+    || executionId !== input.executionId
+    || !Number.isInteger(executionAttempt)
+    || executionAttempt !== input.executionAttempt
+    || sourceRevision !== input.sourceRevision
+    || servingRevision !== input.sourceRevision
+    || !sessionId
+    || profileName !== input.expectedProfileName
+    || output.profile !== input.expectedProfileName
+    || typeof status !== "string"
+    || (status !== "passed" && status !== "failed" && status !== "unavailable")
+    || output.status !== status
+    || !time
+    || !artifactRef
+    || artifactRef !== `browser-preview:${sessionId}:${input.operationId}:${input.executionId}`
+    || !origin
+    || !permittedOrigin
+    || origin !== permittedOrigin
+    || !Number.isInteger(consoleErrorCount)
+    || (consoleErrorCount as number) < 0
+  ) {
+    return undefined;
+  }
+
+  const facts: Record<string, JsonValue> = {
+    status,
+    projectId,
+    operationId,
+    executionId,
+    executionAttempt: executionAttempt as number,
+    sourceRevision,
+    servingRevision,
+    sessionId,
+    profileName,
+    origin,
+    permittedOrigin,
+    artifactRef,
+    consoleErrorCount: consoleErrorCount as number,
+    observedAt: time,
+  };
+  return {
+    effectValue: status === "passed" && consoleErrorCount === 0 ? "passed" : "failed",
+    observedAt: time,
+    facts,
+    sourceRefs: evidenceSourceRefs(evidence),
+  };
+}
+
+function credentialFreeGitHubRemote(value: unknown): string | undefined {
+  const raw = boundedIdentity(value, 500);
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (
+      url.protocol !== "https:"
+      || url.hostname !== "github.com"
+      || url.port
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+      || parts.length !== 2
+    ) {
+      return undefined;
+    }
+    return raw;
+  } catch {
+    return undefined;
+  }
+}
+
+export function buildDeliveryGateCAfterObservation(input: {
+  projectId: string;
+  operationId: string;
+  executionId: string;
+  executionAttempt: number;
+  sourceRevision: string;
+  output: unknown;
+}): GateCServerAfterObservation | undefined {
+  const output = record(input.output);
+  const state = record(output?.afterState);
+  if (!output || !state) return undefined;
+
+  const projectId = boundedIdentity(state.projectId);
+  const operationId = boundedIdentity(state.operationId);
+  const executionId = boundedIdentity(state.executionId);
+  const executionAttempt = state.executionAttempt;
+  const sourceRevision = boundedIdentity(state.sourceRevision, 2_000);
+  const proposalId = boundedIdentity(state.proposalId);
+  const remoteUrl = credentialFreeGitHubRemote(state.remoteUrl);
+  const branch = boundedIdentity(state.branch, 240);
+  const expectedCommitHash = boundedIdentity(state.expectedCommitHash, 160);
+  const remoteCommitHash = boundedIdentity(state.remoteCommitHash, 160);
+  const expectedParentHash = boundedIdentity(state.expectedParentHash, 160);
+  const remoteParentHash = boundedIdentity(state.remoteParentHash, 160);
+  const expectedTreeHash = boundedIdentity(state.expectedTreeHash, 160);
+  const remoteTreeHash = boundedIdentity(state.remoteTreeHash, 160);
+  const candidateTreeHash = boundedIdentity(state.candidateTreeHash, 160);
+  const committedTreeHash = boundedIdentity(state.committedTreeHash, 160);
+  const operationMarker = boundedIdentity(state.operationMarker, 300);
+  const parentCount = state.remoteParentCount;
+  const markerMatched = state.markerMatched;
+  const time = observedAt(state.observedAt);
+  const status = state.status;
+  const outerStatus = output.status;
+  if (
+    projectId !== input.projectId
+    || operationId !== input.operationId
+    || executionId !== input.executionId
+    || !Number.isInteger(executionAttempt)
+    || executionAttempt !== input.executionAttempt
+    || sourceRevision !== input.sourceRevision
+    || !proposalId
+    || !remoteUrl
+    || !branch
+    || !expectedCommitHash
+    || !remoteCommitHash
+    || !expectedParentHash
+    || !remoteParentHash
+    || !expectedTreeHash
+    || !remoteTreeHash
+    || !candidateTreeHash
+    || !committedTreeHash
+    || !operationMarker
+    || !Number.isInteger(parentCount)
+    || !time
+    || typeof markerMatched !== "boolean"
+    || status !== "passed"
+    || (outerStatus !== "passed" && outerStatus !== "blocked" && outerStatus !== "unavailable")
+  ) {
+    return undefined;
+  }
+
+  const facts: Record<string, JsonValue> = {
+    status,
+    projectId,
+    operationId,
+    executionId,
+    executionAttempt: executionAttempt as number,
+    sourceRevision,
+    proposalId,
+    remoteUrl,
+    branch,
+    expectedCommitHash,
+    remoteCommitHash,
+    expectedParentHash,
+    remoteParentHash,
+    expectedTreeHash,
+    remoteTreeHash,
+    remoteParentCount: parentCount as number,
+    candidateTreeHash,
+    committedTreeHash,
+    operationMarker,
+    markerMatched,
+    observedAt: time,
+  };
+  const passed = outerStatus === "passed"
+    && expectedCommitHash === remoteCommitHash
+    && expectedParentHash === remoteParentHash
+    && expectedTreeHash === remoteTreeHash
+    && parentCount === 1
+    && candidateTreeHash === committedTreeHash
+    && markerMatched
+    && operationMarker === `EngineeringOS-Operation: ${input.operationId}`;
+  return {
+    effectValue: passed ? "passed" : "failed",
+    observedAt: time,
+    facts,
+    sourceRefs: evidenceSourceRefs(output.evidence),
+  };
+}
 
 export function isGateCEffectRecipe(recipeId: string): boolean {
   return recipeId === "runtime.start"

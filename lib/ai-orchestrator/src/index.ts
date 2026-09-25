@@ -16,6 +16,8 @@ export type {
   AgentLoopToolCall,
   MutationToolInvocation,
   MutationToolInvocationCallback,
+  ReadOnlyToolInvocation,
+  ReadOnlyToolInvocationCallback,
   SourceRetrievalTelemetry,
   ReadStatus,
 } from "./tool-execution-engine.js";

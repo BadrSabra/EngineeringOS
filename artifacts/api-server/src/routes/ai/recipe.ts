@@ -114,11 +114,23 @@ router.post("/ai/projects/:projectId/recipe", requireRecipeAccess, async (req, r
       runtimeStartRunner: createRuntimeStartRunner(),
       ...(isDeliveryRecipe && deliveryProposalId && project.gitRemoteUrl
         ? {
-            githubDeliveryRunner: async ({ rootPath, projectId, operationId: deliveryOperation, message, signal }) =>
+            githubDeliveryRunner: async ({
+              rootPath,
+              projectId,
+              operationId: deliveryOperation,
+              executionId,
+              executionAttempt,
+              sourceRevision,
+              message,
+              signal,
+            }) =>
               executeVerifiedGitHubDelivery({
                 rootPath,
                 projectId,
                 operationId: deliveryOperation,
+                executionId,
+                executionAttempt,
+                sourceRevision,
                 proposalId: deliveryProposalId,
                 remoteUrl: project.gitRemoteUrl!,
                 branch: project.gitDefaultBranch ?? "main",

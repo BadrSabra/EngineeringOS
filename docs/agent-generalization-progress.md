@@ -1247,6 +1247,55 @@ G9 Revocation Safety
   server-authorized، مع إبقاء manifest والصلاحيات وبوابات القبول هي المصدر
   authoritative.
 
+### 2026-09-25 — تسجيل قراءات provider في Mission Episode
+
+- **phase/step:** P5.5 — provider read-tool invocation observations
+- **status:** `partial`
+- **what changed:** أضيف callback server-owned يمر عبر orchestrator إلى Mission
+  service. يسجل `OBSERVATION_REQUESTED` بعد registry/authorization وقبل القراءة،
+  ثم `OBSERVATION_RECORDED` بنتيجة محدودة. يسمح فقط بـ`read_file`,
+  `read_file_range`, `list_directory`, و`search_code` في `mission_observe` و
+  `mission_validate`. ترتبط الأحداث بـEpisode/execution/attempt/revision؛
+  fingerprint كامل manifest مستقل عن القائمة المضيّقة، وتُحفظ hashes للمدخلات
+  والنتيجة بدل المحتوى أو المسار الخام.
+- **files/schema/contracts touched:** orchestrator tool loop/chat agent، API
+  `chatWithFallback` وMission service، واختبارات orchestrator وMission lifecycle.
+  لا تغيير schema.
+- **validation:** `pnpm run typecheck` من workspace نجح؛ Vitest workspace
+  ‏45 ملفًا و6,803 اختبارات نجحت؛ API Mission lifecycle ‏6/6؛
+  `git diff --check` passed.
+- **authority/safety impact:** فشل تسجيل الطلب يمنع القراءة، وفشل تسجيل النتيجة
+  يحجب output عن النموذج. لا تُسجل أدوات الكتابة أو validator، ولا تُفعّل
+  ordinary chat shadow Episodes. لم تتغير authorization أو Action/Effect أو
+  acceptance؛ أحداث الملاحظة ليست إثباتًا للنتيجة أو للأثر.
+- **remaining/blocker:** لا تزال التغطية محدودة بأدوات Mission الأربع؛ الدردشة
+  العادية لا تحتفظ بحد Episode دائم، وتبقى أجزاء P3.5/P4/P5 الأخرى. لم تبدأ
+  P6 أو P7 أو P7.5.
+- **next step:** متابعة العمل التالي الموثق ضمن P3.5/P4/P5 بالترتيب، دون بدء
+  P6 أو P7 أو P7.5.
+
+### 2026-09-25 — ربط after-state المرصود في Gate C runtime
+
+- **phase/step:** P3.5/P4/P5 — Gate C runtime after-state hardening
+- **status:** `partial`
+- **what changed:** صار after-state لـ`runtime.start` و`runtime.restart` و
+  `runtime.stop` يُصنف من حقول `RuntimeAfterState` بعد التحقق من هوية المشروع
+  والجلسة والمراجعة، وصحة العملية والمنفذ وHTTP health وserving revision وmarker.
+  يتطلب stop before-state حيًا وafter-state متوقفًا مع تطابق PID والمنفذ. تُحفظ
+  لقطة محدودة مباشرة، ويربط `ACTION_COMMITTED` معرفات الملاحظات؛ لا يعتمد الأثر
+  على `output.status` أو وجود receipt وحدهما.
+- **files/schema/contracts touched:** Gate C runtime classifier/runner، اختبارات
+  runtime Gate C وrecipe runner، execution plan وprogress log. لا تغيير schema.
+- **validation:** API Vitest للملفين المعنيين: 19/19؛ `pnpm run typecheck`؛
+  `git diff --check`، جميعها نجحت.
+- **authority/safety impact:** الحالة المفقودة أو المشوهة أو غير المطابقة تفشل
+  دون direct after-observation أو قبول؛ الحالة المتناقضة الكاملة تُسجل كفشل.
+  لم تتغير سلطة acceptance أو شروط Browser/Delivery، ولم يبدأ P6 أو P7 أو P7.5.
+- **remaining/blocker:** الشريحة تغلق تحقق after-state في Gate C فقط؛ تبقى أجزاء
+  P3.5/P4/P5 الأوسع غير مكتملة.
+- **next step:** متابعة أضيق فجوة موثقة تالية في P3.5/P4/P5، دون بدء P6 أو P7
+  أو P7.5.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
