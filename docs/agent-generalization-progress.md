@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3.5/P4/P5 ما زالت جزئية. دخل Mission `mission_repair` في Action/Effect spine مع بقاء candidate في مساحة تحقق مؤقتة. أضيفت شريحة P4 لتمرير task/environment scope إلى facts وربط world revision بتسلسل الملاحظات؛ ما زالت مصادر الملاحظات المستقلة وربط المسار العام بالـscoped reader وWorld Delta غير مكتملة. يوجد bounded replan وP9 effect-credit sidecar كشرائح جزئية، كما يوجد replay مسجل ومحصور في `runtime.start`؛ لا يثبت ذلك generalization ولا يفتح promotion.
+**الوضع:** P0–P2 مكتملة؛ P3.5/P4/P5 ما زالت جزئية. دخل Mission `mission_repair` في Action/Effect spine مع بقاء candidate في مساحة تحقق مؤقتة. أضيفت شريحة P4 لتمرير task/environment scope إلى facts وقراءة API اختيارية بهذا النطاق، وربط world revision بتسلسل الملاحظات؛ ما زالت مصادر الملاحظات المستقلة وfreshness وWorld Delta غير مكتملة. يوجد bounded replan وP9 effect-credit sidecar كشرائح جزئية، كما يوجد replay مسجل ومحصور في `runtime.start`؛ لا يثبت ذلك generalization ولا يفتح promotion.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -17,7 +17,7 @@
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
-| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts، وتعزل dedupe والتناقضات، وتضمّن scope/revisions/fact versions وآخر sequence لكل Episode في world revision. القراءة العامة ما زالت project-wide؛ يلزم ربط scoped reader بالمسار العام، واستكمال authoritative observation providers/freshness وWorld Delta/contradiction propagation. |
+| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts، وتعزل dedupe والتناقضات، وتضمّن scope/revisions/fact versions وآخر sequence لكل Episode في world revision. يدعم GET العام filters اختيارية مع بقاء الافتراضي project-wide؛ يلزم استكمال authoritative observation providers/freshness وWorld Delta/contradiction propagation. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
@@ -800,6 +800,17 @@ G9 Revocation Safety
 - **authority/safety impact:** إسقاط read-only فقط؛ scope مصدره Episode المقفول لا النموذج. legacy facts تبقى project-scoped، والـscope المفقود الجديد يعزل على مستوى Episode. لا تغيير في acceptance أو planner أو صلاحيات Mission أو live-root writes.
 - **remaining/blocker:** endpoint العام ما زال يعيد project-wide view ولا يمرر filters؛ independent observation providers/environment freshness وWorld Delta/contradiction propagation خارج هذه الشريحة. تبقى P4 جزئية.
 - **next step:** ربط filters بالـscoped read path واكمال authoritative environment observation/freshness قبل P6 World Delta؛ لا تجعل revision دليل acceptance.
+
+### 2026-09-25 — P4 Scoped World State API
+
+- **phase/step:** P4 — optional task/environment filters on the public read route
+- **status:** `done`
+- **what changed:** أضاف GET `/projects/:projectId/world-state` مرشحات `taskScope` و`environmentRevision`، مع `environmentRevisionUnbound=true` لطلب facts ذات البيئة غير المحددة دون sentinel ملتبس. القيم الفارغة/المكررة أو إرسال المرشحين البيئيين معًا تُرفض؛ الطلبات بلا filters تحتفظ بسلوكها السابق.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/projects.ts`, `artifacts/api-server/src/routes/world-state.test.ts`; لا تغييرات schema أو acceptance contract.
+- **validation:** API typecheck؛ اختبارات API المستهدفة (ملفان، 9 passed)؛ `git diff --check`؛ أُعيد تشغيل API وبنى بنجاح، و`/api/healthz` رجع `200` مع `status: ok`.
+- **authority/safety impact:** `requireProjectAccess` يبقى قبل parsing/reading؛ filters لا تغير حدود الملكية أو صلاحيات planner/acceptance/effect ولا تنفذ أي كتابة.
+- **remaining/blocker:** مصادر environment revision المستقلة وقواعد freshness وWorld Delta/contradiction propagation ما زالت غير موصولة؛ تظل P4 جزئية.
+- **next step:** تحديد/ربط مصادر server-owned للبيئة وfreshness، ثم World Delta والانتشار المقيد للتناقضات؛ لا توسّع دلالة revision إلى acceptance.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

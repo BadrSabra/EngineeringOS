@@ -4141,6 +4141,20 @@ worldRevision =
 مسار GET العام project-wide، كما لم تُوصل independent authoritative providers
 أو freshness الخاصة بالبيئة أو World Delta/propagation؛ لذلك تظل P4 `PARTIAL`.
 
+#### Scoped World State API filters — 2026-09-25
+
+يدعم GET `/projects/:projectId/world-state` الآن `taskScope` و
+`environmentRevision` اختياريًا، ويستخدم `environmentRevisionUnbound=true`
+للتصفية الصريحة على revision غير المحددة. ترفض الواجهة القيم الفارغة والمكررة
+والجمع بين مرشح revision ومرشح unbound؛ وتبقى الطلبات بلا query filters على
+السلوك السابق. يظل `requireProjectAccess` سابقًا للتحقق والقراءة، ولا تتغير
+أي سلطة acceptance أو planner أو effect.
+
+نجح API typecheck و9 اختبارات مركزة على المسار والقراءة الداخلية؛ أعيد تشغيل
+API ونجح البناء وفحص health. لا تغييرات schema. لا تغلق هذه الخطوة P4: ما زالت
+مصادر environment revision server-owned وfreshness المستقلة وWorld Delta/
+contradiction propagation مطلوبة.
+
 ### 42.4 P5 — Authoritative Effect Verification
 
 **الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`
