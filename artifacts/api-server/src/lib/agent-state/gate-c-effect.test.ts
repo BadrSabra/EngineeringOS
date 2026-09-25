@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildGateCAction,
   buildGateCEffectContract,
+  buildBrowserGateCAfterObservation,
+  buildDeliveryGateCAfterObservation,
   buildRuntimeGateCAfterObservation,
   gateCEffectIdentity,
 } from "./gate-c-effect.js";
@@ -62,6 +64,190 @@ describe("Gate C effect contracts", () => {
     expect(action.risk).toBe("HIGH");
     expect(action.observationProfile).toBe("DELIVERY");
     expect(action.authorization).toMatchObject({ source: "server" });
+  });
+
+  it("accepts browser after-state only when project, run, profile, revision, and origin agree", () => {
+    const input = {
+      projectId: "project-browser",
+      operationId: "operation-browser",
+      executionId: "execution-browser",
+      executionAttempt: 2,
+      sourceRevision: "revision-browser",
+      expectedProfileName: "default",
+    };
+    const sessionId = "session-browser";
+    const origin = "http://127.0.0.1:43123";
+    const browserOutput = (
+      status = "passed",
+      evidenceOverrides: Record<string, unknown> = {},
+      outputOverrides: Record<string, unknown> = {},
+    ) => ({
+      status,
+      profile: "default",
+      ...outputOverrides,
+      evidence: {
+        kind: "browser_preview",
+        projectId: input.projectId,
+        operationId: input.operationId,
+        executionId: input.executionId,
+        executionAttempt: input.executionAttempt,
+        sourceRevision: input.sourceRevision,
+        revision: input.sourceRevision,
+        sessionId,
+        profileName: "default",
+        origin,
+        permittedOrigin: origin,
+        artifactRef: `browser-preview:${sessionId}:${input.operationId}:${input.executionId}`,
+        status,
+        consoleErrorCount: 0,
+        observedAt: "2026-09-25T12:00:00.000Z",
+        evidenceId: "browser-evidence",
+        ...evidenceOverrides,
+      },
+    });
+
+    expect(buildBrowserGateCAfterObservation({
+      ...input,
+      output: browserOutput(),
+    })).toMatchObject({
+      effectValue: "passed",
+      facts: {
+        projectId: input.projectId,
+        operationId: input.operationId,
+        executionId: input.executionId,
+        executionAttempt: input.executionAttempt,
+        sourceRevision: input.sourceRevision,
+        servingRevision: input.sourceRevision,
+        sessionId,
+        profileName: "default",
+        origin,
+        permittedOrigin: origin,
+        consoleErrorCount: 0,
+      },
+      sourceRefs: ["browser-evidence", `browser-preview:${sessionId}:${input.operationId}:${input.executionId}`],
+    });
+    expect(buildBrowserGateCAfterObservation({
+      ...input,
+      output: browserOutput("passed", { consoleErrorCount: 1 }),
+    })?.effectValue).toBe("failed");
+    expect(buildBrowserGateCAfterObservation({
+      ...input,
+      output: browserOutput("failed"),
+    })?.effectValue).toBe("failed");
+    expect(buildBrowserGateCAfterObservation({
+      ...input,
+      output: browserOutput("passed", { executionAttempt: 1 }),
+    })).toBeUndefined();
+    expect(buildBrowserGateCAfterObservation({
+      ...input,
+      output: browserOutput("passed", { origin: "http://127.0.0.1:43124" }),
+    })).toBeUndefined();
+    expect(buildBrowserGateCAfterObservation({
+      ...input,
+      output: browserOutput("passed", {}, { status: "failed" }),
+    })).toBeUndefined();
+  });
+
+  it("requires an identity-bound GitHub after-state and exact remote commit, parent, tree, and marker", () => {
+    const input = {
+      projectId: "project-delivery",
+      operationId: "operation-delivery",
+      executionId: "execution-delivery",
+      executionAttempt: 3,
+      sourceRevision: "revision-delivery",
+    };
+    const operationMarker = `EngineeringOS-Operation: ${input.operationId}`;
+    const deliveryOutput = (overrides: Record<string, unknown> = {}) => ({
+      status: "passed",
+      evidence: {
+        evidenceId: "delivery-evidence",
+        artifactRef: "github-delivery:verified",
+        resultHash: "f".repeat(64),
+      },
+      afterState: {
+        status: "passed",
+        projectId: input.projectId,
+        operationId: input.operationId,
+        executionId: input.executionId,
+        executionAttempt: input.executionAttempt,
+        sourceRevision: input.sourceRevision,
+        proposalId: "proposal-delivery",
+        remoteUrl: "https://github.com/example/project.git",
+        branch: "main",
+        expectedCommitHash: "commit-1",
+        remoteCommitHash: "commit-1",
+        expectedParentHash: "parent-1",
+        remoteParentHash: "parent-1",
+        expectedTreeHash: "tree-1",
+        remoteTreeHash: "tree-1",
+        remoteParentCount: 1,
+        candidateTreeHash: "candidate-tree",
+        committedTreeHash: "candidate-tree",
+        operationMarker,
+        markerMatched: true,
+        observedAt: "2026-09-25T12:00:00.000Z",
+        ...overrides,
+      },
+    });
+
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput(),
+    })).toMatchObject({
+      effectValue: "passed",
+      facts: {
+        projectId: input.projectId,
+        operationId: input.operationId,
+        executionId: input.executionId,
+        executionAttempt: input.executionAttempt,
+        sourceRevision: input.sourceRevision,
+        expectedCommitHash: "commit-1",
+        remoteCommitHash: "commit-1",
+        expectedParentHash: "parent-1",
+        remoteParentHash: "parent-1",
+        expectedTreeHash: "tree-1",
+        remoteTreeHash: "tree-1",
+        remoteParentCount: 1,
+        markerMatched: true,
+      },
+      sourceRefs: [
+        "delivery-evidence",
+        "github-delivery:verified",
+        "f".repeat(64),
+      ],
+    });
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ remoteCommitHash: "other-commit" }),
+    })?.effectValue).toBe("failed");
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ remoteParentHash: "other-parent" }),
+    })?.effectValue).toBe("failed");
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ remoteTreeHash: "other-tree" }),
+    })?.effectValue).toBe("failed");
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ remoteParentCount: 2 }),
+    })?.effectValue).toBe("failed");
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ committedTreeHash: "other-candidate" }),
+    })?.effectValue).toBe("failed");
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ markerMatched: false }),
+    })?.effectValue).toBe("failed");
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ executionAttempt: 2 }),
+    })).toBeUndefined();
+    expect(buildDeliveryGateCAfterObservation({
+      ...input,
+      output: deliveryOutput({ remoteUrl: "https://user:secret@github.com/example/project.git" }),
+    })).toBeUndefined();
   });
 
   it("preserves runtime.start identity while separating restart and stop profiles", () => {

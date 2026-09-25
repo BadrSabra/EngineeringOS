@@ -5483,3 +5483,26 @@ acceptance أو شروط تحقق Browser/Delivery، ولم يتغير schema.
 نجحت اختبارات Gate C runtime بعد-state واختبارات runner المرتبطة، وworkspace
 typecheck و`git diff --check`. هذه شريحة جزئية فقط: بقيت أجزاء P3.5/P4/P5
 الأوسع غير مكتملة. لم يبدأ P6 أو P7 أو P7.5.
+
+### 42.28 P3.5/P4/P5 — Gate C Browser/Delivery after-state verification (2026-09-25)
+
+يحمل استدعاء Browser هوية المشروع والعملية والتنفيذ والمحاولة ومراجعة المصدر من
+السياق server-owned إلى runner. لا يصنف after-state إلا عند تطابق هذه الهوية مع
+Preview session/profile، والمراجعة المقدمة للخدمة، وorigin المسموح، وartifact
+marker الخاص بالعملية والتنفيذ. تحفظ حالة Browser وعدد أخطاء Console وحقائق
+الجلسة المحدودة؛ لا تحفظ النصوص أو screenshot أو response body.
+
+يعيد Delivery بعد قراءة الفرع البعيد `afterState` يضم commit وparent وtree
+المتوقعة والفعلية، عدد الآباء، proposal، remote/branch، operation marker، ومراجعة
+المشروع وهوية التنفيذ والمحاولة. تتطلب إعادة التوفيق بعد فقد receipt تطابق
+commit hash نفسه تمامًا، إلى جانب parent/tree/marker؛ تطابق tree وحده غير كافٍ.
+يرفض المصنف غياب أو تشوه هوية الرصد، ويسجل الرصد المكتمل المتناقض كأثر فاشل بدل
+قبوله.
+
+ترتبط ملاحظات Browser/Delivery المباشرة بـ`ACTION_COMMITTED`، ثم تمر عبر Effect
+Bundle وقبول التنفيذ القائمين. نتيجة capability أو delivery receipt وحدها ليست
+after-state ولا تمنح القبول. لم يتغير schema أو قاعدة الإنتاج أو authorization
+أو Canonical Proof، ولم يبدأ P6 أو P7 أو P7.5.
+
+هذه شريحة جزئية فقط؛ تبقى أجزاء P3.5/P4/P5 الأخرى غير مكتملة. الخطوة التالية
+تظل أضيق فجوة موثقة في هذه المراحل، دون بدء P6 أو P7 أو P7.5.

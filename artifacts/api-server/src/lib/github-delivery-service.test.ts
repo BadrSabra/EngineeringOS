@@ -92,7 +92,7 @@ describe("verified GitHub delivery service", () => {
       const commitHash = (await git(rootPath, ["rev-parse", "HEAD"])).stdout.trim();
       const committedTreeHash = await hashDeliveryTree(rootPath);
       const localTreeSha = (await git(rootPath, ["rev-parse", `${commitHash}^{tree}`])).stdout.trim();
-      const remoteCommitHash = "remote-applied";
+      const remoteCommitHash = commitHash;
       const calls: string[] = [];
 
       await db.insert(projectsTable).values({
@@ -160,6 +160,9 @@ describe("verified GitHub delivery service", () => {
 
       const result = await executeVerifiedGitHubDelivery({
         ...params({ projectId, proposalId, operationId, rootPath }),
+        executionId: "execution-delivery",
+        executionAttempt: 2,
+        sourceRevision: "revision-delivery",
         request: async (requestPath, init) => {
           calls.push(`${init?.method ?? "GET"} ${requestPath}`);
           if (requestPath.endsWith("/git/ref/heads/main")) {
@@ -183,6 +186,26 @@ describe("verified GitHub delivery service", () => {
         remoteParentHash: parentHash,
         remoteTreeHash: localTreeSha,
         operationMarker: `EngineeringOS-Operation: ${operationId}`,
+        afterState: {
+          status: "passed",
+          projectId,
+          proposalId,
+          operationId,
+          executionId: "execution-delivery",
+          executionAttempt: 2,
+          sourceRevision: "revision-delivery",
+          expectedCommitHash: commitHash,
+          remoteCommitHash: commitHash,
+          expectedParentHash: parentHash,
+          remoteParentHash: parentHash,
+          expectedTreeHash: localTreeSha,
+          remoteTreeHash: localTreeSha,
+          remoteParentCount: 1,
+          candidateTreeHash: committedTreeHash,
+          committedTreeHash,
+          operationMarker: `EngineeringOS-Operation: ${operationId}`,
+          markerMatched: true,
+        },
       });
       expect(calls).toEqual([
         "GET /repos/example/project/git/ref/heads/main",
@@ -230,6 +253,30 @@ describe("verified GitHub delivery service", () => {
       expect(driftCalls).toEqual([
         "GET /repos/example/project/git/ref/heads/main",
         `GET /repos/example/project/git/commits/${remoteCommitHash}`,
+      ]);
+
+      const mismatchedCommitCalls: string[] = [];
+      const mismatchedCommitReplay = await executeVerifiedGitHubDelivery({
+        ...params({ projectId, proposalId, operationId, rootPath }),
+        request: async (requestPath, init) => {
+          mismatchedCommitCalls.push(`${init?.method ?? "GET"} ${requestPath}`);
+          if (requestPath.endsWith("/git/ref/heads/main")) {
+            return { object: { sha: "different-remote-commit" } };
+          }
+          if (requestPath.endsWith("/git/commits/different-remote-commit")) {
+            return {
+              tree: { sha: localTreeSha },
+              message: `Verified delivery\n\nEngineeringOS-Operation: ${operationId}`,
+              parents: [{ sha: parentHash }],
+            };
+          }
+          throw new Error(`unexpected GitHub path: ${requestPath}`);
+        },
+      });
+      expect(mismatchedCommitReplay).toMatchObject({ status: "unavailable" });
+      expect(mismatchedCommitCalls).toEqual([
+        "GET /repos/example/project/git/ref/heads/main",
+        "GET /repos/example/project/git/commits/different-remote-commit",
       ]);
       const pushEvents = await db.select({ id: eventsTable.id })
         .from(eventsTable)

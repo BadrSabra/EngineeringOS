@@ -430,6 +430,7 @@ export async function executeVerifiedGitHubDelivery(
       candidateTreeHash: proposal.candidateTreeHash,
       committedTreeHash,
       changedPaths: pushed.changedPaths,
+      idempotent: remoteAfterState.commitHash === commitHash,
     });
 
     await recordGitHubPush({

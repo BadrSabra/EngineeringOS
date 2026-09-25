@@ -349,7 +349,7 @@ async function assertSuccessfulGateCEffect(executionId: string, capabilityId: st
   expect(acceptance?.effectBundleId).toBe(bundle?.id);
   const observations = await db.select().from(aiAgentObservationsTable)
     .where(eq(aiAgentObservationsTable.executionId, executionId));
-  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(3);
   const events = await db.select({
     eventType: aiAgentEpisodeEventsTable.eventType,
     payload: aiAgentEpisodeEventsTable.payload,
@@ -689,7 +689,7 @@ describe("recipe operation preparation", () => {
       expect(acceptance?.effectBundleId).toBe(bundle?.id);
       const observations = await db.select().from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, executionId));
-      expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(3);
+      expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(4);
       const runtimeReceipt = observations.find((row) => row.sourceType === "runtime_receipt");
       const runtimeSnapshot = await manager.get(projectId);
       expect(runtimeReceipt?.value).toMatchObject({ sessionId: runtimeSnapshot.sessionId });
@@ -1161,15 +1161,42 @@ describe("recipe operation preparation", () => {
   it("replays browser verification without losing its accepted effect bundle", async () => {
     const fixture = await createGateCRecipeFixture("browser.verify", ["package.json"]);
     let executionId: string | undefined;
-    const browserCalls: Array<{ profile: string; operationId?: string; revision?: string }> = [];
+    const browserCalls: Array<{
+      profile: string;
+      projectId?: string;
+      operationId?: string;
+      executionId?: string;
+      executionAttempt?: number;
+      revision?: string;
+    }> = [];
     const params = {
       ...fixture.params,
-      browserValidationRunner: async ({ profile, operationId: runnerOperationId, revision }: {
+      browserValidationRunner: async ({
+        profile,
+        projectId,
+        operationId: runnerOperationId,
+        executionId: runnerExecutionId,
+        executionAttempt,
+        revision,
+      }: {
         profile: string;
+        projectId?: string;
         operationId?: string;
+        executionId?: string;
+        executionAttempt?: number;
         revision?: string;
       }) => {
-        browserCalls.push({ profile, operationId: runnerOperationId, revision });
+        browserCalls.push({
+          profile,
+          projectId,
+          operationId: runnerOperationId,
+          executionId: runnerExecutionId,
+          executionAttempt,
+          revision,
+        });
+        const sessionId = "browser-preview-session";
+        const origin = "http://127.0.0.1:43123";
+        const executionId = runnerExecutionId ?? "";
         return {
           profile,
           status: "passed" as const,
@@ -1181,12 +1208,22 @@ describe("recipe operation preparation", () => {
           failedTests: [],
           changedFiles: [],
           evidence: {
-            evidenceId: `browser:${runnerOperationId}`,
+            kind: "browser_preview",
+            evidenceId: `browser:${sessionId}:${runnerOperationId}:${executionId}`,
             observedAt: new Date().toISOString(),
-            artifactRef: `browser-preview:${runnerOperationId}`,
-            profileName: profile,
-            revision,
+            projectId,
             operationId: runnerOperationId,
+            executionId,
+            executionAttempt,
+            sessionId,
+            status: "passed",
+            artifactRef: `browser-preview:${sessionId}:${runnerOperationId}:${executionId}`,
+            profileName: profile,
+            origin,
+            permittedOrigin: origin,
+            revision,
+            sourceRevision: revision,
+            consoleErrorCount: 0,
           },
         };
       },
@@ -1198,7 +1235,10 @@ describe("recipe operation preparation", () => {
       const bundleId = await assertSuccessfulGateCEffect(executionId, "browser.verify.default");
       expect(browserCalls).toEqual([{
         profile: "default",
+        projectId: fixture.params.projectId,
         operationId: fixture.params.operationId,
+        executionId,
+        executionAttempt: expect.any(Number),
         revision: fixture.params.sourceRevision,
       }]);
 
@@ -1221,12 +1261,23 @@ describe("recipe operation preparation", () => {
     const deliveryCalls: string[] = [];
     const params = {
       ...fixture.params,
-      githubDeliveryRunner: async ({ projectId, operationId, message }: {
+      githubDeliveryRunner: async ({
+        projectId,
+        operationId,
+        executionId,
+        executionAttempt,
+        sourceRevision,
+        message,
+      }: {
         projectId: string;
         operationId: string;
+        executionId?: string;
+        executionAttempt?: number;
+        sourceRevision?: string;
         message: string;
       }) => {
         deliveryCalls.push(`${projectId}:${operationId}:${message}`);
+        const marker = `EngineeringOS-Operation: ${operationId}`;
         return {
           status: "passed" as const,
           evidence: {
@@ -1237,7 +1288,30 @@ describe("recipe operation preparation", () => {
           remoteCommitHash: "remote-commit",
           remoteParentHash: "parent-commit",
           remoteTreeHash: "remote-tree",
-          operationMarker: `EngineeringOS-Operation: ${operationId}`,
+          operationMarker: marker,
+          afterState: {
+            status: "passed" as const,
+            projectId,
+            operationId,
+            executionId,
+            executionAttempt,
+            sourceRevision,
+            proposalId: "proposal-delivery",
+            remoteUrl: "https://github.com/example/project.git",
+            branch: "main",
+            expectedCommitHash: "remote-commit",
+            remoteCommitHash: "remote-commit",
+            expectedParentHash: "parent-commit",
+            remoteParentHash: "parent-commit",
+            expectedTreeHash: "remote-tree",
+            remoteTreeHash: "remote-tree",
+            remoteParentCount: 1,
+            candidateTreeHash: "candidate-tree",
+            committedTreeHash: "candidate-tree",
+            operationMarker: marker,
+            markerMatched: true,
+            observedAt: new Date().toISOString(),
+          },
         };
       },
     };

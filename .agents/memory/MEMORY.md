@@ -107,7 +107,7 @@
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
 - [Read-only invocation telemetry](recipe-read-only-classification.md) — use explicit allowlists, full-manifest hashes, and durable Episode bindings; never infer read-only safety from a mutation flag.
-- [GitHub delivery recovery](github-delivery-recovery.md) — reconcile an uncertain push with remote parent, Git tree SHA, and operation marker before recording idempotent success.
+- [GitHub delivery recovery](github-delivery-recovery.md) — idempotent recovery must match the exact expected remote commit, parent, tree, and operation marker.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges require the active server-owned session/revision and support stale filtering.
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.

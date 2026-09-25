@@ -1296,6 +1296,30 @@ G9 Revocation Safety
 - **next step:** متابعة أضيق فجوة موثقة تالية في P3.5/P4/P5، دون بدء P6 أو P7
   أو P7.5.
 
+### 2026-09-25 — ربط after-state المباشر في Gate C Browser/Delivery
+
+- **phase/step:** P3.5/P4/P5 — Gate C Browser/Delivery after-state verification
+- **status:** `partial`
+- **what changed:** صار Browser يربط الرصد بـproject/operation/execution/attempt/
+  source revision وsession/profile/origin/marker، وصار Delivery يعيد لقطة remote
+  branch بعد التنفيذ تشمل expected/observed commit وparent وtree وعدد الآباء
+  وoperation marker. قبول استعادة التسليم يتطلب commit hash مطابقًا تمامًا، لا
+  tree/parent/marker فقط. ترتبط ملاحظات after المباشرة بـ`ACTION_COMMITTED`.
+- **files/schema/contracts touched:** orchestrator capability context/runner،
+  Browser preview evidence، Gate C classifier وrecipe runner، GitHub delivery
+  service/routes، والاختبارات والخطة. لا تغيير schema أو قاعدة الإنتاج.
+- **validation:** workspace `pnpm run typecheck` نجح؛ orchestrator capability
+  suite ‏278 اختبارًا؛ API Gate C/runner/GitHub delivery ‏25/25؛
+  `git diff --check` نجح؛ API workflow أعيد تشغيله وظهر `Server listening`.
+- **authority/safety impact:** غياب أو اختلاف project/execution/attempt/revision/
+  profile/origin يمنع direct observation؛ after-state الكامل المخالف يسجل كفشل.
+  لا receipt أو status منفرد أو provider prose يثبت الأثر. لم تتغير authorization
+  أو acceptance/Canonical Proof، ولم يبدأ P6 أو P7 أو P7.5.
+- **remaining/blocker:** لا تزال أجزاء P3.5/P4/P5 الأوسع غير مكتملة؛ لا تغيير
+  schema ولا تغيير production database.
+- **next step:** متابعة الشريحة الموثقة التالية ضمن P3.5/P4/P5 بالترتيب، دون
+  بدء P6 أو P7 أو P7.5.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -35,6 +35,9 @@ describe("recipe capability adapters", () => {
       browserProfiles: ["default"],
       browserValidationRunner: async (args) => {
         calls.push(args);
+        const sessionId = "session-browser";
+        const origin = "http://127.0.0.1:43123";
+        const executionId = args.executionId ?? "";
         return {
           status: "passed",
           profile: args.profile,
@@ -48,10 +51,20 @@ describe("recipe capability adapters", () => {
           evidence: {
             evidenceId: "browser:verified",
             observedAt: new Date().toISOString(),
-            artifactRef: "browser-preview:verified",
-            profileName: args.profile,
-            revision: args.revision,
+            kind: "browser_preview",
+            projectId: args.projectId,
             operationId: args.operationId,
+            executionId,
+            executionAttempt: args.executionAttempt,
+            sessionId,
+            status: "passed",
+            artifactRef: `browser-preview:${sessionId}:${args.operationId}:${executionId}`,
+            profileName: args.profile,
+            origin,
+            permittedOrigin: origin,
+            revision: args.revision,
+            sourceRevision: args.revision,
+            consoleErrorCount: 0,
           },
         };
       },
@@ -73,6 +86,8 @@ describe("recipe capability adapters", () => {
     await expect(registry.invoke("browser.verify.default", 1, { targetPaths: ["package.json"] }, {
       ...context,
       operationId: "operation-browser",
+      executionId: "execution-browser",
+      executionAttempt: 2,
       revision: "revision-browser",
     })).resolves.toMatchObject({
       ok: true,
@@ -83,7 +98,10 @@ describe("recipe capability adapters", () => {
     });
     expect(calls).toMatchObject([{
       profile: "default",
+      projectId: "project-browser",
       operationId: "operation-browser",
+      executionId: "execution-browser",
+      executionAttempt: 2,
       revision: "revision-browser",
     }]);
   });
@@ -93,6 +111,7 @@ describe("recipe capability adapters", () => {
     const registry = createServerCapabilityRegistry({
       githubDeliveryRunner: async (args) => {
         calls.push(args);
+        const operationMarker = `EngineeringOS-Operation: ${args.operationId}`;
         return {
           status: "passed",
           evidence: {
@@ -101,6 +120,29 @@ describe("recipe capability adapters", () => {
             artifactRef: "github:delivery",
           },
           remoteCommitHash: "remote-commit",
+          afterState: {
+            status: "passed",
+            projectId: args.projectId,
+            operationId: args.operationId,
+            executionId: args.executionId,
+            executionAttempt: args.executionAttempt,
+            sourceRevision: args.sourceRevision,
+            proposalId: "proposal-1",
+            remoteUrl: "https://github.com/example/project.git",
+            branch: "main",
+            expectedCommitHash: "remote-commit",
+            remoteCommitHash: "remote-commit",
+            expectedParentHash: "parent-commit",
+            remoteParentHash: "parent-commit",
+            expectedTreeHash: "tree-commit",
+            remoteTreeHash: "tree-commit",
+            remoteParentCount: 1,
+            candidateTreeHash: "candidate-tree",
+            committedTreeHash: "candidate-tree",
+            operationMarker,
+            markerMatched: true,
+            observedAt: new Date().toISOString(),
+          },
         };
       },
     });
@@ -115,6 +157,9 @@ describe("recipe capability adapters", () => {
         projectId: "project-1",
         operation: "recipe",
         operationId: "operation-1",
+        executionId: "execution-1",
+        executionAttempt: 1,
+        revision: "revision-1",
         authorized: true,
         approvalState: "APPROVED",
       },
@@ -129,6 +174,9 @@ describe("recipe capability adapters", () => {
       expect(calls[0]).toMatchObject({
         projectId: "project-1",
         operationId: "operation-1",
+        executionId: "execution-1",
+        executionAttempt: 1,
+        sourceRevision: "revision-1",
         message: "Verified delivery",
       });
     });
