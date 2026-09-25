@@ -22,12 +22,12 @@
 | P5.5 — Unified Action Semantics | `partial` | كل invocation، بما فيه read-only وprovider tool calls، يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned؛ القراءة لا تحتاج `AgentAction` كاملًا. كل mutation وeffect-gated validation، وكل كتابة جديدة لـ`ACTION_REQUESTED`، تتطلب العقد الكامل. recipe candidate/Gate C وMission repair/apply-changes تستخدمه؛ تغطية كل recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
-| P7.5 — Belief and Information Gain | `not_started` | gate معرفي قبل توسيع التعلم: تمثيل uncertainty واختيار observation وفق information gain/cost/risk/authorization/time. |
-| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ لم يُربط Belief State أو تقييم information/risk/cost للخطة بعد. |
+| P7.5 — Belief and Information Gain | `not_started` | gate معرفي قبل توسيع التعلم: Belief weights server-owned، وتوقع outcome مسجل قبل التجربة، واختيار أقل observation كلفة من الخيارات الآمنة والمأذونة والمميزة؛ لا يوجد تنفيذ runtime بعد. |
+| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ ربط forecast بالنتيجة وBrier score وتحديث Belief من evidence المقبول ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
-| P11 — Learning Validation and Transfer | `not_started` | توجد replay primitives محدودة تحت P10؛ لا توجد held-out evaluation مكتملة أو cross-project transfer أو Learning Delta. |
+| P11 — Learning Validation and Transfer | `not_started` | توجد replay primitives محدودة تحت P10؛ لا توجد held-out evaluation مكتملة أو cross-project transfer أو Learning Delta؛ يلزم اختبار Brier لكل تجربة وECE forecasts وفق الحد القائم في §25.4. |
 | P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
 | P13 — Capability composition | `not_started` | composition آمن عبر semantic contracts وsandbox وshadow replay. |
 | P14 — Multimodal extension | `not_started` | مؤجل إلى ما بعد إغلاق effect/evidence/learning gates. |
@@ -45,6 +45,9 @@
   World Delta موضح صراحة.
 - حدود canary الرقمية في §25.3، وحدود promotion العامة في §25.4، وانتقالات
   النتيجة في §29.6؛ لا توجد thresholds مكررة أو متعارضة.
+- §5.6 و§18.3 و§19 يحددون تسجيل forecast غير القابل للتعديل قبل التجربة،
+  اختيار observation، مقارنة النتيجة وقياس Brier وربط Belief update؛ §25.4
+  يقيس ECE على forecasts held-out المسجلة مسبقًا باستخدام الحد القائم.
 - الأقسام التاريخية معلّمة ولا تناقض ترتيب التنفيذ أو الحالة الحاليين.
 - الإحالات الداخلية صالحة، ويجتاز التغيير `git diff --check`.
 
@@ -145,6 +148,27 @@ G9 Revocation Safety
 ```
 
 ## سجل الخطوات
+
+### 2026-09-25 — Pre-registered hypothesis experiments and forecast calibration
+
+- **phase/step:** Governance / P7.5–P11 hypothesis-testing contract
+- **status:** `done` — توثيق فقط؛ لم يبدأ تنفيذ المراحل.
+- **what changed:** أضيف عقد لتسجيل forecasts وتوزيعات outcomes قبل observation،
+  وحفظ Belief weights والتكلفة والمخاطر وقرار authorization؛ يختار الخادم أقل
+  observation كلفة من الخيارات الآمنة والمأذونة والمميزة، ويقيس خطأ التجربة
+  بـBrier score ويربط Belief update بالملاحظة المقبولة. رُبط ECE بالـforecasts
+  المسجلة على held-out evaluation مع الإبقاء على الحد القائم `0.15`.
+- **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`,
+  `docs/agent-generalization-progress.md`; لا تغييرات runtime أو schema.
+- **validation:** `git diff --check`؛ مراجعة الإحالات الداخلية ومؤشرات العقد
+  المطلوبة؛ التغيير محصور بالوثيقتين.
+- **authority/safety impact:** forecast ليس evidence أو authority؛ لا يثبت
+  Brier/ECE حقيقة أو acceptance أو causality. observation الموثوقة وحدها تغذي
+  تحديث Belief؛ لا تغيير في authorization أو Proof.
+- **remaining/blocker:** بوابة مراجعة الوثائق ما زالت مفتوحة، وP7.5–P11 غير
+  منفذة. لا يبدأ تعديل الكود قبل مراجعة المستخدم وموافقته على الوثيقتين.
+- **next step:** مراجعة المستخدم وإغلاق بوابة الوثائق؛ بعد الموافقة فقط يستمر
+  التنفيذ وفق dependency graph في §31.
 
 ### 2026-09-25 — Roadmap source-of-truth and cognitive-loop priority
 

@@ -247,6 +247,8 @@ lib/ai-orchestrator/src/
     ├── observation-contract.ts
     ├── effect-contract.ts
     ├── failure-contract.ts
+    ├── belief-contract.ts
+    ├── hypothesis-experiment-contract.ts
     └── strategy-contract.ts
 ```
 
@@ -277,6 +279,8 @@ artifacts/api-server/src/lib/
     ├── world-state-reader.ts
     ├── effect-observer.ts
     ├── failure-diagnosis.ts
+    ├── hypothesis-experiment-ledger.ts
+    ├── belief-updater.ts
     └── learning/
         ├── trajectory-extractor.ts
         ├── strategy-evaluator.ts
@@ -574,6 +578,75 @@ type Belief = {
 };
 ```
 
+عقد P7.5/P8 يسجل الاختبار والتوقع قبل تشغيل observation، ثم يضيف نتيجة منفصلة
+append-only:
+
+```ts
+type HypothesisOutcomeForecast = {
+  hypothesisId: string;
+  observationRef: string;
+  outcomes: Array<{ outcomeKey: string; probability: number }>;
+  provenance: "MODEL_INFERRED" | "SERVER_DERIVED";
+};
+
+type ExperimentCandidateAssessment = {
+  observationRef: string; // server-owned observation profile/reference
+  forecasts: HypothesisOutcomeForecast[];
+  expectedInformationGain: number; // server-computed
+  estimatedCost: number; // versioned server-owned units
+  estimatedRisk: number;
+  estimatedTimeMs: number;
+  authorizationDecision: "allowed" | "requires_approval" | "denied";
+};
+
+type RegisteredHypothesisExperiment = {
+  experimentId: string;
+  episodeId: string;
+  objectiveContractId: string;
+  beliefRevision: string;
+  competingHypothesisIds: string[];
+  hypothesisWeights: Array<{ hypothesisId: string; beliefWeight: number }>;
+  candidates: ExperimentCandidateAssessment[];
+  selectedObservationRef: string;
+  selectionPolicyVersion: string;
+  predictionRegisteredAt: string; // before observation dispatch
+};
+
+type HypothesisExperimentResult = {
+  experimentId: string;
+  observationRefs: string[];
+  actualOutcomeKey?: string;
+  verdict: "matched" | "contradicted" | "inconclusive";
+  predictionErrorScore?: number; // server-computed categorical Brier score
+  resultPolicyVersion: string;
+  beliefRevisionAfter?: string;
+  resolvedAt: string;
+};
+```
+
+تكون `hypothesisWeights` server-owned ومطبّعة إلى 1 عبر البدائل النشطة، مع
+`OTHER/UNKNOWN` عندما لا يغطي فضاء الفرضيات كل الاحتمالات. لا يستخدم provider
+confidence بدل هذه الأوزان.
+
+هذه عقود مستهدفة وليست schema منفذة. يحفظ التسجيل snapshot غير قابل للتعديل من
+المراجعة والفرضيات والتوقعات وتقييم المرشحين؛ تحفظ النتيجة وتحديث Belief كأحداث
+لاحقة، لا بتغيير التوقع بأثر رجعي.
+
+عند توفر outcome كاملة، يحسب الخادم خطأ forecast لكل تجربة باستخدام Brier score
+للتوزيع الهامشي المسجل للتجربة المختارة:
+
+```text
+p(outcome) = Σ_h beliefWeight(h) × P(outcome | h, observation)
+Brier      = Σ_k (p(outcome_k) - 1[outcome_k = actualOutcome])²
+```
+
+الدرجة ومقارنة `matched/contradicted` إسقاطان لتقييم التوقع، لا evidence مستقلان.
+يربط Belief updater الملاحظة الفعلية المقبولة بالـforecast وبنسخة Belief السابقة؛
+ويحدّث الأوزان فقط عبر قاعدة server-owned versioned تستخدم outcomes موثوقة
+واحتمالات صالحة/مقيسة. إذا غابت هذه الشروط يسجل خطأ التوقع عند إمكان حسابه،
+لكن يترك Belief unresolved بدل فرض posterior. لا يكفي Brier score منفردًا
+لتغيير World Fact أو قبول الهدف.
+
 يجب أن يوازن اختيار observation بين:
 
 ```text
@@ -586,6 +659,31 @@ time
 
 ولا يجوز استخدام confidence الصادر من النموذج كبديل عن هذه الحسابات
 server-owned.
+
+لا يختار النظام إلا بين observations مسموحة ومأمونة وذات تكلفة قابلة للتقدير؛
+ومن بين المرشحين الذين يحققون حد التمييز المعلوماتي server-owned، يختار أقل
+كلفة مقدرة، مع كسر التعادل بالمخاطر ثم الوقت. إذا لم يوجد مرشح مؤهل أو لم تكن
+التوقعات قابلة للتقييم، يبقى belief غير محسوم ولا ينفذ تجربة تخمينية. تسجل
+التوقعات النموذجية كـ`MODEL_INFERRED` فقط؛ لا تثبت حقيقة ولا تمنح authorization.
+
+يحسب الخادم expected information gain من توزيع Belief server-owned وتوزيعات
+outcome المسجلة لكل observation candidate، وفق policy versioned؛ مثلًا:
+
+```text
+EIG(a) = H(B) - Σ_o P(o | a) × H(B | o, a)
+```
+
+يجب أن تغطي outcome distributions فضاء النتائج المعلن (بما فيه `OTHER/UNKNOWN`
+عند الحاجة) وأن يكون مجموع الاحتمالات 1 لكل hypothesis/observation. إذا تعذر
+ذلك أو تعذر تقدير التكلفة، لا يرتبها النظام كأنها قياسات كاملة ولا يختارها
+تلقائيًا.
+
+بعد التنفيذ، يقارن الخادم النتيجة المرصودة مباشرةً بالتوقع المسجل ويصنفها
+`matched` أو `contradicted` أو `inconclusive`. لا يجعل التناقض فرضية منافسة
+صحيحة تلقائيًا؛ تحدث Belief من evidence المقبول فقط، وإذا لم تفسر أي فرضية
+النتيجة يبقى النموذج غير محسوم ويحتاج فرضيات أو observations إضافية.
+لا يحسم الاختبار إلا outcome من `DIRECT_OBSERVATION` أو `SERVER_DERIVED` يحقق
+source policy؛ لا يمكن لـ`MODEL_INFERRED` أن يمثل النتيجة الفعلية.
 
 ### 5.7 Failure Diagnosis
 
@@ -1999,6 +2097,20 @@ EPISODE_TERMINAL
 
 أي event type جديد يحتاج contract version وتحديثاً في replay reducer.
 
+يتطلب P7.5/P8، عند التنفيذ، event contract versioned يضيف:
+
+```text
+HYPOTHESIS_TEST_REGISTERED
+HYPOTHESIS_TEST_RESOLVED
+BELIEF_UPDATED
+```
+
+يسجل الأول forecast وbelief revision قبل observation request، ويسجل الثاني
+الملاحظات والنتيجة الفعلية وBrier score server-computed عند توافر outcome كاملة،
+دون تعديل التسجيل السابق. لا يكتب `BELIEF_UPDATED` إلا عند إنشاء belief revision
+جديدة وفق evidence policy، ويربط النتيجة بالملاحظة المقبولة؛ هذه الأنواع ليست
+ضمن الإصدار الأول الحالي.
+
 ### 18.4 جدول `ai_agent_observations`
 
 ```text
@@ -2299,6 +2411,26 @@ promoted
 لا يجوز الانتقال إلى `promoted` من provider response أو benchmark aggregate
 فقط. غياب البيانات يبقي المرشح `pending_replay`؛ لا يبرر canary ولا يسجل
 كفشل replay.
+
+### 19.5 Hypothesis experiment lifecycle
+
+```text
+server-owned belief revision + competing hypotheses
+  → rank authorized/safe candidate observations
+  → register immutable forecasts and selected observation
+  → request observation
+  → record actual server-owned observation
+  → resolve forecast: matched / contradicted / inconclusive
+  → append a new belief revision when evidence warrants it
+  → continue / bounded replan / remain unresolved
+```
+
+لا يبدأ observation قبل حفظ forecast وربطه بالـEpisode/attempt/objective ونسخة
+Belief. الملاحظة stale أو partial أو غير الحاسمة تنتج `inconclusive`؛ وإذا لم
+تفسر النتيجة أي فرضية فلا يختار النظام أقربها تلقائيًا. لا يثبت forecast أو
+prediction-error projection حقيقة في World State، ولا يمنح action authority.
+يحفظ result Brier score عند إمكان حسابه، ويشير belief update إلى outcome
+والـevidence المقبولين لا إلى score وحده.
 
 ---
 
@@ -2888,11 +3020,19 @@ independent transfer fixtures: >= 3
 success regression versus baseline: <= 2 percentage points
 required improvement: >= 5 percentage points
 or tool/retry reduction: >= 15% with no safety regression
-confidence calibration ECE: <= 0.15
+pre-registered outcome forecast calibration (ECE): <= 0.15
 ```
 
 إذا لم تتوفر 3 independent transfer fixtures، تبقى strategy غير قابلة للترقية
 العامة وتظل project-scoped.
+
+يحسب ECE من forecasts غير قابلة للتعديل سُجلت قبل التجربة، مقابل outcomes
+كاملة ومرصودة server-side في held-out evaluation؛ لا تستخدم provider confidence
+ولا توقعات أضيفت بعد ظهور النتيجة. لا تستبعد الحالات الناقصة أو inconclusive
+انتقائيًا لتحسين القياس؛ نقص الحالات القابلة للتقييم يبقي التقييم غير مكتمل
+ويمنع promotion. لا يمنح هذا القياس proof أو acceptance.
+يسجل evaluator نسخة طريقة ECE وoutcome schema المستخدمة، ويطبق الطريقة نفسها
+على baseline والمرشح؛ لا تقارن نتائج محسوبة بإعدادات مختلفة.
 
 لا تعني نتيجة canary نجاح هذه البوابة. promotion إلى live/shared registry يحتاج
 كل الحدود الرقمية أعلاه، وG1–G9 في §42.17. أي شرط safety فاشل يمنع الترقية؛
@@ -3286,6 +3426,11 @@ P11 → P12
 P5/P6/P11 → P13
 P4/P5/P6/P11 → P14
 ```
+
+ضمن هذا الترتيب، يغلق P7.5 تمثيل الفرضيات وforecast واختيار observation قبل
+التنفيذ؛ ويغلق P8 مقارنة النتيجة وتحديث Belief/replan. يبقى الإسناد السببي
+المضاد للواقع في P9، ثم تجريد القاعدة والنقل المقاس في P10/P11. لا يجوز دمج هذه
+المراحل في ادعاء قدرة واحدة قبل اجتياز بواباتها.
 
 P5.5 Unified Action Semantics هو work package عابر: ابدأ به قبل إضافة مسارات
 Action/Effect جديدة، ثم استمر على graph أعلاه دون إنشاء dependency roadmap ثانية.
@@ -4605,6 +4750,25 @@ time
 الهدف ليس تنفيذ المزيد من الأفعال، بل اختيار الملاحظة الأرخص والأكثر أمانًا
 التي تميز بين hypotheses الحالية.
 
+#### Definition of Done لـP7.5
+
+1. لكل مجموعة hypotheses مرتبطة بـobjective، تسجل belief revision والأوزان
+   server-owned التي سيبدأ منها الاختبار.
+2. لكل observation مرشح، يسجل outcome space والتوزيع المتوقع لكل hypothesis
+   قبل التنفيذ؛ احتمالات كل توزيع صالحة ومجموعها 1، ومصدر forecast معلن.
+3. يحسب الخادم expected information gain والتكلفة والمخاطر والوقت من سياسة
+   versioned، ويفحص authorization وrisk limits قبل الاختيار.
+4. يستبعد المرشحين غير المأذونين أو غير الآمنين أو غير القابلين للتقييم؛ ومن
+   المرشحين الذين يجتازون حد التمييز المعلوماتي، يختار الأقل كلفة مقدرة، مع
+   كسر التعادل بالمخاطر ثم الوقت.
+5. إذا لم يوجد مرشح صالح، تبقى النتيجة unresolved أو تنتظر approval؛ لا ينفذ
+   observation لمجرد أن النموذج اقترحه.
+
+كل forecast، سواء كان `MODEL_INFERRED` أو `SERVER_DERIVED`، توقع لا observation؛
+والتوقع النموذجي لا يصبح evidence. prediction source، belief revision،
+candidate rankings والاختيار تحفظ قبل dispatch بحيث يمكن إعادة بناء سبب الاختيار
+ومنع تعديل forecast بعد معرفة النتيجة.
+
 ### 42.9 P8 — Diagnosis-Aware / Hypothesis-Aware Replanning
 
 **الحالة:** `PARTIAL`
@@ -4633,6 +4797,23 @@ Bounded Replan
 لا يجوز أن يعيد planner المحاولة نفسها بلا تغير معلل في observation أو
 assumption أو strategy، ويجب أن يبقى no-progress guard فعالًا.
 
+عند اختبار hypothesis، يربط P8 الـregistered forecast بالـactual observation،
+ويصنف المقارنة `matched` أو `contradicted` أو `inconclusive`. يحدث belief updater
+نسخة Belief جديدة من evidence مقبول فقط؛ forecast أو prediction error لا ينشئ
+World Fact ولا يجعل hypothesis صحيحة تلقائيًا. النتيجة الناقصة أو stale أو التي
+لا تفسرها hypotheses الحالية تبقى unresolved وتدخل bounded replan مع سببها.
+
+#### Definition of Done لـP8
+
+- لا يبدأ التجريب قبل تثبيت forecast وربطه بـEpisode/attempt/objective وbelief
+  revision الحالية.
+- يثبت الاختبار أن observation المختارة هي الأقل كلفة من المرشحين المأذونين
+  والآمنين الذين يحققون حد التمييز المعلوماتي.
+- يثبت أن actual outcome يحدّث belief فقط عبر الملاحظات المقبولة، وأن النتيجة
+  المفاجئة أو غير الحاسمة لا تتحول إلى فرضية مؤكدة أو `PROVEN`.
+- retry أو resume يعيد استخدام forecast المسجل أو ينشئ اختبارًا جديدًا مسببًا؛
+  لا يستبدل forecast قديمًا بعد ظهور النتيجة.
+
 ### 42.10 P9 — Causal Credit Assignment Safety Layer
 
 **الحالة:** `PARTIAL / ADVISORY`
@@ -4659,6 +4840,9 @@ Temporal proximity is not sufficient evidence of causality.
 unknown إلى أن ترتبط بإشارات server-owned المناسبة، ويظل causal attribution
 `unproven` دون controlled counterfactual. هذه الشريحة لا تغلق P9 ولا تتجاوز
 اعتمادية P7.5 ثم P8.
+
+مقارنة forecast بالنتيجة تكشف خطأ التوقع، لكنها لا تثبت أن action بعينه سبب
+النتيجة؛ يبقى الإسناد السببي محكومًا بـcontrolled counterfactual وبوابة P9.
 
 ### 42.11 P10 — Portable Strategy Extraction
 
@@ -4697,6 +4881,10 @@ trigger condition
 + failure branches
 + observation requirements
 ```
+
+ويجب أن تحفظ شروط applicability وتوزيعات outcome المتوقعة وحدودها؛ لا تنتقل
+القاعدة إلى مشروع آخر إذا كانت ملاحظاته خارج outcome space أو scope الذي جرى
+تقييمه.
 
 مرشح discovery/replay الحالي لا يثبت هذا التجريد بعد؛ `abstract state
 transition` شرط P10 مستقبلي وليس حقلًا في candidate contract الحالي.
@@ -4760,6 +4948,10 @@ performance(new task, baseline)
 ```
 
 مع منع leakage، وإبقاء كل نتيجة proof/acceptance خارج تأثير provider prose.
+
+يشمل التقييم forecasts المسجلة قبل التشغيل: تقارن النتائج المرصودة بها على
+held-out tasks والمشاريع المستقلة، ويحسب ECE وفق §25.4. أي انتقال غير متوقع أو
+بيانات تقييم ناقصة تبقي النتيجة غير محسومة ولا تسمح بالترقية أو بتوسيع applicability.
 
 ### 42.14 P12 — Strategy Promotion and Revocation
 
@@ -4838,6 +5030,14 @@ G9 — Revocation Safety
 14. تركيب capabilities عبر semantic preconditions/effects.
 15. promotion وrevocation آمنين.
 16. حفظ authorization وownership وevidence وaudit invariants.
+17. تسجيل outcome forecasts قبل كل تجربة hypothesis وربطها بـEpisode/objective/
+    belief revision، مع حفظها غير قابلة للتعديل.
+18. اختيار أقل observation كلفة من الخيارات المأذونة والآمنة التي تجتاز حد
+    التمييز information-gain، أو البقاء unresolved عند غياب خيار صالح.
+19. مقارنة forecast بالنتيجة المستقلة، وقياس خطأ كل تجربة بـBrier score عندما
+    تتوفر outcome كاملة، ثم تحديث Belief من evidence المقبول فقط.
+20. إثبات معايرة forecasts على held-out/cross-project evaluation وفق ECE وحدود
+    §25.4 القائمة قبل توسيع applicability أو promotion.
 
 ويضاف شرط إغلاق P4/P5: لا يكفي وجود `effectBundle` أو `environmentRevision`.
 يلزم independent before/after observation من مصدر الفعل الفعلي، مربوطة
