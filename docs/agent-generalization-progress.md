@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة؛ P5.5 تشمل دورة Action محدودة لاستدعاءات file mutation المعتمدة في `mission_repair`، كما تسجل قراءتي recipe الصريحتين `database.read_project` و`project.read_file` على Episode canonical fail-closed. لا تغطي بعد كل recipe node أو tool call. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية ولديها شرائح runtime محدودة. P5.5 تشمل Action محدودًا لـ`mission_repair` وقراءتي recipe fail-closed، كما يسجل `/api/ai/chat/stream` قراءات provider المؤهلة؛ أما `/api/ai/chat` غير المتدفق فلا يملك execution/attempt دائمًا ولا يغطي كل invocation. قبول Effect لا ينشئ حاليًا التزامًا عامًا durable لانتقال المعرفة، ولا يظهر استهلاك مباشر لـWorld State في مسار القرار المفحوص. توجد primitives جزئية لـP7/P8/P9/P10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -16,14 +16,14 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. في `mission_repair` تسجل الكتابات المعتمدة أيضًا Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. لا تتضمن acceptances World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
-| P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، والآن رصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` و`project.list_tree` بالطلب والنتيجة hash-only، مع بقاء allowlist Mission ضيقة. المسار المتدفق `/api/ai/chat/stream` يسجل قراءات provider المؤهلة على Episode المرتبط بالمحاولة، بما فيها file/list/search/Git/code-navigation/package/binary؛ أما `/api/ai/chat` غير المتدفق فلا يملك execution/attempt دائمًا وما زال خارج تغطية per-invocation. أدوات analysis graph/API لا تدخل هذه القائمة و`refresh_project_scan` stateful وخارج callback القرائي. لا تنشئ القراءات `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. |
-| P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
-| P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
+| P6 — World Delta and Revision Closure | `not_started` | يلزم فصل `EffectBundle` عن `WorldTransition`، وربط التحول بـbefore/after observations وfact versions وscope/freshness ومراجعتَي العالم. يجب أن ينشئ كل أثر مؤهل التزام materialization durable/idempotent ينتهي بنتيجة صريحة، من دون إبطال acceptance؛ ويجب إثبات أن القرار التالي يستهلك `resultingWorldRevision`. |
+| P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan، لكن لا يوجد تشخيص مبني على `WorldTransition` أو ربط كامل بين الافتراضات والحقائق المتأثرة والملاحظة الفاصلة. إعادة تخطيط Mission قد تستخدم تشخيصًا و`replanContext`، كما يمكنها بناء الخطة من intent والسياق المتاح عند غياب تشخيص صالح؛ لذلك ليست الحلقة حاليًا diagnosis-aware بالكامل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
-| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
+| P8 — Diagnosis-aware Replanning | `partial` | توجد bounded objective recovery وMission replan primitives، لكن لا تضمن دائمًا أن التشخيص هو مدخل إعادة التخطيط، ولا تستهلك World Delta/Belief revision. فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
@@ -43,6 +43,10 @@
   server-owned، بينما `AgentAction` الكامل و`EffectBundle` يخصان mutation أو
   effect-gated validation. والفرق بين قبول الشريحة قبل P6 والإغلاق الكامل بعد
   World Delta موضح صراحة.
+- `EffectBundle` و`WorldTransition` و`Acceptance` عقود منفصلة؛ فشل materialization
+  لا يبطل القبول، لكن كل أثر مؤهل للتعلم يملك التزامًا durable بنتيجة أو فشل
+  معرفي صريح، مع idempotency واستعادة، ولا يُعد P6 مكتملًا قبل إثبات استهلاك
+  القرار التالي لـ`resultingWorldRevision`.
 - حدود canary الرقمية في §25.3، وحدود promotion العامة في §25.4، وانتقالات
   النتيجة في §29.6؛ لا توجد thresholds مكررة أو متعارضة.
 - §5.6 و§18.3 و§19 يحددون تسجيل forecast غير القابل للتعديل قبل التجربة،
@@ -92,15 +96,19 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 
 لم تعد الأولوية بناء بنية تحتية إضافية؛ الأولوية الآن إغلاق الحلقة السببية
 للإدراك والفعل والأثر والتشخيص والتعلم. أوقف التوسع الأفقي في capabilities
-وstrategy learning إلى أن تُغلق الحلقة المعرفية. اتبع الاعتماديات في §31، مع
-ترتيب العمل التالي:
+وstrategy learning إلى أن تُغلق الحلقة المعرفية. اتبع الاعتماديات في §31؛
+الخطوات التالية تفصيل pilot داخل P5.5/P4/P5/P6 وليست dependency graph بديلة:
 
-1. استكمال توحيد `AgentAction` عبر recipe/tool/Mission/execution nodes (P5.5).
-2. إغلاق independent observations من المصدر الفعلي قبل/بعد action (P4).
-3. إكمال effect verification وربطه بتلك الملاحظات (P5).
-4. بناء World Delta قابل لإعادة البناء (P6).
-5. إكمال World-State diagnosis ثم Belief/Information Gain (P7 ثم P7.5).
-6. إكمال hypothesis-aware replan وcausal-credit safety (P8 ثم P9).
+1. استكمال توحيد `AgentAction` وعقود invocation المؤهلة، مع إبقاء فجوة
+   `/api/ai/chat` غير المتدفق واضحة وعدم اصطناع execution/attempt (P5.5).
+2. ربط قرار server-owned بـ`worldRevision` الذي قرأه، واستخدام Runtime
+   start/restart/stop كـGolden Slice ضمن ترتيب P4/P5.
+3. إغلاق independent before/after observations وEffect Verification (P4/P5).
+4. إنشاء `WorldTransition` منفصل عن `EffectBundle`، مع التزام materialization
+   durable/idempotent، وحالة retry أو terminal failure لا تغيّر acceptance (P6).
+5. إثبات أن قرارًا لاحقًا يستهلك `resultingWorldRevision`؛ دون ذلك لا تُغلق P6.
+6. بعد pilot ناجح، إكمال World-State diagnosis ثم Belief/Information Gain
+   (P7 ثم P7.5)، ثم hypothesis-aware replan وcausal-credit safety (P8 ثم P9).
 7. بعد ذلك فقط استكمال portable strategy وheld-out/transfer learning.
 
 لا تبدأ مرحلة جديدة أو توسع replay/promotion قبل إغلاق بوابات هذه الحلقة.
@@ -1569,6 +1577,63 @@ G9 Revocation Safety
   وrevision، مع request-before-read وrecord-before-consume وفشل مغلق.
 - **next step:** لا تبدأ التنفيذ أو P6 قبل تحديد نطاق هذه المسارات واعتماد
   عقدها؛ لا توسع allowlist أو تغيّر schema أو قاعدة الإنتاج.
+
+### 42.38 P5.5 — تسجيل ملاحظات قراءات الدردشة المتدفقة (2026-09-25)
+
+- **phase/step:** P5.5 — streamed chat read observations
+- **status:** `partial`
+- **what changed:** سجل `/api/ai/chat/stream` الآن موثق على أنه يمرر
+  `onReadOnlyInvocation` ويربط القراءات المؤهلة بـEpisode وexecution/attempt/
+  worker. يسجل `OBSERVATION_REQUESTED` قبل القراءة و`OBSERVATION_RECORDED`
+  قبل استهلاكها، مع hashes للمدخلات والـmanifest والـscope والنتيجة. Episode
+  ينتهي `incomplete` و`CHAT_OBSERVATION_ONLY`؛ هذه التغطية لا تثبت Action أو
+  Effect أو acceptance. يصحح هذا الإدخال استنتاج §42.37 التاريخي عن المسار
+  المتدفق؛ يبقى `/api/ai/chat` غير المتدفق خارج per-invocation coverage لأنه
+  لا يملك execution/attempt دائمًا.
+- **files/schema/contracts touched:** مزامنة سجل التقدم مع
+  `docs/agent-generalization-execution-plan.md`؛ لا تغيير runtime أو schema أو
+  قاعدة الإنتاج في هذه الخطوة التوثيقية.
+- **validation:** اعتمدت نتائج التحقق المسجلة في §42.38 من الخطة (API
+  typecheck؛ orchestrator 170/170؛ streamed route 1/1؛ مجموعة chat المركزة
+  69/69). لم تُعد الاختبارات في هذه المراجعة التوثيقية.
+- **authority/safety impact:** القراءة observations فقط؛ لا صلاحيات أو allowlists
+  جديدة، ولا Proof أو Acceptance. أدوات mutation وanalysis graph/API و
+  `refresh_project_scan` تبقى خارج callback.
+- **remaining/blocker:** P5.5 جزئية؛ المسار غير المتدفق وبقية الأسطح المؤهلة
+  غير موحدة. لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** تابع P5.5 داخل حدود الصلاحية الحالية، ولا تنشئ execution/
+  attempt اصطناعيًا للمسار غير المتدفق.
+
+### 42.39 P5.5/P6 — تدقيق التزام انتقال المعرفة بعد قبول الأثر (2026-09-25)
+
+- **phase/step:** P5.5/P6 — source audit for accepted-effect knowledge closure
+- **status:** `partial`
+- **what changed:** أكد تدقيق call sites أن قبول Effect منفصل عن تحديث المعرفة:
+  `EffectBundle` يحفظ `episode.worldRevision` إن كانت موجودة، ولا ينشئ `WorldTransition` أو
+  `resultingWorldRevision`. الاستخدام المباشر لـ`getProjectWorldState` الذي
+  ظهر في البحث هو route القراءة والاختبارات؛ لم يظهر مستهلك مباشر له داخل مسار
+  planner/replan المفحوص. materialization للملاحظات التكميلية بعد قبول task و
+  streamed chat غير متزامن؛ كما أن إسقاط World State أفضل جهد بعد تثبيت
+  الملاحظات. في `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع
+  `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط حي لاحق بعد
+  الترقية في المسار المفحوص. هذا لا يضعف بوابة Effect الحالية، لكنه لا يضمن
+  تحديثًا معرفيًا durable أو استهلاك القرار التالي له.
+- **files/schema/contracts touched:** تحديث هذه الوثيقة وخطة التنفيذ فقط؛
+  لا تغييرات code أو schema أو بيانات إنتاج.
+- **validation:** مراجعة قراءة لـ`chat.ts` و`task-execution-service.ts` و
+  `observation-materializer.ts` و`effect-observer.ts` و`world-state.ts` و
+  `mission-auto-replan.ts` ومسارات `apply-changes`؛ فحص اتساق التوثيق و
+  `git diff --check`. لم تُشغّل اختبارات.
+- **authority/safety impact:** يظل acceptance مستقلًا عن materialization؛ لا
+  تُقبل حالة candidate أو rollback كحقيقة حية. لا تتغير الصلاحيات أو قواعد
+  Effect/Proof.
+- **remaining/blocker:** P6 غير started: لا يوجد WorldTransition عام أو التزام
+  materialization durable ينتهي بحالة صريحة، ولم يثبت استهلاك planner للمراجعة
+  الناتجة. تشخيص P7 لا يستهلك WorldTransition حتى الآن.
+- **next step:** بعد مراجعة هذه الوثائق، يمكن تنفيذ Runtime Golden Slice ضمن
+  ترتيب §31: قرار مربوط بـ`worldRevision`، before/after مستقلة، Effect مستقل،
+  transition وإسقاط قابلان للاستعادة، ثم إثبات أن القرار التالي قرأ المراجعة
+  الجديدة. لا تبدأ schema أو production changes ضمن هذا التحديث.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

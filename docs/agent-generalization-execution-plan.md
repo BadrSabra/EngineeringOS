@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime داخل process tree؛ لا يثبت ذلك تغطية lifecycle العامة ولا ينشئ قبولًا خارج Gate C. لا يوجد World Delta. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
+> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime داخل process tree؛ لا يثبت ذلك تغطية lifecycle العامة ولا ينشئ قبولًا خارج Gate C. P5.5 تسجل قراءات provider المؤهلة في `/api/ai/chat/stream`، بينما `/api/ai/chat` غير المتدفق لا يملك execution/attempt دائمًا ولا يسجل كل invocation. لا يوجد World Delta أو عقد durable يضمن انتقال الأثر المقبول إلى معرفة قابلة للاستهلاك؛ قبول الأثر مستقل عن materialization والتعلم. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -3583,6 +3583,13 @@ P4/P5 لها staged closure: independent observations وeffect verification هم
 يثبت P6 ربطها بـWorld Delta قابل لإعادة البناء. هذا handoff مرحلي، لا إعفاء من
 ترتيب الاعتماديات ولا circular completion claim.
 
+تفصيل pilot لـP5.5/P4/P5/P6 لا ينشئ dependency graph موازيًا ولا يتجاوز أي
+بوابة: اربط قرارًا server-owned بـ`worldRevision` الذي قرأه، ثم نفّذ Runtime
+Golden Slice بملاحظة قبل/بعد مستقلة وEffect Verification، ثم أنشئ
+`WorldTransition` ونتيجة materialization دائمة، وأخيرًا أثبت أن القرار التالي
+استهلك `resultingWorldRevision`. لا يعد P6 مكتملًا بمجرد إنشاء سجل انتقال إذا
+ظل التخطيط يقرأ المراجعة السابقة.
+
 لا يبدأ التوسع الأفقي في capabilities أو strategy learning بينما P3.5/P4/P5/P6
 غير مغلقة. أولوية التنفيذ الحالية هي Unified `AgentAction`، ثم independent
 observation وeffect closure، ثم World Delta، ثم World-State diagnosis وBelief/
@@ -4812,7 +4819,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; direct /api/ai/chat and /api/ai/chat/stream provider reads do not pass per-invocation observation callbacks; additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; /api/ai/chat/stream records eligible provider reads on its execution Episode; non-streaming /api/ai/chat has no durable execution/attempt and remains outside per-invocation coverage; additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4858,17 +4865,54 @@ validators أو browser أو command كقراءات من `mutatesProject: false`
 جزئية حتى تُغطى بقية recipe nodes وprovider tool calls المؤهلة دون تغيير حدود
 الصلاحية.
 
+في `/api/ai/chat/stream` يربط `onReadOnlyInvocation` القراءة المؤهلة بـEpisode
+وexecution/attempt/worker، ويسجل hashes للمدخلات والـmanifest والـscope والنتيجة
+قبل استهلاكها؛ تنتهي هذه Episodes بـ`incomplete` و`CHAT_OBSERVATION_ONLY`، فلا
+تثبت قبولًا أو أثرًا. لا يمرر `/api/ai/chat` غير المتدفق callback مماثلًا ولا
+يملك في المسار الحالي execution/attempt دائمًا؛ لا تنشأ له هوية اصطناعية لسد
+الفجوة. أدوات analysis graph/API و`refresh_project_scan` تبقى خارج هذا العقد.
+
 ### 42.6 P6 — World Delta / Revision Closure
 
 **الحالة:** `NOT STARTED`
 
-تغلق هذه المرحلة العلاقة بين effect bundle وworld state عبر:
+المتطلبات والحالات أدناه معايير تصميم وقبول مقترحة؛ ليست enums أو جداول أو
+مسارات retry منفذة في runtime الحالي.
+
+تفصل هذه المرحلة بين حقيقة التنفيذ وحقيقة المعرفة:
+
+```text
+EffectBundle      → هل تحقق عقد الفعل؟
+WorldTransition   → ما الذي تغير في العالم، وبأي دليل ومراجعة؟
+Acceptance        → هل اجتاز التنفيذ بوابته النهائية؟
+```
+
+لا يُعاد تعريف `EffectBundle` على أنه World Delta، ولا يصبح نجاح
+materialization شرطًا لقبول Effect أو سببًا لإبطاله بأثر رجعي. عندما يكون الأثر
+مؤهلًا للتعلم، ينشأ التزام دائم بتحديث المعرفة؛ يجب أن يصل إلى نتيجة صريحة مثل
+`MATERIALIZED` أو `RETRYING` أو `TERMINAL_FAILED`، مع idempotency ومسار استعادة
+قابل للتحقق. يجوز أن يبقى التنفيذ `ACCEPTED` مع حالة معرفة `PENDING` أو
+`TERMINAL_FAILED`.
+
+يتطلب `WorldTransition` على الأقل:
 
 - materialized world delta مرتبط بـ`actionId` و`episodeId`.
-- revision قابلة لإعادة البناء.
-- relevant fact versions.
+- `parentWorldRevision` و`resultingWorldRevision` قابلان لإعادة البناء.
+- مراجع before/after observations والـfact versions ذات الصلة.
+- الحقائق التي تغيرت أو أُبطلت، ومراجع evidence لكل انتقال.
 - freshness وenvironment scope.
 - رفض delta إذا كان مبنيًا على observation stale أو غير متوافق.
+
+تُنشأ نتيجة materialization الدائمة من ملاحظات العالم الحي فقط. تبقى observations
+الخاصة بـcandidate معزولة؛ في `apply-changes` لا تدخل حالة المرشح إلى World
+State، ولا تُسقط الحالة الحية إلا بعد الترقية والتحقق النهائيين. لا تسجل محاولة
+فاشلة أو rollback كحالة نجاح للمشروع.
+
+**معيار إغلاق الـpilot:** يقرأ القرار D1 مراجعة `Wn` ويثبت الخادم هذا الربط؛
+يرتبط الفعل بملاحظة قبل/بعد مستقلة ويجتاز Effect Verification؛ ينتج انتقال
+`Wn → Wn+1` مع نتيجة materialization دائمة أو فشل نهائي صريح؛ ثم يثبت القرار D2
+أنه قرأ `Wn+1`. إنشاء Transition بلا استهلاك المراجعة الناتجة لا يغلق الحلقة.
+لا يتطلب هذا الـpilot بناء Belief Engine أو Strategy Promotion.
 
 ### 42.7 P7 — World-State Failure Diagnosis
 
@@ -4888,6 +4932,11 @@ validators أو browser أو command كقراءات من `mutatesProject: false`
 Provider failure diagnostics ضرورية، لكنها ليست agent-level failure diagnosis.
 لا تغلق `diagnoseFailure` الحتمية وbounded replan هذه المرحلة: المطلوب ربط
 الافتراضات الفاشلة بالـfacts المتأثرة والتناقضات والملاحظة الفاصلة في World State.
+بعد إغلاق P6، يجب أن يستهلك التشخيص `WorldTransition` وما يثبته أو يناقضه، لا
+أن يستنتج تغير العالم من `EffectBundle` أو receipt وحدهما. إعادة تخطيط Mission
+الموجودة primitive جزئية: قد تستخدم تشخيصًا صالحًا و`replanContext`، لكن مسارها
+يبني الخطة من intent والسياق المتاح أيضًا؛ لذلك لا تُعد حاليًا diagnosis-aware
+بالمعنى المطلوب هنا.
 
 ### 42.8 P7.5 — Belief and Information Gain
 
@@ -5752,3 +5801,41 @@ Episode؛ `git diff --check`. لا تغييرات code/schema/production. تظل
 1/1؛ مجموعة chat في `ai.test.ts` 69/69. تشغيل الملف كاملًا سجّل 9 إخفاقات
 ضمن اختبارات تنفيذ المهام/أخطاء provider، لذا لا يُعد الملف كله ناجحًا.
 لم تتغير schema أو بيانات الإنتاج، ولا يبدأ P6 أو P7 أو P7.5.
+
+### 42.39 P5.5/P6 — قبول الأثر والتزام انتقال المعرفة (2026-09-25)
+
+هذا تدقيق قراءة لمسارات التنفيذ وتحديث لتوصيف P6؛ ليس تنفيذًا لـWorld Delta ولا
+تغييرًا في schema أو runtime.
+
+- `/api/ai/chat/stream` يمرر `onReadOnlyInvocation` ويسجل القراءات المؤهلة
+  على Episode المقيد بالمحاولة. `/api/ai/chat` غير المتدفق لا يمرر callback
+  مماثلًا ولا يملك في المسار المفحوص execution/attempt دائمًا؛ لا تُنشأ له هوية
+  اصطناعية. تفاصيل التغطية والتحقق السابقين في §42.38.
+- قبول task أو streamed chat قد يسبق materialization للملاحظات التكميلية؛
+  الاستدعاء غير متزامن ويُسجل فشله، ولا يظهر في call sites المفحوصة التزام
+  durable/retry يضمن إعادة materialization. كما أن materializer يثبت الملاحظات
+  أولًا ثم يحاول إسقاط World State كأفضل جهد؛ فشل الإسقاط لا يبطل acceptance.
+- ملاحظتا شجرة الملفات قبل/بعد في `apply-changes` تستخدمان
+  `materializeWorldState: false`، وهو حاجز صحيح ضد تسريب حالة candidate. لم يظهر
+  في هذا المسار إسقاط لاحق لملاحظة live بعد الترقية الناجحة. ويكتب effect
+  observer قيمة `episode.worldRevision` إن توفرت، لكنه لا يحسب
+  `resultingWorldRevision` من الأثر.
+- بحث الاستدعاءات المباشر وجد `getProjectWorldState` في route القراءة
+  والاختبارات؛ لم يظهر مستهلك مباشر له داخل مسار planner/replan المفحوص. لذلك
+  وجود endpoint أو projection لا يثبت أن القرار التالي يستهلكها.
+
+الحكم التنفيذي: `EffectBundle` و`WorldTransition` و`Acceptance` عقود منفصلة.
+P6 غير مبدوءة، ولا تكتمل بمجرد materializer أو سجل انتقال؛ يلزم التزام معرفي
+durable/idempotent لكل أثر مؤهل، بنتيجة materialization أو retry أو terminal
+failure، من دون تغيير acceptance، ثم إثبات قرار لاحق يقرأ
+`resultingWorldRevision`. تبقى بيانات candidate معزولة، ولا تُسقط حالة live إلا
+بعد نجاح الترقية والتحقق النهائي.
+
+تفصيل Runtime Golden Slice وقرار D1/D2 هو pilot داخل dependency graph القائم
+في §31، لا roadmap ثانية ولا إعفاء من staged closure لـP4/P5. لا يبدأ P7 أو
+P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المراجعة الجديدة.
+
+التحقق: مراجعة قراءة لـ`chat.ts` و`task-execution-service.ts` و
+`observation-materializer.ts` و`effect-observer.ts` و`world-state.ts` و
+`mission-auto-replan.ts` ومسار `apply-changes`؛ لم تُشغّل اختبارات في هذا
+التحديث التوثيقي. لا تغييرات code/schema أو بيانات إنتاج.
