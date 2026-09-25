@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { MISSION_REPAIR_TOOL_CAPABILITY_ID } from "./agent-state/mission-repair-effect.js";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -28,7 +29,7 @@ const runAgentWithFallback = vi.hoisted(() => vi.fn(async () => ({
   },
   effectiveProvider: "groq" as const,
 })));
-const chatWithFallback = vi.hoisted(() => vi.fn(async () => ({
+const chatWithFallback = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({
   result: {
     response: "Mission tool-loop fixture completed.",
     pendingChanges: [] as Array<{ path: string; newContent: string }>,
@@ -367,13 +368,29 @@ describe("real durable task execution lifecycle", () => {
       approvalRequired: false,
     });
     const candidateContent = "export const value = 'candidate';\n";
-    chatWithFallback.mockResolvedValue({
-      result: {
-        response: "Prepared and verified the bounded repair.",
-        pendingChanges: [{ path: "src/target.ts", newContent: candidateContent }],
-        sources: [],
-      },
-      effectiveProvider: "groq",
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-call-mission-repair-1",
+        toolName: "write_file" as const,
+        path: "src/target.ts",
+        inputHash: "a".repeat(64),
+      };
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
+      // A replay of the same provider call must be idempotent in the Episode ledger.
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
+      return {
+        result: {
+          response: "Prepared and verified the bounded repair.",
+          pendingChanges: [{ path: "src/target.ts", newContent: candidateContent }],
+          sources: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
     });
     runRepairValidation.mockResolvedValue({
       status: "passed",
@@ -440,13 +457,29 @@ describe("real durable task execution lifecycle", () => {
       expect(observations[0]?.value).not.toEqual(observations[1]?.value);
 
       const episodeEvents = await db
-        .select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .select({
+          eventType: aiAgentEpisodeEventsTable.eventType,
+          payload: aiAgentEpisodeEventsTable.payload,
+        })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, outcome.executionId!));
       const eventTypes = episodeEvents.map((event) => event.eventType);
       expect(eventTypes).toContain("ACTION_REQUESTED");
       expect(eventTypes).toContain("ACTION_COMMITTED");
       expect(eventTypes).toContain("EFFECT_CLASSIFIED");
+      const toolRequests = episodeEvents.filter((event) => {
+        const action = (event.payload as { action?: { capabilityId?: string } } | null)?.action;
+        return event.eventType === "ACTION_REQUESTED"
+          && action?.capabilityId === MISSION_REPAIR_TOOL_CAPABILITY_ID;
+      });
+      const toolCommits = episodeEvents.filter((event) =>
+        event.eventType === "ACTION_COMMITTED"
+        && String(
+          (event.payload as { actionId?: unknown } | null)?.actionId ?? "",
+        ).startsWith("mission-repair-tool:")
+      );
+      expect(toolRequests).toHaveLength(1);
+      expect(toolCommits).toHaveLength(1);
     } finally {
       await fixture.cleanup();
     }
@@ -492,10 +525,17 @@ describe("real durable task execution lifecycle", () => {
       expect(await db.select().from(aiAgentEffectsTable)
         .where(eq(aiAgentEffectsTable.projectId, fixture.projectId))).toEqual([]);
       const events = await db
-        .select({ eventType: aiAgentEpisodeEventsTable.eventType })
+        .select({
+          eventType: aiAgentEpisodeEventsTable.eventType,
+          payload: aiAgentEpisodeEventsTable.payload,
+        })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.projectId, fixture.projectId));
       expect(events.map((event) => event.eventType)).not.toContain("ACTION_REQUESTED");
+      const baseParams = chatWithFallback.mock.calls.at(-1)?.[1] as {
+        onMutationInvocation?: unknown;
+      } | undefined;
+      expect(baseParams?.onMutationInvocation).toBeUndefined();
     } finally {
       await fixture.cleanup();
     }

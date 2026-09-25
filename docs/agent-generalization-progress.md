@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة؛ P5.5 بدأت بعقد موحد لأحداث `ACTION_REQUESTED` المرتبطة بـEpisode، لكنها لا تغطي بعد كل recipe node أو tool call. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة؛ P5.5 تشمل الآن دورة Action محدودة لاستدعاءات file mutation المعتمدة في `mission_repair`، لكنها لا تغطي بعد كل recipe node أو tool call. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -16,10 +16,10 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. هذه acceptances effect-backed ومحددة بهدف كل شريحة؛ لا تتضمن World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. في `mission_repair` تسجل الكتابات المعتمدة أيضًا Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. لا تتضمن acceptances World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وهوية launch للـruntime وبصمة validator قبل spawn، لكنها لا تثبت وحدها بيئة child process. المتبقي إغلاق مصادر الملاحظة المستقلة وpropagation للتناقضات؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. تُسجل recipe القراءة `database.inspect.project` أحداث ظلّية `OBSERVATION_REQUESTED/RECORDED` best-effort؛ mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. بقية recipe nodes وprovider tool calls لم تكتمل. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. تُسجل recipe القراءة `database.inspect.project` أحداث ظلّية `OBSERVATION_REQUESTED/RECORDED` best-effort؛ mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1168,6 +1168,40 @@ G9 Revocation Safety
 - **next step:** Get approval before applying the repository's development
   schema; then run the DB-backed tests and restart the API. Continue the ordered
   P3.5/P4/P5 work before starting P6.
+
+### 2026-09-25 — P3.5/P5.5 Mission repair per-tool Action lifecycle
+
+- **phase/step:** P3.5/P5.5 — approved `mission_repair` file-tool invocation
+- **status:** `partial`
+- **what changed:** يمرر tool engine callback proof-critical إلى `write_file` و
+  `replace_text` فقط بعد نجاح authorization. يسجل الخادم `ACTION_REQUESTED`
+  قبل staging و`ACTION_COMMITTED` بعد نجاح معروف وإضافة pending change واحدة؛
+  فشل تسجيل الحدث يمنع الاستمرار ويزيل التغيير المعلق. يبدأ callback Episode
+  بالهوية نفسها لمسار candidate effect، ويربط الفعل بالـMission/Goal/task/
+  execution/attempt/revisions والمسار المعتمد وهوية tool call hash وinput hash.
+  commit يوثق staging داخل candidate overlay فقط؛ aggregate candidate
+  observations/effect تظل بوابة القبول الوحيدة.
+- **files/schema/contracts touched:** tool execution engine وchat boundary،
+  `ai-route-helpers.ts`، `task-execution-service.ts`، Mission repair action
+  builder، اختبارات engine/action helper، وخطة التنفيذ وسجل التقدم. No database
+  schema change.
+- **validation:** `pnpm run typecheck:libs` و
+  `pnpm --filter @workspace/api-server run typecheck` passed؛
+  tool engine tests 156/156 وMission action contract tests 3/3 passed؛
+  `git diff --check` passed. API build passed during the managed workflow
+  restart, but API startup failed at schema readiness. DB-backed Mission
+  integration tests fail before behavior because development schema lacks
+  `projects.strategy_replay_opt_in` and other required schema objects. No schema
+  sync was run.
+- **authority/safety impact:** لا callback لأدوات القراءة أو
+  `mission_observe`/`mission_validate` أو `/tasks/:taskId/execute`. لا صلاحيات أو
+  generic dispatch أو live-root writes أو acceptance semantics جديدة؛ لا يوجد
+  per-tool EffectBundle ولا World Delta.
+- **remaining/blocker:** يلزم حل schema drift بموافقة صريحة قبل DB-backed
+  integration tests أو تشغيل API بنجاح. تبقى P3.5/P5.5 جزئيتين؛ لم تبدأ P6 أو
+  P7 أو P7.5.
+- **next step:** عدم مزامنة schema دون موافقة؛ بعد حلّ drift، أعد تشغيل اختبارات
+  Mission DB-backed وAPI workflow، ثم تابع شرائح P3.5/P4/P5 بالترتيب.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

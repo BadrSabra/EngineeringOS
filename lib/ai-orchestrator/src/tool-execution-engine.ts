@@ -449,6 +449,20 @@ function duplicateSearchSynthesisSummary(
 
 // ── Single tool execution ────────────
 
+export type MutationToolInvocation = {
+  phase: "requested" | "committed";
+  toolCallId: string;
+  toolName: "write_file" | "replace_text";
+  /** Provider-supplied path; the server must normalize and authorize it. */
+  path: string;
+  /** Hash of canonicalized tool arguments; raw arguments are never persisted here. */
+  inputHash: string;
+};
+
+export type MutationToolInvocationCallback = (
+  invocation: MutationToolInvocation,
+) => void | Promise<void>;
+
 export type SingleToolOpts = {
   /** Registered tool name (e.g. "read_file", "git_status"). */
   name: string;
@@ -487,6 +501,10 @@ export type SingleToolOpts = {
   allowedToolNames?: ReadonlySet<string>;
   /** Cancellation signal owned by the durable execution controller. */
   signal?: AbortSignal;
+  /** Server-owned action lifecycle hook for specifically authorized file mutations. */
+  onMutationInvocation?: MutationToolInvocationCallback;
+  /** Provider tool-call identity, used only as an input to server-owned correlation. */
+  toolCallId?: string;
 };
 
 export type SingleToolResult =
@@ -766,6 +784,8 @@ export function createSourceRetrievalTelemetry(): SourceRetrievalTelemetry {
  */
 export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToolResult> {
   const { name, args, rootPath, pendingChanges } = opts;
+  const mutationPendingStart = pendingChanges.length;
+  let mutationInvocationActive = false;
   const effectiveArgs =
     opts.completeReads && name === "read_file"
       ? { ...args, complete: "true" }
@@ -819,6 +839,43 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         diagnosticCode: "TOOL_UNAVAILABLE",
         safeMessage: `Tool "${name}" is unavailable for this turn; the operation did not complete.`,
       };
+    }
+    const mutationCallback = opts.onMutationInvocation
+      && (name === "write_file" || name === "replace_text")
+      ? opts.onMutationInvocation
+      : undefined;
+    const mutationInvocationBase = mutationCallback
+      ? {
+          toolCallId: opts.toolCallId?.trim() ?? "",
+          toolName: name as "write_file" | "replace_text",
+          path: args.path ?? "",
+          inputHash: createHash("sha256")
+            .update(JSON.stringify(Object.fromEntries(
+              Object.entries(args).sort(([left], [right]) => left.localeCompare(right)),
+            )), "utf8")
+            .digest("hex"),
+        }
+      : undefined;
+    if (mutationCallback && mutationInvocationBase) {
+      mutationInvocationActive = true;
+      if (!mutationInvocationBase.toolCallId) {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not identify this candidate change; it was not staged.",
+        };
+      }
+      try {
+        await mutationCallback({ ...mutationInvocationBase, phase: "requested" });
+      } catch {
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not record this candidate change; it was not staged.",
+        };
+      }
     }
     let analysisStatus: "complete" | "unavailable" | "failed" | undefined;
     let analysisFailure:
@@ -918,6 +975,32 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               pendingChanges,
             ));
 
+    if (mutationCallback && mutationInvocationBase) {
+      const queuedSuccessfully = name === "write_file"
+        ? output.startsWith('Change queued for "') && pendingChanges.length === mutationPendingStart + 1
+        : output.startsWith('Focused change queued for "') && pendingChanges.length === mutationPendingStart + 1;
+      if (!queuedSuccessfully) {
+        pendingChanges.splice(mutationPendingStart);
+        return {
+          kind: "failed",
+          failureKind: "execution",
+          diagnosticCode: "TOOL_EXECUTION_FAILED",
+          safeMessage: "The candidate change could not be staged; no change was retained.",
+        };
+      }
+      try {
+        await mutationCallback({ ...mutationInvocationBase, phase: "committed" });
+      } catch {
+        pendingChanges.splice(mutationPendingStart);
+        return {
+          kind: "failed",
+          failureKind: "unavailable",
+          diagnosticCode: "TOOL_UNAVAILABLE",
+          safeMessage: "The server could not record the staged candidate change; it was discarded.",
+        };
+      }
+    }
+
     if (analysisFailure) {
       console.error(JSON.stringify({
         scope: "tool-execution-engine",
@@ -971,6 +1054,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
 
     return { kind: "ok", output, source };
   } catch (error) {
+    if (mutationInvocationActive) {
+      pendingChanges.splice(mutationPendingStart);
+    }
     const errorMessage = error instanceof Error ? error.message : String(error);
     const cancelled = opts.signal?.aborted === true;
     console.error(JSON.stringify({
@@ -1480,6 +1566,8 @@ export type ToolLoopOpts = {
    * callback cannot break the agentic loop.
    */
   onStep?: (step: AgentStep) => void;
+  /** Proof-critical hook; unlike onStep, failures block and roll back a file mutation. */
+  onMutationInvocation?: MutationToolInvocationCallback;
 
   /** Request-owned budget shared across every orchestration phase. */
   executionLedger?: ExecutionLedger;
@@ -5882,6 +5970,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         toolResult = await executeSingleTool({
           name: tc.function.name,
           args,
+          toolCallId: tc.id,
           rootPath,
           pendingChanges,
           completeReads: opts.completeReads,
@@ -5902,6 +5991,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           analysisCorrelation: opts.analysisCorrelation,
           analysisDeadlineAt: executionLedger?.deadlineAt,
           signal,
+          onMutationInvocation: opts.onMutationInvocation,
         });
         toolCompleted = toolResult.kind === "ok";
       } finally {

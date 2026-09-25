@@ -14,6 +14,8 @@ export type {
   AgentDiagnosticCode,
   AgentLoopClaimState,
   AgentLoopToolCall,
+  MutationToolInvocation,
+  MutationToolInvocationCallback,
   SourceRetrievalTelemetry,
   ReadStatus,
 } from "./tool-execution-engine.js";

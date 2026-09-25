@@ -81,6 +81,7 @@ import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import {
   buildMissionRepairAction,
   buildMissionRepairEffectContract,
+  buildMissionRepairToolAction,
 } from "./agent-state/mission-repair-effect.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
 
@@ -830,21 +831,17 @@ type MissionRepairCandidateEffectContext = {
   workspace: Awaited<ReturnType<typeof createValidationWorkspace>>;
 };
 
-async function beginMissionRepairCandidateEffect(params: {
+async function startMissionRepairEpisode(params: {
   task: typeof tasksTable.$inferSelect;
   goal: typeof aiGoalsTable.$inferSelect;
   executionId: string;
-  correlationId: string;
   attempt: number;
   workerId: string;
   sourceRevision: string;
   rootPath: string;
-  changes: readonly CanonicalMissionChange[];
-  approvedPaths: readonly string[];
-}): Promise<MissionRepairCandidateEffectContext> {
-  const baseTreeHash = await hashDeliveryTree(params.rootPath);
+}) {
   const planRevision = missionPlanRevisionHash(params.goal);
-  const episode = await startEpisode({
+  return startEpisode({
     projectId: params.task.projectId,
     executionId: params.executionId,
     attempt: params.attempt,
@@ -862,6 +859,31 @@ async function beginMissionRepairCandidateEffect(params: {
     missionId: params.goal.missionId,
     goalId: params.goal.id,
     ...(planRevision ? { planRevision } : {}),
+  });
+}
+
+async function beginMissionRepairCandidateEffect(params: {
+  task: typeof tasksTable.$inferSelect;
+  goal: typeof aiGoalsTable.$inferSelect;
+  executionId: string;
+  correlationId: string;
+  attempt: number;
+  workerId: string;
+  sourceRevision: string;
+  rootPath: string;
+  changes: readonly CanonicalMissionChange[];
+  approvedPaths: readonly string[];
+}): Promise<MissionRepairCandidateEffectContext> {
+  const baseTreeHash = await hashDeliveryTree(params.rootPath);
+  const planRevision = missionPlanRevisionHash(params.goal);
+  const episode = await startMissionRepairEpisode({
+    task: params.task,
+    goal: params.goal,
+    executionId: params.executionId,
+    attempt: params.attempt,
+    workerId: params.workerId,
+    sourceRevision: params.sourceRevision,
+    rootPath: params.rootPath,
   });
   const candidateIdentity = missionCandidateIdentity(
     params.sourceRevision,
@@ -1125,6 +1147,126 @@ async function executeMissionToolLoop(params: {
     params.task.prompt ?? params.task.title,
   ].join("\n\n");
 
+  let missionRepairEpisodePromise: ReturnType<typeof startMissionRepairEpisode> | undefined;
+  const getMissionRepairEpisode = () => {
+    missionRepairEpisodePromise ??= startMissionRepairEpisode({
+      task: params.task,
+      goal: params.goal,
+      executionId: params.executionId,
+      attempt: params.expectedAttempt,
+      workerId: params.workerId,
+      sourceRevision: params.workspaceRevision,
+      rootPath: root.canonicalPath,
+    });
+    return missionRepairEpisodePromise;
+  };
+  const repairToolActions = new Map<
+    string,
+    ReturnType<typeof buildMissionRepairToolAction>
+  >();
+  const onMutationInvocation:
+    | import("@workspace/ai-orchestrator").MutationToolInvocationCallback
+    | undefined =
+    params.profile === "mission_repair"
+      && approvalState === "APPROVED"
+      && policy.targetPaths.length > 0
+      ? async (invocation) => {
+          const targetPath = normalizeMissionRelativePath(invocation.path);
+          if (
+            !targetPath
+            || !policy.targetPaths.includes(targetPath)
+            || !/^[a-f0-9]{64}$/.test(invocation.inputHash)
+            || !invocation.toolCallId.trim()
+          ) {
+            throw new Error("mission_repair_tool_invocation_scope_invalid");
+          }
+          const toolCallIdentity = createHash("sha256")
+            .update(
+              `${params.executionId}\0${params.expectedAttempt}\0${invocation.toolCallId}`,
+              "utf8",
+            )
+            .digest("hex");
+          const actionId =
+            `mission-repair-tool:${params.executionId}:${params.expectedAttempt}:${toolCallIdentity.slice(0, 32)}`;
+          const episode = await getMissionRepairEpisode();
+          const action = buildMissionRepairToolAction({
+            actionId,
+            episodeId: episode.episodeId,
+            projectId: params.task.projectId,
+            missionId: params.goal.missionId,
+            goalId: params.goal.id,
+            taskId: params.task.id,
+            executionId: params.executionId,
+            attempt: params.expectedAttempt,
+            sourceRevision: params.workspaceRevision,
+            goalRevision: params.goal.updatedAt.toISOString(),
+            ...(missionPlanRevisionHash(params.goal)
+              ? { planRevision: missionPlanRevisionHash(params.goal) }
+              : {}),
+            toolName: invocation.toolName,
+            targetPath,
+            toolCallIdentity,
+            inputHash: invocation.inputHash,
+            approvedPaths: policy.targetPaths,
+          });
+
+          if (invocation.phase === "requested") {
+            await appendEpisodeEvent({
+              episodeId: episode.episodeId,
+              projectId: params.task.projectId,
+              executionId: params.executionId,
+              attempt: params.expectedAttempt,
+              workerId: params.workerId,
+              eventType: "ACTION_REQUESTED",
+              payload: {
+                action,
+                expectedEffects: action.expectedEffects,
+                invocationKind: "candidate_overlay",
+              },
+              actorType: "worker",
+              actorId: params.workerId,
+              correlationId: params.correlationId,
+            });
+            repairToolActions.set(actionId, action);
+            return;
+          }
+
+          const requestedAction = repairToolActions.get(actionId);
+          const requestedScope = requestedAction?.scope as
+            | Record<string, unknown>
+            | undefined;
+          if (
+            !requestedAction
+            || requestedScope?.toolName !== invocation.toolName
+            || requestedScope?.targetPath !== targetPath
+            || requestedScope?.inputHash !== invocation.inputHash
+          ) {
+            throw new Error("mission_repair_tool_action_request_missing");
+          }
+          await appendEpisodeEvent({
+            episodeId: episode.episodeId,
+            projectId: params.task.projectId,
+            executionId: params.executionId,
+            attempt: params.expectedAttempt,
+            workerId: params.workerId,
+            eventType: "ACTION_COMMITTED",
+            payload: {
+              actionId,
+              toolName: invocation.toolName,
+              targetPath,
+              toolCallIdentity,
+              inputHash: invocation.inputHash,
+              stagedInCandidateOverlay: true,
+              liveWorkspaceWrites: false,
+            },
+            actorType: "worker",
+            actorId: params.workerId,
+            correlationId: params.correlationId,
+          });
+          repairToolActions.delete(actionId);
+        }
+      : undefined;
+
   const chat = await chatWithFallback(
     params.userId,
     {
@@ -1150,6 +1292,7 @@ async function executeMissionToolLoop(params: {
       validationTargetPaths: policy.targetPaths,
       executionMode: params.profile === "mission_observe" ? "forensic" : "repair_plan",
       allowExecutionTools: params.profile !== "mission_observe" && approvalState === "APPROVED",
+      onMutationInvocation,
       allowedToolNames: params.profile === "mission_observe"
         ? ["read_file", "read_file_range", "list_directory", "search_code"]
         : params.profile === "mission_validate"

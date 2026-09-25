@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage, RawGroqResponse } from "../groq-client.js";
-import type { AgentStep } from "../tool-execution-engine.js";
+import type { AgentStep, MutationToolInvocation } from "../tool-execution-engine.js";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
 import { GroqClientError } from "../errors.js";
 import { createExecutionLedger } from "../execution-ledger.js";
@@ -322,6 +322,167 @@ describe("executeSingleTool", () => {
       expect(result.source).toBeUndefined();
     }
     expect(pending).toHaveLength(1);
+  });
+
+  it("records authorized Mission file staging before and after the pending change", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const pending: PendingChange[] = [];
+    FILE_TOOL_MOCK.mockImplementation(async (
+      _name: unknown,
+      _args: unknown,
+      _root: unknown,
+      changes: PendingChange[],
+    ) => {
+      changes.push({
+        path: "src/foo.ts",
+        absolutePath: "/project/src/foo.ts",
+        newContent: "x",
+        originalContent: null,
+        reason: "test write",
+      });
+      return 'Change queued for "src/foo.ts" — not written to disk.';
+    });
+    const callback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
+
+    const result = await executeSingleTool({
+      name: "write_file",
+      args: { path: "src/foo.ts", content: "x" },
+      rootPath: "/project",
+      pendingChanges: pending,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      toolCallId: "provider-call-1",
+      onMutationInvocation: callback,
+    });
+
+    expect(result.kind).toBe("ok");
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "committed"]);
+    expect(callback.mock.calls[0]?.[0]).toMatchObject({
+      toolCallId: "provider-call-1",
+      toolName: "write_file",
+      path: "src/foo.ts",
+    });
+    expect(callback.mock.calls[0]?.[0].inputHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(pending).toHaveLength(1);
+  });
+
+  it("records replace_text through the same approved candidate lifecycle", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const pending: PendingChange[] = [];
+    FILE_TOOL_MOCK.mockImplementation(async (
+      _name: unknown,
+      _args: unknown,
+      _root: unknown,
+      changes: PendingChange[],
+    ) => {
+      changes.push({
+        path: "src/foo.ts",
+        absolutePath: "/project/src/foo.ts",
+        newContent: "updated",
+        originalContent: "old",
+        reason: "test replacement",
+      });
+      return 'Focused change queued for "src/foo.ts" — not written to disk.';
+    });
+    const callback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
+
+    const result = await executeSingleTool({
+      name: "replace_text",
+      args: { path: "src/foo.ts", old_text: "old", new_text: "updated" },
+      rootPath: "/project",
+      pendingChanges: pending,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      toolCallId: "provider-call-replace-1",
+      onMutationInvocation: callback,
+    });
+
+    expect(result.kind).toBe("ok");
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "committed"]);
+    expect(callback.mock.calls[0]?.[0].toolName).toBe("replace_text");
+    expect(pending).toHaveLength(1);
+  });
+
+  it("does not invoke the mutation hook for unauthorized or read-only tools", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
+    const denied = await executeSingleTool({
+      name: "write_file",
+      args: { path: "src/foo.ts", content: "x" },
+      rootPath: "/project",
+      pendingChanges: [],
+      approvalState: "PENDING_APPROVAL",
+      approvedFilePaths: [],
+      toolCallId: "provider-call-denied",
+      onMutationInvocation: callback,
+    });
+    expect(denied.kind).toBe("failed");
+    expect(callback).not.toHaveBeenCalled();
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+
+    await executeSingleTool({
+      name: "read_file",
+      args: { path: "src/foo.ts" },
+      rootPath: "/project",
+      pendingChanges: [],
+      toolCallId: "provider-call-read",
+      onMutationInvocation: callback,
+    });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("does not commit failed staging and rolls back if the commit hook fails", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const pending: PendingChange[] = [];
+    FILE_TOOL_MOCK.mockImplementationOnce(async () => "Error: blocked path.");
+    const failedCallback = vi.fn(async (_invocation: MutationToolInvocation) => undefined);
+    const failed = await executeSingleTool({
+      name: "write_file",
+      args: { path: "src/foo.ts", content: "x" },
+      rootPath: "/project",
+      pendingChanges: pending,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      toolCallId: "provider-call-failed",
+      onMutationInvocation: failedCallback,
+    });
+    expect(failed.kind).toBe("failed");
+    expect(failedCallback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested"]);
+    expect(pending).toEqual([]);
+
+    FILE_TOOL_MOCK.mockImplementationOnce(async (
+      _name: unknown,
+      _args: unknown,
+      _root: unknown,
+      changes: PendingChange[],
+    ) => {
+      changes.push({
+        path: "src/foo.ts",
+        absolutePath: "/project/src/foo.ts",
+        newContent: "x",
+        originalContent: null,
+        reason: "test write",
+      });
+      return 'Change queued for "src/foo.ts" — not written to disk.';
+    });
+    const commitFailureCallback = vi.fn(async (invocation: MutationToolInvocation) => {
+      if (invocation.phase === "committed") throw new Error("event store unavailable");
+    });
+    const commitFailed = await executeSingleTool({
+      name: "write_file",
+      args: { path: "src/foo.ts", content: "x" },
+      rootPath: "/project",
+      pendingChanges: pending,
+      approvalState: "APPROVED",
+      approvedFilePaths: ["src/foo.ts"],
+      toolCallId: "provider-call-commit-failed",
+      onMutationInvocation: commitFailureCallback,
+    });
+    expect(commitFailed.kind).toBe("failed");
+    expect(pending).toEqual([]);
   });
 
   it("returns unknown_tool for an unregistered tool name", async () => {

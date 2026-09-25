@@ -69,3 +69,16 @@ can also claim a stop effect if the process was already dead before the action b
 **How to apply:** Stop adapters must fail closed if pre-stop PID/port identity is missing, and must
 probe those captured identities both before the action and after the durable stop transition before
 emitting direct evidence.
+
+For approved Mission repair file tools, `ACTION_COMMITTED` means only that a pending change was
+staged in the candidate overlay. It is not a workspace effect and cannot support acceptance by
+itself; the aggregate candidate's direct before/after observations and existing EffectBundle remain
+the only mutation proof. Do not create per-tool EffectBundles or route read-only Mission profiles
+through this mutation callback.
+
+**Why:** These tool calls modify an in-memory candidate proposal, not the live workspace. Treating
+tool completion as an observed effect would collapse the distinction between staged intent and
+independent state change.
+
+**How to apply:** Keep per-tool Action events idempotent and scope-bound, but leave effect
+classification and acceptance attached to the aggregate candidate verification path.

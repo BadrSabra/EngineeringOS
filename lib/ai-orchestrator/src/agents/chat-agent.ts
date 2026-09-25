@@ -175,6 +175,7 @@ import {
   type AgentDiagnosticCode,
   type AgentLoopClaimState,
   type AgentLoopToolCall,
+  type MutationToolInvocationCallback,
   type ReadStatus,
   mergeReadStatus,
   EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
@@ -6134,6 +6135,8 @@ export async function chat(opts: {
    * Forwarded directly to executeToolLoop; never throws.
    */
   onStep?: (step: AgentStep) => void;
+  /** Server-owned proof hook for approved Mission repair file-tool invocations. */
+  onMutationInvocation?: MutationToolInvocationCallback;
   /**
    * Server-authorized Build handoff gate for the registered run_validation tool.
    * This is intentionally separate from classifier output.
@@ -9059,6 +9062,7 @@ export async function chat(opts: {
     requireDependencyProof: firstEvidence.traversalPolicy === "PRIMARY_FIRST",
     executionLedger,
     onStep: relayAgentStep,
+    onMutationInvocation: opts.onMutationInvocation,
   });
   if (
     capabilityProbeRequest &&

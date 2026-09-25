@@ -4588,6 +4588,22 @@ provider-shaped pending changes لا تمنح profile read-only صلاحية rep
 الشريحة تغلق فجوة `mission_repair` المحددة فقط، ولا تغلق P3.5 أو P4/P5 ككل؛
 task/environment-scoped World State وrevision closure ما زالا مطلوبين.
 
+#### Mission repair per-tool Action lifecycle — 2026-09-25
+
+داخل `mission_repair` المعتمد فقط، تسجل كل أداة `write_file` أو `replace_text`
+حدث `ACTION_REQUESTED` بعد اجتياز authorization وقبل staging. يتحقق callback
+server-owned من target path مقابل القائمة المعتمدة ويستخدم هوية tool call hash
+وملخص arguments hash؛ لا تحفظ arguments الخام. يسجل `ACTION_COMMITTED` فقط عندما
+ترجع أداة الملف نتيجة نجاح معروفة وتضيف تغييرًا واحدًا إلى pending candidate.
+فشل التسجيل قبل/بعد staging يمنع الاستمرار، ويزيل التغيير المعلق عند فشل commit.
+
+هذا الفعل يوثق candidate-overlay staging فقط؛ لا ينشئ per-tool EffectBundle ولا
+يعدّل live root ولا يثبت أثرًا خارجيًا. يظل direct before/after observation
+للـaggregate candidate وEffectBundle الحاليان وحدهما بوابة قبول Mission repair.
+`mission_observe` و`mission_validate` و`/tasks/:taskId/execute` خارج هذا callback،
+ولا يتغير authorization أو schema. تغطي هذه الشريحة provider tool calls الخاصة
+بـMission repair فقط؛ ولا تبدأ P6 أو P7 أو P7.5 ولا تغلق P3.5/P5.5.
+
 ### 42.3 P4 — Authoritative Observation and World Integration
 
 **الحالة:** `PARTIAL`
@@ -4796,7 +4812,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.inspect.project has a best-effort read-only invocation pilot; other recipe nodes and provider tool calls remain`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.inspect.project has a best-effort read-only pilot; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and provider tool calls remain`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -4826,11 +4842,14 @@ invocation واحدًا، وأن تستخدم المسارات المعدّلة 
 تتطلب كتابات `ACTION_REQUESTED` الجديدة عبر Episode الآن الفعل الكامل، وتتحقق
 من ارتباطه بالحلقة وتطابق aliases الاختيارية. يضيف ledger مراجع الفعل والآثار
 المتوقعة من العقد. تشمل التغطية recipe candidate وGate C، إضافة إلى مساري
-Mission repair وapproved apply-changes اللذين كانا يحملان الفعل الكامل. يحتفظ
-استخراج الاستراتيجية بـ`actionContract`/hash بوصفهما إسقاط تعلم منفصلًا، ويتحقق
-من اتساقه مع الفعل. تبقى الأحداث التاريخية ذات الإسقاط المختزل قابلة للقراءة،
-وتظل P5.5 جزئية حتى تُغطى جميع recipe nodes وprovider tool calls دون تغيير
-حدود الصلاحية.
+Mission repair وapproved apply-changes اللذين كانا يحملان الفعل الكامل. أضيفت
+تغطية محدودة لدورة كل `write_file`/`replace_text` المعتمدة داخل profile
+`mission_repair`: يسجل الخادم فعلًا canonical قبل staging وبعد نجاحه في candidate
+overlay. لا يعد `ACTION_COMMITTED` هنا إثبات أثر؛ يبقى aggregate candidate
+EffectBundle وحده بوابة القبول. يحتفظ استخراج الاستراتيجية بـ`actionContract`/hash
+بوصفهما إسقاط تعلم منفصلًا، ويتحقق من اتساقه مع الفعل. تبقى الأحداث التاريخية ذات
+الإسقاط المختزل قابلة للقراءة، وتظل P5.5 جزئية حتى تُغطى جميع recipe nodes
+وprovider tool calls دون تغيير حدود الصلاحية.
 
 ### 42.6 P6 — World Delta / Revision Closure
 
@@ -5375,3 +5394,26 @@ Episode revision. يظل تأكيد التشغيل الفعلي مسؤولية o
 تحديد/إرفاق حدود Episode موثوقة بمسارات recipe nodes وprovider tool calls
 المتبقية، بعد التحقق server-side من manifest والصلاحيات القائمة، قبل توسيع
 Action/Effect integrations.
+
+### 42.24 P3.5/P5.5 — Mission repair tool Action lifecycle (2026-09-25)
+
+يمرر `ToolExecutionEngine` callback proof-critical اختياريًا إلى استدعاءات
+`write_file` و`replace_text`. لا يعمل callback إلا بعد نجاح authorization؛
+يرسل `ACTION_REQUESTED` قبل استدعاء أداة الملف، ثم `ACTION_COMMITTED` بعد نتيجة
+staging معروفة وإضافة تغيير واحد إلى pending candidate. لا يمر الفعل عبر `onStep`
+best-effort. إذا فشل تسجيل أي من الحدثين، تعاد نتيجة tool failure، وتُزال
+التغييرات الجديدة من pending overlay.
+
+يُنشأ/يُستعاد Episode بالهوية نفسها التي يستخدمها aggregate candidate effect.
+الفعل يربط Mission/Goal/task/execution/attempt والمراجعات والأداة والمسار المعتمد
+وhash لهوية tool call وhash للمدخلات؛ لا تحفظ arguments الخام. تقارن الخدمة
+المسار بعد التطبيع بقائمة target paths server-owned. أحداث `ACTION_REQUESTED`
+المكررة بالهوية نفسها تظل idempotent.
+
+حد الإثبات لا يتغير: commit يعني أن pending candidate change قد وُضع في overlay
+فقط. لا يوجد per-tool effect أو World Delta، ولا تكتب الأداة live root. يظل
+aggregate candidate قبل/بعد والملاحظة المباشرة وEffectBundle الحالي وحدهم قادرين
+على اجتياز قبول `mission_repair`. لا callback لأدوات القراءة أو profiles
+`mission_observe`/`mission_validate` أو endpoint `/tasks/:taskId/execute`.
+لم يتغير schema أو authorization أو generic dispatch. هذه خطوة جزئية في P3.5/P5.5
+فقط؛ لا تبدأ P6/P7/P7.5.

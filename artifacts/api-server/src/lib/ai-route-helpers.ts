@@ -861,6 +861,8 @@ export async function chatWithFallback(
      executionMode?: "forensic" | "repair_plan";
      allowExecutionTools?: boolean;
      allowedToolNames?: readonly string[];
+      /** Server-owned, proof-critical lifecycle for approved Mission repair writes. */
+      onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
     browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
     browserValidationContext?: { operationId?: string; revision?: string };
     approvedValidationProfiles?: readonly string[];
