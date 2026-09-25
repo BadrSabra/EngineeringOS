@@ -53,6 +53,10 @@ export type WorldStateMaterializationOptions = {
    * revision still represents the full project projection.
    */
   observationIds?: readonly string[];
+  /** Refuse to project if the complete parent projection has changed. */
+  expectedWorldRevision?: string;
+  /** Exclude only new evidence from this transition's own Episode during the parent check. */
+  expectedRevisionExcludeEpisodeIds?: readonly string[];
 };
 
 function asString(value: Date | string): string {
@@ -163,6 +167,21 @@ export async function materializeWorldStateForProject(
   const scopedObservationIds = options.observationIds === undefined
     ? undefined
     : [...new Set(options.observationIds)];
+  if (
+    options.expectedWorldRevision !== undefined
+    && !/^[a-f0-9]{64}$/.test(options.expectedWorldRevision)
+  ) {
+    throw new Error("world_state_expected_revision_invalid");
+  }
+  const expectedRevisionExcludeEpisodeIds = [
+    ...new Set(options.expectedRevisionExcludeEpisodeIds ?? []),
+  ];
+  if (
+    expectedRevisionExcludeEpisodeIds.length > 8
+    || expectedRevisionExcludeEpisodeIds.some((id) => !id.trim() || id.length > 2_000)
+  ) {
+    throw new Error("world_state_expected_revision_episode_scope_invalid");
+  }
   if (scopedObservationIds && (
     scopedObservationIds.length === 0
     || scopedObservationIds.length > MAX_SCOPED_OBSERVATION_IDS
@@ -202,6 +221,47 @@ export async function materializeWorldStateForProject(
     const observations = recentObservations.sort(compareObservations);
     if (scopedObservationIds && observations.length !== scopedObservationIds.length) {
       throw new Error("world_state_observation_scope_incomplete");
+    }
+
+    const revisionObservations = scopedObservationIds
+      ? await tx
+          .select()
+          .from(aiAgentObservationsTable)
+          .where(and(...eligibleObservationConditions))
+          .orderBy(
+            desc(aiAgentObservationsTable.createdAt),
+            desc(aiAgentObservationsTable.sequence),
+            desc(aiAgentObservationsTable.id),
+          )
+          .limit(2_048)
+      : observations;
+    revisionObservations.sort(compareObservations);
+    if (options.expectedWorldRevision) {
+      const currentRows = await tx
+        .select()
+        .from(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, projectId))
+        .orderBy(
+          desc(aiWorldFactsTable.version),
+          asc(aiWorldFactsTable.taskScope),
+          asc(aiWorldFactsTable.environmentRevisionKey),
+          asc(aiWorldFactsTable.subject),
+          asc(aiWorldFactsTable.predicate),
+          asc(aiWorldFactsTable.id),
+        )
+        .limit(MAX_FACTS);
+      const currentRevision = worldRevision(
+        projectId,
+        undefined,
+        undefined,
+        currentRows.map(projectFact),
+        revisionObservations.filter(
+          (observation) => !expectedRevisionExcludeEpisodeIds.includes(observation.episodeId),
+        ),
+      );
+      if (currentRevision !== options.expectedWorldRevision) {
+        throw new Error("world_state_parent_revision_mismatch");
+      }
     }
 
     const grouped = new Map<string, typeof observations>();
@@ -352,19 +412,6 @@ export async function materializeWorldStateForProject(
       )
       .limit(MAX_FACTS);
     const facts = rows.map(projectFact);
-    const revisionObservations = scopedObservationIds
-      ? await tx
-          .select()
-          .from(aiAgentObservationsTable)
-          .where(and(...eligibleObservationConditions))
-          .orderBy(
-            desc(aiAgentObservationsTable.createdAt),
-            desc(aiAgentObservationsTable.sequence),
-            desc(aiAgentObservationsTable.id),
-          )
-          .limit(2_048)
-      : observations;
-    revisionObservations.sort(compareObservations);
     return {
       projectId,
       inserted,

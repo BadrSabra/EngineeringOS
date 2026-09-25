@@ -260,6 +260,58 @@ async function stop(input) {
   return publicSession(session);
 }
 
+async function observeStart(input) {
+  if (!isSafeProjectId(input.projectId)) {
+    throw Object.assign(new Error("Invalid runtime identity."), { status: 400 });
+  }
+
+  const observedAt = new Date().toISOString();
+  const managedPorts = Array.from({ length: PORT_MAX - PORT_MIN + 1 }, (_, index) => PORT_MIN + index);
+  const listeningPorts = (await Promise.all(
+    managedPorts.map(async (port) => (await isPortListening(port) ? port : null)),
+  )).filter((port) => port !== null);
+  const liveSessions = new Map();
+  for (const session of sessions.values()) {
+    if (
+      session.status === "running"
+      && isPidAlive(session.pid)
+      && Number.isInteger(session.port)
+      && listeningPorts.includes(session.port)
+    ) {
+      liveSessions.set(session.port, session);
+    }
+  }
+  const unknownListenerPorts = listeningPorts.filter((port) => !liveSessions.has(port));
+  const targetSession = liveSessions.get(
+    [...liveSessions.values()].find((session) => session.projectId === input.projectId)?.port,
+  );
+  const targetIsLive = targetSession?.projectId === input.projectId;
+  const targetHasUncorroboratedActiveSession = Array.from(sessions.values()).some(
+    (session) => session.projectId === input.projectId
+      && (session.status === "starting" || session.status === "running")
+      && !targetIsLive,
+  );
+  let status = "unknown";
+  if (targetIsLive) status = "running";
+  else if (!targetHasUncorroboratedActiveSession && unknownListenerPorts.length === 0) status = "stopped";
+
+  return {
+    projectId: input.projectId,
+    status,
+    ...(targetIsLive ? { session: publicSession(targetSession) } : {}),
+    observedAt,
+    inventoryComplete: true,
+    unknownListenerPorts,
+    detail: targetIsLive
+      ? "A tracked runtime session is live."
+      : status === "stopped"
+        ? "No tracked runtime session is live and all managed ports are accounted for."
+        : targetHasUncorroboratedActiveSession
+          ? "A target runtime session exists but its process and port state could not be corroborated."
+        : "Runtime port ownership could not be established.",
+  };
+}
+
 async function handle(req, res) {
   try {
     const url = new URL(req.url, `http://${LOOPBACK_HOST}:${PORT}`);
@@ -269,6 +321,7 @@ async function handle(req, res) {
     if (url.pathname === "/runtime/start") return json(res, 200, await start(input));
     if (url.pathname === "/runtime/adopt") return json(res, 200, await adopt(input));
     if (url.pathname === "/runtime/stop") return json(res, 200, await stop(input));
+    if (url.pathname === "/runtime/observe-start") return json(res, 200, await observeStart(input));
     return json(res, 404, { error: "not_found" });
   } catch (error) {
     return json(res, error.status ?? 500, { error: bounded(error.message ?? "Supervisor operation failed.") });

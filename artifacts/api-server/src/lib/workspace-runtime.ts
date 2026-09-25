@@ -67,6 +67,23 @@ export type RuntimeAfterState = {
   detail: string;
 };
 
+export type RuntimeStartBeforeState = {
+  status: "observed" | "unavailable";
+  runtimeStatus: "running" | "stopped" | "unknown";
+  projectId: string;
+  revision: string;
+  sessionId: string | null;
+  pid: number | null;
+  port: number | null;
+  processAlive: boolean | null;
+  portReady: boolean | null;
+  source: "supervisor_inventory" | "managed_session" | "test_observer";
+  inventoryComplete: boolean;
+  unknownListenerPorts: number[];
+  observedAt: string;
+  detail: string;
+};
+
 export type WorkspaceRuntimeSnapshot = {
   projectId: string;
   sessionId: string | null;
@@ -330,6 +347,10 @@ export class WorkspaceRuntimeManager {
   private readonly supervisor?: WorkspaceRuntimeSupervisorClient;
   private readonly listenerResolver: typeof resolveRuntimeListenerProcess;
   private readonly heartbeatIntervalMs: number;
+  private readonly startPreStateObserver?: (input: {
+    projectId: string;
+    revision: string;
+  }) => Promise<Omit<RuntimeStartBeforeState, "source"> & { source?: RuntimeStartBeforeState["source"] }>;
 
   constructor(options?: {
     store?: WorkspaceRuntimeStore;
@@ -337,12 +358,17 @@ export class WorkspaceRuntimeManager {
     supervisor?: WorkspaceRuntimeSupervisorClient;
     listenerResolver?: typeof resolveRuntimeListenerProcess;
     heartbeatIntervalMs?: number;
+    startPreStateObserver?: (input: {
+      projectId: string;
+      revision: string;
+    }) => Promise<Omit<RuntimeStartBeforeState, "source"> & { source?: RuntimeStartBeforeState["source"] }>;
   }) {
     this.store = options?.store ?? createInMemoryWorkspaceRuntimeStore();
     this.workerId = options?.workerId ?? `runtime-worker:${randomUUID()}`;
     this.supervisor = options?.supervisor;
     this.listenerResolver = options?.listenerResolver ?? resolveRuntimeListenerProcess;
     this.heartbeatIntervalMs = options?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
+    this.startPreStateObserver = options?.startPreStateObserver;
   }
 
   async get(projectId: string): Promise<WorkspaceRuntimeSnapshot> {
@@ -350,6 +376,218 @@ export class WorkspaceRuntimeManager {
     if (session) return this.snapshot(session);
     const persisted = await this.store.get(projectId);
     return persisted ? rowSnapshot(persisted) : this.stoppedSnapshot(projectId);
+  }
+
+  /**
+   * Capture a pre-start state independently from the runtime manager snapshot.
+   * An absent row or nullable PID is never sufficient to claim "stopped".
+   * The supervisor's process/port inventory is authoritative for first starts;
+   * an already-managed session is corroborated with the normal live observer.
+   */
+  async observeStartBeforeState(input: {
+    projectId: string;
+    revision: string;
+    signal?: AbortSignal;
+  }): Promise<RuntimeStartBeforeState> {
+    const observedAt = new Date().toISOString();
+    const unavailable = (
+      detail: string,
+      fields: Partial<RuntimeStartBeforeState> = {},
+    ): RuntimeStartBeforeState => ({
+      status: "unavailable",
+      runtimeStatus: "unknown",
+      projectId: input.projectId,
+      revision: input.revision,
+      sessionId: null,
+      pid: null,
+      port: null,
+      processAlive: null,
+      portReady: null,
+      source: "supervisor_inventory",
+      inventoryComplete: false,
+      unknownListenerPorts: [],
+      observedAt,
+      detail,
+      ...fields,
+    });
+
+    if (input.signal?.aborted) return unavailable("Runtime pre-state observation was cancelled.");
+
+    if (this.startPreStateObserver) {
+      try {
+        const result = await this.startPreStateObserver({
+          projectId: input.projectId,
+          revision: input.revision,
+        });
+        if (
+          result.projectId !== input.projectId
+          || result.revision !== input.revision
+          || !Number.isFinite(Date.parse(result.observedAt))
+        ) {
+          return unavailable("Runtime pre-state observer returned a mismatched identity.", {
+            source: "test_observer",
+          });
+        }
+        return { ...result, source: result.source ?? "test_observer" };
+      } catch (error) {
+        return unavailable(
+          error instanceof Error ? error.message.slice(0, 1_000) : "Runtime pre-state observer failed.",
+          { source: "test_observer" },
+        );
+      }
+    }
+
+    if (!this.supervisor) {
+      return unavailable("Independent runtime pre-state requires the workspace runtime supervisor.");
+    }
+
+    try {
+      const inventory = await this.supervisor.observeStartState(input.projectId);
+      if (
+        inventory.projectId !== input.projectId
+        || !inventory.inventoryComplete
+        || !Number.isFinite(Date.parse(inventory.observedAt))
+      ) {
+        return unavailable("Workspace runtime supervisor returned incomplete pre-state inventory.", {
+          unknownListenerPorts: inventory.unknownListenerPorts ?? [],
+        });
+      }
+      if (inventory.status === "running" && inventory.unknownListenerPorts.length > 0) {
+        return unavailable("Supervisor inventory contains unowned listening ports.", {
+          inventoryComplete: true,
+          unknownListenerPorts: inventory.unknownListenerPorts,
+          observedAt: inventory.observedAt,
+        });
+      }
+
+      if (inventory.status === "stopped" && inventory.unknownListenerPorts.length === 0) {
+        const persisted = await this.store.get(input.projectId);
+        const local = this.sessions.get(input.projectId);
+        if (
+          local
+          && (local.status === "starting" || local.status === "running")
+        ) {
+          return unavailable("Supervisor inventory conflicts with a locally managed active runtime.", {
+            inventoryComplete: true,
+            unknownListenerPorts: [],
+            source: "supervisor_inventory",
+          });
+        }
+        if (
+          persisted
+          && (persisted.status === "starting" || persisted.status === "running")
+          && Number.isInteger(persisted.pid)
+          && Number.isInteger(persisted.port)
+        ) {
+          const processAlive = await isPidAlive(persisted.pid);
+          const portReady = await isPortListening(persisted.port);
+          if (processAlive || portReady) {
+            return unavailable("Persisted runtime ownership conflicts with supervisor pre-state.", {
+              sessionId: persisted.sessionId,
+              pid: persisted.pid,
+              port: persisted.port,
+              processAlive,
+              portReady,
+              inventoryComplete: true,
+            });
+          }
+        } else if (persisted && (persisted.status === "starting" || persisted.status === "running")) {
+          return unavailable("Active runtime row has no PID and port identity to corroborate.", {
+            sessionId: persisted.sessionId,
+            inventoryComplete: true,
+          });
+        }
+        return {
+          status: "observed",
+          runtimeStatus: "stopped",
+          projectId: input.projectId,
+          revision: input.revision,
+          sessionId: null,
+          pid: null,
+          port: null,
+          processAlive: false,
+          portReady: false,
+          source: "supervisor_inventory",
+          inventoryComplete: true,
+          unknownListenerPorts: [],
+          observedAt: inventory.observedAt,
+          detail: inventory.detail,
+        };
+      }
+
+      if (inventory.status !== "running" || !inventory.session) {
+        return unavailable(inventory.detail, {
+          inventoryComplete: inventory.inventoryComplete,
+          unknownListenerPorts: inventory.unknownListenerPorts,
+          observedAt: inventory.observedAt,
+        });
+      }
+
+      const target = inventory.session;
+      if (
+        target.projectId !== input.projectId
+        || target.status !== "running"
+        || !target.sessionId
+        || !Number.isInteger(target.pid)
+        || !Number.isInteger(target.port)
+      ) {
+        return unavailable("Supervisor runtime identity was incomplete.", {
+          inventoryComplete: true,
+          unknownListenerPorts: inventory.unknownListenerPorts,
+        });
+      }
+      await this.recover(input.projectId);
+      const local = this.sessions.get(input.projectId);
+      const persisted = await this.store.get(input.projectId);
+      if (
+        !local
+        || !persisted
+        || local.sessionId !== target.sessionId
+        || persisted.sessionId !== target.sessionId
+        || local.pid !== target.pid
+        || persisted.pid !== target.pid
+        || local.port !== target.port
+        || persisted.port !== target.port
+        || local.revision !== input.revision
+        || persisted.revision !== input.revision
+      ) {
+        return unavailable("Supervisor runtime could not be adopted as the current project session.", {
+          sessionId: target.sessionId,
+          pid: target.pid,
+          port: target.port,
+          inventoryComplete: true,
+          unknownListenerPorts: inventory.unknownListenerPorts,
+          observedAt: inventory.observedAt,
+        });
+      }
+      const live = await this.observeAfterState({
+        projectId: input.projectId,
+        sessionId: target.sessionId,
+        revision: input.revision,
+        ...(local.childProcessBinding ? { attestationBinding: local.childProcessBinding } : {}),
+        signal: input.signal,
+      });
+      return {
+        status: live.status === "passed" ? "observed" : "unavailable",
+        runtimeStatus: live.status === "passed" ? "running" : "unknown",
+        projectId: input.projectId,
+        revision: input.revision,
+        sessionId: target.sessionId,
+        pid: target.pid,
+        port: target.port,
+        processAlive: live.processAlive,
+        portReady: live.portReady,
+        source: "managed_session",
+        inventoryComplete: inventory.inventoryComplete,
+        unknownListenerPorts: inventory.unknownListenerPorts,
+        observedAt: live.observedAt,
+        detail: live.detail,
+      };
+    } catch (error) {
+      return unavailable(
+        error instanceof Error ? error.message.slice(0, 1_000) : "Runtime pre-state observation failed.",
+      );
+    }
   }
 
   /**

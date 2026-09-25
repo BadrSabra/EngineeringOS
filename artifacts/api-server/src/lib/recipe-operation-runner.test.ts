@@ -12,6 +12,7 @@ import {
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiWorldTransitionsTable,
   aiChatSessionsTable,
   aiStrategyCandidatesTable,
   aiStrategyReplayCaseRunsTable,
@@ -36,6 +37,7 @@ import {
 } from "./recipe-operation-runner.js";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
+import { readWorldStateForDecision } from "./agent-state/runtime-start-transition.js";
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
 import {
   materializeStrategyReplayCaseProofBinding,
@@ -557,6 +559,21 @@ describe("recipe operation preparation", () => {
     }]);
   });
 
+  it("does not infer a stopped runtime from a missing independent inventory", async () => {
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+    });
+    const state = await manager.observeStartBeforeState({
+      projectId: "project-runtime-unknown",
+      revision: "revision-runtime",
+    });
+    expect(state).toMatchObject({
+      status: "unavailable",
+      runtimeStatus: "unknown",
+      inventoryComplete: false,
+    });
+  });
+
   it("prepares a candidate verification recipe with exactly one approved path", () => {
     const prepared = prepareRecipeOperation({
       projectId: "project-1",
@@ -680,6 +697,22 @@ describe("recipe operation preparation", () => {
     let manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
       workerId: `runtime-recipe-test:${operationId}`,
+      startPreStateObserver: async ({ projectId: observedProjectId, revision }) => ({
+        status: "observed",
+        runtimeStatus: "stopped",
+        projectId: observedProjectId,
+        revision,
+        sessionId: null,
+        pid: null,
+        port: null,
+        processAlive: false,
+        portReady: false,
+        source: "test_observer",
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        observedAt: new Date().toISOString(),
+        detail: "Independent test pre-state confirms no runtime is running.",
+      }),
     });
     let executionId: string | undefined;
     const executionIds: string[] = [];
@@ -783,6 +816,50 @@ describe("recipe operation preparation", () => {
           servingRevision: sourceRevision,
         },
       });
+      const beforeStateObservation = directObservations.find(
+        (row) => row.predicate === "runtime.before_state",
+      );
+      const runtimeStatusObservation = directObservations.find(
+        (row) => row.predicate === "runtime.status",
+      );
+      expect(beforeStateObservation?.value).toMatchObject({
+        status: "observed",
+        runtimeStatus: "stopped",
+        projectId,
+        revision: sourceRevision,
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+      });
+      expect(runtimeStatusObservation?.value).toBe("running");
+      const [transition] = await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, executionId))
+        .limit(1);
+      expect(transition).toMatchObject({
+        status: "materialized",
+        effectBundleId: bundle?.id,
+        parentWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+        resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(transition?.beforeObservationIds).toContain(beforeStateObservation?.id);
+      expect(transition?.afterObservationIds).toContain(runtimeStatusObservation?.id);
+      expect(transition?.materializedObservationIds).toEqual(expect.arrayContaining([
+        beforeStateObservation?.id,
+        runtimeStatusObservation?.id,
+      ]));
+
+      const d2 = await readWorldStateForDecision({
+        projectId,
+        transitionId: transition!.id,
+      });
+      expect(d2.worldRevision).toBe(transition?.resultingWorldRevision);
+      expect(d2.worldRevision).not.toBe(transition?.parentWorldRevision);
+      expect(d2.currentFacts).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          subject: `runtime:${projectId}`,
+          predicate: "runtime.status",
+          value: "running",
+        }),
+      ]));
       const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));

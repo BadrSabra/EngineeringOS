@@ -82,6 +82,11 @@ import { serverEnvironmentProfile } from "./agent-state/environment-attestation.
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
+import { getProjectWorldState } from "./agent-state/world-state.js";
+import {
+  createPendingRuntimeStartTransition,
+  finalizeRuntimeStartTransition,
+} from "./agent-state/runtime-start-transition.js";
 import {
   buildCandidateValidationAction,
   buildCandidateValidationEffectContract,
@@ -98,6 +103,9 @@ import {
 import { workspaceRuntime, WorkspaceRuntimeError } from "./workspace-runtime.js";
 
 type RuntimeStateEvidence = Awaited<ReturnType<typeof workspaceRuntime.observeAfterState>>;
+type RuntimeStartBeforeStateEvidence = Awaited<
+  ReturnType<typeof workspaceRuntime.observeStartBeforeState>
+>;
 
 function runtimeStateEvidence(state: RuntimeStateEvidence) {
   return {
@@ -115,6 +123,63 @@ function runtimeStateEvidence(state: RuntimeStateEvidence) {
     markerMatched: state.markerMatched,
     childProcessAttestation: state.childProcessAttestation,
     listener: state.listener,
+    observedAt: state.observedAt,
+  };
+}
+
+function runtimeStartBeforeStateEvidence(state: RuntimeStartBeforeStateEvidence) {
+  return {
+    status: state.status,
+    runtimeStatus: state.runtimeStatus,
+    projectId: state.projectId,
+    revision: state.revision,
+    sessionId: state.sessionId,
+    pid: state.pid,
+    port: state.port,
+    processAlive: state.processAlive,
+    portReady: state.portReady,
+    source: state.source,
+    inventoryComplete: state.inventoryComplete,
+    unknownListenerPorts: state.unknownListenerPorts,
+    observedAt: state.observedAt,
+    detail: state.detail,
+  };
+}
+
+function runtimeStartBeforeObservationValue(
+  value: unknown,
+  projectId: string,
+  revision: string,
+): JsonValue | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const state = value as Record<string, unknown>;
+  if (
+    state.status !== "observed"
+    || state.projectId !== projectId
+    || state.revision !== revision
+    || (state.runtimeStatus !== "stopped" && state.runtimeStatus !== "running")
+    || state.inventoryComplete !== true
+    || !Array.isArray(state.unknownListenerPorts)
+    || state.unknownListenerPorts.length !== 0
+    || typeof state.observedAt !== "string"
+    || !Number.isFinite(Date.parse(state.observedAt))
+    || !["supervisor_inventory", "managed_session", "test_observer"].includes(String(state.source))
+  ) {
+    return undefined;
+  }
+  return {
+    status: "observed",
+    runtimeStatus: state.runtimeStatus,
+    projectId,
+    revision,
+    sessionId: typeof state.sessionId === "string" ? state.sessionId : null,
+    pid: Number.isInteger(state.pid) ? state.pid as number : null,
+    port: Number.isInteger(state.port) ? state.port as number : null,
+    processAlive: typeof state.processAlive === "boolean" ? state.processAlive : null,
+    portReady: typeof state.portReady === "boolean" ? state.portReady : null,
+    source: state.source as string,
+    inventoryComplete: true,
+    unknownListenerPorts: [],
     observedAt: state.observedAt,
   };
 }
@@ -217,6 +282,11 @@ export function createRuntimeStartRunner(
             revision,
           }
         : undefined;
+      const before = await manager.observeStartBeforeState({
+        projectId,
+        revision,
+        signal,
+      });
       const snapshot = await manager.start({
         projectId,
         projectRoot: rootPath,
@@ -253,6 +323,7 @@ export function createRuntimeStartRunner(
           artifactRef: `runtime:${snapshot.sessionId}`,
           sessionId: snapshot.sessionId,
           environmentRevision: snapshot.environmentRevision,
+          beforeState: runtimeStartBeforeStateEvidence(before),
           afterState: runtimeStateEvidence(after),
         },
         detail: after.detail,
@@ -1005,6 +1076,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let gateCEffectContract: EffectContract | undefined;
   let gateCBeforeObservationIds: string[] | undefined;
   let gateCEffectBundleId: string | undefined;
+  let runtimeStartParentWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
+  let runtimeStartBeforeObservationIds: string[] = [];
   let strategyReplayActionContractMatches = true;
   if (candidateValidation) {
     if (!episode || !params.candidateIdentity || !candidateRoot) {
@@ -1112,6 +1185,22 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       beforeEvidenceRef,
       afterEvidenceRef,
     });
+    if (params.recipeId === "runtime.start") {
+      try {
+        runtimeStartParentWorldState = await getProjectWorldState(params.projectId);
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "runtime_start_parent_world_state_read_failed",
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            error,
+          },
+          "Runtime start will retain the D1 read failure and fail World State projection closed",
+        );
+      }
+    }
     await appendEpisodeEvent({
       episodeId: episode.episodeId,
       projectId: params.projectId,
@@ -1479,6 +1568,60 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             && !Array.isArray(evidence)
             && typeof (evidence as { evidenceId?: unknown }).evidenceId === "string",
           );
+          if (params.recipeId === "runtime.start" && episode && gateCAction) {
+            const evidenceRecord = evidence
+              && typeof evidence === "object"
+              && !Array.isArray(evidence)
+              ? evidence as Record<string, unknown>
+              : undefined;
+            const beforeValue = runtimeStartBeforeObservationValue(
+              evidenceRecord?.beforeState,
+              params.projectId,
+              params.sourceRevision,
+            );
+            if (beforeValue) {
+              const beforeEvidenceRef = `runtime-start:${claimed.id}:${claimed.attempt}:${gateCAction.actionId}:before`;
+              try {
+                const before = await materializeServerOwnedObservations({
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  episodeId: episode.episodeId,
+                  environmentRootPath: executionRoot,
+                  projectRevision: params.sourceRevision,
+                  materializeWorldState: false,
+                  sources: [{
+                    kind: "direct_observation",
+                    sourceId: `${beforeEvidenceRef}:runtime.before_state`,
+                    sourceRevision: params.sourceRevision,
+                    subject: `runtime:${params.projectId}`,
+                    predicate: "runtime.before_state",
+                    value: beforeValue,
+                    evidenceRefs: [
+                      beforeEvidenceRef,
+                      ...(typeof evidenceRecord?.evidenceId === "string"
+                        ? [evidenceRecord.evidenceId]
+                        : []),
+                    ],
+                    observedAt: String((beforeValue as Record<string, unknown>).observedAt),
+                  }],
+                });
+                runtimeStartBeforeObservationIds = before.observationIds;
+              } catch (error) {
+                logger.warn(
+                  {
+                    scope: "recipe-operation",
+                    code: "runtime_start_before_observation_failed",
+                    executionId: claimed.id,
+                    attempt: claimed.attempt,
+                    episodeId: episode.episodeId,
+                    error,
+                  },
+                  "Runtime start before-state evidence could not be retained",
+                );
+              }
+            }
+          }
           if (recipeGateCEffectKind && episode && gateCAction && gateCEffectContract && gateCBeforeObservationIds) {
             const identity = gateCEffectIdentity({
               kind: recipeGateCEffectKind,
@@ -1532,6 +1675,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             const stateSubject = isRuntimeGateC && runtimeAfterObservation
               ? `runtime:${runtimeAfterObservation.sessionId}`
               : identity.subject;
+            const passedRuntimeStartObservation = params.recipeId === "runtime.start"
+              && gateCAfterObservation?.effectValue === "passed"
+              ? gateCAfterObservation
+              : undefined;
             const afterSources = gateCAfterObservation
               ? [
                   {
@@ -1554,6 +1701,18 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                     evidenceRefs: [afterEvidenceRef, ...gateCAfterObservation.sourceRefs],
                     observedAt: gateCAfterObservation.observedAt,
                   },
+                  ...(passedRuntimeStartObservation
+                    ? [{
+                        kind: "direct_observation" as const,
+                        sourceId: `${afterEvidenceRef}:runtime.status`,
+                        sourceRevision: params.sourceRevision,
+                        subject: `runtime:${params.projectId}`,
+                        predicate: "runtime.status",
+                        value: "running" as JsonValue,
+                        evidenceRefs: [afterEvidenceRef, ...passedRuntimeStartObservation.sourceRefs],
+                        observedAt: passedRuntimeStartObservation.observedAt,
+                      }]
+                    : []),
                 ]
               : [];
             const after = afterSources.length > 0
@@ -1616,6 +1775,49 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               };
             }
             gateCEffectBundleId = effect.effectBundleId;
+            if (params.recipeId === "runtime.start") {
+              const evidenceRecord = evidence
+                && typeof evidence === "object"
+                && !Array.isArray(evidence)
+                ? evidence as Record<string, unknown>
+                : undefined;
+              try {
+                await createPendingRuntimeStartTransition({
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  episodeId: episode.episodeId,
+                  actionId: gateCAction.actionId,
+                  effectBundleId: effect.effectBundleId,
+                  workerId,
+                  parentWorldRevision: runtimeStartParentWorldState?.worldRevision ?? "unavailable",
+                  parentFactRefs: runtimeStartParentWorldState?.currentFacts.map((fact) => fact.id) ?? [],
+                  beforeObservationIds: runtimeStartBeforeObservationIds,
+                  afterObservationIds: afterObservationIds,
+                  evidenceRefs: [
+                    `runtime-start:${claimed.id}:${claimed.attempt}:${gateCAction.actionId}:before`,
+                    afterEvidenceRef,
+                    ...(runtimeAfterObservation?.sourceRefs ?? []),
+                  ],
+                  environmentRevision: typeof evidenceRecord?.environmentRevision === "string"
+                    ? evidenceRecord.environmentRevision
+                    : null,
+                });
+              } catch (error) {
+                logger.warn(
+                  {
+                    scope: "recipe-operation",
+                    code: "runtime_start_transition_pending_write_failed",
+                    executionId: claimed.id,
+                    attempt: claimed.attempt,
+                    episodeId: episode.episodeId,
+                    actionId: gateCAction.actionId,
+                    error,
+                  },
+                  "Runtime start transition could not be queued without changing Gate C effect evidence",
+                );
+              }
+            }
           }
           const passed = output.status === "passed" && hasVerifiedReceipt;
           const invocationEvidenceRefs = evidence
@@ -2168,6 +2370,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       ...(episode ? { episodeId: episode.episodeId } : {}),
       ...(episode ? { environmentRootPath: executionRoot } : {}),
       projectRevision: receipt.sourceRevision,
+      materializeWorldState: params.recipeId !== "runtime.start",
       sources: [
         {
           kind: "acceptance",
@@ -2235,6 +2438,45 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         "Server-owned recipe observation materialization failed after acceptance",
       );
     });
+    if (params.recipeId === "runtime.start" && episode && gateCAction && gateCEffectBundleId) {
+      try {
+        const transition = await finalizeRuntimeStartTransition({
+          projectId: params.projectId,
+          executionId: claimed.id,
+          attempt: receipt.attempt ?? claimed.attempt,
+          episodeId: episode.episodeId,
+          actionId: gateCAction.actionId,
+          effectBundleId: gateCEffectBundleId,
+        });
+        if (transition.status !== "materialized") {
+          logger.warn(
+            {
+              scope: "recipe-operation",
+              code: "runtime_start_transition_not_materialized",
+              executionId: claimed.id,
+              attempt: receipt.attempt ?? claimed.attempt,
+              episodeId: episode.episodeId,
+              actionId: gateCAction.actionId,
+              failureCode: transition.failureCode,
+            },
+            "Runtime start acceptance remains intact; its World State transition is explicitly incomplete",
+          );
+        }
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "runtime_start_transition_finalize_failed",
+            executionId: claimed.id,
+            attempt: receipt.attempt ?? claimed.attempt,
+            episodeId: episode.episodeId,
+            actionId: gateCAction.actionId,
+            error,
+          },
+          "Runtime start acceptance remains intact after transition finalization failure",
+        );
+      }
+    }
     return { executionId: claimed.id, status: "completed", completedNodeIds: result.completedNodeIds, receipt };
   } finally {
     if (readOnlyInvocationEpisode && !readOnlyInvocationEpisodeCloseAttempted) {

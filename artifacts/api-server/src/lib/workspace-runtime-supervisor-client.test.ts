@@ -36,4 +36,62 @@ describe("WorkspaceRuntimeSupervisorClient child attestation handoff", () => {
     expect(response).not.toHaveProperty("attestationMarker");
     expect(JSON.stringify(response)).not.toContain(marker);
   });
+
+  it("observes a strictly validated start state", async () => {
+    const requests: Array<{ url: string; body: string }> = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      requests.push({ url: String(input), body: String(init?.body ?? "") });
+      return new Response(JSON.stringify({
+        projectId: "project-runtime",
+        status: "stopped",
+        observedAt: "2025-01-01T00:00:00.000Z",
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        detail: "No tracked runtime session is live and all managed ports are accounted for.",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+
+    await expect(client.observeStartState("project-runtime")).resolves.toMatchObject({
+      projectId: "project-runtime",
+      status: "stopped",
+      inventoryComplete: true,
+    });
+    expect(requests).toEqual([{
+      url: "http://supervisor.test/runtime/observe-start",
+      body: JSON.stringify({ projectId: "project-runtime" }),
+    }]);
+  });
+
+  it("rejects an invalid observation payload", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      projectId: "project-runtime",
+      status: "stopped",
+      observedAt: "not-a-date",
+      inventoryComplete: false,
+      unknownListenerPorts: [],
+      detail: "",
+    }), { status: 200 });
+    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+
+    await expect(client.observeStartState("project-runtime")).rejects.toThrow(
+      "invalid observation",
+    );
+  });
+
+  it("rejects a stopped result when a managed listener is unowned", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({
+      projectId: "project-runtime",
+      status: "stopped",
+      observedAt: "2025-01-01T00:00:00.000Z",
+      inventoryComplete: true,
+      unknownListenerPorts: [3010],
+      detail: "Unowned listener exists.",
+    }), { status: 200 });
+    const client = new WorkspaceRuntimeSupervisorClient("http://supervisor.test", fetchImpl);
+
+    await expect(client.observeStartState("project-runtime")).rejects.toThrow(
+      "invalid observation",
+    );
+  });
 });
