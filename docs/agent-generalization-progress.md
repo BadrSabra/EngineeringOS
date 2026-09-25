@@ -23,7 +23,7 @@
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
-| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ pilot ضيق يربط forecast بالنتيجة وBrier score وتحديث Belief من evidence المقبول ما زال غير منفذ. |
+| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
@@ -55,6 +55,9 @@
   لفاصل عدم اليقين هذا الحد. bootstrap وpilot محددان قبل توسيع النطاق.
 - §25.4 يثبت project/fixture-level holdout split وقياس عدم اليقين؛ 30 حالة و3
   fixtures حدان أدنيان لا ضمان قوة إحصائية، ولا تتغير العتبات القائمة.
+- §3.10 و§5.6 و§5.7 و§42.9 تفصل تحديث World Belief عن forecast calibration
+  وعن causal attribution؛ تحليل mismatch يتحقق من الرصد والتنفيذ والبيئة أولًا،
+  ويعرض تفسيرات مدعومة ومناقضة وخيار unresolved، ولا يدعي السببية دون تدخل مضبوط.
 - الأقسام التاريخية معلّمة ولا تناقض ترتيب التنفيذ أو الحالة الحاليين.
 - الإحالات الداخلية صالحة، ويجتاز التغيير `git diff --check`.
 
@@ -167,17 +170,20 @@ G9 Revocation Safety
   مع pilot ضيق قبل التوسع. الاختيار الآلي المحلي يحتاج ≥30 held-out outcomes
   في scope نفسه وECE ≤`0.15`، على أن لا يتجاوز الحد الأعلى لفاصل عدم اليقين هذا
   الحد؛ النقل العام يبقى خلف كل بوابات §25.4. يقاس الخطأ بـBrier، ويرتبط Belief
-  update بالملاحظة المقبولة.
+  update بالملاحظة المقبولة. فُصل تحديث حقيقة العالم عن معايرة forecast وعن
+  الإسناد السببي، وأضيف تحليل mismatch append-only يفحص صلاحية القياس والتنفيذ
+  والبيئة قبل عرض تفسيرات مرشحة وأدلتها؛ يبقى السبب unresolved دون دليل كافٍ.
   ثُبت project/fixture-level held-out split وقياس عدم اليقين لـECE دون تغيير
   العتبات القائمة.
 - **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`,
   `docs/agent-generalization-progress.md`; لا تغييرات runtime أو schema.
-- **validation:** `git diff --check`؛ 22 إحالة داخلية بلا unresolved refs؛ فحص
-  markers الخاصة بالقرار/المعايرة/pilot وعدم بقاء EIG كمعيار منفرد؛ التغيير محصور
-  بالوثيقتين.
+- **validation:** `git diff --check`؛ 25 إحالة داخلية بلا unresolved refs؛ فحص
+  markers القرار والمعايرة وpilot وفصل مسارات التحديث وتشخيص الخطأ، وعدم بقاء EIG
+  كمعيار منفرد؛ التغيير محصور بالوثيقتين.
 - **authority/safety impact:** forecast ليس evidence أو authority؛ لا يثبت
   Brier/ECE حقيقة أو acceptance أو causality. observation الموثوقة وحدها تغذي
-  تحديث Belief؛ لا تغيير في authorization أو Proof.
+  تحديث Belief؛ خطأ منفرد لا يغير calibration status أو يثبت سببًا؛ لا تغيير في
+  authorization أو Proof.
 - **remaining/blocker:** بوابة مراجعة الوثائق ما زالت مفتوحة، وP7.5–P11 غير
   منفذة. لا يبدأ تعديل الكود قبل مراجعة المستخدم وموافقته على الوثيقتين.
 - **next step:** مراجعة المستخدم وإغلاق بوابة الوثائق؛ بعد الموافقة فقط يستمر

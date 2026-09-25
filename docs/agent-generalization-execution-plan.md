@@ -220,6 +220,21 @@ Replay infrastructure ≠ generalization
 - حفظ project-specific command sequences كـstrategy قابلة للنقل.
 - إعلان النجاح من acceptance دون independent effect verification.
 
+### 3.10 فصل تحديث الحقيقة عن المعايرة والسببية
+
+يشترك World Belief وForecast Calibration وCausal Attribution في هوية Episode
+والمراجعة والمصادر، لكن لكل منها سجل وتحديث منفصل:
+
+1. observation مقبولة ومباشرة أو مشتقة خادميًا قد تحدث World Fact أو Belief.
+2. زوج forecast مسجل مسبقًا مع outcome صالحة يحدّث درجة التوقع وسجل بيانات
+   المعايرة؛ لا يثبت fact ولا يغير وحده `calibrationStatus`.
+3. الإسناد السببي يحتاج effect evidence وتجربة مضبوطة/مقارنة مضادة للواقع حسب
+   P9؛ لا يستنتج من Brier score أو temporal correlation أو outcome mismatch.
+
+يجب ألا يحوّل مسار واحد prediction error إلى fact جديدة ومعايرة نموذج وسبب
+سببي في آن واحد. بقاء هذه المسارات منفصلة يمنع خطأ التوقع من تضخيم belief أو
+منح strategy ثقة سببية غير مستحقة.
+
 ---
 
 ## 4. خريطة التكامل مع البنية الحالية
@@ -634,11 +649,59 @@ type HypothesisExperimentResult = {
   actualOutcomeKey?: string;
   verdict: "matched" | "contradicted" | "inconclusive";
   predictionErrorScore?: number; // server-computed categorical Brier score
+  errorAssessmentRefs?: string[];
   resultPolicyVersion: string;
   beliefRevisionAfter?: string;
   resolvedAt: string;
 };
+
+type PredictionErrorAssessment = {
+  assessmentId: string;
+  experimentId: string;
+  measurementValidity: "complete_fresh" | "partial" | "stale" | "failed" | "unknown";
+  actionExecutionStatus: "confirmed" | "unconfirmed" | "diverged" | "unknown";
+  environmentStatus: "same_scope" | "changed" | "unknown";
+  validationObservationRefs: string[];
+  explanationCandidates: Array<{
+    causeCode:
+      | "BELIEF_MISSPECIFICATION"
+      | "FORECAST_LIKELIHOOD_ERROR"
+      | "HYPOTHESIS_SPACE_GAP"
+      | "ENVIRONMENT_SHIFT"
+      | "MEASUREMENT_FAILURE"
+      | "EXECUTION_DIVERGENCE"
+      | "CONFOUNDING"
+      | "UNKNOWN";
+    supportingEvidenceRefs: string[];
+    contradictingEvidenceRefs: string[];
+    status: "candidate" | "supported_noncausally" | "refuted";
+  }>;
+  nextDiscriminatingObservationRef?: string;
+  causalEvidenceStatus:
+    | "not_established"
+    | "supported_by_controlled_intervention"
+    | "unresolved";
+  diagnosisPolicyVersion: string;
+  supersedesAssessmentId?: string;
+  recordedAt: string;
+};
 ```
+
+يبقى سجل تحليل الخطأ append-only؛ أي refinement ينشئ assessment جديدًا مرتبطًا
+بالسابق بدل إعادة كتابة التفسير التاريخي. ترتيب التشخيص إلزامي: تحقق من صلاحية
+القياس، ثم من تنفيذ الفعل، ثم من تطابق البيئة والنطاق عبر observation مستقلة،
+ثم افحص خطأ belief/forecast أو نقص فضاء hypotheses أو confounding. تحفظ
+التفسيرات كمرشحات لها evidence مؤيد ومناقض، لا كإجابة سببية نهائية.
+
+تحديثات المسارات الثلاثة مستقلة:
+
+- observation صحيحة ومقبولة وحدها تغذي World Fact أو Belief update.
+- كل forecast/outcome صالحة تسجل Brier score للحالة وتدخل بيانات التقييم؛
+  حالة معايرة النطاق لا تتغير بسبب تجربة واحدة، بل عبر evaluator على held-out
+  data حسب §25.4.
+- تعديل causal attribution أو استراتيجية قابلة للنقل يحتاج controlled
+  intervention/counterfactual evidence في P9/P10. إذا بقي أكثر من تفسير ممكن،
+  يسجل النظام unresolved ويختار observation فاصلة آمنة إن توفرت.
 
 تكون `hypothesisWeights` server-owned ومطبّعة إلى 1 عبر البدائل النشطة، مع
 `OTHER/UNKNOWN` عندما لا يغطي فضاء الفرضيات كل الاحتمالات. لا يستخدم provider
@@ -779,6 +842,11 @@ type FailureDiagnosis = {
   nextActionCode?: string;
 };
 ```
+
+`FailureDiagnosis` يصف فشل التنفيذ أو الخطة، بينما `PredictionErrorAssessment`
+يربط تحليل forecast بالقياس والتنفيذ والبيئة وتفسيرات الخطأ؛ لا يستبدل أحدهما
+الآخر. أي علاقة بينهما تكون عبر refs server-owned، ولا تحوّل diagnosis المرشح
+إلى سبب سببي مثبت.
 
 ### 5.8 Strategy Candidate
 
@@ -4890,6 +4958,11 @@ assumption أو strategy، ويجب أن يبقى no-progress guard فعالًا
 نسخة Belief جديدة من evidence مقبول فقط؛ forecast أو prediction error لا ينشئ
 World Fact ولا يجعل hypothesis صحيحة تلقائيًا. النتيجة الناقصة أو stale أو التي
 لا تفسرها hypotheses الحالية تبقى unresolved وتدخل bounded replan مع سببها.
+قبل اقتراح سبب لخطأ forecast، يتحقق P8 من measurement validity ثم action
+execution ثم environment/scope باستخدام observation مستقلة. بعد ذلك يسجل
+explanation candidates مع evidence المؤيد والمناقض، ويقترح observation فاصلة إن
+وجدت؛ وإلا يبقى attribution unresolved. خطأ forecast واحد لا يغير calibration
+status، كما لا تصبح explanation سببية دون تدخل مضبوط حسب P9.
 
 #### Definition of Done لـP8
 
@@ -4908,6 +4981,10 @@ World Fact ولا يجعل hypothesis صحيحة تلقائيًا. النتيج�
   والمخاطر والوقت عند تساوي قيمة القرار.
 - يثبت أن actual outcome يحدّث belief فقط عبر الملاحظات المقبولة، وأن النتيجة
   المفاجئة أو غير الحاسمة لا تتحول إلى فرضية مؤكدة أو `PROVEN`.
+- يثبت أن mismatch diagnosis يفحص الرصد والتنفيذ والبيئة قبل تفسير forecast،
+  ويسجل بدائل مدعومة/مناقضة مع خيار unknown؛ خطأ حالة واحدة لا يغيّر معايرة scope.
+- لا يعرض أي explanation بوصفها سببًا سببيًا إلا مع controlled intervention
+  evidence؛ وإلا تكون candidate أو unresolved.
 - retry أو resume يعيد استخدام forecast المسجل أو ينشئ اختبارًا جديدًا مسببًا؛
   لا يستبدل forecast قديمًا بعد ظهور النتيجة.
 - لا يتوسع runtime إلى task families أو environments أخرى حتى يثبت pilot
@@ -4942,6 +5019,9 @@ unknown إلى أن ترتبط بإشارات server-owned المناسبة، و
 
 مقارنة forecast بالنتيجة تكشف خطأ التوقع، لكنها لا تثبت أن action بعينه سبب
 النتيجة؛ يبقى الإسناد السببي محكومًا بـcontrolled counterfactual وبوابة P9.
+تظل world belief وforecast calibration وcausal attribution مسارات تحديث منفصلة:
+النتيجة المقبولة تحدث belief، زوج forecast/outcome يحدّث score وسجل التقييم،
+والسببية لا تتغير إلا بدليل تدخل مضبوط. مشاركة Episode identity لا تدمج سلطاتها.
 
 ### 42.11 P10 — Portable Strategy Extraction
 
@@ -5140,13 +5220,18 @@ G9 — Revocation Safety
     لكسر التعادل فقط، ثم التكلفة والمخاطر والوقت. وإلا يستخدم fixed-safe
     probe/اختيارًا بشريًا أو يبقى unresolved.
 19. مقارنة forecast بالنتيجة المستقلة، وقياس خطأ كل تجربة بـBrier score عندما
-    تتوفر outcome كاملة، ثم تحديث Belief من evidence المقبول فقط.
+    تتوفر outcome كاملة، ثم تحديث Belief من evidence المقبول فقط؛ ولا تغير
+    حالة معايرة scope من نتيجة منفردة.
 20. إثبات المعايرة المحلية على held-out مستقل ضمن scope باستخدام حد الحالات وECE
     `0.15` القائمين، على أن لا يتجاوز الحد الأعلى لفاصل عدم اليقين هذا الحد؛
     وإثبات النقل العام على project/
     fixture-level held-out وفق جميع حدود §25.4 قبل توسيع applicability أو promotion.
 21. اجتياز pilot end-to-end في task family واحدة قبل توسيع الاختيار الآلي إلى
     objectives أو environments أخرى.
+22. إبقاء World Belief وForecast Calibration وCausal Attribution تحديثات منفصلة؛
+    التحقق من صلاحية القياس والتنفيذ والبيئة قبل تفسير mismatch، وحفظ تفسيرات
+    الخطأ مع evidence مؤيد ومناقض وخيار unresolved. لا يثبت السبب دون controlled
+    intervention.
 
 ويضاف شرط إغلاق P4/P5: لا يكفي وجود `effectBundle` أو `environmentRevision`.
 يلزم independent before/after observation من مصدر الفعل الفعلي، مربوطة
