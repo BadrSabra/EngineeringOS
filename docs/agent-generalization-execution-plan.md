@@ -589,6 +589,8 @@ type HypothesisOutcomeForecast = {
   provenance: "MODEL_INFERRED" | "SERVER_DERIVED";
   calibrationStatus: "unvalidated" | "validated_for_scope" | "out_of_scope";
   calibrationScopeRef?: string;
+  calibrationEvidenceRef?: string;
+  calibrationPolicyVersion: string;
 };
 
 type ExperimentCandidateAssessment = {
@@ -598,6 +600,8 @@ type ExperimentCandidateAssessment = {
     outcomeKey: string;
     nextDecisionCode: string; // server-owned decision branch
   }>;
+  decisionValuePolicyVersion?: string;
+  expectedDecisionValue?: number; // server-computed in objective-contract units
   forecasts: HypothesisOutcomeForecast[];
   expectedInformationGain: number; // server-computed
   estimatedCost: number; // versioned server-owned units
@@ -619,7 +623,7 @@ type RegisteredHypothesisExperiment = {
   selectionMode:
     | "fixed_safe_probe"
     | "human_approved"
-    | "calibrated_information_gain";
+    | "calibrated_decision_value";
   selectionPolicyVersion: string;
   predictionRegisteredAt: string; // before observation dispatch
 };
@@ -667,6 +671,7 @@ Brier      = Σ_k (p(outcome_k) - 1[outcome_k = actualOutcome])²
 يجب أن يوازن اختيار observation بين:
 
 ```text
+expected objective decision value (primary)
 expected information gain
 execution cost
 risk
@@ -677,21 +682,43 @@ time
 ولا يجوز استخدام confidence الصادر من النموذج كبديل عن هذه الحسابات
 server-owned.
 
-لا يختار النظام إلا بين observations مسموحة ومأمونة وذات تكلفة قابلة للتقدير؛
-ولا يكفي أن تزيد observation المعلومات: يجب أن ترتبط بقرار قائم داخل objective
-أو بدليل مطلوب لقبوله. إذا لم تغيّر أي outcome محتملة الخطوة التالية أو evidence
-المطلوبة، تستبعد حتى لو كان `expectedInformationGain` موجبًا. ومن بين المرشحين
-المأذونين والآمنين وذوي الأثر القرارّي الذين يحققون حد التمييز المعلوماتي
-server-owned، يختار أقل كلفة مقدرة، مع كسر التعادل بالمخاطر ثم الوقت. إذا لم يوجد
-مرشح مؤهل أو لم تكن التوقعات قابلة للتقييم، يبقى belief غير محسوم ولا ينفذ
-تجربة تخمينية.
+يبدأ الاختيار باستبعاد ما لا يحقق authorization وقيود السلامة والتكلفة/الوقت
+server-owned، أو لا يمكن تقييم outcome space الخاص به. ثم يرتب المرشحين المؤهلين
+وفق `expectedDecisionValue` أولًا: يحسبه الخادم من forecast المعاير و
+`outcomeDecisionMap` وسياسة قيمة versioned مشتقة من objective contract. يمثل
+انخفاض الخسارة المتوقعة للهدف عند السماح للقرار التالي باستخدام observation:
+
+```text
+expectedDecisionValue(a) =
+  best expected objective loss before observing a
+  - expected best objective loss after observing a and choosing an allowed branch
+```
+
+لا يصبح المرشح آليًا مؤهلًا إذا كانت هذه القيمة غير معرفة أو غير موجبة؛ وإذا
+لم يعرّف objective contract سياسة قيمة قابلة للحساب، يستخدم النظام fixed-safe
+probe أو اختيارًا بشريًا بدل استبدالها بـEIG. يكون `expectedInformationGain`
+مقياسًا مساعدًا لكسر التعادل بين مرشحين متساويي قيمة القرار وفق policy نفسها؛
+ثم ترجح الكلفة الأقل، فالمخاطر الأقل، فالوقت الأقصر. بذلك لا يكفي أن تزيد
+observation المعلومات: يجب أن تحسن قرارًا مأذونًا أو evidence مطلوبًا للهدف.
+إذا لم يوجد مرشح موجب القيمة أو كانت التوقعات غير قابلة للتقييم، يبقى belief
+غير محسوم ولا تنفذ تجربة تخمينية.
+يتطلب `calibrated_decision_value` وجود `decisionValuePolicyVersion` و
+`expectedDecisionValue` محسوبين خادميًا معًا؛ غياب أحدهما يمنع هذا النمط.
 
 التوقعات غير المعايرة أو الخارجة عن scope تبقى shadow/advisory ولا تقود اختيارًا
 آليًا. في bootstrap يختار الخادم probe ثابتًا وآمنًا لا يعتمد على forecast، أو
 يختار الإنسان observation من مجموعة مأذونة؛ تسجل forecasts والنتائج لجمع بيانات
-معايرة مستقلة. لا يفعل `calibrated_information_gain` إلا عندما يثبت evaluator
-server-owned المعايرة في scope مناسب. يبقى حد ECE العام في §25.4 شرط promotion،
-ولا تستبدل به نتيجة معايرة من scope مختلف.
+معايرة مستقلة. لا يستخدم `calibrated_decision_value` إلا عندما يثبت evaluator
+server-owned المعايرة في scope مناسب من held-out outcomes مستقلة لذلك scope؛
+`calibrated_for_scope` يتطلب على الأقل حد الحالات القائم في §25.4 وECE لا يتجاوز
+`0.15`، مع فاصل عدم يقين لا يتجاوز حده الأعلى هذا الحد. هذا يفتح اختيارًا محدودًا
+داخل scope فقط؛ أما promotion/general transfer فيحتاج كل بوابات §25.4 وG1–G9.
+لا تكتسب التوقعات صلاحية من معايرة مشروع أو task family مختلف.
+
+يجب أن تغطي `outcomeDecisionMap` outcome schema المسجل، وأن تربط كل نتيجة بفرع
+قرار server-owned. المرشح الذي لا يغير أي قرار لاحق ولا يضيف evidence مطلوبًا
+لـobjective لا يعد مفيدًا للقرار ويستبعد مهما كان EIG. لا يختار النموذج
+`decisionRef` أو `nextDecisionCode` أو سياسة قيمة الهدف.
 
 تسجل التوقعات النموذجية كـ`MODEL_INFERRED` فقط؛ لا تثبت حقيقة ولا تمنح
 authorization. ويجب أن يربط outcome schema صراحةً النتائج غير القابلة للرصد،
@@ -715,7 +742,10 @@ EIG(a) = H(B) - Σ_o P(o | a) × H(B | o, a)
 صحيحة تلقائيًا؛ تحدث Belief من evidence المقبول فقط، وإذا لم تفسر أي فرضية
 النتيجة يبقى النموذج غير محسوم ويحتاج فرضيات أو observations إضافية.
 لا يحسم الاختبار إلا outcome من `DIRECT_OBSERVATION` أو `SERVER_DERIVED` يحقق
-source policy؛ لا يمكن لـ`MODEL_INFERRED` أن يمثل النتيجة الفعلية.
+source policy ويكون complete وfresh ومربوطًا بالـenvironment/revision المناسبة؛
+لا يمكن لـ`MODEL_INFERRED` أن يمثل النتيجة الفعلية. فشل القياس أو stale/partial
+observation أو تغير البيئة يجعل النتيجة `inconclusive` بلا Brier score أو
+تحديث belief weights.
 
 ### 5.7 Failure Diagnosis
 
@@ -3065,6 +3095,16 @@ pre-registered outcome forecast calibration (ECE): <= 0.15
 ويمنع promotion. لا يمنح هذا القياس proof أو acceptance.
 يسجل evaluator نسخة طريقة ECE وoutcome schema المستخدمة، ويطبق الطريقة نفسها
 على baseline والمرشح؛ لا تقارن نتائج محسوبة بإعدادات مختلفة.
+حدود `held-out cases >= 30` و`independent transfer fixtures >= 3` هي minimums
+وليست ضمانًا كافيًا لدقة المعايرة. يثبت split قبل التقييم: للمعايرة scoped
+تكون وحدات held-out مستقلة من episodes/missions داخل scope نفسه؛ ولـcross-project
+transfer تُحجز projects/fixtures كاملة مع trajectories المرتبطة بها. لا تتسرب
+episode أو revision مشتقة من المصدر نفسه بين training وcalibration وfinal holdout.
+تعرض النتائج لكل scope/task stratum، مع Brier وECE وفاصل عدم يقين محسوب على
+وحدة الاستقلال (episode/mission للمعايرة المحلية، وproject/fixture للنقل). إذا
+كان فاصل عدم اليقين لا يسمح بالحكم الواضح على اجتياز الحد القائم، يبقى التقييم
+غير مكتمل؛ لا تعدل العتبات الرقمية في §25.4 لتجاوز نقص القوة الإحصائية. بيانات
+التقييم النهائي المحجوزة لا تستخدم لضبط forecasts أو selection policy.
 
 لا تعني نتيجة canary نجاح هذه البوابة. promotion إلى live/shared registry يحتاج
 كل الحدود الرقمية أعلاه، وG1–G9 في §42.17. أي شرط safety فاشل يمنع الترقية؛
@@ -3459,10 +3499,13 @@ P5/P6/P11 → P13
 P4/P5/P6/P11 → P14
 ```
 
-ضمن هذا الترتيب، يغلق P7.5 تمثيل الفرضيات وforecast واختيار observation قبل
-التنفيذ؛ ويغلق P8 مقارنة النتيجة وتحديث Belief/replan. يبقى الإسناد السببي
-المضاد للواقع في P9، ثم تجريد القاعدة والنقل المقاس في P10/P11. لا يجوز دمج هذه
-المراحل في ادعاء قدرة واحدة قبل اجتياز بواباتها.
+ضمن هذا الترتيب، يبدأ P7.5 بـshadow/fixed-safe-probe أو human-approved
+bootstrap؛ ولا يفتح automatic decision-value selection إلا لforecast معاير
+ضمن scope مناسب ومربوط بقرار objective؛ يكون EIG عاملًا مساعدًا لا القيمة
+الأساسية. يثبت P8 هذه الحلقة في pilot ضيق قبل
+توسيعها. يبقى الإسناد السببي المضاد للواقع في P9، ثم تجريد القاعدة والنقل
+المقاس في P10/P11، مع held-out split مستقل على مستوى المشروع/الـfixture. لا
+يجوز دمج هذه المراحل في ادعاء قدرة واحدة قبل اجتياز بواباتها.
 
 P5.5 Unified Action Semantics هو work package عابر: ابدأ به قبل إضافة مسارات
 Action/Effect جديدة، ثم استمر على graph أعلاه دون إنشاء dependency roadmap ثانية.
@@ -4769,9 +4812,11 @@ Provider failure diagnostics ضرورية، لكنها ليست agent-level fail
 - freshness.
 - environment scope.
 
-ويجب أن يختار observation وفق expected information gain مع موازنة:
+ويجب أن يختار observation بقيمة القرار المتوقعة أولًا؛ يستخدم information gain
+كمقياس مساعد، مع موازنة:
 
 ```text
+expected objective decision value
 information gain
 execution cost
 risk
@@ -4784,17 +4829,28 @@ time
 
 #### Definition of Done لـP7.5
 
-1. لكل مجموعة hypotheses مرتبطة بـobjective، تسجل belief revision والأوزان
-   server-owned التي سيبدأ منها الاختبار.
+1. لكل objective و`hypothesisSetId`، يثبت الخادم أن الفرضيات بدائل متنافية
+   وشاملة مع `OTHER/UNKNOWN`، أو يمنع استخدام entropy-based EIG عليها.
 2. لكل observation مرشح، يسجل outcome space والتوزيع المتوقع لكل hypothesis
-   قبل التنفيذ؛ احتمالات كل توزيع صالحة ومجموعها 1، ومصدر forecast معلن.
-3. يحسب الخادم expected information gain والتكلفة والمخاطر والوقت من سياسة
-   versioned، ويفحص authorization وrisk limits قبل الاختيار.
-4. يستبعد المرشحين غير المأذونين أو غير الآمنين أو غير القابلين للتقييم؛ ومن
-   المرشحين الذين يجتازون حد التمييز المعلوماتي، يختار الأقل كلفة مقدرة، مع
-   كسر التعادل بالمخاطر ثم الوقت.
-5. إذا لم يوجد مرشح صالح، تبقى النتيجة unresolved أو تنتظر approval؛ لا ينفذ
-   observation لمجرد أن النموذج اقترحه.
+   قبل التنفيذ؛ احتمالات كل توزيع صالحة ومجموعها 1، ومصدر forecast وحالة
+   معايرته ونطاقها ومراجعها معلنة.
+3. كل مرشح مربوط بقرار أو claim في objective؛ يستبعد المرشح إذا لم تستطع
+   outcome مختلفة تغيير الفرع التالي أو إضافة evidence مطلوب.
+4. تبقى forecasts غير المعايرة أو الخارجة عن scope shadow/advisory؛ في البداية
+   يختار probe ثابت وآمن من الخادم أو observation بموافقة بشرية. لا يستخدم
+   `calibrated_decision_value` آليًا حتى يثبت evaluator المعايرة ضمن scope
+   مناسب ومستقل على held-out لا يقل عن الحد القائم للحالات في §25.4، مع ECE
+   لا يتجاوز `0.15` ولا يتجاوزه الحد الأعلى لفاصل عدم اليقين. هذا يجيز الاختيار
+   لذلك scope فقط، ولا يختصر بوابات النقل أو promotion.
+5. يحسب الخادم `expectedDecisionValue` من objective policy versioned؛ وبعد
+   authorization وrisk/cost/time limits، يرتب المرشحين بالقيمة الموجبة الأعلى.
+   يستخدم EIG لكسر التعادل بين قيم قرار متساوية فقط، ثم الكلفة الأقل والمخاطر
+   الأقل والوقت الأقصر. غياب objective value قابلة للحساب يمنع EIG من منح
+   الاختيار الآلي.
+6. إذا لم يوجد مرشح صالح أو لم تكن النتيجة قابلة للرصد، تبقى المسألة unresolved
+   أو تنتظر approval؛ ولا ينفذ observation لمجرد أن النموذج اقترحه.
+7. يبدأ التكامل الآلي في task family ضيقة واحدة، ولا يتوسع إلى objectives أو
+   environments أخرى قبل اجتياز اختبار الحلقة end-to-end.
 
 كل forecast، سواء كان `MODEL_INFERRED` أو `SERVER_DERIVED`، توقع لا observation؛
 والتوقع النموذجي لا يصبح evidence. prediction source، belief revision،
@@ -4837,14 +4893,25 @@ World Fact ولا يجعل hypothesis صحيحة تلقائيًا. النتيج�
 
 #### Definition of Done لـP8
 
+- يثبت مسار pilot واحد عبر task family ضيقة دورةً كاملة: objective/decision
+  واضح، forecast مسجل، observation آمن، outcome مستقل، قياس الخطأ، تحديث Belief
+  أو إبقاؤه unresolved، ثم continue أو bounded replan.
 - لا يبدأ التجريب قبل تثبيت forecast وربطه بـEpisode/attempt/objective وbelief
   revision الحالية.
-- يثبت الاختبار أن observation المختارة هي الأقل كلفة من المرشحين المأذونين
-  والآمنين الذين يحققون حد التمييز المعلوماتي.
+- يرفض observation التي لا يمكن لنتيجتها تغيير قرار objective أو استيفاء evidence
+  مطلوب، حتى إن خفضت entropy.
+- لا يستخدم forecast غير معاير أو خارج scope لاختيار observation آليًا؛ يختبر
+  fixed-safe-probe وhuman-approved modes قبل فتح calibrated decision-value
+  selection للـscope المؤهل.
+- يثبت الاختبار أن المرشح المختار يحقق أعلى expected decision value موجبة
+  بين المأذونين والآمنين، وأن EIG لا يتجاوز دور كسر التعادل؛ ثم ترجح الكلفة
+  والمخاطر والوقت عند تساوي قيمة القرار.
 - يثبت أن actual outcome يحدّث belief فقط عبر الملاحظات المقبولة، وأن النتيجة
   المفاجئة أو غير الحاسمة لا تتحول إلى فرضية مؤكدة أو `PROVEN`.
 - retry أو resume يعيد استخدام forecast المسجل أو ينشئ اختبارًا جديدًا مسببًا؛
   لا يستبدل forecast قديمًا بعد ظهور النتيجة.
+- لا يتوسع runtime إلى task families أو environments أخرى حتى يثبت pilot
+  end-to-end دون تراجع أمان أو قبول.
 
 ### 42.10 P9 — Causal Credit Assignment Safety Layer
 
@@ -4982,8 +5049,11 @@ performance(new task, baseline)
 مع منع leakage، وإبقاء كل نتيجة proof/acceptance خارج تأثير provider prose.
 
 يشمل التقييم forecasts المسجلة قبل التشغيل: تقارن النتائج المرصودة بها على
-held-out tasks والمشاريع المستقلة، ويحسب ECE وفق §25.4. أي انتقال غير متوقع أو
-بيانات تقييم ناقصة تبقي النتيجة غير محسومة ولا تسمح بالترقية أو بتوسيع applicability.
+held-out tasks والمشاريع المستقلة، ويحسب Brier لكل تجربة وECE وفق §25.4. يكون
+الـsplit على مستوى project/fixture لا على مستوى turn فقط؛ تعرض المقاييس حسب
+scope مع عدم اليقين، وتظل النتيجة غير محسومة إذا تعذر التفريق بين اجتياز الحد
+القائم وعدم اجتيازه. أي انتقال غير متوقع أو تسرب أو بيانات تقييم ناقصة يمنع
+الترقية أو توسيع applicability.
 
 ### 42.14 P12 — Strategy Promotion and Revocation
 
@@ -5063,13 +5133,20 @@ G9 — Revocation Safety
 15. promotion وrevocation آمنين.
 16. حفظ authorization وownership وevidence وaudit invariants.
 17. تسجيل outcome forecasts قبل كل تجربة hypothesis وربطها بـEpisode/objective/
-    belief revision، مع حفظها غير قابلة للتعديل.
-18. اختيار أقل observation كلفة من الخيارات المأذونة والآمنة التي تجتاز حد
-    التمييز information-gain، أو البقاء unresolved عند غياب خيار صالح.
+    belief revision، مع حفظها غير قابلة للتعديل، وقصر entropy على hypothesis
+    sets متنافية وشاملة.
+18. ربط observation بقرار objective ذي أثر ممكن، واختيار الأعلى expected
+    decision value من الخيارات المأذونة والآمنة والمعايرة ضمن scope؛ يستخدم EIG
+    لكسر التعادل فقط، ثم التكلفة والمخاطر والوقت. وإلا يستخدم fixed-safe
+    probe/اختيارًا بشريًا أو يبقى unresolved.
 19. مقارنة forecast بالنتيجة المستقلة، وقياس خطأ كل تجربة بـBrier score عندما
     تتوفر outcome كاملة، ثم تحديث Belief من evidence المقبول فقط.
-20. إثبات معايرة forecasts على held-out/cross-project evaluation وفق ECE وحدود
-    §25.4 القائمة قبل توسيع applicability أو promotion.
+20. إثبات المعايرة المحلية على held-out مستقل ضمن scope باستخدام حد الحالات وECE
+    `0.15` القائمين، على أن لا يتجاوز الحد الأعلى لفاصل عدم اليقين هذا الحد؛
+    وإثبات النقل العام على project/
+    fixture-level held-out وفق جميع حدود §25.4 قبل توسيع applicability أو promotion.
+21. اجتياز pilot end-to-end في task family واحدة قبل توسيع الاختيار الآلي إلى
+    objectives أو environments أخرى.
 
 ويضاف شرط إغلاق P4/P5: لا يكفي وجود `effectBundle` أو `environmentRevision`.
 يلزم independent before/after observation من مصدر الفعل الفعلي، مربوطة

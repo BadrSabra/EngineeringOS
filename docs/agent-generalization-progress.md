@@ -22,12 +22,12 @@
 | P5.5 — Unified Action Semantics | `partial` | كل invocation، بما فيه read-only وprovider tool calls، يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned؛ القراءة لا تحتاج `AgentAction` كاملًا. كل mutation وeffect-gated validation، وكل كتابة جديدة لـ`ACTION_REQUESTED`، تتطلب العقد الكامل. recipe candidate/Gate C وMission repair/apply-changes تستخدمه؛ تغطية كل recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
-| P7.5 — Belief and Information Gain | `not_started` | gate معرفي قبل توسيع التعلم: Belief weights server-owned، وتوقع outcome مسجل قبل التجربة، واختيار أقل observation كلفة من الخيارات الآمنة والمأذونة والمميزة؛ لا يوجد تنفيذ runtime بعد. |
-| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ ربط forecast بالنتيجة وBrier score وتحديث Belief من evidence المقبول ما زال غير منفذ. |
+| P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
+| P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ pilot ضيق يربط forecast بالنتيجة وBrier score وتحديث Belief من evidence المقبول ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
-| P11 — Learning Validation and Transfer | `not_started` | توجد replay primitives محدودة تحت P10؛ لا توجد held-out evaluation مكتملة أو cross-project transfer أو Learning Delta؛ يلزم اختبار Brier لكل تجربة وECE forecasts وفق الحد القائم في §25.4. |
+| P11 — Learning Validation and Transfer | `not_started` | توجد replay primitives محدودة تحت P10؛ لا توجد held-out evaluation مكتملة أو cross-project transfer أو Learning Delta؛ يلزم Brier/ECE حسب scope مع project/fixture-level split وقياس عدم اليقين، من دون تغيير حد §25.4. |
 | P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
 | P13 — Capability composition | `not_started` | composition آمن عبر semantic contracts وsandbox وshadow replay. |
 | P14 — Multimodal extension | `not_started` | مؤجل إلى ما بعد إغلاق effect/evidence/learning gates. |
@@ -48,6 +48,13 @@
 - §5.6 و§18.3 و§19 يحددون تسجيل forecast غير القابل للتعديل قبل التجربة،
   اختيار observation، مقارنة النتيجة وقياس Brier وربط Belief update؛ §25.4
   يقيس ECE على forecasts held-out المسجلة مسبقًا باستخدام الحد القائم.
+- §5.6 يقيّد entropy-based EIG بفرضيات متنافية وشاملة، ويجعل expected decision
+  value المقياس الأساسي وEIG لكسر التعادل فقط. يمنع auto-selection من forecasts
+  غير المعايرة أو غير المرتبطة بقرار objective؛ الاختيار المحلي لا يفتح إلا بعد
+  ≥30 held-out outcomes ضمن scope وECE ≤0.15، على أن لا يتجاوز الحد الأعلى
+  لفاصل عدم اليقين هذا الحد. bootstrap وpilot محددان قبل توسيع النطاق.
+- §25.4 يثبت project/fixture-level holdout split وقياس عدم اليقين؛ 30 حالة و3
+  fixtures حدان أدنيان لا ضمان قوة إحصائية، ولا تتغير العتبات القائمة.
 - الأقسام التاريخية معلّمة ولا تناقض ترتيب التنفيذ أو الحالة الحاليين.
 - الإحالات الداخلية صالحة، ويجتاز التغيير `git diff --check`.
 
@@ -154,14 +161,20 @@ G9 Revocation Safety
 - **phase/step:** Governance / P7.5–P11 hypothesis-testing contract
 - **status:** `done` — توثيق فقط؛ لم يبدأ تنفيذ المراحل.
 - **what changed:** أضيف عقد لتسجيل forecasts وتوزيعات outcomes قبل observation،
-  وحفظ Belief weights والتكلفة والمخاطر وقرار authorization؛ يختار الخادم أقل
-  observation كلفة من الخيارات الآمنة والمأذونة والمميزة، ويقيس خطأ التجربة
-  بـBrier score ويربط Belief update بالملاحظة المقبولة. رُبط ECE بالـforecasts
-  المسجلة على held-out evaluation مع الإبقاء على الحد القائم `0.15`.
+  وقصر EIG على hypothesis sets صالحة، وربط كل تجربة بقيمة القرار المتوقعة من
+  objective policy server-owned، مع استخدام EIG لكسر التعادل فقط. أضيف
+  bootstrap shadow/fixed-safe-probe أو human approval حتى تتوفر معايرة scope،
+  مع pilot ضيق قبل التوسع. الاختيار الآلي المحلي يحتاج ≥30 held-out outcomes
+  في scope نفسه وECE ≤`0.15`، على أن لا يتجاوز الحد الأعلى لفاصل عدم اليقين هذا
+  الحد؛ النقل العام يبقى خلف كل بوابات §25.4. يقاس الخطأ بـBrier، ويرتبط Belief
+  update بالملاحظة المقبولة.
+  ثُبت project/fixture-level held-out split وقياس عدم اليقين لـECE دون تغيير
+  العتبات القائمة.
 - **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`,
   `docs/agent-generalization-progress.md`; لا تغييرات runtime أو schema.
-- **validation:** `git diff --check`؛ مراجعة الإحالات الداخلية ومؤشرات العقد
-  المطلوبة؛ التغيير محصور بالوثيقتين.
+- **validation:** `git diff --check`؛ 22 إحالة داخلية بلا unresolved refs؛ فحص
+  markers الخاصة بالقرار/المعايرة/pilot وعدم بقاء EIG كمعيار منفرد؛ التغيير محصور
+  بالوثيقتين.
 - **authority/safety impact:** forecast ليس evidence أو authority؛ لا يثبت
   Brier/ECE حقيقة أو acceptance أو causality. observation الموثوقة وحدها تغذي
   تحديث Belief؛ لا تغيير في authorization أو Proof.
