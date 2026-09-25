@@ -10,6 +10,7 @@ import {
   projectsTable,
 } from "@workspace/db";
 import type { JsonValue } from "@workspace/ai-orchestrator";
+import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { startEpisode } from "./agent-episode-ledger.js";
 import { materializeServerOwnedObservations } from "./observation-materializer.js";
 import {
@@ -415,6 +416,126 @@ describe("read-only World State projection", () => {
       expect(observation?.value).toMatchObject({
         sessionId: "runtime-session-without-attestation",
       });
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes child process evidence only for its exact execution, Episode, operation, session, and revision", async () => {
+    const rootPath = await mkdtemp(join(process.cwd(), "world-child-process-"));
+    try {
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({ name: "child-process-binding" }));
+      const operationId = `runtime-operation-${randomUUID()}`;
+      const scoped = await createScopedEpisode(
+        { kind: "recipe", recipeId: "runtime.start", operationId },
+        "child-process-binding",
+        { intentKind: "RUNTIME_START", environmentRootPath: rootPath },
+      );
+      const sessionId = `runtime-session-${randomUUID()}`;
+      const binding = {
+        projectId,
+        sessionId,
+        executionId: scoped.executionId,
+        executionAttempt: 0,
+        episodeId: scoped.episodeId,
+        operationId,
+        revision: "revision-1",
+      };
+      const sourceId = `runtime-child-process:${sessionId}`;
+      const source = {
+        kind: "child_process_attestation" as const,
+        ...binding,
+        attempt: binding.executionAttempt,
+        status: "known" as const,
+        reasonCode: "child_process_observed" as const,
+        bindingDigest: childProcessBindingDigest(binding),
+        attestationDigest: "a".repeat(64),
+        processEnvironmentDigest: "b".repeat(64),
+        environmentRevision: null,
+      };
+
+      await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [source],
+      });
+      const [observation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, sourceId));
+      expect(observation).toMatchObject({
+        provenance: "DIRECT_OBSERVATION",
+        completeness: "complete",
+        environmentFreshness: "unknown",
+        environmentRevision: null,
+        predicate: "runtime.child_process_environment",
+        value: {
+          status: "known",
+          bindingDigest: source.bindingDigest,
+          attestationDigest: source.attestationDigest,
+          processEnvironmentDigest: source.processEnvironmentDigest,
+          sessionId,
+          operationId,
+        },
+      });
+
+      const mismatchedSessionId = `runtime-session-root-mismatch-${randomUUID()}`;
+      await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [{
+          ...source,
+          sessionId: mismatchedSessionId,
+          status: "mismatch",
+          reasonCode: "process_root_mismatch",
+          bindingDigest: childProcessBindingDigest({
+            ...binding,
+            sessionId: mismatchedSessionId,
+          }),
+          attestationDigest: null,
+          processEnvironmentDigest: null,
+        }],
+      });
+      const [mismatchObservation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, `runtime-child-process:${mismatchedSessionId}`));
+      expect(mismatchObservation).toMatchObject({
+        completeness: "failed",
+        value: {
+          status: "mismatch",
+          reasonCode: "process_root_mismatch",
+          attestationDigest: null,
+          processEnvironmentDigest: null,
+        },
+      });
+
+      await expect(materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [{ ...source, bindingDigest: "c".repeat(64) }],
+      })).rejects.toThrow("observation_materialization_child_attestation_mismatch");
+
+      await expect(materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [{
+          ...source,
+          operationId: `${operationId}-wrong`,
+          bindingDigest: childProcessBindingDigest({
+            ...binding,
+            operationId: `${operationId}-wrong`,
+          }),
+        }],
+      })).rejects.toThrow("observation_materialization_child_attestation_episode_mismatch");
     } finally {
       await rm(rootPath, { recursive: true, force: true });
     }

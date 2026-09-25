@@ -177,6 +177,9 @@ export type RuntimeStartRunner = (args: {
   operationId: string;
   rootPath: string;
   revision: string;
+  executionId?: string;
+  executionAttempt?: number;
+  episodeId?: string;
   signal?: AbortSignal;
 }) => Promise<{
   status: "passed" | "blocked" | "unavailable";
@@ -324,11 +327,19 @@ function runtimeStartCapability(runtime: RecipeCapabilityRuntime): CapabilityAda
       detail: z.string().max(4_000).optional(),
     }).strict(),
     execute: async (_input, context) => {
-      if (!context.projectId || !context.operationId || !context.revision) {
+      if (
+        !context.projectId
+        || !context.operationId
+        || !context.revision
+        || !context.executionId
+        || !Number.isInteger(context.executionAttempt)
+        || (context.executionAttempt as number) < 0
+        || !context.episodeId
+      ) {
         return {
           status: "blocked",
           profile: "runtime" as const,
-          detail: "A durable project, operation, and source revision are required for runtime actions.",
+          detail: "A durable project, operation, execution attempt, Episode, and source revision are required for runtime actions.",
         };
       }
       const result = await runtime.runtimeStartRunner!({
@@ -336,6 +347,9 @@ function runtimeStartCapability(runtime: RecipeCapabilityRuntime): CapabilityAda
         operationId: context.operationId,
         rootPath: context.rootPath,
         revision: context.revision,
+        executionId: context.executionId,
+        executionAttempt: context.executionAttempt,
+        episodeId: context.episodeId,
         signal: context.signal,
       });
       return {
@@ -381,14 +395,25 @@ function runtimeModeCapability(
       detail: z.string().max(4_000).optional(),
     }).strict(),
     execute: async (_input, context) => {
-      if (!context.projectId || !context.operationId || !context.revision) {
-        return { status: "blocked", profile: "runtime" as const, detail: "A durable project, operation, and source revision are required." };
+      if (
+        !context.projectId
+        || !context.operationId
+        || !context.revision
+        || !context.executionId
+        || !Number.isInteger(context.executionAttempt)
+        || (context.executionAttempt as number) < 0
+        || !context.episodeId
+      ) {
+        return { status: "blocked", profile: "runtime" as const, detail: "A durable project, operation, execution attempt, Episode, and source revision are required." };
       }
       const result = await runner({
         projectId: context.projectId,
         operationId: context.operationId,
         rootPath: context.rootPath,
         revision: context.revision,
+        executionId: context.executionId,
+        executionAttempt: context.executionAttempt,
+        episodeId: context.episodeId,
         signal: context.signal,
       });
       return {

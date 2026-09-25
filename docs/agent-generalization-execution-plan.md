@@ -5506,3 +5506,32 @@ after-state ولا تمنح القبول. لم يتغير schema أو قاعدة
 
 هذه شريحة جزئية فقط؛ تبقى أجزاء P3.5/P4/P5 الأخرى غير مكتملة. الخطوة التالية
 تظل أضيق فجوة موثقة في هذه المراحل، دون بدء P6 أو P7 أو P7.5.
+
+### 42.29 P4 — Live runtime child process environment observation (2026-09-25)
+
+يولّد runtime manager علامة مؤقتة لكل جلسة مرتبطة بهوية المشروع والجلسة والتنفيذ
+والمحاولة وEpisode والعملية والمراجعة. تمر العلامة إلى `pnpm` مباشرة أو عبر
+supervisor، ولا تحفظ في صف runtime أو snapshot أو receipt أو response عام. عند
+after-state يقرأ API لقطة محدودة من `/proc/<pid>`، ويتحقق من ثبات بدء العملية و
+cwd وexecutable قبل/بعد القراءة ومن وقوع cwd داخل project root. يحتفظ فقط
+بـhash للعلامة وبيئة آمنة allowlisted، ثم يصفر buffer البيئة الخام.
+
+ترتبط النتيجة بـbinding digest كامل. تطابق العلامة و`NODE_ENV` و`PORT` و
+`BASE_PATH` المرصودة ينتج `known`؛ اختلاف البيئة أو جذر العملية ينتج `mismatch`؛
+غياب procfs أو marker أو العملية، أو فقد marker بعد recovery، يبقى `unknown`.
+تنتقل الملاحظة إلى `observation-materializer` كـ`DIRECT_OBSERVATION` بعد تحقق
+execution/attempt/Episode/operation/revision/session binding. لا تغيّر شروط
+runtime health أو أثره أو سلطة acceptance، ولا تنتج receipt أو ملاحظة ناقصة أو
+غير مطابقة قبولًا.
+
+تثبت المراجعة الحية عبر supervisor أن API يستطيع قراءة `/proc` لعملية `pnpm`
+التي بدأها workflow آخر، وأنها تعطي `known` عند تطابق marker والبيئة. حد الإثبات
+مقصود: هذا هو PID المباشر لـ`pnpm` ولا يثبت بيئة العملية اللاحقة التي تملك منفذ
+الاستماع. كما أن عملية validator لم تُربط بعد بالملاحظة المستقلة؛ تظل handoff
+بصمتها وحدها غير كافية. لا تغيير schema أو قاعدة الإنتاج، وتظل P4 جزئية.
+
+التحقق: API typecheck؛ 19 اختبار API مركزًا شملت procfs الحقيقي، marker/بيئة
+مخالفة، PID مفقودًا، recovery، materializer identity وsupervisor handoff؛
+orchestrator typecheck؛ `git diff --check`؛ API وruntime-supervisor restart؛
+وفحص supervisor end-to-end أعاد `runtimeStatus=passed` و
+`processAttestation=known`. لم يبدأ P6 أو P7 أو P7.5.

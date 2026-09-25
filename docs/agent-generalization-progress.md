@@ -1320,6 +1320,33 @@ G9 Revocation Safety
 - **next step:** متابعة الشريحة الموثقة التالية ضمن P3.5/P4/P5 بالترتيب، دون
   بدء P6 أو P7 أو P7.5.
 
+### 2026-09-25 — رصد بيئة عملية runtime child الحية
+
+- **phase/step:** P4 — live runtime child process environment observation
+- **status:** `partial`
+- **what changed:** صار runtime يولد marker مؤقتًا ويربطه بـproject/session/
+  execution/attempt/Episode/operation/revision. يقرأ API من procfs العملية
+  المباشرة ويثبت استقرار PID وcwd وexecutable وجذر المشروع، ثم يحفظ hashes
+  للmarker وإسقاط البيئة الآمنة فقط. تنتقل النتيجة المربوطة إلى
+  `observation-materializer` كملاحظة `DIRECT_OBSERVATION`; غير المتاح يبقى
+  `unknown` والمخالف `mismatch`.
+- **files/schema/contracts touched:** child process attestation helper، runtime
+  manager/client/supervisor، recipe capability context/runner،
+  observation materializer، اختبارات runtime وWorld State وsupervisor، والخطة.
+  لا تغيير schema أو قاعدة الإنتاج.
+- **validation:** API typecheck؛ API Vitest المركز 19/19؛ orchestrator
+  typecheck؛ `git diff --check`؛ API وsupervisor أعيدا التشغيل وظهرا بحالة
+  running؛ smoke test عبر supervisor أعاد runtime `passed` وattestation `known`.
+- **authority/safety impact:** marker والبيئة الخام لا تحفظ أو تظهر للمستخدم.
+  ربط digest يتحقق من execution/attempt/Episode/operation/revision/session؛
+  `unknown` أو `mismatch` لا يمنح acceptance أو OBSERVED، وبصمة البيئة مستقلة
+  عن freshness المشروع. لا ادعاء بأن PID `pnpm` يثبت عملية HTTP listener.
+- **remaining/blocker:** P4 ما زالت جزئية؛ validator child لا يملك بعد ملاحظة
+  مستقلة، وإثبات العملية التي تملك منفذ الاستماع غير محسوم. لا تغيير production
+  database، ولم يبدأ P6 أو P7 أو P7.5.
+- **next step:** اربط validator process بالملاحظة المستقلة، ثم احسم إثبات
+  listener PID ضمن P4/P5، بالترتيب ودون بدء P6 أو P7 أو P7.5.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

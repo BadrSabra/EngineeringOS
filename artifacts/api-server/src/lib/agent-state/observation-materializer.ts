@@ -16,6 +16,10 @@ import {
   captureEnvironmentAttestation,
   serverEnvironmentProfile,
 } from "./environment-attestation.js";
+import {
+  childProcessBindingDigest,
+  type ChildProcessEnvironmentAttestation,
+} from "./child-process-attestation.js";
 import { materializeWorldStateForProject } from "./world-state.js";
 
 const MAX_SOURCES = 32;
@@ -70,6 +74,23 @@ export type ServerOwnedObservationSource =
       profile?: string | null;
       candidateIdentity?: string | null;
       sessionId?: string | null;
+      environmentRevision?: string | null;
+      observedAt?: Date | string;
+    }
+  | {
+      kind: "child_process_attestation";
+      projectId: string;
+      executionId: string;
+      attempt: number;
+      episodeId: string;
+      operationId: string;
+      sessionId: string;
+      revision: string;
+      status: ChildProcessEnvironmentAttestation["status"];
+      reasonCode: ChildProcessEnvironmentAttestation["reasonCode"];
+      bindingDigest: string;
+      attestationDigest?: string | null;
+      processEnvironmentDigest?: string | null;
       environmentRevision?: string | null;
       observedAt?: Date | string;
     }
@@ -289,6 +310,35 @@ function normalizeSource(
     };
   }
 
+  if (source.kind === "child_process_attestation") {
+    const value = parseBoundedJson(JSON.stringify({
+      status: source.status,
+      reasonCode: source.reasonCode,
+      bindingDigest: source.bindingDigest,
+      attestationDigest: source.attestationDigest ?? null,
+      processEnvironmentDigest: source.processEnvironmentDigest ?? null,
+      operationId: boundedText(source.operationId, 500),
+      sessionId: boundedText(source.sessionId, 500),
+    }), MAX_VALUE_BYTES);
+    return {
+      sourceType: "child_process_attestation",
+      provenance: "DIRECT_OBSERVATION",
+      sourceId: boundedText(`runtime-child-process:${source.sessionId}`, 500),
+      sourceVersion: sourceVersion(source.revision, attempt),
+      subject: `runtime:${boundedText(source.sessionId, 500)}`,
+      predicate: "runtime.child_process_environment",
+      value,
+      sourceRefs: boundedRefs([`runtime:${source.sessionId}`]),
+      observedAt: observedAt(source.observedAt),
+      ...(source.environmentRevision ? { environmentRevision: boundedText(source.environmentRevision, 2_000) } : {}),
+      completeness: source.status === "known"
+        ? "complete"
+        : source.status === "mismatch"
+          ? "failed"
+          : "partial",
+    };
+  }
+
   const value = parseBoundedJson(JSON.stringify({
     status: source.status,
     ...(source.candidateIdentity ? { candidateIdentity: boundedText(source.candidateIdentity, 500) } : {}),
@@ -335,6 +385,38 @@ export async function materializeServerOwnedObservations(
   for (const source of input.sources) {
     if (source.kind === "validator_receipt" && source.projectId !== input.projectId) {
       throw new Error("observation_materialization_project_mismatch");
+    }
+    if (source.kind === "child_process_attestation" && (
+      source.projectId !== input.projectId
+      || source.executionId !== input.executionId
+      || source.attempt !== input.attempt
+      || !source.sessionId
+      || !source.operationId
+      || !source.episodeId
+      || !source.revision
+      || source.bindingDigest !== childProcessBindingDigest({
+        projectId: source.projectId,
+        sessionId: source.sessionId,
+        executionId: source.executionId,
+        executionAttempt: source.attempt,
+        episodeId: source.episodeId,
+        operationId: source.operationId,
+        revision: source.revision,
+      })
+      || (source.status === "known" && (
+        !source.attestationDigest
+        || !/^[a-f0-9]{64}$/.test(source.attestationDigest)
+        || !source.processEnvironmentDigest
+        || !/^[a-f0-9]{64}$/.test(source.processEnvironmentDigest)
+      ))
+      || (source.status === "mismatch" && source.reasonCode === "child_environment_mismatch" && (
+        !source.attestationDigest
+        || !/^[a-f0-9]{64}$/.test(source.attestationDigest)
+        || !source.processEnvironmentDigest
+        || !/^[a-f0-9]{64}$/.test(source.processEnvironmentDigest)
+      ))
+    )) {
+      throw new Error("observation_materialization_child_attestation_mismatch");
     }
   }
   let observedEnvironmentRevision: string | undefined;
@@ -383,6 +465,21 @@ export async function materializeServerOwnedObservations(
       .where(and(...episodeFilters))
       .for("update");
     if (!episode) throw new Error("observation_materialization_episode_not_found");
+    for (const source of input.sources) {
+      if (source.kind !== "child_process_attestation") continue;
+      const scope = episode.scope !== null
+        && typeof episode.scope === "object"
+        && !Array.isArray(episode.scope)
+        ? episode.scope as Record<string, unknown>
+        : {};
+      if (
+        source.episodeId !== episode.id
+        || (scope?.operationId !== undefined && source.operationId !== scope.operationId)
+        || source.revision !== (input.projectRevision ?? episode.projectRevision)
+      ) {
+        throw new Error("observation_materialization_child_attestation_episode_mismatch");
+      }
+    }
     const taskScope = taskScopeIdentity(episode);
     const episodeEnvironmentRevision = episode.environmentRevision ?? undefined;
     const boundObservations = normalized.map((source) => {

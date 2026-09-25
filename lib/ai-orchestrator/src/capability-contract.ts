@@ -255,6 +255,8 @@ export type CapabilityExecutionContext = {
   executionId?: string;
   /** Current durable execution attempt; used to reject replayed evidence. */
   executionAttempt?: number;
+  /** Server-owned authoritative Episode for evidence materialized after this invocation. */
+  episodeId?: string;
   /** Server-owned approved profile set, if the capability uses profiles. */
   approvedCommandProfiles?: ReadonlySet<string>;
   /** Server-owned scope copied from the current recipe node. */

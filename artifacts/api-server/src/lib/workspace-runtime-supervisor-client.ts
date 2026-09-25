@@ -28,6 +28,7 @@ export class WorkspaceRuntimeSupervisorClient {
     projectId: string;
     sessionId: string;
     projectRoot: string;
+    attestationMarker?: string;
   }): Promise<SupervisorResponse> {
     return this.request("/runtime/start", {
       method: "POST",
@@ -36,6 +37,7 @@ export class WorkspaceRuntimeSupervisorClient {
         sessionId: input.sessionId,
         projectRoot: input.projectRoot,
         profile: "dev",
+        ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
       }),
     });
   }

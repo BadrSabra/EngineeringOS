@@ -184,15 +184,37 @@ export type PreparedRecipeOperation = {
 export function createRuntimeStartRunner(
   manager = workspaceRuntime,
 ): RuntimeStartRunner {
-  return async ({ projectId, operationId, rootPath, revision, signal }) => {
+  return async ({
+    projectId,
+    operationId,
+    rootPath,
+    revision,
+    executionId,
+    executionAttempt,
+    episodeId,
+    signal,
+  }) => {
     if (signal?.aborted) {
       return { status: "blocked", detail: "Runtime action was cancelled before startup." };
     }
     try {
+      const attestationIdentity = executionId
+        && Number.isInteger(executionAttempt)
+        && episodeId
+        ? {
+            projectId,
+            operationId,
+            executionId,
+            executionAttempt: executionAttempt!,
+            episodeId,
+            revision,
+          }
+        : undefined;
       const snapshot = await manager.start({
         projectId,
         projectRoot: rootPath,
         revision,
+        ...(attestationIdentity ? { attestationIdentity } : {}),
       });
       if (snapshot.status !== "running" || !snapshot.sessionId) {
         return {
@@ -204,6 +226,12 @@ export function createRuntimeStartRunner(
         projectId,
         sessionId: snapshot.sessionId,
         revision,
+        ...(attestationIdentity ? {
+          attestationBinding: {
+            ...attestationIdentity,
+            sessionId: snapshot.sessionId,
+          },
+        } : {}),
         signal,
       });
       const evidenceId = `runtime:${projectId}:${operationId}:${snapshot.sessionId}:after`;
@@ -231,6 +259,7 @@ export function createRuntimeStartRunner(
             healthStatus: after.healthStatus,
             servingRevision: after.servingRevision,
             markerMatched: after.markerMatched,
+            childProcessAttestation: after.childProcessAttestation,
             observedAt: after.observedAt,
           },
         },
@@ -252,7 +281,16 @@ function createRuntimeModeRunner(
   mode: "restart" | "stop",
   manager = workspaceRuntime,
 ): RuntimeRestartRunner | RuntimeStopRunner {
-  return async ({ projectId, operationId, rootPath, revision, signal }) => {
+  return async ({
+    projectId,
+    operationId,
+    rootPath,
+    revision,
+    executionId,
+    executionAttempt,
+    episodeId,
+    signal,
+  }) => {
     if (signal?.aborted) return { status: "blocked", detail: `Runtime ${mode} was cancelled.` };
     try {
       const before = await manager.get(projectId);
@@ -283,14 +321,47 @@ function createRuntimeModeRunner(
         };
       }
       const snapshot = mode === "restart"
-        ? await manager.start({ projectId, projectRoot: rootPath, revision, restart: true })
+        ? await manager.start({
+            projectId,
+            projectRoot: rootPath,
+            revision,
+            restart: true,
+            ...(executionId && Number.isInteger(executionAttempt) && episodeId
+              ? {
+                  attestationIdentity: {
+                    projectId,
+                    operationId,
+                    executionId,
+                    executionAttempt: executionAttempt!,
+                    episodeId,
+                    revision,
+                  },
+                }
+              : {}),
+          })
         : await manager.stop(projectId);
       if (mode === "restart") {
         if (snapshot.status !== "running" || !snapshot.sessionId) {
           return { status: "unavailable", detail: snapshot.error ?? "Runtime restart did not reach running state." };
         }
         const after = await manager.observeAfterState({
-          projectId, sessionId: snapshot.sessionId, revision, signal,
+          projectId,
+          sessionId: snapshot.sessionId,
+          revision,
+          ...(executionId && Number.isInteger(executionAttempt) && episodeId
+            ? {
+                attestationBinding: {
+                  projectId,
+                  sessionId: snapshot.sessionId,
+                  operationId,
+                  executionId,
+                  executionAttempt: executionAttempt!,
+                  episodeId,
+                  revision,
+                },
+              }
+            : {}),
+          signal,
         });
         return {
           status: after.status === "passed" ? "passed" : after.status === "failed" ? "blocked" : "unavailable",
@@ -300,7 +371,22 @@ function createRuntimeModeRunner(
             artifactRef: `runtime:${snapshot.sessionId}`,
             sessionId: snapshot.sessionId,
             environmentRevision: snapshot.environmentRevision,
-            afterState: after,
+            afterState: {
+              status: after.status,
+              projectId: after.projectId,
+              sessionId: after.sessionId,
+              revision: after.revision,
+              pid: after.pid,
+              port: after.port,
+              processAlive: after.processAlive,
+              portReady: after.portReady,
+              healthPath: after.healthPath,
+              healthStatus: after.healthStatus,
+              servingRevision: after.servingRevision,
+              markerMatched: after.markerMatched,
+              childProcessAttestation: after.childProcessAttestation,
+              observedAt: after.observedAt,
+            },
           },
           detail: after.detail,
         };
@@ -1285,6 +1371,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 operationId: params.operationId,
                 executionId: claimed.id,
                 executionAttempt: claimed.attempt,
+                ...(episode ? { episodeId: episode.episodeId } : {}),
                 signal: nodeController.signal,
                 scope: node.executionContext?.scope,
                 allowedFiles: node.allowedFiles,
@@ -1918,6 +2005,47 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           evidence: runtimeEvidence,
         })
       : undefined;
+    const rawRuntimeAfterState = runtimeEvidence?.afterState
+      && typeof runtimeEvidence.afterState === "object"
+      && !Array.isArray(runtimeEvidence.afterState)
+      ? runtimeEvidence.afterState as Record<string, unknown>
+      : undefined;
+    const rawChildProcessAttestation = rawRuntimeAfterState?.childProcessAttestation
+      && typeof rawRuntimeAfterState.childProcessAttestation === "object"
+      && !Array.isArray(rawRuntimeAfterState.childProcessAttestation)
+      ? rawRuntimeAfterState.childProcessAttestation as Record<string, unknown>
+      : undefined;
+    const runtimeChildProcessObservation = episode
+      && rawChildProcessAttestation
+      && typeof runtimeEvidence?.sessionId === "string"
+      && typeof rawChildProcessAttestation.bindingDigest === "string"
+      && ["known", "mismatch", "unknown"].includes(String(rawChildProcessAttestation.status))
+      && typeof rawChildProcessAttestation.reasonCode === "string"
+      && typeof rawChildProcessAttestation.observedAt === "string"
+      ? [{
+          kind: "child_process_attestation" as const,
+          projectId: params.projectId,
+          executionId: claimed.id,
+          attempt: receipt.attempt ?? claimed.attempt,
+          episodeId: episode.episodeId,
+          operationId: params.operationId,
+          sessionId: runtimeEvidence.sessionId,
+          revision: params.sourceRevision,
+          status: rawChildProcessAttestation.status as "known" | "mismatch" | "unknown",
+          reasonCode: rawChildProcessAttestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
+          bindingDigest: rawChildProcessAttestation.bindingDigest,
+          attestationDigest: typeof rawChildProcessAttestation.attestationDigest === "string"
+            ? rawChildProcessAttestation.attestationDigest
+            : null,
+          processEnvironmentDigest: typeof rawChildProcessAttestation.processEnvironmentDigest === "string"
+            ? rawChildProcessAttestation.processEnvironmentDigest
+            : null,
+          environmentRevision: typeof runtimeEvidence.environmentRevision === "string"
+            ? runtimeEvidence.environmentRevision
+            : null,
+          observedAt: rawChildProcessAttestation.observedAt,
+        }]
+      : [];
     await materializeServerOwnedObservations({
       projectId: params.projectId,
       executionId: claimed.id,
@@ -1952,6 +2080,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               : null,
           } : {}),
         },
+        ...runtimeChildProcessObservation,
         ...(runtimeAfterObservation && runtimeGateCEffectKind ? [{
           kind: "direct_observation" as const,
           sourceId: `gate-c:${claimed.id}:${claimed.attempt}:after:runtime-state`,

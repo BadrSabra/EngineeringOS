@@ -8,6 +8,14 @@ import {
   serverEnvironmentProfile,
 } from "./agent-state/environment-attestation.js";
 import {
+  attestChildProcessEnvironment,
+  childProcessBindingDigest,
+  CHILD_ATTESTATION_ENV_NAME,
+  type ChildProcessAttestationBinding,
+  type ChildProcessAttestationIdentity,
+  type ChildProcessEnvironmentAttestation,
+} from "./agent-state/child-process-attestation.js";
+import {
   createInMemoryWorkspaceRuntimeStore,
   databaseWorkspaceRuntimeStore,
   RUNTIME_LEASE_MS,
@@ -45,6 +53,7 @@ export type RuntimeAfterState = {
   servingRevision: string | null;
   markerMatched: boolean | null;
   responseBody: string;
+  childProcessAttestation?: ChildProcessEnvironmentAttestation;
   observedAt: string;
   detail: string;
 };
@@ -74,6 +83,8 @@ type RuntimeSession = Omit<WorkspaceRuntimeSnapshot, "projectId" | "sessionId"> 
   child?: ChildProcess;
   stopPromise?: Promise<void>;
   heartbeatTimer?: NodeJS.Timeout;
+  childProcessMarker?: string;
+  childProcessBinding?: ChildProcessAttestationBinding;
 };
 
 export class WorkspaceRuntimeError extends Error {
@@ -103,7 +114,7 @@ function bounded(value: string, limit = MAX_LOG_LINE_CHARS): string {
     .slice(0, limit);
 }
 
-function runtimeEnv(port: number): NodeJS.ProcessEnv {
+function runtimeEnv(port: number, childProcessMarker?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && SAFE_ENV_NAMES.test(name)) env[name] = value;
@@ -111,7 +122,30 @@ function runtimeEnv(port: number): NodeJS.ProcessEnv {
   env.NODE_ENV = "development";
   env.PORT = String(port);
   env.BASE_PATH = "/";
+  if (childProcessMarker) env[CHILD_ATTESTATION_ENV_NAME] = childProcessMarker;
   return env;
+}
+
+function unknownChildProcessAttestation(
+  reasonCode: ChildProcessEnvironmentAttestation["reasonCode"],
+  binding?: ChildProcessAttestationBinding,
+  observedAt = new Date().toISOString(),
+): ChildProcessEnvironmentAttestation {
+  return {
+    status: "unknown",
+    reasonCode,
+    bindingDigest: binding ? childProcessBindingDigest(binding) : null,
+    attestationDigest: null,
+    processEnvironmentDigest: null,
+    observedAt,
+  };
+}
+
+function sameAttestationBinding(
+  left: ChildProcessAttestationBinding,
+  right: ChildProcessAttestationBinding,
+): boolean {
+  return childProcessBindingDigest(left) === childProcessBindingDigest(right);
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -290,6 +324,7 @@ export class WorkspaceRuntimeManager {
     projectId: string;
     sessionId: string;
     revision: string;
+    attestationBinding?: ChildProcessAttestationBinding;
     healthPath?: string;
     expectedMarker?: string;
     signal?: AbortSignal;
@@ -350,9 +385,44 @@ export class WorkspaceRuntimeManager {
         servingRevision: null,
         markerMatched: null,
         responseBody: "",
+        childProcessAttestation: unknownChildProcessAttestation(
+          "process_unavailable",
+          input.attestationBinding,
+          observedAt,
+        ),
         observedAt,
         detail: "Runtime after-state observation was cancelled.",
       };
+    }
+
+    let childProcessAttestation: ChildProcessEnvironmentAttestation;
+    if (!input.attestationBinding) {
+      childProcessAttestation = unknownChildProcessAttestation("binding_missing", undefined, observedAt);
+    } else if (!session.childProcessBinding || !session.childProcessMarker) {
+      childProcessAttestation = unknownChildProcessAttestation(
+        "marker_unavailable",
+        input.attestationBinding,
+        observedAt,
+      );
+    } else if (!sameAttestationBinding(session.childProcessBinding, input.attestationBinding)) {
+      childProcessAttestation = unknownChildProcessAttestation(
+        "binding_mismatch",
+        input.attestationBinding,
+        observedAt,
+      );
+    } else {
+      childProcessAttestation = await attestChildProcessEnvironment({
+        pid: session.pid,
+        projectRoot: session.projectRoot,
+        marker: session.childProcessMarker,
+        binding: input.attestationBinding,
+        expectedEnvironment: {
+          NODE_ENV: "development",
+          PORT: String(session.port),
+          BASE_PATH: "/",
+        },
+        observedAt,
+      });
     }
 
     let healthStatus: number | null = null;
@@ -396,6 +466,7 @@ export class WorkspaceRuntimeManager {
             servingRevision,
             markerMatched,
             responseBody,
+            childProcessAttestation,
             observedAt,
             detail,
           };
@@ -428,6 +499,7 @@ export class WorkspaceRuntimeManager {
       servingRevision,
       markerMatched,
       responseBody,
+      childProcessAttestation,
       observedAt,
       detail,
     };
@@ -616,8 +688,24 @@ export class WorkspaceRuntimeManager {
     projectId: string;
     projectRoot: string;
     revision: string;
+    attestationIdentity?: ChildProcessAttestationIdentity;
     restart?: boolean;
   }): Promise<WorkspaceRuntimeSnapshot> {
+    if (input.attestationIdentity && (
+      input.attestationIdentity.projectId !== input.projectId
+      || input.attestationIdentity.revision !== input.revision
+      || !input.attestationIdentity.operationId
+      || !input.attestationIdentity.executionId
+      || !input.attestationIdentity.episodeId
+      || !Number.isInteger(input.attestationIdentity.executionAttempt)
+      || input.attestationIdentity.executionAttempt < 0
+    )) {
+      throw new WorkspaceRuntimeError(
+        "Runtime child attestation identity does not match the server-owned operation.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
     const current = this.sessions.get(input.projectId);
     if (current && !input.restart && (current.status === "starting" || current.status === "running")) {
       return this.snapshot(current);
@@ -628,6 +716,10 @@ export class WorkspaceRuntimeManager {
     const directPort = this.supervisor ? null : await findAvailablePort();
     const now = new Date();
     const sessionId = randomUUID();
+    const childProcessBinding = input.attestationIdentity
+      ? { ...input.attestationIdentity, sessionId }
+      : undefined;
+    const childProcessMarker = childProcessBinding ? randomUUID() : undefined;
     const persisted = await this.store.begin({
       projectId: input.projectId,
       projectRoot,
@@ -679,11 +771,12 @@ export class WorkspaceRuntimeManager {
           projectId: input.projectId,
           sessionId,
           projectRoot,
+          ...(childProcessMarker ? { attestationMarker: childProcessMarker } : {}),
         });
       } else {
         child = spawn("pnpm", ["run", "dev"], {
           cwd: projectRoot,
-          env: runtimeEnv(directPort!),
+          env: runtimeEnv(directPort!, childProcessMarker),
           detached: true,
           shell: false,
           stdio: ["ignore", "pipe", "pipe"],
@@ -736,6 +829,8 @@ export class WorkspaceRuntimeManager {
       error: null,
       logs: supervised?.logs ?? [],
       child,
+      ...(childProcessMarker ? { childProcessMarker } : {}),
+      ...(childProcessBinding ? { childProcessBinding } : {}),
     };
     this.sessions.set(input.projectId, session);
     await this.store.updateOwned(input.projectId, this.workerId, {

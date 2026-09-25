@@ -39,7 +39,7 @@ function isSafeProjectId(value) {
   return typeof value === "string" && /^[A-Za-z0-9._:/-]{1,200}$/.test(value);
 }
 
-function runtimeEnv(port) {
+function runtimeEnv(port, attestationMarker) {
   const env = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && SAFE_ENV_NAMES.test(name)) env[name] = value;
@@ -47,6 +47,7 @@ function runtimeEnv(port) {
   env.NODE_ENV = "development";
   env.PORT = String(port);
   env.BASE_PATH = "/";
+  if (attestationMarker) env.ENGINEERINGOS_CHILD_ATTESTATION = attestationMarker;
   return env;
 }
 
@@ -158,16 +159,27 @@ async function start(input) {
   if (input.profile !== "dev" || typeof input.projectRoot !== "string" || !input.projectRoot.startsWith("/")) {
     throw Object.assign(new Error("Only the server-owned dev profile is permitted."), { status: 400 });
   }
+  if (
+    input.attestationMarker !== undefined
+    && (typeof input.attestationMarker !== "string" || !/^[a-f0-9-]{36}$/.test(input.attestationMarker))
+  ) {
+    throw Object.assign(new Error("Invalid child attestation marker."), { status: 400 });
+  }
   const existing = sessions.get(input.projectId);
   if (existing && (existing.status === "starting" || existing.status === "running")) {
-    if (existing.sessionId === input.sessionId) return publicSession(existing);
+    if (existing.sessionId === input.sessionId) {
+      if (input.attestationMarker && existing.attestationMarker !== input.attestationMarker) {
+        throw Object.assign(new Error("Runtime child attestation marker does not match the active session."), { status: 409 });
+      }
+      return publicSession(existing);
+    }
     throw Object.assign(new Error("A different runtime session already owns this project."), { status: 409 });
   }
   if (existing) await terminate(existing);
   const port = await findPort();
   const child = spawn("pnpm", ["run", "dev"], {
     cwd: input.projectRoot,
-    env: runtimeEnv(port),
+    env: runtimeEnv(port, input.attestationMarker),
     detached: true,
     shell: false,
     stdio: ["ignore", "pipe", "pipe"],
@@ -182,6 +194,7 @@ async function start(input) {
     logs: [],
     error: null,
     child,
+    ...(input.attestationMarker ? { attestationMarker: input.attestationMarker } : {}),
   };
   sessions.set(input.projectId, session);
   attachLogs(session);

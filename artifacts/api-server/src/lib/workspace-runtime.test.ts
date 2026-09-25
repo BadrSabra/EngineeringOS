@@ -31,13 +31,22 @@ describe("WorkspaceRuntimeManager", () => {
 
     const manager = new WorkspaceRuntimeManager();
     managers.push(manager);
+    const attestationIdentity = {
+      projectId: "project-runtime-test",
+      operationId: "operation-runtime-test",
+      executionId: "execution-runtime-test",
+      executionAttempt: 1,
+      episodeId: "episode-runtime-test",
+      revision: "revision-1",
+    };
     const started = await manager.start({
       projectId: "project-runtime-test",
       projectRoot: root,
       revision: "revision-1",
+      attestationIdentity,
     });
 
-    expect(started.status).toBe("running");
+    expect(started.status, started.error ?? "runtime did not start").toBe("running");
     expect(started.port).toBeGreaterThanOrEqual(3000);
     expect(started.port).toBeLessThanOrEqual(3099);
     expect(started.command).toBe("pnpm run dev");
@@ -47,6 +56,7 @@ describe("WorkspaceRuntimeManager", () => {
       projectId: "project-runtime-test",
       sessionId: started.sessionId!,
       revision: "revision-1",
+      attestationBinding: { ...attestationIdentity, sessionId: started.sessionId! },
       expectedMarker: "marker-1",
     });
     expect(afterState).toMatchObject({
@@ -60,7 +70,14 @@ describe("WorkspaceRuntimeManager", () => {
       healthStatus: 200,
       servingRevision: "revision-1",
       markerMatched: true,
+      childProcessAttestation: {
+        status: "known",
+        reasonCode: "child_process_observed",
+      },
     });
+    expect(afterState.childProcessAttestation?.bindingDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterState.childProcessAttestation?.attestationDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterState.childProcessAttestation?.processEnvironmentDigest).toMatch(/^[a-f0-9]{64}$/);
 
     const beforeStop = await manager.observeRunningBeforeStop({
       projectId: "project-runtime-test",
@@ -172,7 +189,7 @@ describe("WorkspaceRuntimeManager", () => {
 
     await manager.stop("stale-runtime-test");
     await fs.rm(root, { recursive: true, force: true });
-    expect(started.status).toBe("running");
+    expect(started.status, started.error ?? "runtime did not start").toBe("running");
   });
 
   it("rejects projects without an explicit dev script", async () => {
@@ -210,10 +227,19 @@ describe("WorkspaceRuntimeManager", () => {
     const firstWorker = new WorkspaceRuntimeManager({ store, workerId: "worker-a" });
     const secondWorker = new WorkspaceRuntimeManager({ store, workerId: "worker-b" });
     managers.push(firstWorker, secondWorker);
+    const attestationIdentity = {
+      projectId: "recoverable-project",
+      operationId: "operation-runtime-recovery",
+      executionId: "execution-runtime-recovery",
+      executionAttempt: 2,
+      episodeId: "episode-runtime-recovery",
+      revision: "revision-1",
+    };
     const started = await firstWorker.start({
       projectId: "recoverable-project",
       projectRoot: root,
       revision: "revision-1",
+      attestationIdentity,
     });
     expect(started.status).toBe("running");
     expect(started.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
@@ -229,6 +255,7 @@ describe("WorkspaceRuntimeManager", () => {
       projectId: "recoverable-project",
       sessionId: started.sessionId!,
       revision: "revision-1",
+      attestationBinding: { ...attestationIdentity, sessionId: started.sessionId! },
     });
     expect(afterRecovery).toMatchObject({
       status: "passed",
@@ -238,6 +265,10 @@ describe("WorkspaceRuntimeManager", () => {
       portReady: true,
       healthStatus: 200,
       servingRevision: "revision-1",
+      childProcessAttestation: {
+        status: "unknown",
+        reasonCode: "marker_unavailable",
+      },
     });
 
     const stopped = await secondWorker.stop("recoverable-project");
