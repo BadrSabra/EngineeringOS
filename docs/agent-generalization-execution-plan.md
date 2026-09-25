@@ -29,7 +29,7 @@
 
 ```text
 Agent Episode
-    → Belief / Hypothesis
+    → (optional until P7.5) Belief / Hypothesis
     → Action
     → Preconditions
     → Before Observation
@@ -88,7 +88,7 @@ Agent Episode
 ```text
 PROVEN
 SUCCEEDED
-PROMOTED
+promoted
 ```
 
 القبول النهائي يبقى في:
@@ -322,6 +322,7 @@ ai_strategy_candidates
 
 ```ts
 type AgentEpisode = {
+  schemaVersion: number;
   episodeId: string;
   projectId: string;
   executionId: string;
@@ -332,6 +333,7 @@ type AgentEpisode = {
   parentEpisodeId?: string;
 
   projectRevision: string;
+  environmentRevision?: string;
   worldRevision?: string;
   beliefRevision?: string;
   planRevision?: string;
@@ -346,20 +348,41 @@ type AgentEpisode = {
   observedEffectRefs: string[];
   evidenceRefs: string[];
 
-  verdict:
-    | "ACHIEVED"
-    | "BLOCKED"
-    | "REPLAN_REQUIRED"
-    | "WORLD_CHANGED"
-    | "EVIDENCE_INSUFFICIENT"
-    | "NEEDS_APPROVAL"
-    | "UNSAFE"
-    | "FAILED"
-    | "CANCELLED";
+  state:
+    | "created"
+    | "running"
+    | "paused"
+    | "effect_pending"
+    | "verifying"
+    | "waiting_approval"
+    | "needs_replan"
+    | "completed"
+    | "blocked"
+    | "failed"
+    | "cancelling"
+    | "cancelled";
 
+  verdict?:
+    | "achieved"
+    | "incomplete"
+    | "blocked"
+    | "replan_required"
+    | "world_changed"
+    | "needs_approval"
+    | "unsafe"
+    | "failed"
+    | "cancelled";
+
+  reasonCode?: string;
   nextActionCode?: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt?: string;
 };
 ```
+
+حالات Episode وverdict تستخدم lowercase كما في Zod وPostgreSQL؛ أما `EpisodeEventType`
+فيبقى uppercase لأنه اسم حدث.
 
 القواعد:
 
@@ -376,6 +399,7 @@ type AgentEpisode = {
 
 ```ts
 type AgentObservation = {
+  schemaVersion: number;
   observationId: string;
   projectId: string;
   executionId: string;
@@ -391,19 +415,29 @@ type AgentObservation = {
     | "DELIVERY"
     | "EXTERNAL";
 
+  provenance: "DIRECT_OBSERVATION" | "SERVER_DERIVED" | "MODEL_INFERRED";
+  observationRole: string;
+  sourceType: string;
+  sourceId: string;
+  sourceVersion?: string;
+
   subject: string;
   predicate: string;
   value: unknown;
 
   sourceRefs: string[];
+  evidenceRefs: string[];
   observedAt: string;
   projectRevision?: string;
   environmentRevision?: string;
+  environmentFreshness?: "fresh" | "stale" | "unknown";
 
-  completeness: "COMPLETE" | "PARTIAL" | "FAILED";
-  freshness: "FRESH" | "STALE" | "UNKNOWN";
+  completeness: "complete" | "partial" | "failed";
+  freshness: "fresh" | "stale" | "unknown";
 };
 ```
+
+`kind` و`provenance` قيم uppercase، بينما completeness وfreshness قيم lowercase.
 
 لا تتحول هذه المصادر إلى observations موثوقة:
 
@@ -421,32 +455,29 @@ type AgentObservation = {
 type WorldFact = {
   factId: string;
   projectId: string;
+  taskScope: string;
+  environmentRevision: string | null;
 
   subject: string;
   predicate: string;
-  object: unknown;
+  value: unknown;
+  valueHash: string;
+  version: number;
 
-  scopeKind: "PROJECT" | "WORKSPACE" | "RUNTIME" | "DELIVERY";
-  scopeId: string;
-
-  status:
-    | "BELIEVED"
-    | "CONFIRMED"
-    | "CONTRADICTED"
-    | "RETRACTED";
-
-  confidence: number;
+  status: "believed" | "confirmed" | "contradicted" | "superseded" | "retracted";
   sourceObservationIds: string[];
-  projectRevision?: string;
-  environmentRevision?: string;
-
-  observedAt: string;
-  validFrom?: string;
-  validUntil?: string;
-  supersedesFactIds: string[];
-  contradictsFactIds: string[];
+  projectRevision: string;
+  environmentFreshness: "fresh" | "stale" | "unknown";
+  supersedesFactId: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 ```
+
+`taskScope` و`environmentRevision` يحددان هوية نطاق fact. تصنيف النقل في §22.5
+بُعد منفصل، ولا يوسع scope أو يمنح fact صلاحية أو قابلية نقل تلقائية. حالات fact
+lowercase، وتشمل `superseded`. قد تبقى `environmentRevision` nullable؛ يستخدم
+المخطط `environmentRevisionKey` منفصلًا وغير nullable لهوية uniqueness والفهرسة.
 
 لا تستبدل facts القديمة بصمت. يجب حفظ supersession والتناقض.
 
@@ -512,6 +543,8 @@ type AgentAction = {
 
 يمثل `World State` ما نعرفه، بينما يمثل `Belief State` ما نعتقد أنه قد يكون
 صحيحًا:
+
+تمثيل Belief اختياري حتى P7.5، وليس شرطًا لكل invocation أو للقراءة العادية.
 
 ```ts
 type Belief = {
@@ -591,14 +624,14 @@ type StrategyCandidate = {
 
   confidence: number;
   evaluationStatus:
-    | "DISCOVERED"
-    | "PENDING_REPLAY"
-    | "REPLAY_PASSED"
-    | "REPLAY_FAILED"
-    | "CANARY"
-    | "PROMOTED"
-    | "REVOKED"
-    | "SUPERSEDED";
+    | "discovered"
+    | "pending_replay"
+    | "replay_passed"
+    | "replay_failed"
+    | "canary"
+    | "promoted"
+    | "revoked"
+    | "superseded";
 };
 ```
 
@@ -831,7 +864,7 @@ NOT_OBSERVED
 → لا PROVEN
 
 CONTRADICTED
-→ WORLD_CHANGED أو REPLAN_REQUIRED
+→ world_changed أو replan_required
 
 UNKNOWN
 → acceptance غير مكتملة
@@ -1149,7 +1182,7 @@ effectObservationMode:
   off | shadow | advisory | enforced
 
 worldStateMode:
-  off | advisory | enforced
+  off | shadow | advisory | enforced
 
 strategyLearningMode:
   off | extract_only | replay | canary
@@ -1161,6 +1194,9 @@ capabilityCompositionMode:
 ### Shadow
 
 يسجل النظام episodes وobservations وeffects، لكنه لا يغير قرار acceptance.
+وفي `worldStateMode: shadow` يحسب World State و`worldRevision` كـread model
+للتقييم فقط؛ لا يغير planner أو scope أو authorization أو terminal acceptance.
+هذا يطابق حدّ الإسقاط الحالي.
 
 ### Advisory
 
@@ -1358,6 +1394,10 @@ Generalization Gate = informational
 - skill.
 - capability composition.
 
+يبقى gate informational في extraction وreplay والتحليل. يصبح blocking قبل
+الاستخدام في project-scoped canary، وفق شروط §25.3، ثم قبل الترقية العامة وفق
+§25.4 و§42.17. لا يعوض score إجمالي عن safety gate فاشل.
+
 لا يستخدم benchmark baseline وحده دليلاً على general intelligence.
 
 ---
@@ -1397,7 +1437,11 @@ learningStatus
 
 ---
 
-## 13. ترتيب Pull Requests أو وحدات الدمج
+## 13. خريطة PR تاريخية للتجميع — ليست ترتيب التنفيذ الحالي
+
+تحفظ القائمة تقسيمات العمل السابقة ولا تثبت الحالة الحالية أو الاعتماديات.
+اتبع ترتيب §31 وحالة التنفيذ المصححة في §42 وسجل التقدم؛ لا تبدأ PR قديمة
+لمجرد أنها واردة هنا.
 
 ### PR 1: العقود فقط
 
@@ -1432,8 +1476,9 @@ learningStatus
 - هذه أول vertical slice كاملة، ولا يبدأ learning قبل نجاحها.
 - `candidate.verify` يبدأ Episode authoritative ويستخدم `AgentAction` و`EffectContract`
   server-owned.
-- يسجل `ACTION_REQUESTED` و`ACTION_COMMITTED` ثم before/after direct observations
-  للـcandidate workspace وvalidation result.
+- يسجل `ACTION_REQUESTED`، ثم يتحقق من preconditions ويلتقط before observation،
+  وينفذ validation، ثم يسجل `ACTION_COMMITTED` ويلتقط after observation لنتيجة
+  الـcandidate workspace والتحقق.
 - يصنف الأثر ويحفظ effect bundle قبل terminal acceptance، مع binding إلى نفس
   execution/attempt/episode/revision.
 - missing/stale/contradicted effect لا يسمح بـ`PROVEN`؛ receipts وacceptance تبقى
@@ -1443,8 +1488,9 @@ learningStatus
 ### PR 6: Runtime/Browser/Delivery Observers
 
 - توحيد after-state observers عند recipe node lifecycle مع نفس
-  `AgentAction → BEFORE_OBSERVATION → execution → AFTER_OBSERVATION →
-  verifyAndPersistEffect → existing acceptance` seam.
+  `ACTION_REQUESTED → preconditions → BEFORE_OBSERVATION → execution →
+  ACTION_COMMITTED → AFTER_OBSERVATION → verifyAndPersistEffect → existing
+  acceptance` seam.
 - Runtime after-state يتحقق من session/revision/worker lease، PID، port readiness،
   HTTP health، serving revision، وmarker اختياري؛ لا يكفي `status: running`.
 - Browser evidence يحمل source revision وprofile/session identity وartifact reference
@@ -1807,7 +1853,11 @@ schema والهوية والـpolicy.
 
 ---
 
-## 18. مخطط البيانات النهائي
+## 18. مخطط البيانات: الحالة الفعلية والعقود المنطقية
+
+هذا القسم يصف الحالة القائمة، لا تعليمات لإعادة إنشاء الجداول. مخططات §18.2–§18.6
+تطابق Drizzle الحالي؛ عند أي اختلاف تكون `lib/db/src/schema` هي المرجع، وأي تغيير
+لاحق يحتاج migration إضافية ومراجعة توافق لا إعادة تطبيق التصميم الأولي.
 
 ### 18.1 مبدأ التخزين
 
@@ -1832,24 +1882,28 @@ id                  text primary key
 project_id          text not null → projects.id
 execution_id        text not null → ai_executions.id
 attempt             integer not null
-episode_type        text not null
-parent_episode_id   text nullable → ai_agent_episodes.id
 mission_id          text nullable → ai_missions.id
 goal_id             text nullable → ai_goals.id
-operation_id        text nullable
-correlation_id      text nullable
+parent_episode_id   text nullable → ai_agent_episodes.id
 project_revision    text not null
-world_revision_start text nullable
-world_revision_end  text nullable
+environment_revision text nullable
+world_revision      text nullable
+belief_revision     text nullable
 plan_revision       text nullable
+intent_kind         text not null
 scope               jsonb not null
-objective_hash      text not null
+objective_contract_id text nullable
+observation_refs    jsonb not null default []
+action_refs         jsonb not null default []
+expected_effect_refs jsonb not null default []
+observed_effect_refs jsonb not null default []
+evidence_refs       jsonb not null default []
 state               enum not null
-verdict             text nullable
+verdict             enum nullable
 reason_code         text nullable
 next_action_code    text nullable
-worker_id           text nullable
-lease_epoch         integer nullable
+worker_id           text not null
+lease_until         timestamp not null
 idempotency_key     text not null
 created_at          timestamp not null
 updated_at          timestamp not null
@@ -1863,14 +1917,14 @@ FK project_id → projects.id ON DELETE CASCADE
 FK execution_id → ai_executions.id ON DELETE CASCADE
 FK parent_episode_id → ai_agent_episodes.id ON DELETE SET NULL
 FK mission_id/goal_id → existing mission tables
-UNIQUE(execution_id, attempt, idempotency_key)
-INDEX(project_id, state, updated_at)
-INDEX(execution_id, attempt)
-INDEX(goal_id, plan_revision)
+UNIQUE(execution_id, attempt)
+UNIQUE(execution_id, idempotency_key)
+INDEX(project_id, created_at)
+INDEX(worker_id, lease_until)
 ```
 
-`objective_hash` هو hash لنسخة server-owned من objective contract. لا يحسب
-من prompt خام.
+`scope` وreferences مرتبطة بعقد server-owned؛ لا يحسب objective identity من
+prompt خام.
 
 ### 18.3 جدول `ai_agent_episode_events`
 
@@ -1885,6 +1939,7 @@ attempt             integer not null
 sequence            integer not null
 event_type          text not null
 payload             jsonb not null
+payload_hash        text not null
 actor_type          text not null
 actor_id            text nullable
 correlation_id      text nullable
@@ -1896,7 +1951,6 @@ created_at          timestamp not null
 ```text
 UNIQUE(episode_id, sequence)
 UNIQUE(episode_id, event_type, payload_hash)
-INDEX(project_id, created_at)
 INDEX(execution_id, attempt, sequence)
 ```
 
@@ -1931,9 +1985,11 @@ EPISODE_TERMINAL
 id                    text primary key
 project_id            text not null → projects.id
 episode_id            text not null → ai_agent_episodes.id
-execution_id          text nullable → ai_executions.id
-attempt               integer nullable
+execution_id          text not null → ai_executions.id
+task_scope            text not null default 'project'
+environment_revision_key text not null default 'unknown'
 kind                  text not null
+provenance            text not null default 'SERVER_DERIVED'
 observation_role      text not null
 source_type           text not null
 source_id             text not null
@@ -1942,12 +1998,15 @@ subject               text not null
 predicate             text not null
 value                 jsonb not null
 value_hash            text not null
-source_revision       text nullable
-environment_revision  text nullable
-completeness          text not null
-freshness             text not null
-evidence_refs         jsonb not null default []
+source_refs           jsonb not null default []
 observed_at           timestamp not null
+project_revision      text nullable
+environment_revision  text nullable
+completeness          enum not null
+freshness             enum not null
+environment_freshness enum not null default 'unknown'
+evidence_refs         jsonb not null default []
+sequence              integer not null
 created_at            timestamp not null
 ```
 
@@ -1956,10 +2015,10 @@ created_at            timestamp not null
 ```text
 FK project_id → projects.id ON DELETE CASCADE
 FK episode_id → ai_agent_episodes.id ON DELETE CASCADE
-UNIQUE(source_type, source_id, source_version, predicate, value_hash)
-INDEX(project_id, kind, observed_at)
-INDEX(project_id, subject, predicate, observed_at)
-INDEX(episode_id, observation_role)
+UNIQUE(project_id, task_scope, environment_revision_key, environment_freshness,
+       source_type, source_id, source_version, predicate, value_hash)
+INDEX(episode_id, sequence)
+INDEX(project_id, subject, predicate)
 ```
 
 `source_type` لا يساوي `kind`. مثال:
@@ -1982,10 +2041,10 @@ attempt               integer not null
 action_id             text not null
 capability_id         text not null
 effect_contract_hash  text not null
-before_observation_ids jsonb not null
-after_observation_ids  jsonb not null
+before_observation_ids jsonb not null default []
+after_observation_ids  jsonb not null default []
 expected_effects       jsonb not null
-status                 text not null
+status                 enum not null default 'pending'
 missing_effects        jsonb not null default []
 contradiction_refs     jsonb not null default []
 evidence_refs          jsonb not null default []
@@ -2004,12 +2063,12 @@ INDEX(episode_id, action_id)
 حالات effect:
 
 ```text
-PENDING
-OBSERVED
-PARTIAL
-NOT_OBSERVED
-CONTRADICTED
-UNKNOWN
+pending
+observed
+partial
+not_observed
+contradicted
+unknown
 ```
 
 ### 18.6 جدول `ai_world_facts`
@@ -2019,36 +2078,37 @@ UNKNOWN
 ```text
 id                    text primary key
 project_id            text not null → projects.id
-fact_key              text not null
-version               integer not null
-scope_kind            text not null
-scope_id              text not null
+task_scope            text not null default 'project'
+environment_revision_key text not null default 'unknown'
 subject               text not null
 predicate             text not null
-object_value          jsonb not null
-object_hash           text not null
-status                text not null
-confidence             numeric not null
-world_revision        text not null
-source_observation_ids jsonb not null
+value                 jsonb not null
+value_hash            text not null
+version               integer not null
+status                enum not null default 'believed'
+source_observation_ids jsonb not null default []
+project_revision      text not null
+environment_revision  text nullable
+environment_freshness text not null default 'unknown'
 supersedes_fact_id    text nullable
-valid_from            timestamp nullable
-valid_until           timestamp nullable
-observed_at           timestamp not null
 created_at            timestamp not null
+updated_at            timestamp not null
 ```
 
 القيود:
 
 ```text
-UNIQUE(project_id, fact_key, version)
-INDEX(project_id, fact_key, status, version)
-INDEX(project_id, scope_kind, scope_id, status)
-INDEX(project_id, world_revision)
+UNIQUE(project_id, task_scope, environment_revision_key, subject, predicate, version)
+INDEX(project_id, task_scope, environment_revision_key, subject, predicate, status)
+CHECK(version >= 1)
 ```
 
-لا يوجد `UNIQUE` يمنع التناقضات؛ التناقض يجب أن يكون قابلاً للتسجيل حتى
-يتم حسمه. projection الحالية تختار facts المقبولة وفق سياسة التعارض.
+`environment_revision_key` هو مفتاح هوية غير nullable (`unknown` عند غياب
+revision)، بينما `environment_revision` الأصلية nullable. لا يخزن كل fact
+`worldRevision`؛ يعاد حسابها في projection من نطاق الطلب والحقائق ومراجع
+observation. لا يحتوي المخطط الحالي عمود `confidence` أو validity interval.
+لا يوجد قيد يمنع تسجيل قيم متناقضة؛ تحفظ الإصدارات وتحدد projection الحالة
+وفق project revision.
 
 ### 18.7 جدول `ai_strategy_candidates`
 
@@ -2102,106 +2162,116 @@ lib/db/src/schema/index.ts
 
 ## 19. State Machines
 
+Persisted Episode, Effect, Fact, and Strategy status values use lowercase. Event
+type names such as `ACTION_REQUESTED` and `ACTION_COMMITTED` remain uppercase.
+
 ### 19.1 Episode state machine
 
 ```text
-CREATED
-  → RUNNING
-  → PAUSED
-  → RUNNING
-  → VERIFYING
-  → COMPLETED
+created
+  → running
+  → paused
+  → running
+  → verifying
+  → completed
 
-RUNNING
-  → EFFECT_PENDING
-  → RUNNING
+running
+  → effect_pending
+  → running
 
-RUNNING
-  → NEEDS_REPLAN
-  → RUNNING
+running
+  → needs_replan
+  → running
 
-RUNNING
-  → WAITING_APPROVAL
-  → RUNNING
+running
+  → waiting_approval
+  → running
 
-CREATED/RUNNING/PAUSED/VERIFYING
-  → CANCELLING
-  → CANCELLED
+created/running/paused/verifying
+  → cancelling
+  → cancelled
 
-CREATED/RUNNING/PAUSED/VERIFYING
-  → BLOCKED
-  → FAILED
+created/running/paused/verifying
+  → blocked أو failed
 ```
 
 القواعد:
 
-- `COMPLETED`, `CANCELLED`, `BLOCKED`, و`FAILED` terminal.
+- `completed`, `cancelled`, `blocked`, و`failed` terminal.
 - لا يمكن فتح episode terminal.
 - resume ينشئ attempt جديداً فقط وفق عقد execution الحالي؛ لا يعيد فتح row
   terminal.
-- `NEEDS_REPLAN` ليست terminal إذا كانت الميزانية تسمح بإعادة التخطيط.
-- `WAITING_APPROVAL` لا يستهلك action budget أثناء الانتظار.
+- `needs_replan` ليست terminal إذا كانت الميزانية تسمح بإعادة التخطيط.
+- `waiting_approval` لا يستهلك action budget أثناء الانتظار.
 - لا يكتب الانتقال إلا worker المالك أو transaction recovery المصرح بها.
 
 ### 19.2 Action state machine
 
 ```text
 PLANNED
+  → ACTION_REQUESTED
   → PRECONDITIONS_CHECKED
   → BEFORE_CAPTURED
   → DISPATCHED
   → ACTION_COMMITTED
   → EFFECT_PENDING
+  → AFTER_CAPTURED
   → EFFECT_CLASSIFIED
 ```
 
 من `EFFECT_CLASSIFIED`:
 
 ```text
-OBSERVED      → CONTINUE أو ACCEPTANCE
-PARTIAL       → READ_MORE أو REPLAN
-NOT_OBSERVED  → REPLAN أو INCOMPLETE
-CONTRADICTED  → WORLD_CHANGED أو BLOCKED
-UNKNOWN       → INCOMPLETE
+observed      → CONTINUE أو ACCEPTANCE
+partial       → READ_MORE أو REPLAN
+not_observed  → REPLAN أو INCOMPLETE
+contradicted  → world_changed أو blocked
+unknown       → INCOMPLETE
 ```
 
 لا يجوز الانتقال من `ACTION_COMMITTED` إلى `PROVEN` مباشرة في mutation أو
-delivery action.
+delivery action. `ACTION_REQUESTED` و`ACTION_COMMITTED` أحداث Episode؛ مراحل
+capture هي ملاحظات منفصلة وليست event types إضافية.
 
 ### 19.3 World fact state machine
 
 ```text
-OBSERVED
-  → BELIEVED
-  → CONFIRMED
+observed
+  → believed
+  → confirmed
 
-BELIEVED/CONFIRMED
-  → SUPERSEDED
-  → RETRACTED
-  → CONTRADICTED
+believed/confirmed
+  → superseded
+  → retracted
+  → contradicted
 ```
 
-الانتقال إلى `CONFIRMED` يحتاج مصدر server-owned يحقق policy الخاصة بنوع fact.
+الانتقال إلى `confirmed` يحتاج مصدر server-owned يحقق policy الخاصة بنوع fact.
+`observed` هنا observation input، وليس قيمة ضمن enum الحالة المحفوظة للـfact.
 
 ### 19.4 Strategy candidate state machine
 
 ```text
-DISCOVERED
-  → PENDING_REPLAY
-  → REPLAY_PASSED
-  → CANARY
-  → PROMOTED
+discovered
+  → pending_replay
+  → replay_passed
+  → canary
+  → promoted
 
-DISCOVERED/PENDING_REPLAY/REPLAY_PASSED/CANARY
-  → REPLAY_FAILED أو REJECTED
+discovered/pending_replay/replay_passed/canary
+  → replay_failed
 
-PROMOTED
-  → REVOKED
-  → SUPERSEDED
+canary (بعد المهلة أو عند hard safety failure)
+  → revoked
+
+promoted
+  → revoked
+  → superseded
 ```
 
-لا يجوز الانتقال إلى `PROMOTED` من provider response أو benchmark aggregate
-فقط.
+لا يجوز الانتقال إلى `promoted` من provider response أو benchmark aggregate
+فقط. غياب البيانات يبقي المرشح `pending_replay`؛ لا يبرر canary ولا يسجل
+كفشل replay.
 
 ---
 
@@ -2449,6 +2519,9 @@ server-owned acceptance/proof
 → unconfirmed hypothesis
 ```
 
+هذا ترتيب لوزن المصدر عند materialization، وليس ترتيب صلاحيات: acceptance/proof
+تبقى `SERVER_DERIVED` ولا تصبح direct observation أو before/after effect evidence.
+
 الترتيب لا يعني أن المصدر الأقوى يحذف مصدراً أقدم؛ بل يحدد status عند التعارض.
 
 ### 22.2 Freshness
@@ -2493,7 +2566,7 @@ repeated observation
 
 1. لا تحذف أياً منهما.
 2. أنشئ conflict reference.
-3. اجعل projection الحالية `CONTRADICTED` أو `UNRESOLVED`.
+3. اجعل projection الحالية `contradicted` أو سجّل conflict غير محسوم.
 4. أضف required observation تميز بينهما.
 5. امنع claims التي تعتمد على conflict من PROVEN.
 
@@ -2507,6 +2580,10 @@ ENVIRONMENT_LOCAL
 DOMAIN_REUSABLE
 GLOBAL_SAFE
 ```
+
+هذا تصنيف لقابلية النقل، وليس بديلاً عن `taskScope` و`environmentRevision`
+اللذين يحددان هوية fact الفعلية. لا يمنح التصنيف وحده صلاحية أو تعميمًا؛ النقل
+يتطلب replay وheld-out evidence مستقلين.
 
 الافتراضي `PROJECT_LOCAL`. لا تنقل fact بين المشاريع إلا بعد strategy/evidence
 evaluation صريحة.
@@ -2745,7 +2822,7 @@ redundancy_score
 
 ### 25.3 Minimum evidence للـstrategy
 
-لا تدخل strategy `PENDING_REPLAY` إلا إذا:
+لا تدخل strategy `pending_replay` إلا إذا:
 
 ```text
 supporting accepted episodes >= 2
@@ -2753,7 +2830,7 @@ or
 one episode with explicit controlled experiment
 ```
 
-ولا تدخل `CANARY` إلا إذا:
+ولا تدخل `canary` إلا إذا:
 
 ```text
 replay pass rate >= 95%
@@ -2761,6 +2838,11 @@ zero critical safety failures
 zero false PROVEN
 held-out improvement or cost reduction
 ```
+
+`canary` مرحلة تقييم محدودة بمشروع/نطاق، وليست promotion عامة. لا يبدأ canary
+عند غياب القياس أو عدم اكتمال replay؛ تبقى الحالة `pending_replay`. أي critical
+safety failure أو false `PROVEN` أو scope escape يرفض المرشح ويمنع canary؛ لا
+يجوز تحويل hard failure إلى canary لتجربته في بيئة أضيق.
 
 ### 25.4 بوابة الترقية الرقمية
 
@@ -2781,6 +2863,10 @@ confidence calibration ECE: <= 0.15
 إذا لم تتوفر 3 مشاريع أو fixtures مستقلة، تبقى strategy غير قابلة للترقية
 العامة وتظل project-scoped.
 
+لا تعني نتيجة canary نجاح هذه البوابة. promotion إلى live/shared registry يحتاج
+كل الحدود الرقمية أعلاه، وG1–G9 في §42.17. أي شرط safety فاشل يمنع الترقية؛
+البيانات الناقصة تبقي المرشح غير محسوم ولا تتحول إلى نجاح أو إذن promotion.
+
 ### 25.5 Revocation
 
 يجب إبطال strategy إذا:
@@ -2791,7 +2877,7 @@ confidence calibration ECE: <= 0.15
 - أصبحت source/capability contract غير متوافقة.
 - اكتشفت contradiction غير معالجة.
 
-الإبطال لا يحذف history. يغير الحالة إلى `REVOKED` ويوقف استخدامها فوراً.
+الإبطال لا يحذف history. يغير الحالة إلى `revoked` ويوقف استخدامها فوراً.
 
 ---
 
@@ -2988,15 +3074,17 @@ Shadow/Advisory.
 يجب أن يوجد job reconciliation يفحص:
 
 ```text
-episodes RUNNING with expired lease
-effects PENDING beyond timeout
+episodes running with expired lease
+effects pending beyond timeout
 observations missing source
 facts with broken supersession
-strategy CANARY beyond deadline
+strategy canary beyond deadline
 ```
 
-لا يعيد reconciliation mutation. يعيد فقط observation idempotent أو يرفع
-حالة blocked/unknown.
+عند تجاوز canary للمهلة، يوقف reconciliation استخدام المرشح ويكتب transition
+`canary → revoked` بسياج ownership وسبب/وقت انتهاء محفوظين؛ لا يمدد المهلة
+تلقائيًا ولا يحذف forensic history. بقية reconciliation لا تعيد mutation على
+المشروع؛ تعيد observation idempotent أو ترفع حالة blocked/unknown.
 
 ---
 
@@ -3041,14 +3129,22 @@ strategy CANARY beyond deadline
 
 ### 29.4 بوابة effect
 
-لكل capability مدعومة:
+لكل capability مدعومة، افصل بوابة الاستدعاء والنتيجة عن بوابة إثبات mutation.
+كل قراءة read-only تحتاج:
+
+- action/invocation identity ونطاق وrevision server-owned.
+- نتيجة complete أو فشل صريح، مع source/evidence references.
+- عدم اعتبار اكتمال القراءة إثباتًا لتغيير حالة أو لإنجاز objective.
+
+ولا تتطلب قراءة read-only `EffectBundle` إلا إذا كان لها عقد تحقق صريح، مثل
+Candidate Validation. لكل action معدِّل للحالة أو external effect، يلزم:
 
 - before observation موجودة.
 - action identity موجودة.
-- after observation أو explicit unknown موجود.
+- after observation مستقلة أو explicit unknown موجودة.
 - effect contract hash مطابق.
 - failure mapping deterministic.
-- no mutation success بلا effect status.
+- لا mutation success بلا effect status مقبول من المصدر المستقل.
 
 ### 29.5 بوابة recovery
 
@@ -3076,8 +3172,15 @@ strategy CANARY beyond deadline
 ECE <= 0.15
 ```
 
-إذا فشل شرط واحد، تبقى candidate في `REPLAY_FAILED` أو project-scoped
-`CANARY`.
+إذا لم تتحقق بوابات الترقية العامة، لا تتم promotion. تبقى المرشحة project-scoped
+فقط إذا اجتازت شروط `canary` في §25.3؛ hard safety failure يؤدي إلى
+`replay_failed` أو `revoked` إذا كانت قيد canary.
+
+هذا التقسيم ليس مسارًا بديلًا للترقية: hard safety failures وfalse `PROVEN`
+تؤدي إلى `replay_failed`/`revoked` ولا تسمح بـ`canary`. إذا كانت الأدلة أو
+العينة غير مكتملة، تبقى الحالة `pending_replay`. لا يسمح بـproject-scoped
+`canary` إلا بعد شروط §25.3، مع نطاق ومهلة وkill/revocation واضحين؛ promotion
+عامة لا تحدث إلا بعد بوابات §25.4 و§42.17.
 
 ---
 
@@ -3334,10 +3437,11 @@ evidence completeness
 
 ---
 
-## 35. Architecture Freeze — قرارات ملزمة قبل أول Migration
+## 35. سجل قرارات تاريخي — لا يعيد ترتيب التنفيذ الحالي
 
-هذا القسم يحسم القرارات التي كانت قابلة للتفسير في الخطة العامة. لا يبدأ
-التنفيذ الذي يغير schema أو acceptance قبل اعتماد هذه القرارات كما هي.
+يحفظ هذا القسم قرارات التصميم السابقة. P0–P2 منفذة؛ لا تستخدم بنود schema هنا
+كأوامر لإعادة migration أو كترتيب تنفيذ نشط. المرجع التنفيذي الحالي هو §31
+وحالة الإنجاز الفعلية في §42.
 
 ### 35.1 مصدر الحقيقة لكل نوع بيانات
 
@@ -3415,7 +3519,9 @@ INDEX(project_id, created_at)
 
 يتم إنشاء effect bundle قبل terminal acceptance، وتكتب acceptance وeffect
 binding في نفس transaction. لا يستخدم `disposition` وحده لهذا الربط؛ يمكن
-أن يحتوي `disposition` على projection مختصرة فقط.
+أن يحتوي `disposition` على projection مختصرة فقط. ينطبق الربط على mutations
+والـexternal effects وعلى عمليات التحقق التي تعلن صراحة expected effect، مثل
+Candidate Validation؛ لا يتطلب كل read-only call `EffectBundle`.
 
 ### 35.4 الـenums والـchecks
 
@@ -3442,16 +3548,27 @@ effect_status:
 
 fact_status:
   believed, confirmed, contradicted, superseded, retracted
+
+observation_provenance:
+  DIRECT_OBSERVATION, SERVER_DERIVED, MODEL_INFERRED
+
+action_risk:
+  LOW, MEDIUM, HIGH
 ```
 
 يجب أن يفرض database وZod معاً:
 
 ```text
-confidence >= 0 AND confidence <= 1
 sequence >= 0
 attempt >= 0
 version >= 1
 ```
+
+قيم enum ليست موحدة casing: حالات Episode/Observation/Effect/Fact lowercase،
+بينما event types و`kind` و`provenance` وAction risk uppercase. لا يضيف المخطط
+الحالي `confidence` إلى World Fact؛ أي confidence لاحق يخص Belief/decision
+projection ويحتاج عقدًا منفصلًا. `EffectContract.allowedResult` enum منفصل
+ويظل uppercase؛ أما `EffectStatus` المحفوظ بعد التصنيف فيظل lowercase.
 
 ### 35.5 `worldRevision`
 
@@ -3498,9 +3615,10 @@ docs/ai-agent-improvement-plan.md
 
 ---
 
-## 36. أول حزمة تنفيذية ملزمة: P0 وP1
+## 36. حزمة التنفيذ التاريخية: P0 وP1
 
-هذه الحزمة هي نقطة البدء الوحيدة المسموح بها قبل World State أو learning.
+بدأت هذه الحزمة تاريخيًا بـP0/P1، وهما مكتملتان وفق سجل التقدم. لا تستخدمها
+كنقطة بدء جديدة؛ استمر من dependency graph في §31.
 
 ### 36.1 P0-A — إنشاء العقود
 
@@ -3657,7 +3775,7 @@ episode-public-redaction
 
 ---
 
-## 37. عقد انتقال P1 إلى P2
+## 37. سجل بوابة الانتقال التاريخية P1 إلى P2
 
 لا يبدأ Observation Materialization إلا إذا تحققت الشروط التالية:
 
@@ -3677,7 +3795,7 @@ shadow overhead p95 < 50ms per event
 
 ---
 
-## 38. ما لا يجوز تنفيذه في أول Pull Request
+## 38. قيود Pull Request الأول — مرجع تاريخي
 
 لا يضم أول PR أياً من التالي:
 
@@ -3955,18 +4073,15 @@ Safe Promotion
 - World fact contracts.
 - World-state materialization.
 - Supersession والتناقضات.
-- World revision generation.
+- World revision generation scoped by project/task/environment.
 - Current-fact projection.
+- task/environment filters في reader وAPI.
 
-#### المتبقي
+#### التكامل المعرفي اللاحق — ليس نقصًا في P3 foundation
 
-- task-scoped world revision.
-- environment-aware revision.
-- Belief State semantics.
-- فصل provenance بين `DIRECT_OBSERVATION` و`SERVER_DERIVED`
-  و`MODEL_INFERRED`.
-- integration authoritative مع planner.
-- independent observation ingestion.
+- Belief State semantics: مؤجلة إلى P7.5.
+- independent observation/provenance من المصدر الفعلي: ضمن P4.
+- integration authoritative مع planner: ضمن P8.
 
 `World State` هو read model محدود، وليس مصدر صلاحية أو بديلًا عن
 `evidence` و`acceptance`.
@@ -3975,31 +4090,28 @@ Safe Promotion
 
 **الحالة:** `NOT COMPLETE`
 
-قبل أي learning أو strategy promotion يجب أن تملك كل عملية هندسية spine
-دلالية واحدة:
+قبل أي learning أو strategy promotion يجب أن تملك كل capability invocation
+هوية Episode/Action ونطاقًا server-owned. تمثيل Belief/Hypothesis اختياري حتى
+P7.5، ولا يفرض على كل قراءة أو مهمة عادية:
 
 ```text
 Objective
     ↓
 Episode
     ↓
-Belief / Hypothesis
-    ↓
-Action
-    ↓
-Preconditions
-    ↓
-Before Observation
-    ↓
-Execution
-    ↓
-After Observation
-    ↓
-Effect Classification
-    ↓
-World Delta
-    ↓
-Acceptance
+Action / Invocation identity
+    ├─ read-only: bounded result + evidence references
+    │              (لا mutation EffectBundle افتراضيًا)
+    └─ mutation/effect-gated validation:
+         ACTION_REQUESTED
+         → Preconditions
+         → Before Observation
+         → Execution
+         → ACTION_COMMITTED
+         → After Observation
+         → Effect Classification
+         → World Delta (إغلاق P6)
+         → Acceptance
 ```
 
 #### Definition of Done
@@ -4014,10 +4126,16 @@ Acceptance
 6. ينفذ الفعل عبر action profile server-owned.
 7. تلتقط after-state observations مستقلة.
 8. يصنف الأثر من before/after evidence.
-9. تتم materialization لـworld-state delta.
-10. يشير acceptance إلى effect bundle الناتج.
+9. تتم materialization لـworld-state delta ضمن إغلاق P6.
+10. يشير acceptance إلى effect bundle الناتج للـmutation أو التحقق ذي expected
+    effect؛ لا يفرض ذلك على كل read-only invocation.
 11. يحفظ كل evidence provenance الخاص به.
 12. لا يسمح acceptance بتمثيل نفسه كـdirect runtime observation.
+
+قراءة read-only تحفظ invocation identity ونتيجتها/فشلها ومراجع evidence؛ لا
+تحتاج before/after EffectBundle ما لم يعرّف عقدها صراحة أثرًا متوقعًا مثل
+Candidate Validation. المتطلبات أعلاه هي DoD للحلقة المغلقة عبر P3.5–P6، وليست
+شرطًا يدّعي أن كل vertical slice الجزئية الحالية قد أغلقتها.
 
 #### شرائح تنفيذ جزئية — 2026-09-24
 
@@ -4146,12 +4264,14 @@ task/environment-scoped World State وrevision closure ما زالا مطلوب�
 
 - independent observation providers.
 - observation provenance.
-- task-scoped world revision.
-- environment revision.
 - monotonic observation sequence.
 - relevant fact versions.
-- world delta.
-- contradiction propagation.
+- contradiction detection/propagation من ملاحظات مستقلة إلى projection.
+
+task/environment scoping و`worldRevision` filters موجودة ضمن P3؛ لا تعاد
+تسجيلها كعمل متبقٍ. ما يزال مطلوبًا إثبات المصدر الفعلي للملاحظة، بما فيه
+تأكيد child-process/runtime عندما تتوقف صلاحية handoff attestation. World Delta
+وإعادة بنائه يخصان P6؛ ينتج P4 observations/facts المربوطة التي يستهلكها P6.
 
 لا تعتبر environment identity الموجودة عند Episode creation أو receipt-time أو
 runtime launch/validator handoff independent observation من البيئة التي استخدمها
@@ -4263,17 +4383,23 @@ identity (42.20–42.21) هما handoff attestations server-owned، وليسا �
 الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
 
 ```text
-ACTION_COMMITTED
+ACTION_REQUESTED
+    ↓
+PRECONDITIONS_CHECKED
     ↓
 BEFORE_OBSERVATION
     ↓
 ACTION_EXECUTION
     ↓
+ACTION_COMMITTED
+    ↓
+EFFECT_PENDING
+    ↓
 AFTER_OBSERVATION
     ↓
 EFFECT_CLASSIFICATION
     ↓
-WORLD_DELTA
+WORLD_DELTA (عند إغلاق P6)
     ↓
 ACCEPTANCE
 ```
@@ -4281,12 +4407,15 @@ ACCEPTANCE
 القيم المسموحة لـ`EffectStatus`:
 
 ```text
-OBSERVED
-PARTIAL
-NOT_OBSERVED
-CONTRADICTED
-UNKNOWN
+pending
+observed
+partial
+not_observed
+contradicted
+unknown
 ```
+
+`pending` حالة قبل التصنيف؛ بقية القيم نتائج التصنيف.
 
 لا يجوز استنتاج Effect من acceptance وحدها. غياب after observation أو وجود
 تناقض يبقي النتيجة غير مكتملة ولا يسمح بـ`PROVEN`.
@@ -4295,6 +4424,8 @@ UNKNOWN
 
 ```text
 ACTION_REQUESTED
+    ↓
+PRECONDITIONS_CHECKED
     ↓
 BEFORE_OBSERVATION
     ↓
@@ -4309,6 +4440,10 @@ EFFECT_CLASSIFICATION
 ACCEPTANCE(effectBundleId)
 ```
 
+تسجل observations كأحداث/صفوف مستقلة عن `ACTION_REQUESTED` و`ACTION_COMMITTED`؛
+لا يستخدم الترتيب أعلاه commit قبل before observation أو التنفيذ. World Delta
+إغلاق مستقل في P6، وليس شرطًا يعاد نسبته إلى كل شريحة effect قائمة.
+
 أصبحت مسارات Runtime start/restart/stop المباشرة موصولة بالـeffect/acceptance
 seam عبر recipes مسجلة مستقلة، ولكل منها effect identity متميزة. Stop يثبت
 الـterminal state من PID/port السابقين ولا يستنتجه من snapshot. تبقى اختبارات
@@ -4320,7 +4455,9 @@ acceptance seam.
 
 **الحالة:** `PARTIAL — episode-backed ACTION_REQUESTED writes require the canonical AgentAction; generic recipe/tool invocation coverage remains`
 
-كل mutating capability invocation يجب أن يطبق `AgentAction` ويكشف:
+كل capability invocation، بما فيها read-only، يحتاج هوية ونطاقًا ومصدر نتيجة
+واضحًا ضمن عقد server-owned. وتكشف `AgentAction` الموحدة للـmutation أو
+الـeffect-gated validation:
 
 ```text
 actionId
@@ -4339,7 +4476,8 @@ failure semantics
 الهدف أن تصبح recipe node وtool call وMission action وexecution node
 implementations للعقد نفسه، بدل وجود semantics منفصلة. هذا لا يمنح النموذج
 صلاحية جديدة؛ تبقى capability registry وauthorization وprofiles
-server-owned. تبدأ الخطوة التالية بهذه الوحدة لأنها توحد الهوية والعقد قبل
+server-owned. القراءة تحفظ result/evidence ولا تنشئ mutation `EffectBundle`
+افتراضيًا. تبدأ الخطوة التالية بهذه الوحدة لأنها توحد الهوية والعقد قبل
 إضافة مسارات Action/Effect جديدة.
 
 تتطلب كتابات `ACTION_REQUESTED` الجديدة عبر Episode الآن الفعل الكامل، وتتحقق
@@ -4505,6 +4643,9 @@ trigger condition
 + observation requirements
 ```
 
+مرشح discovery/replay الحالي لا يثبت هذا التجريد بعد؛ `abstract state
+transition` شرط P10 مستقبلي وليس حقلًا في candidate contract الحالي.
+
 لا يجوز أن تكون strategy مجرد:
 
 ```text
@@ -4612,6 +4753,13 @@ G9 — Revocation Safety
 ```
 
 لا يستخدم score واحدًا لإخفاء فشل gate منفرد.
+
+هذه gates مطلوبة للترقية العامة إلى registry مشتركة. project-scoped `canary`
+مرحلة اختبار مؤقتة وليست ترقية عامة، ولا يسمح بها إلا بعد شروط §25.3 مع scope
+وdeadline وkill/revocation واضحين. critical safety failure أو false `PROVEN`
+أو scope escape يمنع canary ويؤدي إلى `replay_failed`؛ وأي مرشح فشل داخل canary
+يسحب إلى `revoked`. نقص البيانات يبقي المرشح `pending_replay`. انتهاء مهلة canary يوقف استخدامه ويحوّله إلى
+`revoked` مع حفظ forensic history.
 
 ### 42.18 General Engineering Agent Definition of Done
 

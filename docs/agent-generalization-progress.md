@@ -15,9 +15,9 @@
 | P0 — Contracts, baseline, threat model | `done` | عقود agent-state واختبارات parsing/hash/redaction موجودة. |
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
-| P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة، مع task/environment scoping؛ لا تزال belief وindependent observation ناقصة. |
+| P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
-| P4 — Independent Observation and World Integration | `partial` | توجد task/environment-scoped World State وAPI filters، وملاحظات receipt-time، وهوية launch للـruntime وبصمة validator قبل spawn. هذه هويات/ملاحظات server-owned وليست إثباتًا مستقلًا لبيئة child process؛ يلزم إغلاق مصادر الملاحظة المستقلة وWorld Delta/contradiction propagation. |
+| P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وهوية launch للـruntime وبصمة validator قبل spawn، لكنها لا تثبت وحدها بيئة child process. المتبقي إغلاق مصادر الملاحظة المستقلة وpropagation للتناقضات؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `partial` | كل كتابة جديدة لـ`ACTION_REQUESTED` عبر Episode تتطلب `AgentAction` كاملًا؛ recipe candidate/Gate C انضمت للعقد، وMission repair/apply-changes تستخدمانه بالفعل. التغطية الشاملة للـrecipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
@@ -48,8 +48,8 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 - **Environment identity:** Episode environment attestation، receipt-time observation،
   runtime launch identity، وvalidator pre-spawn identity مع freshness منفصلة.
   هذه metadata/attestations لا تثبت وحدها البيئة التي ورثها child process فعليًا.
-- **World State:** task/environment scope وrevision وAPI filters read-only؛ لا
-  يوجد بعد World Delta/contradiction propagation.
+- **World State:** task/environment scope وrevision وAPI filters read-only؛
+  independent process observations غير مكتملة، وWorld Delta/revision closure في P6.
 - **Diagnosis وlearning:** bounded diagnosis/replan، effect-credit sidecar،
   strategy candidates وreplay محدود موجودة كـprimitives؛ لا تثبت cognition أو
   causality أو portability أو generalization.
@@ -1014,6 +1014,27 @@ G9 Revocation Safety
   P4/P5 أو World Delta.
 - **next step:** تغطية الاستدعاءات المتبقية بعقد Action بعد التحقق server-side من
   capability manifest والصلاحية الحالية، مع إثبات حد Episode دون تغيير authority.
+
+### 2026-09-25 — مواءمة الخطة مع التنفيذ الحالي
+
+- **phase/step:** توثيق P3 / P3.5 / P4 / P5 / P5.5 / P6
+- **status:** `done`
+- **what changed:** تم تثبيت task/environment scoping وAPI filters كعمل منجز في P3؛
+  بقيت الملاحظات المستقلة من المصدر الفعلي ضمن P4، وأُسند World Delta إلى P6.
+  فُصلت هوية read-only invocation عن EffectBundle الخاص بالتعديل أو التحقق ذي الأثر،
+  ووُضحت اختيارية Belief حتى P7.5 وبوابات canary والترقية العامة. وُسمت حزم §35–§38
+  وخريطة PR كمواد تاريخية مع إبقاء سجل التنفيذ السابق.
+- **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`,
+  `docs/agent-generalization-progress.md` فقط.
+- **validation:** `git diff --check` ومراجعة diff النهائية؛ لا يلزم build أو restart
+  لأن التغيير توثيقي فقط.
+- **authority/safety impact:** لم يتغير runtime أو schema أو acceptance أو صلاحيات؛
+  توضح الخطة أن قراءات read-only لا تحتاج EffectBundle افتراضيًا وأن canary ليست
+  promotion عامة.
+- **remaining/blocker:** فجوات P5.5 وP4 وP5 وP6 والتنفيذ المعرفي اللاحق باقية كما
+  هي؛ هذا التحديث لم يغيّر نطاق التنفيذ.
+- **next step:** استكمال توحيد AgentAction عبر كل invocation في P5.5، ثم إغلاق
+  الملاحظة المستقلة في P4 وEffect Verification في P5 قبل World Delta في P6.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
