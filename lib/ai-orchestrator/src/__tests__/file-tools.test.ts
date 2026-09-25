@@ -202,11 +202,13 @@ describe("executeFileTool — bounded source reads", () => {
     const outside = `${root}-outside`;
     const rootLink = `${root}-link`;
     await fs.mkdir(path.join(root, "src", "nested"), { recursive: true });
+    await fs.mkdir(path.join(root, "node_modules", "pkg"), { recursive: true });
     await fs.mkdir(path.join(root, "secrets"), { recursive: true });
     await fs.mkdir(outside, { recursive: true });
     await fs.writeFile(path.join(root, "README.md"), "PRIVATE_SOURCE_BYTES", "utf-8");
     await fs.writeFile(path.join(root, ".env"), "TOKEN=hidden", "utf-8");
     await fs.writeFile(path.join(root, "secrets", "notes.txt"), "SECRET_CONTENT", "utf-8");
+    await fs.writeFile(path.join(root, "node_modules", "pkg", "generated.js"), "GENERATED_CONTENT", "utf-8");
     await fs.writeFile(path.join(root, "src", "index.ts"), "SOURCE_CONTENT", "utf-8");
     await fs.writeFile(path.join(root, "src", "nested", "too-deep.ts"), "TOO_DEEP", "utf-8");
     await fs.writeFile(path.join(outside, "outside.ts"), "OUTSIDE_CONTENT", "utf-8");
@@ -236,6 +238,9 @@ describe("executeFileTool — bounded source reads", () => {
         ".env",
         "secrets",
         "secrets/notes.txt",
+        "node_modules",
+        "node_modules/pkg",
+        "node_modules/pkg/generated.js",
         "src/nested/too-deep.ts",
         "linked",
       ]));
@@ -274,6 +279,76 @@ describe("executeFileTool — bounded source reads", () => {
       const tree = JSON.parse(result) as { truncated: boolean; entries: unknown[] };
       expect(tree.entries).toHaveLength(100);
       expect(tree.truncated).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when a directory exceeds the per-directory scan budget", async () => {
+    const root = path.join("/tmp", `mission-tree-directory-scan-${process.pid}-${Date.now()}`);
+    await fs.mkdir(root, { recursive: true });
+    try {
+      await Promise.all(
+        Array.from({ length: 1_001 }, (_, index) =>
+          fs.writeFile(path.join(root, `entry-${String(index).padStart(4, "0")}.txt`), "x", "utf-8"),
+        ),
+      );
+
+      await expect(executeFileTool("project.list_tree", {}, root, []))
+        .rejects.toThrow("project_tree_scan_limit_exceeded");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("enforces the global scan budget even when scanned symlinks are excluded", async () => {
+    const root = path.join("/tmp", `mission-tree-scan-${process.pid}-${Date.now()}`);
+    const directoryCount = 6;
+    const linksPerDirectory = 850;
+    await Promise.all(
+      Array.from({ length: directoryCount }, (_, directoryIndex) =>
+        fs.mkdir(path.join(root, `dir-${directoryIndex}`), { recursive: true }),
+      ),
+    );
+    try {
+      await Promise.all(
+        Array.from({ length: directoryCount }, (_, directoryIndex) => {
+          const directory = path.join(root, `dir-${directoryIndex}`);
+          return Promise.all(
+            Array.from({ length: linksPerDirectory }, (_, linkIndex) =>
+              fs.symlink(root, path.join(directory, `link-${linkIndex}`), "dir"),
+            ),
+          );
+        }),
+      );
+
+      await expect(executeFileTool("project.list_tree", {}, root, []))
+        .rejects.toThrow("project_tree_scan_limit_exceeded");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("truncates oversized metadata output below the byte budget", async () => {
+    const root = path.join("/tmp", `mission-tree-output-${process.pid}-${Date.now()}`);
+    await fs.mkdir(root, { recursive: true });
+    try {
+      await Promise.all(
+        Array.from({ length: 100 }, (_, index) =>
+          fs.writeFile(
+            path.join(root, `file-${String(index).padStart(3, "0")}-${"x".repeat(225)}.txt`),
+            "x",
+            "utf-8",
+          ),
+        ),
+      );
+
+      const result = await executeFileTool("project.list_tree", {}, root, []);
+      const tree = JSON.parse(result) as { truncated: boolean; entries: unknown[] };
+      expect(Buffer.byteLength(result, "utf8")).toBeLessThanOrEqual(24_000);
+      expect(tree.truncated).toBe(true);
+      expect(tree.entries.length).toBeGreaterThan(0);
+      expect(tree.entries.length).toBeLessThan(100);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

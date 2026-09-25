@@ -4812,7 +4812,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; no other registered recipe reads qualify, while additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git/tree reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; direct /api/ai/chat and /api/ai/chat/stream provider reads do not pass per-invocation observation callbacks; additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -5706,7 +5706,26 @@ guard لـP5.5 فقط بدل `task.updatedAt`، ويُفحص قبل وبعد ا�
 
 هذه Observation فقط: لا Action أو Effect أو Proof أو Acceptance، ولا تغييرات
 schema أو قاعدة الإنتاج، ولا يبدأ P6 أو P7 أو P7.5. اختبارات file-tools و
-Mission observation نجحت (36/36)، واختبارات task lifecycle نجحت (7/7)،
+Mission observation نجحت (39/39، وتشمل generated paths وسقفي scan per-directory
+وglobal وحد output)، واختبارات task lifecycle نجحت (7/7)،
 ونجح typecheck لحزم orchestrator وAPI وdashboard. أعيد تشغيل API وdashboard؛
 سجل API `Server listening` وظهر dashboard preview دون أخطاء browser. تظل
 P5.5 جزئية.
+
+### 42.37 P5.5 — Direct chat provider-read coverage audit (2026-09-25)
+
+تدقيق مسارات `/api/ai/chat` و`/api/ai/chat/stream` وجد أنها تستدعي
+`chatWithFallback` دون تمرير `onReadOnlyInvocation`. لذلك لا تسجل قراءات
+provider في هذه المسارات `OBSERVATION_REQUESTED/RECORDED` لكل invocation؛
+وجود Episode shadow على مستوى الدور في المسار المتدفق لا يوفر provenance
+لكل قراءة.
+
+لا يوسع هذا التدقيق allowlist أو الصلاحيات. تبقى أدوات code-navigation و
+package وbinary وanalysis graph/API غير مفعلة في Mission حتى يتوفر لها
+manifest وscope وrevision server-owned؛ ويظل `refresh_project_scan` خارج
+العقد لأنه يحدّث حالة scan.
+
+التحقق: جرد call sites لـ`chatWithFallback` و`onReadOnlyInvocation` وأحداث
+Episode؛ `git diff --check`. لا تغييرات code/schema/production. تظل P5.5
+جزئية حتى تُربط قراءات الدردشة المباشرة بعقد per-invocation server-owned
+قبل القراءة وبعدها. لا تبدأ P6 أو P7 أو P7.5.
