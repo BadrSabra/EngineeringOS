@@ -4812,7 +4812,7 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
-**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; other recipe nodes and tool calls remain`
+**الحالة:** `PARTIAL — canonical AgentAction is required for ACTION_REQUESTED; database.read_project and project.read_file use fail-closed read-only invocation Episodes; Mission file/Git reads use hash-only observation events; approved Mission repair file mutations have a bounded Action lifecycle; no other registered recipe reads qualify, while additional provider read tools still lack Mission-owned manifest/scope/revision wiring`
 
 كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
 هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
@@ -5662,3 +5662,28 @@ server-owned للـruntime والـvalidator والـacceptance خارج provide
 وظهر `Server listening`. لا تغييرات schema أو قاعدة الإنتاج. تظل P5.5 جزئية؛
 أدوات التحليل والقراءات الأخرى تحتاج تدقيق أهلية مستقلًا قبل إدخالها. لا تبدأ
 P6 أو P7 أو P7.5.
+
+### 42.35 P5.5 — Read-only entry-point census (2026-09-25)
+
+اكتمل جرد recipe registry وprovider dispatcher وأدوات analysis والـserver
+adapters. لا توجد recipe read إضافية مؤهلة: `database.read_project` و
+`project.read_file` هما القراءتان الصريحتان في registry، ولكل منهما عقد
+Episode fail-closed. أدوات Mission المصرح بها للملفات وGit تستخدم callback
+hash-only الحالي.
+
+توجد أدوات قراءة provider أخرى (`symbol_search`, `ast_navigation`,
+`inspect_dependencies`, `inspect_binary`) لكنها ليست ضمن allowlist Mission
+الحالية ولا تتلقى correlation موثوقًا من task service. استعلامات
+`query_knowledge_graph` و`discover_project_apis` تعتمد runner/correlation
+مملوكين للخادم، وغير مكشوفة في Mission؛ لا يجوز مجرد إضافتها إلى dispatcher
+allowlist. يتطلب توسيعها manifest انتقائيًا يضمن استبعاد `refresh_project_scan`
+من جهة الأداة والمحتوى الكامل المصرح به. هذا الأخير ينفذ scan persist/تحديث
+correlation، لذلك ليس قراءة بسيطة.
+
+تبقى validator/browser/command/runtime/delivery والمutation خارج read-only
+callback بسبب دلالات التنفيذ أو الحالة أو القبول الخاصة بها، لا بسبب قيمة
+`mutatesProject`. كما أن `outputHash` يربط نتيجة بعينها ولا يمثل
+`projectRevision`/`WorldRevision`. بعض مسارات Mission تستخدم fallback من
+`task.updatedAt` في `workspaceRevision`؛ لا يُمرر هذا كـanalysis
+`projectRevision` دون تحقق server-owned. لا تغييرات code/schema/production في
+هذا الجرد. تبقى P5.5 جزئية؛ لا تبدأ P6 أو P7 أو P7.5.

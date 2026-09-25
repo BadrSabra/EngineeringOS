@@ -19,7 +19,7 @@
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. في `mission_repair` تسجل الكتابات المعتمدة أيضًا Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. لا تتضمن acceptances World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، والآن رصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` بالطلب والنتيجة hash-only. لا تنشئ هذه القراءات `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وtool calls تحتاج تدقيقًا وتغطية. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. قراءتا recipe `database.read_project` و`project.read_file` تسجلان `OBSERVATION_REQUESTED/RECORDED` على Episode canonical واحد؛ فشل الطلب يمنع القراءة وفشل تسجيل النتيجة يحجب الناتج. كما تسجل `mission_observe` و`mission_validate` أدوات الملفات و`git_status`/`git_diff`/`git_log` بالطلب والنتيجة hash-only. جرد registry لم يجد recipe read إضافية مؤهلة. أدوات code-navigation/package/binary وanalysis graph/API لا تُفعّل في Mission قبل ربطها بـmanifest وscope وrevision مملوكة للخادم؛ `refresh_project_scan` stateful وخارج callback القرائي المعتاد. لا تنشئ القراءات `AgentAction` أو `EffectBundle` ولا تثبت القبول. mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
@@ -1486,6 +1486,37 @@ G9 Revocation Safety
   refresh ليست قراءات مؤهلة لهذا العقد. لم يبدأ P6 أو P7 أو P7.5.
 - **next step:** تابع تدقيق الأسطح المؤهلة ضمن P5.5 فقط، ثم اختبر invariants
   الشاملة قبل إغلاق المرحلة؛ لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.35 P5.5 — جرد نقاط القراءة وحدود أهلية Mission (2026-09-25)
+
+- **phase/step:** P5.5 — read-only entry-point census
+- **status:** `partial`
+- **what changed:** اكتمل جرد recipe registry وprovider dispatch وأدوات
+  `analysis-tools` والـserver adapters ذات الصلة. لا توجد recipe read إضافية
+  مؤهلة خارج `database.read_project` و`project.read_file`. قراءات ملفات/Git
+  المصرح بها في Mission مغطاة بأحداث Episode hash-only. أدوات
+  `symbol_search`/`ast_navigation` و`inspect_dependencies`/`inspect_binary`
+  تقرأ ملفات فعلية، لكنها غير مخولة حاليًا في Mission ولا يصلها correlation
+  مملوك للخادم. `query_knowledge_graph` و`discover_project_apis` تقرآن بيانات
+  graph، لكن Mission لا يمرر لها runner أو correlation أو manifest انتقائي.
+- **files/schema/contracts touched:** تحديث سجل التقدم وخطة P5.5 فقط؛ لا تغييرات
+  code أو schema أو قاعدة الإنتاج.
+- **validation:** مراجعة registry والـdispatch والـserver adapters؛
+  `git diff --check`.
+- **authority/safety impact:** لم توسع allowlists أو provider manifest. بقي
+  `refresh_project_scan` خارج observation callback العادي لأنه يكتب حالة scan
+  وقد يقدّم revision؛ validators/browser/command/runtime/delivery وكتابات
+  mutation بقيت خارج تصنيف القراءة. `outputHash` بصمة نتيجة فقط وليس
+  `projectRevision` أو `WorldRevision`.
+- **remaining/blocker:** قبل تفعيل أي من الأدوات الأخرى، يلزم manifest انتقائي
+  وscope/revision موثقان من الخادم. كذلك fallback في بعض Mission executions
+  يستخدم `task.updatedAt` كـ`workspaceRevision`؛ لا يجوز تمريره كـ
+  `analysisCorrelation.projectRevision` دون تحقق من مصدره. P5.5 ما زالت جزئية؛
+  لا يبدأ P6 أو P7 أو P7.5.
+- **next step:** إن توسعت P5.5 لاحقًا، ابدأ بعقد Mission server-owned يربط
+  execution وproject revision وtool authorization، ثم أضف الأدوات المؤهلة
+  واحدةً واحدة مع request-before-read وrecord-before-consume؛ لا تصنف كل
+  `mutatesProject:false` على أنها قراءة.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
