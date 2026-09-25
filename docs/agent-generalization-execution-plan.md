@@ -5417,3 +5417,26 @@ aggregate candidate قبل/بعد والملاحظة المباشرة وEffectBu
 `mission_observe`/`mission_validate` أو endpoint `/tasks/:taskId/execute`.
 لم يتغير schema أو authorization أو generic dispatch. هذه خطوة جزئية في P3.5/P5.5
 فقط؛ لا تبدأ P6/P7/P7.5.
+
+### 42.25 P5.5 — Server-classified read-only recipe invocation (2026-09-25)
+
+تُربط أحداث invocation للقراءة فقط بـcapability ID داخل allowlist
+server-owned، لا باسم recipe ولا بعلم `mutatesProject: false` وحده. يغطي
+الـallowlist الحالي `database.read_project` فقط، بعد التحقق من عقد التنفيذ
+والنتيجة؛ ويُسجل العقد هوية Episode/execution/attempt/node، مراجعة المشروع
+والـcapability، النطاق وhash للمدخلات. لا تحفظ arguments أو تفاصيل result الخام.
+
+تُنشأ حدود shadow Episode فقط عندما تحتوي الخطة capability مسموحًا بها ومسجلًا؛
+وتبقى أحداث `OBSERVATION_REQUESTED` و`OBSERVATION_RECORDED` ملاحظات غير
+authoritative. يُترجم `database.inspect.project` إلى نطاق `project` المدعوم من
+capability. لا يتغير authorization أو Action/Effect أو acceptance؛ لا يثبت هذا
+السجل أثرًا ولا يمنح صلاحية.
+
+اعتمد التطبيق على مخطط قاعدة التطوير بعد موافقة المستخدم وبأمر `schema:apply`
+العادي دون `--force`. نجحت فحوص application/audit/operator schema واختبارات
+Mission DB-backed (6)، recipe contract/runner (17)، وAPI typecheck.
+
+هذه تغطية جزئية: لا تُضف capabilities أخرى قبل تدقيق تنفيذها وعقد نتيجتها؛
+تبقى provider tool invocation paths وأجزاء P3.5/P4/P5 غير مكتملة. الخطوة التالية
+هي تتبّع أداة provider للقراءة إلى Episode بعد التحقق من manifest والصلاحيات
+server-side. لا تبدأ P6 أو P7 أو P7.5.

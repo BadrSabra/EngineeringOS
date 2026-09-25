@@ -71,6 +71,11 @@ import {
   startEpisodeShadow,
   startEpisodeShadowWithEpisode,
 } from "./agent-state/agent-episode-ledger.js";
+import {
+  buildRecipeReadOnlyInvocationContract,
+  hashJsonValue,
+  isReadOnlyRecipeCapability,
+} from "./recipe-invocation-contract.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
@@ -104,78 +109,6 @@ function strategyActionContract(action: AgentAction): {
     expectedEffects: action.expectedEffects,
     observationProfile: action.observationProfile,
     failureSemantics: action.failureSemantics,
-  };
-}
-
-type DatabaseReadInvocationContract = {
-  contractVersion: 1;
-  recordKind: "recipe_capability_invocation";
-  invocationId: string;
-  nodeId: string;
-  nodeAttempt: number;
-  capabilityId: "database.read_project";
-  recipeVersion: number;
-  projectRevision: string;
-  capabilityRevision: string;
-  scope: JsonValue;
-  scopeHash: string;
-  inputHash: string;
-};
-
-function hashJsonValue(value: unknown): string | undefined {
-  try {
-    const serialized = JSON.stringify(value);
-    if (serialized === undefined) return undefined;
-    return canonicalJsonHash(JSON.parse(serialized) as JsonValue);
-  } catch {
-    return undefined;
-  }
-}
-
-function databaseReadInvocationContract(input: {
-  episodeId: string;
-  executionId: string;
-  executionAttempt: number;
-  node: ActiveTaskExecutionPlan["nodes"][number];
-  nodeAttempt: number;
-  projectId: string;
-  projectRevision: string;
-}): DatabaseReadInvocationContract | undefined {
-  const { node } = input;
-  const scope = node.executionContext?.scope;
-  const capabilityRevision = node.executionContext?.revision;
-  if (
-    node.capabilityId !== "database.read_project"
-    || node.recipeVersion === undefined
-    || scope === undefined
-    || typeof capabilityRevision !== "string"
-  ) {
-    return undefined;
-  }
-  const inputHash = hashJsonValue(node.capabilityInput);
-  if (!inputHash) return undefined;
-  return {
-    contractVersion: 1,
-    recordKind: "recipe_capability_invocation",
-    invocationId: canonicalJsonHash({
-      episodeId: input.episodeId,
-      projectId: input.projectId,
-      executionId: input.executionId,
-      executionAttempt: input.executionAttempt,
-      nodeId: node.id,
-      nodeAttempt: input.nodeAttempt,
-      capabilityId: node.capabilityId,
-      recipeVersion: node.recipeVersion,
-    }),
-    nodeId: node.id,
-    nodeAttempt: input.nodeAttempt,
-    capabilityId: "database.read_project",
-    recipeVersion: node.recipeVersion,
-    projectRevision: input.projectRevision,
-    capabilityRevision,
-    scope: scope as JsonValue,
-    scopeHash: canonicalJsonHash(scope),
-    inputHash,
   };
 }
 
@@ -470,6 +403,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       scope: params.recipeId === "runtime.start"
         || params.recipeId === "runtime.restart"
         || params.recipeId === "runtime.stop"
+        || params.recipeId === "database.inspect.project"
         ? { kind: "project", paths: [] }
         : approvedPaths.length > 0
           ? { kind: "paths", paths: approvedPaths }
@@ -865,7 +799,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const candidateValidation = params.recipeId === "candidate.verify";
   const recipeGateCEffectKind = gateCEffectKind(params.recipeId);
   const authoritativeEffectRecipe = candidateValidation || Boolean(recipeGateCEffectKind);
-  const tracksDatabaseReadInvocation = params.recipeId === "database.inspect.project";
+  const tracksReadOnlyRecipeInvocation = !authoritativeEffectRecipe
+    && prepared.plan.nodes.some((node) => isReadOnlyRecipeCapability(node.capabilityId));
   const validationEnvironmentProfile = candidateValidation
     ? serverEnvironmentProfile("CANDIDATE_VALIDATION", {
         kind: "recipe",
@@ -928,10 +863,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     scope: { kind: "recipe", operationId: params.operationId, recipeId: params.recipeId },
     ...(params.goalId ? { goalId: params.goalId } : {}),
   };
-  const shadowInvocationEpisodePromise = !authoritativeEffectRecipe && tracksDatabaseReadInvocation
+  const shadowInvocationEpisodePromise = tracksReadOnlyRecipeInvocation
     ? startEpisodeShadowWithEpisode(shadowEpisodeInput)
     : undefined;
-  if (!authoritativeEffectRecipe && !tracksDatabaseReadInvocation) {
+  if (!authoritativeEffectRecipe && !tracksReadOnlyRecipeInvocation) {
     startEpisodeShadow(shadowEpisodeInput);
   }
   let candidateValidationAction: AgentAction | undefined;
@@ -1271,11 +1206,12 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               detail: "The registered strategy action contract no longer matches the server recipe.",
             };
           }
-          const tracksThisInvocation = tracksDatabaseReadInvocation
+          const tracksThisInvocation = tracksReadOnlyRecipeInvocation
             && !authoritativeEffectRecipe
-            && node.capabilityId === "database.read_project";
+            && isReadOnlyRecipeCapability(node.capabilityId)
+            && Boolean(node.capabilityId && registry.has(node.capabilityId));
           const invocationContract = tracksThisInvocation && shadowInvocationEpisode
-            ? databaseReadInvocationContract({
+            ? buildRecipeReadOnlyInvocationContract({
                 episodeId: shadowInvocationEpisode.episodeId,
                 executionId: claimed.id,
                 executionAttempt: claimed.attempt,

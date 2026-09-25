@@ -420,7 +420,7 @@ describe("read-only recipe invocation events", () => {
       expect(requestPayload).toMatchObject({
         contractVersion: 1,
         recordKind: "recipe_capability_invocation",
-        nodeId: "read-project-data",
+        nodeId: "recipe:database.inspect.project:read-project-data",
         nodeAttempt: 1,
         capabilityId: "database.read_project",
         recipeVersion: 1,

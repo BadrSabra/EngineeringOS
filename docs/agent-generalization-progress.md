@@ -1203,6 +1203,50 @@ G9 Revocation Safety
 - **next step:** عدم مزامنة schema دون موافقة؛ بعد حلّ drift، أعد تشغيل اختبارات
   Mission DB-backed وAPI workflow، ثم تابع شرائح P3.5/P4/P5 بالترتيب.
 
+### 2026-09-25 — مزامنة مخطط التطوير والتحقق من Mission
+
+- **phase/step:** P3.5/P5.5 — إزالة مانع التحقق DB-backed
+- **status:** `done`
+- **what changed:** بعد الموافقة الصريحة، طُبق مخطط Drizzle الحالي على قاعدة
+  التطوير فقط باستخدام `pnpm run db:schema:apply`، دون `--force`. نجحت فحوص
+  application schema وaudit outbox وoperator alerts. نجح اختبار
+  `task-execution-lifecycle.integration.test.ts` بنتيجة 6/6، ثم أعيد تشغيل API
+  وبدأ workflow بنجاح.
+- **files/schema/contracts touched:** مخطط قاعدة التطوير فقط؛ لا ملفات schema أو
+  migrations في المستودع، ولا تغييرات على production.
+- **validation:** `pnpm run db:schema:apply`؛ اختبار Mission DB-backed ‏6/6؛
+  API managed workflow build/start وصل إلى `RUNNING`.
+- **authority/safety impact:** بقيت الصلاحيات وبوابات القبول دون تغيير. التعديل
+  مقتصر على قاعدة التطوير وبموافقة المستخدم؛ production لم يُلمس.
+- **remaining/blocker:** لا مانع مخطط متبقٍ لهذا المسار.
+- **next step:** استكمال شريحة P5.5 الضيقة لتسجيل استدعاءات recipe المصنفة
+  server-side كقراءة فقط، دون توسيع بوابات الأثر أو القبول.
+
+### 2026-09-25 — عقد استدعاء recipe للقراءة فقط
+
+- **phase/step:** P5.5 — server-classified read-only recipe invocation
+- **status:** `partial`
+- **what changed:** أصبح ربط Episode يعتمد على capability ID داخل allowlist
+  server-owned بدلًا من recipe ID. تضمّن عقد `database.read_project` هوية
+  execution/attempt/node، والمراجعة والنطاق، وhash للمدخلات؛ وسُجلت نتيجتا الطلب
+  والاكتمال/الفشل كأحداث ملاحظة دون حفظ مدخلات أو تفاصيل النتيجة الخام. عولج
+  نطاق `database.inspect.project` ليطابق نطاق `project` الذي تقبله capability.
+- **files/schema/contracts touched:** `recipe-invocation-contract.ts` واختباره،
+  `recipe-operation-runner.ts` واختباراته. لا تغيير schema.
+- **validation:** API typecheck passed؛ recipe contract وrunner tests ‏17/17؛
+  Mission DB-backed integration tests ‏6/6؛ `git diff --check` passed.
+- **authority/safety impact:** allowlist الحالية لا تحتوي إلا
+  `database.read_project` بعد التحقق من عقد التنفيذ والنتيجة. لم تتغير
+  authorization أو generic dispatch أو Action/Effect أو acceptance؛ لا تثبت
+  أحداث القراءة أثرًا أو قبولًا.
+- **remaining/blocker:** لا تُضف `project.read_file` أو validators/commands إلى
+  allowlist اعتمادًا على `mutatesProject: false` وحده؛ يلزم تدقيق التنفيذ وعقد
+  النتيجة أولًا. تبقى حدود provider tool invocations وأجزاء P3.5/P4/P5 الأخرى.
+  لم تبدأ P6 أو P7 أو P7.5.
+- **next step:** تتبّع invocation قائم لأداة provider للقراءة إلى حد Episode
+  server-authorized، مع إبقاء manifest والصلاحيات وبوابات القبول هي المصدر
+  authoritative.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

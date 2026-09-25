@@ -98,7 +98,7 @@
 - [Orientation manifest fallback](orientation-manifest-fallback.md) — never persist a partial role manifest after planner fallback; later retries can hydrate it as immutable valid scope.
 - [Orientation recovery telemetry](orientation-recovery-telemetry.md) — malformed project-orientation recovery must consume the request ledger and usage contract, not only increment a local terminal counter.
 - [Orientation deterministic fallback](project-orientation-deterministic-fallback.md) — complete role reads can produce a bounded server-owned answer when provider synthesis fails; missing roles remain incomplete.
- - [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
+- [Provider failure objective handoff](provider-failure-objective-handoff.md) — complete objective reads must return to claim finalization after provider failure, not terminate at the route catch.
 - [Resume intent preservation](resume-intent-preservation.md) — resumed model prompts may carry context; server-owned turn intent must drive orientation/evidence mode instead of exact raw-text detectors.
 - [Retry generation coherence](retry-generation-coherence.md) — adaptive retry tests must track token and request generations independently; only the current token bound to the current request may claim.
 - [Support matrix](support-matrix.md) — detection must remain distinct from parser, graph, validation, and change-readiness support.
@@ -106,6 +106,7 @@
 - [Recipe delivery contracts](recipe-delivery-contracts.md) — delivery recipes use `none` scope, project integration outputs need strict projection, and terminal bindings must survive replay.
 - [Mutation lifecycle decisions](mutation-lifecycle-decisions.md) — canonical validation failure kinds drive bounded repair; legacy runtime projections stay compatibility-only.
 - [Tool surface adapters](tool-surface-adapters.md) — external capabilities stay provider-hidden until server-owned adapters enforce the full execution contract.
+- [Recipe read-only classification](recipe-read-only-classification.md) — invocation telemetry needs an explicit capability allowlist based on execution and output semantics, not a mutation flag alone.
 - [GitHub delivery recovery](github-delivery-recovery.md) — reconcile an uncertain push with remote parent, Git tree SHA, and operation marker before recording idempotent success.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
 - [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges require the active server-owned session/revision and support stale filtering.
@@ -122,8 +123,7 @@
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.
- - [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
-- [Cancellation controller registration](cancellation-controller-registration.md) — durable cancellation must win even when a worker registers its AbortController after the cancel request.
+- [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
 - [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
