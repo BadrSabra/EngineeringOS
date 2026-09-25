@@ -16,10 +16,10 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. هذه acceptances effect-backed ومحددة بهدف كل شريحة؛ لا تتضمن World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وهوية launch للـruntime وبصمة validator قبل spawn، لكنها لا تثبت وحدها بيئة child process. المتبقي إغلاق مصادر الملاحظة المستقلة وpropagation للتناقضات؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
-| P5.5 — Unified Action Semantics | `partial` | كل كتابة جديدة لـ`ACTION_REQUESTED` عبر Episode تتطلب `AgentAction` كاملًا؛ recipe candidate/Gate C انضمت للعقد، وMission repair/apply-changes تستخدمانه بالفعل. التغطية الشاملة للـrecipe nodes وprovider tool calls لم تكتمل. |
+| P5.5 — Unified Action Semantics | `partial` | كل invocation، بما فيه read-only وprovider tool calls، يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned؛ القراءة لا تحتاج `AgentAction` كاملًا. كل mutation وeffect-gated validation، وكل كتابة جديدة لـ`ACTION_REQUESTED`، تتطلب العقد الكامل. recipe candidate/Gate C وMission repair/apply-changes تستخدمه؛ تغطية كل recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
 | P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `not_started` | gate معرفي قبل توسيع التعلم: تمثيل uncertainty واختيار observation وفق information gain/cost/risk/authorization/time. |
@@ -39,8 +39,10 @@
 - §31 هو المصدر الوحيد لترتيب التنفيذ؛ جدول الحالة هنا و§42 متطابقان معه.
 - ملخص schema القائم في §18.2–§18.6 متسق مع Drizzle، ومرجع المخطط الدقيق محدد؛
   العقود المستقبلية موسومة بوضوح كتصميم أو عمل لم يبدأ.
-- تسلسل Action وحالاته متسقة بين §5 و§19 و§42؛ والقراءة `read-only` لا تكتسب
-  متطلبات `EffectBundle` الخاصة بالتعديل أو التحقق ذي الأثر.
+- تسلسل Action وحالاته متسقة بين §5 و§19 و§42؛ لكل invocation هوية ونتيجة
+  server-owned، بينما `AgentAction` الكامل و`EffectBundle` يخصان mutation أو
+  effect-gated validation. والفرق بين قبول الشريحة قبل P6 والإغلاق الكامل بعد
+  World Delta موضح صراحة.
 - حدود canary الرقمية في §25.3، وحدود promotion العامة في §25.4، وانتقالات
   النتيجة في §29.6؛ لا توجد thresholds مكررة أو متعارضة.
 - الأقسام التاريخية معلّمة ولا تناقض ترتيب التنفيذ أو الحالة الحاليين.
@@ -1071,6 +1073,25 @@ G9 Revocation Safety
 - **remaining/blocker:** مراجعة المستخدم النهائية؛ تبقى تغييرات الكود خارج النطاق
   حتى ذلك الحين.
 - **next step:** مراجعة الوثيقتين وفق بوابة الجاهزية أعلاه قبل السماح بأي تغيير كود.
+
+### 2026-09-25 — تدقيق دلالات القبول وعقد invocation
+
+- **phase/step:** Documentation / P3.5–P6 acceptance and P5.5 action semantics
+- **status:** `done`
+- **what changed:** فُصل القبول effect-backed الخاص بالشرائح الحالية قبل P6 عن
+  إغلاق الحلقة الكاملة الذي يتطلب World Delta قبل acceptance. وُحد عقد الهوية
+  والنتيجة لكل invocation، مع قصر `AgentAction` الكامل على mutation و
+  effect-gated validation. وُضحت دلالة `Result` لعمليات القراءة، وأُحيل ملخص
+  promotion في §7 إلى بوابات §25.3/§25.4/§42.17 وانتقالات §29.6.
+- **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`,
+  `docs/agent-generalization-progress.md` فقط.
+- **validation:** `git diff --check`؛ مراجعة الاتساق بين §5 و§7 و§19 و§23 و§35
+  و§42 وجدول الحالة وبوابة الجاهزية؛ لم يظهر تناقض دلالي آخر في هذه المسارات.
+- **authority/safety impact:** لم يتغير runtime أو schema أو acceptance أو
+  الصلاحيات؛ لا تزال تغييرات الكود متوقفة حتى مراجعة المستخدم.
+- **remaining/blocker:** مراجعة المستخدم للوثيقتين وإغلاق بوابة الجاهزية.
+- **next step:** انتظار مراجعة المستخدم؛ لا يبدأ أي تغيير كود قبل موافقة صريحة
+  على إغلاق البوابة.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

@@ -483,7 +483,11 @@ lowercase، وتشمل `superseded`. قد تبقى `environmentRevision` nullabl
 
 ### 5.4 Effect Contract
 
-كل mutation أو external effect يصف ما يجب ملاحظته:
+يصف `EffectContract` الحالة المتوقعة بعد mutation أو external effect، وكذلك
+validation الذي يعلن صراحةً expected effect. نتيجة القراءة read-only هي invocation
+outcome مع evidence refs، وليست state effect ولا `EffectBundle`. لا تدخل القراءة
+في effect gate إلا إذا كان عقدها المسجل effect-gated validation؛ عندها ينطبق
+عليها عقد الأثر رغم أن operation الأصلية قد تكون read-only.
 
 ```ts
 type EffectContract = {
@@ -515,9 +519,16 @@ type EffectContract = {
 
 ### 5.5 Unified Action Semantics
 
-كل mutation أو capability invocation يجب أن يظهر كـ`AgentAction` موحد، حتى لا
-تبقى semantics موزعة بين recipe node وtool call وMission action وexecution
-node:
+كل capability invocation يحتاج سجل هوية server-owned مربوطًا بـEpisode/attempt
+وcapability وscope وrevision. القراءة read-only تحفظ كذلك النتيجة المحدودة أو
+الفشل ومراجع evidence، لكنها لا تتطلب كل حقول `AgentAction` ولا
+`EffectBundle`.
+
+الـmutation وeffect-gated validation يستخدمان `AgentAction` الكامل أدناه، حتى
+لا تبقى semantics موزعة بين recipe node وtool call وMission action وexecution
+node. ينطبق هذا التمييز أيضًا على provider tool calls: هوية ونتيجة لكل call؛
+والعقد الكامل عند mutation أو effect-gated validation. تغطية الاستدعاءات
+المتبقية جزء من P5.5:
 
 ```ts
 type AgentAction = {
@@ -535,6 +546,9 @@ type AgentAction = {
   failureSemantics: string[];
 };
 ```
+
+يربط الخادم `episodeId` بالمحاولة والمراجعة؛ ولا يختار النموذج `scope` أو
+revision أو authorization.
 
 لا تمنح `AgentAction` صلاحية تنفيذ بذاتها؛ تظل capability registry وapproval
 وprofile server-owned.
@@ -993,6 +1007,10 @@ accepted episode
 لا يتم تحديث model weights في هذه المرحلة.
 
 ### شروط promotion
+
+هذه مبادئ موجزة غير حاكمة وليست بوابة أو thresholds إضافية. شروط canary
+الرقمية في §25.3، وشروط promotion العامة في §25.4، وأسماء gates في §42.17؛
+تحدد §29.6 نتيجة التقييم وانتقال الحالة.
 
 يجب أن:
 
@@ -1473,7 +1491,8 @@ learningStatus
 
 ### PR 5: Effect Observation لشريحة Candidate Validation
 
-- هذه أول vertical slice كاملة، ولا يبدأ learning قبل نجاحها.
+- هذه أول vertical slice مكتملة ضمن نطاق Action/Effect/acceptance الخاص بها،
+  وليست إغلاقًا كاملًا لـP3.5–P6؛ ولا يبدأ learning قبل نجاح بوابة الشريحة.
 - `candidate.verify` يبدأ Episode authoritative ويستخدم `AgentAction` و`EffectContract`
   server-owned.
 - يسجل `ACTION_REQUESTED`، ثم يتحقق من preconditions ويلتقط before observation،
@@ -2208,6 +2227,9 @@ created/running/paused/verifying
 
 ### 19.2 Action state machine
 
+تصف هذه الآلة دورة Action/Effect للشرائح الحالية قبل إغلاق P6؛ لذا تنتهي
+الشرائح bounded بقبول effect خاص بهدف التنفيذ، لا بادعاء اكتمال World Delta.
+
 ```text
 PLANNED
   → ACTION_REQUESTED
@@ -2233,6 +2255,10 @@ unknown       → INCOMPLETE
 لا يجوز الانتقال من `ACTION_COMMITTED` إلى `PROVEN` مباشرة في mutation أو
 delivery action. `ACTION_REQUESTED` و`ACTION_COMMITTED` أحداث Episode؛ مراحل
 capture هي ملاحظات منفصلة وليست event types إضافية.
+
+في دورة P3.5–P6 المستهدفة، تضاف materialization لـWorld Delta وربط revision بعد
+`EFFECT_CLASSIFIED` وقبل acceptance. قبول الشريحة الحالية يثبت objective تلك
+الشريحة فقط، ولا يحقق DoD للحلقة الكاملة؛ المرجع السلطوي للتسلسل الكامل هو §42.2.
 
 ### 19.3 World fact state machine
 
@@ -2593,13 +2619,17 @@ evaluation صريحة.
 
 ## 23. مواصفة Action وEffect لكل المسارات
 
+في المسارات read-only، يعني `Result` النتيجة المحتفظ بها للقراءة؛ لا يعني
+`Effect` مصنفًا ولا صف `EffectBundle`. استخدم `Effect` فقط لأثر mutation أو
+external effect أو validation معلن كـeffect-gated.
+
 ### 23.1 قراءة ملف
 
 ```text
 Action: READ_PROJECT_FILE
 Before: project revision + root identity
 After: retained complete read or explicit failure
-Effect: requested source evidence available
+Result: requested source evidence available
 Proof: evidence read binding
 Failure: incomplete evidence; no source-grounded claim
 ```
@@ -2610,7 +2640,7 @@ Failure: incomplete evidence; no source-grounded claim
 Action: ANALYSIS_TOOL
 Before: operation/correlation/revision/root
 After: complete analysis result with matching correlation
-Effect: analysis evidence available
+Result: analysis evidence available
 Proof: analysis correlation + retained evidence
 Failure: reject cross-operation/stale result
 ```
@@ -2665,7 +2695,7 @@ Failure: drift reconciliation; never record uncertain push as success
 Action: READ_DATABASE_RESOURCE
 Before: authorized logical resource + project scope
 After: bounded typed result + schema/version metadata
-Effect: requested database claim observed
+Result: requested database claim observed
 Proof: resource contract and query boundary
 Failure: incomplete/unauthorized; no claim acceptance
 ```
@@ -3518,6 +3548,11 @@ binding في نفس transaction. لا يستخدم `disposition` وحده لهذ
 والـexternal effects وعلى عمليات التحقق التي تعلن صراحة expected effect، مثل
 Candidate Validation؛ لا يتطلب كل read-only call `EffectBundle`.
 
+هذا يصف effect-backed acceptance الحالية لكل شريحة محدودة قبل P6. قبولها يظل
+حاكمًا لهدف execution المحدد، لكنه لا يثبت أن World Delta قد materialized ولا
+يغلق DoD الكامل لـP3.5–P6؛ انظر فرق slice acceptance وintegrated acceptance في
+§42.2 و§42.4.
+
 ### 35.4 الـenums والـchecks
 
 يجب أن تكون الحالات server-owned enums أو Zod enums متطابقة:
@@ -4092,8 +4127,15 @@ Safe Promotion
 **الحالة:** `PARTIAL — implemented vertical slices exist; unified closure across the full agent remains incomplete`
 
 قبل أي learning أو strategy promotion يجب أن تملك كل capability invocation
-هوية Episode/Action ونطاقًا server-owned. تمثيل Belief/Hypothesis اختياري حتى
-P7.5، ولا يفرض على كل قراءة أو مهمة عادية:
+هوية server-owned مربوطة بـEpisode/attempt وscope/revision. يسجل read-only
+invocation النتيجة ومراجع evidence؛ أما mutation وeffect-gated validation
+فيستخدمان `AgentAction` الكامل. تمثيل Belief/Hypothesis اختياري حتى P7.5، ولا
+يفرض على كل قراءة أو مهمة عادية.
+
+التسلسل التالي هو DoD المستهدف للحلقة الكاملة بعد P6. الشرائح الحالية قد تنهي
+قبولًا effect-backed خاصًا بهدفها قبل وجود World Delta؛ هذا القبول صالح لذلك
+التنفيذ وحده ولا يحقق DoD لـP3.5–P6 أو يرفع المرحلة إلى `done`. لا يغير P6 قبولًا
+سابقًا، بل يضيف ربط World Delta/revision إلى مسار الإغلاق الكامل:
 
 ```text
 Objective
@@ -4134,9 +4176,10 @@ Action / Invocation identity
 12. لا يسمح acceptance بتمثيل نفسه كـdirect runtime observation.
 
 قراءة read-only تحفظ invocation identity ونتيجتها/فشلها ومراجع evidence؛ لا
-تحتاج before/after EffectBundle ما لم يعرّف عقدها صراحة أثرًا متوقعًا مثل
-Candidate Validation. المتطلبات أعلاه هي DoD للحلقة المغلقة عبر P3.5–P6، وليست
-شرطًا يدّعي أن كل vertical slice الجزئية الحالية قد أغلقتها.
+تحتاج before/after `EffectBundle`. إذا عرّف عقد مسجل validation ذي أثر متوقع،
+مثل Candidate Validation على candidate غير live، فهو effect-gated validation
+ويطبق عليه عقد الأثر رغم أنه لا يكتب إلى live root. المتطلبات أعلاه هي DoD
+للحلقة المغلقة عبر P3.5–P6، ولا تدعي أن الشرائح الجزئية الحالية قد أغلقتها.
 
 #### شرائح تنفيذ جزئية — 2026-09-24
 
@@ -4381,7 +4424,12 @@ identity (42.20–42.21) هما handoff attestations server-owned، وليسا �
 
 **الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`
 
-الغرض هو تحويل execution إلى state transition متحقق منه مستقلًا:
+الـacceptances في الشرائح المذكورة هنا effect-backed ومحددة بأهداف التنفيذ
+الخاصة بها، وقد تحدث قبل P6؛ لا تدعي materialization لـWorld Delta ولا تغلق
+DoD الكامل لـP3.5–P6.
+
+هذا هو التسلسل المستهدف للحلقة الكاملة بعد إغلاق P6. أما الشرائح الحالية قبل P6
+فتنتهي بقبول effect-backed خاص بهدفها، كما في Candidate Validation أدناه:
 
 ```text
 ACTION_REQUESTED
@@ -4421,7 +4469,8 @@ unknown
 لا يجوز استنتاج Effect من acceptance وحدها. غياب after observation أو وجود
 تناقض يبقي النتيجة غير مكتملة ولا يسمح بـ`PROVEN`.
 
-أغلقت شريحة Candidate Validation المسار التالي قبل terminal acceptance:
+تستخدم شريحة Candidate Validation الحالية هذا المسار effect-backed قبل
+terminal acceptance، من دون World Delta في P6:
 
 ```text
 ACTION_REQUESTED
@@ -4434,12 +4483,17 @@ VALIDATE_CANDIDATE
     ↓
 ACTION_COMMITTED
     ↓
+EFFECT_PENDING
+    ↓
 AFTER_OBSERVATION
     ↓
 EFFECT_CLASSIFICATION
     ↓
 ACCEPTANCE(effectBundleId)
 ```
+
+هذا القبول authoritative لهدف Candidate Validation في التنفيذ المحدد، لكنه لا
+يثبت World Delta ولا يحقق DoD الكامل لـP3.5–P6.
 
 تسجل observations كأحداث/صفوف مستقلة عن `ACTION_REQUESTED` و`ACTION_COMMITTED`؛
 لا يستخدم الترتيب أعلاه commit قبل before observation أو التنفيذ. World Delta
@@ -4456,9 +4510,10 @@ acceptance seam.
 
 **الحالة:** `PARTIAL — episode-backed ACTION_REQUESTED writes require the canonical AgentAction; generic recipe/tool invocation coverage remains`
 
-كل capability invocation، بما فيها read-only، يحتاج هوية ونطاقًا ومصدر نتيجة
-واضحًا ضمن عقد server-owned. وتكشف `AgentAction` الموحدة للـmutation أو
-الـeffect-gated validation:
+كل capability invocation، بما فيها provider tool calls وread-only calls، يحتاج
+هوية server-owned مربوطة بـEpisode/attempt وcapability وscope وrevision، مع
+نتيجة/فشل ومراجع evidence. يكفي هذا العقد للقراءة read-only؛ أما mutation
+وeffect-gated validation فيستخدمان `AgentAction` الكامل:
 
 ```text
 actionId
@@ -4474,12 +4529,11 @@ observation profile
 failure semantics
 ```
 
-الهدف أن تصبح recipe node وtool call وMission action وexecution node
-implementations للعقد نفسه، بدل وجود semantics منفصلة. هذا لا يمنح النموذج
-صلاحية جديدة؛ تبقى capability registry وauthorization وprofiles
-server-owned. القراءة تحفظ result/evidence ولا تنشئ mutation `EffectBundle`
-افتراضيًا. تبدأ الخطوة التالية بهذه الوحدة لأنها توحد الهوية والعقد قبل
-إضافة مسارات Action/Effect جديدة.
+الهدف أن تتبع recipe node وtool call وMission action وexecution node عقد
+invocation واحدًا، وأن تستخدم المسارات المعدّلة العقد الكامل نفسه بدل semantics
+منفصلة. هذا لا يمنح النموذج صلاحية جديدة؛ تبقى capability registry وauthorization
+وprofiles server-owned. القراءة تحفظ result/evidence ولا تنشئ `AgentAction`
+الكامل أو mutation `EffectBundle` افتراضيًا.
 
 تتطلب كتابات `ACTION_REQUESTED` الجديدة عبر Episode الآن الفعل الكامل، وتتحقق
 من ارتباطه بالحلقة وتطابق aliases الاختيارية. يضيف ledger مراجع الفعل والآثار
@@ -4761,6 +4815,10 @@ G9 — Revocation Safety
 مؤقت ومحدود النطاق؛ ليست ترقية عامة ولا تمنح صلاحية تنفيذ إضافية.
 
 ### 42.18 General Engineering Agent Definition of Done
+
+هذه قائمة الحالة النهائية المستهدفة، وليست تقريرًا بأن التنفيذ الحالي قد بلغها.
+الـacceptances الخاصة بالشرائح المحدودة تثبت أهدافها فقط، ولا تعوض إغلاق P3.5–P6
+أو بقية متطلبات هذه القائمة.
 
 لا يعتبر النظام generalized engineering agent إلا عندما يستطيع:
 
