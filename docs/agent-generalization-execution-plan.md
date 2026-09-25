@@ -5697,8 +5697,10 @@ callback بسبب دلالات التنفيذ أو الحالة أو القبو�
 
 يمرر task service manifest Mission انتقائيًا وscope مستقلًا exact لقراءات
 الملفات؛ لا يظهر `list_directory` أو `search_code` في هذا manifest، ويعاد
-فحص الصلاحية عند dispatcher. يستخدم `projects.updatedAt` بوصفه project
-revision بدل `task.updatedAt`، ويُفحص قبل وبعد القراءة. يسجل Episode
+فحص الصلاحية عند dispatcher. يستخدم `projects.updatedAt` كـread-consistency
+guard لـP5.5 فقط بدل `task.updatedAt`، ويُفحص قبل وبعد القراءة. لا يمثل هذا
+القيمة `WorldRevision` لـP6؛ يلزم تعريف منفصل للحالة المعرفية ولا يجوز تسريب
+هذا الحارس إليه. يسجل Episode
 `OBSERVATION_REQUESTED` قبل القراءة و`OBSERVATION_RECORDED` قبل استهلاك
 الناتج؛ عند revision drift يسجل فشلًا بلا `outputHash` ويحجب الأداة النتيجة.
 

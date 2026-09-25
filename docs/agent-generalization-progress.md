@@ -1534,11 +1534,12 @@ G9 Revocation Safety
   integration lifecycle (7/7)، وtypecheck لحزم orchestrator وAPI وdashboard.
   أعيد تشغيل API وdashboard؛ API سجّل `Server listening` وظهر preview
   dashboard دون أخطاء browser.
-- **authority/safety impact:** `projects.updatedAt` هو revision المصدر،
-  ويتحقق الخادم منه قبل وبعد كل Observation؛ يرفض أو يحجب النتيجة عند drift.
-  تسجل `OBSERVATION_REQUESTED` قبل القراءة و`OBSERVATION_RECORDED` قبل
-  استهلاك النتيجة. `outputHash` يعرّف النتيجة فقط، ولا ينشئ Action أو Effect
-  أو Proof أو Acceptance.
+- **authority/safety impact:** `projects.updatedAt` هو guard لاتساق القراءة
+  في P5.5 فقط، ويتحقق الخادم منه قبل وبعد كل Observation؛ يرفض أو يحجب النتيجة
+  عند drift. لا يُعتبر هذا قيمة `WorldRevision` لـP6 ولا يتسرب لتعريف World
+  State. تسجل `OBSERVATION_REQUESTED` قبل القراءة و`OBSERVATION_RECORDED`
+  قبل استهلاك النتيجة. `outputHash` يعرّف النتيجة فقط، ولا ينشئ Action أو
+  Effect أو Proof أو Acceptance.
 - **remaining/blocker:** لا يوجد عائق لهذه القدرة المحدودة. تظل P5.5 جزئية؛
   لم يبدأ P6 أو P7 أو P7.5.
 - **next step:** لا توسع صلاحيات Mission ضمن هذه الخطوة. أي قدرة أخرى تحتاج
