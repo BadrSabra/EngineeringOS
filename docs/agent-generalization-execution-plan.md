@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، لكن identity ليست independent observation ولا يوجد World Delta. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
+> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظات process مباشرة محدودة لعمليات runtime وvalidator؛ لا تثبت descendants أو listener ولا تنشئ قبولًا. لا يوجد World Delta. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -5535,3 +5535,28 @@ runtime health أو أثره أو سلطة acceptance، ولا تنتج receipt 
 orchestrator typecheck؛ `git diff --check`؛ API وruntime-supervisor restart؛
 وفحص supervisor end-to-end أعاد `runtimeStatus=passed` و
 `processAttestation=known`. لم يبدأ P6 أو P7 أو P7.5.
+
+### 42.30 P4 — Bound validator child process environment observation (2026-09-25)
+
+أضيفت ملاحظة مباشرة لعملية validator ضمن حد `runBoundedCommand`: بعد spawn
+يوفر kernel PID وcwd، ويحجب marker المؤقت من stdout/stderr. يولد validator probe
+marker مستقلًا لكل Validation Evidence ID ويربط digest بدور `validator` واسم
+الprofile وهوية المشروع والتنفيذ والمحاولة وEpisode والعملية والمراجعة. يقرأ
+procfs فقط عند وجود هذه الهوية server-owned كاملة؛ غياب الهوية أو procfs يبقى
+`unknown`/غير materialized، واختلاف البيئة أو الجذر لا يمنح قبولًا.
+
+يمرر Recipe runner وMission Task runner الهوية عندما تكون Episode متاحة. تتحول
+الملاحظة إلى `validator_process_attestation` bounded في materializer، مع
+completeness `complete` لـ`known` و`partial` لـ`unknown` و`failed` لـ`mismatch`.
+تحمل ValidationResult العامة اسم profile وhashes فقط؛ لا تحفظ العلامة أو البيئة
+الخام أو PID. workspace المؤقت هو cwd/حد فحص العملية المعزولة فقط، وليس جذر
+المشروع ولا مصدر project provenance، ولم يُفتح استثناء في `establishProjectRoot`.
+
+لا يثبت PID المباشر لـ`pnpm` بيئة descendants أو listener. لا تغير الملاحظة
+validator status أو objective proof أو acceptance/OBSERVED؛ ولا تغيير schema
+أو قاعدة الإنتاج. بقيت P4 جزئية، ولم يبدأ P6 أو P7 أو P7.5.
+
+التحقق: orchestrator وAPI typecheck؛ bounded-command ‏12/12؛ API validation و
+World State ‏23/23، بينها اختبار live validator child المعروف ورصد unknown
+واختبار direct child في `runRepairRuntimeValidation`؛ إعادة تشغيل API وفحص سجلات
+startup؛ `git diff --check`.

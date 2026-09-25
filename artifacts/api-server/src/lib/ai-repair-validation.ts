@@ -15,6 +15,14 @@ import {
   type ServerEnvironmentProfile,
 } from "./agent-state/environment-attestation.js";
 import {
+  attestChildProcessEnvironment,
+  childProcessBindingDigest,
+  childProcessExpectedEnvironment,
+  CHILD_ATTESTATION_ENV_NAME,
+  type ChildProcessAttestationBinding,
+  type ChildProcessEnvironmentAttestation,
+} from "./agent-state/child-process-attestation.js";
+import {
   verifyBrowserPreview,
   type PreviewBrowser,
   type PreviewSession,
@@ -61,6 +69,16 @@ export type RuntimeValidationEvidenceContext = {
   projectRevision?: string;
   candidateHash?: string;
   environmentProfile?: ServerEnvironmentProfile | null;
+  childProcessIdentity?: ValidationProcessIdentity;
+};
+
+export type ValidationProcessIdentity = {
+  projectId: string;
+  executionId: string;
+  executionAttempt: number;
+  episodeId: string;
+  operationId: string;
+  revision: string;
 };
 
 type ValidationProfileDefinition = {
@@ -147,6 +165,7 @@ const VALIDATION_COPY_OMIT = new Set([
 
 type ValidationDraft = Omit<ValidationResult, "evidence"> & {
   environmentRevision?: string | null;
+  childProcessAttestation?: ChildProcessEnvironmentAttestation;
 };
 
 function validationNextAction(status: ValidationStatus, terminalState?: ValidationResult["terminalState"]): string {
@@ -314,13 +333,17 @@ type ValidationEvidenceContext = Pick<
 > & {
   environmentProfile?: ServerEnvironmentProfile | null;
   environmentRevision?: string | null;
+  childProcessIdentity?: ValidationProcessIdentity;
+  childProcessAttestation?: ChildProcessEnvironmentAttestation;
+  evidenceId?: string;
+  validatorProfile?: string;
 };
 
 function attachValidationEvidence(
   result: ValidationDraft,
   context: ValidationEvidenceContext = {},
 ): ValidationResult {
-  const evidenceId = randomUUID();
+  const evidenceId = context.evidenceId ?? randomUUID();
   return {
     ...result,
     evidence: {
@@ -331,6 +354,10 @@ function attachValidationEvidence(
       ...(context.projectRevision ? { projectRevision: context.projectRevision } : {}),
       ...(context.candidateHash ? { candidateHash: context.candidateHash } : {}),
       environmentRevision: context.environmentRevision ?? null,
+      ...(context.validatorProfile ? { validatorProfile: context.validatorProfile } : {}),
+      ...(context.childProcessAttestation
+        ? { childProcessAttestation: context.childProcessAttestation }
+        : {}),
     },
   };
 }
@@ -348,6 +375,88 @@ async function captureValidationEnvironmentRevision(
   }
 }
 
+type ValidatorProcessProbe = {
+  environment: NodeJS.ProcessEnv;
+  redactValues: readonly string[];
+  onSpawn: (input: { pid: number | null; cwd: string }) => void;
+  observe: () => Promise<ChildProcessEnvironmentAttestation>;
+};
+
+function createValidatorProcessProbe(input: {
+  rootPath: string;
+  profile: string;
+  evidenceId: string;
+  identity?: ValidationProcessIdentity;
+}): ValidatorProcessProbe | undefined {
+  const identity = input.identity;
+  if (
+    !identity
+    || !identity.projectId
+    || !identity.executionId
+    || !Number.isInteger(identity.executionAttempt)
+    || identity.executionAttempt < 0
+    || !identity.episodeId
+    || !identity.operationId
+    || !identity.revision
+  ) {
+    return undefined;
+  }
+
+  const binding: ChildProcessAttestationBinding = {
+    ...identity,
+    sessionId: input.evidenceId,
+    processRole: "validator",
+    validatorProfile: input.profile,
+  };
+  const marker = randomUUID();
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    [CHILD_ATTESTATION_ENV_NAME]: marker,
+  };
+  let observation: Promise<ChildProcessEnvironmentAttestation> | undefined;
+  let observedAt = new Date().toISOString();
+  const unknown = (
+    reasonCode: ChildProcessEnvironmentAttestation["reasonCode"],
+  ): ChildProcessEnvironmentAttestation => ({
+    status: "unknown",
+    reasonCode,
+    bindingDigest: childProcessBindingDigest(binding),
+    attestationDigest: null,
+    processEnvironmentDigest: null,
+    observedAt,
+  });
+
+  return {
+    environment,
+    redactValues: [marker],
+    onSpawn: ({ pid }) => {
+      observedAt = new Date().toISOString();
+      observation = attestChildProcessEnvironment({
+        pid,
+        projectRoot: input.rootPath,
+        marker,
+        binding,
+        expectedEnvironment: childProcessExpectedEnvironment(environment),
+        observedAt,
+      });
+    },
+    observe: async () => {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const unavailable = unknown(observation ? "procfs_unavailable" : "process_unavailable");
+        return await Promise.race([
+          observation?.catch(() => unknown("procfs_unavailable"))
+            ?? Promise.resolve(unavailable),
+          new Promise<ChildProcessEnvironmentAttestation>((resolve) => {
+            timeout = setTimeout(() => resolve(unknown("procfs_unavailable")), 1_000);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    },
+  };
+}
 function extractAffectedFiles(output: string): string[] {
   const paths = output.match(
     /(?:^|[\s("'`])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|go|mod|sum))(?:[:)\s"'`]|$)/g,
@@ -382,6 +491,8 @@ async function runRepairValidationCore(
   signal?: AbortSignal,
   pendingChanges: readonly PendingValidationChange[] = [],
   environmentProfile: ServerEnvironmentProfile | null = null,
+  childProcessIdentity?: ValidationProcessIdentity,
+  evidenceId: string = randomUUID(),
 ): Promise<ValidationDraft> {
   const definition = PROFILE_DEFINITIONS[profile];
   if (!definition) {
@@ -419,6 +530,12 @@ async function runRepairValidationCore(
   try {
     const validationRootPath = validationWorkspace.rootPath;
     let environmentRevision: string | null = null;
+    const processProbe = createValidatorProcessProbe({
+      rootPath: validationRootPath,
+      profile,
+      evidenceId,
+      identity: childProcessIdentity,
+    });
     const execution = await runBoundedCommand({
       command: definition.command,
       args: definition.args,
@@ -428,6 +545,11 @@ async function runRepairValidationCore(
       maxOutputBytes: definition.maxBuffer,
       allowedCommands: new Set(["pnpm", "go"]),
       signal,
+      ...(processProbe ? {
+        env: processProbe.environment,
+        redactValues: processProbe.redactValues,
+        onSpawn: processProbe.onSpawn,
+      } : {}),
       beforeSpawn: async () => {
         environmentRevision = await captureValidationEnvironmentRevision(
           validationRootPath,
@@ -435,6 +557,7 @@ async function runRepairValidationCore(
         );
       },
     });
+    const childProcessAttestation = await processProbe?.observe();
     const spawnedEnvironmentRevision = execution.status === "spawn_error" || execution.status === "cancelled"
       ? null
       : environmentRevision;
@@ -457,6 +580,7 @@ async function runRepairValidationCore(
         ...executionEvidence,
         failedTests: executionEvidence.failedTests.map(toValidationFailure),
         environmentRevision: spawnedEnvironmentRevision,
+        ...(childProcessAttestation ? { childProcessAttestation } : {}),
         detail:
           execution.status === "timed_out"
             ? "Validation timed out before the candidate could be approved."
@@ -479,6 +603,7 @@ async function runRepairValidationCore(
       environmentRevision: spawnedEnvironmentRevision,
       ...executionEvidence,
       failedTests: executionEvidence.failedTests.map(toValidationFailure),
+      ...(childProcessAttestation ? { childProcessAttestation } : {}),
       detail: output.slice(-2_000) || "Registered validation completed successfully.",
       processBudgetMs: definition.timeoutMs,
       overallBudgetMs: config.validationOverallTimeoutMs,
@@ -529,6 +654,8 @@ async function runWithValidationDeadline(
   signal: AbortSignal | undefined,
   pendingChanges: readonly PendingValidationChange[],
   environmentProfile: ServerEnvironmentProfile | null,
+  childProcessIdentity: ValidationProcessIdentity | undefined,
+  evidenceId: string,
 ): Promise<ValidationDraft> {
   const controller = new AbortController();
   const abortFromCaller = (): void => controller.abort();
@@ -543,6 +670,8 @@ async function runWithValidationDeadline(
     controller.signal,
     pendingChanges,
     environmentProfile,
+    childProcessIdentity,
+    evidenceId,
   );
   const deadline = new Promise<ValidationDraft>((resolve) => {
     timer = setTimeout(() => {
@@ -574,6 +703,7 @@ export async function runRepairValidation(
   evidenceContext: ValidationEvidenceContext = {},
 ): Promise<ValidationResult> {
   const startedAt = Date.now();
+  const evidenceId = randomUUID();
   const result = await runWithValidationDeadline(
     rootPath,
     profile,
@@ -581,8 +711,10 @@ export async function runRepairValidation(
     signal,
     pendingChanges,
     evidenceContext.environmentProfile ?? null,
+    evidenceContext.childProcessIdentity,
+    evidenceId,
   );
-  const { environmentRevision, ...draft } = result;
+  const { environmentRevision, childProcessAttestation, ...draft } = result;
   const elapsedMs = Math.max(draft.elapsedMs ?? 0, Date.now() - startedAt);
   const terminalState = draft.terminalState ?? (
     draft.status === "blocked" ? "timed_out" : validationTerminalState(draft.status)
@@ -597,7 +729,10 @@ export async function runRepairValidation(
     nextAction: draft.nextAction ?? validationNextAction(draft.status, terminalState),
   }, {
     ...evidenceContext,
+    evidenceId,
+    validatorProfile: profile,
     environmentRevision: environmentRevision ?? null,
+    ...(childProcessAttestation ? { childProcessAttestation } : {}),
   }));
 }
 
@@ -652,6 +787,12 @@ export async function runRepairRuntimeValidation(
   let environmentRevision: string | null = null;
   try {
     validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
+    const processProbe = createValidatorProcessProbe({
+      rootPath: validationWorkspace.rootPath,
+      profile: "runtime-oracle",
+      evidenceId,
+      identity: evidenceContext.childProcessIdentity,
+    });
     const execution = await runBoundedCommand({
       command: command.command,
       args: [...command.args],
@@ -664,6 +805,11 @@ export async function runRepairRuntimeValidation(
       maxOutputBytes: 1_000_000,
       allowedCommands: new Set(["pnpm"]),
       signal,
+      ...(processProbe ? {
+        env: processProbe.environment,
+        redactValues: processProbe.redactValues,
+        onSpawn: processProbe.onSpawn,
+      } : {}),
       beforeSpawn: async () => {
         environmentRevision = await captureValidationEnvironmentRevision(
           validationWorkspace!.rootPath,
@@ -671,6 +817,7 @@ export async function runRepairRuntimeValidation(
         );
       },
     });
+    const childProcessAttestation = await processProbe?.observe();
     const output = boundedDetail(execution.combinedOutput.trim());
     const passed = execution.status === "passed";
     const timedOut = execution.status === "timed_out";
@@ -695,6 +842,8 @@ export async function runRepairRuntimeValidation(
         evidenceId,
         observedAt: new Date().toISOString(),
         artifactRef: `runtime-oracle:${execution.status}`,
+        validatorProfile: "runtime-oracle",
+        ...(childProcessAttestation ? { childProcessAttestation } : {}),
         environmentRevision: execution.status === "spawn_error" || execution.status === "cancelled"
           ? null
           : environmentRevision,

@@ -77,7 +77,10 @@ import {
   startEpisodeShadow,
 } from "./agent-state/agent-episode-ledger.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
-import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
+import {
+  materializeServerOwnedObservations,
+  type ServerOwnedObservationSource,
+} from "./agent-state/observation-materializer.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import {
   buildMissionRepairAction,
@@ -509,6 +512,11 @@ type MissionToolLoopExecution = {
     taskObjective?: TaskObjectiveContract;
     status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
     validatorReceipts: TaskObjectiveValidatorReceipt[];
+    episodeId?: string;
+    validatorProcessObservations: Extract<
+      ServerOwnedObservationSource,
+      { kind: "validator_process_attestation" }
+    >[];
     evidence?: EvidenceSnapshotInput;
     candidateIdentity: string;
     effectRequired: boolean;
@@ -1380,26 +1388,37 @@ async function executeMissionToolLoop(params: {
               projectRevision?: string;
               candidateHash?: string;
             },
-          ) => runRepairValidation(
-            root.canonicalPath,
-            validationProfile as ValidationProfile,
-            targetPaths,
-            signal,
-            pendingChanges,
-            {
-              operationId: evidenceContext?.operationId ?? params.executionId,
-              projectRevision: evidenceContext?.projectRevision,
-              candidateHash: evidenceContext?.candidateHash,
-              environmentProfile: params.goal
-                ? serverEnvironmentProfile("TASK_EXECUTION", {
-                    kind: "mission-task",
-                    taskId: params.task.id,
-                    missionId: params.goal.missionId,
-                    goalId: params.goal.id,
-                  })
-                : null,
-            },
-          )
+          ) => {
+            const episode = await getMissionRepairEpisode();
+            return runRepairValidation(
+              root.canonicalPath,
+              validationProfile as ValidationProfile,
+              targetPaths,
+              signal,
+              pendingChanges,
+              {
+                operationId: evidenceContext?.operationId ?? params.executionId,
+                projectRevision: evidenceContext?.projectRevision,
+                candidateHash: evidenceContext?.candidateHash,
+                environmentProfile: params.goal
+                  ? serverEnvironmentProfile("TASK_EXECUTION", {
+                      kind: "mission-task",
+                      taskId: params.task.id,
+                      missionId: params.goal.missionId,
+                      goalId: params.goal.id,
+                    })
+                  : null,
+                childProcessIdentity: {
+                  projectId: params.task.projectId,
+                  executionId: params.executionId,
+                  executionAttempt: params.expectedAttempt,
+                  episodeId: episode.episodeId,
+                  operationId: params.executionId,
+                  revision: params.workspaceRevision,
+                },
+              },
+            );
+          }
         : undefined,
       signal: params.signal,
       telemetryContext: {
@@ -1510,6 +1529,11 @@ async function executeMissionToolLoop(params: {
   let evidence: EvidenceSnapshotInput | undefined;
   let candidateEffectContext: MissionRepairCandidateEffectContext | undefined;
   let validationResult: Awaited<ReturnType<typeof runRepairValidation>> | undefined;
+  let validationEpisode: Awaited<ReturnType<typeof getMissionRepairEpisode>> | undefined;
+  let validatorProcessObservations: Extract<
+    ServerOwnedObservationSource,
+    { kind: "validator_process_attestation" }
+  >[] = [];
 
   try {
     if (effectRequired) {
@@ -1546,6 +1570,7 @@ async function executeMissionToolLoop(params: {
       const validationAllowed = !candidateGenerationRejected
         && (params.profile !== "mission_repair"
           || (effectRequired && Boolean(candidateEffectContext)));
+      validationEpisode = validationAllowed ? await getMissionRepairEpisode() : undefined;
       validationResult = validationAllowed
         ? await runRepairValidation(
           root.canonicalPath,
@@ -1565,6 +1590,16 @@ async function executeMissionToolLoop(params: {
                   goalId: params.goal.id,
                 })
               : null,
+            ...(validationEpisode ? {
+              childProcessIdentity: {
+                projectId: params.task.projectId,
+                executionId: params.executionId,
+                executionAttempt: params.expectedAttempt,
+                episodeId: validationEpisode.episodeId,
+                operationId: params.executionId,
+                revision: params.workspaceRevision,
+              },
+            } : {}),
           },
         )
       : undefined;
@@ -1611,6 +1646,34 @@ async function executeMissionToolLoop(params: {
         reads: [],
       };
     }
+
+    const validationAttestation = validationResult?.evidence.childProcessAttestation;
+    const validationEvidenceId = validationResult?.evidence.evidenceId;
+    const validatorProfile = validationResult?.evidence.validatorProfile;
+    validatorProcessObservations = validationEpisode
+      && validationAttestation
+      && validationEvidenceId
+      && validatorProfile
+      && typeof validationAttestation.bindingDigest === "string"
+      ? [{
+          kind: "validator_process_attestation",
+          projectId: params.task.projectId,
+          executionId: params.executionId,
+          attempt: params.expectedAttempt,
+          episodeId: validationEpisode.episodeId,
+          operationId: params.executionId,
+          sessionId: validationEvidenceId,
+          validatorProfile,
+          revision: params.workspaceRevision,
+          status: validationAttestation.status,
+          reasonCode: validationAttestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
+          bindingDigest: validationAttestation.bindingDigest,
+          attestationDigest: validationAttestation.attestationDigest,
+          processEnvironmentDigest: validationAttestation.processEnvironmentDigest,
+          environmentRevision: validationResult?.evidence.environmentRevision ?? null,
+          observedAt: validationAttestation.observedAt,
+        }]
+      : [];
 
     if (effectRequired && candidateEffectContext) {
       try {
@@ -1726,6 +1789,8 @@ async function executeMissionToolLoop(params: {
       taskObjective,
       status: proofStatus,
       validatorReceipts,
+      ...(validationEpisode ? { episodeId: validationEpisode.episodeId } : {}),
+      validatorProcessObservations,
       evidence,
       candidateIdentity,
       effectRequired,
@@ -2323,6 +2388,9 @@ export async function executeTaskLifecycle(params: {
       projectId: before.projectId,
       executionId,
       attempt: taskReceipt.attempt,
+      ...(missionExecution?.proof.episodeId
+        ? { episodeId: missionExecution.proof.episodeId }
+        : {}),
       ...(executionWorkspaceRoot ? { environmentRootPath: executionWorkspaceRoot } : {}),
       projectRevision: taskReceipt.revision,
       sources: [
@@ -2360,6 +2428,7 @@ export async function executeTaskLifecycle(params: {
           artifactRef: receipt.artifactRef,
           environmentRevision: receipt.environmentRevision ?? null,
         })),
+        ...(missionExecution?.proof.validatorProcessObservations ?? []),
       ],
     }).catch((error: unknown) => {
       logger.warn(

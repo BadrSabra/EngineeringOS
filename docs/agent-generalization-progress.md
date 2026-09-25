@@ -17,7 +17,7 @@
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. في `mission_repair` تسجل الكتابات المعتمدة أيضًا Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. لا تتضمن acceptances World Delta ولا تحقق DoD الكامل لـP3.5–P6. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
-| P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وهوية launch للـruntime وبصمة validator قبل spawn، لكنها لا تثبت وحدها بيئة child process. المتبقي إغلاق مصادر الملاحظة المستقلة وpropagation للتناقضات؛ World Delta/revision closure يخص P6. |
+| P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، والآن رصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ يثبت الرصد PID المباشر فقط ولا يغطي descendants أو listener. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `partial` | كل invocation يحتاج هوية وscope/revision ونتيجة/فشل ومراجع evidence ضمن عقد server-owned. تُسجل recipe القراءة `database.inspect.project` أحداث ظلّية `OBSERVATION_REQUESTED/RECORDED` best-effort؛ mutations وeffect-gated validation وكتابات `ACTION_REQUESTED` تتطلب `AgentAction` الكامل. تسجل `mission_repair` المعتمدة lifecycle لكل `write_file`/`replace_text` داخل candidate overlay؛ لا ينشئ ذلك per-tool EffectBundle. بقية recipe nodes وprovider tool calls لم تكتمل. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
@@ -78,10 +78,12 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
   Browser/Delivery، approved `apply-changes` مع restart reconciliation fail-closed،
   وMission `mission_repair` ضمن candidate مؤقت غير مروج إلى live root.
 - **Environment identity:** Episode environment attestation، receipt-time observation،
-  runtime launch identity، وvalidator pre-spawn identity مع freshness منفصلة.
-  هذه metadata/attestations لا تثبت وحدها البيئة التي ورثها child process فعليًا.
+  runtime launch identity، وvalidator pre-spawn identity مع رصد مباشر محدود للـ
+  validator child عند توفر Episode binding كامل. تبقى descendants وlistener خارج
+  حد الإثبات الحالي.
 - **World State:** task/environment scope وrevision وAPI filters read-only؛
-  independent process observations غير مكتملة، وWorld Delta/revision closure في P6.
+  process observations مستقلة محدودة لعمليات runtime وvalidator؛ listener/
+  propagation غير مكتملين، وWorld Delta/revision closure في P6.
 - **Diagnosis وlearning:** bounded diagnosis/replan، effect-credit sidecar،
   strategy candidates وreplay محدود موجودة كـprimitives؛ لا تثبت cognition أو
   causality أو portability أو generalization.
@@ -1346,6 +1348,32 @@ G9 Revocation Safety
   database، ولم يبدأ P6 أو P7 أو P7.5.
 - **next step:** اربط validator process بالملاحظة المستقلة، ثم احسم إثبات
   listener PID ضمن P4/P5، بالترتيب ودون بدء P6 أو P7 أو P7.5.
+
+### 42.30 P4 — رصد عملية validator المرتبطة بهوية التنفيذ (2026-09-25)
+
+- **phase/step:** P4 — bound validator child process environment observation
+- **status:** `partial`
+- **what changed:** يحقن bounded-command marker مؤقتًا ويبلغ PID/cwd بعد spawn،
+  مع حجب marker من المخرجات. يرتبط procfs attestation بهوية المشروع والتنفيذ/
+  المحاولة/Episode/operation/revision وValidation Evidence ID وprofile. Recipe و
+  Mission Task يمرران الهوية عند توفر Episode؛ غياب binding لا ينشئ observation.
+  المواد المخزنة hashes وإسقاط allowlisted فقط، والجذر المؤقت حد للعملية المعزولة
+  لا project root أو provenance.
+- **files/schema/contracts touched:** execution kernel وvalidation result،
+  child-process attestation وrepair validation، recipe/task runners،
+  observation materializer، واختبارات bounded command/validation/World State.
+  لا schema migration أو تعديل قاعدة الإنتاج.
+- **validation:** orchestrator وAPI typecheck؛ bounded-command ‏12/12؛ API
+  validation وWorld State ‏23/23، مع اختبار runtime-oracle direct child؛ API
+  workflow restart/startup؛ `git diff --check`.
+- **authority/safety impact:** الرصد direct observation فقط؛ `unknown` partial و
+  `mismatch` failed، ولا يغيران validation status أو proof أو acceptance/OBSERVED.
+  لا تحفظ العلامة أو البيئة الخام ولا تمنح المؤشرات سلطة قبول.
+- **remaining/blocker:** رصد `pnpm` المباشر لا يثبت descendants أو HTTP listener؛
+  المسارات دون Episode binding تبقى غير مرصودة. لا تغيير production database،
+  ولم يبدأ P6 أو P7 أو P7.5.
+- **next step:** حدّد listener PID من boundary server-owned مستقل ومربوط بالـ
+  execution/session/revision قبل أي ادعاء عن بيئة الخدمة؛ استمر ضمن P4/P5 فقط.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

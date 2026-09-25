@@ -28,9 +28,14 @@ export type ChildProcessAttestationBinding = {
   episodeId: string;
   operationId: string;
   revision: string;
+  processRole?: "validator";
+  validatorProfile?: string;
 };
 
-export type ChildProcessAttestationIdentity = Omit<ChildProcessAttestationBinding, "sessionId">;
+export type ChildProcessAttestationIdentity = Omit<
+  ChildProcessAttestationBinding,
+  "sessionId" | "processRole" | "validatorProfile"
+>;
 
 export type ChildProcessEnvironmentAttestation = {
   status: "known" | "mismatch" | "unknown";
@@ -56,7 +61,7 @@ function sha256(value: string | Buffer): string {
 }
 
 export function childProcessBindingDigest(binding: ChildProcessAttestationBinding): string {
-  return sha256(JSON.stringify([
+  const base = [
     "child-process-binding-v1",
     binding.projectId,
     binding.sessionId,
@@ -65,6 +70,15 @@ export function childProcessBindingDigest(binding: ChildProcessAttestationBindin
     binding.episodeId,
     binding.operationId,
     binding.revision,
+  ];
+  if (binding.processRole === undefined && binding.validatorProfile === undefined) {
+    return sha256(JSON.stringify(base));
+  }
+  return sha256(JSON.stringify([
+    "child-process-binding-v2",
+    ...base.slice(1),
+    binding.processRole ?? null,
+    binding.validatorProfile ?? null,
   ]));
 }
 
@@ -137,6 +151,26 @@ function environmentValues(environment: Buffer): Map<string, Buffer[]> {
     offset = entryEnd + 1;
   }
   return values;
+}
+
+/**
+ * Project the exact safe environment keys expected from a server-spawned child.
+ * Values are used only for in-memory comparison and are never returned.
+ */
+export function childProcessExpectedEnvironment(
+  environment: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const expected: Record<string, string> = {};
+  for (const [name, value] of Object.entries(environment)) {
+    if (
+      typeof value === "string"
+      && name !== CHILD_ATTESTATION_ENV_NAME
+      && (ENVIRONMENT_DIGEST_NAMES.has(name) || name.startsWith("LC_"))
+    ) {
+      expected[name] = value;
+    }
+  }
+  return expected;
 }
 
 function oneValue(values: Map<string, Buffer[]>, name: string): Buffer | undefined {

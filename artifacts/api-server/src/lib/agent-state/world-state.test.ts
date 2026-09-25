@@ -480,6 +480,85 @@ describe("read-only World State projection", () => {
         },
       });
 
+      const validatorSessionId = `validation-evidence-${randomUUID()}`;
+      const validatorBinding = {
+        ...binding,
+        sessionId: validatorSessionId,
+        processRole: "validator" as const,
+        validatorProfile: "go-tests",
+      };
+      const validatorSource = {
+        kind: "validator_process_attestation" as const,
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        operationId,
+        sessionId: validatorSessionId,
+        validatorProfile: "go-tests",
+        revision: "revision-1",
+        status: "known" as const,
+        reasonCode: "child_process_observed" as const,
+        bindingDigest: childProcessBindingDigest(validatorBinding),
+        attestationDigest: "c".repeat(64),
+        processEnvironmentDigest: "d".repeat(64),
+        environmentRevision: null,
+      };
+      const unknownValidatorSessionId = `validation-evidence-unknown-${randomUUID()}`;
+      const unknownValidatorBinding = {
+        ...validatorBinding,
+        sessionId: unknownValidatorSessionId,
+      };
+      await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [
+          validatorSource,
+          {
+            ...validatorSource,
+            sessionId: unknownValidatorSessionId,
+            status: "unknown",
+            reasonCode: "procfs_unavailable",
+            bindingDigest: childProcessBindingDigest(unknownValidatorBinding),
+            attestationDigest: null,
+            processEnvironmentDigest: null,
+          },
+        ],
+      });
+      const [validatorObservation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, `validator-child-process:${validatorSessionId}`));
+      expect(validatorObservation).toMatchObject({
+        sourceType: "validator_process_attestation",
+        provenance: "DIRECT_OBSERVATION",
+        completeness: "complete",
+        predicate: "validator.child_process_environment",
+        value: {
+          status: "known",
+          validatorProfile: "go-tests",
+          bindingDigest: validatorSource.bindingDigest,
+          attestationDigest: validatorSource.attestationDigest,
+          processEnvironmentDigest: validatorSource.processEnvironmentDigest,
+          validationEvidenceId: validatorSessionId,
+          operationId,
+        },
+      });
+      const [unknownValidatorObservation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(
+          aiAgentObservationsTable.sourceId,
+          `validator-child-process:${unknownValidatorSessionId}`,
+        ));
+      expect(unknownValidatorObservation).toMatchObject({
+        completeness: "partial",
+        value: {
+          status: "unknown",
+          validatorProfile: "go-tests",
+          validationEvidenceId: unknownValidatorSessionId,
+        },
+      });
+
       const mismatchedSessionId = `runtime-session-root-mismatch-${randomUUID()}`;
       await materializeServerOwnedObservations({
         projectId,

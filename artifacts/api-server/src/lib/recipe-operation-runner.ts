@@ -1158,6 +1158,14 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           projectRevision: params.sourceRevision,
           candidateHash: params.candidateIdentity ?? undefined,
           environmentProfile: validationEnvironmentProfile,
+          childProcessIdentity: episode ? {
+            projectId: params.projectId,
+            executionId: claimed.id,
+            executionAttempt: claimed.attempt,
+            episodeId: episode.episodeId,
+            operationId: params.operationId,
+            revision: params.sourceRevision,
+          } : undefined,
         },
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
@@ -1692,6 +1700,15 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         projectRevision: string;
         candidateHash: string;
         environmentRevision?: string | null;
+        validatorProfile?: string;
+        childProcessAttestation?: {
+          status: "known" | "mismatch" | "unknown";
+          reasonCode: string;
+          bindingDigest: string | null;
+          attestationDigest: string | null;
+          processEnvironmentDigest: string | null;
+          observedAt: string;
+        };
       } => Boolean(
         value
         && typeof value === "object"
@@ -1707,6 +1724,35 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           || typeof (value as { environmentRevision?: unknown }).environmentRevision === "string"
         ),
       ));
+    const validatorProcessObservations = episode
+      ? completionEvidence.flatMap((evidence) => {
+          const attestation = evidence.childProcessAttestation;
+          if (
+            !evidence.validatorProfile
+            || !attestation
+            || typeof attestation.bindingDigest !== "string"
+            || typeof attestation.observedAt !== "string"
+          ) return [];
+          return [{
+            kind: "validator_process_attestation" as const,
+            projectId: params.projectId,
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            episodeId: episode.episodeId,
+            operationId: params.operationId,
+            sessionId: evidence.evidenceId,
+            validatorProfile: evidence.validatorProfile,
+            revision: params.sourceRevision,
+            status: attestation.status,
+            reasonCode: attestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
+            bindingDigest: attestation.bindingDigest,
+            attestationDigest: attestation.attestationDigest,
+            processEnvironmentDigest: attestation.processEnvironmentDigest,
+            environmentRevision: evidence.environmentRevision ?? null,
+            observedAt: attestation.observedAt,
+          }];
+        })
+      : [];
     if (evidenceRefs.length !== result.nodes.length) {
       await failAiExecution({
         executionId: claimed.id,
@@ -2081,6 +2127,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           } : {}),
         },
         ...runtimeChildProcessObservation,
+        ...validatorProcessObservations,
         ...(runtimeAfterObservation && runtimeGateCEffectKind ? [{
           kind: "direct_observation" as const,
           sourceId: `gate-c:${claimed.id}:${claimed.attempt}:after:runtime-state`,

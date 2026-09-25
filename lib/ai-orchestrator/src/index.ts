@@ -376,6 +376,7 @@ export {
 } from "./validation-result.js";
 export type {
   ValidationEvidence,
+  ValidationProcessAttestation,
   ValidationFailure,
   ValidationFailureKind,
   PublicValidationResult,

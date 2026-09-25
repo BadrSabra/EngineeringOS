@@ -6,12 +6,49 @@ import {
   createValidationWorkspace,
   getRepairValidationProfile,
   runRepairRuntimeOracle,
+  runRepairRuntimeValidation,
   runRepairValidation,
   validateRepairValidationScope,
 } from "./ai-repair-validation.js";
 import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 
 describe("AI repair validation registry", () => {
+  it("attests the direct runtime-validator child when a full server binding is supplied", async () => {
+    const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-validator-probe-"));
+    try {
+      await fs.writeFile(path.join(rootPath, "package.json"), '{"name":"runtime-validator-probe"}\n');
+      const result = await runRepairRuntimeValidation(
+        rootPath,
+        [],
+        {
+          command: "pnpm",
+          args: ["exec", "node", "-e", "setTimeout(() => {}, 700)"],
+          timeoutMs: 5_000,
+        },
+        undefined,
+        undefined,
+        {
+          operationId: "runtime-validator-operation",
+          projectRevision: "runtime-validator-revision",
+          childProcessIdentity: {
+            projectId: "runtime-validator-project",
+            executionId: "runtime-validator-execution",
+            executionAttempt: 0,
+            episodeId: "runtime-validator-episode",
+            operationId: "runtime-validator-operation",
+            revision: "runtime-validator-revision",
+          },
+        },
+      );
+
+      expect(result.status).toBe("passed");
+      expect(result.evidence.validatorProfile).toBe("runtime-oracle");
+      expect(result.evidence.childProcessAttestation?.status).toBe("known");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  }, 10_000);
+
   it("exposes only a registered bounded profile", () => {
     const profile = getRepairValidationProfile("ai-orchestrator-tests");
     expect(profile.command).toBe("pnpm");
@@ -133,10 +170,20 @@ describe("AI repair validation registry", () => {
           candidateIdentity: "candidate-validation-test",
           validationProfiles: ["workspace-typecheck"],
         }),
+        childProcessIdentity: {
+          projectId: "validation-attestation-project",
+          executionId: "validation-attestation-execution",
+          executionAttempt: 0,
+          episodeId: "validation-attestation-episode",
+          operationId: "validation-environment-test",
+          revision: "validation-attestation-revision",
+        },
       },
     );
 
     expect(result.status).toBe("failed");
+    expect(result.evidence.validatorProfile).toBe("workspace-typecheck");
+    expect(result.evidence.childProcessAttestation?.status).toBe("known");
     expect(result.evidence.environmentRevision).toBeNull();
     expect(`${result.stdout}\n${result.stderr}\n${result.detail}`).toMatch(/invalid|expected|type/i);
     expect(await fs.readFile(path.join(rootPath, relativePath), "utf8")).toBe(originalContent);

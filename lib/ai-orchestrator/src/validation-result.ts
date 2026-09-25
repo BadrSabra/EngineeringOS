@@ -52,6 +52,10 @@ export type ValidationEvidence = {
   projectRevision?: string;
   /** Nullable validator environment identity; null means the spawn environment is unknown. */
   environmentRevision?: string | null;
+  /** Registered server validation profile that launched the observed process. */
+  validatorProfile?: string;
+  /** Hash-only observation of the direct validator child; it does not determine validation status. */
+  childProcessAttestation?: ValidationProcessAttestation;
   treeDigestVersion?: string;
   baseTreeHash?: string;
   candidateHash?: string;
@@ -60,6 +64,15 @@ export type ValidationEvidence = {
   committedTreeHash?: string;
   screenshotAvailable?: boolean;
   consoleErrorCount?: number;
+};
+
+export type ValidationProcessAttestation = {
+  status: "known" | "mismatch" | "unknown";
+  reasonCode: string;
+  bindingDigest: string | null;
+  attestationDigest: string | null;
+  processEnvironmentDigest: string | null;
+  observedAt: string;
 };
 
 export type ValidationResult = {
@@ -128,6 +141,10 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
       ...(evidence.projectRevision ? { projectRevision: evidence.projectRevision } : {}),
       ...(evidence.environmentRevision !== undefined
         ? { environmentRevision: evidence.environmentRevision }
+        : {}),
+      ...(evidence.validatorProfile ? { validatorProfile: evidence.validatorProfile } : {}),
+      ...(evidence.childProcessAttestation
+        ? { childProcessAttestation: evidence.childProcessAttestation }
         : {}),
       ...(evidence.treeDigestVersion ? { treeDigestVersion: evidence.treeDigestVersion } : {}),
       ...(evidence.baseTreeHash ? { baseTreeHash: evidence.baseTreeHash } : {}),

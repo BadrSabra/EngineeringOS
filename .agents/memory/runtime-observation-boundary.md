@@ -17,8 +17,8 @@ Static/runtime comparison is a diagnostic projection: `static_not_observed` and 
 
 ### Live child-process environment probes
 
-The runtime child marker and procfs probe attest only the direct server-owned spawned process. If that PID is `pnpm`, the result does not prove that the descendant owning the listening socket inherited the same environment. Recovery without the ephemeral marker remains `unknown`; validator commands need their own in-process spawn observation.
+The runtime and validator markers attest only the direct server-owned spawned PID. A validator observation is emitted only when the spawn has a complete project/execution/attempt/Episode/operation/revision identity; it binds to the validation evidence ID and registered profile. Procfs unavailable or absent identity remains unobserved/unknown, while a measured mismatch is failed evidence.
 
-**Why:** launch handoff state and a parent process environment are not equivalent to independently observing the process that serves the application or runs a validator.
+**Why:** launch handoff state is not an observation of the child. A temporary validation workspace is a process boundary only; treating it as the managed project root would confuse candidate execution with project provenance.
 
-**How to apply:** describe the attested PID precisely, keep missing or mismatched child evidence outside acceptance authority, and add separate process-bound probes before claiming listener or validator environment proof.
+**How to apply:** describe the attested PID precisely, use the isolated workspace only for cwd/process checks, never persist the marker or raw environment, and keep missing/mismatched observations outside acceptance authority. A validator `pnpm` PID does not prove descendant or listener environment; those need separate process-bound observations.

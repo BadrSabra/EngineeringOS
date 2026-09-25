@@ -16,8 +16,10 @@ export type BoundedCommandSpec = {
   maxOutputBytes: number;
   allowedCommands?: ReadonlySet<string>;
   env?: NodeJS.ProcessEnv;
+  redactValues?: readonly string[];
   signal?: AbortSignal;
   beforeSpawn?: () => void | Promise<void>;
+  onSpawn?: (process: { pid: number | null; cwd: string }) => void;
 };
 
 export type BoundedCommandStatus = "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
@@ -33,9 +35,12 @@ export type BoundedCommandResult = {
   durationMs: number;
 };
 
-function sanitizeOutput(value: string, rootPath: string): string {
-  return value
-    .replaceAll(rootPath, "[project path]")
+function sanitizeOutput(value: string, rootPath: string, redactValues: readonly string[] = []): string {
+  let sanitized = value.replaceAll(rootPath, "[project path]");
+  for (const secret of redactValues) {
+    if (secret) sanitized = sanitized.replaceAll(secret, "[redacted]");
+  }
+  return sanitized
     .replace(/(?:\/home\/[^ \n\t"'`]+|\/tmp\/[^ \n\t"'`]+|\/workspace\/[^ \n\t"'`]+)/g, "[runtime path]")
     .replace(/((?:api[_-]?key|token|secret|password))\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]");
 }
@@ -174,9 +179,9 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
       settled = true;
       resolve({
         ...result,
-        combinedOutput: sanitizeOutput(`${stdout}${stderr ? `\n${stderr}` : ""}`, spec.rootPath),
-        stdout: sanitizeOutput(stdout, spec.rootPath),
-        stderr: sanitizeOutput(stderr, spec.rootPath),
+        combinedOutput: sanitizeOutput(`${stdout}${stderr ? `\n${stderr}` : ""}`, spec.rootPath, spec.redactValues),
+        stdout: sanitizeOutput(stdout, spec.rootPath, spec.redactValues),
+        stderr: sanitizeOutput(stderr, spec.rootPath, spec.redactValues),
         truncated,
         durationMs: Date.now() - startedAt,
       });
@@ -189,6 +194,11 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    try {
+      spec.onSpawn?.({ pid: child.pid ?? null, cwd });
+    } catch {
+      // Observation hooks must not change the bounded command's outcome.
+    }
     let escalation: ReturnType<typeof setTimeout> | undefined;
     const killChild = (signal: NodeJS.Signals): void => {
       try {

@@ -109,7 +109,7 @@
 - [Read-only invocation telemetry](recipe-read-only-classification.md) — use explicit allowlists, full-manifest hashes, and durable Episode bindings; never infer read-only safety from a mutation flag.
 - [GitHub delivery recovery](github-delivery-recovery.md) — idempotent recovery must match the exact expected remote commit, parent, tree, and operation marker.
 - [Hierarchical retrieval boundary](hierarchical-retrieval-boundary.md) — graph planning ranks bounded source/test paths; server-owned read tools remain authoritative for source bytes and evidence.
-- [Runtime observation boundary](runtime-observation-boundary.md) — runtime edges bind active session/revision; child attestation proves the spawned `pnpm`, not necessarily the listener or validator.
+- [Runtime observation boundary](runtime-observation-boundary.md) — runtime and validator probes attest only a bound direct PID; temp validation roots never replace project provenance or grant acceptance.
 - [Mission Control acceptance projection](mission-control-acceptance-projection.md) — durable acceptance rows and proof requirements must drive visible targeted acceptance state.
 - [Task objective contracts](task-objective-contracts.md) — every proof-required task gets a hashed objective/validator/evidence contract; unsupported validators fail closed.
 - [Task progress cursors](task-progress-cursors.md) — progress sequences and replay cursors are monotonic per task across retries and new executions.

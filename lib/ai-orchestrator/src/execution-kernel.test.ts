@@ -112,6 +112,33 @@ describe("bounded execution kernel", () => {
     expect(result.stdout).not.toContain("super-secret");
   });
 
+  it("reports the spawned pid and redacts an injected child marker", async () => {
+    const root = await makeRoot();
+    const marker = "server-generated-child-marker";
+    let observedPid: number | null | undefined;
+    const result = await runBoundedCommand({
+      command: "node",
+      args: ["-e", "process.stdout.write(process.env.ENGINEERINGOS_CHILD_ATTESTATION ?? '')"],
+      rootPath: root,
+      env: {
+        ...process.env,
+        ENGINEERINGOS_CHILD_ATTESTATION: marker,
+      },
+      redactValues: [marker],
+      onSpawn: ({ pid }) => {
+        observedPid = pid;
+      },
+      allowedCommands: new Set(["node"]),
+      timeoutMs: 2_000,
+      maxOutputBytes: 100,
+    });
+
+    expect(result.status).toBe("passed");
+    expect(observedPid).toEqual(expect.any(Number));
+    expect(result.stdout).toBe("[redacted]");
+    expect(result.combinedOutput).not.toContain(marker);
+  });
+
   it("rejects commands outside the explicit allowlist", async () => {
     const root = await makeRoot();
     await expect(runBoundedCommand({
