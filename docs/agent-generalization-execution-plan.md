@@ -4933,6 +4933,12 @@ schema؛ لا تغيير schema أو بيانات إنتاج ضمن قرار ا�
 
 **الحالة:** `NOT STARTED`
 
+**مرشح pilot مؤجل فقط:** `runtime.start/restart/stop` كـGolden Slice، لأن له
+ملاحظات مستقلة بعد التنفيذ ومسار effect verification مناسبًا نسبيًا. هذا اقتراح
+توثيقي لا يفتح P6 ولا يجيز تعديل runtime أو إضافة `WorldTransition`/`WorldDelta`
+أو تغيير materialization أو إدخال `worldRevision` في مسار التنفيذ؛ يلزم فتح
+النطاق صراحة قبل أي تنفيذ أو تحقق خاص بـP6.
+
 المتطلبات والحالات أدناه معايير تصميم وقبول مقترحة؛ ليست enums أو جداول أو
 مسارات retry منفذة في runtime الحالي.
 
@@ -4973,7 +4979,7 @@ State، ولا تُسقط الحالة الحية إلا بعد الترقية �
 
 ### 42.7 P7 — World-State Failure Diagnosis
 
-**الحالة:** `PARTIAL — provider/validator diagnostics and bounded-replan primitives exist; world-state diagnosis is not implemented`
+**الحالة:** `NOT STARTED — provider/validator diagnostics and bounded-replan primitives are pre-existing foundations, not P7 execution; world-state diagnosis is not implemented`
 
 التشخيص يجب أن يجيب:
 
