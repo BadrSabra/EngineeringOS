@@ -78,6 +78,7 @@ export type TaskObjectiveValidatorReceipt = {
   projectId: string;
   workspaceRevision: string;
   artifactRef: string;
+  environmentRevision?: string | null;
 };
 
 export function parseTaskObjectiveValidatorReceipt(
@@ -92,6 +93,11 @@ export function parseTaskObjectiveValidatorReceipt(
     || typeof candidate.projectId !== "string"
     || typeof candidate.workspaceRevision !== "string"
     || typeof candidate.artifactRef !== "string"
+    || (
+      candidate.environmentRevision !== undefined
+      && candidate.environmentRevision !== null
+      && typeof candidate.environmentRevision !== "string"
+    )
   ) return undefined;
   return {
     validatorId: candidate.validatorId.slice(0, 120),
@@ -100,6 +106,9 @@ export function parseTaskObjectiveValidatorReceipt(
     projectId: candidate.projectId.slice(0, 160),
     workspaceRevision: candidate.workspaceRevision.slice(0, 2_000),
     artifactRef: candidate.artifactRef.slice(0, 500),
+    environmentRevision: typeof candidate.environmentRevision === "string"
+      ? candidate.environmentRevision.slice(0, 2_000)
+      : null,
   };
 }
 

@@ -420,6 +420,53 @@ describe("read-only World State projection", () => {
     }
   });
 
+  it("keeps a validator receipt environment unknown when spawn identity is absent", async () => {
+    const rootPath = await mkdtemp(join(process.cwd(), "world-validator-unknown-"));
+    try {
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({ name: "validator-unknown" }));
+      const scoped = await createScopedEpisode(
+        {
+          kind: "recipe",
+          recipeId: "candidate.verify",
+          candidateIdentity: "candidate-validator-unknown",
+          validationProfiles: ["workspace-typecheck"],
+        },
+        "validator-environment-unknown",
+        { intentKind: "CANDIDATE_VALIDATION", environmentRootPath: rootPath },
+      );
+      const sourceId = `registered-validation.v1:${scoped.executionId}`;
+      await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        environmentRootPath: rootPath,
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "validator_receipt",
+          validatorId: "registered-validation.v1",
+          operationId: scoped.executionId,
+          projectId,
+          workspaceRevision: "revision-1",
+          status: "PROVEN",
+          artifactRef: "validation-result:test",
+          environmentRevision: null,
+        }],
+      });
+
+      const [observation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, sourceId));
+      expect(observation?.environmentFreshness).toBe("unknown");
+      expect(observation?.environmentRevision).toBeNull();
+      expect(observation?.value).toMatchObject({
+        validatorId: "registered-validation.v1",
+        environmentRevision: null,
+      });
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("detects a manifest change at receipt time without changing project freshness", async () => {
     const rootPath = await mkdtemp(join(process.cwd(), "world-environment-change-"));
     try {

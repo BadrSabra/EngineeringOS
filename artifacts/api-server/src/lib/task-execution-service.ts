@@ -75,6 +75,7 @@ import {
   startEpisode,
   startEpisodeShadow,
 } from "./agent-state/agent-episode-ledger.js";
+import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
 import {
@@ -1183,6 +1184,14 @@ async function executeMissionToolLoop(params: {
               operationId: evidenceContext?.operationId ?? params.executionId,
               projectRevision: evidenceContext?.projectRevision,
               candidateHash: evidenceContext?.candidateHash,
+              environmentProfile: params.goal
+                ? serverEnvironmentProfile("TASK_EXECUTION", {
+                    kind: "mission-task",
+                    taskId: params.task.id,
+                    missionId: params.goal.missionId,
+                    goalId: params.goal.id,
+                  })
+                : null,
             },
           )
         : undefined,
@@ -1342,6 +1351,14 @@ async function executeMissionToolLoop(params: {
             operationId: params.executionId,
             projectRevision: params.workspaceRevision,
             candidateHash: candidateIdentity,
+            environmentProfile: params.goal
+              ? serverEnvironmentProfile("TASK_EXECUTION", {
+                  kind: "mission-task",
+                  taskId: params.task.id,
+                  missionId: params.goal.missionId,
+                  goalId: params.goal.id,
+                })
+              : null,
           },
         )
       : undefined;
@@ -1359,6 +1376,7 @@ async function executeMissionToolLoop(params: {
         projectId: params.task.projectId,
         workspaceRevision: params.workspaceRevision,
         artifactRef,
+        environmentRevision: validationResult?.evidence.environmentRevision ?? null,
       });
       const objectiveValidation = validateTaskObjectiveContract({
         contract: taskObjective,
@@ -2134,6 +2152,7 @@ export async function executeTaskLifecycle(params: {
           workspaceRevision: receipt.workspaceRevision,
           status: receipt.status,
           artifactRef: receipt.artifactRef,
+          environmentRevision: receipt.environmentRevision ?? null,
         })),
       ],
     }).catch((error: unknown) => {

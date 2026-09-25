@@ -252,6 +252,7 @@ function normalizeSource(
       validatorId: boundedText(source.validatorId),
       status: source.status,
       artifactRef: boundedText(source.artifactRef, 500),
+      environmentRevision: source.environmentRevision ?? null,
     }), MAX_VALUE_BYTES);
     return {
       sourceType: "validator_receipt",

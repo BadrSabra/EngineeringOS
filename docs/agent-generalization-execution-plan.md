@@ -4577,6 +4577,27 @@ production schema هنا.
 جلسة runtime، ثبات profile، receipt session binding، وunknown freshness عند
 غياب بصمة spawn.
 
-المتبقي في P4: التقاط بصمة validator عند حد bounded-command spawn وربطها
-بإيصالها؛ كما أن handoff الحالية لا تتلقى تأكيدًا مستقلًا من child process.
+المتبقي في P4: لا تتلقى handoff تأكيدًا مستقلًا من child process. التقاط validator
+موثق في الخطوة 42.21؛ workspaces المؤقتة التي يرفضها حد الجذر تبقى unknown.
 لا يبدأ P6 قبل إغلاق تبعيات P3.5/P4/P5 وWorld Delta/contradiction propagation.
+
+### 42.21 P4 — Validator spawn environment identity (2026-09-25)
+
+أضيف `beforeSpawn` اختياري إلى bounded-command kernel لالتقاط البصمة من
+workspace التحقق الفعلي بعد materialization وقبل إعادة التحقق النهائية من root
+وcwd وبدء child process. يحصل المسار على `serverEnvironmentProfile` نفسه الذي
+استخدمه Episode المالكة؛ لا تُشتق صلاحية أو profile من provider output.
+
+تنتقل `environmentRevision` nullable عبر ValidationResult العام، و
+TaskObjectiveValidatorReceipt، ثم `validator_receipt` Observation/World State.
+إذا لم يثبت child spawn أو تعذر attestation، تحفظ القيمة `null` ويظل
+`environmentFreshness=unknown`. لا تؤثر على status أو proof أو scope أو
+permissions أو acceptance.
+
+حد الجذر الحالي يمنع `/tmp` عمدًا؛ لذلك تبقى بصمة pending-change workspace
+المعزول unknown، ولا يجري الرجوع إلى live source root أو candidate identity
+كبديل. لا يُفتح استثناء `/tmp` داخل `establishProjectRoot`؛ أي دعم لاحق لهذه
+المساحة يحتاج root موثوقًا ومدارًا مستقلًا.
+
+التحقق: API typecheck؛ 44 اختبار API مركزًا عبر أربعة ملفات؛ 11 اختبار bounded
+execution؛ `git diff --check`؛ API restart وفحص health بحالة `ok`.

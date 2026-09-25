@@ -48,6 +48,7 @@ import {
 import { runRegisteredStrategyReplayCase } from "./agent-state/strategy-replay-case-runner.js";
 
 const validationCalls: string[] = [];
+const validationEvidenceContexts: unknown[] = [];
 const execFileAsync = promisify(execFile);
 
 vi.mock("./ai-repair-validation.js", async () => {
@@ -56,8 +57,16 @@ vi.mock("./ai-repair-validation.js", async () => {
   );
   return {
     ...actual,
-    runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => {
+    runRepairValidation: vi.fn(async (
+      _rootPath: string,
+      profile: string,
+      _targetPaths?: string[],
+      _signal?: AbortSignal,
+      _pendingChanges?: unknown,
+      evidenceContext?: unknown,
+    ) => {
       validationCalls.push(profile);
+      validationEvidenceContexts.push(evidenceContext);
       return {
         status: "passed",
         profile,
@@ -66,6 +75,7 @@ vi.mock("./ai-repair-validation.js", async () => {
           evidenceId: `mock-evidence-${validationCalls.length}`,
           observedAt: new Date().toISOString(),
           artifactRef: `mock-validation:${profile}`,
+          environmentRevision: "env-v1:recipe-test",
         },
       };
     }),
@@ -347,12 +357,19 @@ describe("recipe operation preparation", () => {
 
   it("resumes a reclaimed recipe from passed checkpoint nodes instead of rerunning them", async () => {
     validationCalls.length = 0;
+    validationEvidenceContexts.length = 0;
     const fixture = await createReclaimedRecipeFixture();
     try {
       const result = await runRecipeOperation(fixture.params);
       expect(result.status).toBe("completed");
       expect(result.completedNodeIds).toEqual(fixture.prepared.plan.nodes.map((node) => node.id));
       expect(validationCalls).toEqual(["ai-orchestrator-tests"]);
+      expect(validationEvidenceContexts[0]).toMatchObject({
+        operationId: fixture.executionId,
+        projectRevision: fixture.params.sourceRevision,
+        candidateHash: fixture.params.candidateIdentity,
+        environmentProfile: { id: "candidate-validation" },
+      });
       const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
         .where(eq(aiAgentEffectBundlesTable.executionId, fixture.executionId))
         .limit(1);

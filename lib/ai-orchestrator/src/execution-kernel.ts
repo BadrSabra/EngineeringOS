@@ -17,6 +17,7 @@ export type BoundedCommandSpec = {
   allowedCommands?: ReadonlySet<string>;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  beforeSpawn?: () => void | Promise<void>;
 };
 
 export type BoundedCommandStatus = "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
@@ -150,7 +151,21 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
   let timedOut = false;
   let cancelled = false;
 
+  await spec.beforeSpawn?.();
+  const cancelledBeforeSpawn = (): BoundedCommandResult => ({
+    status: "cancelled",
+    exitCode: null,
+    signal: null,
+    stdout: "",
+    stderr: "",
+    combinedOutput: "",
+    truncated: false,
+    durationMs: Date.now() - startedAt,
+  });
+  if (spec.signal?.aborted) return cancelledBeforeSpawn();
+
   const cwd = await revalidateExecutionBoundary(spec.rootPath, requestedCwd, boundary);
+  if (spec.signal?.aborted) return cancelledBeforeSpawn();
 
   return new Promise<BoundedCommandResult>((resolve) => {
     let settled = false;

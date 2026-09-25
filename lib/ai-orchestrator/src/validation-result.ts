@@ -50,6 +50,8 @@ export type ValidationEvidence = {
   /** Integrity identifiers for delivery validation, when validating a candidate. */
   operationId?: string;
   projectRevision?: string;
+  /** Nullable validator environment identity; null means the spawn environment is unknown. */
+  environmentRevision?: string | null;
   treeDigestVersion?: string;
   baseTreeHash?: string;
   candidateHash?: string;
@@ -124,6 +126,9 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
       ...(evidence.revision ? { revision: evidence.revision } : {}),
       ...(evidence.operationId ? { operationId: evidence.operationId } : {}),
       ...(evidence.projectRevision ? { projectRevision: evidence.projectRevision } : {}),
+      ...(evidence.environmentRevision !== undefined
+        ? { environmentRevision: evidence.environmentRevision }
+        : {}),
       ...(evidence.treeDigestVersion ? { treeDigestVersion: evidence.treeDigestVersion } : {}),
       ...(evidence.baseTreeHash ? { baseTreeHash: evidence.baseTreeHash } : {}),
       ...(evidence.candidateHash ? { candidateHash: evidence.candidateHash } : {}),

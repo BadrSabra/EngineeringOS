@@ -17,7 +17,7 @@
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة، مع task/environment scoping؛ لا تزال belief وindependent observation ناقصة. |
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
-| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts، وتلتقط hash server-owned لملفات البيئة المسموحة وملف runtime/validator عند بدء المحاولة. freshness البيئية منفصلة عن project freshness؛ يلزم استكمال مصادر الملاحظات المستقلة وWorld Delta/contradiction propagation. |
+| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts؛ تُلتقط بصمة runtime عند dispatch وبصمة validator عند حد ما قبل spawn. freshness البيئية منفصلة عن project freshness؛ يلزم استكمال مصادر الملاحظات المستقلة وWorld Delta/contradiction propagation. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
@@ -110,6 +110,27 @@ G9 Revocation Safety
   receipt بلا baseline تحتفظ بنطاقها مع freshness `unknown`.
 - **remaining/blocker:** freshness هنا مربوطة بلقطة Episode، لا بمراقب مستقل
   للبيئة الحالية بعد التنفيذ. ما زالت World Delta وانتشار التناقضات غير منفذين.
+
+### 2026-09-25 — Validator spawn environment identity
+
+- **phase/step:** P4 / Bounded validator spawn identity
+- **status:** `partial`
+- **what changed:** أضيف hook اختياري قبل spawn في bounded-command kernel؛ بعده
+  يعاد التحقق من root وcwd مباشرة قبل إنشاء child process. يلتقط validator
+  البصمة من جذر workspace الذي سيعمل عليه فعلًا وبـprofile server-owned مطابق
+  لسياق Episode، ثم يحمل `environmentRevision` عبر ValidationResult و
+  TaskObjectiveValidatorReceipt وserver-owned Observation.
+- **validation:** API typecheck؛ 44 اختبار API مركزًا عبر أربعة ملفات؛ 11 اختبار
+  bounded execution؛ `git diff --check`؛ API restart وفحص `/api/healthz` بحالة
+  `ok`.
+- **authority/safety impact:** قيمة revision metadata فقط؛ لا تدخل في proof أو
+  status أو scope أو permissions أو acceptance. القيمة `null` تبقى `unknown`.
+  لا تستبدل بصمة workspace المؤقت تحت `/tmp` ببصمة root المصدر؛ سياسة root
+  الحالية ترفض هذا المسار عمدًا.
+- **remaining/blocker:** pending-change workspaces تحت `/tmp` غير قابلة للattestation
+  وفق حد الجذر الحالي؛ لا يوجد تأكيد مستقل من child process بعد بدء التنفيذ.
+  يلزم حل workspace موثوق مستقل قبل جعل تلك البصمات معروفة، مع إبقاء World
+  Delta وانتشار التناقضات ضمن العمل المتبقي.
 
 ### 2026-09-24 — World State read-only وContext projection
 

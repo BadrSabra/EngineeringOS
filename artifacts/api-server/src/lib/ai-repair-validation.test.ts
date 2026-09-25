@@ -9,6 +9,7 @@ import {
   runRepairValidation,
   validateRepairValidationScope,
 } from "./ai-repair-validation.js";
+import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 
 describe("AI repair validation registry", () => {
   it("exposes only a registered bounded profile", () => {
@@ -56,6 +57,7 @@ describe("AI repair validation registry", () => {
   it("returns unavailable for Go validation when the module manifest is missing", async () => {
     const result = await runRepairValidation("/tmp", "go-tests", ["main.go"]);
     expect(result.status).toBe("unavailable");
+    expect(result.evidence.environmentRevision).toBeNull();
     expect(result.detail).toMatch(/go\.mod/i);
   });
 
@@ -72,6 +74,7 @@ describe("AI repair validation registry", () => {
       "lib/ai-orchestrator/src/tools/git-tools.ts",
     ]);
     expect(result.status).toBe("unavailable");
+    expect(result.evidence.environmentRevision).toBeNull();
     expect(result.detail).toMatch(/package\.json/i);
     expect(result.processBudgetMs).toBeGreaterThan(0);
     expect(result.overallBudgetMs).toBeGreaterThanOrEqual(result.processBudgetMs ?? 0);
@@ -122,9 +125,19 @@ describe("AI repair validation registry", () => {
       [relativePath],
       undefined,
       [{ path: relativePath, newContent: `${originalContent}\nexport const invalid: = 1;\n` }],
+      {
+        environmentProfile: serverEnvironmentProfile("CANDIDATE_VALIDATION", {
+          kind: "recipe",
+          operationId: "validation-environment-test",
+          recipeId: "candidate.verify",
+          candidateIdentity: "candidate-validation-test",
+          validationProfiles: ["workspace-typecheck"],
+        }),
+      },
     );
 
     expect(result.status).toBe("failed");
+    expect(result.evidence.environmentRevision).toBeNull();
     expect(`${result.stdout}\n${result.stderr}\n${result.detail}`).toMatch(/invalid|expected|type/i);
     expect(await fs.readFile(path.join(rootPath, relativePath), "utf8")).toBe(originalContent);
   }, 120_000);

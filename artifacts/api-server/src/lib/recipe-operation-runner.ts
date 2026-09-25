@@ -70,6 +70,7 @@ import {
   startEpisode,
   startEpisodeShadow,
 } from "./agent-state/agent-episode-ledger.js";
+import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
@@ -752,6 +753,17 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   const candidateValidation = params.recipeId === "candidate.verify";
   const recipeGateCEffectKind = gateCEffectKind(params.recipeId);
   const authoritativeEffectRecipe = candidateValidation || Boolean(recipeGateCEffectKind);
+  const validationEnvironmentProfile = candidateValidation
+    ? serverEnvironmentProfile("CANDIDATE_VALIDATION", {
+        kind: "recipe",
+        operationId: params.operationId,
+        recipeId: params.recipeId,
+        candidateIdentity: params.candidateIdentity ?? null,
+        ...(params.validationProfiles
+          ? { validationProfiles: [...params.validationProfiles] }
+          : {}),
+      })
+    : null;
   const episode = authoritativeEffectRecipe
     ? await startEpisode({
         projectId: params.projectId,
@@ -994,6 +1006,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         profile as Parameters<typeof runRepairValidation>[1],
         targetPaths,
         signal,
+        undefined,
+        {
+          operationId: claimed.id,
+          projectRevision: params.sourceRevision,
+          candidateHash: params.candidateIdentity ?? undefined,
+          environmentProfile: validationEnvironmentProfile,
+        },
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
     ...(params.runtimeStartRunner ? { runtimeStartRunner: params.runtimeStartRunner } : {}),
@@ -1340,6 +1359,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         operationId: string;
         projectRevision: string;
         candidateHash: string;
+        environmentRevision?: string | null;
       } => Boolean(
         value
         && typeof value === "object"
@@ -1348,7 +1368,12 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         && typeof (value as { artifactRef?: unknown }).artifactRef === "string"
         && typeof (value as { operationId?: unknown }).operationId === "string"
         && typeof (value as { projectRevision?: unknown }).projectRevision === "string"
-        && typeof (value as { candidateHash?: unknown }).candidateHash === "string",
+        && typeof (value as { candidateHash?: unknown }).candidateHash === "string"
+        && (
+          (value as { environmentRevision?: unknown }).environmentRevision === undefined
+          || (value as { environmentRevision?: unknown }).environmentRevision === null
+          || typeof (value as { environmentRevision?: unknown }).environmentRevision === "string"
+        ),
       ));
     if (evidenceRefs.length !== result.nodes.length) {
       await failAiExecution({
@@ -1381,6 +1406,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             projectId: params.projectId,
             workspaceRevision: evidence.projectRevision,
             artifactRef: evidence.artifactRef,
+            environmentRevision: typeof evidence.environmentRevision === "string"
+              ? evidence.environmentRevision
+              : null,
           };
         })
       : [];
@@ -1684,6 +1712,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           workspaceRevision: validator.workspaceRevision,
           status: validator.status,
           artifactRef: validator.artifactRef,
+          environmentRevision: validator.environmentRevision ?? null,
         })),
       ],
     }).catch((error: unknown) => {

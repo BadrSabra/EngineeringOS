@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EXECUTION_LIMITS, runBoundedCommand } from "./execution-kernel.js";
@@ -31,6 +31,67 @@ describe("bounded execution kernel", () => {
     expect(result.status).toBe("passed");
     expect(result.stdout).toBe("safe");
     expect(result.truncated).toBe(false);
+  });
+
+  it("runs the pre-spawn hook before creating the child process", async () => {
+    const root = await makeRoot();
+    const hookMarker = path.join(root, "hook-ready.txt");
+    const childMarker = path.join(root, "child-result.txt");
+    const result = await runBoundedCommand({
+      command: "node",
+      args: [
+        "-e",
+        "const fs = require('node:fs'); fs.writeFileSync(process.argv[1], fs.existsSync(process.argv[2]) ? 'hook-ran' : 'hook-missing')",
+        childMarker,
+        hookMarker,
+      ],
+      rootPath: root,
+      allowedCommands: new Set(["node"]),
+      timeoutMs: 2_000,
+      maxOutputBytes: 100,
+      beforeSpawn: async () => {
+        await writeFile(hookMarker, "ready");
+      },
+    });
+
+    expect(result.status).toBe("passed");
+    expect(await readFile(childMarker, "utf8")).toBe("hook-ran");
+  });
+
+  it("does not create a child when the pre-spawn hook rejects", async () => {
+    const root = await makeRoot();
+    const childMarker = path.join(root, "child-result.txt");
+    await expect(runBoundedCommand({
+      command: "node",
+      args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'spawned')", childMarker],
+      rootPath: root,
+      allowedCommands: new Set(["node"]),
+      timeoutMs: 2_000,
+      maxOutputBytes: 100,
+      beforeSpawn: () => {
+        throw new Error("pre-spawn validation failed");
+      },
+    })).rejects.toThrow("pre-spawn validation failed");
+
+    await expect(readFile(childMarker, "utf8")).rejects.toThrow();
+  });
+
+  it("revalidates the project boundary after the pre-spawn hook", async () => {
+    const root = await makeRoot();
+    const childMarker = path.join(root, "child-result.txt");
+    await expect(runBoundedCommand({
+      command: "node",
+      args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'spawned')", childMarker],
+      rootPath: root,
+      allowedCommands: new Set(["node"]),
+      timeoutMs: 2_000,
+      maxOutputBytes: 100,
+      beforeSpawn: async () => {
+        await rm(root, { recursive: true, force: true });
+      },
+    })).rejects.toThrow();
+
+    await expect(readFile(childMarker, "utf8")).rejects.toThrow();
   });
 
   it("redacts project/runtime paths and secret-like output", async () => {

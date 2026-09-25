@@ -11,6 +11,10 @@ import {
   withValidationFailureKind,
 } from "@workspace/ai-orchestrator";
 import {
+  captureEnvironmentAttestation,
+  type ServerEnvironmentProfile,
+} from "./agent-state/environment-attestation.js";
+import {
   verifyBrowserPreview,
   type PreviewBrowser,
   type PreviewSession,
@@ -56,6 +60,7 @@ export type RuntimeValidationEvidenceContext = {
   operationId?: string;
   projectRevision?: string;
   candidateHash?: string;
+  environmentProfile?: ServerEnvironmentProfile | null;
 };
 
 type ValidationProfileDefinition = {
@@ -140,7 +145,9 @@ const VALIDATION_COPY_OMIT = new Set([
   "coverage",
 ]);
 
-type ValidationDraft = Omit<ValidationResult, "evidence">;
+type ValidationDraft = Omit<ValidationResult, "evidence"> & {
+  environmentRevision?: string | null;
+};
 
 function validationNextAction(status: ValidationStatus, terminalState?: ValidationResult["terminalState"]): string {
   if (terminalState === "timed_out") {
@@ -295,6 +302,7 @@ function emptyValidationDraft(
     overallBudgetMs: config.validationOverallTimeoutMs,
     elapsedMs: 0,
     remainingMs: config.validationOverallTimeoutMs,
+    environmentRevision: null,
     terminalState: status === "blocked" ? "timed_out" : validationTerminalState(status),
     nextAction: validationNextAction(status, status === "blocked" ? "timed_out" : validationTerminalState(status)),
   };
@@ -303,7 +311,10 @@ function emptyValidationDraft(
 type ValidationEvidenceContext = Pick<
   ValidationEvidence,
   "operationId" | "projectRevision" | "candidateHash"
->;
+> & {
+  environmentProfile?: ServerEnvironmentProfile | null;
+  environmentRevision?: string | null;
+};
 
 function attachValidationEvidence(
   result: ValidationDraft,
@@ -319,8 +330,22 @@ function attachValidationEvidence(
       ...(context.operationId ? { operationId: context.operationId } : {}),
       ...(context.projectRevision ? { projectRevision: context.projectRevision } : {}),
       ...(context.candidateHash ? { candidateHash: context.candidateHash } : {}),
+      environmentRevision: context.environmentRevision ?? null,
     },
   };
+}
+
+async function captureValidationEnvironmentRevision(
+  rootPath: string,
+  profile: ServerEnvironmentProfile | null,
+): Promise<string | null> {
+  if (!profile) return null;
+  try {
+    const attestation = await captureEnvironmentAttestation({ rootPath, profile });
+    return attestation.status === "known" ? attestation.environmentRevision : null;
+  } catch {
+    return null;
+  }
 }
 
 function extractAffectedFiles(output: string): string[] {
@@ -356,6 +381,7 @@ async function runRepairValidationCore(
   relativePaths: string[],
   signal?: AbortSignal,
   pendingChanges: readonly PendingValidationChange[] = [],
+  environmentProfile: ServerEnvironmentProfile | null = null,
 ): Promise<ValidationDraft> {
   const definition = PROFILE_DEFINITIONS[profile];
   if (!definition) {
@@ -392,6 +418,7 @@ async function runRepairValidationCore(
 
   try {
     const validationRootPath = validationWorkspace.rootPath;
+    let environmentRevision: string | null = null;
     const execution = await runBoundedCommand({
       command: definition.command,
       args: definition.args,
@@ -401,7 +428,16 @@ async function runRepairValidationCore(
       maxOutputBytes: definition.maxBuffer,
       allowedCommands: new Set(["pnpm", "go"]),
       signal,
+      beforeSpawn: async () => {
+        environmentRevision = await captureValidationEnvironmentRevision(
+          validationRootPath,
+          environmentProfile,
+        );
+      },
     });
+    const spawnedEnvironmentRevision = execution.status === "spawn_error" || execution.status === "cancelled"
+      ? null
+      : environmentRevision;
     const output = execution.combinedOutput.trim();
     const command = [definition.command, ...definition.args].join(" ");
     const executionEvidence = {
@@ -420,6 +456,7 @@ async function runRepairValidationCore(
         scenario: definition.scenario,
         ...executionEvidence,
         failedTests: executionEvidence.failedTests.map(toValidationFailure),
+        environmentRevision: spawnedEnvironmentRevision,
         detail:
           execution.status === "timed_out"
             ? "Validation timed out before the candidate could be approved."
@@ -439,8 +476,9 @@ async function runRepairValidationCore(
       status: "passed",
       profile,
       scenario: definition.scenario,
-        ...executionEvidence,
-        failedTests: executionEvidence.failedTests.map(toValidationFailure),
+      environmentRevision: spawnedEnvironmentRevision,
+      ...executionEvidence,
+      failedTests: executionEvidence.failedTests.map(toValidationFailure),
       detail: output.slice(-2_000) || "Registered validation completed successfully.",
       processBudgetMs: definition.timeoutMs,
       overallBudgetMs: config.validationOverallTimeoutMs,
@@ -470,6 +508,7 @@ async function runRepairValidationCore(
       stderr: bounded(executionError.stderr ?? ""),
       failedTests: extractFailedTests(output).map(toValidationFailure),
       changedFiles: extractAffectedFiles(output),
+      environmentRevision: null,
       detail: reason,
       processBudgetMs: definition.timeoutMs,
       overallBudgetMs: config.validationOverallTimeoutMs,
@@ -489,6 +528,7 @@ async function runWithValidationDeadline(
   relativePaths: string[],
   signal: AbortSignal | undefined,
   pendingChanges: readonly PendingValidationChange[],
+  environmentProfile: ServerEnvironmentProfile | null,
 ): Promise<ValidationDraft> {
   const controller = new AbortController();
   const abortFromCaller = (): void => controller.abort();
@@ -502,6 +542,7 @@ async function runWithValidationDeadline(
     relativePaths,
     controller.signal,
     pendingChanges,
+    environmentProfile,
   );
   const deadline = new Promise<ValidationDraft>((resolve) => {
     timer = setTimeout(() => {
@@ -533,20 +574,31 @@ export async function runRepairValidation(
   evidenceContext: ValidationEvidenceContext = {},
 ): Promise<ValidationResult> {
   const startedAt = Date.now();
-  const result = await runWithValidationDeadline(rootPath, profile, relativePaths, signal, pendingChanges);
-  const elapsedMs = Math.max(result.elapsedMs ?? 0, Date.now() - startedAt);
-  const terminalState = result.terminalState ?? (
-    result.status === "blocked" ? "timed_out" : validationTerminalState(result.status)
+  const result = await runWithValidationDeadline(
+    rootPath,
+    profile,
+    relativePaths,
+    signal,
+    pendingChanges,
+    evidenceContext.environmentProfile ?? null,
+  );
+  const { environmentRevision, ...draft } = result;
+  const elapsedMs = Math.max(draft.elapsedMs ?? 0, Date.now() - startedAt);
+  const terminalState = draft.terminalState ?? (
+    draft.status === "blocked" ? "timed_out" : validationTerminalState(draft.status)
   );
   return withValidationFailureKind(await attachValidationEvidence({
-    ...result,
-    processBudgetMs: result.processBudgetMs ?? config.validationProcessTimeoutMs,
-    overallBudgetMs: result.overallBudgetMs ?? config.validationOverallTimeoutMs,
+    ...draft,
+    processBudgetMs: draft.processBudgetMs ?? config.validationProcessTimeoutMs,
+    overallBudgetMs: draft.overallBudgetMs ?? config.validationOverallTimeoutMs,
     elapsedMs,
     remainingMs: Math.max(0, config.validationOverallTimeoutMs - elapsedMs),
     terminalState,
-    nextAction: result.nextAction ?? validationNextAction(result.status, terminalState),
-  }, evidenceContext));
+    nextAction: draft.nextAction ?? validationNextAction(draft.status, terminalState),
+  }, {
+    ...evidenceContext,
+    environmentRevision: environmentRevision ?? null,
+  }));
 }
 
 /**
@@ -597,6 +649,7 @@ export async function runRepairRuntimeValidation(
   let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
   const evidenceId = `runtime-validation:${randomUUID()}`;
   const startedAt = Date.now();
+  let environmentRevision: string | null = null;
   try {
     validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges, prepare);
     const execution = await runBoundedCommand({
@@ -611,6 +664,12 @@ export async function runRepairRuntimeValidation(
       maxOutputBytes: 1_000_000,
       allowedCommands: new Set(["pnpm"]),
       signal,
+      beforeSpawn: async () => {
+        environmentRevision = await captureValidationEnvironmentRevision(
+          validationWorkspace!.rootPath,
+          evidenceContext.environmentProfile ?? null,
+        );
+      },
     });
     const output = boundedDetail(execution.combinedOutput.trim());
     const passed = execution.status === "passed";
@@ -636,6 +695,9 @@ export async function runRepairRuntimeValidation(
         evidenceId,
         observedAt: new Date().toISOString(),
         artifactRef: `runtime-oracle:${execution.status}`,
+        environmentRevision: execution.status === "spawn_error" || execution.status === "cancelled"
+          ? null
+          : environmentRevision,
         ...(evidenceContext.operationId ? { operationId: evidenceContext.operationId } : {}),
         ...(evidenceContext.projectRevision ? { projectRevision: evidenceContext.projectRevision } : {}),
         ...(evidenceContext.candidateHash ? { candidateHash: evidenceContext.candidateHash } : {}),
@@ -683,6 +745,7 @@ export async function runRepairRuntimeValidation(
         evidenceId,
         observedAt: new Date().toISOString(),
         artifactRef: "runtime-oracle:error",
+        environmentRevision: null,
         ...(evidenceContext.operationId ? { operationId: evidenceContext.operationId } : {}),
         ...(evidenceContext.projectRevision ? { projectRevision: evidenceContext.projectRevision } : {}),
         ...(evidenceContext.candidateHash ? { candidateHash: evidenceContext.candidateHash } : {}),

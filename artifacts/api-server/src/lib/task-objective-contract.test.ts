@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTaskObjectiveContract,
   inferTaskObjectiveKind,
+  parseTaskObjectiveValidatorReceipt,
   validateTaskObjectiveContract,
 } from "./task-objective-contract.js";
 
@@ -232,6 +233,45 @@ describe("task objective contracts", () => {
       }],
     });
     expect(accepted).toEqual({ allowed: true, codes: [], reasons: [] });
+  });
+
+  it("preserves nullable validator environment identity without changing objective acceptance", () => {
+    const receipt = {
+      validatorId: "file-conversion.v1",
+      status: "PROVEN" as const,
+      operationId: "operation-file",
+      projectId: base.projectId,
+      workspaceRevision: base.workspaceRevision,
+      artifactRef: "converted.json",
+    };
+
+    expect(parseTaskObjectiveValidatorReceipt(receipt)?.environmentRevision).toBeNull();
+    expect(parseTaskObjectiveValidatorReceipt({
+      ...receipt,
+      environmentRevision: "env-v1:validator-test",
+    })?.environmentRevision).toBe("env-v1:validator-test");
+    expect(parseTaskObjectiveValidatorReceipt({
+      ...receipt,
+      environmentRevision: null,
+    })?.environmentRevision).toBeNull();
+
+    const contract = buildTaskObjectiveContract({
+      ...base,
+      message: "Convert this CSV to JSON",
+    })!;
+    const validate = (environmentRevision: string | null) => validateTaskObjectiveContract({
+      contract,
+      workspaceRevision: base.workspaceRevision,
+      projectId: base.projectId,
+      operationId: "operation-file",
+      objectiveValidated: true,
+      evidenceVerdict: "PROVEN",
+      evidenceComplete: true,
+      validatorReceipts: [{ ...receipt, environmentRevision }],
+    });
+
+    expect(validate("env-v1:validator-test")).toEqual({ allowed: true, codes: [], reasons: [] });
+    expect(validate(null)).toEqual({ allowed: true, codes: [], reasons: [] });
   });
 
   it("does not accept an unavailable or incomplete receipt as proof", () => {
