@@ -4179,6 +4179,28 @@ apply/check. هذه بصمة snapshot-attempt وليست تحققًا مستقل
 بعد التنفيذ؛ يلزم توصيل observation providers ذات مصدر بيئي مستقل، ثم World
 Delta وcontradiction propagation، قبل إغلاق P4.
 
+#### Receipt-time environment observation — 2026-09-25
+
+في مسارات Action/Effect التي تملك root محلولًا server-side، يعيد materializer
+حساب بصمة البيئة ذات profile الـEpisode عند حدود ملاحظة before/after أو receipt.
+لا يُحفظ مسار الجذر. تقارن البصمة المستقلة ببيئة Episode وبأي revision صريح في
+receipt؛ المخالفة تسجل `environmentFreshness=stale`، وتعذر الرصد دون revision
+صريح يبقى `unknown`. لا تتحول هذه المقارنة إلى project-revision freshness.
+
+`environmentStale` منفصلة عن نتيجة `stale` التي ما زالت تعني stale
+`projectRevision`، لأن بعض effect callers تستخدمها لحراسة القبول. الملاحظات ذات
+environment freshness stale تُستبعد من World State فقط؛ لا تغير effect proof أو
+acceptance. تغطي الاختبارات manifest drift أثناء المحاولة وتعذر receipt-time
+capture، إلى جانب ثبات البيئة ومخالفة receipt الصريحة. نجح API typecheck و22
+اختبارًا مركزًا؛ أظهر التشغيل الأوسع 9 failures في توقعات status mapping لمسار
+Task provider failures (500 بدل statuses المحددة)، وتكررت عند تشغيل ملف route
+منفردًا. نجح restart وفحص health.
+
+هذه القراءة تلتقط allowlisted manifests عند materialization، ولا تثبت وحدها
+البيئة التي ورثها process فعلي أو validator وقت spawn؛ يلزم أن يحمل runtime و
+validator receipt بصمة من داخل نقطة تشغيلهما server-owned. تظل P4 `PARTIAL`،
+ولا يبدأ P6 قبل إغلاق تبعيات P3.5/P4/P5 وWorld Delta/contradiction propagation.
+
 ### 42.4 P5 — Authoritative Effect Verification
 
 **الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`

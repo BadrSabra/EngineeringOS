@@ -851,6 +851,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       executionId: claimed.id,
       attempt: claimed.attempt,
       episodeId: episode.episodeId,
+      environmentRootPath: executionRoot,
       projectRevision: params.sourceRevision,
       materializeWorldState: false,
       sources: [
@@ -932,6 +933,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       executionId: claimed.id,
       attempt: claimed.attempt,
       episodeId: episode.episodeId,
+      environmentRootPath: executionRoot,
       projectRevision: params.sourceRevision,
       materializeWorldState: false,
       sources: [{
@@ -1179,6 +1181,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               executionId: claimed.id,
               attempt: claimed.attempt,
               episodeId: episode.episodeId,
+              environmentRootPath: executionRoot,
               projectRevision: params.sourceRevision,
               materializeWorldState: false,
               sources: [{
@@ -1407,6 +1410,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         executionId: claimed.id,
         attempt: claimed.attempt,
         episodeId: episode.episodeId,
+        environmentRootPath: executionRoot,
         projectRevision: params.sourceRevision,
         materializeWorldState: false,
         sources: [
@@ -1618,6 +1622,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       executionId: claimed.id,
       attempt: receipt.attempt ?? claimed.attempt,
       ...(episode ? { episodeId: episode.episodeId } : {}),
+      ...(episode ? { environmentRootPath: executionRoot } : {}),
       projectRevision: receipt.sourceRevision,
       sources: [
         {

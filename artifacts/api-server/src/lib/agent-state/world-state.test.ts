@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import {
+  aiAgentObservationsTable,
   aiExecutionsTable,
   db,
   projectsTable,
@@ -335,6 +336,7 @@ describe("read-only World State projection", () => {
         executionId: scoped.executionId,
         attempt: 0,
         episodeId: scoped.episodeId,
+        environmentRootPath: rootPath,
         projectRevision: "revision-1",
         sources: [{
           kind: "runtime_receipt",
@@ -346,7 +348,8 @@ describe("read-only World State projection", () => {
         }],
       });
 
-      expect(materialized.stale).toBe(1);
+      expect(materialized.stale).toBe(0);
+      expect(materialized.environmentStale).toBe(1);
       const state = await getProjectWorldState(projectId, {
         environmentRevision: receiptEnvironment,
       });
@@ -357,6 +360,7 @@ describe("read-only World State projection", () => {
         executionId: scoped.executionId,
         attempt: 0,
         episodeId: scoped.episodeId,
+        environmentRootPath: rootPath,
         projectRevision: "revision-1",
         sources: [{
           kind: "runtime_receipt",
@@ -371,6 +375,91 @@ describe("read-only World State projection", () => {
       });
       expect(matchingState.facts).toHaveLength(1);
       expect(matchingState.facts[0]?.environmentFreshness).toBe("fresh");
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("detects a manifest change at receipt time without changing project freshness", async () => {
+    const rootPath = await mkdtemp(join(process.cwd(), "world-environment-change-"));
+    try {
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({ name: "before" }));
+      const scoped = await createScopedEpisode(
+        { kind: "mission-task", taskId: "environment-change" },
+        "environment-change",
+        { intentKind: "TASK_EXECUTION", environmentRootPath: rootPath },
+      );
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({ name: "after" }));
+      const sourceId = "runtime:environment-change-during-attempt";
+      const result = await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        environmentRootPath: rootPath,
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "runtime_receipt",
+          sourceId,
+          sourceRevision: "revision-1",
+          status: "passed",
+          profile: "dev",
+        }],
+      });
+
+      expect(result.stale).toBe(0);
+      expect(result.environmentStale).toBe(1);
+      const [observation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, sourceId));
+      expect(observation?.freshness).toBe("fresh");
+      expect(observation?.environmentFreshness).toBe("stale");
+      expect(observation?.environmentRevision).toBeTruthy();
+      expect(observation?.environmentRevision).not.toBe(scoped.environmentRevision);
+      const state = await getProjectWorldState(projectId, {
+        taskScope: observation!.taskScope,
+        environmentRevision: observation!.environmentRevision!,
+      });
+      expect(state.facts).toHaveLength(0);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps environment freshness unknown if the receipt-time provider is unavailable", async () => {
+    const rootPath = await mkdtemp(join(process.cwd(), "world-environment-unavailable-"));
+    try {
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({ name: "fixture" }));
+      const scoped = await createScopedEpisode(
+        { kind: "mission-task", taskId: "environment-unavailable" },
+        "environment-unavailable",
+        { intentKind: "TASK_EXECUTION", environmentRootPath: rootPath },
+      );
+      await rm(rootPath, { recursive: true, force: true });
+
+      const sourceId = "runtime:environment-provider-unavailable";
+      const result = await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        environmentRootPath: rootPath,
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "runtime_receipt",
+          sourceId,
+          sourceRevision: "revision-1",
+          status: "passed",
+          profile: "dev",
+        }],
+      });
+
+      expect(result.stale).toBe(0);
+      expect(result.environmentStale).toBe(0);
+      const [observation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, sourceId));
+      expect(observation?.freshness).toBe("fresh");
+      expect(observation?.environmentFreshness).toBe("unknown");
+      expect(observation?.environmentRevision).toBe(scoped.environmentRevision);
     } finally {
       await rm(rootPath, { recursive: true, force: true });
     }

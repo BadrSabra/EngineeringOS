@@ -906,6 +906,7 @@ async function beginMissionRepairCandidateEffect(params: {
     executionId: params.executionId,
     attempt: params.attempt,
     episodeId: episode.episodeId,
+    environmentRootPath: params.rootPath,
     projectRevision: params.sourceRevision,
     materializeWorldState: false,
     sources: [{
@@ -979,6 +980,7 @@ async function finishMissionRepairCandidateEffect(params: {
     executionId: params.executionId,
     attempt: params.attempt,
     episodeId: params.context.episodeId,
+    environmentRootPath: params.context.workspace.rootPath,
     projectRevision: params.sourceRevision,
     materializeWorldState: false,
     sources: [{
@@ -2097,6 +2099,7 @@ export async function executeTaskLifecycle(params: {
       projectId: before.projectId,
       executionId,
       attempt: taskReceipt.attempt,
+      ...(executionWorkspaceRoot ? { environmentRootPath: executionWorkspaceRoot } : {}),
       projectRevision: taskReceipt.revision,
       sources: [
         {

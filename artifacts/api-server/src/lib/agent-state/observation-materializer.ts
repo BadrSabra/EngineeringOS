@@ -12,6 +12,10 @@ import {
   type JsonValue,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../logger.js";
+import {
+  captureEnvironmentAttestation,
+  serverEnvironmentProfile,
+} from "./environment-attestation.js";
 import { materializeWorldStateForProject } from "./world-state.js";
 
 const MAX_SOURCES = 32;
@@ -85,6 +89,8 @@ export type MaterializeServerOwnedObservationsInput = {
   attempt: number;
   projectRevision?: string | null;
   episodeId?: string;
+  /** Server-resolved root used for a receipt-time environment observation. */
+  environmentRootPath?: string;
   /** Effect verification can defer the read-only world projection to P6. */
   materializeWorldState?: boolean;
   sources: readonly ServerOwnedObservationSource[];
@@ -96,7 +102,31 @@ export type ObservationMaterializationResult = {
   inserted: number;
   duplicates: number;
   stale: number;
+  environmentStale: number;
 };
+
+function environmentFreshnessFor(input: {
+  episodeRevision?: string;
+  receiptRevision?: string;
+  observedRevision?: string;
+  captureAttempted: boolean;
+}): ObservationFreshness {
+  const { episodeRevision, receiptRevision, observedRevision, captureAttempted } = input;
+  if (receiptRevision && observedRevision && receiptRevision !== observedRevision) return "stale";
+  if (episodeRevision && observedRevision && episodeRevision !== observedRevision) return "stale";
+  if (
+    episodeRevision
+    && receiptRevision
+    && episodeRevision !== receiptRevision
+  ) {
+    return "stale";
+  }
+  if (receiptRevision && observedRevision) return "fresh";
+  if (episodeRevision && observedRevision && episodeRevision === observedRevision) return "fresh";
+  if (episodeRevision && receiptRevision && episodeRevision === receiptRevision) return "fresh";
+  if (!captureAttempted && episodeRevision) return "fresh";
+  return "unknown";
+}
 
 function boundedText(value: string, max = MAX_TEXT): string {
   return value.trim().slice(0, max);
@@ -300,6 +330,39 @@ export async function materializeServerOwnedObservations(
       throw new Error("observation_materialization_project_mismatch");
     }
   }
+  let observedEnvironmentRevision: string | undefined;
+  const environmentCaptureAttempted = Boolean(input.environmentRootPath);
+  if (input.environmentRootPath) {
+    const preflightFilters = [
+      eq(aiAgentEpisodesTable.projectId, input.projectId),
+      eq(aiAgentEpisodesTable.executionId, input.executionId),
+      eq(aiAgentEpisodesTable.attempt, input.attempt),
+    ];
+    if (input.episodeId) preflightFilters.push(eq(aiAgentEpisodesTable.id, input.episodeId));
+    const [profileEpisode] = await db
+      .select({
+        intentKind: aiAgentEpisodesTable.intentKind,
+        scope: aiAgentEpisodesTable.scope,
+      })
+      .from(aiAgentEpisodesTable)
+      .where(and(...preflightFilters))
+      .limit(1);
+    if (!profileEpisode) throw new Error("observation_materialization_episode_not_found");
+    try {
+      const attestation = await captureEnvironmentAttestation({
+        rootPath: input.environmentRootPath,
+        profile: serverEnvironmentProfile(profileEpisode.intentKind, profileEpisode.scope),
+      });
+      if (attestation.status === "known") {
+        observedEnvironmentRevision = attestation.environmentRevision;
+      }
+    } catch (error) {
+      logger.warn(
+        { projectId: input.projectId, executionId: input.executionId, error },
+        "Receipt-time environment observation failed",
+      );
+    }
+  }
   const result = await db.transaction(async (tx) => {
     const episodeFilters = [
       eq(aiAgentEpisodesTable.projectId, input.projectId),
@@ -316,12 +379,15 @@ export async function materializeServerOwnedObservations(
     const taskScope = taskScopeIdentity(episode);
     const episodeEnvironmentRevision = episode.environmentRevision ?? undefined;
     const boundObservations = normalized.map((source) => {
-      const environmentFreshness: ObservationFreshness = !episodeEnvironmentRevision
-        ? "unknown"
-        : !source.environmentRevision || source.environmentRevision === episodeEnvironmentRevision
-          ? "fresh"
-          : "stale";
-      const environmentRevision = source.environmentRevision ?? episodeEnvironmentRevision;
+      const environmentFreshness = environmentFreshnessFor({
+        episodeRevision: episodeEnvironmentRevision,
+        receiptRevision: source.environmentRevision,
+        observedRevision: observedEnvironmentRevision,
+        captureAttempted: environmentCaptureAttempted,
+      });
+      const environmentRevision = source.environmentRevision
+        ?? observedEnvironmentRevision
+        ?? episodeEnvironmentRevision;
       return {
         ...source,
         environmentFreshness,
@@ -341,6 +407,7 @@ export async function materializeServerOwnedObservations(
     let inserted = 0;
     let duplicates = 0;
     let stale = 0;
+    let environmentStale = 0;
     const observationIds: string[] = [];
     const initialObservationRefs = Array.isArray(episode.observationRefs)
       ? episode.observationRefs.filter((ref): ref is string => typeof ref === "string").slice(0, 128)
@@ -349,6 +416,7 @@ export async function materializeServerOwnedObservations(
 
     for (const source of boundObservations) {
       const valueHash = canonicalJsonHash(source.value);
+      if (source.environmentFreshness === "stale") environmentStale++;
       const [existing] = await tx
         .select()
         .from(aiAgentObservationsTable)
@@ -411,7 +479,7 @@ export async function materializeServerOwnedObservations(
       observationIds.push(observationId);
       observationRefs.add(observationId);
       inserted++;
-      if (currentFreshness === "stale" || source.environmentFreshness === "stale") stale++;
+      if (currentFreshness === "stale") stale++;
     }
 
     const boundedObservationRefs = [...observationRefs].slice(0, 128);
@@ -420,7 +488,7 @@ export async function materializeServerOwnedObservations(
         .set({ observationRefs: boundedObservationRefs, updatedAt: new Date() })
         .where(eq(aiAgentEpisodesTable.id, episode.id));
     }
-    return { episodeId: episode.id, observationIds, inserted, duplicates, stale };
+    return { episodeId: episode.id, observationIds, inserted, duplicates, stale, environmentStale };
   });
 
   // World State is a derived read-only projection. Its failure must not

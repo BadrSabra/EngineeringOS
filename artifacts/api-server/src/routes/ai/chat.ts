@@ -14130,6 +14130,7 @@ async function applyChangesHandler(req: Request, res: Response) {
         executionId: claimed.id,
         attempt: claimed.attempt,
         episodeId: episode.episodeId,
+        environmentRootPath: resolvedRoot,
         projectRevision: deliveryWorkspace.baseRevision,
         materializeWorldState: false,
         sources: [{
@@ -14369,6 +14370,7 @@ async function applyChangesHandler(req: Request, res: Response) {
         executionId: applyProof.executionId,
         attempt: applyProof.attempt,
         episodeId: applyProof.episodeId,
+        environmentRootPath: resolvedRoot,
         projectRevision: deliveryWorkspace.baseRevision,
         materializeWorldState: false,
         sources: [{

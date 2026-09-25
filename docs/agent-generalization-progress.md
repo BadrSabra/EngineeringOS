@@ -837,6 +837,40 @@ G9 Revocation Safety
 - **remaining/blocker:** مصادر environment revision المستقلة وقواعد freshness وWorld Delta/contradiction propagation ما زالت غير موصولة؛ تظل P4 جزئية.
 - **next step:** تحديد/ربط مصادر server-owned للبيئة وfreshness، ثم World Delta والانتشار المقيد للتناقضات؛ لا توسّع دلالة revision إلى acceptance.
 
+### 2026-09-25 — P4 Receipt-time Environment Observation
+
+- **phase/step:** P4 — إعادة رصد بصمة البيئة عند materialization
+- **status:** `partial`
+- **what changed:** في مسارات Action/Effect التي تملك root محلولًا server-side،
+  يعيد materializer حساب بصمة البيئة باستخدام profile المستخرج من Episode،
+  ثم يقارنها ببصمة المحاولة وأي revision صريح في receipt. يظل المسار transient
+  ولا يُخزن. إذا تعذر الرصد ولم يحمل receipt revision صريحة، تكون freshness
+  `unknown`. أضيف `environmentStale` منفصلًا؛ `stale` بقي خاصًا بـ
+  `projectRevision` حتى لا تتغير بوابات effect التي تعتمد عليه.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/observation-materializer.ts`,
+  `artifacts/api-server/src/lib/agent-state/world-state.test.ts`,
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`,
+  `artifacts/api-server/src/lib/task-execution-service.ts`,
+  `artifacts/api-server/src/routes/ai/chat.ts`,
+  `docs/agent-generalization-execution-plan.md`; لا schema migration.
+- **validation:** API typecheck؛ 22 اختبارًا مركزًا عبر environment attestation
+  وWorld State وEpisode ledger وeffect observer نجحت. في التحقق الأوسع نجح
+  209 اختبارًا وفشل 9 assertions في `POST /api/ai/tasks/:taskId/execute` حول
+  status mapping لأخطاء provider (أعاد المسار 500 بدل الحالات المتوقعة)، وتكرر
+  ذلك عند تشغيل `ai.test.ts` منفردًا؛ لم تكن هذه الاختبارات خاصة بملاحظة البيئة.
+  `git diff --check`؛ أُعيد تشغيل API و`/api/healthz` أعاد `status: ok`.
+- **authority/safety impact:** environment freshness ملاحظة منفصلة؛ stale منها
+  يستبعد observation من World State فقط، ولا يغير project freshness أو effect
+  proof أو acceptance أو صلاحية التنفيذ.
+- **remaining/blocker:** إعادة hash للـmanifests عند materialization لا تثبت
+  وحدها البيئة الموروثة فعليًا عند spawn للـruntime أو validator. لا تزال
+  authoritative process receipts وWorld Delta/contradiction propagation
+  مطلوبة، وتبقى P4 جزئية.
+- **next step:** التقاط environment identity من runtime/validator server-owned
+  عند نقطة التشغيل الفعلية، وإرفاقها بـreceipt قبل World Delta؛ لا تستخدم قيم
+  environment secrets أو `.env` لإنتاج هذه الهوية.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
