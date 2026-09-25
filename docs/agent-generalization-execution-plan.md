@@ -2860,7 +2860,7 @@ or tool/retry reduction: >= 15% with no safety regression
 confidence calibration ECE: <= 0.15
 ```
 
-إذا لم تتوفر 3 مشاريع أو fixtures مستقلة، تبقى strategy غير قابلة للترقية
+إذا لم تتوفر 3 independent transfer fixtures، تبقى strategy غير قابلة للترقية
 العامة وتظل project-scoped.
 
 لا تعني نتيجة canary نجاح هذه البوابة. promotion إلى live/shared registry يحتاج
@@ -3160,27 +3160,21 @@ Candidate Validation. لكل action معدِّل للحالة أو external effe
 
 ### 29.6 بوابة generalization
 
-الترقية العامة تحتاج:
+تملك كل بوابة مصدرًا واحدًا للعتبات: شروط دخول canary في §25.3، والحدود الرقمية
+للترقية العامة في §25.4، وأسماء G1–G9 في §42.17. لا تنسخ هذه العتبات إلى مواضع
+أخرى.
 
-```text
->= 30 held-out cases
->= 3 independent transfer fixtures
-0 critical safety failures
-0 false PROVEN increase
-<= 2pp success regression
->= 5pp improvement أو >=15% cost/retry reduction
-ECE <= 0.15
-```
+نتيجة التقييم تحدد الحالة دون منح صلاحية promotion:
 
-إذا لم تتحقق بوابات الترقية العامة، لا تتم promotion. تبقى المرشحة project-scoped
-فقط إذا اجتازت شروط `canary` في §25.3؛ hard safety failure يؤدي إلى
-`replay_failed` أو `revoked` إذا كانت قيد canary.
-
-هذا التقسيم ليس مسارًا بديلًا للترقية: hard safety failures وfalse `PROVEN`
-تؤدي إلى `replay_failed`/`revoked` ولا تسمح بـ`canary`. إذا كانت الأدلة أو
-العينة غير مكتملة، تبقى الحالة `pending_replay`. لا يسمح بـproject-scoped
-`canary` إلا بعد شروط §25.3، مع نطاق ومهلة وkill/revocation واضحين؛ promotion
-عامة لا تحدث إلا بعد بوابات §25.4 و§42.17.
+- نقص evidence أو held-out data يبقي المرشح `pending_replay`.
+- فشل replay قبل canary يسجل `replay_failed`.
+- اجتياز شروط §25.3 يسمح بـproject-scoped `canary` فقط مع scope وdeadline و
+  kill/revocation واضحين.
+- فشل replay داخل canary يسجل `replay_failed`؛ أما critical safety failure أو
+  false `PROVEN` أو scope escape أو انتهاء المهلة فيوقف استخدامه ويؤدي إلى
+  `revoked`.
+- promotion عامة تتطلب جميع عتبات §25.4 وG1–G9 في §42.17؛ لا يعوض نجاح canary
+  فشل أي gate.
 
 ---
 
@@ -4754,12 +4748,10 @@ G9 — Revocation Safety
 
 لا يستخدم score واحدًا لإخفاء فشل gate منفرد.
 
-هذه gates مطلوبة للترقية العامة إلى registry مشتركة. project-scoped `canary`
-مرحلة اختبار مؤقتة وليست ترقية عامة، ولا يسمح بها إلا بعد شروط §25.3 مع scope
-وdeadline وkill/revocation واضحين. critical safety failure أو false `PROVEN`
-أو scope escape يمنع canary ويؤدي إلى `replay_failed`؛ وأي مرشح فشل داخل canary
-يسحب إلى `revoked`. نقص البيانات يبقي المرشح `pending_replay`. انتهاء مهلة canary يوقف استخدامه ويحوّله إلى
-`revoked` مع حفظ forensic history.
+هذه gates مطلوبة للترقية العامة إلى registry مشتركة. شروط `canary` وحدودها في
+§25.3، والحدود الرقمية للترقية العامة في §25.4، وحالات النتيجة والتعافي في §29.6.
+هذه القائمة تحدد gates المطلوبة فقط ولا تنشئ thresholds موازية. `canary` اختبار
+مؤقت ومحدود النطاق؛ ليست ترقية عامة ولا تمنح صلاحية تنفيذ إضافية.
 
 ### 42.18 General Engineering Agent Definition of Done
 
