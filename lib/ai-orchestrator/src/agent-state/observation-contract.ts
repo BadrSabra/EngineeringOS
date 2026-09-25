@@ -52,6 +52,7 @@ export const AgentObservationSchema = boundedContractSchema(z.object({
   observedAt: z.string().datetime(),
   projectRevision: boundedString(200).optional(),
   environmentRevision: boundedString(200).optional(),
+  environmentFreshness: ObservationFreshnessSchema.optional(),
   completeness: ObservationCompletenessSchema,
   freshness: ObservationFreshnessSchema,
   evidenceRefs: z.array(boundedString(256)).max(AGENT_STATE_LIMITS.observationReferences),

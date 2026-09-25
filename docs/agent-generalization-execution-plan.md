@@ -4155,6 +4155,30 @@ API ونجح البناء وفحص health. لا تغييرات schema. لا تغ
 مصادر environment revision server-owned وfreshness المستقلة وWorld Delta/
 contradiction propagation مطلوبة.
 
+#### Server-owned environment attestation — 2026-09-25
+
+تلتقط بداية Episode الآن `environmentRevision` من بصمة hash لملفات dependency
+وlockfiles محددة allowlist، مع profile server-owned يختلف بحسب مسار التنفيذ
+(Mission repair، candidate/browser validation، runtime، GitHub delivery أو
+approved source promotion) ونسخة Node/platform. تمر كل قراءة عبر
+`establishProjectRoot`؛ لا يُقبل root مجهول provenance أو symlink، ولا تُقرأ
+`.env` أو `.npmrc`، ولا تُخزن محتويات الملفات.
+
+يُمرر revision من Episode إلى observations ما لم يقدّم receipt بصمة صريحة؛
+`environmentFreshness` مستقلة عن freshness القائمة على `projectRevision`.
+المطابقة مع لقطة Episode تسجل `fresh`، والمخالفة `stale`، وغياب baseline
+`unknown`. لا تدخل الملاحظات stale في World State؛ غياب revision يظل unbound،
+أما revision التي يوفرها receipt مع baseline مفقود فتظل في نطاقها مع freshness
+`unknown` ولا تثبت أنها تطابق بيئة المحاولة. تحمل facts الإسقاط نفسه، دون تغيير
+effect acceptance.
+أضيفت أعمدة/فهرس بشكل additive، وتظل القيم القديمة `unknown`.
+
+التحقق: API typecheck، 17 اختبارًا مركزًا (بما فيها استقرار البصمة وتغير
+lockfile واستبعاد ملفات الأسرار وsymlink/mismatch)، 18 اختبار DB، وschema
+apply/check. هذه بصمة snapshot-attempt وليست تحققًا مستقلًا من البيئة الجارية
+بعد التنفيذ؛ يلزم توصيل observation providers ذات مصدر بيئي مستقل، ثم World
+Delta وcontradiction propagation، قبل إغلاق P4.
+
 ### 42.4 P5 — Authoritative Effect Verification
 
 **الحالة:** `PARTIAL — Candidate Validation, direct Runtime start/restart/stop, Browser/Delivery, direct apply-changes Action/Effect with fail-closed restart reconciliation, and Mission mission_repair candidate effect verification are implemented; Mission candidate bytes remain disposable, and task/environment-scoped observation and broader recovery remain incomplete`

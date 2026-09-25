@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import {
   aiExecutionsTable,
@@ -90,7 +92,11 @@ async function addRuntimeObservation(input: {
   });
 }
 
-async function createScopedEpisode(scope: JsonValue, suffix: string) {
+async function createScopedEpisode(
+  scope: JsonValue,
+  suffix: string,
+  options: { intentKind?: string; environmentRootPath?: string } = {},
+) {
   const scopedExecutionId = `world-state-execution-${suffix}-${randomUUID()}`;
   const scopedWorkerId = `world-state-worker-${suffix}-${randomUUID()}`;
   await db.insert(aiExecutionsTable).values({
@@ -113,10 +119,15 @@ async function createScopedEpisode(scope: JsonValue, suffix: string) {
     workerId: scopedWorkerId,
     idempotencyKey: `world-state-episode-${suffix}-${randomUUID()}`,
     projectRevision: "revision-1",
-    intentKind: "TEST",
+    intentKind: options.intentKind ?? "TEST",
     scope,
+    ...(options.environmentRootPath ? { environmentRootPath: options.environmentRootPath } : {}),
   });
-  return { executionId: scopedExecutionId, episodeId: episode.episodeId };
+  return {
+    executionId: scopedExecutionId,
+    episodeId: episode.episodeId,
+    environmentRevision: episode.environmentRevision,
+  };
 }
 
 describe("read-only World State projection", () => {
@@ -302,5 +313,66 @@ describe("read-only World State projection", () => {
     });
     expect(secondScoped.facts).toHaveLength(1);
     expect(secondScoped.worldRevision).not.toBe(firstScoped.worldRevision);
+  });
+
+  it("binds environment freshness to the server-owned episode snapshot", async () => {
+    const rootPath = await mkdtemp(join(process.cwd(), "world-environment-"));
+    try {
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({
+        name: "world-environment-fixture",
+        dependencies: { example: "1.0.0" },
+      }));
+      const scoped = await createScopedEpisode(
+        { kind: "mission-task", taskId: "environment-binding" },
+        "environment-binding",
+        { intentKind: "TASK_EXECUTION", environmentRootPath: rootPath },
+      );
+      expect(scoped.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
+
+      const receiptEnvironment = "env-v1:deliberately-different";
+      const materialized = await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "runtime_receipt",
+          sourceId: "runtime:environment-mismatch",
+          sourceRevision: "revision-1",
+          status: "passed",
+          profile: "dev",
+          environmentRevision: receiptEnvironment,
+        }],
+      });
+
+      expect(materialized.stale).toBe(1);
+      const state = await getProjectWorldState(projectId, {
+        environmentRevision: receiptEnvironment,
+      });
+      expect(state.facts).toHaveLength(0);
+
+      await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "runtime_receipt",
+          sourceId: "runtime:environment-match",
+          sourceRevision: "revision-1",
+          status: "passed",
+          profile: "dev",
+        }],
+      });
+      const matchingState = await getProjectWorldState(projectId, {
+        environmentRevision: scoped.environmentRevision!,
+      });
+      expect(matchingState.facts).toHaveLength(1);
+      expect(matchingState.facts[0]?.environmentFreshness).toBe("fresh");
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
   });
 });

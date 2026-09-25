@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3.5/P4/P5 ما زالت جزئية. دخل Mission `mission_repair` في Action/Effect spine مع بقاء candidate في مساحة تحقق مؤقتة. أضيفت شريحة P4 لتمرير task/environment scope إلى facts وقراءة API اختيارية بهذا النطاق، وربط world revision بتسلسل الملاحظات؛ ما زالت مصادر الملاحظات المستقلة وfreshness وWorld Delta غير مكتملة. يوجد bounded replan وP9 effect-credit sidecar كشرائح جزئية، كما يوجد replay مسجل ومحصور في `runtime.start`؛ لا يثبت ذلك generalization ولا يفتح promotion.
+**الوضع:** P0–P2 مكتملة؛ P3.5/P4/P5 ما زالت جزئية. دخل Mission `mission_repair` في Action/Effect spine مع بقاء candidate في مساحة تحقق مؤقتة. أضيفت بصمة environment server-owned ومقيدة عند بدء Episode، وربطها بملاحظات receipts مع freshness منفصلة؛ ما زالت الملاحظات المستقلة وWorld Delta/propagation غير مكتملة. يوجد bounded replan وP9 effect-credit sidecar كشرائح جزئية، كما يوجد replay مسجل ومحصور في `runtime.start`؛ لا يثبت ذلك generalization ولا يفتح promotion.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -15,9 +15,9 @@
 | P0 — Contracts, baseline, threat model | `done` | عقود agent-state واختبارات parsing/hash/redaction موجودة. |
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
-| P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة؛ لا تزال task/environment scoping وbelief وindependent observation ناقصة. |
+| P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة، مع task/environment scoping؛ لا تزال belief وindependent observation ناقصة. |
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
-| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts، وتعزل dedupe والتناقضات، وتضمّن scope/revisions/fact versions وآخر sequence لكل Episode في world revision. يدعم GET العام filters اختيارية مع بقاء الافتراضي project-wide؛ يلزم استكمال authoritative observation providers/freshness وWorld Delta/contradiction propagation. |
+| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts، وتلتقط hash server-owned لملفات البيئة المسموحة وملف runtime/validator عند بدء المحاولة. freshness البيئية منفصلة عن project freshness؛ يلزم استكمال مصادر الملاحظات المستقلة وWorld Delta/contradiction propagation. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع. |
 | P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
@@ -85,6 +85,31 @@ G9 Revocation Safety
 ```
 
 ## سجل الخطوات
+
+### 2026-09-25 — Server-owned environment attestation
+
+- **phase/step:** P4 / Episode environment identity and freshness
+- **status:** `partial`
+- **what changed:** تُحسب بصمة مستقرة عند إنشاء Episode من ملفات manifests/lockfiles
+  المسموحة، ونسخة Node/platform، وملف server-owned مشتق من نوع العملية. لا تُقرأ
+  أو تُخزن محتويات الملفات الخام؛ `.env` و`.npmrc` مستبعدان، وتفشل القراءة
+  المغلقة عند root غير الآمن، symlink، ملف كبير، أو غياب manifests.
+- **files/schema/contracts touched:** `artifacts/api-server/src/lib/agent-state`,
+  `artifacts/api-server/src/lib/task-execution-service.ts`,
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`,
+  `artifacts/api-server/src/routes/ai/chat.ts`,
+  `lib/db/src/schema/ai_agent_episodes.ts`,
+  `lib/db/src/schema/ai_agent_observations.ts`,
+  `lib/db/src/schema/ai_world_facts.ts`,
+  `lib/ai-orchestrator/src/agent-state`.
+- **validation:** API typecheck؛ 17 اختبار API مركزًا؛ 18 اختبار DB؛
+  schema apply/check. أُعيد تشغيل API وفُحصت سجلات التشغيل بعد اكتمال الدفعة.
+- **authority/safety impact:** `environmentRevision` رصدية فقط؛ لا تمنح قبولًا
+  أو صلاحية effect. `environmentFreshness` مستقلة عن project freshness؛ mismatch
+  يستبعد الملاحظة من World State، وغياب revision يبقى unbound، بينما revision
+  receipt بلا baseline تحتفظ بنطاقها مع freshness `unknown`.
+- **remaining/blocker:** freshness هنا مربوطة بلقطة Episode، لا بمراقب مستقل
+  للبيئة الحالية بعد التنفيذ. ما زالت World Delta وانتشار التناقضات غير منفذين.
 
 ### 2026-09-24 — World State read-only وContext projection
 

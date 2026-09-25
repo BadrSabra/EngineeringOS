@@ -134,6 +134,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "goal_id", dataType: "text", udtName: "text", nullable: true },
       { name: "parent_episode_id", dataType: "text", udtName: "text", nullable: true },
       { name: "project_revision", dataType: "text", udtName: "text", nullable: false },
+      { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
       { name: "world_revision", dataType: "text", udtName: "text", nullable: true },
       { name: "belief_revision", dataType: "text", udtName: "text", nullable: true },
       { name: "plan_revision", dataType: "text", udtName: "text", nullable: true },
@@ -194,6 +195,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
       { name: "completeness", dataType: "USER-DEFINED", udtName: "ai_agent_observation_completeness", nullable: false },
       { name: "freshness", dataType: "USER-DEFINED", udtName: "ai_agent_observation_freshness", nullable: false },
+      { name: "environment_freshness", dataType: "USER-DEFINED", udtName: "ai_agent_observation_freshness", nullable: false, defaultExpression: /'unknown'::ai_agent_observation_freshness/ },
       { name: "evidence_refs", dataType: "jsonb", udtName: "jsonb", nullable: false, defaultExpression: /'\[\]'::jsonb/ },
       { name: "sequence", dataType: "integer", udtName: "int4", nullable: false },
       { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
@@ -254,6 +256,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
       { name: "source_observation_ids", dataType: "jsonb", udtName: "jsonb", nullable: false, defaultExpression: /'\[\]'::jsonb/ },
       { name: "project_revision", dataType: "text", udtName: "text", nullable: false },
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
+      { name: "environment_freshness", dataType: "USER-DEFINED", udtName: "ai_agent_observation_freshness", nullable: false, defaultExpression: /'unknown'::ai_agent_observation_freshness/ },
       { name: "supersedes_fact_id", dataType: "text", udtName: "text", nullable: true },
       { name: "created_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
       { name: "updated_at", dataType: "timestamp without time zone", udtName: "timestamp", nullable: false, defaultExpression: /(?:now\(\)|current_timestamp)/ },
@@ -800,7 +803,7 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     {
       name: "uq_ai_agent_observations_identity",
       tableName: "ai_agent_observations",
-      columns: ["project_id", "task_scope", "environment_revision_key", "source_type", "source_id", "source_version", "predicate", "value_hash"],
+      columns: ["project_id", "task_scope", "environment_revision_key", "environment_freshness", "source_type", "source_id", "source_version", "predicate", "value_hash"],
     },
     {
       name: "idx_ai_agent_observations_episode_sequence",

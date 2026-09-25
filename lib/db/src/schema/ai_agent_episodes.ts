@@ -46,6 +46,7 @@ export const aiAgentEpisodesTable = pgTable("ai_agent_episodes", {
   goalId: text("goal_id").references(() => aiGoalsTable.id, { onDelete: "set null" }),
   parentEpisodeId: text("parent_episode_id"),
   projectRevision: text("project_revision").notNull(),
+  environmentRevision: text("environment_revision"),
   worldRevision: text("world_revision"),
   beliefRevision: text("belief_revision"),
   planRevision: text("plan_revision"),

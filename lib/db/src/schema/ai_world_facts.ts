@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { projectsTable } from "./projects.js";
+import { aiAgentObservationFreshnessEnum } from "./ai_agent_observations.js";
 
 export const aiWorldFactStatusEnum = pgEnum("ai_world_fact_status", [
   "believed", "confirmed", "contradicted", "superseded", "retracted",
@@ -30,6 +31,7 @@ export const aiWorldFactsTable = pgTable("ai_world_facts", {
   sourceObservationIds: jsonb("source_observation_ids").notNull().default([]),
   projectRevision: text("project_revision").notNull(),
   environmentRevision: text("environment_revision"),
+  environmentFreshness: aiAgentObservationFreshnessEnum("environment_freshness").notNull().default("unknown"),
   supersedesFactId: text("supersedes_fact_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

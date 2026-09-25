@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 import {
   aiAgentObservationsTable,
   aiWorldFactsTable,
@@ -21,6 +21,7 @@ export type WorldStateFactProjection = {
   environmentRevision: string | null;
   version: number;
   status: "believed" | "confirmed" | "contradicted" | "superseded" | "retracted";
+  environmentFreshness: "fresh" | "stale" | "unknown";
   sourceObservationIds: string[];
   projectRevision: string;
   supersedesFactId: string | null;
@@ -76,6 +77,7 @@ function worldRevision(
       fact.valueHash,
       fact.version,
       fact.status,
+      fact.environmentFreshness,
       fact.taskScope,
       fact.projectRevision,
       fact.environmentRevision,
@@ -136,6 +138,7 @@ function projectFact(row: typeof aiWorldFactsTable.$inferSelect): WorldStateFact
     environmentRevision: row.environmentRevision,
     version: row.version,
     status: row.status,
+    environmentFreshness: row.environmentFreshness,
     sourceObservationIds: boundedSourceIds(row.sourceObservationIds),
     projectRevision: row.projectRevision,
     supersedesFactId: row.supersedesFactId,
@@ -162,6 +165,7 @@ export async function materializeWorldStateForProject(
         eq(aiAgentObservationsTable.projectId, projectId),
         eq(aiAgentObservationsTable.completeness, "complete"),
         eq(aiAgentObservationsTable.freshness, "fresh"),
+        ne(aiAgentObservationsTable.environmentFreshness, "stale"),
       ))
       .orderBy(
         desc(aiAgentObservationsTable.createdAt),
@@ -212,7 +216,21 @@ export async function materializeWorldStateForProject(
       let latest = factsForKey[0];
 
       for (const [valueHash, valueObservations] of values) {
-        if (factsForKey.some((fact) => fact.valueHash === valueHash)) {
+        const observationEnvironmentFreshness = valueObservations.some(
+          (observation) => observation.environmentFreshness === "fresh",
+        ) ? "fresh" as const : "unknown" as const;
+        const matchingFact = factsForKey.find((fact) => fact.valueHash === valueHash);
+        if (matchingFact) {
+          if (
+            observationEnvironmentFreshness === "fresh"
+            && matchingFact.environmentFreshness !== "fresh"
+          ) {
+            await tx.update(aiWorldFactsTable)
+              .set({ environmentFreshness: "fresh", updatedAt: new Date() })
+              .where(eq(aiWorldFactsTable.id, matchingFact.id));
+            matchingFact.environmentFreshness = "fresh";
+            matchingFact.updatedAt = new Date();
+          }
           skipped++;
           continue;
         }
@@ -257,6 +275,7 @@ export async function materializeWorldStateForProject(
           valueHash,
           version: (latest?.version ?? 0) + 1,
           status,
+          environmentFreshness: observationEnvironmentFreshness,
           sourceObservationIds: valueObservations.map((observation) => observation.id).slice(0, MAX_SOURCE_IDS),
           projectRevision: sourceRevision,
           environmentRevision: valueObservations[0]!.environmentRevision,
@@ -275,6 +294,7 @@ export async function materializeWorldStateForProject(
           valueHash,
           version: (latest?.version ?? 0) + 1,
           status,
+          environmentFreshness: observationEnvironmentFreshness,
           sourceObservationIds: valueObservations.map((observation) => observation.id).slice(0, MAX_SOURCE_IDS),
           projectRevision: sourceRevision,
           environmentRevision: valueObservations[0]!.environmentRevision,
@@ -347,6 +367,7 @@ export async function getProjectWorldState(
         eq(aiAgentObservationsTable.projectId, projectId),
         eq(aiAgentObservationsTable.completeness, "complete"),
         eq(aiAgentObservationsTable.freshness, "fresh"),
+        ne(aiAgentObservationsTable.environmentFreshness, "stale"),
         ...(filter?.taskScope ? [eq(aiAgentObservationsTable.taskScope, filter.taskScope)] : []),
         ...(filter?.environmentRevision === undefined
           ? []

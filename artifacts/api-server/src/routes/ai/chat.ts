@@ -14072,6 +14072,7 @@ async function applyChangesHandler(req: Request, res: Response) {
         workerId,
         idempotencyKey: `${claimed.id}:apply:${claimed.attempt}`,
         projectRevision: deliveryWorkspace.baseRevision,
+        environmentRootPath: resolvedRoot,
         intentKind: "APPLY_CHANGES",
         scope: {
           projectId,

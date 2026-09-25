@@ -171,6 +171,7 @@ type NormalizedObservation = {
   sourceRefs: string[];
   observedAt: Date;
   environmentRevision?: string;
+  environmentFreshness?: ObservationFreshness;
   completeness: ObservationCompleteness;
 };
 
@@ -313,6 +314,20 @@ export async function materializeServerOwnedObservations(
       .for("update");
     if (!episode) throw new Error("observation_materialization_episode_not_found");
     const taskScope = taskScopeIdentity(episode);
+    const episodeEnvironmentRevision = episode.environmentRevision ?? undefined;
+    const boundObservations = normalized.map((source) => {
+      const environmentFreshness: ObservationFreshness = !episodeEnvironmentRevision
+        ? "unknown"
+        : !source.environmentRevision || source.environmentRevision === episodeEnvironmentRevision
+          ? "fresh"
+          : "stale";
+      const environmentRevision = source.environmentRevision ?? episodeEnvironmentRevision;
+      return {
+        ...source,
+        environmentFreshness,
+        ...(environmentRevision ? { environmentRevision } : {}),
+      };
+    });
 
     let nextSequence = 0;
     const [latest] = await tx
@@ -332,7 +347,7 @@ export async function materializeServerOwnedObservations(
       : [];
     const observationRefs = new Set<string>(initialObservationRefs);
 
-    for (const source of normalized) {
+    for (const source of boundObservations) {
       const valueHash = canonicalJsonHash(source.value);
       const [existing] = await tx
         .select()
@@ -343,6 +358,7 @@ export async function materializeServerOwnedObservations(
           source.environmentRevision
             ? eq(aiAgentObservationsTable.environmentRevision, source.environmentRevision)
             : isNull(aiAgentObservationsTable.environmentRevision),
+          eq(aiAgentObservationsTable.environmentFreshness, source.environmentFreshness),
           eq(aiAgentObservationsTable.sourceType, source.sourceType),
           eq(aiAgentObservationsTable.sourceId, source.sourceId),
           eq(aiAgentObservationsTable.sourceVersion, source.sourceVersion),
@@ -388,13 +404,14 @@ export async function materializeServerOwnedObservations(
         ...(source.environmentRevision ? { environmentRevision: source.environmentRevision } : {}),
         completeness: source.completeness,
         freshness: currentFreshness,
+        environmentFreshness: source.environmentFreshness,
         evidenceRefs: source.sourceRefs,
         sequence: nextSequence++,
       });
       observationIds.push(observationId);
       observationRefs.add(observationId);
       inserted++;
-      if (currentFreshness === "stale") stale++;
+      if (currentFreshness === "stale" || source.environmentFreshness === "stale") stale++;
     }
 
     const boundedObservationRefs = [...observationRefs].slice(0, 128);

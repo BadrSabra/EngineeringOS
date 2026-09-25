@@ -72,6 +72,7 @@ export const AgentEpisodeSchema = boundedContractSchema(z.object({
   goalId: boundedString(200).optional(),
   parentEpisodeId: boundedString(200).optional(),
   projectRevision: boundedString(200),
+  environmentRevision: boundedString(200).optional(),
   worldRevision: boundedString(200).optional(),
   beliefRevision: boundedString(200).optional(),
   planRevision: boundedString(200).optional(),

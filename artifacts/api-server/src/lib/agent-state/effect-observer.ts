@@ -105,6 +105,7 @@ function rowToObservation(
     observedAt: row.observedAt.toISOString(),
     ...(row.projectRevision ? { projectRevision: row.projectRevision } : {}),
     ...(row.environmentRevision ? { environmentRevision: row.environmentRevision } : {}),
+    environmentFreshness: row.environmentFreshness,
     completeness: row.completeness,
     freshness: row.freshness,
     evidenceRefs: Array.isArray(row.evidenceRefs)

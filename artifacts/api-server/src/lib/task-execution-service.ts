@@ -850,6 +850,7 @@ async function beginMissionRepairCandidateEffect(params: {
     workerId: params.workerId,
     idempotencyKey: `${params.task.id}:episode:${params.attempt}`,
     projectRevision: params.sourceRevision,
+    environmentRootPath: params.rootPath,
     intentKind: "TASK_EXECUTION",
     scope: {
       kind: "mission-task",

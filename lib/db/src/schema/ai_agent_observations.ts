@@ -44,11 +44,12 @@ export const aiAgentObservationsTable = pgTable("ai_agent_observations", {
   environmentRevision: text("environment_revision"),
   completeness: aiAgentObservationCompletenessEnum("completeness").notNull(),
   freshness: aiAgentObservationFreshnessEnum("freshness").notNull(),
+  environmentFreshness: aiAgentObservationFreshnessEnum("environment_freshness").notNull().default("unknown"),
   evidenceRefs: jsonb("evidence_refs").notNull().default([]),
   sequence: integer("sequence").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("uq_ai_agent_observations_identity").on(t.projectId, t.taskScope, t.environmentRevisionKey, t.sourceType, t.sourceId, t.sourceVersion, t.predicate, t.valueHash),
+  uniqueIndex("uq_ai_agent_observations_identity").on(t.projectId, t.taskScope, t.environmentRevisionKey, t.environmentFreshness, t.sourceType, t.sourceId, t.sourceVersion, t.predicate, t.valueHash),
   index("idx_ai_agent_observations_episode_sequence").on(t.episodeId, t.sequence),
   index("idx_ai_agent_observations_project_subject").on(t.projectId, t.subject, t.predicate),
   check("ck_ai_agent_observations_sequence_nonnegative", sql`${t.sequence} >= 0`),

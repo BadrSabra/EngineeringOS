@@ -754,6 +754,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         workerId,
         idempotencyKey: `${params.operationId}:episode:${claimed.attempt}`,
         projectRevision: params.sourceRevision,
+        environmentRootPath: executionRoot,
          intentKind: candidateValidation
            ? "CANDIDATE_VALIDATION"
            : recipeGateCEffectKind === "browser"
@@ -766,6 +767,9 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           operationId: params.operationId,
           recipeId: params.recipeId,
           candidateIdentity: params.candidateIdentity ?? null,
+          ...(candidateValidation && params.validationProfiles
+            ? { validationProfiles: [...params.validationProfiles] }
+            : {}),
           ...(params.strategyReplayContext
             ? {
                 strategyReplayCase: {

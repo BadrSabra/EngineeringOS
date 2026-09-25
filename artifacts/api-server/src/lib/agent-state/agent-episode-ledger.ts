@@ -22,6 +22,10 @@ import {
 } from "@workspace/ai-orchestrator";
 import { logger } from "../logger.js";
 import {
+  captureEnvironmentAttestation,
+  serverEnvironmentProfile,
+} from "./environment-attestation.js";
+import {
   recordAgentEpisodeShadowFailure,
   recordAgentEpisodeShadowStart,
   recordAgentEpisodeShadowSuccess,
@@ -57,6 +61,8 @@ export type StartEpisodeInput = {
   workerId: string;
   idempotencyKey: string;
   projectRevision: string;
+  /** Server-resolved root used only to capture a bounded environment attestation. */
+  environmentRootPath?: string;
   intentKind: string;
   scope: JsonValue;
   missionId?: string;
@@ -144,6 +150,7 @@ function episodeToContract(row: typeof aiAgentEpisodesTable.$inferSelect): Agent
     ...(row.goalId ? { goalId: row.goalId } : {}),
     ...(row.parentEpisodeId ? { parentEpisodeId: row.parentEpisodeId } : {}),
     projectRevision: row.projectRevision,
+    ...(row.environmentRevision ? { environmentRevision: row.environmentRevision } : {}),
     ...(row.worldRevision ? { worldRevision: row.worldRevision } : {}),
     ...(row.beliefRevision ? { beliefRevision: row.beliefRevision } : {}),
     ...(row.planRevision ? { planRevision: row.planRevision } : {}),
@@ -336,6 +343,29 @@ async function appendLocked(
 }
 
 export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpisode> {
+  let environmentRevision: string | undefined;
+  if (input.environmentRootPath) {
+    const profile = serverEnvironmentProfile(input.intentKind, input.scope);
+    try {
+      const attestation = await captureEnvironmentAttestation({
+        rootPath: input.environmentRootPath,
+        profile,
+      });
+      if (attestation.status === "known") {
+        environmentRevision = attestation.environmentRevision;
+      } else if (attestation.reason !== "unsupported_profile") {
+        logger.debug(
+          { projectId: input.projectId, reason: attestation.reason },
+          "Episode environment attestation is unknown",
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        { projectId: input.projectId, error },
+        "Episode environment attestation failed",
+      );
+    }
+  }
   return db.transaction(async (tx) => {
     const execution = await lockExecution(tx, input);
     const [existing] = await tx.select().from(aiAgentEpisodesTable).where(and(
@@ -360,6 +390,7 @@ export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpiso
       goalId: input.goalId,
       parentEpisodeId: input.parentEpisodeId,
       projectRevision: input.projectRevision,
+      environmentRevision,
       worldRevision: input.worldRevision,
       beliefRevision: input.beliefRevision,
       planRevision: input.planRevision,

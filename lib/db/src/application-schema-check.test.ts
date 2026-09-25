@@ -46,6 +46,12 @@ function completeSnapshot() {
     ) {
       return "'unknown'::text";
     }
+    if (
+      (tableName === "ai_agent_observations" || tableName === "ai_world_facts")
+      && columnName === "environment_freshness"
+    ) {
+      return "'unknown'::ai_agent_observation_freshness";
+    }
     if (tableName === "ai_agent_observations" && columnName === "provenance") {
       return "'SERVER_DERIVED'::text";
     }
