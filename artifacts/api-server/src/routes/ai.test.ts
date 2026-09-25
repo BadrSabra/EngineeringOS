@@ -2171,6 +2171,83 @@ describe("POST /api/ai/chat", () => {
     expect(rows.some((row) => row.role === "assistant" && row.outcome === "SUCCEEDED")).toBe(false);
   });
 
+  it("persists direct-chat read observations on the streamed execution Episode", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockImplementationOnce(async (input) => {
+      const observe = input.onReadOnlyInvocation;
+      if (!observe) throw new Error("streamed chat did not receive the read-observation callback");
+      const base = {
+        toolCallId: "provider-read-call",
+        toolName: "search_code" as const,
+        inputHash: "a".repeat(64),
+        manifestHash: "b".repeat(64),
+      };
+      await observe({ ...base, phase: "requested" });
+      await observe({
+        ...base,
+        phase: "recorded",
+        status: "completed",
+        outputHash: "c".repeat(64),
+      });
+      return {
+        response: "The project response is ready.",
+        sources: [],
+        pendingChanges: [],
+      };
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId, message: "hello" });
+
+    expect(response.status).toBe(200);
+    const terminal = lastSseEvent(response.text);
+    expect(terminal).toMatchObject({
+      type: "done",
+      message: { outcome: "SUCCEEDED" },
+    });
+    const [execution] = await db
+      .select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))
+      .limit(1);
+    expect(execution?.id).toEqual(expect.any(String));
+    const executionId = execution!.id;
+
+    const episodes = await db
+      .select()
+      .from(aiAgentEpisodesTable)
+      .where(and(
+        eq(aiAgentEpisodesTable.projectId, projectId),
+        eq(aiAgentEpisodesTable.executionId, executionId),
+      ));
+    expect(episodes).toHaveLength(1);
+    expect(episodes[0]).toMatchObject({
+      state: "completed",
+      verdict: "incomplete",
+      reasonCode: "CHAT_OBSERVATION_ONLY",
+    });
+
+    const events = await db
+      .select()
+      .from(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.episodeId, episodes[0]!.id));
+    expect(events.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "OBSERVATION_REQUESTED",
+      "OBSERVATION_RECORDED",
+      "EPISODE_TERMINAL",
+    ]));
+    const observation = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
+    expect(observation?.payload).toMatchObject({
+      toolName: "search_code",
+      inputHash: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+    });
+    expect(JSON.stringify(events)).not.toContain("provider-read-call");
+  });
+
   it("fails closed when /chat/stream receives a nested JSON response without a parse marker", async () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockChat).mockResolvedValueOnce({

@@ -421,20 +421,46 @@ describe("executeSingleTool", () => {
     );
   });
 
-  it("dispatches list_directory to executeFileTool and produces directory source label", async () => {
+  it("records general project listings without widening Mission read scope", async () => {
     const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const callback = vi.fn(async (_invocation: ReadOnlyToolInvocation) => undefined);
     const result = await executeSingleTool({
       name: "list_directory",
       args: { path: "src" },
       rootPath: "/project",
       pendingChanges: [],
+      toolCallId: "provider-list-1",
+      toolManifestHash: "d".repeat(64),
+      onReadOnlyInvocation: callback,
     });
 
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
       expect(result.source).toBe("directory: src");
     }
+    expect(callback.mock.calls.map(([invocation]) => invocation.phase))
+      .toEqual(["requested", "recorded"]);
+    expect(callback.mock.calls[0]?.[0]).toMatchObject({
+      toolName: "list_directory",
+      toolCallId: "provider-list-1",
+      manifestHash: "d".repeat(64),
+    });
     expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("list_directory", { path: "src" }, "/project", []);
+
+    const deniedMissionListing = await executeSingleTool({
+      name: "list_directory",
+      args: { path: "src" },
+      rootPath: "/project",
+      pendingChanges: [],
+      allowedToolNames: new Set(["list_directory"]),
+      missionReadPathScope: ["src/approved.ts"],
+      toolCallId: "mission-list-1",
+      toolManifestHash: "e".repeat(64),
+      onReadOnlyInvocation: callback,
+    });
+    expect(deniedMissionListing.kind).toBe("failed");
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
   });
 
   it("dispatches search_code to executeFileTool and produces search source label", async () => {

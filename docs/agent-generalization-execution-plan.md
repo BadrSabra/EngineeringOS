@@ -5729,3 +5729,26 @@ manifest وscope وrevision server-owned؛ ويظل `refresh_project_scan` خا�
 Episode؛ `git diff --check`. لا تغييرات code/schema/production. تظل P5.5
 جزئية حتى تُربط قراءات الدردشة المباشرة بعقد per-invocation server-owned
 قبل القراءة وبعدها. لا تبدأ P6 أو P7 أو P7.5.
+
+### 42.38 P5.5 — Streamed chat read observations (2026-09-25)
+
+ربط `/api/ai/chat/stream` الآن `onReadOnlyInvocation` بهوية Episode التي
+يعيدها `startEpisodeShadowWithEpisode`، مع execution ID وattempt وworker
+الحالي. يسجل كل invocation `OBSERVATION_REQUESTED` قبل القراءة و
+`OBSERVATION_RECORDED` قبل إرجاع النتيجة؛ يعتمد التسجيل على allowlist صريحة
+لأدوات قراءة الملفات/الشجرة/البحث وGit وcode-navigation وpackage وbinary.
+يسجل الحدث hashes للمدخلات والـmanifest والـscope والنتيجة، دون حفظ path أو
+محتوى القراءة أو provider tool-call ID. فشل كتابة أي من الحدثين يمنع قراءة
+الأداة أو يحجب ناتجها. يظل نطاق Mission على allowlist الأصلية، ولا تُسجل
+أدوات mutation أو analysis graph/API أو `refresh_project_scan` بهذا المسار.
+
+يغلق Episode الدردشة بنتيجة `incomplete` وسبب `CHAT_OBSERVATION_ONLY`؛ هذه
+الملاحظات لا تنشئ Action أو Effect ولا تثبت acceptance. المسار غير المتدفق
+`/api/ai/chat` ما زال خارج التغطية لأن لا execution/attempt دائمًا يملكه؛
+إضافة دورة lifecycle له مؤجلة، ولا يُنشأ له هوية اصطناعية.
+
+التحقق: typecheck API؛ اختبارات orchestrator لمحرك الأدوات وحاجز Mission
+170/170؛ اختبار streamed route لتسجيل أحداث الطلب والنتيجة على Episode
+1/1؛ مجموعة chat في `ai.test.ts` 69/69. تشغيل الملف كاملًا سجّل 9 إخفاقات
+ضمن اختبارات تنفيذ المهام/أخطاء provider، لذا لا يُعد الملف كله ناجحًا.
+لم تتغير schema أو بيانات الإنتاج، ولا يبدأ P6 أو P7 أو P7.5.
