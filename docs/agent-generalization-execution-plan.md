@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظات process مباشرة محدودة لعمليات runtime وvalidator؛ لا تثبت descendants أو listener ولا تنشئ قبولًا. لا يوجد World Delta. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
+> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime داخل process tree؛ لا يثبت ذلك تغطية lifecycle العامة ولا ينشئ قبولًا خارج Gate C. لا يوجد World Delta. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -5560,3 +5560,28 @@ validator status أو objective proof أو acceptance/OBSERVED؛ ولا تغيي
 World State ‏23/23، بينها اختبار live validator child المعروف ورصد unknown
 واختبار direct child في `runRepairRuntimeValidation`؛ إعادة تشغيل API وفحص سجلات
 startup؛ `git diff --check`.
+
+### 42.31 P4/P5 — Runtime listener ownership observation (2026-09-25)
+
+ينفذ API resolver محدودًا لملكية listening socket باستخدام procfs، ولا يقبل PID
+أو port من المستخدم أو النموذج: المدخلات هي PID والمنفذ وهوية binding من runtime
+session الحية التي يملكها manager. تُحوّل inodes من `/proc/net/tcp` و`tcp6` إلى
+مالكي `/proc/<pid>/fd`، ويُقبل فقط إذا كانت كل sockets المطلوبة مملوكة لعملية
+واحدة داخل process tree الذي بدأه PID المسجل، مع ثبات launch/listener start times
+والمنفذ/inodes. ثم يقرأ API marker والبيئة وجذر المشروع للعملية المالكة، ويعيد
+التحقق من socket ownership بعد HTTP health response؛ تتطلب المقارنة digest binding
+يتضمن project/session/execution/attempt/Episode/operation/revision.
+
+لا يظهر أو يخزن PID listener أو inode الخام؛ `RuntimeAfterState` يحمل status وport
+وidentity digest وhashes فقط. يستهلكها Gate C في start/restart وlive-before
+لـstop، وي materialize facts كـ`runtime.after_state`. `observeRunningBeforeStop`
+أصبح يستخدم health/revision وlistener attestation نفسها، أما stopped-after فيشترط
+عدم وجود listener. المالك غير موجود من process tree أو الملتبس أو المتبدل أو
+غير المقروء يبقى unknown، واختلاف marker/environment يبقى mismatch؛ كلاهما
+يمنع effect pass. إذا غاب `/proc/net/tcp6` بسبب تعطيل IPv6 نقرأ IPv4، أما أخطاء
+procfs الأخرى فتبقى fail-closed.
+
+التحقق: API typecheck؛ resolver/runtime/Gate C/runtime route tests ‏22/22؛
+`git diff --check`؛ API workflow restart وظهور `Server listening`. لا تغيير schema
+أو قاعدة الإنتاج. بقيت P3.5/P4/P5 جزئية: recovery/heartbeat لا يعيدان بعد إثبات
+listener ownership باستمرار؛ لم يبدأ P6 أو P7 أو P7.5.

@@ -94,6 +94,28 @@ import {
   gateCEffectKind,
 } from "./agent-state/gate-c-effect.js";
 import { workspaceRuntime, WorkspaceRuntimeError } from "./workspace-runtime.js";
+
+type RuntimeStateEvidence = Awaited<ReturnType<typeof workspaceRuntime.observeAfterState>>;
+
+function runtimeStateEvidence(state: RuntimeStateEvidence) {
+  return {
+    status: state.status,
+    projectId: state.projectId,
+    sessionId: state.sessionId,
+    revision: state.revision,
+    pid: state.pid,
+    port: state.port,
+    processAlive: state.processAlive,
+    portReady: state.portReady,
+    healthPath: state.healthPath,
+    healthStatus: state.healthStatus,
+    servingRevision: state.servingRevision,
+    markerMatched: state.markerMatched,
+    childProcessAttestation: state.childProcessAttestation,
+    listener: state.listener,
+    observedAt: state.observedAt,
+  };
+}
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
 import { registerProspectiveStrategyReplayCase } from "./agent-state/strategy-replay-case-registry.js";
 
@@ -246,22 +268,7 @@ export function createRuntimeStartRunner(
           artifactRef: `runtime:${snapshot.sessionId}`,
           sessionId: snapshot.sessionId,
           environmentRevision: snapshot.environmentRevision,
-          afterState: {
-            status: after.status,
-            projectId: after.projectId,
-            sessionId: after.sessionId,
-            revision: after.revision,
-            pid: after.pid,
-            port: after.port,
-            processAlive: after.processAlive,
-            portReady: after.portReady,
-            healthPath: after.healthPath,
-            healthStatus: after.healthStatus,
-            servingRevision: after.servingRevision,
-            markerMatched: after.markerMatched,
-            childProcessAttestation: after.childProcessAttestation,
-            observedAt: after.observedAt,
-          },
+          afterState: runtimeStateEvidence(after),
         },
         detail: after.detail,
       };
@@ -371,22 +378,7 @@ function createRuntimeModeRunner(
             artifactRef: `runtime:${snapshot.sessionId}`,
             sessionId: snapshot.sessionId,
             environmentRevision: snapshot.environmentRevision,
-            afterState: {
-              status: after.status,
-              projectId: after.projectId,
-              sessionId: after.sessionId,
-              revision: after.revision,
-              pid: after.pid,
-              port: after.port,
-              processAlive: after.processAlive,
-              portReady: after.portReady,
-              healthPath: after.healthPath,
-              healthStatus: after.healthStatus,
-              servingRevision: after.servingRevision,
-              markerMatched: after.markerMatched,
-              childProcessAttestation: after.childProcessAttestation,
-              observedAt: after.observedAt,
-            },
+            afterState: runtimeStateEvidence(after),
           },
           detail: after.detail,
         };
@@ -405,8 +397,8 @@ function createRuntimeModeRunner(
           artifactRef: `runtime:${before.sessionId}`,
           sessionId: before.sessionId,
           environmentRevision: before.environmentRevision,
-          beforeState: stopBeforeState,
-          afterState: { ...after, pid: preStopPid, port: preStopPort },
+          beforeState: stopBeforeState ? runtimeStateEvidence(stopBeforeState) : undefined,
+          afterState: { ...runtimeStateEvidence(after), pid: preStopPid, port: preStopPort },
         },
         detail: after.detail,
       };

@@ -15,6 +15,7 @@ import {
   type ChildProcessAttestationIdentity,
   type ChildProcessEnvironmentAttestation,
 } from "./agent-state/child-process-attestation.js";
+import { resolveRuntimeListenerProcess } from "./agent-state/runtime-listener-process.js";
 import {
   createInMemoryWorkspaceRuntimeStore,
   databaseWorkspaceRuntimeStore,
@@ -39,6 +40,14 @@ const SAFE_ENV_NAMES = /^(?:PATH|HOME|USER|SHELL|LANG|LC_[A-Z_]+|TERM|TMPDIR|PNP
 
 export type WorkspaceRuntimeStatus = "stopped" | "starting" | "running" | "failed";
 
+export type RuntimeListenerObservation = {
+  status: "known" | "mismatch" | "unknown";
+  reasonCode: string;
+  port: number | null;
+  identityDigest: string | null;
+  processAttestation: ChildProcessEnvironmentAttestation;
+};
+
 export type RuntimeAfterState = {
   status: "passed" | "failed" | "unavailable";
   projectId: string;
@@ -54,6 +63,7 @@ export type RuntimeAfterState = {
   markerMatched: boolean | null;
   responseBody: string;
   childProcessAttestation?: ChildProcessEnvironmentAttestation;
+  listener: RuntimeListenerObservation;
   observedAt: string;
   detail: string;
 };
@@ -138,6 +148,28 @@ function unknownChildProcessAttestation(
     attestationDigest: null,
     processEnvironmentDigest: null,
     observedAt,
+  };
+}
+
+function unknownRuntimeListenerObservation(
+  reasonCode: string,
+  binding?: ChildProcessAttestationBinding,
+  processReason: ChildProcessEnvironmentAttestation["reasonCode"] = "procfs_unavailable",
+  observedAt = new Date().toISOString(),
+): RuntimeListenerObservation {
+  const listenerBinding = binding
+    ? { ...binding, processRole: "runtime_listener" as const }
+    : undefined;
+  return {
+    status: "unknown",
+    reasonCode,
+    port: null,
+    identityDigest: null,
+    processAttestation: unknownChildProcessAttestation(
+      processReason,
+      listenerBinding,
+      observedAt,
+    ),
   };
 }
 
@@ -370,6 +402,9 @@ export class WorkspaceRuntimeManager {
     const observedAt = new Date().toISOString();
     const processAlive = await isPidAlive(session.pid);
     const portReady = await isPortListening(session.port);
+    const listenerBinding = input.attestationBinding
+      ? { ...input.attestationBinding, processRole: "runtime_listener" as const }
+      : undefined;
     if (input.signal?.aborted) {
       return {
         status: "unavailable",
@@ -388,6 +423,12 @@ export class WorkspaceRuntimeManager {
         childProcessAttestation: unknownChildProcessAttestation(
           "process_unavailable",
           input.attestationBinding,
+          observedAt,
+        ),
+        listener: unknownRuntimeListenerObservation(
+          "observation_cancelled",
+          input.attestationBinding,
+          "process_unavailable",
           observedAt,
         ),
         observedAt,
@@ -425,6 +466,98 @@ export class WorkspaceRuntimeManager {
       });
     }
 
+    let listenerConfirmationTarget: {
+      pid: number;
+      port: number;
+      identityDigest: string;
+      bindingDigest: string;
+    } | null = null;
+    let listener: RuntimeListenerObservation;
+    if (!input.attestationBinding) {
+      listener = unknownRuntimeListenerObservation(
+        "binding_missing",
+        undefined,
+        "binding_missing",
+        observedAt,
+      );
+    } else if (!session.childProcessBinding || !session.childProcessMarker) {
+      listener = unknownRuntimeListenerObservation(
+        "marker_unavailable",
+        input.attestationBinding,
+        "marker_unavailable",
+        observedAt,
+      );
+    } else if (!sameAttestationBinding(session.childProcessBinding, input.attestationBinding)) {
+      listener = unknownRuntimeListenerObservation(
+        "binding_mismatch",
+        input.attestationBinding,
+        "binding_mismatch",
+        observedAt,
+      );
+    } else if (!listenerBinding) {
+      listener = unknownRuntimeListenerObservation(
+        "binding_missing",
+        input.attestationBinding,
+        "binding_missing",
+        observedAt,
+      );
+    } else {
+      const first = await resolveRuntimeListenerProcess({
+        launchPid: session.pid,
+        port: session.port,
+        bindingDigest: childProcessBindingDigest(listenerBinding),
+        observedAt,
+      });
+      if (
+        first.status !== "known"
+        || first.pid === null
+        || first.port !== session.port
+        || !first.identityDigest
+      ) {
+        const processReason = first.reasonCode === "process_unavailable"
+          ? "process_unavailable"
+          : first.reasonCode === "process_changed"
+            ? "process_changed"
+            : first.reasonCode === "unsupported_platform"
+              ? "unsupported_platform"
+              : "procfs_unavailable";
+        listener = unknownRuntimeListenerObservation(
+          first.reasonCode,
+          input.attestationBinding,
+          processReason,
+          observedAt,
+        );
+      } else {
+        const processAttestation = await attestChildProcessEnvironment({
+          pid: first.pid,
+          projectRoot: session.projectRoot,
+          marker: session.childProcessMarker,
+          binding: listenerBinding,
+          expectedEnvironment: {
+            NODE_ENV: "development",
+            PORT: String(session.port),
+            BASE_PATH: "/",
+          },
+          observedAt,
+        });
+        listenerConfirmationTarget = {
+          pid: first.pid,
+          port: first.port,
+          identityDigest: first.identityDigest,
+          bindingDigest: childProcessBindingDigest(listenerBinding),
+        };
+        listener = {
+          status: processAttestation.status,
+          reasonCode: processAttestation.status === "known"
+            ? "listener_process_attested"
+            : processAttestation.reasonCode,
+          port: first.port,
+          identityDigest: first.identityDigest,
+          processAttestation,
+        };
+      }
+    }
+
     let healthStatus: number | null = null;
     let servingRevision: string | null = null;
     let markerMatched: boolean | null = input.expectedMarker ? false : null;
@@ -447,11 +580,44 @@ export class WorkspaceRuntimeManager {
           ? responseBody.includes(input.expectedMarker)
             || response.headers.get("x-engineeringos-marker") === input.expectedMarker
           : null;
+        if (listenerConfirmationTarget) {
+          const confirmation = await resolveRuntimeListenerProcess({
+            launchPid: session.pid,
+            port: session.port,
+            bindingDigest: listenerConfirmationTarget.bindingDigest,
+            observedAt,
+          });
+          if (
+            confirmation.status !== "known"
+            || confirmation.pid !== listenerConfirmationTarget.pid
+            || confirmation.port !== listenerConfirmationTarget.port
+            || confirmation.identityDigest !== listenerConfirmationTarget.identityDigest
+          ) {
+            listener = unknownRuntimeListenerObservation(
+              confirmation.status === "known" ? "process_changed" : confirmation.reasonCode,
+              input.attestationBinding,
+              confirmation.reasonCode === "process_changed"
+                ? "process_changed"
+                : confirmation.reasonCode === "unsupported_platform"
+                  ? "unsupported_platform"
+                  : "procfs_unavailable",
+              observedAt,
+            );
+          }
+        }
         const healthPassed = response.status >= 200 && response.status < 300;
         const revisionPassed = servingRevision === input.revision;
         const markerPassed = markerMatched !== false;
-        if (processAlive && portReady && healthPassed && revisionPassed && markerPassed) {
-          detail = "Runtime process, port, health, serving revision, and marker were observed.";
+        if (
+          processAlive
+          && portReady
+          && healthPassed
+          && revisionPassed
+          && markerPassed
+          && listener.status === "known"
+          && listener.port === session.port
+        ) {
+          detail = "Runtime listener ownership, process environment, health, serving revision, and marker were observed.";
           return {
             status: "passed",
             projectId: input.projectId,
@@ -467,6 +633,7 @@ export class WorkspaceRuntimeManager {
             markerMatched,
             responseBody,
             childProcessAttestation,
+            listener,
             observedAt,
             detail,
           };
@@ -477,6 +644,8 @@ export class WorkspaceRuntimeManager {
             ? "Runtime served a different revision."
             : !markerPassed
               ? "Runtime did not serve the expected marker."
+              : listener.status !== "known"
+                ? `Runtime listener was not independently attested (${listener.reasonCode}).`
               : "Runtime process or port readiness was not observed.";
       } finally {
         clearTimeout(timeout);
@@ -500,6 +669,7 @@ export class WorkspaceRuntimeManager {
       markerMatched,
       responseBody,
       childProcessAttestation,
+      listener,
       observedAt,
       detail,
     };
@@ -554,6 +724,11 @@ export class WorkspaceRuntimeManager {
       servingRevision: null,
       markerMatched: null,
       responseBody: "",
+      listener: unknownRuntimeListenerObservation(
+        "listener_not_running",
+        undefined,
+        "process_unavailable",
+      ),
       observedAt: new Date().toISOString(),
       detail: !processAlive && !portReady
         ? "Runtime process and port closure were observed."
@@ -599,25 +774,40 @@ export class WorkspaceRuntimeManager {
     }
     const processAlive = await isPidAlive(input.pid);
     const portReady = await isPortListening(input.port);
-    return {
-      status: processAlive && portReady ? "passed" : "unavailable",
+    if (!processAlive || !portReady) {
+      return {
+        status: "unavailable",
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        revision: input.revision,
+        pid: input.pid,
+        port: input.port,
+        processAlive,
+        portReady,
+        healthPath: "/",
+        healthStatus: null,
+        servingRevision: null,
+        markerMatched: null,
+        responseBody: "",
+        childProcessAttestation: unknownChildProcessAttestation(
+          "process_unavailable",
+          session.childProcessBinding,
+        ),
+        listener: unknownRuntimeListenerObservation(
+          "listener_not_running",
+          session.childProcessBinding,
+          "process_unavailable",
+        ),
+        observedAt: new Date().toISOString(),
+        detail: "Runtime process or port was unavailable before stop.",
+      };
+    }
+    return this.observeAfterState({
       projectId: input.projectId,
       sessionId: input.sessionId,
       revision: input.revision,
-      pid: input.pid,
-      port: input.port,
-      processAlive,
-      portReady,
-      healthPath: "/",
-      healthStatus: null,
-      servingRevision: null,
-      markerMatched: null,
-      responseBody: "",
-      observedAt: new Date().toISOString(),
-      detail: processAlive && portReady
-        ? "Runtime process and port were observed before stop."
-        : "Runtime process or port was unavailable before stop.",
-    };
+      ...(session.childProcessBinding ? { attestationBinding: session.childProcessBinding } : {}),
+    });
   }
 
   async recover(): Promise<void> {

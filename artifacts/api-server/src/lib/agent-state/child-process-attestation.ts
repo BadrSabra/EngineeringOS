@@ -28,7 +28,7 @@ export type ChildProcessAttestationBinding = {
   episodeId: string;
   operationId: string;
   revision: string;
-  processRole?: "validator";
+  processRole?: "validator" | "runtime_listener";
   validatorProfile?: string;
 };
 

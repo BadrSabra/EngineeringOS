@@ -22,3 +22,11 @@ The runtime and validator markers attest only the direct server-owned spawned PI
 **Why:** launch handoff state is not an observation of the child. A temporary validation workspace is a process boundary only; treating it as the managed project root would confuse candidate execution with project provenance.
 
 **How to apply:** describe the attested PID precisely, use the isolated workspace only for cwd/process checks, never persist the marker or raw environment, and keep missing/mismatched observations outside acceptance authority. A validator `pnpm` PID does not prove descendant or listener environment; those need separate process-bound observations.
+
+### Runtime listener ownership
+
+Resolve a runtime listener only from the active server-owned session PID, port, lease, and binding. On Linux, join listening socket inodes from `/proc/net/tcp` and `/proc/net/tcp6` to `/proc/<pid>/fd`, require every inode to have one owner in the launch process tree, verify stable launch/listener start times, attest the owner environment/marker/project root, and repeat ownership resolution after the HTTP health response. Persist only status and digests, not listener PIDs or socket inodes. Missing, ambiguous, changed, or inaccessible ownership is unknown; a measured marker/environment/root mismatch is failed.
+
+**Why:** health responses and the direct `pnpm` PID can describe different processes. Socket ownership plus process-tree membership identifies the actual serving process without exposing an endpoint that accepts arbitrary PIDs.
+
+**How to apply:** use only the manager's leased session identity and server-owned port; never accept process IDs or ports from a caller or model. A missing `/proc/net/tcp6` table can mean IPv6 is disabled and may be treated as an empty table; other procfs read failures remain unknown.

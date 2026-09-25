@@ -14,7 +14,22 @@ type RuntimeStateSnapshot = {
   healthStatus: number | null;
   servingRevision: string | null;
   markerMatched: boolean | null;
+  listener: RuntimeListenerSnapshot;
   observedAt: string;
+};
+
+type RuntimeListenerSnapshot = {
+  status: "known" | "mismatch" | "unknown";
+  reasonCode: string;
+  port: number | null;
+  identityDigest: string | null;
+  processAttestation: {
+    status: "known" | "mismatch" | "unknown";
+    reasonCode: string;
+    bindingDigest: string | null;
+    attestationDigest: string | null;
+    processEnvironmentDigest: string | null;
+  };
 };
 
 export type GateCServerAfterObservation = {
@@ -40,6 +55,56 @@ function boundedIdentity(value: unknown, maxLength = 500): string | undefined {
     : undefined;
 }
 
+function boundedDigest(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : undefined;
+}
+
+function parseRuntimeListener(value: unknown): RuntimeListenerSnapshot | undefined {
+  const listener = record(value);
+  const attestation = record(listener?.processAttestation);
+  const status = listener?.status;
+  const reasonCode = boundedIdentity(listener?.reasonCode, 120);
+  const port = listener?.port;
+  const identityDigest = boundedDigest(listener?.identityDigest);
+  const attestationStatus = attestation?.status;
+  const attestationReasonCode = boundedIdentity(attestation?.reasonCode, 120);
+  const bindingDigest = boundedDigest(attestation?.bindingDigest);
+  const attestationDigest = boundedDigest(attestation?.attestationDigest);
+  const processEnvironmentDigest = boundedDigest(attestation?.processEnvironmentDigest);
+  if (
+    (status !== "known" && status !== "mismatch" && status !== "unknown")
+    || !reasonCode
+    || (port !== null && (
+      !Number.isInteger(port)
+      || (port as number) <= 0
+      || (port as number) > 65_535
+    ))
+    || identityDigest === undefined
+    || !attestation
+    || (attestationStatus !== "known" && attestationStatus !== "mismatch" && attestationStatus !== "unknown")
+    || !attestationReasonCode
+    || bindingDigest === undefined
+    || attestationDigest === undefined
+    || processEnvironmentDigest === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    status,
+    reasonCode,
+    port: port as number | null,
+    identityDigest,
+    processAttestation: {
+      status: attestationStatus,
+      reasonCode: attestationReasonCode,
+      bindingDigest,
+      attestationDigest,
+      processEnvironmentDigest,
+    },
+  };
+}
+
 function parseRuntimeState(value: unknown): RuntimeStateSnapshot | undefined {
   const state = record(value);
   if (!state) return undefined;
@@ -53,6 +118,7 @@ function parseRuntimeState(value: unknown): RuntimeStateSnapshot | undefined {
     ? boundedIdentity(state.servingRevision, 2_000)
     : state.servingRevision === null ? null : undefined;
   const markerMatched = state.markerMatched;
+  const listener = parseRuntimeListener(state.listener);
   if (
     (status !== "passed" && status !== "failed" && status !== "unavailable")
     || !projectId
@@ -73,6 +139,7 @@ function parseRuntimeState(value: unknown): RuntimeStateSnapshot | undefined {
     ))
     || servingRevision === undefined
     || (markerMatched !== null && typeof markerMatched !== "boolean")
+    || !listener
   ) {
     return undefined;
   }
@@ -88,8 +155,13 @@ function parseRuntimeState(value: unknown): RuntimeStateSnapshot | undefined {
     healthStatus: healthStatus as number | null,
     servingRevision,
     markerMatched: markerMatched as boolean | null,
+    listener,
     observedAt: new Date(observedAt).toISOString(),
   };
+}
+
+function isDigest(value: string | null): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
 function isServingState(state: RuntimeStateSnapshot, revision: string): boolean {
@@ -100,7 +172,15 @@ function isServingState(state: RuntimeStateSnapshot, revision: string): boolean 
     && state.healthStatus >= 200
     && state.healthStatus < 300
     && state.servingRevision === revision
-    && state.markerMatched !== false;
+    && state.markerMatched !== false
+    && state.listener.status === "known"
+    && state.listener.port === state.port
+    && isDigest(state.listener.identityDigest)
+    && state.listener.processAttestation.status === "known"
+    && state.listener.processAttestation.reasonCode === "child_process_observed"
+    && isDigest(state.listener.processAttestation.bindingDigest)
+    && isDigest(state.listener.processAttestation.attestationDigest)
+    && isDigest(state.listener.processAttestation.processEnvironmentDigest);
 }
 
 function runtimeStateFacts(state: RuntimeStateSnapshot): Record<string, JsonValue> {
@@ -116,6 +196,13 @@ function runtimeStateFacts(state: RuntimeStateSnapshot): Record<string, JsonValu
     healthStatus: state.healthStatus,
     servingRevision: state.servingRevision,
     markerMatched: state.markerMatched,
+    listener: {
+      status: state.listener.status,
+      reasonCode: state.listener.reasonCode,
+      port: state.listener.port,
+      identityDigest: state.listener.identityDigest,
+      processAttestation: state.listener.processAttestation,
+    },
     observedAt: state.observedAt,
   };
 }
@@ -178,6 +265,8 @@ export function buildRuntimeGateCAfterObservation(input: {
         && after.healthStatus === null
         && after.servingRevision === null
         && after.markerMatched === null
+        && after.listener.status !== "known"
+        && after.listener.port === null
       )
     : isServingState(after, input.sourceRevision);
 
@@ -190,6 +279,7 @@ export function buildRuntimeGateCAfterObservation(input: {
   const sourceRefs = ["evidenceId", "artifactRef", "resultHash"]
     .map((key) => boundedIdentity(evidence[key]))
     .filter((value): value is string => Boolean(value));
+  if (after.listener.identityDigest) sourceRefs.push(after.listener.identityDigest);
   return {
     effectValue: passed ? "passed" : "failed",
     sessionId: evidenceSessionId,

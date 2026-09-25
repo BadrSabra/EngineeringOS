@@ -1375,6 +1375,33 @@ G9 Revocation Safety
 - **next step:** حدّد listener PID من boundary server-owned مستقل ومربوط بالـ
   execution/session/revision قبل أي ادعاء عن بيئة الخدمة؛ استمر ضمن P4/P5 فقط.
 
+### 42.31 P4/P5 — إثبات مالك منفذ runtime وربطه بـGate C (2026-09-25)
+
+- **phase/step:** P4/P5 — runtime listener ownership observation
+- **status:** `partial`
+- **what changed:** يحل API مالك socket من `/proc/net/tcp` (و`tcp6` عند توفره)،
+  ويربط كل inode مستمع بعملية واحدة من descendants لPID الإطلاق server-owned.
+  يعيد فحص هوية عمليتي الإطلاق والمالك وsocket بعد health response، ثم يثبت
+  marker والبيئة وجذر المشروع للعملية المالكة. ينتقل الإسقاط المختصر عبر
+  `RuntimeAfterState` إلى Gate C وdirect observation؛ وpre-state للإيقاف صار
+  يتضمن health/revision وlistener proof. لا تحفظ PID المالك أو inode الخام.
+- **files/schema/contracts touched:** runtime listener procfs resolver،
+  child-process attestation role، workspace runtime manager، Gate C parser/
+  acceptance facts، recipe runtime evidence، واختبارات runtime وroutes.
+  لا schema migration أو تعديل قاعدة الإنتاج.
+- **validation:** API typecheck؛ 4 ملفات Vitest مركزة، 22/22؛
+  `git diff --check`؛ API workflow أُعيد تشغيله ووصل إلى `Server listening`.
+- **authority/safety impact:** Gate C لا يقبل start/restart أو stop قبلًا بلا
+  listener معروف على المنفذ نفسه مع process attestation سليمة. المالك الغائب أو
+  الملتبس أو المتغير أو procfs غير المتاح يبقى unknown ويفشل الإغلاق؛ اختلاف
+  marker/البيئة يفشل. غياب `/proc/net/tcp6` بسبب تعطيل IPv6 مقبول، وأخطاء القراءة
+  الأخرى fail-closed. لا يتغير receipt وحده إلى acceptance أو OBSERVED.
+- **remaining/blocker:** التحقق يخص الملاحظة المستقلة وقت action؛ مسار recovery/
+  heartbeat ما زال يحتاج ربطًا مستمرًا بملكية listener قبل ادعاء صحة الجلسة.
+  P3.5/P4/P5 جزئية؛ لم يبدأ P6 أو P7 أو P7.5.
+- **next step:** اربط تعافي runtime وتجديد lease بإعادة إثبات owner/session،
+  دون قتل runtime لمجرد تعذر رصد مؤقت، ثم تابع إغلاق P4/P5 بالترتيب.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -286,6 +286,19 @@ describe("Gate C effect contracts", () => {
     const projectId = "project-runtime";
     const sessionId = "session-runtime";
     const revision = "revision-runtime";
+    const listener = (port: number) => ({
+      status: "known",
+      reasonCode: "listener_process_attested",
+      port,
+      identityDigest: "d".repeat(64),
+      processAttestation: {
+        status: "known",
+        reasonCode: "child_process_observed",
+        bindingDigest: "e".repeat(64),
+        attestationDigest: "f".repeat(64),
+        processEnvironmentDigest: "1".repeat(64),
+      },
+    });
     const state = (overrides: Record<string, unknown> = {}) => ({
       status: "passed",
       projectId,
@@ -298,6 +311,7 @@ describe("Gate C effect contracts", () => {
       healthStatus: 200,
       servingRevision: revision,
       markerMatched: null,
+      listener: listener(43123),
       observedAt: "2026-09-25T12:00:00.000Z",
       ...overrides,
     });
@@ -329,6 +343,11 @@ describe("Gate C effect contracts", () => {
           portReady: true,
           healthStatus: 200,
           servingRevision: revision,
+          listener: {
+            status: "known",
+            port: 43123,
+            identityDigest: "d".repeat(64),
+          },
         },
       },
     });
@@ -341,9 +360,11 @@ describe("Gate C effect contracts", () => {
       state({ servingRevision: "older-revision" }),
       state({ markerMatched: false }),
       state({ status: "unavailable" }),
+      state({ listener: { ...listener(43123), status: "mismatch" } }),
     ]) {
       expect(observe(invalidState)?.effectValue).toBe("failed");
     }
+    expect(observe(state({ listener: undefined }))).toBeUndefined();
     expect(observe(undefined)).toBeUndefined();
     expect(observe(state({ sessionId: "another-session" }))).toBeUndefined();
     expect(observe(state({ projectId: "another-project" }))).toBeUndefined();
@@ -368,6 +389,19 @@ describe("Gate C effect contracts", () => {
       healthStatus: 200,
       servingRevision: revision,
       markerMatched: null,
+      listener: {
+        status: "known",
+        reasonCode: "listener_process_attested",
+        port: 43123,
+        identityDigest: "d".repeat(64),
+        processAttestation: {
+          status: "known",
+          reasonCode: "child_process_observed",
+          bindingDigest: "e".repeat(64),
+          attestationDigest: "f".repeat(64),
+          processEnvironmentDigest: "1".repeat(64),
+        },
+      },
       observedAt: "2026-09-25T12:00:00.000Z",
     };
     const afterState = {
@@ -377,6 +411,19 @@ describe("Gate C effect contracts", () => {
       healthStatus: null,
       servingRevision: null,
       observedAt: "2026-09-25T12:00:05.000Z",
+      listener: {
+        status: "unknown",
+        reasonCode: "listener_not_running",
+        port: null,
+        identityDigest: null,
+        processAttestation: {
+          status: "unknown",
+          reasonCode: "process_unavailable",
+          bindingDigest: null,
+          attestationDigest: null,
+          processEnvironmentDigest: null,
+        },
+      },
     };
     const observe = (after: unknown, before: unknown = beforeState) =>
       buildRuntimeGateCAfterObservation({

@@ -74,10 +74,23 @@ describe("WorkspaceRuntimeManager", () => {
         status: "known",
         reasonCode: "child_process_observed",
       },
+      listener: {
+        status: "known",
+        reasonCode: "listener_process_attested",
+        port: started.port,
+        processAttestation: {
+          status: "known",
+          reasonCode: "child_process_observed",
+        },
+      },
     });
     expect(afterState.childProcessAttestation?.bindingDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(afterState.childProcessAttestation?.attestationDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(afterState.childProcessAttestation?.processEnvironmentDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterState.listener.identityDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterState.listener.processAttestation.bindingDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterState.listener.processAttestation.attestationDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(afterState.listener.processAttestation.processEnvironmentDigest).toMatch(/^[a-f0-9]{64}$/);
 
     const beforeStop = await manager.observeRunningBeforeStop({
       projectId: "project-runtime-test",
@@ -94,6 +107,12 @@ describe("WorkspaceRuntimeManager", () => {
       port: started.port,
       processAlive: true,
       portReady: true,
+      healthStatus: 200,
+      servingRevision: "revision-1",
+      listener: {
+        status: "known",
+        port: started.port,
+      },
     });
 
     const stopped = await manager.stop("project-runtime-test");
@@ -114,6 +133,10 @@ describe("WorkspaceRuntimeManager", () => {
       port: started.port,
       processAlive: false,
       portReady: false,
+      listener: {
+        status: "unknown",
+        port: null,
+      },
     });
     await expect(manager.observeStoppedAfterState({
       projectId: "project-runtime-test",
@@ -143,6 +166,61 @@ describe("WorkspaceRuntimeManager", () => {
       pid: started.pid!,
       port: started.port!,
     })).rejects.toMatchObject({ code: "RUNTIME_OBSERVATION_STALE" });
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("fails closed when the socket owner does not inherit the server marker", async () => {
+    const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
+    await fs.writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ scripts: { dev: "env -u ENGINEERINGOS_CHILD_ATTESTATION node server.mjs" } }),
+    );
+    await fs.writeFile(
+      path.join(root, "server.mjs"),
+      [
+        "import http from 'node:http';",
+        "const server = http.createServer((_req, res) => { res.setHeader('x-engineeringos-revision', 'revision-1'); res.end('runtime-mismatch'); });",
+        "server.listen(Number(process.env.PORT), '127.0.0.1');",
+        "process.once('SIGTERM', () => server.close(() => process.exit(0)));",
+      ].join("\n"),
+    );
+
+    const manager = new WorkspaceRuntimeManager();
+    managers.push(manager);
+    const attestationIdentity = {
+      projectId: "project-runtime-marker-mismatch",
+      operationId: "operation-runtime-marker-mismatch",
+      executionId: "execution-runtime-marker-mismatch",
+      executionAttempt: 1,
+      episodeId: "episode-runtime-marker-mismatch",
+      revision: "revision-1",
+    };
+    const started = await manager.start({
+      projectId: attestationIdentity.projectId,
+      projectRoot: root,
+      revision: attestationIdentity.revision,
+      attestationIdentity,
+    });
+    expect(started.status).toBe("running");
+
+    const afterState = await manager.observeAfterState({
+      projectId: attestationIdentity.projectId,
+      sessionId: started.sessionId!,
+      revision: attestationIdentity.revision,
+      attestationBinding: { ...attestationIdentity, sessionId: started.sessionId! },
+    });
+    expect(afterState.status).toBe("failed");
+    expect(afterState.listener).toMatchObject({
+      status: "mismatch",
+      reasonCode: "child_environment_mismatch",
+      processAttestation: {
+        status: "mismatch",
+        reasonCode: "child_environment_mismatch",
+      },
+    });
+
+    const stopped = await manager.stop(attestationIdentity.projectId);
+    expect(stopped.status).toBe("stopped");
     await fs.rm(root, { recursive: true, force: true });
   });
 
@@ -258,7 +336,7 @@ describe("WorkspaceRuntimeManager", () => {
       attestationBinding: { ...attestationIdentity, sessionId: started.sessionId! },
     });
     expect(afterRecovery).toMatchObject({
-      status: "passed",
+      status: "failed",
       sessionId: started.sessionId,
       revision: "revision-1",
       processAlive: true,
@@ -266,6 +344,10 @@ describe("WorkspaceRuntimeManager", () => {
       healthStatus: 200,
       servingRevision: "revision-1",
       childProcessAttestation: {
+        status: "unknown",
+        reasonCode: "marker_unavailable",
+      },
+      listener: {
         status: "unknown",
         reasonCode: "marker_unavailable",
       },

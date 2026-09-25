@@ -61,6 +61,20 @@ function createRuntimeMock(
     healthStatus: 200,
     servingRevision: revision,
     markerMatched: true,
+    listener: {
+      status: "known",
+      reasonCode: "listener_process_attested",
+      port: snapshot.port!,
+      identityDigest: "d".repeat(64),
+      processAttestation: {
+        status: "known",
+        reasonCode: "child_process_observed",
+        bindingDigest: "e".repeat(64),
+        attestationDigest: "f".repeat(64),
+        processEnvironmentDigest: "1".repeat(64),
+        observedAt: now,
+      },
+    },
     responseBody: "ok",
     observedAt: now,
     detail: "Runtime after-state verified.",
@@ -163,7 +177,15 @@ describe("POST /api/projects/:projectId/runtime/start", () => {
     expect(acceptance?.effectBundleId).toBe(bundle?.id);
     const observations = await db.select().from(aiAgentObservationsTable)
       .where(eq(aiAgentObservationsTable.executionId, first.body.executionId));
-    expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+    const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
+    expect(runtimeStateObservation?.value).toMatchObject({
+      after: {
+        listener: {
+          status: "known",
+          processAttestation: { status: "known" },
+        },
+      },
+    });
     const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
       .from(aiAgentEpisodeEventsTable)
       .where(eq(aiAgentEpisodeEventsTable.executionId, first.body.executionId));
@@ -230,7 +252,26 @@ async function assertRuntimeRouteEvidence(executionId: string, capabilityId: str
   expect(acceptance?.effectBundleId).toBe(bundle?.id);
   const observations = await db.select().from(aiAgentObservationsTable)
     .where(eq(aiAgentObservationsTable.executionId, executionId));
-  expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+  const runtimeStateObservation = observations.find((row) => row.predicate === "runtime.after_state");
+  if (capabilityId === "runtime.stop") {
+    expect(runtimeStateObservation?.value).toMatchObject({
+      before: {
+        listener: {
+          status: "known",
+          processAttestation: { status: "known" },
+        },
+      },
+    });
+  } else {
+    expect(runtimeStateObservation?.value).toMatchObject({
+      after: {
+        listener: {
+          status: "known",
+          processAttestation: { status: "known" },
+        },
+      },
+    });
+  }
 }
 
 describe.each([
@@ -272,6 +313,23 @@ describe.each([
         status: "passed",
         processAlive: false,
         portReady: false,
+        healthStatus: null,
+        servingRevision: null,
+        markerMatched: null,
+        listener: {
+          status: "unknown",
+          reasonCode: "listener_not_running",
+          port: null,
+          identityDigest: null,
+          processAttestation: {
+            status: "unknown",
+            reasonCode: "process_unavailable",
+            bindingDigest: null,
+            attestationDigest: null,
+            processEnvironmentDigest: null,
+            observedAt: new Date().toISOString(),
+          },
+        },
         detail: "Runtime process and port closure were observed.",
       });
     }
@@ -328,6 +386,20 @@ describe.each([
         status: "unavailable",
         pid: runtime.snapshot.pid,
         port: runtime.snapshot.port!,
+        listener: {
+          status: "unknown",
+          reasonCode: "listener_not_running",
+          port: null,
+          identityDigest: null,
+          processAttestation: {
+            status: "unknown",
+            reasonCode: "process_unavailable",
+            bindingDigest: null,
+            attestationDigest: null,
+            processEnvironmentDigest: null,
+            observedAt: new Date().toISOString(),
+          },
+        },
       });
     } else {
       vi.spyOn(workspaceRuntime, "start").mockResolvedValue(runtime.snapshot);
