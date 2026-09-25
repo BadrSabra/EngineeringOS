@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0 وP1 وP2 منجزة؛ P3 مكتملة على مستوى الـfoundation مع بقاء التكامل المعرفي جزئيًا؛ Candidate Validation وRuntime start/restart/stop وAI apply-changes مع fail-closed restart reconciliation شرائح محدودة ضمن P3.5/P5؛ عمليات Mission tool-loop المعدّلة وبقية P3.5–P14 قيد التنفيذ
+> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، لكن identity ليست independent observation ولا يوجد World Delta. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -174,6 +174,18 @@ MODEL_INFERRED
 يجب ألا تعاد تسمية acceptance أو validation أو model output كـindependent
 runtime observation. وبذلك لا يجوز أن يتحول `PROVEN` المستنتج من acceptance
 إلى دليل runtime مستقل.
+
+هوية البيئة قاعدة رصدية لا قاعدة إثبات:
+
+```text
+Episode.environmentRevision ≠ independent environment observation
+environmentRevision match ≠ proof that a child process ran in that environment
+```
+
+server-attested identity عند Episode creation أو receipt/launch/validator handoff
+لا تثبت وحدها البيئة التي ورثها child process فعليًا. لا تغلق هذه القيمة P4/P5،
+ولا تصبح proof لمجرد تطابق revision؛ يلزم independent observation من مصدر الفعل
+الفعلي. تعذر الرصد يبقى `unknown`، ولا يجوز استبداله بقراءة `.env` أو قيم البيئة.
 
 ### 3.8 Contract completion ليس Runtime cognitive integration
 
@@ -592,9 +604,13 @@ type StrategyCandidate = {
 
 ---
 
-## 6. مراحل التنفيذ
+## 6. حزم التنفيذ القديمة (Phase 0–9؛ ليست roadmap مستقلة)
 
-## المرحلة 0: تثبيت خط الأساس والعقود
+> ما يلي تقسيم تنفيذي تاريخي إلى work packages. لا يحدد ترتيبًا أو اعتماديات
+> مستقلة؛ المرجع الوحيد لترتيب التنفيذ هو §31، وأولوية الإغلاق الحالية موضحة
+> هناك وفي §42.22. عند التعارض، لا تتجاوز هذه الحزم بوابات P0–P14.
+
+## حزمة العمل 0: تثبيت خط الأساس والعقود
 
 ### الهدف
 
@@ -623,7 +639,7 @@ type StrategyCandidate = {
 
 ---
 
-## المرحلة 1: Agent Episode Ledger
+## حزمة العمل 1: Agent Episode Ledger
 
 ### الملفات
 
@@ -663,7 +679,7 @@ operation-evidence
 
 ---
 
-## المرحلة 2: Observation Materialization
+## حزمة العمل 2: Observation Materialization
 
 ### الهدف
 
@@ -695,7 +711,7 @@ operation-evidence
 
 ---
 
-## المرحلة 3: World State للـEngineering Domain
+## حزمة العمل 3: World State للـEngineering Domain
 
 ### الهدف
 
@@ -735,7 +751,7 @@ revision + runtime + freshness + contradictions + current effects
 
 ---
 
-## المرحلة 4: Effect Observation
+## حزمة العمل 4: Effect Observation
 
 ### الهدف
 
@@ -827,7 +843,7 @@ UNKNOWN
 
 ---
 
-## المرحلة 5: Failure Diagnosis وReplan
+## حزمة العمل 5: Failure Diagnosis وReplan
 
 ### الهدف
 
@@ -860,7 +876,7 @@ UNKNOWN
 
 ---
 
-## المرحلة 6: Strategy Memory
+## حزمة العمل 6: Strategy Memory
 
 ### الهدف
 
@@ -910,7 +926,7 @@ ai_strategy_candidates
 
 ---
 
-## المرحلة 7: Offline Learning وReplay
+## حزمة العمل 7: Offline Learning وReplay
 
 ### الهدف
 
@@ -968,7 +984,7 @@ accepted episode
 
 ---
 
-## المرحلة 8: Capability Composition
+## حزمة العمل 8: Capability Composition
 
 ### الهدف
 
@@ -1013,7 +1029,7 @@ proposal
 
 ---
 
-## المرحلة 9: Multimodal End-to-End
+## حزمة العمل 9: Multimodal End-to-End
 
 هذه مرحلة لاحقة بعد تثبيت effect/evidence loop.
 
@@ -1621,6 +1637,15 @@ learningStatus
 14. تركيب capabilities عبر semantic preconditions/effects.
 15. promotion وrevocation آمنين.
 16. حفظ authorization وownership وevidence وaudit invariants.
+
+لا تعتبر P4 أو P5 مكتملة لمجرد وجود `effectBundle` أو `environmentRevision`.
+يجب إثبات independent before/after observation من مصدر الفعل الفعلي، وربطها
+بـAction/Episode/revision المناسب، ثم ربط effect verified بـWorld Delta. القبول
+يبقى بوابة منفصلة ولا يثبت الملاحظة أو الأثر بذاته:
+
+```text
+Contract ≠ Observation ≠ Effect ≠ World Delta ≠ Acceptance
+```
 
 ويجب أن تنجح الحالات السلبية التالية:
 
@@ -2439,6 +2464,13 @@ explicitly_immutable
 
 إذا لم يوجد سبب، تكون freshness `UNKNOWN`.
 
+`environmentRevision` هو identity metadata، و`environmentFreshness` وصف لحداثة
+هذه الهوية لا لحقيقة أن العملية ورثتها. تطابق Episode snapshot أو launch/
+validator handoff لا يثبت أن child process استخدم البيئة نفسها؛ لا يتحول إلى
+independent observation أو effect proof دون ملاحظة من execution boundary الفعلي.
+لا تعامل `null` أو تعذر attestation كـfresh، ولا تستبدلها ببصمة project/source
+مختلفة.
+
 ### 22.3 Confidence
 
 لا يدخل provider confidence في الحساب. يشتق confidence من:
@@ -3074,7 +3106,8 @@ ECE <= 0.15
 
 هذا هو dependency plan المعتمد. أسماء الأقسام التنفيذية الأقدم في هذه الوثيقة
 تبقى مواصفات تفصيلية للوحدات، لكن لا يجوز استخدامها لتجاوز ترتيب الاعتماديات
-أدناه:
+أدناه. حزم Phase 0–9 في §6 ليست roadmap ثانية. P5.5 ليس عقدة إضافية في هذا
+graph؛ هو work package عابر وأول أولوية تنفيذية قبل توسيع تكامل P4/P5.
 
 ```text
 P0   Contracts / invariants
@@ -3099,7 +3132,7 @@ P7.5 Belief + Information Gain
  ↓
 P8   Diagnosis-Aware / Hypothesis-Aware Replanning
  ↓
-P9   Causal Credit Assignment
+P9   Causal Credit Assignment Safety Layer
  ↓
 P10  Portable Strategy Extraction
  ↓
@@ -3126,9 +3159,23 @@ P5/P6/P11 → P13
 P4/P5/P6/P11 → P14
 ```
 
-لا يبدأ `P10` قبل أن تكون effects وacceptance وcausal attribution موثوقة، ولا
-يبدأ `P12` قبل أن تعمل held-out evaluation وcross-project transfer وpromotion
-gates.
+P5.5 Unified Action Semantics هو work package عابر: ابدأ به قبل إضافة مسارات
+Action/Effect جديدة، ثم استمر على graph أعلاه دون إنشاء dependency roadmap ثانية.
+
+P4/P5 لها staged closure: independent observations وeffect verification هما
+مدخلات لازمة لبدء تكامل P6؛ لكن لا تسجل P4/P5 كـ`done` في الحالة التنفيذية حتى
+يثبت P6 ربطها بـWorld Delta قابل لإعادة البناء. هذا handoff مرحلي، لا إعفاء من
+ترتيب الاعتماديات ولا circular completion claim.
+
+لا يبدأ التوسع الأفقي في capabilities أو strategy learning بينما P3.5/P4/P5/P6
+غير مغلقة. أولوية التنفيذ الحالية هي Unified `AgentAction`، ثم independent
+observation وeffect closure، ثم World Delta، ثم World-State diagnosis وBelief/
+Information Gain قبل إكمال replanning وcausal credit.
+
+لا يتوسع `P10` ولا يعتبر مغلقًا قبل إغلاق P7.5/P8/P9 وتوفر effects وacceptance
+وcausal evidence الموثوقة؛ candidate discovery أو replay infrastructure لا
+يحقق ذلك. ولا يبدأ `P12` قبل أن تعمل held-out evaluation وcross-project
+transfer وpromotion gates.
 
 ---
 
@@ -4106,6 +4153,12 @@ task/environment-scoped World State وrevision closure ما زالا مطلوب�
 - world delta.
 - contradiction propagation.
 
+لا تعتبر environment identity الموجودة عند Episode creation أو receipt-time أو
+runtime launch/validator handoff independent observation من البيئة التي استخدمها
+child process. هي metadata/attestation لنقطة handoff فقط؛ المطابقة مع
+`Episode.environmentRevision` لا تثبت runtime inheritance ولا تسد شرط P4.
+`null` أو تعذر capture يظل `unknown`.
+
 ويجب أن يكون:
 
 ```text
@@ -4197,9 +4250,11 @@ Task provider failures (500 بدل statuses المحددة)، وتكررت عن�
 منفردًا. نجح restart وفحص health.
 
 هذه القراءة تلتقط allowlisted manifests عند materialization، ولا تثبت وحدها
-البيئة التي ورثها process فعلي أو validator وقت spawn؛ يلزم أن يحمل runtime و
-validator receipt بصمة من داخل نقطة تشغيلهما server-owned. تظل P4 `PARTIAL`،
-ولا يبدأ P6 قبل إغلاق تبعيات P3.5/P4/P5 وWorld Delta/contradiction propagation.
+البيئة التي ورثها process فعلي. runtime launch identity وvalidator pre-spawn
+identity (42.20–42.21) هما handoff attestations server-owned، وليسا قراءة من
+داخل child process ولا independent proof لبيئته الفعلية. تظل P4 `PARTIAL`.
+تبدأ P6 بعد جاهزية مداخل P3.5/P4/P5؛ ويظل إغلاق P4/P5 مشروطًا بربط الملاحظات
+والآثار بـWorld Delta وcontradiction propagation.
 
 ### 42.4 P5 — Authoritative Effect Verification
 
@@ -4263,6 +4318,8 @@ acceptance seam.
 
 ### 42.5 P5.5 — Unified Action Semantics
 
+**الحالة:** `NOT STARTED — execution priority before expanding P4/P5 integrations`
+
 كل mutating capability invocation يجب أن يطبق `AgentAction` ويكشف:
 
 ```text
@@ -4282,7 +4339,8 @@ failure semantics
 الهدف أن تصبح recipe node وtool call وMission action وexecution node
 implementations للعقد نفسه، بدل وجود semantics منفصلة. هذا لا يمنح النموذج
 صلاحية جديدة؛ تبقى capability registry وauthorization وprofiles
-server-owned.
+server-owned. تبدأ الخطوة التالية بهذه الوحدة لأنها توحد الهوية والعقد قبل
+إضافة مسارات Action/Effect جديدة.
 
 ### 42.6 P6 — World Delta / Revision Closure
 
@@ -4298,7 +4356,7 @@ server-owned.
 
 ### 42.7 P7 — World-State Failure Diagnosis
 
-**الحالة:** `NOT STARTED`
+**الحالة:** `PARTIAL — provider/validator diagnostics and bounded-replan primitives exist; world-state diagnosis is not implemented`
 
 التشخيص يجب أن يجيب:
 
@@ -4312,10 +4370,15 @@ server-owned.
   أو `terminate`؟
 
 Provider failure diagnostics ضرورية، لكنها ليست agent-level failure diagnosis.
+لا تغلق `diagnoseFailure` الحتمية وbounded replan هذه المرحلة: المطلوب ربط
+الافتراضات الفاشلة بالـfacts المتأثرة والتناقضات والملاحظة الفاصلة في World State.
 
 ### 42.8 P7.5 — Belief and Information Gain
 
 **الحالة:** `NOT STARTED`
+
+هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
+وجود World State وحده لا يوفر belief أو observation selection.
 
 يجب أن يمثل النظام uncertainty صراحة عبر:
 
@@ -4368,9 +4431,9 @@ Bounded Replan
 لا يجوز أن يعيد planner المحاولة نفسها بلا تغير معلل في observation أو
 assumption أو strategy، ويجب أن يبقى no-progress guard فعالًا.
 
-### 42.10 P9 — Causal Credit Assignment
+### 42.10 P9 — Causal Credit Assignment Safety Layer
 
-**الحالة:** `PARTIAL`
+**الحالة:** `PARTIAL / ADVISORY`
 
 يجب فصل:
 
@@ -4397,7 +4460,30 @@ unknown إلى أن ترتبط بإشارات server-owned المناسبة، و
 
 ### 42.11 P10 — Portable Strategy Extraction
 
-**الحالة:** `NOT STARTED`
+**الحالة:** `PARTIAL — candidate discovery and narrow replay primitives exist; portable learning does not`
+
+الوضع الحالي:
+
+```text
+accepted trajectory
+→ project/revision-bound candidate discovery
+→ limited registered replay (currently runtime.start)
+```
+
+هذا ليس Portable Strategy Learning. مرشح مرتبط بـ`capabilityId` وسياق
+project/revision قد يبقى recipe mining إذا لم يُجرّد إلى شروط وأثر قابلين
+للنقل. لا توجد بعد abstraction مثبتة أو held-out/cross-project transfer
+evaluation مكتملة.
+
+الهدف:
+
+```text
+causal trajectory
+→ abstract state/effect transition
+→ portable strategy
+→ held-out validation
+→ cross-project transfer
+```
 
 يجب أن تتكون strategy من:
 
@@ -4539,20 +4625,32 @@ G9 — Revocation Safety
 15. promotion وrevocation آمنين.
 16. حفظ authorization وownership وevidence وaudit invariants.
 
+ويضاف شرط إغلاق P4/P5: لا يكفي وجود `effectBundle` أو `environmentRevision`.
+يلزم independent before/after observation من مصدر الفعل الفعلي، مربوطة
+بـAction/Episode/revision المناسبة، ثم World Delta قابل لإعادة البناء. القبول
+سلطة منفصلة ولا يثبت observation أو effect.
+
+```text
+Contract ≠ Observation ≠ Effect ≠ World Delta ≠ Acceptance
+```
+
+لا يبدأ توسيع capabilities أو learning/strategy extraction قبل إغلاق cognitive
+spine واعتماديات §31، بما فيها Belief/Information Gain قبل P8/P9/P10.
+
 ### 42.19 Contract مقابل القدرة المكتملة
 
 | Capability | Contract | Storage | Runtime | Closed Loop | Generalized |
 |---|---:|---:|---:|---:|---:|
 | World State | ✓ | ✓ | ✓ | partial | no |
-| Observation | ✓ | ✓ | partial | no | no |
+| Observation | ✓ | ✓ | partial | partial in bounded runtime slices | no |
 | Action Semantics | partial | partial | partial | no | no |
-| Effect Verification | ✓ | ✓ | no | no | no |
-| Failure Diagnosis | ✓ | partial | partial | no | no |
+| Effect Verification | ✓ | ✓ | partial across bounded vertical slices | partial | no |
+| Failure Diagnosis | ✓ | partial | partial provider-level primitives | no | no |
 | Replanning | ✓ | ✓ | ✓ | partial | no |
 | Strategy Memory | ✓ | ✓ | no | no | no |
-| Credit Assignment | no | no | no | no | no |
-| Strategy Extraction | partial | partial | no | no | no |
-| Replay | ✓ | ✓ | partial | no | no |
+| Credit Assignment Safety Layer | partial | partial | advisory | no | no |
+| Strategy Extraction | partial | partial | candidate discovery | no | no |
+| Replay | ✓ | ✓ | limited registered runtime.start | no | no |
 | Cross-project Transfer | no | no | no | no | no |
 | Capability Composition | ✓ | ✓ | partial | no | no |
 
@@ -4579,7 +4677,8 @@ production schema هنا.
 
 المتبقي في P4: لا تتلقى handoff تأكيدًا مستقلًا من child process. التقاط validator
 موثق في الخطوة 42.21؛ workspaces المؤقتة التي يرفضها حد الجذر تبقى unknown.
-لا يبدأ P6 قبل إغلاق تبعيات P3.5/P4/P5 وWorld Delta/contradiction propagation.
+تبدأ P6 بعد جاهزية مداخل P3.5/P4/P5، لكن يبقى إغلاق P4/P5 مرحليًا حتى يربط P6
+الملاحظات والآثار بـWorld Delta وcontradiction propagation.
 
 ### 42.21 P4 — Validator spawn environment identity (2026-09-25)
 
@@ -4601,3 +4700,46 @@ permissions أو acceptance.
 
 التحقق: API typecheck؛ 44 اختبار API مركزًا عبر أربعة ملفات؛ 11 اختبار bounded
 execution؛ `git diff --check`؛ API restart وفحص health بحالة `ok`.
+
+`environmentRevision` هنا server-attested handoff identity فقط. لا تثبت أن
+child process ورث البصمة نفسها، ولا تعد independent observation حتى لو طابقت
+Episode revision. يظل تأكيد التشغيل الفعلي مسؤولية observation من source العملية.
+
+### 42.22 Roadmap reconciliation — close the cognitive loop first (2026-09-25)
+
+هذا هو توحيد الحالة التنفيذية وترتيب العمل، لا تغيير في الرؤية الأساسية:
+
+- §31 هو dependency graph الوحيد. حزم Phase 0–9 في §6 وPR work packages
+  مواصفات تنفيذية تاريخية وليست roadmaps موازية.
+- لدى P3.5/P4/P5 runtime integrations حقيقية في مسارات محدودة:
+  `Episode → Action → Before → Execute → After → Effect → Acceptance`.
+  لا تعني هذه الشرائح أن كل المسارات موحدة أو أن P4/P5 مكتملتان.
+- `effectBundle` و`environmentRevision` وحدهما لا يغلقان P4/P5؛ يلزم
+  independent before/after observation من مصدر الفعل الفعلي وربط effect
+  verified بـWorld Delta، مع إبقاء acceptance بوابة مستقلة.
+- البيئة تحمل identity وfreshness رصديتين؛ `Episode.environmentRevision` لا
+  يساوي independent environment observation، والتطابق لا يثبت inheritance داخل
+  child process.
+- أوقف التوسع الأفقي في capabilities وstrategy learning إلى أن يغلق
+  `Unified AgentAction` ثم independent observation وeffect verification وWorld
+  Delta. بعد ذلك أغلق P7 وP7.5 (Belief/Information Gain) قبل توسيع P8/P9/P10.
+- P9 هو **Causal Credit Assignment Safety Layer**؛ attribution يظل
+  `unproven` من دون controlled counterfactual. وP10 candidate extraction/replay
+  الحالي لا يساوي portable strategy learning أو cross-project generalization.
+
+ترتيب التنفيذ العملي:
+
+```text
+1. Unified AgentAction
+2. Independent observation closure
+3. Remaining effect-verification closure
+4. World Delta
+5. World-State diagnosis
+6. Belief State + Information Gain
+7. Hypothesis-aware Replan
+8. Causal Credit Safety Layer
+9. Portable Strategy Extraction
+10. Held-out / cross-project learning and transfer
+```
+
+لا تبدأ phase توسعية أو promotion قبل إثبات بوابات هذه الحلقة.

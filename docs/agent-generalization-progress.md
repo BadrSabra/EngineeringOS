@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-25
-**الوضع:** P0–P2 مكتملة؛ P3.5/P4/P5 ما زالت جزئية. دخل Mission `mission_repair` في Action/Effect spine مع بقاء candidate في مساحة تحقق مؤقتة. أضيفت بصمة environment server-owned ومقيدة عند بدء Episode، وربطها بملاحظات receipts مع freshness منفصلة؛ ما زالت الملاحظات المستقلة وWorld Delta/propagation غير مكتملة. يوجد bounded replan وP9 effect-credit sidecar كشرائح جزئية، كما يوجد replay مسجل ومحصور في `runtime.start`؛ لا يثبت ذلك generalization ولا يفتح promotion.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية لكن لديها شرائح runtime حقيقية ومحدودة. توجد primitives جزئية لـP7 وP8 وP9 وP10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية الآن إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -17,20 +17,59 @@
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة، مع task/environment scoping؛ لا تزال belief وindependent observation ناقصة. |
 | P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance. Mission repair يثبت candidate داخل workspace مؤقت فقط ولا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى read-only خارج effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ World Delta له إغلاق مستقل في P6. |
-| P4 — Authoritative Observation and World Integration | `partial` | أضيفت شريحة read-only تحمل task/environment scope من Episode إلى observations/facts؛ تُلتقط بصمة runtime عند dispatch وبصمة validator عند حد ما قبل spawn. freshness البيئية منفصلة عن project freshness؛ يلزم استكمال مصادر الملاحظات المستقلة وWorld Delta/contradiction propagation. |
-| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع. |
-| P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction. |
+| P4 — Independent Observation and World Integration | `partial` | توجد task/environment-scoped World State وAPI filters، وملاحظات receipt-time، وهوية launch للـruntime وبصمة validator قبل spawn. هذه هويات/ملاحظات server-owned وليست إثباتًا مستقلًا لبيئة child process؛ يلزم إغلاق مصادر الملاحظة المستقلة وWorld Delta/contradiction propagation. |
+| P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا: لا يطلق النجاح إلا بإثبات effect مقبول ومطابق، ولا يعيد تشغيل أو يتراجع عن بايتات filesystem. تبقى الحالات غير المثبتة للمعالجة اليدوية، كما تبقى مسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط هذه الآثار بـWorld Delta في P6. |
+| P5.5 — Unified Action Semantics | `not_started` | توحيد recipe node وtool call وMission action وexecution node تحت AgentAction؛ بوابة عابرة مطلوبة قبل توسيع Action/Effect integrations. |
 | P6 — World Delta and Revision Closure | `not_started` | ربط effect bundle بـworld delta وrevision قابل لإعادة البناء. |
-| P7 — World-State Failure Diagnosis | `not_started` | تشخيص الفرضية الفاشلة والـfacts المتأثرة والملاحظة الفاصلة، لا مجرد provider error code. |
-| P7.5 — Belief and Information Gain | `not_started` | تمثيل uncertainty واختيار observation حسب information gain/cost/risk/authorization/time. |
+| P7 — World-State Failure Diagnosis | `partial` | توجد diagnostics حتمية من إشارات provider/validator/acceptance وbounded replan؛ تشخيص افتراضات الخطة والحقائق المتناقضة والملاحظة الفاصلة ما زال غير مكتمل. |
+| P7.5 — Belief and Information Gain | `not_started` | gate معرفي قبل توسيع التعلم: تمثيل uncertainty واختيار observation وفق information gain/cost/risk/authorization/time. |
 | P8 — Diagnosis-aware Replanning | `partial` | bounded objective recovery وMission replan يستهلكان diagnosis summaries؛ لم يُربط Belief State أو تقييم information/risk/cost للخطة بعد. |
-| P9 — Causal Credit Assignment | `partial` | سجل effect coverage advisory؛ causal attribution غير مثبت، وclaim/information/failure/redundancy غير محسوبة. |
-| P10 — Portable Strategy Extraction | `partial` | استخراج مرشحات وصفية من حلقات مقبولة؛ API يعيد حساب مرجع source proof من سجلات الحلقة والقبول والأثر. |
+| P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
+| P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
 | P10.5 — Agent Capability Self-Model | `not_started` | reliability وsupported environments وfailure modes وcost/risk/authorization وevidence quality. |
-| P11 — Learning Validation and Transfer | `not_started` | replay وheld-out وcross-project وnovel composition وLearning Delta مع منع leakage. |
+| P11 — Learning Validation and Transfer | `not_started` | توجد replay primitives محدودة تحت P10؛ لا توجد held-out evaluation مكتملة أو cross-project transfer أو Learning Delta. |
 | P12 — Strategy Promotion and Revocation | `not_started` | canary/promotion/revocation آمنة دون حذف forensic history. |
 | P13 — Capability composition | `not_started` | composition آمن عبر semantic contracts وsandbox وshadow replay. |
 | P14 — Multimodal extension | `not_started` | مؤجل إلى ما بعد إغلاق effect/evidence/learning gates. |
+
+## المعالم المعمارية المنفذة — شرائح محدودة
+
+توجد الآن مسارات runtime حقيقية، لا contracts أو read models فقط:
+
+```text
+Episode → Action → Before → Execute → After → Effect → Acceptance
+```
+
+هذا المسار يعمل في شرائح محددة ولا يمثل عقدًا موحدًا لكل الوكيل. المعالم الحالية:
+
+- **Action/Effect vertical slices:** Candidate Validation، Runtime lifecycle،
+  Browser/Delivery، approved `apply-changes` مع restart reconciliation fail-closed،
+  وMission `mission_repair` ضمن candidate مؤقت غير مروج إلى live root.
+- **Environment identity:** Episode environment attestation، receipt-time observation،
+  runtime launch identity، وvalidator pre-spawn identity مع freshness منفصلة.
+  هذه metadata/attestations لا تثبت وحدها البيئة التي ورثها child process فعليًا.
+- **World State:** task/environment scope وrevision وAPI filters read-only؛ لا
+  يوجد بعد World Delta/contradiction propagation.
+- **Diagnosis وlearning:** bounded diagnosis/replan، effect-credit sidecar،
+  strategy candidates وreplay محدود موجودة كـprimitives؛ لا تثبت cognition أو
+  causality أو portability أو generalization.
+
+## أولوية التنفيذ الحالية
+
+لم تعد الأولوية بناء بنية تحتية إضافية؛ الأولوية الآن إغلاق الحلقة السببية
+للإدراك والفعل والأثر والتشخيص والتعلم. أوقف التوسع الأفقي في capabilities
+وstrategy learning إلى أن تُغلق الحلقة المعرفية. اتبع الاعتماديات في §31، مع
+ترتيب العمل التالي:
+
+1. توحيد `AgentAction` عبر recipe/tool/Mission/execution nodes (P5.5).
+2. إغلاق independent observations من المصدر الفعلي قبل/بعد action (P4).
+3. إكمال effect verification وربطه بتلك الملاحظات (P5).
+4. بناء World Delta قابل لإعادة البناء (P6).
+5. إكمال World-State diagnosis ثم Belief/Information Gain (P7 ثم P7.5).
+6. إكمال hypothesis-aware replan وcausal-credit safety (P8 ثم P9).
+7. بعد ذلك فقط استكمال portable strategy وheld-out/transfer learning.
+
+لا تبدأ مرحلة جديدة أو توسع replay/promotion قبل إغلاق بوابات هذه الحلقة.
 
 ## Cognitive Spine Reality Check
 
@@ -49,6 +88,8 @@
 - Episode persistence ≠ closed-loop agent cognition.
 - Strategy schema ≠ strategy learning.
 - Replay infrastructure ≠ generalization.
+- `Episode.environmentRevision` ≠ independent environment observation.
+- Environment revision match alone ≠ proof that a child process ran in that environment.
 
 ## Observation Provenance
 
@@ -85,6 +126,26 @@ G9 Revocation Safety
 ```
 
 ## سجل الخطوات
+
+### 2026-09-25 — Roadmap source-of-truth and cognitive-loop priority
+
+- **phase/step:** Governance / P0–P14 status and dependency reconciliation
+- **status:** `done`
+- **what changed:** أعيدت معايرة الحالة الحالية: P7 جزئية لوجود diagnostics وbounded
+  replan primitives؛ P9 هي safety layer جزئية/advisory؛ P10 لديها candidate/replay
+  primitives لا تعني portable learning. رُفعت أولوية Unified Action وindependent
+  observation وWorld Delta ثم Belief/Information Gain قبل توسيع learning. ثُبتت
+  شرائح P3.5/P4/P5 runtime كمعالم محدودة، لا كإغلاق للمراحل.
+- **files/schema/contracts touched:** `docs/agent-generalization-progress.md`,
+  `docs/agent-generalization-execution-plan.md`; لا تغييرات runtime أو schema.
+- **validation:** مراجعة تطابق الحالة مع السجل والخطة؛ `git diff --check`.
+- **authority/safety impact:** environment identity تظل metadata، لا proof؛ لا
+  تغيير في acceptance أو permission أو effect authority. لا يعتبر وجود
+  `effectBundle` أو `environmentRevision` وحده إغلاقًا لـP4/P5.
+- **remaining/blocker:** independent before/after closure وWorld Delta وBelief/
+  Information Gain والتشخيص المعرفي ما زالت غير مكتملة.
+- **next step:** ابدأ بـUnified `AgentAction`، ثم أغلق P4/P5 وP6 قبل توسيع
+  diagnosis/replanning/learning وفق dependency graph في §31.
 
 ### 2026-09-25 — Server-owned environment attestation
 
