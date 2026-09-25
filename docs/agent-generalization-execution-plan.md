@@ -4555,3 +4555,28 @@ G9 — Revocation Safety
 | Replay | ✓ | ✓ | partial | no | no |
 | Cross-project Transfer | no | no | no | no | no |
 | Capability Composition | ✓ | ✓ | partial | no | no |
+
+### 42.20 P4 — Durable runtime launch environment identity (2026-09-25)
+
+Runtime manager يحسب هوية البيئة من allowlisted manifests والـruntime profile
+المثبت مباشرة قبل dispatch إلى supervisor أو `spawn` المباشر، ثم يحفظها في
+`workspace_runtime.environment_revision` مع هوية الجلسة. تبقى القيمة خلال
+recovery، وتُسقط start/restart/stop runners إلى `runtime_receipt` المرتبط بـ
+`sessionId`. هذا launch-handoff attestation؛ لا يدّعي قراءة متغيرات البيئة من
+داخل child process ولا يحفظ أي قيم منها.
+
+تستخدم عمليات runtime الثلاث profile واحدًا `workspace-runtime` version 2؛
+تفاصيل operation لا تغير baseline. عند غياب attestation صريح، يحفظ observation
+freshness=`unknown` ولا يستعير بصمة materialization الحالية. معرّف البيئة يظل
+مستقلًا عن `projectRevision`، ولا يغير `resultHash` أو predicates التي تقرر
+effect proof أو acceptance. أضيف العمود nullable بصورة additive إلى schema
+وتحقق schema التطوير باستخدام `pnpm run db:schema:apply`؛ لا تعديل مباشر على
+production schema هنا.
+
+التحقق: API typecheck و31 اختبارًا مركزًا في خمس مجموعات، بما فيها استعادة
+جلسة runtime، ثبات profile، receipt session binding، وunknown freshness عند
+غياب بصمة spawn.
+
+المتبقي في P4: التقاط بصمة validator عند حد bounded-command spawn وربطها
+بإيصالها؛ كما أن handoff الحالية لا تتلقى تأكيدًا مستقلًا من child process.
+لا يبدأ P6 قبل إغلاق تبعيات P3.5/P4/P5 وWorld Delta/contradiction propagation.

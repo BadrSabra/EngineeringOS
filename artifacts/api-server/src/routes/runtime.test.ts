@@ -39,6 +39,7 @@ function createRuntimeMock(
     port: 3001,
     command: "pnpm run dev",
     revision,
+    environmentRevision: null,
     startedAt: now,
     stoppedAt: null,
     pid: 12345,

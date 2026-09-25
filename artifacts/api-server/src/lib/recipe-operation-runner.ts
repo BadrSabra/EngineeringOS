@@ -167,6 +167,8 @@ export function createRuntimeStartRunner(
           evidenceId,
           resultHash,
           artifactRef: `runtime:${snapshot.sessionId}`,
+          sessionId: snapshot.sessionId,
+          environmentRevision: snapshot.environmentRevision,
           afterState: {
             status: after.status,
             projectId: after.projectId,
@@ -247,6 +249,8 @@ function createRuntimeModeRunner(
             evidenceId: `runtime:${projectId}:${operationId}:${snapshot.sessionId}:after`,
             resultHash: createHash("sha256").update(JSON.stringify(after)).digest("hex"),
             artifactRef: `runtime:${snapshot.sessionId}`,
+            sessionId: snapshot.sessionId,
+            environmentRevision: snapshot.environmentRevision,
             afterState: after,
           },
           detail: after.detail,
@@ -264,6 +268,8 @@ function createRuntimeModeRunner(
             .update(JSON.stringify({ before: stopBeforeState, after }))
             .digest("hex"),
           artifactRef: `runtime:${before.sessionId}`,
+          sessionId: before.sessionId,
+          environmentRevision: before.environmentRevision,
           beforeState: stopBeforeState,
           afterState: { ...after, pid: preStopPid, port: preStopPort },
         },
@@ -1617,6 +1623,17 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         );
       }
     }
+    const isRuntimeRecipe = ["runtime.start", "runtime.restart", "runtime.stop"]
+      .includes(params.recipeId);
+    const runtimeEvidence = isRuntimeRecipe
+      ? [...outputs.values()]
+          .map((output) => output.evidence)
+          .find((value): value is Record<string, unknown> => (
+            typeof value === "object"
+            && value !== null
+            && !Array.isArray(value)
+          ))
+      : undefined;
     await materializeServerOwnedObservations({
       projectId: params.projectId,
       executionId: claimed.id,
@@ -1642,6 +1659,14 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           status: "passed",
           profile: "recipe",
           candidateIdentity: params.candidateIdentity,
+          ...(isRuntimeRecipe ? {
+            sessionId: typeof runtimeEvidence?.sessionId === "string"
+              ? runtimeEvidence.sessionId
+              : null,
+            environmentRevision: typeof runtimeEvidence?.environmentRevision === "string"
+              ? runtimeEvidence.environmentRevision
+              : null,
+          } : {}),
         },
         {
           kind: "delivery_receipt",

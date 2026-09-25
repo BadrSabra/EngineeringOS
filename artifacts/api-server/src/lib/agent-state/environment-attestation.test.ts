@@ -83,4 +83,27 @@ describe("server-owned environment attestation", () => {
       reason: "unsupported_profile",
     });
   });
+
+  it("uses one stable environment profile for runtime start, restart, and stop", () => {
+    const start = serverEnvironmentProfile("RUNTIME_START", {
+      kind: "recipe",
+      recipeId: "runtime.start",
+    });
+    expect(start).toMatchObject({
+      id: "workspace-runtime",
+      version: 2,
+      details: {
+        profile: "dev",
+        command: "pnpm run dev",
+      },
+    });
+    expect(serverEnvironmentProfile("RUNTIME_START", {
+      kind: "recipe",
+      recipeId: "runtime.restart",
+    })).toEqual(start);
+    expect(serverEnvironmentProfile("RUNTIME_START", {
+      kind: "recipe",
+      recipeId: "runtime.stop",
+    })).toEqual(start);
+  });
 });

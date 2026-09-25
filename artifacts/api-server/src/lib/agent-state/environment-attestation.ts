@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { establishProjectRoot } from "../project-root.js";
 
 const PROFILE_VERSION = 1;
+const RUNTIME_PROFILE_VERSION = 2;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_TOTAL_MANIFEST_BYTES = 1024 * 1024;
 
@@ -93,10 +94,9 @@ function episodeProfileDetails(scope: unknown): Record<string, unknown> | null {
   if (recipeId === "runtime.start" || recipeId === "runtime.restart" || recipeId === "runtime.stop") {
     return {
       id: "workspace-runtime",
-      version: PROFILE_VERSION,
+      version: RUNTIME_PROFILE_VERSION,
       profile: "dev",
       command: "pnpm run dev",
-      operation: recipeId,
     };
   }
   if (recipeId === "delivery.push.github") {

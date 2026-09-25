@@ -33,6 +33,7 @@ export const workspaceRuntimeTable = pgTable("workspace_runtime", {
   command: text("command").notNull().default("pnpm run dev"),
   projectRoot: text("project_root").notNull(),
   revision: text("revision"),
+  environmentRevision: text("environment_revision"),
   port: integer("port"),
   pid: integer("pid"),
   workerId: text("worker_id"),

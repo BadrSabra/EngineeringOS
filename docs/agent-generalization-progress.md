@@ -871,6 +871,40 @@ G9 Revocation Safety
   عند نقطة التشغيل الفعلية، وإرفاقها بـreceipt قبل World Delta؛ لا تستخدم قيم
   environment secrets أو `.env` لإنتاج هذه الهوية.
 
+### 2026-09-25 — Durable Runtime Launch Environment Identity
+
+- **phase/step:** P4 — حفظ هوية بيئة جلسة runtime
+- **status:** `partial`
+- **what changed:** يلتقط مدير runtime بصمة allowlisted بعد حجز ملكية الجلسة
+  وقبل طلب supervisor أو `spawn` المباشر. تحفظ في `workspace_runtime` وتبقى مع
+  الجلسة خلال recovery؛ إيصالات start/restart/stop تحمل `sessionId` والبصمة.
+  أصبحت ملفات `runtime.start` و`runtime.restart` و`runtime.stop` تستخدم profile
+  version 2 نفسه. إذا غابت بصمة الجلسة، تبقى Freshness للإيصال `unknown` حتى لو
+  استطاع materializer قراءة البيئة الحالية.
+- **files/schema/contracts touched:**
+  `lib/db/src/schema/workspace_runtime.ts`,
+  `lib/db/src/application-schema-check.ts`,
+  `artifacts/api-server/src/lib/workspace-runtime-store.ts`,
+  `artifacts/api-server/src/lib/workspace-runtime.ts`,
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`,
+  `artifacts/api-server/src/lib/agent-state/environment-attestation.ts`,
+  `artifacts/api-server/src/lib/agent-state/observation-materializer.ts`
+  والاختبارات ذات الصلة. أضيف عمود nullable additive؛ `pnpm run db:schema:apply`
+  حدّث مخطط التطوير فقط واجتازت فحوصات المخطط.
+- **validation:** API typecheck؛ 31 اختبارًا مركزًا في خمسة ملفات حول runtime،
+  recovery، environment attestation، World State وrecipe receipts؛
+  `git diff --check`.
+- **authority/safety impact:** البصمة metadata رصدية ولا تدخل في hash إثبات
+  effect أو قرار القبول أو صلاحية التنفيذ. لا تُقرأ قيم environment secrets أو
+  `.env` أو `.npmrc`. قيمة `null` لا تتحول إلى بيئة حالية fresh.
+- **remaining/blocker:** هذه بصمة server-owned عند launch handoff وليست قراءة من
+  داخل child process؛ التقاط validator عند command spawn ما زال مطلوبًا، وكذلك
+  World Delta وpropagation للتناقضات. تبقى P4 جزئية. ما زالت تسع assertions
+  السابقة الخاصة بخرائط HTTP لأخطاء task provider غير محسومة ولا ترتبط بهذه
+  الشريحة.
+- **next step:** ربط بصمة validator من حد spawn الفعلي بإيصالها server-owned،
+  مع إبقاء freshness خارج proof وacceptance.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

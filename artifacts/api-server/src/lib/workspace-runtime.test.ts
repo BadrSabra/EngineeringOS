@@ -13,7 +13,7 @@ afterEach(async () => {
 
 describe("WorkspaceRuntimeManager", () => {
   it("starts a server-owned dev profile and stops its process group", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-runtime-"));
+    const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
@@ -41,6 +41,7 @@ describe("WorkspaceRuntimeManager", () => {
     expect(started.port).toBeGreaterThanOrEqual(3000);
     expect(started.port).toBeLessThanOrEqual(3099);
     expect(started.command).toBe("pnpm run dev");
+    expect(started.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
 
     const afterState = await manager.observeAfterState({
       projectId: "project-runtime-test",
@@ -129,7 +130,7 @@ describe("WorkspaceRuntimeManager", () => {
   });
 
   it("rejects an after-state observation for a stale runtime session", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-runtime-"));
+    const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
@@ -190,7 +191,7 @@ describe("WorkspaceRuntimeManager", () => {
   });
 
   it("adopts a live process after the owning API worker is replaced", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-runtime-"));
+    const root = await fs.mkdtemp(path.join(process.cwd(), "workspace-runtime-"));
     await fs.writeFile(
       path.join(root, "package.json"),
       JSON.stringify({ scripts: { dev: "node server.mjs" } }),
@@ -215,11 +216,13 @@ describe("WorkspaceRuntimeManager", () => {
       revision: "revision-1",
     });
     expect(started.status).toBe("running");
+    expect(started.environmentRevision).toMatch(/^env-v1:[a-f0-9]{64}$/);
 
     await firstWorker.shutdown({ preserveProcesses: true });
     await secondWorker.recover();
     const adopted = await secondWorker.get("recoverable-project");
     expect(adopted.status).toBe("running");
+    expect(adopted.environmentRevision).toBe(started.environmentRevision);
     expect(adopted.pid).toBe(started.pid);
     expect(adopted.port).toBe(started.port);
     const afterRecovery = await secondWorker.observeAfterState({

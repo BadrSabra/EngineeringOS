@@ -380,6 +380,46 @@ describe("read-only World State projection", () => {
     }
   });
 
+  it("keeps a runtime receipt environment unknown when spawn identity is absent", async () => {
+    const rootPath = await mkdtemp(join(process.cwd(), "world-runtime-unknown-"));
+    try {
+      await writeFile(join(rootPath, "package.json"), JSON.stringify({ name: "runtime-unknown" }));
+      const scoped = await createScopedEpisode(
+        { kind: "recipe", recipeId: "runtime.start" },
+        "runtime-environment-unknown",
+        { intentKind: "RUNTIME_START", environmentRootPath: rootPath },
+      );
+      const sourceId = "runtime:missing-spawn-environment";
+      await materializeServerOwnedObservations({
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        environmentRootPath: rootPath,
+        projectRevision: "revision-1",
+        sources: [{
+          kind: "runtime_receipt",
+          sourceId,
+          sourceRevision: "revision-1",
+          status: "passed",
+          profile: "recipe",
+          sessionId: "runtime-session-without-attestation",
+          environmentRevision: null,
+        }],
+      });
+
+      const [observation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, sourceId));
+      expect(observation?.environmentFreshness).toBe("unknown");
+      expect(observation?.environmentRevision).toBeNull();
+      expect(observation?.value).toMatchObject({
+        sessionId: "runtime-session-without-attestation",
+      });
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("detects a manifest change at receipt time without changing project freshness", async () => {
     const rootPath = await mkdtemp(join(process.cwd(), "world-environment-change-"));
     try {

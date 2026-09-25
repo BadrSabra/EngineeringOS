@@ -69,6 +69,7 @@ export type ServerOwnedObservationSource =
       status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
       profile?: string | null;
       candidateIdentity?: string | null;
+      sessionId?: string | null;
       environmentRevision?: string | null;
       observedAt?: Date | string;
     }
@@ -200,7 +201,7 @@ type NormalizedObservation = {
   value: JsonValue;
   sourceRefs: string[];
   observedAt: Date;
-  environmentRevision?: string;
+  environmentRevision?: string | null;
   environmentFreshness?: ObservationFreshness;
   completeness: ObservationCompleteness;
 };
@@ -271,6 +272,7 @@ function normalizeSource(
       status: source.status,
       ...(source.profile ? { profile: boundedText(source.profile) } : {}),
       ...(source.candidateIdentity ? { candidateIdentity: boundedText(source.candidateIdentity, 500) } : {}),
+      ...(source.sessionId ? { sessionId: boundedText(source.sessionId, 500) } : {}),
     }), MAX_VALUE_BYTES);
     return {
       sourceType: "runtime_receipt",
@@ -321,9 +323,13 @@ export async function materializeServerOwnedObservations(
 
   const normalized = input.sources.map((source) => {
     const result = normalizeSource(source, input.attempt);
-    return source.environmentRevision
-      ? { ...result, environmentRevision: boundedText(source.environmentRevision, 2_000) }
-      : result;
+    if (source.environmentRevision === undefined) return result;
+    return {
+      ...result,
+      environmentRevision: source.environmentRevision === null
+        ? null
+        : boundedText(source.environmentRevision, 2_000),
+    };
   });
   for (const source of input.sources) {
     if (source.kind === "validator_receipt" && source.projectId !== input.projectId) {
@@ -379,15 +385,17 @@ export async function materializeServerOwnedObservations(
     const taskScope = taskScopeIdentity(episode);
     const episodeEnvironmentRevision = episode.environmentRevision ?? undefined;
     const boundObservations = normalized.map((source) => {
-      const environmentFreshness = environmentFreshnessFor({
-        episodeRevision: episodeEnvironmentRevision,
-        receiptRevision: source.environmentRevision,
-        observedRevision: observedEnvironmentRevision,
-        captureAttempted: environmentCaptureAttempted,
-      });
-      const environmentRevision = source.environmentRevision
-        ?? observedEnvironmentRevision
-        ?? episodeEnvironmentRevision;
+      const environmentFreshness = source.environmentRevision === null
+        ? "unknown"
+        : environmentFreshnessFor({
+            episodeRevision: episodeEnvironmentRevision,
+            receiptRevision: source.environmentRevision,
+            observedRevision: observedEnvironmentRevision,
+            captureAttempted: environmentCaptureAttempted,
+          });
+      const environmentRevision = source.environmentRevision === null
+        ? undefined
+        : source.environmentRevision ?? observedEnvironmentRevision ?? episodeEnvironmentRevision;
       return {
         ...source,
         environmentFreshness,

@@ -490,6 +490,11 @@ describe("recipe operation preparation", () => {
       const observations = await db.select().from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, executionId));
       expect(observations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(2);
+      const runtimeReceipt = observations.find((row) => row.sourceType === "runtime_receipt");
+      const runtimeSnapshot = await manager.get(projectId);
+      expect(runtimeReceipt?.value).toMatchObject({ sessionId: runtimeSnapshot.sessionId });
+      expect(runtimeReceipt?.environmentRevision).toBe(runtimeSnapshot.environmentRevision);
+      expect(runtimeReceipt?.environmentFreshness).toBe("fresh");
       const events = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));

@@ -12,6 +12,7 @@ export type RuntimeStorePatch = Partial<Pick<
   | "status"
   | "sessionId"
   | "revision"
+  | "environmentRevision"
   | "port"
   | "pid"
   | "workerId"
@@ -30,6 +31,7 @@ export interface WorkspaceRuntimeStore {
     projectRoot: string;
     sessionId: string;
     revision: string;
+    environmentRevision: string | null;
     workerId: string;
     now: Date;
     leaseUntil: Date;
@@ -77,6 +79,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
         command: "pnpm run dev",
         projectRoot: input.projectRoot,
         revision: input.revision,
+        environmentRevision: input.environmentRevision,
         port: null,
         pid: null,
         workerId: input.workerId,
@@ -95,6 +98,7 @@ export const databaseWorkspaceRuntimeStore: WorkspaceRuntimeStore = {
           status: "starting",
           projectRoot: input.projectRoot,
           revision: input.revision,
+          environmentRevision: input.environmentRevision,
           port: null,
           pid: null,
           workerId: input.workerId,
@@ -196,6 +200,7 @@ export function createInMemoryWorkspaceRuntimeStore(): WorkspaceRuntimeStore {
         command: "pnpm run dev",
         projectRoot: input.projectRoot,
         revision: input.revision,
+        environmentRevision: input.environmentRevision,
         port: null,
         pid: null,
         workerId: input.workerId,

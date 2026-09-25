@@ -70,7 +70,9 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /false/,
       },
     ] satisfies readonly ColumnContract[],
-    workspace_runtime: [],
+    workspace_runtime: [
+      { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
+    ] as readonly ColumnContract[],
     // Provider telemetry is release-critical even though its payload columns
     // are owned by the AI diagnostics contract rather than execution proof.
     ai_usage_events: [],

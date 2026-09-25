@@ -4,6 +4,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceRuntime } from "@workspace/db";
 import {
+  captureEnvironmentAttestation,
+  serverEnvironmentProfile,
+} from "./agent-state/environment-attestation.js";
+import {
   createInMemoryWorkspaceRuntimeStore,
   databaseWorkspaceRuntimeStore,
   RUNTIME_LEASE_MS,
@@ -52,6 +56,7 @@ export type WorkspaceRuntimeSnapshot = {
   port: number | null;
   command: "pnpm run dev";
   revision: string | null;
+  environmentRevision: string | null;
   startedAt: string | null;
   stoppedAt: string | null;
   pid: number | null;
@@ -227,6 +232,7 @@ function rowSnapshot(row: WorkspaceRuntime): WorkspaceRuntimeSnapshot {
     port: row.port,
     command: "pnpm run dev",
     revision: row.revision,
+    environmentRevision: row.environmentRevision,
     startedAt: row.startedAt?.toISOString() ?? null,
     stoppedAt: row.stoppedAt?.toISOString() ?? null,
     pid: row.pid,
@@ -627,6 +633,7 @@ export class WorkspaceRuntimeManager {
       projectRoot,
       sessionId,
       revision: input.revision,
+      environmentRevision: null,
       workerId: this.workerId,
       now,
       leaseUntil: new Date(now.getTime() + RUNTIME_LEASE_MS),
@@ -639,6 +646,29 @@ export class WorkspaceRuntimeManager {
         "RUNTIME_OWNERSHIP_BUSY",
         409,
       );
+    }
+
+    let environmentRevision: string | null = null;
+    try {
+      const attestation = await captureEnvironmentAttestation({
+        rootPath: projectRoot,
+        profile: serverEnvironmentProfile("RUNTIME_START", {
+          kind: "recipe",
+          recipeId: "runtime.start",
+        }),
+      });
+      if (attestation.status === "known") {
+        environmentRevision = attestation.environmentRevision;
+      }
+      if (environmentRevision) {
+        const saved = await this.store.updateOwned(input.projectId, this.workerId, {
+          environmentRevision,
+        });
+        if (!saved) environmentRevision = null;
+      }
+    } catch {
+      // Environment identity is observational; capture failure must not block runtime startup.
+      environmentRevision = null;
     }
 
     let child: ChildProcess | undefined;
@@ -697,6 +727,7 @@ export class WorkspaceRuntimeManager {
       port,
       command: "pnpm run dev",
       revision: input.revision,
+      environmentRevision,
       startedAt: now.toISOString(),
       stoppedAt: null,
       pid,
@@ -939,6 +970,7 @@ export class WorkspaceRuntimeManager {
       port: null,
       command: "pnpm run dev",
       revision: null,
+      environmentRevision: null,
       startedAt: null,
       stoppedAt: null,
       pid: null,
