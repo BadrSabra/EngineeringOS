@@ -81,9 +81,11 @@ import {
   replayPendingMissionEvents,
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
+  wakeRuntimeTransitionMissionGoals,
 } from "./mission-runtime.js";
 import { reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
+import { retryPendingRuntimeStartTransitions } from "./agent-state/runtime-start-transition.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -889,10 +891,14 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
   void dispatchPersistedPendingJobs();
   void wakeDueMissionGoals();
   void wakeReadyMissionGoals();
+  void wakeRuntimeTransitionMissionGoals();
+  void retryPendingRuntimeStartTransitions();
   return setInterval(() => {
     void dispatchPersistedPendingJobs();
     void wakeDueMissionGoals();
     void wakeReadyMissionGoals();
+    void wakeRuntimeTransitionMissionGoals();
+    void retryPendingRuntimeStartTransitions();
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
 }
 
@@ -922,6 +928,8 @@ export function startStaleJobSweep(): NodeJS.Timeout {
       sweepExpiredUploads(),
       wakeDueMissionGoals(),
       wakeReadyMissionGoals(),
+      wakeRuntimeTransitionMissionGoals(),
+      retryPendingRuntimeStartTransitions(),
     ]);
     if (failed > 0) {
       logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");

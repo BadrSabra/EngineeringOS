@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, notInArray } from "drizzle-orm";
 import {
   aiAgentObservationsTable,
   aiWorldFactsTable,
@@ -11,6 +11,7 @@ import type { JsonValue } from "@workspace/ai-orchestrator";
 const MAX_FACTS = 256;
 const MAX_SOURCE_IDS = 16;
 const MAX_SCOPED_OBSERVATION_IDS = 128;
+type WorldStateTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type WorldStateFactProjection = {
   id: string;
@@ -163,6 +164,10 @@ function projectFact(row: typeof aiWorldFactsTable.$inferSelect): WorldStateFact
 export async function materializeWorldStateForProject(
   projectId: string,
   options: WorldStateMaterializationOptions = {},
+  beforeCommit?: (
+    tx: WorldStateTransaction,
+    result: WorldStateMaterializationResult,
+  ) => Promise<void>,
 ): Promise<WorldStateMaterializationResult> {
   const scopedObservationIds = options.observationIds === undefined
     ? undefined
@@ -412,19 +417,25 @@ export async function materializeWorldStateForProject(
       )
       .limit(MAX_FACTS);
     const facts = rows.map(projectFact);
-    return {
+    const result = {
       projectId,
       inserted,
       skipped,
       contradictions,
       worldRevision: worldRevision(projectId, undefined, undefined, facts, revisionObservations),
     };
+    await beforeCommit?.(tx, result);
+    return result;
   });
 }
 
 export async function getProjectWorldState(
   projectId: string,
-  filter?: { taskScope?: string; environmentRevision?: string | null },
+  filter?: {
+    taskScope?: string;
+    environmentRevision?: string | null;
+    excludeEpisodeIds?: readonly string[];
+  },
 ): Promise<ProjectWorldStateProjection> {
   const conditions = [
     eq(aiWorldFactsTable.projectId, projectId),
@@ -463,6 +474,9 @@ export async function getProjectWorldState(
           : [filter.environmentRevision === null
               ? isNull(aiAgentObservationsTable.environmentRevision)
               : eq(aiAgentObservationsTable.environmentRevision, filter.environmentRevision)]),
+        ...(filter?.excludeEpisodeIds?.length
+          ? [notInArray(aiAgentObservationsTable.episodeId, [...filter.excludeEpisodeIds])]
+          : []),
       ))
     .orderBy(
       desc(aiAgentObservationsTable.createdAt),

@@ -78,7 +78,10 @@ import {
   isReadOnlyRecipeCapability,
   recipeInvocationNodeId,
 } from "./recipe-invocation-contract.js";
-import { serverEnvironmentProfile } from "./agent-state/environment-attestation.js";
+import {
+  captureEnvironmentAttestation,
+  serverEnvironmentProfile,
+} from "./agent-state/environment-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { hashDeliveryTree } from "./delivery-workspace.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
@@ -127,7 +130,10 @@ function runtimeStateEvidence(state: RuntimeStateEvidence) {
   };
 }
 
-function runtimeStartBeforeStateEvidence(state: RuntimeStartBeforeStateEvidence) {
+function runtimeStartBeforeStateEvidence(
+  state: RuntimeStartBeforeStateEvidence,
+  environmentRevision: string | null = null,
+) {
   return {
     status: state.status,
     runtimeStatus: state.runtimeStatus,
@@ -143,6 +149,7 @@ function runtimeStartBeforeStateEvidence(state: RuntimeStartBeforeStateEvidence)
     unknownListenerPorts: state.unknownListenerPorts,
     observedAt: state.observedAt,
     detail: state.detail,
+    environmentRevision,
   };
 }
 
@@ -180,6 +187,50 @@ function runtimeStartBeforeObservationValue(
     source: state.source as string,
     inventoryComplete: true,
     unknownListenerPorts: [],
+    observedAt: state.observedAt,
+    environmentRevision: typeof state.environmentRevision === "string"
+      ? state.environmentRevision
+      : null,
+  };
+}
+
+function runtimeStartAfterObservationValue(
+  value: unknown,
+  projectId: string,
+  revision: string,
+  environmentRevision: string | null,
+): JsonValue | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const state = value as Record<string, unknown>;
+  if (
+    state.status !== "passed"
+    || state.projectId !== projectId
+    || state.revision !== revision
+    || typeof state.sessionId !== "string"
+    || !state.sessionId.trim()
+    || state.environmentRevision !== environmentRevision
+    || typeof environmentRevision !== "string"
+    || !/^env-v1:[a-f0-9]{64}$/.test(environmentRevision)
+    || state.processAlive !== true
+    || state.portReady !== true
+    || !Number.isInteger(state.pid)
+    || !Number.isInteger(state.port)
+    || typeof state.observedAt !== "string"
+    || !Number.isFinite(Date.parse(state.observedAt))
+  ) {
+    return undefined;
+  }
+  return {
+    status: "passed",
+    runtimeStatus: "running",
+    projectId,
+    revision,
+    sessionId: state.sessionId,
+    environmentRevision,
+    processAlive: true,
+    portReady: true,
+    pid: state.pid as number,
+    port: state.port as number,
     observedAt: state.observedAt,
   };
 }
@@ -265,6 +316,7 @@ export function createRuntimeStartRunner(
     executionAttempt,
     episodeId,
     signal,
+    beforeEffectGate,
   }) => {
     if (signal?.aborted) {
       return { status: "blocked", detail: "Runtime action was cancelled before startup." };
@@ -287,11 +339,38 @@ export function createRuntimeStartRunner(
         revision,
         signal,
       });
+      let environmentRevision: string | null = null;
+      if (beforeEffectGate) {
+        const attestation = await captureEnvironmentAttestation({
+          rootPath,
+          profile: serverEnvironmentProfile("RUNTIME_START", {
+            kind: "recipe",
+            recipeId: "runtime.start",
+          }),
+        });
+        environmentRevision = attestation.status === "known"
+          ? attestation.environmentRevision
+          : null;
+      }
+      const beforeState = runtimeStartBeforeStateEvidence(before, environmentRevision);
+      const d1Decision = beforeEffectGate
+        ? await beforeEffectGate({ beforeState, environmentRevision })
+        : undefined;
+      if (beforeEffectGate && !d1Decision?.allowEffect) {
+        return {
+          status: "blocked",
+          detail: d1Decision?.decisionCode ?? "runtime_start_d1_denied",
+        };
+      }
+      const alreadyRunning = d1Decision?.decisionCode === "runtime_start_d1_already_running";
       const snapshot = await manager.start({
         projectId,
         projectRoot: rootPath,
         revision,
-        ...(attestationIdentity ? { attestationIdentity } : {}),
+        ...(d1Decision?.allowEffect && environmentRevision
+          ? { expectedEnvironmentRevision: environmentRevision }
+          : {}),
+        ...(attestationIdentity && !alreadyRunning ? { attestationIdentity } : {}),
       });
       if (snapshot.status !== "running" || !snapshot.sessionId) {
         return {
@@ -299,18 +378,25 @@ export function createRuntimeStartRunner(
           detail: snapshot.error ?? "The workspace runtime did not reach running state.",
         };
       }
-      const after = await manager.observeAfterState({
-        projectId,
-        sessionId: snapshot.sessionId,
-        revision,
-        ...(attestationIdentity ? {
-          attestationBinding: {
-            ...attestationIdentity,
+      const after = alreadyRunning
+        ? await manager.observeExistingRuntimeAfterState({
+            projectId,
             sessionId: snapshot.sessionId,
-          },
-        } : {}),
-        signal,
-      });
+            revision,
+            signal,
+          })
+        : await manager.observeAfterState({
+            projectId,
+            sessionId: snapshot.sessionId,
+            revision,
+            ...(attestationIdentity ? {
+              attestationBinding: {
+                ...attestationIdentity,
+                sessionId: snapshot.sessionId,
+              },
+            } : {}),
+            signal,
+          });
       const evidenceId = `runtime:${projectId}:${operationId}:${snapshot.sessionId}:after`;
       const resultHash = createHash("sha256")
         .update(JSON.stringify(after))
@@ -323,8 +409,12 @@ export function createRuntimeStartRunner(
           artifactRef: `runtime:${snapshot.sessionId}`,
           sessionId: snapshot.sessionId,
           environmentRevision: snapshot.environmentRevision,
-          beforeState: runtimeStartBeforeStateEvidence(before),
-          afterState: runtimeStateEvidence(after),
+          beforeState,
+          afterState: {
+            ...runtimeStateEvidence(after),
+            environmentRevision: snapshot.environmentRevision,
+          },
+          ...(d1Decision ? { d1Decision } : {}),
         },
         detail: after.detail,
       };
@@ -850,7 +940,179 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   completedNodeIds: string[];
   receipt: RecipeReceipt;
 }> {
-  const prepared = prepareRecipeOperation(params);
+  let runtimeStartParentWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
+  let runtimeStartBeforeObservationIds: string[] = [];
+  let runtimeStartAfterObservationIds: string[] = [];
+  let runtimeStartTransitionQueued = false;
+  let runtimeStartD1Decision: {
+    allowEffect: boolean;
+    transitionEligible: boolean;
+    parentWorldRevision?: string;
+    beforeObservationIds: string[];
+    decisionCode: string;
+  } | undefined;
+  const runtimeStartRunner = params.runtimeStartRunner
+    ? async (args: Parameters<RuntimeStartRunner>[0]) => params.runtimeStartRunner!({
+        ...args,
+        beforeEffectGate: async ({ beforeState, environmentRevision }) => {
+          const executionId = args.executionId;
+          const executionAttempt = args.executionAttempt;
+          const parent = runtimeStartParentWorldState;
+          const beforeValue = runtimeStartBeforeObservationValue(
+            beforeState,
+            params.projectId,
+            params.sourceRevision,
+          );
+          const beforeStateRecord = beforeValue as Record<string, unknown> | undefined;
+          let beforeObservationIds: string[] = [];
+          let decisionCode = "runtime_start_d1_prestate_unproven";
+          let allowEffect = false;
+          let transitionEligible = false;
+          if (
+            !episode
+            || !gateCAction
+            || !executionId
+            || typeof executionAttempt !== "number"
+            || !Number.isInteger(executionAttempt)
+          ) {
+            decisionCode = "runtime_start_d1_episode_binding_missing";
+          } else if (beforeValue && beforeStateRecord) {
+            const beforeEvidenceRef = `runtime-start:${executionId}:${executionAttempt}:${gateCAction.actionId}:before`;
+            if (!parent || !/^[a-f0-9]{64}$/.test(parent.worldRevision)) {
+              decisionCode = "runtime_start_d1_parent_unavailable";
+            } else if (
+              environmentRevision === null
+              || !/^env-v1:[a-f0-9]{64}$/.test(environmentRevision)
+              || beforeStateRecord.environmentRevision !== environmentRevision
+            ) {
+              decisionCode = "runtime_start_d1_environment_unavailable";
+            } else {
+              try {
+                const current = await getProjectWorldState(params.projectId, {
+                  excludeEpisodeIds: [episode.episodeId],
+                });
+                const priorStatuses = parent.currentFacts
+                  .filter((fact) => fact.predicate === "runtime.status")
+                  .map((fact) => fact.value);
+                const directStatus = beforeStateRecord.runtimeStatus;
+                const worldStateConflicts = priorStatuses.some((status) =>
+                  (directStatus === "stopped" && status === "running")
+                  || (directStatus === "running" && status === "stopped"),
+                );
+                if (current.worldRevision !== parent.worldRevision) {
+                  decisionCode = "runtime_start_d1_world_revision_changed";
+                } else if (worldStateConflicts) {
+                  decisionCode = "runtime_start_d1_fact_conflicts_with_direct_prestate";
+                } else if (directStatus === "stopped") {
+                  allowEffect = true;
+                  transitionEligible = true;
+                  decisionCode = "runtime_start_d1_approved";
+                } else if (directStatus === "running") {
+                  allowEffect = true;
+                  decisionCode = "runtime_start_d1_already_running";
+                } else {
+                  decisionCode = "runtime_start_d1_prestate_not_stopped";
+                }
+              } catch {
+                decisionCode = "runtime_start_d1_world_state_unavailable";
+              }
+            }
+            try {
+              const before = await materializeServerOwnedObservations({
+                projectId: params.projectId,
+                executionId,
+                attempt: executionAttempt,
+                episodeId: episode.episodeId,
+                environmentRootPath: executionRoot,
+                projectRevision: params.sourceRevision,
+                materializeWorldState: false,
+                sources: [{
+                  kind: "direct_observation",
+                  sourceId: `${beforeEvidenceRef}:runtime.before_state`,
+                  sourceRevision: params.sourceRevision,
+                  subject: `runtime:${params.projectId}`,
+                  predicate: "runtime.before_state",
+                  value: beforeValue,
+                  evidenceRefs: [beforeEvidenceRef],
+                  observedAt: String((beforeValue as Record<string, unknown>).observedAt),
+                }],
+              });
+              beforeObservationIds = before.observationIds;
+              runtimeStartBeforeObservationIds = beforeObservationIds;
+            } catch (error) {
+              logger.warn(
+                {
+                  scope: "recipe-operation",
+                  code: "runtime_start_d1_observation_failed",
+                  executionId,
+                  attempt: executionAttempt,
+                  episodeId: episode.episodeId,
+                  actionId: gateCAction.actionId,
+                  error,
+                },
+                "Runtime start D1 pre-state could not be persisted",
+              );
+              decisionCode = "runtime_start_d1_observation_persist_failed";
+              allowEffect = false;
+              transitionEligible = false;
+            }
+            if (beforeObservationIds.length === 0) {
+              allowEffect = false;
+              transitionEligible = false;
+              decisionCode = "runtime_start_d1_observation_missing";
+            }
+          } else {
+            decisionCode = "runtime_start_d1_prestate_unproven";
+          }
+
+          const result = {
+            allowEffect,
+            transitionEligible,
+            ...(parent ? { parentWorldRevision: parent.worldRevision } : {}),
+            beforeObservationIds,
+            decisionCode,
+          };
+          runtimeStartD1Decision = result;
+          if (
+            !episode
+            || !gateCAction
+            || !executionId
+            || typeof executionAttempt !== "number"
+            || !Number.isInteger(executionAttempt)
+          ) return result;
+          await appendEpisodeEvent({
+            episodeId: episode.episodeId,
+            projectId: params.projectId,
+            executionId,
+            attempt: executionAttempt,
+            workerId,
+            eventType: "OBSERVATION_RECORDED",
+            payload: {
+              gate: "P6_D1_RUNTIME_START",
+              decision: allowEffect
+                ? transitionEligible ? "approved" : "not_a_transition"
+                : "denied",
+              decisionCode,
+              actionId: gateCAction.actionId,
+              parentWorldRevision: parent?.worldRevision ?? null,
+              beforeObservationIds,
+              runtimeStatus: typeof beforeStateRecord?.runtimeStatus === "string"
+                ? beforeStateRecord.runtimeStatus
+                : null,
+              environmentRevision,
+            },
+            actorType: "worker",
+            actorId: workerId,
+            correlationId: executionId,
+          });
+          return result;
+        },
+      })
+    : undefined;
+  const prepared = prepareRecipeOperation({
+    ...params,
+    ...(runtimeStartRunner ? { runtimeStartRunner } : {}),
+  });
   if (params.skillBinding) {
     await requireActiveSkillRegistry({
       projectId: params.projectId,
@@ -1076,8 +1338,6 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let gateCEffectContract: EffectContract | undefined;
   let gateCBeforeObservationIds: string[] | undefined;
   let gateCEffectBundleId: string | undefined;
-  let runtimeStartParentWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
-  let runtimeStartBeforeObservationIds: string[] = [];
   let strategyReplayActionContractMatches = true;
   if (candidateValidation) {
     if (!episode || !params.candidateIdentity || !candidateRoot) {
@@ -1185,22 +1445,6 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       beforeEvidenceRef,
       afterEvidenceRef,
     });
-    if (params.recipeId === "runtime.start") {
-      try {
-        runtimeStartParentWorldState = await getProjectWorldState(params.projectId);
-      } catch (error) {
-        logger.warn(
-          {
-            scope: "recipe-operation",
-            code: "runtime_start_parent_world_state_read_failed",
-            executionId: claimed.id,
-            attempt: claimed.attempt,
-            error,
-          },
-          "Runtime start will retain the D1 read failure and fail World State projection closed",
-        );
-      }
-    }
     await appendEpisodeEvent({
       episodeId: episode.episodeId,
       projectId: params.projectId,
@@ -1240,6 +1484,24 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       }],
     });
     gateCBeforeObservationIds = before.observationIds;
+    if (params.recipeId === "runtime.start") {
+      try {
+        runtimeStartParentWorldState = await getProjectWorldState(params.projectId, {
+          excludeEpisodeIds: [episode.episodeId],
+        });
+      } catch (error) {
+        logger.warn(
+          {
+            scope: "recipe-operation",
+            code: "runtime_start_parent_world_state_read_failed",
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            error,
+          },
+          "Runtime start will retain the D1 read failure and fail World State projection closed",
+        );
+      }
+    }
   }
   const checkpoint = parseAiExecutionCheckpoint(claimed.checkpoint);
   const runningRecipeBinding = checkpoint?.recipeBinding ?? {
@@ -1298,7 +1560,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         },
       )),
     ...(params.githubDeliveryRunner ? { githubDeliveryRunner: params.githubDeliveryRunner } : {}),
-    ...(params.runtimeStartRunner ? { runtimeStartRunner: params.runtimeStartRunner } : {}),
+    ...(runtimeStartRunner ? { runtimeStartRunner } : {}),
     ...(params.runtimeRestartRunner ? { runtimeRestartRunner: params.runtimeRestartRunner } : {}),
     ...(params.runtimeStopRunner ? { runtimeStopRunner: params.runtimeStopRunner } : {}),
     databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
@@ -1562,27 +1824,30 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           const output = invocation.output as Record<string, unknown>;
           outputs.set(node.id, output);
           const evidence = output.evidence;
-          const hasVerifiedReceipt = Boolean(
-            evidence
-            && typeof evidence === "object"
-            && !Array.isArray(evidence)
-            && typeof (evidence as { evidenceId?: unknown }).evidenceId === "string",
-          );
-          if (params.recipeId === "runtime.start" && episode && gateCAction) {
+          if (
+            params.recipeId === "runtime.start"
+            && runtimeStartD1Decision?.transitionEligible === true
+            && episode
+            && gateCAction
+          ) {
             const evidenceRecord = evidence
               && typeof evidence === "object"
               && !Array.isArray(evidence)
               ? evidence as Record<string, unknown>
               : undefined;
-            const beforeValue = runtimeStartBeforeObservationValue(
-              evidenceRecord?.beforeState,
+            const environmentRevision = typeof evidenceRecord?.environmentRevision === "string"
+              ? evidenceRecord.environmentRevision
+              : null;
+            const afterValue = runtimeStartAfterObservationValue(
+              evidenceRecord?.afterState,
               params.projectId,
               params.sourceRevision,
+              environmentRevision,
             );
-            if (beforeValue) {
-              const beforeEvidenceRef = `runtime-start:${claimed.id}:${claimed.attempt}:${gateCAction.actionId}:before`;
+            if (afterValue) {
+              const afterEvidenceRef = `runtime-start:${claimed.id}:${claimed.attempt}:${gateCAction.actionId}:after`;
               try {
-                const before = await materializeServerOwnedObservations({
+                const after = await materializeServerOwnedObservations({
                   projectId: params.projectId,
                   executionId: claimed.id,
                   attempt: claimed.attempt,
@@ -1592,36 +1857,43 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   materializeWorldState: false,
                   sources: [{
                     kind: "direct_observation",
-                    sourceId: `${beforeEvidenceRef}:runtime.before_state`,
+                    sourceId: `${afterEvidenceRef}:runtime.after_state`,
                     sourceRevision: params.sourceRevision,
                     subject: `runtime:${params.projectId}`,
-                    predicate: "runtime.before_state",
-                    value: beforeValue,
+                    predicate: "runtime.after_state",
+                    value: afterValue,
                     evidenceRefs: [
-                      beforeEvidenceRef,
+                      afterEvidenceRef,
                       ...(typeof evidenceRecord?.evidenceId === "string"
                         ? [evidenceRecord.evidenceId]
                         : []),
                     ],
-                    observedAt: String((beforeValue as Record<string, unknown>).observedAt),
+                    observedAt: String((afterValue as Record<string, unknown>).observedAt),
                   }],
                 });
-                runtimeStartBeforeObservationIds = before.observationIds;
+                runtimeStartAfterObservationIds = after.observationIds;
               } catch (error) {
                 logger.warn(
                   {
                     scope: "recipe-operation",
-                    code: "runtime_start_before_observation_failed",
+                    code: "runtime_start_after_observation_failed",
                     executionId: claimed.id,
                     attempt: claimed.attempt,
                     episodeId: episode.episodeId,
+                    actionId: gateCAction.actionId,
                     error,
                   },
-                  "Runtime start before-state evidence could not be retained",
+                  "Runtime start after-state evidence could not be retained",
                 );
               }
             }
           }
+          const hasVerifiedReceipt = Boolean(
+            evidence
+            && typeof evidence === "object"
+            && !Array.isArray(evidence)
+            && typeof (evidence as { evidenceId?: unknown }).evidenceId === "string",
+          );
           if (recipeGateCEffectKind && episode && gateCAction && gateCEffectContract && gateCBeforeObservationIds) {
             const identity = gateCEffectIdentity({
               kind: recipeGateCEffectKind,
@@ -1775,7 +2047,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               };
             }
             gateCEffectBundleId = effect.effectBundleId;
-            if (params.recipeId === "runtime.start") {
+            if (
+              params.recipeId === "runtime.start"
+              && runtimeStartD1Decision?.transitionEligible === true
+              && runtimeStartBeforeObservationIds.length > 0
+            ) {
               const evidenceRecord = evidence
                 && typeof evidence === "object"
                 && !Array.isArray(evidence)
@@ -1790,10 +2066,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   actionId: gateCAction.actionId,
                   effectBundleId: effect.effectBundleId,
                   workerId,
-                  parentWorldRevision: runtimeStartParentWorldState?.worldRevision ?? "unavailable",
+                  parentWorldRevision: runtimeStartD1Decision.parentWorldRevision ?? "unavailable",
                   parentFactRefs: runtimeStartParentWorldState?.currentFacts.map((fact) => fact.id) ?? [],
                   beforeObservationIds: runtimeStartBeforeObservationIds,
-                  afterObservationIds: afterObservationIds,
+                  afterObservationIds: [...afterObservationIds, ...runtimeStartAfterObservationIds],
                   evidenceRefs: [
                     `runtime-start:${claimed.id}:${claimed.attempt}:${gateCAction.actionId}:before`,
                     afterEvidenceRef,
@@ -1803,6 +2079,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                     ? evidenceRecord.environmentRevision
                     : null,
                 });
+                runtimeStartTransitionQueued = true;
               } catch (error) {
                 logger.warn(
                   {
@@ -2438,7 +2715,13 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         "Server-owned recipe observation materialization failed after acceptance",
       );
     });
-    if (params.recipeId === "runtime.start" && episode && gateCAction && gateCEffectBundleId) {
+    if (
+      params.recipeId === "runtime.start"
+      && episode
+      && gateCAction
+      && gateCEffectBundleId
+      && runtimeStartTransitionQueued
+    ) {
       try {
         const transition = await finalizeRuntimeStartTransition({
           projectId: params.projectId,

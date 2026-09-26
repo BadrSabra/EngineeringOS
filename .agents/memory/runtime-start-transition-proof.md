@@ -17,6 +17,31 @@ For the initial P6 `runtime.start` slice:
 
 **How to apply:** Add a separate, attempt-bound transition around `runtime.start`; require current direct before/after evidence before materialization, and preserve the existing acceptance result when transition materialization fails. Compare the parent while omitting only that Episode's new evidence, then store the full resulting revision.
 
+For an already-running ensure, re-attest the existing session with its original
+server-owned process binding. Do not bind that session to the new execution's
+action: the current execution did not launch it, and a no-op is not a P6 event.
+
+**Why:** Rebinding would imply a causal effect that did not happen; skipping
+re-attestation would leave no direct after-state proof for ordinary
+ensure-running behavior.
+
+**How to apply:** Use the session's launch-time attestation only to observe its
+current state. Do not create a transition row or authorize a D2 successor from
+an `already_running` result.
+
+World State projection and the transition's `materialized` marker must commit
+in one database transaction. A split commit leaves projected facts behind;
+retrying against the original parent revision then misclassifies those same
+transition facts as unrelated drift.
+
+**Why:** Excluding the transition Episode removes its observation sequence
+from the parent check, but does not remove facts already projected from those
+observations.
+
+**How to apply:** Update the lease-fenced transition row inside the
+materialization transaction. If that update fails, roll back the facts too;
+invalidate cached World State only after the transaction commits.
+
 For the first pilot, count only a server-authorized `stopped → running` event.
 An idempotent `running → running` result may satisfy an ordinary ensure-running
 Goal, but it is not a P6 transition and cannot admit a successor that requires

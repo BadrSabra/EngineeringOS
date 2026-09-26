@@ -31,6 +31,15 @@ export type GeneralTaskPlanStep = {
   };
 };
 
+export type RuntimeStartTransitionRequirement = {
+  kind: "runtime.start";
+  version: 1;
+  sourceStepId: "runtime-start";
+  targetStepId: string;
+  from: "stopped";
+  to: "running";
+};
+
 export type ProjectOrientationCoverage = {
   purpose: "required";
   components: "required";
@@ -53,6 +62,7 @@ export type GeneralTaskPlan = {
   source: GeneralTaskPlanSource;
   planHash: string;
   steps: GeneralTaskPlanStep[];
+  transitionRequirements?: RuntimeStartTransitionRequirement[];
   conflicts: string[];
   orientationCoverage?: ProjectOrientationCoverage;
   reusedPlanFingerprint?: string;
@@ -85,6 +95,7 @@ type GeneralTaskPlanInput = {
   existingProjectQuery?: ExistingProjectQueryState | null;
   existingQueryPlan?: QueryPlan | null;
   projectOrientation?: boolean;
+  runtimeStartTargetStepId?: string | null;
 };
 
 function hashPlan(value: unknown): string {
@@ -335,6 +346,41 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
     steps = stepsForIntent(input);
   }
 
+  const transitionRequirements: RuntimeStartTransitionRequirement[] = [];
+  const runtimeStartTargetStepId = input.runtimeStartTargetStepId?.trim();
+  if (runtimeStartTargetStepId) {
+    if (
+      runtimeStartTargetStepId === "runtime-start"
+      || runtimeStartTargetStepId.length > 80
+      || !/^[a-z0-9][a-z0-9-]*$/.test(runtimeStartTargetStepId)
+      || !steps.some((candidate) => candidate.id === runtimeStartTargetStepId)
+    ) {
+      throw new Error("runtime_start_transition_target_invalid");
+    }
+    steps = [
+      step(
+        "runtime-start",
+        "Start the workspace runtime",
+        "execute",
+        [],
+        {
+          readOnly: false,
+          approvalRequired: false,
+          recipe: { recipeId: "runtime.start", recipeVersion: 1 },
+        },
+      ),
+      ...steps,
+    ];
+    transitionRequirements.push({
+      kind: "runtime.start",
+      version: 1,
+      sourceStepId: "runtime-start",
+      targetStepId: runtimeStartTargetStepId,
+      from: "stopped",
+      to: "running",
+    });
+  }
+
   if (steps.length === 0) {
     decision = "BLOCK";
     conflicts.push("task planner produced no executable steps");
@@ -355,10 +401,12 @@ export function buildGeneralTaskPlan(input: GeneralTaskPlanInput): GeneralTaskPl
       profile,
       source,
       steps,
+      ...(transitionRequirements.length > 0 ? { transitionRequirements } : {}),
       reusedPlanFingerprint,
       orientationCoverage,
     }),
     steps,
+    ...(transitionRequirements.length > 0 ? { transitionRequirements } : {}),
     conflicts: conflicts.slice(0, 8),
     ...(orientationCoverage ? { orientationCoverage } : {}),
     ...(reusedPlanFingerprint ? { reusedPlanFingerprint } : {}),

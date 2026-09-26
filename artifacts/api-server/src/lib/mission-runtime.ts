@@ -4,10 +4,13 @@ import { promisify } from "node:util";
 import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   aiChangeProposalsTable,
+  aiAgentObservationsTable,
+  aiExecutionAcceptancesTable,
   aiGoalDependenciesTable,
   aiExecutionsTable,
   aiGoalsTable,
   aiMissionsTable,
+  aiWorldTransitionsTable,
   db,
   eventsTable,
   projectsTable,
@@ -133,6 +136,246 @@ async function loadGoalDependencyState(
       inArray(aiGoalsTable.id, dependencies.map((dependency) => dependency.dependsOnGoalId)),
     ));
   return { planRevision, dependencies, dependencyGoals };
+}
+
+type RuntimeStartTransitionRequirement = {
+  kind: "runtime.start";
+  version: 1;
+  sourceStepId: "runtime-start";
+  targetStepId: string;
+  from: "stopped";
+  to: "running";
+};
+
+type RuntimeStartRequirementState =
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | { kind: "valid"; requirement: RuntimeStartTransitionRequirement };
+
+function runtimeStartRequirementForGoal(
+  goal: typeof aiGoalsTable.$inferSelect,
+  activePlanRevision: string | undefined,
+): RuntimeStartRequirementState {
+  const criteria = jsonRecord(goal.successCriteria);
+  const plan = jsonRecord(criteria.planRevision);
+  const rawRequirements = plan.transitionRequirements;
+  const targetStepId = typeof criteria.stepId === "string" ? criteria.stepId : undefined;
+  const targetRequirementExists = Array.isArray(rawRequirements)
+    && rawRequirements.some((candidate) =>
+      candidate
+      && typeof candidate === "object"
+      && !Array.isArray(candidate)
+      && (candidate as Record<string, unknown>).kind === "runtime.start"
+      && (candidate as Record<string, unknown>).targetStepId === targetStepId,
+    );
+  const directRequirementExists = Object.hasOwn(criteria, "transitionRequirement");
+  if (!targetRequirementExists && !directRequirementExists) return { kind: "none" };
+  if (
+    !activePlanRevision
+    || plan.hash !== activePlanRevision
+    || !targetStepId
+    || !Array.isArray(rawRequirements)
+  ) {
+    return { kind: "invalid" };
+  }
+  const direct = jsonRecord(criteria.transitionRequirement);
+  const requirement = rawRequirements.find((candidate) =>
+    candidate
+    && typeof candidate === "object"
+    && !Array.isArray(candidate)
+    && (candidate as Record<string, unknown>).kind === "runtime.start"
+    && (candidate as Record<string, unknown>).targetStepId === targetStepId,
+  );
+  if (!requirement || typeof requirement !== "object" || Array.isArray(requirement)) {
+    return { kind: "invalid" };
+  }
+  const normalized = requirement as Record<string, unknown>;
+  if (
+    normalized.kind !== "runtime.start"
+    || normalized.version !== 1
+    || normalized.sourceStepId !== "runtime-start"
+    || normalized.targetStepId !== targetStepId
+    || normalized.from !== "stopped"
+    || normalized.to !== "running"
+    || direct.kind !== normalized.kind
+    || direct.version !== normalized.version
+    || direct.sourceStepId !== normalized.sourceStepId
+    || direct.targetStepId !== normalized.targetStepId
+    || direct.from !== normalized.from
+    || direct.to !== normalized.to
+  ) {
+    return { kind: "invalid" };
+  }
+  return {
+    kind: "valid",
+    requirement: normalized as RuntimeStartTransitionRequirement,
+  };
+}
+
+async function evaluateRuntimeStartTransitionGate(
+  tx: MissionTransaction,
+  input: {
+    goal: typeof aiGoalsTable.$inferSelect;
+    activePlanRevision: string | undefined;
+    requirement: RuntimeStartTransitionRequirement;
+  },
+): Promise<"ready" | "pending" | "failed"> {
+  const missionGoals = await tx
+    .select()
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.missionId, input.goal.missionId),
+      eq(aiGoalsTable.projectId, input.goal.projectId),
+    ))
+    .for("update");
+  const source = missionGoals.find((candidate) => {
+    const criteria = jsonRecord(candidate.successCriteria);
+    return criteria.stepId === input.requirement.sourceStepId
+      && goalPlanRevision(candidate) === input.activePlanRevision;
+  });
+  if (!source || source.id === input.goal.id) return "failed";
+  const sourceCriteria = jsonRecord(source.successCriteria);
+  const sourcePlan = jsonRecord(sourceCriteria.planRevision);
+  const parsedAction = GoalNextActionSchema.safeParse(source.nextAction);
+  if (
+    sourcePlan.hash !== input.activePlanRevision
+    || !parsedAction.success
+    || parsedAction.data.kind !== "recipe"
+    || parsedAction.data.recipeId !== "runtime.start"
+    || parsedAction.data.recipeVersion !== 1
+  ) {
+    return "failed";
+  }
+  if (source.status !== "completed") return "pending";
+
+  const executions = await tx
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.projectId, input.goal.projectId),
+      eq(aiExecutionsTable.goalId, source.id),
+      eq(aiExecutionsTable.status, "completed"),
+    ))
+    .for("update");
+  if (executions.length === 0) return "failed";
+  const executionIds = executions.map((execution) => execution.id);
+  const acceptances = await tx
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      inArray(aiExecutionAcceptancesTable.executionId, executionIds),
+      eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+    ))
+    .for("update");
+  const transitions = await tx
+    .select()
+    .from(aiWorldTransitionsTable)
+    .where(and(
+      eq(aiWorldTransitionsTable.projectId, input.goal.projectId),
+      inArray(aiWorldTransitionsTable.executionId, executionIds),
+    ))
+    .for("update");
+  const transition = transitions.find((candidate) => acceptances.some((acceptance) =>
+    acceptance.executionId === candidate.executionId
+    && acceptance.attempt === candidate.attempt
+    && acceptance.effectBundleId !== null
+    && acceptance.effectBundleId === candidate.effectBundleId,
+  ));
+  if (!transition) return "failed";
+  if (transition.status === "pending" || transition.status === "retrying") return "pending";
+  if (transition.status !== "materialized") return "failed";
+  if (
+    !transition.resultingWorldRevision
+    || !/^[a-f0-9]{64}$/.test(transition.parentWorldRevision)
+    || !/^[a-f0-9]{64}$/.test(transition.resultingWorldRevision)
+    || !transition.environmentRevision
+    || !/^env-v1:[a-f0-9]{64}$/.test(transition.environmentRevision)
+    || transition.freshness !== "fresh"
+    || transition.taskScope !== "project"
+  ) {
+    return "failed";
+  }
+
+  const idsFromJson = (value: unknown): string[] => Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string =>
+        typeof id === "string" && id.trim().length > 0,
+      ))]
+    : [];
+  const beforeIds = idsFromJson(transition.beforeObservationIds);
+  const afterIds = idsFromJson(transition.afterObservationIds);
+  if (beforeIds.length === 0 || afterIds.length === 0) return "failed";
+  const observationIds = [...new Set([...beforeIds, ...afterIds])];
+  const observations = await tx
+    .select()
+    .from(aiAgentObservationsTable)
+    .where(and(
+      eq(aiAgentObservationsTable.projectId, input.goal.projectId),
+      inArray(aiAgentObservationsTable.id, observationIds),
+    ))
+    .for("update");
+  if (
+    observations.length !== observationIds.length
+    || observations.some((observation) => (
+      observation.executionId !== transition.executionId
+      || observation.episodeId !== transition.episodeId
+      || observation.provenance !== "DIRECT_OBSERVATION"
+      || observation.completeness !== "complete"
+      || observation.freshness !== "fresh"
+      || observation.environmentFreshness !== "fresh"
+    ))
+  ) {
+    return "failed";
+  }
+  const beforeRows = observations.filter((observation) => beforeIds.includes(observation.id));
+  const afterRows = observations.filter((observation) => afterIds.includes(observation.id));
+  const before = beforeRows.find((observation) => {
+    const value = jsonRecord(observation.value);
+    return observation.predicate === "runtime.before_state"
+      && value.status === "observed"
+      && value.runtimeStatus === "stopped"
+      && value.projectId === input.goal.projectId
+      && value.sessionId === null
+      && value.environmentRevision === transition.environmentRevision
+      && typeof value.revision === "string"
+      && observation.projectRevision === value.revision;
+  });
+  const sourceRevision = before
+    ? jsonRecord(before.value).revision as string
+    : undefined;
+  const after = sourceRevision
+    ? afterRows.find((observation) => {
+        const value = jsonRecord(observation.value);
+        return observation.predicate === "runtime.after_state"
+          && value.status === "passed"
+          && value.runtimeStatus === "running"
+          && value.projectId === input.goal.projectId
+          && value.revision === sourceRevision
+          && observation.projectRevision === sourceRevision
+          && typeof value.sessionId === "string"
+          && value.sessionId.trim().length > 0
+          && value.environmentRevision === transition.environmentRevision
+          && value.processAlive === true
+          && value.portReady === true
+          && Number.isInteger(value.pid)
+          && Number.isInteger(value.port)
+          && typeof value.observedAt === "string"
+          && Number.isFinite(Date.parse(value.observedAt));
+      })
+    : undefined;
+  const afterSessionId = after ? jsonRecord(after.value).sessionId as string : undefined;
+  const evidenceRefs = idsFromJson(transition.evidenceRefs);
+  if (
+    !before
+    || !after
+    || !afterSessionId
+    || !evidenceRefs.includes(`runtime:${afterSessionId}`)
+    || !afterRows.some((observation) =>
+      observation.predicate === "runtime.status" && observation.value === "running",
+    )
+  ) {
+    return "failed";
+  }
+  return "ready";
 }
 
 type RecipeDispatch = {
@@ -909,6 +1152,101 @@ export async function runMissionGoal(params: {
       }
     }
 
+    const runtimeStartRequirement = runtimeStartRequirementForGoal(goal, activePlanRevision);
+    if (runtimeStartRequirement.kind === "invalid") {
+      const now = new Date();
+      await tx.update(aiGoalsTable)
+        .set({
+          status: "needs_replan",
+          blockedReason: "runtime_start_transition_requirement_invalid",
+          nextWakeAt: null,
+          updatedAt: now,
+        })
+        .where(eq(aiGoalsTable.id, goal.id));
+      await tx.update(aiMissionsTable)
+        .set({ status: "needs_replan", updatedAt: now })
+        .where(eq(aiMissionsTable.id, mission.id));
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalTransitionRequirementBlocked",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "warning",
+        message: `AI goal "${goal.title}" has an invalid runtime transition requirement`,
+        payload: { missionId: mission.id, planRevision: goalRevision },
+      });
+      return { status: "blocked" as const, goalId: goal.id, reason: "runtime_start_transition_requirement_invalid" };
+    }
+    if (runtimeStartRequirement.kind === "valid") {
+      const transitionState = await evaluateRuntimeStartTransitionGate(tx, {
+        goal,
+        activePlanRevision,
+        requirement: runtimeStartRequirement.requirement,
+      });
+      if (transitionState === "pending") {
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "waiting_for_event",
+            blockedReason: "runtime_transition_pending",
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        if (mission.status !== "waiting") {
+          await tx.update(aiMissionsTable)
+            .set({ status: "waiting", updatedAt: now })
+            .where(eq(aiMissionsTable.id, mission.id));
+        }
+        if (goal.status !== "waiting_for_event" || goal.blockedReason !== "runtime_transition_pending") {
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "AiGoalTransitionRequirementWaiting",
+            projectId: goal.projectId,
+            goalId: goal.id,
+            severity: "info",
+            message: `AI goal "${goal.title}" is waiting for its runtime transition proof`,
+            payload: {
+              missionId: mission.id,
+              planRevision: goalRevision,
+              sourceStepId: runtimeStartRequirement.requirement.sourceStepId,
+              targetStepId: runtimeStartRequirement.requirement.targetStepId,
+            },
+          });
+        }
+        return { status: "waiting" as const, goalId: goal.id, reason: "runtime_transition_pending" };
+      }
+      if (transitionState === "failed") {
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "needs_replan",
+            blockedReason: "runtime_start_transition_unproven",
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalTransitionRequirementBlocked",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "warning",
+          message: `AI goal "${goal.title}" requires a replan because its runtime transition was not proven`,
+          payload: {
+            missionId: mission.id,
+            planRevision: goalRevision,
+            sourceStepId: runtimeStartRequirement.requirement.sourceStepId,
+            targetStepId: runtimeStartRequirement.requirement.targetStepId,
+          },
+        });
+        return { status: "blocked" as const, goalId: goal.id, reason: "runtime_start_transition_unproven" };
+      }
+    }
+
     const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
     if (!parsedAction.success) {
       return { status: "blocked" as const, goalId: goal.id, reason: "invalid_next_action" };
@@ -1187,6 +1525,129 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
     const result = await runMissionGoal({
       goalId: candidate.id,
       userId: ready.userId,
+      trigger: "wake",
+    });
+    if (result.status === "scheduled" || result.status === "completed") woken += 1;
+  }
+  return woken;
+}
+
+/**
+ * Reconciles Goals held specifically on a materialized runtime transition.
+ * The durable World Transition is rechecked under Goal/Mission locks before
+ * the target is queued; runMissionGoal repeats that gate before dispatch.
+ */
+export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<number> {
+  const candidates = await db
+    .select({
+      id: aiGoalsTable.id,
+      missionId: aiGoalsTable.missionId,
+      projectId: aiGoalsTable.projectId,
+    })
+    .from(aiGoalsTable)
+    .where(and(
+      eq(aiGoalsTable.status, "waiting_for_event"),
+      eq(aiGoalsTable.blockedReason, "runtime_transition_pending"),
+    ))
+    .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
+    .limit(Math.max(1, Math.min(limit, 100)));
+
+  let woken = 0;
+  for (const candidate of candidates) {
+    const decision = await db.transaction(async (tx) => {
+      const [goal] = await tx
+        .select()
+        .from(aiGoalsTable)
+        .where(and(
+          eq(aiGoalsTable.id, candidate.id),
+          eq(aiGoalsTable.missionId, candidate.missionId),
+          eq(aiGoalsTable.projectId, candidate.projectId),
+          eq(aiGoalsTable.status, "waiting_for_event"),
+          eq(aiGoalsTable.blockedReason, "runtime_transition_pending"),
+        ))
+        .for("update");
+      if (!goal) return undefined;
+      const [mission] = await tx
+        .select()
+        .from(aiMissionsTable)
+        .where(and(
+          eq(aiMissionsTable.id, goal.missionId),
+          eq(aiMissionsTable.projectId, goal.projectId),
+        ))
+        .for("update");
+      if (!mission) return undefined;
+      const activePlanRevision = typeof jsonRecord(mission.autonomyPolicy).activePlanRevision === "string"
+        ? jsonRecord(mission.autonomyPolicy).activePlanRevision as string
+        : undefined;
+      const goalRevision = goalPlanRevision(goal);
+      if (!activePlanRevision || goalRevision !== activePlanRevision) return undefined;
+
+      const requirementState = runtimeStartRequirementForGoal(goal, activePlanRevision);
+      let transitionState: "ready" | "pending" | "failed";
+      if (requirementState.kind !== "valid") {
+        transitionState = "failed";
+      } else {
+        const dependencyState = await loadGoalDependencyState(tx, goal);
+        const dependenciesComplete =
+          dependencyState.dependencies.length === dependencyState.dependencyGoals.length
+          && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
+        if (!dependenciesComplete) return undefined;
+        transitionState = await evaluateRuntimeStartTransitionGate(tx, {
+          goal,
+          activePlanRevision,
+          requirement: requirementState.requirement,
+        });
+      }
+
+      const now = new Date();
+      if (transitionState === "pending") return undefined;
+      if (transitionState === "failed") {
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "needs_replan",
+            blockedReason: "runtime_start_transition_unproven",
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalTransitionRequirementBlocked",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "warning",
+          message: `AI goal "${goal.title}" requires a replan because its runtime transition was not proven`,
+          payload: { missionId: mission.id, planRevision: activePlanRevision },
+        });
+        return { state: "failed" as const };
+      }
+
+      await tx.update(aiGoalsTable)
+        .set({
+          status: "queued",
+          blockedReason: null,
+          nextWakeAt: null,
+          updatedAt: now,
+        })
+        .where(eq(aiGoalsTable.id, goal.id));
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalTransitionRequirementReady",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "info",
+        message: `AI goal "${goal.title}" runtime transition requirement is proven`,
+        payload: { missionId: mission.id, planRevision: activePlanRevision },
+      });
+      return { state: "ready" as const, userId: mission.userId };
+    });
+    if (decision?.state !== "ready") continue;
+    const result = await runMissionGoal({
+      goalId: candidate.id,
+      userId: decision.userId,
       trigger: "wake",
     });
     if (result.status === "scheduled" || result.status === "completed") woken += 1;

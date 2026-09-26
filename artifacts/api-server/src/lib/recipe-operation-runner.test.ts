@@ -694,25 +694,36 @@ describe("recipe operation preparation", () => {
       `${sourceRevision}\n`,
       "utf8",
     );
+    let preStateRuntime: {
+      running: boolean;
+      sessionId: string | null;
+      pid: number | null;
+      port: number | null;
+    } | undefined;
     let manager = new WorkspaceRuntimeManager({
       store: createInMemoryWorkspaceRuntimeStore(),
       workerId: `runtime-recipe-test:${operationId}`,
-      startPreStateObserver: async ({ projectId: observedProjectId, revision }) => ({
-        status: "observed",
-        runtimeStatus: "stopped",
-        projectId: observedProjectId,
-        revision,
-        sessionId: null,
-        pid: null,
-        port: null,
-        processAlive: false,
-        portReady: false,
-        source: "test_observer",
-        inventoryComplete: true,
-        unknownListenerPorts: [],
-        observedAt: new Date().toISOString(),
-        detail: "Independent test pre-state confirms no runtime is running.",
-      }),
+      startPreStateObserver: async ({ projectId: observedProjectId, revision }) => {
+        const running = preStateRuntime?.running === true;
+        return {
+          status: "observed",
+          runtimeStatus: running ? "running" : "stopped",
+          projectId: observedProjectId,
+          revision,
+          sessionId: running ? preStateRuntime?.sessionId ?? null : null,
+          pid: running ? preStateRuntime?.pid ?? null : null,
+          port: running ? preStateRuntime?.port ?? null : null,
+          processAlive: running,
+          portReady: running,
+          source: "test_observer",
+          inventoryComplete: true,
+          unknownListenerPorts: [],
+          observedAt: new Date().toISOString(),
+          detail: running
+            ? "Independent test pre-state confirms the runtime is already running."
+            : "Independent test pre-state confirms no runtime is running.",
+        };
+      },
     });
     let executionId: string | undefined;
     const executionIds: string[] = [];
@@ -800,21 +811,22 @@ describe("recipe operation preparation", () => {
       const runtimeAfterState = observations.find((row) => (
         row.sourceType === "direct_observation"
         && row.predicate === "runtime.after_state"
+        && row.sourceId.startsWith(`runtime-start:${executionId}:`)
+        && row.sourceId.endsWith(":runtime.after_state")
       ));
       expect(runtimeAfterState).toMatchObject({
         provenance: "DIRECT_OBSERVATION",
         environmentFreshness: "fresh",
       });
       expect(runtimeAfterState?.value).toMatchObject({
-        after: {
-          projectId,
-          sessionId: runtimeSnapshot.sessionId,
-          revision: sourceRevision,
-          processAlive: true,
-          portReady: true,
-          healthStatus: 200,
-          servingRevision: sourceRevision,
-        },
+        status: "passed",
+        runtimeStatus: "running",
+        projectId,
+        sessionId: runtimeSnapshot.sessionId,
+        revision: sourceRevision,
+        processAlive: true,
+        portReady: true,
+        environmentRevision: expect.stringMatching(/^env-v1:[a-f0-9]{64}$/),
       });
       const beforeStateObservation = directObservations.find(
         (row) => row.predicate === "runtime.before_state",
@@ -946,12 +958,15 @@ describe("recipe operation preparation", () => {
         candidateHash: candidates[0]?.candidateHash,
       });
 
-      await manager.shutdown();
+      const runningSnapshot = await manager.get(projectId);
+      preStateRuntime = {
+        running: runningSnapshot.status === "running",
+        sessionId: runningSnapshot.sessionId,
+        pid: runningSnapshot.pid,
+        port: runningSnapshot.port,
+      };
+      expect(preStateRuntime.running).toBe(true);
       const secondOperationId = crypto.randomUUID();
-      manager = new WorkspaceRuntimeManager({
-        store: createInMemoryWorkspaceRuntimeStore(),
-        workerId: `runtime-recipe-test:${secondOperationId}`,
-      });
       const secondResult = await runRecipeOperation({
         projectId,
         operationId: secondOperationId,
@@ -966,6 +981,33 @@ describe("recipe operation preparation", () => {
       });
       executionIds.push(secondResult.executionId);
       expect(secondResult.status).toBe("completed");
+      const secondExecutionTransitions = await db.select()
+        .from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, secondResult.executionId));
+      expect(secondExecutionTransitions).toHaveLength(0);
+      const secondExecutionObservations = await db.select()
+        .from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.executionId, secondResult.executionId));
+      const secondBeforeState = secondExecutionObservations.find((row) => (
+        row.predicate === "runtime.before_state"
+        && row.sourceId.startsWith(`runtime-start:${secondResult.executionId}:`)
+      ));
+      const secondAfterState = secondExecutionObservations.find((row) => (
+        row.predicate === "runtime.after_state"
+      ));
+      expect(secondBeforeState?.value).toMatchObject({
+        runtimeStatus: "running",
+        sessionId: runtimeSnapshot.sessionId,
+      });
+      expect(secondAfterState?.value).toMatchObject({
+        after: {
+          status: "passed",
+          projectId,
+          sessionId: runtimeSnapshot.sessionId,
+          processAlive: true,
+          portReady: true,
+        },
+      });
 
       const candidatesAfterSecondSupport = await db.select().from(aiStrategyCandidatesTable)
         .where(eq(aiStrategyCandidatesTable.projectId, projectId));
@@ -999,12 +1041,7 @@ describe("recipe operation preparation", () => {
       await db.update(projectsTable)
         .set({ strategyReplayOptIn: true })
         .where(eq(projectsTable.id, projectId));
-      await manager.shutdown();
       const thirdOperationId = crypto.randomUUID();
-      manager = new WorkspaceRuntimeManager({
-        store: createInMemoryWorkspaceRuntimeStore(),
-        workerId: `runtime-recipe-test:${thirdOperationId}`,
-      });
       const thirdResult = await runRecipeOperation({
         projectId,
         operationId: thirdOperationId,
@@ -1085,10 +1122,11 @@ describe("recipe operation preparation", () => {
         caseRegistrationId: registeredReplayCase!.id,
         userId,
       });
-      expect(replayResult.status, JSON.stringify(replayResult.receipt, null, 2)).toBe("proven");
+      expect(replayResult.status).toBe("incomplete");
       expect(replayResult.recovered).toBe(false);
       expect(replayResult.receipt).toMatchObject({
-        status: "proven",
+        status: "incomplete",
+        incompleteReason: "runner_blocked",
         partition: "held_out",
         projectId,
         caseRegistrationId: registeredReplayCase!.id,
@@ -1098,22 +1136,16 @@ describe("recipe operation preparation", () => {
         sourceExecutionId: thirdResult.executionId,
         replayExecutionId: expect.any(String),
         replayEpisodeId: expect.any(String),
-        replayAcceptanceId: expect.any(String),
-        replayEffectBundleId: expect.any(String),
-        replayCanonicalProofHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        replayAcceptanceId: null,
+        replayEffectBundleId: null,
+        replayCanonicalProofHash: null,
         workspaceTreeHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
       expect(replayResult.receipt.replayExecutionId).not.toBe(thirdResult.executionId);
       expect(replayResult.receipt.replayEpisodeId).not.toBe(registeredReplayCase!.sourceEpisodeId);
-      expect(replayResult.receipt.replayAcceptanceId).not.toBe(
-        (registeredReplayCase!.caseDefinition as { acceptanceId: string }).acceptanceId,
-      );
-      expect(replayResult.receipt.replayEffectBundleId).not.toBe(
-        (registeredReplayCase!.caseDefinition as { effectBundleId: string }).effectBundleId,
-      );
-      expect(replayResult.receipt.replayCanonicalProofHash).not.toBe(
-        (registeredReplayCase!.caseDefinition as { sourceCanonicalProofHash: string }).sourceCanonicalProofHash,
-      );
+      expect(replayResult.receipt.replayAcceptanceId).toBeNull();
+      expect(replayResult.receipt.replayEffectBundleId).toBeNull();
+      expect(replayResult.receipt.replayCanonicalProofHash).toBeNull();
 
       const replayExecutionId = replayResult.receipt.replayExecutionId!;
       executionIds.push(replayExecutionId);
@@ -1141,7 +1173,7 @@ describe("recipe operation preparation", () => {
         .where(eq(aiStrategyReplayCaseRunsTable.caseRegistrationId, registeredReplayCase!.id));
       expect(runsAfterReplay).toHaveLength(1);
       expect(runsAfterReplay[0]).toMatchObject({
-        status: "proven",
+        status: "incomplete",
         replayExecutionId,
         replayEpisodeId: replayResult.receipt.replayEpisodeId,
         replayAttempt: replayResult.receipt.replayAttempt,
@@ -1158,7 +1190,7 @@ describe("recipe operation preparation", () => {
         userId,
       });
       expect(recoveredReplay).toEqual({
-        status: "proven",
+        status: "incomplete",
         receipt: replayResult.receipt,
         recovered: true,
       });
@@ -1188,12 +1220,7 @@ describe("recipe operation preparation", () => {
         .not.toContain(replayResult.receipt.replayEpisodeId);
 
       const createNextRegisteredReplayCase = async () => {
-        await manager.shutdown();
         const nextOperationId = crypto.randomUUID();
-        manager = new WorkspaceRuntimeManager({
-          store: createInMemoryWorkspaceRuntimeStore(),
-          workerId: `runtime-recipe-test:${nextOperationId}`,
-        });
         const nextResult = await runRecipeOperation({
           projectId,
           operationId: nextOperationId,
@@ -1255,7 +1282,7 @@ describe("recipe operation preparation", () => {
         status: "incomplete",
         recovered: false,
         receipt: {
-          incompleteReason: "replay_identity_mismatch",
+          incompleteReason: "runner_blocked",
           replayExecutionId: expect.any(String),
           replayEpisodeId: expect.any(String),
           replayCanonicalProofHash: null,

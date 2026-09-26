@@ -88,6 +88,39 @@ function readActivePlanRevision(value: unknown): string | undefined {
   return typeof revision === "string" && revision.trim() ? revision : undefined;
 }
 
+async function readRuntimeStartTargetForPlan(
+  missionId: string,
+  planRevision: string | undefined,
+): Promise<string | null> {
+  if (!planRevision) return null;
+  const goals = await db
+    .select({ successCriteria: aiGoalsTable.successCriteria })
+    .from(aiGoalsTable)
+    .where(eq(aiGoalsTable.missionId, missionId));
+  for (const goal of goals) {
+    const criteria = goal.successCriteria;
+    const snapshot = criteria && typeof criteria === "object" && !Array.isArray(criteria)
+      ? (criteria as { planRevision?: unknown }).planRevision
+      : undefined;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) continue;
+    const revision = snapshot as { hash?: unknown; transitionRequirements?: unknown };
+    if (revision.hash !== planRevision || !Array.isArray(revision.transitionRequirements)) continue;
+    const requirement = revision.transitionRequirements.find((candidate) =>
+      candidate
+      && typeof candidate === "object"
+      && !Array.isArray(candidate)
+      && (candidate as Record<string, unknown>).kind === "runtime.start"
+      && (candidate as Record<string, unknown>).version === 1
+      && (candidate as Record<string, unknown>).sourceStepId === "runtime-start"
+      && (candidate as Record<string, unknown>).from === "stopped"
+      && (candidate as Record<string, unknown>).to === "running"
+      && typeof (candidate as Record<string, unknown>).targetStepId === "string",
+    ) as { targetStepId: string } | undefined;
+    if (requirement) return requirement.targetStepId;
+  }
+  return null;
+}
+
 const CreateMissionBody = z.object({
   projectId: z.string().min(1).max(200),
   title: z.string().trim().min(1).max(200),
@@ -103,6 +136,7 @@ const MissionPlanPreviewBody = z.object({
   message: z.string().trim().min(1).max(10_000),
   objective: z.string().trim().min(1).max(2_000).optional(),
   projectOrientation: z.boolean().optional(),
+  runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
 }).strict();
 
 const MissionChatHandoffBody = z.object({
@@ -113,6 +147,7 @@ const MissionChatHandoffBody = z.object({
   expectedPlanHash: z.string().trim().min(1).max(200).optional(),
   sessionId: z.string().uuid().optional(),
   messageId: z.string().uuid().optional(),
+  runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
 }).strict();
 
 const MissionReplanBody = z.object({
@@ -120,6 +155,7 @@ const MissionReplanBody = z.object({
   objective: z.string().trim().min(1).max(2_000).optional(),
   expectedPlanHash: z.string().trim().min(1).max(200).optional(),
   reason: z.string().trim().min(1).max(2_000).optional(),
+  runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
 }).strict();
 
 const CreateGoalBody = z.object({
@@ -459,6 +495,9 @@ export async function createMissionPlanGoal(
     admission: preview.admission,
     objective: preview.objective,
     ...(preview.replanContext ? { replanContext: preview.replanContext } : {}),
+    ...(preview.plan.transitionRequirements
+      ? { transitionRequirements: preview.plan.transitionRequirements }
+      : {}),
     steps: preview.plan.steps.map((step) => ({
       id: step.id,
       title: step.title,
@@ -512,7 +551,16 @@ export async function createMissionPlanGoal(
         const dependencies = existingDependencies
           .filter((dependency) => dependency.goalId === goal.id)
           .map((dependency) => dependency.dependsOnGoalId);
-        return task ? [{ stepId: goal.id, goalId: goal.id, taskId: task.id, dependencies }] : [];
+        const successCriteria = goal.successCriteria;
+        const stepId = successCriteria
+          && typeof successCriteria === "object"
+          && !Array.isArray(successCriteria)
+          && typeof (successCriteria as { stepId?: unknown }).stepId === "string"
+          ? (successCriteria as { stepId: string }).stepId
+          : undefined;
+        return task && stepId
+          ? [{ stepId, goalId: goal.id, taskId: task.id, dependencies }]
+          : [];
       });
       if (goals.length === existingPlanGoals.length) {
         const primary = goals[0];
@@ -551,6 +599,13 @@ export async function createMissionPlanGoal(
       stepId: step.id,
       objective: preview.objective,
       planRevision: planSnapshot,
+      ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
+        requirement.targetStepId === step.id,
+      ) ? {
+        transitionRequirement: (preview.plan.transitionRequirements ?? []).find((requirement) =>
+          requirement.targetStepId === step.id,
+        ),
+      } : {}),
     },
     evidenceContract: {
       required: true,
@@ -562,6 +617,13 @@ export async function createMissionPlanGoal(
       kind: "evidence_backed_progress_report",
       stepId: step.id,
       planRevision: planSnapshot,
+      ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
+        requirement.targetStepId === step.id,
+      ) ? {
+        transitionRequirement: (preview.plan.transitionRequirements ?? []).find((requirement) =>
+          requirement.targetStepId === step.id,
+        ),
+      } : {}),
       deliveryRequired: planStepRequiresDeliveryReceipt(step),
       executionProfile: executionProfileForMissionStep(
         step.kind,
@@ -639,7 +701,12 @@ export async function createMissionPlanGoal(
   const goalByStepId = new Map(materialized.map(({ step, goalId }) => [step.id, goalId]));
   for (const { step, goalId } of materialized) {
     const dependencyGoalIds: string[] = [];
-    for (const dependencyId of step.dependencies) {
+    const transitionSourceStepId = (preview.plan.transitionRequirements ?? [])
+      .find((requirement) => requirement.targetStepId === step.id)?.sourceStepId;
+    for (const dependencyId of [
+      ...step.dependencies,
+      ...(transitionSourceStepId ? [transitionSourceStepId] : []),
+    ]) {
       const dependencyGoalId = goalByStepId.get(dependencyId);
       if (!dependencyGoalId) {
         throw new Error(`Mission plan step "${step.id}" references an unknown dependency`);
@@ -661,7 +728,12 @@ export async function createMissionPlanGoal(
     stepId: step.id,
     goalId,
     taskId,
-    dependencies: step.dependencies,
+    dependencies: [
+      ...step.dependencies,
+      ...((preview.plan.transitionRequirements ?? [])
+        .filter((requirement) => requirement.targetStepId === step.id)
+        .map((requirement) => requirement.sourceStepId)),
+    ],
   }));
   const primary = goals[0];
   if (primary) {
@@ -892,6 +964,7 @@ router.post("/ai/missions/plan-preview", async (req, res) => {
     message: body.message,
     objective: body.objective,
     projectOrientation: body.projectOrientation,
+    runtimeStartTargetStepId: body.runtimeStartTargetStepId,
   }));
 });
 
@@ -939,6 +1012,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
   const preview = buildMissionPlanPreview({
     message: body.message,
     objective: body.objective,
+    runtimeStartTargetStepId: body.runtimeStartTargetStepId,
   });
   if (preview.admission !== "mission") {
     return res.status(409).json({
@@ -1027,7 +1101,17 @@ router.post("/ai/missions/:missionId/replan", async (req, res) => {
     });
   }
   const message = body.message ?? body.objective ?? owned.mission.intent;
-  const preview = buildMissionPlanPreview({ message, objective: body.objective });
+  const runtimeStartTargetStepId = body.runtimeStartTargetStepId === undefined
+    ? await readRuntimeStartTargetForPlan(
+        owned.mission.id,
+        readActivePlanRevision(owned.mission.autonomyPolicy),
+      )
+    : body.runtimeStartTargetStepId;
+  const preview = buildMissionPlanPreview({
+    message,
+    objective: body.objective,
+    runtimeStartTargetStepId,
+  });
   if (preview.admission !== "mission") {
     return res.status(409).json({
       error: "The revised objective is not eligible for Mission execution",

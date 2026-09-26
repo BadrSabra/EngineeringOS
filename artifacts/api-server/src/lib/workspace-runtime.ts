@@ -591,6 +591,35 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
+   * Re-observe a running session using the attestation binding established
+   * when that session was launched. This is for idempotent ensure-running
+   * checks only; it does not create a new action binding or transition.
+   */
+  async observeExistingRuntimeAfterState(input: {
+    projectId: string;
+    sessionId: string;
+    revision: string;
+    signal?: AbortSignal;
+  }): Promise<RuntimeAfterState> {
+    const session = this.sessions.get(input.projectId);
+    if (
+      !session
+      || session.sessionId !== input.sessionId
+      || !session.childProcessBinding
+    ) {
+      throw new WorkspaceRuntimeError(
+        "Existing runtime has no server-owned process attestation binding.",
+        "RUNTIME_OBSERVATION_STALE",
+        409,
+      );
+    }
+    return this.observeAfterState({
+      ...input,
+      attestationBinding: session.childProcessBinding,
+    });
+  }
+
+  /**
    * Capture an independent after-state for a server-owned runtime action.
    * TCP readiness and a running row are not sufficient: the current worker
    * lease, process identity, HTTP response, serving revision, and optional
@@ -1206,6 +1235,7 @@ export class WorkspaceRuntimeManager {
     projectRoot: string;
     revision: string;
     attestationIdentity?: ChildProcessAttestationIdentity;
+    expectedEnvironmentRevision?: string;
     restart?: boolean;
   }): Promise<WorkspaceRuntimeSnapshot> {
     if (input.attestationIdentity && (
@@ -1297,6 +1327,12 @@ export class WorkspaceRuntimeManager {
     let child: ChildProcess | undefined;
     let supervised: Awaited<ReturnType<WorkspaceRuntimeSupervisorClient["start"]>> | undefined;
     try {
+      if (
+        input.expectedEnvironmentRevision
+        && environmentRevision !== input.expectedEnvironmentRevision
+      ) {
+        throw new Error("runtime_environment_revision_mismatch");
+      }
       if (this.supervisor) {
         supervised = await this.supervisor.start({
           projectId: input.projectId,

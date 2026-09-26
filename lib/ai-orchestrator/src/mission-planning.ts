@@ -63,12 +63,14 @@ function classifyAdmission(
   const hasMutation = plan.steps.some((step) =>
     step.readOnly === false || step.approvalRequired,
   );
+  const hasRuntimeTransition = (plan.transitionRequirements?.length ?? 0) > 0;
   const hasMultiplePhases = intent.phases.length > 1;
   const isDurableObjective =
     intent.kind === "DELIVERY"
     || intent.compoundExecution
     || intent.compoundWrite
     || hasMutation
+    || hasRuntimeTransition
     || hasMultiplePhases;
 
   if (isDurableObjective) {
@@ -99,6 +101,7 @@ export function buildMissionPlanPreview(input: {
   objective?: string;
   projectOrientation?: boolean;
   replanContext?: MissionReplanContext;
+  runtimeStartTargetStepId?: string | null;
 }): MissionPlanPreview {
   const intent = resolveTurnIntent(input.message, {
     projectOrientation: input.projectOrientation === true,
@@ -108,6 +111,7 @@ export function buildMissionPlanPreview(input: {
     objective: input.objective,
     projectOrientation: input.projectOrientation === true,
     turnIntent: intent,
+    runtimeStartTargetStepId: input.runtimeStartTargetStepId,
   });
   const admission = classifyAdmission(intent, plan);
   const failureDiagnosis = input.replanContext?.failureDiagnosis

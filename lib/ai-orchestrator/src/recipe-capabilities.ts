@@ -181,6 +181,16 @@ export type RuntimeStartRunner = (args: {
   executionAttempt?: number;
   episodeId?: string;
   signal?: AbortSignal;
+  beforeEffectGate?: (input: {
+    beforeState: Record<string, unknown>;
+    environmentRevision: string | null;
+  }) => Promise<{
+    allowEffect: boolean;
+    transitionEligible: boolean;
+    parentWorldRevision?: string;
+    beforeObservationIds: string[];
+    decisionCode: string;
+  }>;
 }) => Promise<{
   status: "passed" | "blocked" | "unavailable";
   evidence?: Record<string, unknown>;
