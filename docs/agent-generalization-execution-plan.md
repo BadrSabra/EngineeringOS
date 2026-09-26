@@ -3615,10 +3615,12 @@ transfer وpromotion gates.
 
 تعطل صياغة `PROJECT_QUERY` بعد اكتمال الأدلة هو مسألة موثوقية وإسقاط استجابة في
 مسار المحادثة القائم، وليس تنفيذًا لـP7 ولا dependency جديدة تبرر تجاوز P4/P5/P6.
-الفشل الحتمي الداخلي قد يجعل `chat()` يعيد نتيجة طبيعية قبل أن يرى
-`chatWithFallback` إخفاق synthesis؛ الإصلاح المستقبلي، بعد إغلاق بوابة الوثائق في
-`docs/agent-generalization-progress.md` ومراجعتها، ينبغي أن يعالج حدّ النتيجة
-والإسناد المرحلي داخل المسار الحالي، لا أن ينشئ خدمة Gateway أو roadmap ثانية.
+بعد مراجعة التنفيذ، لا يُعامل فشل المزود أو صياغة `PROJECT_QUERY` العام كأنه
+وصل إلى fallback حتمي عام: مسار الاستنفاد ينتج `ANALYSIS_INCOMPLETE` من الأدلة
+المحتفظ بها. الـfallback الحتمي الموجود منفصل ومقصور على `projectOrientation`
+مع اكتمال manifest الأدوار. تُنفذ أي معالجة لاحقة داخل مسار المحادثة الحالي،
+بعد إغلاق بوابة الوثائق في `docs/agent-generalization-progress.md` ومراجعتها؛
+لا تنشئ خدمة Gateway أو roadmap ثانية.
 
 تدقيق التطوير في 2026-09-26 فصل بين طلبين: تعثر الطلب السابق قبل قراءة أي ملف
 مصدر مع `EMPTY_RESPONSE` و`RATE_LIMITED`؛ أما طلب شرح المشروع اللاحق فأكمل الأدوار
@@ -3629,12 +3631,50 @@ transfer وpromotion gates.
 استهلكت مدد المحاولات المسجلة نحو 150.6 ثانية مقابل ميزانية 150 ثانية. تفاصيل
 الأثر في أحدث إدخال بسجل التقدم.
 
-لا يلزم عقد ردّ موازٍ كي تُحفظ دلالة fallback: `ChatOutput` الحالي يحمل
-`projectQueryResponseSource` و`projectQueryResponseFallbackReason`، وتُسقط
-الـprovenance إلى الاستجابة غير المتدفقة وSSE والتاريخ. إذا ثبتت حاجة لحقول
-أخرى، فالتوسيع يكون في إسقاط الخادم القائم؛ `claimRefs` و`flowRefs` من المزوّد
-ادعاءات لا materialization للأدلة ولا proof. كما يحتفظ مسار fallback الحالي
-بقراءات الطلب في الذاكرة؛ يجب أن تعيد محاولات الصياغة استخدامها دون إعادة جمعها.
+#### الجرد الحالي بعد مقارنة الكود
+
+- `chatWithFallback` يحتفظ بـ`retainedEvidence` و`retainedReadStatuses` عبر
+  محاولات المزودين؛ كما يستطيع مسار recovery تحميل القراءات الدائمة. محاولات
+  التوليف نفسها محدودة ولها timeout وإصلاح مخرجات، لكن تنسيق المزودين ومحاولات
+  synthesis وميزانياتها ليس واجهة واحدة ولا ledger واحدًا.
+- يوجد retained-read manifest وبصمات مرتبطة بقبول الأدلة؛ يثبت الخادم اكتمال
+  الأجسام قبل proof. لكنه ليس `EvidencePacket` ثابتًا واحدًا يُمرر إلى gateway.
+- fallback `projectOrientation` يتطلب الأدوار الأربعة ويعرض دليلها المباشر؛ لا
+  يُعاد استخدامه كـfallback عام لـ`PROJECT_QUERY` أو `FORENSIC_AUDIT`.
+- `ProjectQuerySynthesisSchema` يحدد `response` و`sources` ومراجع اختيارية
+  لـ`claimRefs` و`flowRefs`. توجد provenance متوافقة إلى حد كبير عبر JSON وSSE
+  والتاريخ، لكن لا يوجد public canonical envelope موحد للادعاءات والأدلة وحالة
+  subqueries والشكوك لمساري المزود والحتمية.
+- telemetry تسجل محاولات المزود والعقد والمدة، وtrace يحمل lifecycle synthesis؛
+  لا يوجد `SynthesisAttempt` دائم يربط كل محاولة ببصمة evidence snapshot وبصمة
+  المخرج. لا تصبح `claimRefs` أو `sources` التي يذكرها المزود دليلًا أو proof.
+
+#### الخطة بعد إغلاق بوابة الوثائق
+
+1. أنشئ مرجعًا ثابتًا قبل synthesis مشتقًا من retained-read manifest المقبول،
+   ويضم هوية المشروع والتنفيذ والمراجعة وحالة التغطية وبصمات الأجسام. استخدم
+   الأدلة الموجودة؛ لا تعِد جمعها بسبب فشل اللغة. لأن
+   `evidenceSnapshotId` النهائي ينشأ عند تثبيت القبول بعد synthesis، اربط
+   المحاولات أولًا بمرجع manifest ثم اربط ذلك المرجع بالـsnapshot النهائي؛ لا
+   تضع أجسام الأدلة في telemetry.
+2. نسّق `chatWithFallback` ومحاولات الإصلاح الحالية بميزانية طلب واحدة وتسلسل
+   محاولات واضح يميز provider request عن synthesis/repair، مع المزود والنموذج
+   والمدة ونوع الفشل وحالة العقد و`outputHash`. ابدأ بتوسيع telemetry أو event
+   sink append-only الحالي؛ لا تضف جدولًا جديدًا إلا إذا لم يحقق التخزين الحالي
+   الربط والديمومة وidempotency المطلوبة.
+3. وسّع الإسقاط typed في `ChatOutput` القائم ليقدّم معنى استجابة موحدًا للمزود
+   والـfallback، ثم أعد استخدام الإسقاط نفسه في JSON وSSE والتاريخ. لا تنشئ
+   public `CanonicalAgentResponse` موازٍ. إذا احتاج العقد حقول claims أو evidence
+   refs أو subquery status أو uncertainties، أضفها إلى العقد القائم مع مصدر
+   server-owned، لا بمجرد نسخ provider prose.
+4. أضف fallback حتميًا عامًا فقط لـ`PROJECT_QUERY` الذي اجتاز عقد اكتمال الأدلة
+   والادعاءات. يبنى من الأجسام والمراجع المقبولة server-side، ولا يستخدم
+   `claimRefs` أو citations من المزود كإثبات. التغطية الناقصة أو الادعاءات غير
+   المغلقة تظل `ANALYSIS_INCOMPLETE`. أبقِ fallback orientation الحالي منفصلًا.
+5. اختبر فشل المزود بعد قراءة كاملة ثم نجاح provider آخر أو fallback مع إثبات
+   ثبات evidence reference وعدم إعادة القراءة؛ واختبر أيضًا النتيجة غير المكتملة،
+   حد الميزانية المشترك، وربط المحاولات بالـsnapshot النهائي، وتكافؤ projections
+   بين JSON وSSE والتاريخ.
 
 لقطة `ai_execution_evidence_snapshots` تُنشأ عند تثبيت القبول النهائي بعد
 synthesis؛ لذا لا يتاح `evidenceSnapshotId` النهائي وقت تسجيل محاولة المزوّد.
@@ -3644,8 +3684,10 @@ attempt-scoped ثم association بعد finalization، مع إبقاء أجسام
 telemetry. وتصنّف سياسة الاسترداد الأخطاء والـ429 بحسب نطاقها والوقت المتبقي؛ لا
 تدوّر نماذج المزوّد نفسه تلقائيًا عند حدّ مشترك، ولا تعيد القراءة عند فشل اللغة.
 
-هذا التوضيح لا يجيز تغييرات runtime/schema قبل إغلاق بوابة الوثائق ومراجعتها،
-ولا يغير ترتيب P6 ثم P7. وهو قرار تصميمي مؤجل، لا إعلان اكتمال أو بدء مرحلة.
+لا تغيّر هذه الخطة قبول P6/P7 أو سلطة evidence/acceptance، ولا تعلن اكتمال
+التشخيص العام أو تفتح مرحلة جديدة في dependency graph. لا تبدأ تغييرات
+runtime/schema قبل إغلاق بوابة الوثائق ومراجعتها. هذه خطة عمل مؤجلة، وليست
+إعلان تنفيذ أو اكتمال.
 
 ---
 
