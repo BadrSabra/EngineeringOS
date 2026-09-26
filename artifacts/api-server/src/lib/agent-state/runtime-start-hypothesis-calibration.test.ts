@@ -29,10 +29,11 @@ const calibrationScopeRef = () => buildRuntimeStartHypothesisExperimentRegistrat
 function experiment(
   index: number,
   actualOutcomeKey: "runtime_running" | "runtime_not_running" | "runtime_other" = "runtime_running",
+  missionId = `mission-${index}`,
 ): RuntimeStartCalibrationExperiment {
   const registration = buildRuntimeStartHypothesisExperimentRegistration({
     projectId: "project-calibration",
-    missionId: `mission-${index}`,
+    missionId,
     goalId: `goal-${index}`,
     executionId: `execution-${index}`,
     attempt: 0,
@@ -93,13 +94,15 @@ describe("runtime-start hypothesis calibration", () => {
       return experiment(index, outcome);
     });
     const pending = experiment(90);
+    const resumedAttempt = experiment(91, "runtime_running", pending.missionId);
     const evaluation = evaluateRuntimeStartHypothesisCalibration({
       calibrationScopeRef: calibrationScopeRef(),
-      experiments: [...complete, { ...pending, result: undefined }],
+      experiments: [...complete, { ...pending, result: undefined }, resumedAttempt],
     });
 
     expect(evaluation.status).toBe("incomplete_measurements");
     expect(evaluation.unresolvedExperimentCount).toBe(1);
+    expect(evaluation.usableOutcomeCount).toBe(91);
     expect(evaluation.assessmentRef).toMatch(/^p75-runtime-start-calibration:[a-f0-9]{64}$/);
   });
 
@@ -116,6 +119,106 @@ describe("runtime-start hypothesis calibration", () => {
     expect(evaluation.status).toBe("threshold_not_met");
     expect(evaluation.expectedCalibrationError).toBeGreaterThan(0.15);
     expect(evaluation.eceUpperBound95).toBeGreaterThan(0.15);
+  });
+
+  it("matches a hand-calculated classwise ECE with a rare observed class and an absent class", () => {
+    const outcomes: Array<"runtime_running" | "runtime_not_running" | "runtime_other"> = [
+      ...Array.from({ length: 49 }, () => "runtime_running" as const),
+      ...Array.from({ length: 40 }, () => "runtime_not_running" as const),
+      "runtime_other",
+    ];
+    const evaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments: outcomes.map((outcome, index) => experiment(index, outcome)),
+    });
+
+    // The fixed forecast is 4/9, 4/9, 1/9, 0. The running and rare
+    // runtime_other classes each differ by 0.1; their mean over four classes
+    // is 0.05. runtime_unexpected is absent from observations and forecasts.
+    expect(evaluation.expectedCalibrationError).toBeCloseTo(0.05, 10);
+    expect(evaluation.independentMissionCount).toBe(90);
+  });
+
+  it("counts repeated samples from one Mission as one independent cluster", () => {
+    const experiments = Array.from({ length: 30 }, (_, index) =>
+      experiment(index, "runtime_running", `mission-${index % 15}`));
+    const evaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments,
+    });
+
+    expect(evaluation.status).toBe("insufficient_data");
+    expect(evaluation.usableOutcomeCount).toBe(30);
+    expect(evaluation.independentMissionCount).toBe(15);
+    expect(evaluation.eceUpperBound95).not.toBeNull();
+  });
+
+  it("uses Mission clusters for the bootstrap uncertainty bound", () => {
+    const clustered: RuntimeStartCalibrationExperiment[] = [];
+    const dispersed: RuntimeStartCalibrationExperiment[] = [];
+    const addPair = (
+      target: RuntimeStartCalibrationExperiment[],
+      counter: { value: number },
+      missionId: string,
+      first: "runtime_running" | "runtime_not_running" | "runtime_other",
+      second: "runtime_running" | "runtime_not_running" | "runtime_other",
+    ) => {
+      target.push(experiment(counter.value++, first, missionId));
+      target.push(experiment(counter.value++, second, missionId));
+    };
+    const clusteredCounter = { value: 0 };
+    const dispersedCounter = { value: 0 };
+
+    // Same marginal outcome counts (27 running, 27 not running, 6 other),
+    // with the rare outcome either concentrated into three clusters or spread
+    // across six clusters.
+    for (let mission = 0; mission < 3; mission += 1) {
+      addPair(clustered, clusteredCounter, `clustered-${mission}`, "runtime_other", "runtime_other");
+    }
+    for (let mission = 3; mission < 16; mission += 1) {
+      addPair(clustered, clusteredCounter, `clustered-${mission}`, "runtime_running", "runtime_running");
+    }
+    for (let mission = 16; mission < 29; mission += 1) {
+      addPair(clustered, clusteredCounter, `clustered-${mission}`, "runtime_not_running", "runtime_not_running");
+    }
+    addPair(clustered, clusteredCounter, "clustered-29", "runtime_running", "runtime_not_running");
+
+    for (let mission = 0; mission < 3; mission += 1) {
+      addPair(dispersed, dispersedCounter, `dispersed-${mission}`, "runtime_other", "runtime_running");
+    }
+    for (let mission = 3; mission < 6; mission += 1) {
+      addPair(dispersed, dispersedCounter, `dispersed-${mission}`, "runtime_other", "runtime_not_running");
+    }
+    for (let mission = 6; mission < 18; mission += 1) {
+      addPair(dispersed, dispersedCounter, `dispersed-${mission}`, "runtime_running", "runtime_running");
+    }
+    for (let mission = 18; mission < 30; mission += 1) {
+      addPair(dispersed, dispersedCounter, `dispersed-${mission}`, "runtime_not_running", "runtime_not_running");
+    }
+
+    const clusteredEvaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments: clustered,
+    });
+    const dispersedEvaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments: dispersed,
+    });
+    const repeatedClusteredEvaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: calibrationScopeRef(),
+      experiments: [...clustered].reverse(),
+    });
+
+    expect(clusteredEvaluation.usableOutcomeCount).toBe(60);
+    expect(clusteredEvaluation.independentMissionCount).toBe(30);
+    expect(dispersedEvaluation.independentMissionCount).toBe(30);
+    expect(clusteredEvaluation.expectedCalibrationError)
+      .toBeCloseTo(dispersedEvaluation.expectedCalibrationError!, 12);
+    expect(clusteredEvaluation.eceUpperBound95).toBeGreaterThan(
+      dispersedEvaluation.eceUpperBound95!,
+    );
+    expect(repeatedClusteredEvaluation.eceUpperBound95)
+      .toBe(clusteredEvaluation.eceUpperBound95);
   });
 
   it("marks too few independent missions as insufficient", () => {

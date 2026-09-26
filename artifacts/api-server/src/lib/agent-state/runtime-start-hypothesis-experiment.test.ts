@@ -35,6 +35,37 @@ describe("runtime-start hypothesis experiment", () => {
       .not.toBe(base.calibrationScopeRef);
   });
 
+  it("binds a resumed attempt to a new experiment instead of rewriting the prior one", () => {
+    const original = registration();
+    const resumed = registration({
+      attempt: 1,
+      executionId: "execution-p75-resumed",
+      episodeId: "episode-p75-resumed",
+      actionId: "action:execution-p75-resumed:1:runtime-start",
+    });
+    const originalResult = buildRuntimeStartHypothesisExperimentResult({
+      registration: original,
+      observationRefs: ["observation-original"],
+      measurementValidity: "complete_fresh",
+      environmentStatus: "same_scope",
+      actualOutcomeKey: "runtime_running",
+      resolvedAt: "2026-09-26T10:00:01.000Z",
+    });
+    const resumedResult = buildRuntimeStartHypothesisExperimentResult({
+      registration: resumed,
+      observationRefs: ["observation-resumed"],
+      measurementValidity: "complete_fresh",
+      environmentStatus: "same_scope",
+      actualOutcomeKey: "runtime_running",
+      resolvedAt: "2026-09-26T10:01:01.000Z",
+    });
+
+    expect(resumed.experimentId).not.toBe(original.experimentId);
+    expect(originalResult.experimentId).toBe(original.experimentId);
+    expect(resumedResult.experimentId).toBe(resumed.experimentId);
+    expect(resumedResult.experimentId).not.toBe(originalResult.experimentId);
+  });
+
   it("requires an assessment reference before marking forecasts calibrated", () => {
     expect(() => registration({
       calibrationAssessment: { status: "validated_for_scope" },
