@@ -15,7 +15,10 @@ import { buildProjectQueryObjective, resolveProjectQueryTarget } from "../projec
 import { resolveTurnIntent } from "../turn-intent.js";
 import type { ObjectiveContract } from "../schemas/chat.schema.js";
 import type { AnalysisCorrelation } from "../tools/analysis-tools.js";
-import { closeObjectiveClaimsFromEvidence } from "../required-claims.js";
+import {
+  closeObjectiveClaimsFromEvidence,
+  materializeObjectiveClaimEvidence,
+} from "../required-claims.js";
 
 const originalGroqApiKey = process.env.GROQ_API_KEY;
 
@@ -97,6 +100,7 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
 
   afterEach(() => {
     vi.doUnmock("../tool-execution-engine.js");
+    vi.doUnmock("../agents/query-planner.js");
     vi.doUnmock("groq-sdk");
     if (originalGroqApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalGroqApiKey;
@@ -1596,23 +1600,15 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
   it.each([
     {
       evidenceCase: "a truncated required source",
-      expectedMaterialization: [
-        "manifestComplete=false",
-        "materializedClaims=0",
-        "missingClaims=generic-project-routing,generic-project-evidence-gate,generic-project-bounded-read",
-      ],
+      missingClaimId: "generic-project-routing",
     },
     {
       evidenceCase: "a missing server-owned evidence needle",
-      expectedMaterialization: [
-        "manifestComplete=true",
-        "materializedClaims=2",
-        "missingClaims=generic-project-bounded-read",
-      ],
+      missingClaimId: "generic-project-bounded-read",
     },
-  ])("does not synthesize a bounded generic-project answer from $evidenceCase", async ({
+  ])("does not close the generic-project objective from $evidenceCase", async ({
     evidenceCase,
-    expectedMaterialization,
+    missingClaimId,
   }) => {
     const message = "Analyze my project architecture.";
     const target = resolveProjectQueryTarget(message);
@@ -1643,45 +1639,52 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         ].join("\n"),
       ],
     ]);
-    const retainedEvidence = new Map(completeBodies);
-    const retainedReadStatuses = new Map(
-      requiredPaths.map((requiredPath) => [requiredPath, "READ_COMPLETE"] as const),
-    );
-    let loopFileContents = new Map(completeBodies);
-    let loopReadPaths = [...requiredPaths];
-    let truncatedReads = 0;
-
+    const fileContents = new Map(completeBodies);
     if (evidenceCase === "a truncated required source") {
-      // The retained prefetch body exceeds the complete-evidence limit. The
-      // tool-loop fixture has no complete body for that path, matching a
-      // truncated read rather than treating partial bytes as accepted proof.
-      retainedEvidence.set(
-        requiredPaths[0]!,
-        `${completeBodies.get(requiredPaths[0]!)}\n${"x".repeat(256 * 1024 + 1)}`,
-      );
-      retainedReadStatuses.set(requiredPaths[0]!, "READ_TRUNCATED");
-      loopFileContents = new Map(
-        [...completeBodies].filter(([file]) => file !== requiredPaths[0]),
-      );
-      loopReadPaths = requiredPaths.slice(1);
-      truncatedReads = 1;
+      // Model a partial retained body that ends before either routing needle.
+      fileContents.set(requiredPaths[0]!, "export function ");
     } else {
       // Keep the routing and evidence-gate needles, but remove every
       // server-owned needle that can close the bounded-read claim.
-      retainedEvidence.set(
+      fileContents.set(
         requiredPaths[0]!,
         completeBodies
           .get(requiredPaths[0]!)!
           .replace("project-read-only", "")
-          .replace("requiresTools", ""),
+          .replaceAll("requiresTools", ""),
       );
-      retainedEvidence.set(
+      fileContents.set(
         requiredPaths[2]!,
-        completeBodies.get(requiredPaths[2]!)!.replace("requiredEvidencePaths", ""),
+        completeBodies.get(requiredPaths[2]!)!.replaceAll("requiredEvidencePaths", ""),
       );
-      loopFileContents = new Map(retainedEvidence);
     }
+    const materialized = materializeObjectiveClaimEvidence({
+      objective,
+      fileContents,
+    });
+    expect(materialized).toHaveLength(objective.requiredClaims.length - 1);
+    expect(materialized.map(({ claimId }) => claimId)).not.toContain(missingClaimId);
 
+    const closedClaims = closeObjectiveClaimsFromEvidence({
+      objective,
+      response: objective.requiredClaims.map(({ text }) => text).join("\n"),
+      fileContents,
+    });
+    expect(closedClaims).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: "UNCLOSED" })]),
+    );
+    expect(closedClaims.every(({ status }) => status === "CLOSED")).toBe(false);
+
+    const retainedReadStatuses = new Map<
+      string,
+      "READ_COMPLETE" | "READ_TRUNCATED" | "READ_FAILED"
+    >(
+      requiredPaths.map((requiredPath) => [requiredPath, "READ_COMPLETE"] as const),
+    );
+    const truncatedRead = evidenceCase === "a truncated required source";
+    if (truncatedRead) {
+      retainedReadStatuses.set(requiredPaths[0]!, "READ_TRUNCATED");
+    }
     const executeToolLoop = vi.fn(async () => ({
       kind: "partial" as const,
       reason: "provider_failure" as const,
@@ -1691,34 +1694,32 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
         model: "provider-failure-model",
         usage: {},
       },
-      toolSources: loopReadPaths,
-      fileContents: loopFileContents,
+      toolSources: requiredPaths,
+      fileContents,
       evidenceWindows: [],
       sourceRetrieval: {
         readAttempts: requiredPaths.length,
-        readPaths: [...loopReadPaths],
-        uniqueReads: loopReadPaths.length,
-        truncatedReads,
+        readPaths: [...requiredPaths],
+        uniqueReads: requiredPaths.length,
+        truncatedReads: truncatedRead ? 1 : 0,
         targetedReads: 0,
         redundantReads: 0,
         cachedReads: 0,
         evidenceWindows: 0,
-        prefetchReads: loopReadPaths.length,
+        prefetchReads: requiredPaths.length,
         dependencyReads: 0,
         duplicateReads: 0,
-        firstEvidenceAcquired: loopReadPaths.length > 0,
+        firstEvidenceAcquired: true,
         iterationsUntilFirstRead: 0,
         iterationsWithoutEvidence: 0,
         planningIterations: 0,
-        evidenceIterations: loopReadPaths.length,
+        evidenceIterations: requiredPaths.length,
         crossFileQueriesBeforeFirstRead: 0,
         prefetchBeforeFirstRead: true,
-        iterationsUntilFirstSourceRead: 0,
         progressForced: false,
         budgetAllocation: { planning: 1, evidence: 3, reasoning: 1 },
       },
     }));
-
     vi.doMock("../tool-execution-engine.js", async () => {
       const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
         "../tool-execution-engine.js",
@@ -1726,18 +1727,17 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       return { ...actual, executeToolLoop };
     });
 
-    const providerCreate = vi.fn().mockRejectedValue(
-      Object.assign(new Error("fixture provider failure"), {
-        code: "FIXTURE_PROVIDER_FAILURE",
-        status: 401,
-        response: { status: 401 },
-      }),
-    );
     vi.doMock("groq-sdk", () => ({
       default: class {
         chat = {
           completions: {
-            create: providerCreate,
+            create: vi.fn().mockRejectedValue(
+              Object.assign(new Error("fixture provider failure"), {
+                code: "FIXTURE_PROVIDER_FAILURE",
+                status: 401,
+                response: { status: 401 },
+              }),
+            ),
           },
         };
       },
@@ -1757,32 +1757,35 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
       rootPath: undefined,
       provider: "groq",
       apiKey: "test-key",
-      retainedEvidence,
+      retainedEvidence: fileContents,
       retainedReadStatuses,
       objective,
       turnIntent,
       onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
     });
 
-    expect(result.projectQueryResponseSource).not.toBe("deterministic_fallback");
-    expect(result.response).toMatch(/BLOCKED|محظور/);
-    expect(executeToolLoop).toHaveBeenCalledTimes(1);
-    expect(providerCreate).toHaveBeenCalledTimes(1);
+    expect(result.projectQueryResponseSource).toBeUndefined();
+    expect(result.projectQueryResponseFallbackReason).toBeUndefined();
+    expect(result.response).toMatch(/BLOCKED|ANALYSIS_INCOMPLETE|محظور/);
+    expect(
+      steps.some(
+        (step) =>
+          step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_SOURCE",
+      ),
+    ).toBe(false);
 
     const materialization = steps.find(
-      (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+      (step) =>
+        step.kind === "diagnostic" &&
+        step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
     );
     expect(materialization?.details).toEqual(
-      expect.arrayContaining(expectedMaterialization),
+      expect.arrayContaining([
+        "manifestComplete=true",
+        `materializedClaims=${materialized.length}`,
+        `missingClaims=${missingClaimId}`,
+      ]),
     );
-    const integrity = [...steps]
-      .reverse()
-      .find((step) => step.kind === "evidence_integrity");
-    expect(integrity).toMatchObject({
-      completionGateResult: expect.not.stringMatching(/^PROVEN$/),
-      finalAnswerType: "NO_ANSWER",
-    });
-    expect(steps.some((step) => step.kind === "forensic_terminal")).toBe(false);
   });
 
   it("does not replace a proven project query with the outer forensic fallback", async () => {

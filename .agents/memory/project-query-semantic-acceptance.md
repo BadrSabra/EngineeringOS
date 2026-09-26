@@ -47,6 +47,18 @@ evidence or encouraged symbol inventory to masquerade as a behavioral answer.
 claim only when its behavioral assertion is present in the response and the
 needle is in accepted evidence, and keep generic gap-analysis claims unchanged.
 
+Negative evidence fixtures must remove every accepted needle alternative on a
+claim's declared paths; one surviving match can still materialize that claim.
+Assert the missing materialized claim IDs before checking the final no-fallback
+result.
+
+**Why:** A partial source can retain another usage of a server-owned needle, so
+a fixture that removes only one occurrence may accidentally prove the claim.
+
+**How to apply:** Keep the contract's paths and needle alternatives explicit,
+remove all matches for the intended missing claim, and exercise the chat path
+when the regression is about fallback eligibility.
+
 The behavioral-flow predicate must count explicit sequencing markers in the
 answer, not generic verbs that may appear inside cited source excerpts. For
 `PROJECT_QUERY`, the objective verdict must use the project-query completion

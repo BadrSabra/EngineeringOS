@@ -2086,6 +2086,33 @@ G9 Revocation Safety
 - **next step:** أضف تغطية نقص الدليل وتكافؤ JSON/SSE/history للهدف المحدود إن
   لزم، مع إبقاء `PROJECT_QUERY` بلا objective canonical غير مكتمل.
 
+### 42.54 — Generic PROJECT_QUERY نقص الدليل وتكافؤ الإسقاطات (2026-09-26)
+
+- **phase/step:** إغلاق فجوات §42.53؛ إثبات فشل الإغلاق عند نقص الدليل وتكافؤ
+  JSON/SSE/history، بلا تغييرات runtime أو صلاحيات.
+- **status:** `done`.
+- **what changed:** أضيف اختباران سلبيان للهدف العام: body مبتور مع حالة
+  `READ_TRUNCATED`، وغياب كل needles الخادمية المطلوبة. في الحالتين لا تُغلق
+  كل المطالبات، ويرجع مسار `chat` نتيجة غير مكتملة دون اختيار
+  `deterministic_fallback`. اختبار API واحد يستخدم fixture موحدًا لإثبات أن
+  fallback الحتمي المقبول مع الدليل الكامل والـrefs الثلاثة يظهر باتساق في
+  JSON وSSE والتاريخ.
+- **files/schema/contracts touched:**
+  `lib/ai-orchestrator/src/__tests__/objective-evidence-handoff-baseline.test.ts`
+  و`docs/agent-generalization-progress.md` و
+  `.agents/memory/project-query-semantic-acceptance.md`؛ لا ملفات runtime أو
+  schema.
+- **validation:** نجح ملف orchestrator كاملًا (`19/19`) و`pnpm run typecheck`
+  من `lib/ai-orchestrator`. نجح اختبار API/SSE/JSON/history المحدد (`1/1`،
+  102 متجاوزة بالمرشح) و`cd artifacts/api-server && pnpm run typecheck`.
+  أُعيد تشغيل API workflow بعد تعارض منفذ قديم، وأصبح `RUNNING`.
+- **authority/safety impact:** إغلاق المطالبات وrefs والقبول تبقى server-owned؛
+  القراءة المبتورة أو needle الغائب لا يفتحان fallback ناجحًا. لا تغييرات
+  runtime أو schema أو صلاحيات.
+- **remaining/blocker:** لا يوجد ضمن هذا النطاق.
+- **next step:** أبقِ `PROJECT_QUERY` بلا objective canonical أو بلا كل أدلته
+  المطلوبة غير مكتملًا؛ لا توسّع fallback خارج عقده المحدود.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
