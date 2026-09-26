@@ -5870,6 +5870,15 @@ aggregate candidate قبل/بعد والملاحظة المباشرة وEffectBu
 لم يتغير schema أو authorization أو generic dispatch. هذه خطوة جزئية في P3.5/P5.5
 فقط؛ لا تبدأ P6/P7/P7.5.
 
+**حد التعافي التجميعي:** يبقى `MissionRepairCandidateEffectContext` محليًا للعملية،
+بينما يحفظ checkpoint `pendingChanges` كمدخل مرشح فقط. لا يثبت checkpoint وحده
+اتساقه الذري مع أحداث Episode أو hashes المرشح والمراجعة، ولا يحدد هل يمكن إعادة
+تشغيل validation أو تكرار `ACTION_COMMITTED`/تصنيف الأثر بعد الانقطاع. قبل إضافة
+استعادة تلقائية بعد فقدان العامل، يجب تحديد مصدر الحالة المعتمد ومطابقة
+base/candidate hashes وسلوك validation المكرر وidempotency للـcommit وربط effect
+بالقبول. لا تستنتج نجاحًا من checkpoint أو `ACTION_REQUESTED` أو محتوى المرشح
+وحده.
+
 ### 42.25 P5.5 — Server-classified read-only recipe invocation (2026-09-25)
 
 تُربط أحداث invocation للقراءة فقط بـcapability ID داخل allowlist

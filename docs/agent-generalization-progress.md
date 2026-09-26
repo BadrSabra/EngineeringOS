@@ -16,7 +16,7 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. هذا يدعم استعادة نفس attempt دون الاعتماد على ذاكرة العامل. لا يشكل هذا إثبات أثر مستقلًا؛ Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. هذا يدعم استعادة نفس attempt دون الاعتماد على ذاكرة العامل. لا يشكل هذا إثبات أثر مستقلًا؛ Mission repair لا يروّج bytes إلى live root. استعادة aggregate candidate-effect بعد crash غير محددة بعد: checkpoint changes ليست وحدها إثباتًا لاتساق المرشح والأحداث أو سلامة إعادة validation. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ كما توجد ملاحظة محدودة لمالك listener في مسارات runtime محددة مع recovery/heartbeat fencing. لا يثبت ذلك lifecycle عامة أو descendants، ورصد validator يثبت PID المباشر فقط. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
@@ -2302,6 +2302,32 @@ G9 Revocation Safety
   وP4/P5 جزئيًا.
 - **next step:** تابع أصغر فجوة P3.5 التالية وفق §42.2؛ لا تتجاوز متطلبات الرصد
   المستقل والتحقق من الأثر، ولا تبدأ P6/P7 قبل استحقاقها.
+
+### 42.62 — P3.5 Mission aggregate candidate recovery contract (2026-09-27)
+
+- **phase/step:** P3.5 — تحديد حد استعادة سياق aggregate candidate effect بعد
+  فقدان العامل، قبل إضافة replay runtime.
+- **status:** `blocked — recovery policy is unspecified; no runtime change`.
+- **what changed:** audit للـcheckpoint وEpisode flow وجد أن `pendingChanges`
+  وprojection مشتقة تحفظان candidate input، لكن سياق aggregate effect نفسه
+  (`candidate workspace`, hashes، before-observation reference) محلي للعملية.
+  checkpoint وEpisode أحداث durable منفصلة؛ validation قد يعاد تشغيله دون
+  idempotency موثقة عند هذا الحد، و`ACTION_COMMITTED` لا يضمن semantic dedupe إن
+  اختلف payload عند replay. لذلك لا تكفي الحالة المحفوظة وحدها لترخيص إعادة بناء
+  EffectBundle أو استنتاج قبول ناجح.
+- **files/schema/contracts touched:** مراجعة للـMission tool loop، checkpoint
+  persistence، Episode ledger، observation materializer وeffect observer؛ تعديل
+  توثيقي فقط، بلا schema أو migration أو runtime change.
+- **validation:** تدقيق read-only لعقد §31 و§42.2 ومسار checkpoint/event/effect؛
+  لا اختبارات runtime جديدة لأن التنفيذ مؤجل حتى حسم policy.
+- **authority/safety impact:** لا replay أو كتابة candidate/live أو rerun
+  validation أو قبول جديد أُضيف. تبقى الملاحظات المستقلة وEffectBundle الحاليان
+  سلطة القبول الوحيدة.
+- **remaining/blocker:** يلزم تحديد المصدر authoritative للـbase/candidate،
+  مطابقة hashes/revision، السماح أو المنع من replay للـvalidation، dedupe لـ
+  `ACTION_COMMITTED`، ومصالحة effect/acceptance إذا تعطل العامل بين عمليات DB.
+- **next step:** اختيار fail-closed attempt جديدة، أو عقد استعادة same-attempt
+  يتضمن الشروط أعلاه. لا توسع runtime أو schema قبل حسم القرار.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
