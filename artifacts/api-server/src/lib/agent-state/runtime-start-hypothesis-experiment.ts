@@ -8,6 +8,12 @@ export const RUNTIME_START_HYPOTHESIS_SET_ID =
   "runtime.start.effect-outcome.v1";
 export const RUNTIME_START_OBSERVATION_REF =
   "workspace-runtime.status-after-start.v1";
+export const RUNTIME_START_CALIBRATION_POLICY_VERSION =
+  "runtime-start-probe-semantics-v1";
+export const RUNTIME_START_CALIBRATION_METHOD_VERSION =
+  "runtime-start-classwise-ece10-mission-cluster-percentile95-v1";
+export const RUNTIME_START_CALIBRATION_PARTITION =
+  "runtime-start-fixed-policy-held-out-v1";
 
 const HypothesisIdSchema = z.enum([
   "runtime_effect_not_applied",
@@ -21,8 +27,13 @@ const OutcomeKeySchema = z.enum([
   "runtime_other",
   "runtime_unexpected",
 ]);
+export type RuntimeStartOutcomeKey = z.infer<typeof OutcomeKeySchema>;
 
 const ProbabilitySchema = z.number().finite().min(0).max(1);
+const MarginalOutcomeDistributionSchema = z.array(z.object({
+  outcomeKey: OutcomeKeySchema,
+  probability: ProbabilitySchema,
+}).strict()).length(4);
 
 const ForecastSchema = z.object({
   hypothesisId: HypothesisIdSchema,
@@ -32,8 +43,9 @@ const ForecastSchema = z.object({
     probability: ProbabilitySchema,
   }).strict()).min(1).max(4),
   provenance: z.literal("SERVER_DERIVED"),
-  calibrationStatus: z.literal("unvalidated"),
-  calibrationPolicyVersion: z.literal("runtime-start-probe-semantics-v1"),
+  calibrationStatus: z.enum(["unvalidated", "validated_for_scope"]),
+  calibrationScopeRef: z.string().regex(/^p75-runtime-start-calibration:[a-f0-9]{64}$/),
+  calibrationPolicyVersion: z.literal(RUNTIME_START_CALIBRATION_POLICY_VERSION),
 }).strict();
 
 const OutcomeDecisionSchema = z.object({
@@ -84,6 +96,13 @@ export const RuntimeStartHypothesisExperimentRegistrationSchema = z.object({
   attempt: z.number().int().nonnegative(),
   episodeId: z.string().min(1).max(200),
   actionId: z.string().min(1).max(200),
+  calibrationScopeRef: z.string().regex(/^p75-runtime-start-calibration:[a-f0-9]{64}$/),
+  calibrationStatus: z.enum(["unvalidated", "validated_for_scope"]),
+  calibrationAssessmentRef: z.string()
+    .regex(/^p75-runtime-start-calibration:[a-f0-9]{64}$/)
+    .optional(),
+  calibrationPolicyVersion: z.literal(RUNTIME_START_CALIBRATION_POLICY_VERSION),
+  evaluationPartition: z.literal(RUNTIME_START_CALIBRATION_PARTITION),
   planRevision: z.string().min(1).max(256),
   projectRevision: z.string().min(1).max(200),
   environmentRevision: z.string().regex(/^env-v1:[a-f0-9]{64}$/),
@@ -109,6 +128,35 @@ export const RuntimeStartHypothesisExperimentRegistrationSchema = z.object({
     "scope_mismatch",
   ])).min(6).max(6),
 }).strict().superRefine((registration, context) => {
+  const expectedCalibrationScopeRef = runtimeStartHypothesisCalibrationScopeRef(registration);
+  if (registration.calibrationScopeRef !== expectedCalibrationScopeRef) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Calibration scope must bind the project, source/environment revisions, and versioned policy.",
+      path: ["calibrationScopeRef"],
+    });
+  }
+  if (
+    registration.calibrationStatus === "validated_for_scope"
+    && !registration.calibrationAssessmentRef
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Validated calibration must reference its server-owned assessment.",
+      path: ["calibrationAssessmentRef"],
+    });
+  }
+  if (registration.candidate.forecasts.some((forecastItem) =>
+    forecastItem.calibrationStatus !== registration.calibrationStatus
+    || forecastItem.calibrationScopeRef !== registration.calibrationScopeRef
+    || forecastItem.calibrationPolicyVersion !== registration.calibrationPolicyVersion)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Forecast calibration status must match the registration's scoped assessment.",
+      path: ["candidate", "forecasts"],
+    });
+  }
   const weightTotal = registration.hypotheses.reduce(
     (total, hypothesis) => total + hypothesis.beliefWeight,
     0,
@@ -218,6 +266,9 @@ export const RuntimeStartHypothesisExperimentResultSchema = z.object({
   schemaVersion: z.literal(1),
   recordKind: z.literal("P75_HYPOTHESIS_EXPERIMENT_RESULT"),
   experimentId: z.string().regex(/^p75-runtime-start:[a-f0-9]{64}$/),
+  missionId: z.string().min(1).max(200),
+  calibrationScopeRef: z.string().regex(/^p75-runtime-start-calibration:[a-f0-9]{64}$/),
+  evaluationPartition: z.literal(RUNTIME_START_CALIBRATION_PARTITION),
   resultId: z.string().regex(/^p75-runtime-start-result:[a-f0-9]{64}$/),
   observationRefs: z.array(z.string().min(1).max(256)).max(32),
   measurementValidity: z.enum([
@@ -229,6 +280,8 @@ export const RuntimeStartHypothesisExperimentResultSchema = z.object({
   ]),
   environmentStatus: z.enum(["same_scope", "changed", "unknown"]),
   actualOutcomeKey: OutcomeKeySchema.optional(),
+  marginalOutcomeProbabilities: MarginalOutcomeDistributionSchema.optional(),
+  predictionErrorScore: z.number().finite().min(0).max(2).optional(),
   verdict: z.enum(["matched", "contradicted", "inconclusive"]),
   supportingHypothesisIds: z.array(HypothesisIdSchema).max(3),
   contradictingHypothesisIds: z.array(HypothesisIdSchema).max(3),
@@ -241,12 +294,15 @@ export const RuntimeStartHypothesisExperimentResultSchema = z.object({
   const stableResultId = createHash("sha256")
     .update(JSON.stringify({
       experimentId: result.experimentId,
+      calibrationScopeRef: result.calibrationScopeRef,
       observationRefs: result.observationRefs,
       measurementValidity: result.measurementValidity,
       environmentStatus: result.environmentStatus,
       actualOutcomeKey: usable && result.actualOutcomeKey && result.observationRefs.length > 0
         ? result.actualOutcomeKey
         : undefined,
+      marginalOutcomeProbabilities: result.marginalOutcomeProbabilities,
+      predictionErrorScore: result.predictionErrorScore,
       verdict: result.verdict,
     }))
     .digest("hex");
@@ -257,15 +313,46 @@ export const RuntimeStartHypothesisExperimentResultSchema = z.object({
       path: ["resultId"],
     });
   }
-  if (usable && (!result.actualOutcomeKey || result.observationRefs.length === 0)) {
+  if (usable && (
+    !result.actualOutcomeKey
+    || result.observationRefs.length === 0
+    || !result.marginalOutcomeProbabilities
+    || result.predictionErrorScore === undefined
+  )) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "A complete fresh result requires an outcome and retained observation.",
+      message: "A complete fresh result requires an outcome, retained observation, and scored forecast.",
       path: ["actualOutcomeKey"],
     });
   }
+  if (result.marginalOutcomeProbabilities) {
+    const probabilities = result.marginalOutcomeProbabilities;
+    const keys = new Set(probabilities.map(({ outcomeKey }) => outcomeKey));
+    const total = probabilities.reduce((sum, outcome) => sum + outcome.probability, 0);
+    if (keys.size !== 4 || Math.abs(total - 1) > 1e-9) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Marginal outcome probabilities must cover the registered space and sum to one.",
+        path: ["marginalOutcomeProbabilities"],
+      });
+    }
+    if (result.actualOutcomeKey && result.predictionErrorScore !== undefined) {
+      const expectedBrier = probabilities.reduce((sum, outcome) => (
+        sum + (outcome.probability - Number(outcome.outcomeKey === result.actualOutcomeKey)) ** 2
+      ), 0);
+      if (Math.abs(expectedBrier - result.predictionErrorScore) > 1e-9) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Prediction error score must match the registered marginal forecast.",
+          path: ["predictionErrorScore"],
+        });
+      }
+    }
+  }
   if (!usable && (
     result.actualOutcomeKey !== undefined
+    || result.marginalOutcomeProbabilities !== undefined
+    || result.predictionErrorScore !== undefined
     || result.verdict !== "inconclusive"
     || result.supportingHypothesisIds.length > 0
     || result.contradictingHypothesisIds.length > 0
@@ -302,7 +389,32 @@ export type RuntimeStartHypothesisExperimentBinding = {
   parentWorldRevision: string;
   beforeObservationIds: string[];
   predictionRegisteredAt: string;
+  calibrationAssessment?: {
+    status: "unvalidated" | "validated_for_scope";
+    assessmentRef?: string;
+  };
 };
+
+export function runtimeStartHypothesisCalibrationScopeRef(
+  binding: Pick<
+    RuntimeStartHypothesisExperimentBinding,
+    "projectId" | "projectRevision" | "environmentRevision"
+  >,
+): string {
+  return `p75-runtime-start-calibration:${canonicalJsonHash({
+    projectId: binding.projectId,
+    projectRevision: binding.projectRevision,
+    environmentRevision: binding.environmentRevision,
+    objectiveContractId: RUNTIME_START_OBJECTIVE_CONTRACT_ID,
+    hypothesisSetId: RUNTIME_START_HYPOTHESIS_SET_ID,
+    beliefPolicyVersion: "runtime-start-uniform-bootstrap-v1",
+    hypothesisSetPolicyVersion: "runtime-start-exhaustive-outcome-set-v1",
+    observationRef: RUNTIME_START_OBSERVATION_REF,
+    calibrationPolicyVersion: RUNTIME_START_CALIBRATION_POLICY_VERSION,
+    methodVersion: RUNTIME_START_CALIBRATION_METHOD_VERSION,
+    evaluationPartition: RUNTIME_START_CALIBRATION_PARTITION,
+  })}`;
+}
 
 const OUTCOME_KEYS = [
   "runtime_running",
@@ -326,6 +438,8 @@ function normalizedWeights(): Array<{
 function forecast(
   hypothesisId: z.infer<typeof HypothesisIdSchema>,
   probabilities: readonly number[],
+  calibrationStatus: "unvalidated" | "validated_for_scope",
+  calibrationScopeRef: string,
 ) {
   return {
     hypothesisId,
@@ -335,8 +449,9 @@ function forecast(
       probability: probabilities[index]!,
     })),
     provenance: "SERVER_DERIVED" as const,
-    calibrationStatus: "unvalidated" as const,
-    calibrationPolicyVersion: "runtime-start-probe-semantics-v1" as const,
+    calibrationStatus,
+    calibrationScopeRef,
+    calibrationPolicyVersion: RUNTIME_START_CALIBRATION_POLICY_VERSION,
   };
 }
 
@@ -373,6 +488,9 @@ export function buildRuntimeStartHypothesisExperimentRegistration(
   if (binding.beforeObservationIds.length === 0) {
     throw new Error("Runtime-start hypothesis registration requires retained pre-state evidence.");
   }
+  const calibrationScopeRef = runtimeStartHypothesisCalibrationScopeRef(binding);
+  const calibrationStatus = binding.calibrationAssessment?.status ?? "unvalidated";
+  const calibrationAssessmentRef = binding.calibrationAssessment?.assessmentRef;
   const weights = normalizedWeights();
   const distributions = [
     [0, 1, 0, 0],
@@ -392,6 +510,9 @@ export function buildRuntimeStartHypothesisExperimentRegistration(
     environmentRevision: binding.environmentRevision,
     parentWorldRevision: binding.parentWorldRevision,
     contextObservationIds: binding.beforeObservationIds,
+    calibrationScopeRef,
+    calibrationPolicyVersion: RUNTIME_START_CALIBRATION_POLICY_VERSION,
+    evaluationPartition: RUNTIME_START_CALIBRATION_PARTITION,
     objectiveContractId: RUNTIME_START_OBJECTIVE_CONTRACT_ID,
     hypothesisSetId: RUNTIME_START_HYPOTHESIS_SET_ID,
   });
@@ -401,9 +522,19 @@ export function buildRuntimeStartHypothesisExperimentRegistration(
     weights,
   });
   const candidateForecasts = [
-    forecast("runtime_effect_not_applied", distributions[0]),
-    forecast("runtime_effect_applied_but_not_observed", distributions[1]),
-    forecast("OTHER_UNKNOWN", distributions[2]),
+    forecast(
+      "runtime_effect_not_applied",
+      distributions[0],
+      calibrationStatus,
+      calibrationScopeRef,
+    ),
+    forecast(
+      "runtime_effect_applied_but_not_observed",
+      distributions[1],
+      calibrationStatus,
+      calibrationScopeRef,
+    ),
+    forecast("OTHER_UNKNOWN", distributions[2], calibrationStatus, calibrationScopeRef),
   ];
   const result = RuntimeStartHypothesisExperimentRegistrationSchema.parse({
     schemaVersion: 1,
@@ -416,6 +547,11 @@ export function buildRuntimeStartHypothesisExperimentRegistration(
     attempt: binding.attempt,
     episodeId: binding.episodeId,
     actionId: binding.actionId,
+    calibrationScopeRef,
+    calibrationStatus,
+    ...(calibrationAssessmentRef ? { calibrationAssessmentRef } : {}),
+    calibrationPolicyVersion: RUNTIME_START_CALIBRATION_POLICY_VERSION,
+    evaluationPartition: RUNTIME_START_CALIBRATION_PARTITION,
     planRevision: binding.planRevision,
     projectRevision: binding.projectRevision,
     environmentRevision: binding.environmentRevision,
@@ -481,6 +617,29 @@ export function parseRuntimeStartHypothesisExperimentRegistration(
   return RuntimeStartHypothesisExperimentRegistrationSchema.parse(value);
 }
 
+export type RuntimeStartMarginalOutcomeProbability = {
+  outcomeKey: RuntimeStartOutcomeKey;
+  probability: number;
+};
+
+export function runtimeStartMarginalOutcomeDistribution(
+  value: RuntimeStartHypothesisExperimentRegistration,
+): RuntimeStartMarginalOutcomeProbability[] {
+  const registration = parseRuntimeStartHypothesisExperimentRegistration(value);
+  return registration.candidate.outcomeSpace.map((outcomeKey) => ({
+    outcomeKey,
+    probability: registration.hypotheses.reduce((total, hypothesis) => {
+      const forecastItem = registration.candidate.forecasts.find(
+        (item) => item.hypothesisId === hypothesis.hypothesisId,
+      );
+      const probability = forecastItem?.outcomes.find(
+        (outcome) => outcome.outcomeKey === outcomeKey,
+      )?.probability ?? 0;
+      return total + hypothesis.beliefWeight * probability;
+    }, 0),
+  }));
+}
+
 export function buildRuntimeStartHypothesisExperimentResult(input: {
   registration: RuntimeStartHypothesisExperimentRegistration;
   observationRefs: string[];
@@ -494,6 +653,14 @@ export function buildRuntimeStartHypothesisExperimentResult(input: {
     && input.environmentStatus === "same_scope"
     && input.actualOutcomeKey !== undefined
     && input.observationRefs.length > 0;
+  const marginalOutcomeProbabilities = usable
+    ? runtimeStartMarginalOutcomeDistribution(registration)
+    : undefined;
+  const predictionErrorScore = usable && marginalOutcomeProbabilities
+    ? marginalOutcomeProbabilities.reduce((sum, outcome) => (
+        sum + (outcome.probability - Number(outcome.outcomeKey === input.actualOutcomeKey)) ** 2
+      ), 0)
+    : undefined;
   let verdict: RuntimeStartHypothesisExperimentResult["verdict"] = "inconclusive";
   let supportingHypothesisIds: RuntimeStartHypothesisExperimentResult["supportingHypothesisIds"] = [];
   let contradictingHypothesisIds: RuntimeStartHypothesisExperimentResult["contradictingHypothesisIds"] = [];
@@ -514,10 +681,13 @@ export function buildRuntimeStartHypothesisExperimentResult(input: {
   const stableResultId = createHash("sha256")
     .update(JSON.stringify({
       experimentId: registration.experimentId,
+      calibrationScopeRef: registration.calibrationScopeRef,
       observationRefs: input.observationRefs,
       measurementValidity: input.measurementValidity,
       environmentStatus: input.environmentStatus,
       actualOutcomeKey: usable ? input.actualOutcomeKey : undefined,
+      marginalOutcomeProbabilities: usable ? marginalOutcomeProbabilities : undefined,
+      predictionErrorScore: usable ? predictionErrorScore : undefined,
       verdict,
     }))
     .digest("hex");
@@ -525,11 +695,18 @@ export function buildRuntimeStartHypothesisExperimentResult(input: {
     schemaVersion: 1,
     recordKind: "P75_HYPOTHESIS_EXPERIMENT_RESULT",
     experimentId: registration.experimentId,
+    missionId: registration.missionId,
+    calibrationScopeRef: registration.calibrationScopeRef,
+    evaluationPartition: RUNTIME_START_CALIBRATION_PARTITION,
     resultId: `p75-runtime-start-result:${stableResultId}`,
     observationRefs: input.observationRefs,
     measurementValidity: input.measurementValidity,
     environmentStatus: input.environmentStatus,
     ...(usable ? { actualOutcomeKey: input.actualOutcomeKey } : {}),
+    ...(usable && marginalOutcomeProbabilities && predictionErrorScore !== undefined ? {
+      marginalOutcomeProbabilities,
+      predictionErrorScore,
+    } : {}),
     verdict,
     supportingHypothesisIds,
     contradictingHypothesisIds,

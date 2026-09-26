@@ -5,7 +5,9 @@ import {
   parseRuntimeStartHypothesisExperimentRegistration,
 } from "./runtime-start-hypothesis-experiment.js";
 
-const registration = () => buildRuntimeStartHypothesisExperimentRegistration({
+const registration = (
+  overrides: Partial<Parameters<typeof buildRuntimeStartHypothesisExperimentRegistration>[0]> = {},
+) => buildRuntimeStartHypothesisExperimentRegistration({
   projectId: "project-p75",
   missionId: "mission-p75",
   goalId: "goal-p75",
@@ -19,9 +21,26 @@ const registration = () => buildRuntimeStartHypothesisExperimentRegistration({
   parentWorldRevision: "b".repeat(64),
   beforeObservationIds: ["observation-before-p75"],
   predictionRegisteredAt: "2026-09-26T10:00:00.000Z",
+  ...overrides,
 });
 
 describe("runtime-start hypothesis experiment", () => {
+  it("shares calibration only across missions with the same project and environment revisions", () => {
+    const base = registration();
+    expect(registration({ missionId: "mission-another" }).calibrationScopeRef)
+      .toBe(base.calibrationScopeRef);
+    expect(registration({ projectRevision: "project-revision-next" }).calibrationScopeRef)
+      .not.toBe(base.calibrationScopeRef);
+    expect(registration({ environmentRevision: `env-v1:${"c".repeat(64)}` }).calibrationScopeRef)
+      .not.toBe(base.calibrationScopeRef);
+  });
+
+  it("requires an assessment reference before marking forecasts calibrated", () => {
+    expect(() => registration({
+      calibrationAssessment: { status: "validated_for_scope" },
+    })).toThrow();
+  });
+
   it("registers a normalized exhaustive bootstrap belief and a fixed safe probe", () => {
     const contract = registration();
     const weights = contract.hypotheses.map(({ beliefWeight }) => beliefWeight);
@@ -30,6 +49,8 @@ describe("runtime-start hypothesis experiment", () => {
       objectiveContractId: "runtime.start.verified-serving-state.v1",
       hypothesisSetId: "runtime.start.effect-outcome.v1",
       selectionMode: "fixed_safe_probe",
+      calibrationStatus: "unvalidated",
+      evaluationPartition: "runtime-start-fixed-policy-held-out-v1",
       candidate: {
         decisionValueStatus: "not_computed_bootstrap",
         authorizationDecision: "allowed",
@@ -78,7 +99,8 @@ describe("runtime-start hypothesis experiment", () => {
       beliefUpdateStatus: "unresolved_unvalidated_forecast",
       observationRefs: ["observation-runtime-status"],
     });
-    expect(result).not.toHaveProperty("predictionErrorScore");
+    expect(result.predictionErrorScore).toBeCloseTo(14 / 27);
+    expect(result.marginalOutcomeProbabilities).toHaveLength(4);
     expect(buildRuntimeStartHypothesisExperimentResult({
       registration: contract,
       observationRefs: ["observation-runtime-status"],
@@ -107,6 +129,7 @@ describe("runtime-start hypothesis experiment", () => {
       contradictingHypothesisIds: [],
     });
     expect(result).not.toHaveProperty("actualOutcomeKey");
+    expect(result).not.toHaveProperty("predictionErrorScore");
   });
 
   it("rejects non-normalized server-owned weights", () => {

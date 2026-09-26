@@ -5073,7 +5073,7 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `PARTIAL — runtime.start fixed-safe bootstrap بدأ في 2026-09-26`
+**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ لا scope مؤهل بعد (2026-09-26)`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
@@ -5085,13 +5085,21 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 - يستخدم hypothesis set ثلاثية متنافية وشاملة تتضمن `OTHER_UNKNOWN` وأوزان
   bootstrap مجموعها 1. الـforecasts وEIG server-derived لكنهما غير معايرين
   وadvisory فقط؛ لا يحدثان Belief ولا يمنحان اختيارًا آليًا.
+- يسجل Brier لكل outcome كامل، ويصدر evaluator server-owned تقريرًا scoped
+  يستخدم classwise ECE-10 وفاصلًا علويًا أحادي الطرف 95% عبر mission-cluster
+  bootstrap. التقرير لا يتحقق دون 30 Mission مستقلة مكتملة، وأي تجربة مسجلة
+  unresolved تمنع التحقق بدل استبعادها انتقائيًا.
 - الاختيار هو fixed-safe `runtime.status`. إذا فشل start أو تعذر after-state،
   يمكن إجراء قراءة مستقلة واحدة باستخدام `observeStartBeforeState`؛ لا يعاد
   استدعاء start. في مسار النجاح يستخدم القياس المباشر المطابق الموجود.
 - تسجل النتيجة كـEpisode event منفصل. لا تغير D1 أو Gate C أو P6/P7 acceptance؛
   كل قياس ناقص أو stale أو خارج environment scope يبقى inconclusive.
-- لا يشمل ذلك `restart` أو `stop` أو تشخيصًا عامًا. لا توجد migration أو schema
-  change. بقية Definition of Done أدناه ما زالت مفتوحة.
+- يثبت scope hash المشروع ومراجعة المصدر والبيئة والـobjective والـhypothesis set
+  وسياسة forecast وطريقة المعايرة وheld-out partition. تظل جميع القراءات في
+  `fixed_safe_probe` حتى بعد اجتياز التقييم؛ expected decision value لم ينفذ.
+- لا يشمل ذلك `restart` أو `stop` أو تشخيصًا عامًا. لا توجد migration أو تغيير
+  لقاعدة البيانات؛ تحفظ التقارير كـEpisode events. بقية Definition of Done أدناه
+  ما زالت مفتوحة.
 
 يجب أن يمثل النظام uncertainty صراحة عبر:
 
@@ -5131,8 +5139,11 @@ time
    يختار probe ثابت وآمن من الخادم أو observation بموافقة بشرية. لا يستخدم
    `calibrated_decision_value` آليًا حتى يثبت evaluator المعايرة ضمن scope
    مناسب ومستقل على held-out لا يقل عن الحد القائم للحالات في §25.4، مع ECE
-   لا يتجاوز `0.15` ولا يتجاوزه الحد الأعلى لفاصل عدم اليقين. هذا يجيز الاختيار
-   لذلك scope فقط، ولا يختصر بوابات النقل أو promotion.
+    لا يتجاوز `0.15` ولا يتجاوزه الحد الأعلى لفاصل عدم اليقين. التنفيذ الحالي
+    يستخدم classwise ECE بعشرة bins وحدًا علويًا percentile 95% من
+    mission-cluster bootstrap، ويشترط 30 Mission مستقلة؛ أي registration بلا
+    outcome مكتملة يبقي التقييم غير مكتمل. اجتياز التقييم لا يغير الاختيار الحالي
+    من fixed-safe ولا يختصر بوابات النقل أو promotion.
 5. يحسب الخادم `expectedDecisionValue` من objective policy versioned؛ وبعد
    authorization وrisk/cost/time limits، يرتب المرشحين بالقيمة الموجبة الأعلى.
    يستخدم EIG لكسر التعادل بين قيم قرار متساوية فقط، ثم الكلفة الأقل والمخاطر
@@ -6094,10 +6105,22 @@ P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المرا�
   الناقص أو stale أو المختلف بيئيًا يبقى inconclusive.
 - تحفظ registration والنتيجة كـEpisode events append-only؛ النتيجة منفصلة عن
   Gate C، ولا تنشئ acceptance أو تغير P6/P7 authority.
+- يحفظ كل outcome كامل forecast الهامشي وBrier score. يقرأ evaluator التسجيلات
+  والنتائج من المشروع والنطاق المحددين، ويتحقق أن توزيع النتيجة يطابق forecast
+  المسجل نفسه قبل احتسابه. تقرير المعايرة append-only يحمل digest لمجموعة المصدر
+  وعدد الحالات ومتوسط Brier وECE والحد الأعلى.
+- يعرّف held-out partition بإصدار forecast ثابت؛ تعديل مراجعة المشروع أو البيئة
+  أو سياسة المعايرة/طريقة ECE ينشئ scope مختلفًا. يلزم 30 Mission مستقلة مكتملة
+  على الأقل، وECE والحد الأعلى 95% من mission-cluster bootstrap كلاهما
+  `<= 0.15`. أي registered experiment بلا نتيجة قابلة للتقييم يمنع
+  `validated_for_scope`.
 - `resultId` ثابت للقياس نفسه ولا يتضمن وقت resolution؛ retry بنفس الهوية لا يضيف
   event آخر، ونتيجة مختلفة للتجربة نفسها لا تستبدل المسجل.
-- `restart` و`stop` والتشخيص العام خارج النطاق. لا migration أو schema change.
+- `restart` و`stop` والتشخيص العام خارج النطاق. لا migration أو تغيير لقاعدة
+  البيانات؛ تحفظ التقارير في Episode events.
 
-هذا لا يغلق §42.8: المعايرة، expected-decision-value ranking، Belief updates،
-وP8 integration ما زالت غير منفذة. توثيق التحقق النهائي لهذه الشريحة موجود في
-`docs/agent-generalization-progress.md` ضمن سجل 2026-09-26.
+التقييم متاح كتنفيذ، لكن لا توجد حتى الآن 30 Mission held-out في scope واحد،
+لذلك لا يوجد scope مؤهل. يبقى الاختيار دائمًا `fixed_safe_probe`؛ لم ينفذ
+expected-decision-value ranking أو Belief updates، ولم يبدأ P8 integration.
+توثيق التحقق النهائي لهذه الشريحة موجود في `docs/agent-generalization-progress.md`
+ضمن سجل 2026-09-26.

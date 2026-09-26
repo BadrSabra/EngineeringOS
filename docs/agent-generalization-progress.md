@@ -1930,6 +1930,35 @@ G9 Revocation Safety
 - **next step:** لا خطوة أخرى ضمن هذا النطاق؛ لا توسعة إلى transitions أخرى
   دون خطة ونطاق صريحين.
 
+### 42.48 P7.5 — Scoped held-out calibration gate (2026-09-26)
+
+- **phase/step:** P7.5 — معايرة forecast الخاص بـMission `runtime.start`
+- **status:** `partial`
+- **what changed:** أضيف score لكل outcome كامل باستخدام Brier، وevaluator
+  server-owned يحسب classwise ECE بعشرة bins وحدًا علويًا percentile 95% عبر
+  mission-cluster bootstrap حتمي. يلزم 30 Mission مستقلة مكتملة؛ أي registration
+  unresolved يمنع اعتماد scope بدل استبعاده. scope مربوط بمراجعة المشروع والبيئة
+  والـobjective وhypothesis/observation وسياسة المعايرة والطريقة والـheld-out
+  partition. بقي الاختيار `fixed_safe_probe` دائمًا.
+- **files/schema/contracts touched:**
+  `runtime-start-hypothesis-experiment.ts`,
+  `runtime-start-hypothesis-calibration.ts` واختباراتهما،
+  `recipe-operation-runner.ts`، وخطة التنفيذ وسجل التقدم؛ لا migration أو schema
+  قاعدة بيانات.
+- **validation:** اختبارات
+  `runtime-start-hypothesis-experiment.test.ts`,
+  `runtime-start-hypothesis-calibration.test.ts`,
+  `recipe-operation-runner.test.ts` نجحت (`29/29`). نجح `pnpm run typecheck` و
+  `git diff --check`. أُعيد تشغيل `artifacts/api-server: API Server` وأعاد
+  `GET /api/healthz` حالة `200` مع `status: ok`.
+- **authority/safety impact:** لا تغيير في Gate C أو P6/P7 acceptance أو
+  الصلاحيات. لم يتغير start/restart/stop؛ معايرة forecast لا تغير اختيار probe.
+- **remaining/blocker:** لا توجد بعد 30 Mission held-out ضمن scope واحد، لذلك
+  لا scope مؤهل ولا forecast marked validated. expected-decision-value ranking
+  وBelief updates وP8 ما زالت مفتوحة.
+- **next step:** اجمع نتائج مكتملة ومطابقة للسياسة داخل scope نفسه؛ أبقِ
+  `fixed_safe_probe` حتى تجتاز بيانات held-out القياس ولا تفتح ranking تلقائيًا.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

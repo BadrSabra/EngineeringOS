@@ -24,7 +24,7 @@ import {
   type EpisodeVerdict,
   type JsonValue,
 } from "@workspace/ai-orchestrator";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentObservationsTable,
@@ -94,12 +94,21 @@ import {
 } from "./agent-state/runtime-start-transition.js";
 import {
   RUNTIME_START_OBJECTIVE_CONTRACT_ID,
+  RUNTIME_START_HYPOTHESIS_SET_ID,
+  RUNTIME_START_CALIBRATION_PARTITION,
+  RUNTIME_START_CALIBRATION_POLICY_VERSION,
   buildRuntimeStartHypothesisExperimentRegistration,
   buildRuntimeStartHypothesisExperimentResult,
   parseRuntimeStartHypothesisExperimentRegistration,
   parseRuntimeStartHypothesisExperimentResult,
+  runtimeStartHypothesisCalibrationScopeRef,
   type RuntimeStartHypothesisExperimentRegistration,
 } from "./agent-state/runtime-start-hypothesis-experiment.js";
+import {
+  evaluateRuntimeStartHypothesisCalibration,
+  RuntimeStartHypothesisCalibrationAssessmentSchema,
+  type RuntimeStartCalibrationExperiment,
+} from "./agent-state/runtime-start-hypothesis-calibration.js";
 import {
   buildCandidateValidationAction,
   buildCandidateValidationEffectContract,
@@ -275,6 +284,116 @@ function runtimeStartHypothesisProbeValue(
     return { outcomeKey: "runtime_not_running", observedAt: state.observedAt };
   }
   return undefined;
+}
+
+async function loadRuntimeStartCalibrationExperiments(
+  projectId: string,
+  calibrationScopeRef: string,
+): Promise<RuntimeStartCalibrationExperiment[]> {
+  const eventRows = await db.select({
+    eventType: aiAgentEpisodeEventsTable.eventType,
+    payload: aiAgentEpisodeEventsTable.payload,
+  }).from(aiAgentEpisodeEventsTable)
+    .where(and(
+      eq(aiAgentEpisodeEventsTable.projectId, projectId),
+      inArray(aiAgentEpisodeEventsTable.eventType, [
+        "OBSERVATION_REQUESTED",
+        "OBSERVATION_RECORDED",
+      ]),
+      sql`${aiAgentEpisodeEventsTable.payload} ->> 'calibrationScopeRef' = ${calibrationScopeRef}`,
+    ));
+
+  const registrations: RuntimeStartCalibrationExperiment[] = [];
+  const resultsByExperimentId = new Map<
+    string,
+    Array<ReturnType<typeof parseRuntimeStartHypothesisExperimentResult>>
+  >();
+  const malformedResultIds = new Set<string>();
+  const resultPlaceholders = new Map<string, { missionId: string; calibrationScopeRef: string }>();
+
+  for (const event of eventRows) {
+    const payload = event.payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const record = payload as Record<string, unknown>;
+    if (record.calibrationScopeRef !== calibrationScopeRef) continue;
+
+    if (record.recordKind === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED") {
+      if (typeof record.experimentId !== "string" || typeof record.missionId !== "string") {
+        throw new Error("A scoped runtime-start registration is missing its durable identity.");
+      }
+      if (event.eventType !== "OBSERVATION_REQUESTED") {
+        registrations.push({
+          experimentId: record.experimentId,
+          missionId: record.missionId,
+          calibrationScopeRef,
+        });
+        continue;
+      }
+      try {
+        const registration = parseRuntimeStartHypothesisExperimentRegistration(record);
+        const registrationMatchesScope = registration.projectId === projectId
+          && registration.calibrationScopeRef === calibrationScopeRef
+          && registration.evaluationPartition === RUNTIME_START_CALIBRATION_PARTITION;
+        registrations.push({
+          experimentId: registration.experimentId,
+          missionId: registration.missionId,
+          calibrationScopeRef,
+          ...(registrationMatchesScope ? { registration } : {}),
+        });
+      } catch {
+        registrations.push({
+          experimentId: record.experimentId,
+          missionId: record.missionId,
+          calibrationScopeRef,
+        });
+      }
+      continue;
+    }
+
+    if (record.recordKind !== "P75_HYPOTHESIS_EXPERIMENT_RESULT") continue;
+    if (typeof record.experimentId !== "string" || typeof record.missionId !== "string") {
+      throw new Error("A scoped runtime-start result is missing its durable identity.");
+    }
+    if (event.eventType !== "OBSERVATION_RECORDED") {
+      malformedResultIds.add(record.experimentId);
+      resultPlaceholders.set(record.experimentId, {
+        missionId: record.missionId,
+        calibrationScopeRef,
+      });
+      continue;
+    }
+    resultPlaceholders.set(record.experimentId, {
+      missionId: record.missionId,
+      calibrationScopeRef,
+    });
+    try {
+      const result = parseRuntimeStartHypothesisExperimentResult(record);
+      const values = resultsByExperimentId.get(result.experimentId) ?? [];
+      values.push(result);
+      resultsByExperimentId.set(result.experimentId, values);
+    } catch {
+      malformedResultIds.add(record.experimentId);
+    }
+  }
+
+  const registeredIds = new Set(registrations.map(({ experimentId }) => experimentId));
+  const experiments = registrations.map((registration) => {
+    const candidates = resultsByExperimentId.get(registration.experimentId) ?? [];
+    const uniqueCandidates = new Map(candidates.map((result) => [result.resultId, result]));
+    const result = !malformedResultIds.has(registration.experimentId)
+      && uniqueCandidates.size === 1
+      && [...uniqueCandidates.values()][0]?.missionId === registration.missionId
+      ? [...uniqueCandidates.values()][0]
+      : undefined;
+    return { ...registration, ...(result ? { result } : {}) };
+  });
+
+  for (const [experimentId, placeholder] of resultPlaceholders) {
+    if (!registeredIds.has(experimentId)) {
+      experiments.push({ experimentId, ...placeholder });
+    }
+  }
+  return experiments;
 }
 
 function runtimeStartAfterObservationValue(
@@ -1261,6 +1380,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             && beforeObservationIds.length > 0
           ) {
             try {
+              const calibrationScopeRef = runtimeStartHypothesisCalibrationScopeRef({
+                projectId: params.projectId,
+                projectRevision: params.sourceRevision,
+                environmentRevision,
+              });
               const experimentId = `p75-runtime-start:${canonicalJsonHash({
                 projectId: params.projectId,
                 missionId: params.missionId,
@@ -1274,8 +1398,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                 environmentRevision,
                 parentWorldRevision: parent.worldRevision,
                 contextObservationIds: beforeObservationIds,
+                calibrationScopeRef,
+                calibrationPolicyVersion: RUNTIME_START_CALIBRATION_POLICY_VERSION,
+                evaluationPartition: RUNTIME_START_CALIBRATION_PARTITION,
                 objectiveContractId: RUNTIME_START_OBJECTIVE_CONTRACT_ID,
-                hypothesisSetId: "runtime.start.effect-outcome.v1",
+                hypothesisSetId: RUNTIME_START_HYPOTHESIS_SET_ID,
               })}`;
               const existingEvents = await db.select()
                 .from(aiAgentEpisodeEventsTable)
@@ -1283,6 +1410,19 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   eq(aiAgentEpisodeEventsTable.episodeId, episode.episodeId),
                   eq(aiAgentEpisodeEventsTable.eventType, "OBSERVATION_REQUESTED"),
                 ));
+              const conflictingRegistration = existingEvents.some((event) => {
+                const payload = event.payload;
+                return payload
+                  && typeof payload === "object"
+                  && !Array.isArray(payload)
+                  && (payload as Record<string, unknown>).recordKind
+                    === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED"
+                  && (payload as Record<string, unknown>).actionId === gateCAction.actionId
+                  && (payload as Record<string, unknown>).experimentId !== experimentId;
+              });
+              if (conflictingRegistration) {
+                throw new Error("A prior runtime-start registration for this action uses a different policy identity.");
+              }
               const existingRegistration = existingEvents.find((event) => {
                 const payload = event.payload;
                 return payload
@@ -1311,11 +1451,38 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   parentWorldRevision: parent.worldRevision,
                   beforeObservationIds,
                   predictionRegisteredAt: registration.predictionRegisteredAt,
+                  calibrationAssessment: {
+                    status: registration.calibrationStatus,
+                    ...(registration.calibrationAssessmentRef
+                      ? { assessmentRef: registration.calibrationAssessmentRef }
+                      : {}),
+                  },
                 });
                 if (canonicalJsonHash(registration) !== canonicalJsonHash(expected)) {
                   throw new Error("Existing P7.5 registration conflicts with the current runtime-start binding.");
                 }
               } else {
+                const calibrationAssessment = RuntimeStartHypothesisCalibrationAssessmentSchema.parse(
+                  evaluateRuntimeStartHypothesisCalibration({
+                    calibrationScopeRef,
+                    experiments: await loadRuntimeStartCalibrationExperiments(
+                      params.projectId,
+                      calibrationScopeRef,
+                    ),
+                  }),
+                );
+                await appendEpisodeEvent({
+                  episodeId: episode.episodeId,
+                  projectId: params.projectId,
+                  executionId,
+                  attempt: executionAttempt,
+                  workerId,
+                  eventType: "OBSERVATION_RECORDED",
+                  payload: calibrationAssessment as unknown as JsonValue,
+                  actorType: "server",
+                  actorId: workerId,
+                  correlationId: executionId,
+                });
                 registration = buildRuntimeStartHypothesisExperimentRegistration({
                   projectId: params.projectId,
                   missionId: params.missionId,
@@ -1330,6 +1497,12 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                   parentWorldRevision: parent.worldRevision,
                   beforeObservationIds,
                   predictionRegisteredAt: new Date().toISOString(),
+                  calibrationAssessment: {
+                    status: calibrationAssessment.status === "validated_for_scope"
+                      ? "validated_for_scope"
+                      : "unvalidated",
+                    assessmentRef: calibrationAssessment.assessmentRef,
+                  },
                 });
                 if (registration.experimentId !== experimentId) {
                   throw new Error("P7.5 experiment identity did not match its server-owned binding.");
@@ -2496,6 +2669,40 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                     correlationId: claimed.id,
                     observationRefs,
                   });
+                }
+                try {
+                  const calibrationAssessment = evaluateRuntimeStartHypothesisCalibration({
+                    calibrationScopeRef: registration.calibrationScopeRef,
+                    experiments: await loadRuntimeStartCalibrationExperiments(
+                      params.projectId,
+                      registration.calibrationScopeRef,
+                    ),
+                  });
+                  await appendEpisodeEvent({
+                    episodeId: episode.episodeId,
+                    projectId: params.projectId,
+                    executionId: claimed.id,
+                    attempt: claimed.attempt,
+                    workerId,
+                    eventType: "OBSERVATION_RECORDED",
+                    payload: calibrationAssessment as unknown as JsonValue,
+                    actorType: "server",
+                    actorId: workerId,
+                    correlationId: claimed.id,
+                  });
+                } catch (error) {
+                  logger.warn(
+                    {
+                      scope: "recipe-operation",
+                      code: "runtime_start_calibration_assessment_failed",
+                      executionId: claimed.id,
+                      attempt: claimed.attempt,
+                      episodeId: episode.episodeId,
+                      experimentId: registration.experimentId,
+                      error,
+                    },
+                    "P7.5 calibration assessment remains unavailable; fixed-safe selection is unchanged",
+                  );
                 }
               } catch (error) {
                 logger.warn(
