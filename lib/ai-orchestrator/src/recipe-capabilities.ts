@@ -190,6 +190,7 @@ export type RuntimeStartRunner = (args: {
     parentWorldRevision?: string;
     beforeObservationIds: string[];
     decisionCode: string;
+    hypothesisExperimentId?: string;
   }>;
 }) => Promise<{
   status: "passed" | "blocked" | "unavailable";

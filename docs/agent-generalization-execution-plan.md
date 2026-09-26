@@ -5073,10 +5073,25 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `NOT STARTED`
+**الحالة:** `PARTIAL — runtime.start fixed-safe bootstrap بدأ في 2026-09-26`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
+
+#### الشريحة الأولية الحالية — Mission `runtime.start`
+
+- يربط التسجيل server-side بين objective وGoal وplan revision والتنفيذ والمحاولة
+  والـEpisode وaction ومراجعة المشروع والبيئة وملاحظة D1.
+- يستخدم hypothesis set ثلاثية متنافية وشاملة تتضمن `OTHER_UNKNOWN` وأوزان
+  bootstrap مجموعها 1. الـforecasts وEIG server-derived لكنهما غير معايرين
+  وadvisory فقط؛ لا يحدثان Belief ولا يمنحان اختيارًا آليًا.
+- الاختيار هو fixed-safe `runtime.status`. إذا فشل start أو تعذر after-state،
+  يمكن إجراء قراءة مستقلة واحدة باستخدام `observeStartBeforeState`؛ لا يعاد
+  استدعاء start. في مسار النجاح يستخدم القياس المباشر المطابق الموجود.
+- تسجل النتيجة كـEpisode event منفصل. لا تغير D1 أو Gate C أو P6/P7 acceptance؛
+  كل قياس ناقص أو stale أو خارج environment scope يبقى inconclusive.
+- لا يشمل ذلك `restart` أو `stop` أو تشخيصًا عامًا. لا توجد migration أو schema
+  change. بقية Definition of Done أدناه ما زالت مفتوحة.
 
 يجب أن يمثل النظام uncertainty صراحة عبر:
 
@@ -6062,3 +6077,27 @@ P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المرا�
 
 لا يضيف هذا التحليل predicate language عامة أو dependency graph أو scheduler
 جديدًا، ولا يبدأ P7 أو P7.5. يبقى فتح التنفيذ مشروطًا بطلب صريح مستقل.
+
+### 42.42 P7.5 — Mission runtime.start fixed-safe bootstrap (2026-09-26)
+
+**الحالة:** `PARTIAL`
+
+بدأ تنفيذ شريحة ضيقة بعد إغلاق pilot `runtime.start`:
+
+- التجربة تخص Mission-owned `runtime.start` فقط عند ربطها بـGoal وplan revision؛
+  وتسجل قبل تنفيذ start.
+- يستخدم الخادم hypothesis set ثابتة وموزونة، outcome space صريحًا، forecast
+  distributions كاملة، وEIG مشتقًا server-side. تبقى forecasts غير المعايرة وEIG
+  advisory ولا يحدثان Belief أو يختاران مرشحًا آليًا.
+- المرشح الوحيد هو fixed-safe `runtime.status`. عند فشل start أو تعذر after-state،
+  ينفذ قراءة مستقلة واحدة بـ`observeStartBeforeState` دون إعادة start. القياس
+  الناقص أو stale أو المختلف بيئيًا يبقى inconclusive.
+- تحفظ registration والنتيجة كـEpisode events append-only؛ النتيجة منفصلة عن
+  Gate C، ولا تنشئ acceptance أو تغير P6/P7 authority.
+- `resultId` ثابت للقياس نفسه ولا يتضمن وقت resolution؛ retry بنفس الهوية لا يضيف
+  event آخر، ونتيجة مختلفة للتجربة نفسها لا تستبدل المسجل.
+- `restart` و`stop` والتشخيص العام خارج النطاق. لا migration أو schema change.
+
+هذا لا يغلق §42.8: المعايرة، expected-decision-value ranking، Belief updates،
+وP8 integration ما زالت غير منفذة. توثيق التحقق النهائي لهذه الشريحة موجود في
+`docs/agent-generalization-progress.md` ضمن سجل 2026-09-26.

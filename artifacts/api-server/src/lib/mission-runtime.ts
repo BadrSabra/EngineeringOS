@@ -1043,6 +1043,8 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       candidateWorkspace: candidate?.candidateWorkspace ?? null,
       userId: dispatch.userId,
       idempotencyKey: dispatch.idempotencyKey,
+      missionId: dispatch.missionId,
+      planRevision: dispatch.delegation.planRevision ?? undefined,
       runtimeStartRunner: createRuntimeStartRunner(),
       ...(skillBinding ? { skillBinding } : {}),
       parentExecutionId: dispatch.delegation.parentExecutionId,

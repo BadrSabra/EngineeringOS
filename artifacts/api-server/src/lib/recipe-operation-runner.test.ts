@@ -12,6 +12,8 @@ import {
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   aiWorldTransitionsTable,
   aiChatSessionsTable,
   aiStrategyCandidatesTable,
@@ -649,6 +651,114 @@ describe("recipe operation preparation", () => {
     } finally {
       startSpy.mockRestore();
       worldStateSpy.mockRestore();
+      await fixture.cleanup(executionId);
+    }
+  });
+
+  it("records one fixed-safe runtime.start status probe without changing Gate C acceptance", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify");
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const planRevision = "runtime-start-p75-test-plan";
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId: fixture.params.projectId,
+      userId: fixture.params.userId,
+      title: "Runtime start experiment",
+      intent: "Verify the runtime start outcome",
+      status: "active",
+      scope: { kind: "project", projectId: fixture.params.projectId },
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId: fixture.params.projectId,
+      title: "Start the workspace runtime",
+      status: "running",
+    });
+    const preStateObserver = vi.fn(async ({ projectId, revision }: {
+      projectId: string;
+      revision: string;
+    }) => ({
+      status: "observed" as const,
+      runtimeStatus: "stopped" as const,
+      projectId,
+      revision,
+      sessionId: null,
+      pid: null,
+      port: null,
+      processAlive: false,
+      portReady: false,
+      source: "test_observer" as const,
+      inventoryComplete: true,
+      unknownListenerPorts: [],
+      observedAt: new Date().toISOString(),
+      detail: "Test supervisor confirms the runtime is stopped.",
+    }));
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      startPreStateObserver: preStateObserver,
+    });
+    const stoppedSnapshot = await manager.get(fixture.params.projectId);
+    const startSpy = vi.spyOn(manager, "start").mockResolvedValue({
+      ...stoppedSnapshot,
+      status: "failed",
+      error: "simulated start failure",
+    });
+    let executionId: string | undefined;
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        missionId,
+        goalId,
+        planRevision,
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionId = result.executionId;
+      expect(result.status).not.toBe("completed");
+      expect(startSpy).toHaveBeenCalledTimes(1);
+      expect(preStateObserver).toHaveBeenCalledTimes(2);
+
+      const events = await db.select().from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+      const registrationEvent = events.find((event) => {
+        const payload = event.payload;
+        return payload
+          && typeof payload === "object"
+          && !Array.isArray(payload)
+          && (payload as Record<string, unknown>).recordKind
+            === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED";
+      });
+      const resultEvent = events.find((event) => {
+        const payload = event.payload;
+        return payload
+          && typeof payload === "object"
+          && !Array.isArray(payload)
+          && (payload as Record<string, unknown>).recordKind
+            === "P75_HYPOTHESIS_EXPERIMENT_RESULT";
+      });
+      expect(registrationEvent?.eventType).toBe("OBSERVATION_REQUESTED");
+      expect(registrationEvent?.payload).toMatchObject({
+        goalId,
+        planRevision,
+        selectionMode: "fixed_safe_probe",
+        candidate: { decisionValueStatus: "not_computed_bootstrap" },
+      });
+      expect(resultEvent?.payload).toMatchObject({
+        verdict: "matched",
+        actualOutcomeKey: "runtime_not_running",
+        measurementValidity: "complete_fresh",
+        environmentStatus: "same_scope",
+        beliefUpdateStatus: "unresolved_unvalidated_forecast",
+        observationRefs: [expect.any(String)],
+      });
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      ))).toHaveLength(0);
+    } finally {
+      startSpy.mockRestore();
       await fixture.cleanup(executionId);
     }
   });

@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-26
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية ولديها شرائح runtime محدودة. P5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة: تشمل Action محدودًا لـ`mission_repair` وقراءتي recipe fail-closed، ويسجل مسارا `/api/ai/chat` و`/api/ai/chat/stream` قراءات provider المؤهلة. كما يسجل المساران قراءات `query_knowledge_graph` و`discover_project_apis` على Episode/attempt الدردشة، مع manifest وscope وrevision مملوكة للخادم؛ يظل `refresh_project_scan` خارج observation read-only. ينشئ `/api/ai/chat` غير المتدفق lifecycle دائمًا عند أول invocation قرائي مؤهل ويغلقه مع حواجز ownership؛ لا ينشئ lifecycle بلا قراءة ولا يغير دلالات acceptance أو ينشئ EffectBundle من الملاحظات. أدوات Mission غير المدرجة و`refresh_project_scan` وأدوات validation/effect خارج هذا الجرد، ولا تفتح P5.5 الحالية صلاحيات أو أسطحًا جديدة. أُغلق pilot محدود لـP6 على انتقال `runtime.start` الحقيقي `stopped → running` مع D1 قبل الأثر وD2 في Mission dispatch؛ تبقى `restart/stop` خارج النطاق. الخطوة التالية P7 لتشخيص فشل World State، لا موثوقية synthesis. توجد primitives جزئية لـP8/P9/P10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية ولديها شرائح runtime محدودة. P5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة: تشمل Action محدودًا لـ`mission_repair` وقراءتي recipe fail-closed، ويسجل مسارا `/api/ai/chat` و`/api/ai/chat/stream` قراءات provider المؤهلة. كما يسجل المساران قراءات `query_knowledge_graph` و`discover_project_apis` على Episode/attempt الدردشة، مع manifest وscope وrevision مملوكة للخادم؛ يظل `refresh_project_scan` خارج observation read-only. ينشئ `/api/ai/chat` غير المتدفق lifecycle دائمًا عند أول invocation قرائي مؤهل ويغلقه مع حواجز ownership؛ لا ينشئ lifecycle بلا قراءة ولا يغير دلالات acceptance أو ينشئ EffectBundle من الملاحظات. أدوات Mission غير المدرجة و`refresh_project_scan` وأدوات validation/effect خارج هذا الجرد، ولا تفتح P5.5 الحالية صلاحيات أو أسطحًا جديدة. أُغلق pilot محدود لـP6 على انتقال `runtime.start` الحقيقي `stopped → running` مع D1 قبل الأثر وD2 في Mission dispatch؛ تبقى `restart/stop` خارج النطاق. P7 للتشخيص العام ما زالت غير مكتملة؛ بدأ P7.5 بشريحة bootstrap ضيقة لـMission-owned `runtime.start` فقط. توجد primitives جزئية لـP8/P9/P10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -22,7 +22,7 @@
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `pilot closed (scoped)` | اكتمل pilot `runtime.start` الحقيقي `stopped → running`: D1 يمنع الأثر عند غياب/تعارض الدليل؛ materialization يثبت هوية التنفيذ والمحاولة وEpisode والجلسة ومراجع المشروع والبيئة؛ D2 يربط dispatch بالانتقال الحدثي ومراجعاته وملاحظاته وخطتيه. لا يمنع تغير World State غير متعلق هذا dispatch. `running → running` لا ينتج انتقالًا، و`restart/stop` خارج النطاق. |
 | P7 — World-State Failure Diagnosis | `not_started` | توجد foundations سابقة من provider/validator diagnostics وbounded replan، لكنها لا تعني بدء P7. تشخيص World State وربط الافتراضات بالـfacts المتأثرة و`WorldTransition` والملاحظة الفاصلة لم يبدأ. |
-| P7.5 — Belief and Information Gain | `not_started` | gate معرفي: hypothesis sets صالحة وموزونة server-side، وcandidate مرتبط بقرار objective. forecasts غير المعايرة تبقى shadow؛ يبدأ الاختيار بـfixed-safe probes أو human approval، ثم expected decision value آلي داخل scope معاير، مع EIG لكسر التعادل فقط. |
+| P7.5 — Belief and Information Gain | `partial — runtime.start fixed-safe bootstrap` | بدأ تسجيل فرضيات runtime-start موزونة server-side وربط تجربة Mission بالـGoal والخطة والمراجعة والبيئة. الاختيار fixed-safe فقط؛ forecasts وEIG غير المعايرة advisory، ولا يوجد تحديث Belief أو ترتيب آلي أو توسيع إلى restart/stop. تبقى بقية DoD في §42.8 مفتوحة. |
 | P8 — Diagnosis-aware Replanning | `partial` | توجد bounded objective recovery وMission replan primitives، لكن لا تضمن دائمًا أن التشخيص هو مدخل إعادة التخطيط، ولا تستهلك World Delta/Belief revision. فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
@@ -178,6 +178,32 @@ G9 Revocation Safety
 ```
 
 ## سجل الخطوات
+
+### 2026-09-26 — P7.5 Runtime-start fixed-safe bootstrap
+
+- **phase/step:** P7.5 / Mission `runtime.start` فقط
+- **status:** `partial`
+- **what changed:** أضيفت hypothesis set server-owned وموزونة، ومرشح
+  `runtime.status` ثابت وآمن. تسجل التجربة قبل استدعاء start، ويرصد العامل
+  حالة status مرة واحدة بعد فشل/تعذر التحقق، ثم يحفظ نتيجة منفصلة عن Gate C.
+  هوية النتيجة ثابتة عبر retry ولا تقبل نتيجة متعارضة للتجربة نفسها. لا تستخدم
+  forecasts أو EIG غير المعايرة للاختيار أو لتحديث Belief؛ القياس الناقص أو
+  stale أو المتغير بيئيًا يبقى inconclusive.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/runtime-start-hypothesis-experiment.ts`,
+  `recipe-operation-runner.ts`, `recipe-operation-runner.test.ts`,
+  `mission-runtime.ts`, و`lib/ai-orchestrator/src/recipe-capabilities.ts`.
+  لا migration أو schema change.
+- **validation:** اختبارات `runtime-start-hypothesis-experiment.test.ts` و
+  `recipe-operation-runner.test.ts` نجحت (22 اختبارًا)؛ `pnpm run typecheck` و
+  `git diff --check` نجحا. أُعيد تشغيل API workflow، و`/api/healthz` أعاد
+  `200` مع `status: ok`.
+- **authority/safety impact:** لا تغيير في D1 أو Gate C أو P6/P7 acceptance؛
+  لا `restart/stop` ولا authority من EIG أو forecast.
+- **remaining/blocker:** هذا بدء محدود وليس إغلاق P7.5. المعايرة و
+  expected-decision-value ranking وBelief updates وP8 integration ما زالت مؤجلة.
+- **next step:** جمع outcomes موثوقة في scope runtime.start، ثم تنفيذ المعايرة
+  والسياسات المستقلة فقط بعد استيفاء عتبات §42.8.
 
 ### 2026-09-25 — Pre-registered hypothesis experiments and forecast calibration
 
