@@ -78,7 +78,10 @@ vi.mock("./ai-repair-validation.js", async () => {
   };
 });
 
-import { executeTaskLifecycle } from "./task-execution-service.js";
+import {
+  executeTaskLifecycle,
+  parseMissionToolLoopCheckpoint,
+} from "./task-execution-service.js";
 
 async function waitForEpisode(executionId: string) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -398,9 +401,93 @@ describe("real durable task execution lifecycle", () => {
         effectiveProvider: "groq" as const,
       };
     });
-    runRepairValidation.mockResolvedValue({
-      status: "passed",
-      evidence: { artifactRef: "mission-repair-validator-pass" },
+    runRepairValidation.mockImplementationOnce(async (...args: unknown[]) => {
+      const evidenceContext = args[5] as {
+        operationId: string;
+        projectRevision?: string;
+        candidateHash?: string;
+      };
+      const [execution] = await db
+        .select({
+          checkpoint: aiExecutionsTable.checkpoint,
+          checkpointVersion: aiExecutionsTable.checkpointVersion,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+        .limit(1);
+      expect(execution).toBeDefined();
+      if (!execution) throw new Error("Mission repair checkpoint was not persisted before validation.");
+      const checkpoint = JSON.parse(execution.checkpoint) as { sequence: number; detail: string };
+      const detail = JSON.parse(checkpoint.detail) as {
+        pendingChanges: Array<{ path: string; newContent: string }>;
+        missionRepairRecovery: {
+          phase: string;
+          executionId: string;
+          projectId: string;
+          attempt: number;
+          actionId: string;
+          sourceRevision: string;
+          candidateIdentity: string;
+          pendingChangesHash: string;
+          approvedPathsHash: string;
+          checkpointSequence: number;
+        };
+      };
+      expect(checkpoint.sequence).toBe(execution.checkpointVersion);
+      expect(detail.pendingChanges).toEqual([
+        { path: "src/target.ts", newContent: candidateContent },
+      ]);
+      expect(detail.missionRepairRecovery).toMatchObject({
+        phase: "candidate_ready",
+        executionId: evidenceContext.operationId,
+        projectId: fixture.projectId,
+        sourceRevision: evidenceContext.projectRevision,
+        candidateIdentity: evidenceContext.candidateHash,
+        actionId: `mission-repair:${evidenceContext.operationId}:${detail.missionRepairRecovery.attempt}`,
+      });
+      expect(detail.missionRepairRecovery.pendingChangesHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(detail.missionRepairRecovery.approvedPathsHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(detail.missionRepairRecovery.checkpointSequence).toBe(checkpoint.sequence);
+      const parsedCheckpoint = parseMissionToolLoopCheckpoint({
+        stage: "tool_loop",
+        sequence: checkpoint.sequence,
+        detail: checkpoint.detail,
+        updatedAt: new Date().toISOString(),
+      });
+      expect(parsedCheckpoint?.recoveryBlockedReason).toBe("reconciliation_not_enabled");
+      const missingManifestCheckpoint = parseMissionToolLoopCheckpoint({
+        stage: "tool_loop",
+        sequence: checkpoint.sequence + 1,
+        detail: JSON.stringify({
+          schemaVersion: 2,
+          executionProfile: "mission_repair",
+          iteration: 1,
+          toolCalls: 0,
+          noProgressStreak: 0,
+          claimState: [],
+          missingEvidencePaths: [],
+          lastObservation: "candidate setup interrupted",
+          completedToolCalls: [],
+          pendingChanges: [],
+        }),
+        updatedAt: new Date().toISOString(),
+      });
+      expect(missingManifestCheckpoint?.recoveryBlockedReason).toBe("manifest_missing");
+      const malformedCheckpoint = parseMissionToolLoopCheckpoint({
+        stage: "tool_loop",
+        sequence: checkpoint.sequence + 2,
+        detail: "{malformed",
+        updatedAt: new Date().toISOString(),
+      });
+      expect(malformedCheckpoint?.recoveryBlockedReason).toBe("manifest_invalid");
+      return {
+        status: "passed",
+        evidence: {
+          evidenceId: "mission-repair-validator-evidence",
+          artifactRef: "mission-repair-validator-pass",
+          validatorProfile: String(args[1]),
+        },
+      };
     });
 
     try {

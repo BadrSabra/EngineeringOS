@@ -2361,6 +2361,33 @@ G9 Revocation Safety
   validation الجديدة دليل جديد لا يعيد استعمال receipt سابقًا. fail-closed عند
   أي اختلاف، من دون live writes أو per-tool EffectBundle أو World Delta.
 
+### 42.64 — P3.5 lease-fenced Mission repair recovery manifest (2026-09-27)
+
+- **phase/step:** P3.5 — تسجيل مراحل candidate repair كمدخل استعادة مقيّد بالـlease.
+- **status:** `partial; automatic recovery remains disabled`.
+- **what changed:** يحفظ checkpoint manifest عند `candidate_ready` و`validated`
+  و`committed` و`effect_classified`. يربط project/task/execution/attempt وEpisode/
+  action وsource revision وcandidate identity وhashes للتغييرات والمسارات المعتمدة
+  وbase/candidate trees، ثم يضيف validator evidence الجديدة وملاحظة ما بعد التنفيذ
+  وEffectBundle/verdict. كل مرحلة تستخدم `checkpointAiExecution` وتسلسلًا يتقدم
+  بعد آخر checkpoint؛ لا يحتفظ الـmanifest بمحتوى إضافي للتغييرات. Parser يتحقق
+  من العقد والـhashs وربط sequence، وأي checkpoint tool-loop مشوّه أو Mission
+  repair بلا manifest صالح يمنع الاستعادة بصراحة حتى لو لم تظهر pending changes
+  بعد، لتغطية الانقطاع بين ACTION_REQUESTED وحفظ أول manifest.
+- **files/schema/contracts touched:** `task-execution-service.ts` واختبار
+  `task-execution-lifecycle.integration.test.ts`؛ لا schema أو migration.
+- **validation:** نجح `pnpm --filter @workspace/api-server run typecheck` وملف
+  Mission lifecycle integration كامل (7 اختبارات). اختبار الإصلاح يتحقق من وجود
+  manifest `candidate_ready` قبل validator ومن بقاء الاستعادة محجوبة.
+- **authority/safety impact:** لا replay تلقائي ولا live-root writes جديدة.
+  attempt بها pending candidate لا تستأنف بعد انقطاع حتى تكتمل مصالحة الإثبات؛
+  validator rerun لا يعيد استخدام دليل قديم.
+- **remaining/blocker:** استعادة candidate/validation/commit/effect بعد crash لم
+  تُنفذ بعد؛ يلزم اختبار crash windows يثبت التطابق مع Episode والـlease والقبول
+  قبل فتح same-attempt recovery.
+- **next step:** نفّذ reconciliation proof-carrying على أساس هذا الـmanifest
+  واختبر الانقطاع بين كل مرحلة، مع إبقاء replay مغلقًا حتى اجتياز البوابات.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

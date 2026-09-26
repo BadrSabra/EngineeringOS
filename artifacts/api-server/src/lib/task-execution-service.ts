@@ -545,7 +545,209 @@ type MissionToolLoopCheckpoint = {
   completedToolCalls: AgentLoopToolCall[];
   pendingChanges: PendingChange[];
   stateProjection?: MissionStateProjection;
+  missionRepairRecovery?: MissionRepairRecoveryManifest;
+  recoveryBlockedReason?: "manifest_missing" | "manifest_invalid" | "reconciliation_not_enabled";
 };
+
+type MissionRepairRecoveryPhase =
+  | "candidate_ready"
+  | "validated"
+  | "committed"
+  | "effect_classified";
+
+type MissionRepairValidationStatus =
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "unavailable"
+  | "skipped"
+  | "not-run";
+
+type MissionRepairRecoveryManifestDraft = {
+  schemaVersion: 1;
+  projectId: string;
+  taskId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  sourceRevision: string;
+  candidateIdentity: string;
+  pendingChangesHash: string;
+  approvedPathsHash: string;
+  baseTreeHash: string;
+  candidateTreeHash: string;
+  beforeObservationId: string;
+  validationProfile: string;
+  phase: MissionRepairRecoveryPhase;
+  validatorEvidenceId?: string;
+  validatorStatus?: MissionRepairValidationStatus;
+  validatorProfile?: string;
+  validatorEnvironmentRevision?: string | null;
+  afterObservationId?: string;
+  effectBundleId?: string;
+  effectObserved?: boolean;
+};
+
+type MissionRepairRecoveryManifest = MissionRepairRecoveryManifestDraft & {
+  checkpointSequence: number;
+};
+
+const MISSION_REPAIR_RECOVERY_PHASE_RANK: Record<MissionRepairRecoveryPhase, number> = {
+  candidate_ready: 0,
+  validated: 1,
+  committed: 2,
+  effect_classified: 3,
+};
+
+function hashMissionRepairPendingChanges(
+  changes: readonly Pick<PendingChange, "path" | "newContent">[],
+): string {
+  const normalized = [...changes]
+    .map(({ path, newContent }) => ({ path, newContent }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+}
+
+function hashMissionRepairApprovedPaths(paths: readonly string[]): string {
+  const normalized = [...new Set(paths)].sort((left, right) => left.localeCompare(right));
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+}
+
+function parseMissionRepairRecoveryManifest(
+  value: unknown,
+  checkpointSequence: number,
+  pendingChanges: readonly PendingChange[],
+): MissionRepairRecoveryManifest | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Partial<MissionRepairRecoveryManifest>;
+  const hashPattern = /^[a-f0-9]{64}$/;
+  const requiredStrings = [
+    candidate.projectId,
+    candidate.taskId,
+    candidate.executionId,
+    candidate.episodeId,
+    candidate.actionId,
+    candidate.sourceRevision,
+    candidate.candidateIdentity,
+    candidate.pendingChangesHash,
+    candidate.approvedPathsHash,
+    candidate.baseTreeHash,
+    candidate.candidateTreeHash,
+    candidate.beforeObservationId,
+    candidate.validationProfile,
+  ];
+  if (
+    candidate.schemaVersion !== 1
+    || !Number.isInteger(candidate.attempt)
+    || candidate.attempt! < 0
+    || !Number.isInteger(candidate.checkpointSequence)
+    || candidate.checkpointSequence !== checkpointSequence
+    || !["candidate_ready", "validated", "committed", "effect_classified"].includes(candidate.phase ?? "")
+    || requiredStrings.some((item) => typeof item !== "string" || item.length === 0 || item.length > 2_000)
+    || !hashPattern.test(candidate.pendingChangesHash ?? "")
+    || !hashPattern.test(candidate.approvedPathsHash ?? "")
+    || !hashPattern.test(candidate.baseTreeHash ?? "")
+    || !hashPattern.test(candidate.candidateTreeHash ?? "")
+    || candidate.actionId !== `mission-repair:${candidate.executionId}:${candidate.attempt}`
+    || pendingChanges.length === 0
+    || candidate.pendingChangesHash !== hashMissionRepairPendingChanges(pendingChanges)
+  ) {
+    return undefined;
+  }
+
+  const phase = candidate.phase as MissionRepairRecoveryPhase;
+  const validatorStatuses: MissionRepairValidationStatus[] = [
+    "passed",
+    "failed",
+    "blocked",
+    "unavailable",
+    "skipped",
+    "not-run",
+  ];
+  if (MISSION_REPAIR_RECOVERY_PHASE_RANK[phase] >= MISSION_REPAIR_RECOVERY_PHASE_RANK.validated) {
+    if (
+      !validatorStatuses.includes(candidate.validatorStatus as MissionRepairValidationStatus)
+      || (candidate.validatorStatus === "passed" && (
+        typeof candidate.validatorEvidenceId !== "string" || candidate.validatorEvidenceId.length === 0
+      ))
+    ) {
+      return undefined;
+    }
+  }
+  if (
+    candidate.validatorEvidenceId !== undefined
+    && (typeof candidate.validatorEvidenceId !== "string" || candidate.validatorEvidenceId.length > 240)
+  ) {
+    return undefined;
+  }
+  if (
+    candidate.validatorProfile !== undefined
+    && (typeof candidate.validatorProfile !== "string" || candidate.validatorProfile.length > 120)
+  ) {
+    return undefined;
+  }
+  if (
+    candidate.validatorEnvironmentRevision !== undefined
+    && candidate.validatorEnvironmentRevision !== null
+    && (typeof candidate.validatorEnvironmentRevision !== "string" || candidate.validatorEnvironmentRevision.length > 240)
+  ) {
+    return undefined;
+  }
+  if (
+    candidate.afterObservationId !== undefined
+    && (typeof candidate.afterObservationId !== "string" || candidate.afterObservationId.length > 240)
+  ) {
+    return undefined;
+  }
+  if (
+    candidate.effectBundleId !== undefined
+    && (typeof candidate.effectBundleId !== "string" || candidate.effectBundleId.length > 240)
+  ) {
+    return undefined;
+  }
+  if (
+    phase === "effect_classified"
+    && (
+      typeof candidate.effectObserved !== "boolean"
+      || typeof candidate.afterObservationId !== "string"
+    )
+  ) {
+    return undefined;
+  }
+  if (candidate.effectObserved !== undefined && typeof candidate.effectObserved !== "boolean") {
+    return undefined;
+  }
+
+  return {
+    schemaVersion: 1,
+    projectId: candidate.projectId!,
+    taskId: candidate.taskId!,
+    executionId: candidate.executionId!,
+    attempt: candidate.attempt!,
+    episodeId: candidate.episodeId!,
+    actionId: candidate.actionId!,
+    sourceRevision: candidate.sourceRevision!,
+    candidateIdentity: candidate.candidateIdentity!,
+    pendingChangesHash: candidate.pendingChangesHash!,
+    approvedPathsHash: candidate.approvedPathsHash!,
+    baseTreeHash: candidate.baseTreeHash!,
+    candidateTreeHash: candidate.candidateTreeHash!,
+    beforeObservationId: candidate.beforeObservationId!,
+    validationProfile: candidate.validationProfile!,
+    phase,
+    checkpointSequence: candidate.checkpointSequence!,
+    ...(typeof candidate.validatorEvidenceId === "string" ? { validatorEvidenceId: candidate.validatorEvidenceId } : {}),
+    ...(candidate.validatorStatus ? { validatorStatus: candidate.validatorStatus } : {}),
+    ...(typeof candidate.validatorProfile === "string" ? { validatorProfile: candidate.validatorProfile } : {}),
+    ...(candidate.validatorEnvironmentRevision !== undefined
+      ? { validatorEnvironmentRevision: candidate.validatorEnvironmentRevision }
+      : {}),
+    ...(typeof candidate.afterObservationId === "string" ? { afterObservationId: candidate.afterObservationId } : {}),
+    ...(typeof candidate.effectBundleId === "string" ? { effectBundleId: candidate.effectBundleId } : {}),
+    ...(typeof candidate.effectObserved === "boolean" ? { effectObserved: candidate.effectObserved } : {}),
+  };
+}
 
 function buildMissionStateProjection(params: {
   profile: MissionToolLoopCheckpoint["executionProfile"];
@@ -581,10 +783,30 @@ function buildMissionStateProjection(params: {
   };
 }
 
-function parseMissionToolLoopCheckpoint(
+function invalidMissionToolLoopCheckpoint(): MissionToolLoopCheckpoint {
+  return {
+    schemaVersion: 2,
+    executionProfile: "mission_repair",
+    iteration: 0,
+    toolCalls: 0,
+    noProgressStreak: 0,
+    claimState: [],
+    missingEvidencePaths: [],
+    lastObservation: "checkpoint validation failed",
+    completedToolCalls: [],
+    pendingChanges: [],
+    recoveryBlockedReason: "manifest_invalid",
+  };
+}
+
+export function parseMissionToolLoopCheckpoint(
   checkpoint: ReturnType<typeof parseAiExecutionCheckpoint>,
 ): MissionToolLoopCheckpoint | undefined {
-  if (!checkpoint?.detail) return undefined;
+  if (!checkpoint) return undefined;
+  const invalidCheckpoint = checkpoint.stage === "tool_loop"
+    ? invalidMissionToolLoopCheckpoint()
+    : undefined;
+  if (!checkpoint.detail) return invalidCheckpoint;
   try {
     const value = JSON.parse(checkpoint.detail) as Partial<MissionToolLoopCheckpoint>;
     if (
@@ -597,7 +819,7 @@ function parseMissionToolLoopCheckpoint(
       || !Array.isArray(value.claimState)
       || !Array.isArray(value.completedToolCalls)
       || !Array.isArray(value.pendingChanges)
-    ) return undefined;
+    ) return invalidCheckpoint;
     const claimState = value.claimState.flatMap((claim) => {
       if (!claim || typeof claim !== "object") return [];
       const candidate = claim as Partial<AgentLoopClaimState>;
@@ -653,6 +875,22 @@ function parseMissionToolLoopCheckpoint(
           : [];
       })
       .slice(0, 12);
+    const hasRecoveryManifest = Object.prototype.hasOwnProperty.call(value, "missionRepairRecovery");
+    const missionRepairRecovery = hasRecoveryManifest
+      && value.executionProfile === "mission_repair"
+      ? parseMissionRepairRecoveryManifest(
+          value.missionRepairRecovery,
+          checkpoint.sequence,
+          pendingChanges,
+        )
+      : undefined;
+    const recoveryBlockedReason = hasRecoveryManifest
+      ? missionRepairRecovery
+        ? "reconciliation_not_enabled" as const
+        : "manifest_invalid" as const
+      : value.executionProfile === "mission_repair"
+        ? "manifest_missing" as const
+        : undefined;
     const projectionRecord = value.stateProjection && typeof value.stateProjection === "object"
       && !Array.isArray(value.stateProjection)
       ? value.stateProjection as Partial<MissionStateProjection>
@@ -697,9 +935,11 @@ function parseMissionToolLoopCheckpoint(
       completedToolCalls: completedToolCalls.slice(-64),
       pendingChanges,
       ...(stateProjection ? { stateProjection } : {}),
+      ...(missionRepairRecovery ? { missionRepairRecovery } : {}),
+      ...(recoveryBlockedReason ? { recoveryBlockedReason } : {}),
     };
   } catch {
-    return undefined;
+    return invalidCheckpoint;
   }
 }
 
@@ -990,7 +1230,9 @@ async function finishMissionRepairCandidateEffect(params: {
   rootPath: string;
   context: MissionRepairCandidateEffectContext;
   validationStatus: "passed" | "failed" | "blocked" | "unavailable" | "skipped" | "not-run";
-}): Promise<{ effectBundleId?: string; observed: boolean }> {
+  onCommitted?: () => Promise<void>;
+  onAfterObserved?: (observationId: string) => Promise<void>;
+}): Promise<{ effectBundleId?: string; observed: boolean; afterObservationId: string }> {
   const candidateTreeHash = await hashDeliveryTree(params.context.workspace.rootPath);
   const liveTreeHash = await hashDeliveryTree(params.rootPath);
   await appendEpisodeEvent({
@@ -1012,6 +1254,7 @@ async function finishMissionRepairCandidateEffect(params: {
     actorId: params.workerId,
     correlationId: params.correlationId,
   });
+  await params.onCommitted?.();
 
   const after = await materializeServerOwnedObservations({
     projectId: params.task.projectId,
@@ -1035,6 +1278,7 @@ async function finishMissionRepairCandidateEffect(params: {
   if (!afterObservationId || after.stale > 0) {
     throw new Error("mission_repair_after_observation_unavailable");
   }
+  await params.onAfterObserved?.(afterObservationId);
 
   const verification = await verifyAndPersistEffect({
     projectId: params.task.projectId,
@@ -1059,6 +1303,7 @@ async function finishMissionRepairCandidateEffect(params: {
   return {
     ...(verification.status === "observed" ? { effectBundleId: verification.effectBundleId } : {}),
     observed: verification.status === "observed" && stableCandidate && sourceStillCurrent,
+    afterObservationId,
   };
 }
 
@@ -1101,6 +1346,16 @@ async function executeMissionToolLoop(params: {
   checkpointSequenceBase: number;
   resumeState?: MissionToolLoopCheckpoint;
 }): Promise<MissionToolLoopExecution> {
+  if (params.profile === "mission_repair" && params.resumeState?.recoveryBlockedReason) {
+    throw new Error(`mission_repair_recovery_blocked:${params.resumeState.recoveryBlockedReason}`);
+  }
+  if (
+    params.profile === "mission_repair"
+    && params.resumeState
+    && params.resumeState.executionProfile !== "mission_repair"
+  ) {
+    throw new Error("mission_repair_recovery_profile_mismatch");
+  }
   const [project] = await db
     .select()
     .from(projectsTable)
@@ -1141,6 +1396,7 @@ async function executeMissionToolLoop(params: {
   let claimState = params.resumeState?.claimState ?? [];
   let missingEvidencePaths = params.resumeState?.missingEvidencePaths ?? [];
   let lastObservation = params.resumeState?.lastObservation || "tool loop initialized";
+  let checkpointNextAction = params.resumeState?.nextAction;
   const resumedChanges = params.profile === "mission_repair"
     ? canonicalizeMissionChanges(
         params.resumeState?.pendingChanges ?? [],
@@ -1526,12 +1782,13 @@ async function executeMissionToolLoop(params: {
         noProgressStreak = step.objectiveState.progress.noProgressStreak;
         completedToolCalls = step.objectiveState.completedToolCalls ?? completedToolCalls;
       }
+      checkpointNextAction = step.kind === "done" ? step.objectiveState?.nextAction : undefined;
       const checkpointStateProjection = buildMissionStateProjection({
         profile: params.profile,
         claimState,
         missingEvidencePaths,
         lastObservation,
-        nextAction: step.kind === "done" ? step.objectiveState?.nextAction : undefined,
+        nextAction: checkpointNextAction,
         pendingChanges,
         sourceRevision: params.workspaceRevision,
         candidateRevision: missionCandidateIdentity(params.workspaceRevision, pendingChanges),
@@ -1552,7 +1809,7 @@ async function executeMissionToolLoop(params: {
             claimState,
             missingEvidencePaths,
             lastObservation: lastObservation.slice(0, 240),
-            nextAction: step.kind === "done" ? step.objectiveState?.nextAction : undefined,
+            nextAction: checkpointNextAction,
             completedToolCalls,
             pendingChanges: pendingChanges.slice(0, 12),
             stateProjection: checkpointStateProjection,
@@ -1597,11 +1854,89 @@ async function executeMissionToolLoop(params: {
     ServerOwnedObservationSource,
     { kind: "validator_process_attestation" }
   >[] = [];
+  let missionRepairRecoveryDraft: MissionRepairRecoveryManifestDraft | undefined;
+  const persistMissionRepairRecoveryCheckpoint = async (
+    draft: MissionRepairRecoveryManifestDraft,
+  ): Promise<MissionRepairRecoveryManifest> => {
+    if (missionRepairRecoveryDraft) {
+      const immutableFields: Array<keyof MissionRepairRecoveryManifestDraft> = [
+        "schemaVersion",
+        "projectId",
+        "taskId",
+        "executionId",
+        "attempt",
+        "episodeId",
+        "actionId",
+        "sourceRevision",
+        "candidateIdentity",
+        "pendingChangesHash",
+        "approvedPathsHash",
+        "baseTreeHash",
+        "candidateTreeHash",
+        "beforeObservationId",
+        "validationProfile",
+      ];
+      if (
+        immutableFields.some((field) => draft[field] !== missionRepairRecoveryDraft?.[field])
+        || MISSION_REPAIR_RECOVERY_PHASE_RANK[draft.phase]
+          < MISSION_REPAIR_RECOVERY_PHASE_RANK[missionRepairRecoveryDraft.phase]
+      ) {
+        throw new Error("mission_repair_recovery_manifest_conflict");
+      }
+    }
+
+    const sequence = checkpointSequence++;
+    const manifest: MissionRepairRecoveryManifest = {
+      ...draft,
+      checkpointSequence: sequence,
+    };
+    const stateProjection = buildMissionStateProjection({
+      profile: params.profile,
+      claimState,
+      missingEvidencePaths,
+      lastObservation,
+      nextAction: checkpointNextAction,
+      pendingChanges: outputPendingChanges,
+      sourceRevision: params.workspaceRevision,
+      candidateRevision: candidateIdentity,
+    });
+    const detail = JSON.stringify({
+      schemaVersion: 2,
+      executionProfile: params.profile,
+      iteration,
+      toolCalls,
+      noProgressStreak,
+      claimState,
+      missingEvidencePaths,
+      lastObservation: lastObservation.slice(0, 240),
+      nextAction: checkpointNextAction,
+      completedToolCalls,
+      pendingChanges: outputPendingChanges.slice(0, 12),
+      stateProjection,
+      missionRepairRecovery: manifest,
+    });
+    const checkpointed = await checkpointAiExecution({
+      executionId: params.executionId,
+      expectedAttempt: params.expectedAttempt,
+      workerId: params.workerId,
+      checkpoint: {
+        stage: "tool_loop",
+        sequence,
+        detail,
+        updatedAt: new Date().toISOString(),
+      },
+    });
+    if (!checkpointed) {
+      throw new Error("mission_repair_recovery_manifest_checkpoint_unavailable");
+    }
+    missionRepairRecoveryDraft = draft;
+    return manifest;
+  };
 
   try {
     if (effectRequired) {
       try {
-        candidateEffectContext = await beginMissionRepairCandidateEffect({
+        const candidateContext = await beginMissionRepairCandidateEffect({
           task: params.task,
           goal: params.goal,
           executionId: params.executionId,
@@ -1613,7 +1948,32 @@ async function executeMissionToolLoop(params: {
           changes: outputPendingChanges,
           approvedPaths: policy.targetPaths,
         });
-        candidateIdentity = candidateEffectContext.candidateIdentity;
+        candidateIdentity = candidateContext.candidateIdentity;
+        const candidateReadyManifest: MissionRepairRecoveryManifestDraft = {
+          schemaVersion: 1,
+          projectId: params.task.projectId,
+          taskId: params.task.id,
+          executionId: params.executionId,
+          attempt: params.expectedAttempt,
+          episodeId: candidateContext.episodeId,
+          actionId: candidateContext.action.actionId,
+          sourceRevision: params.workspaceRevision,
+          candidateIdentity: candidateContext.candidateIdentity,
+          pendingChangesHash: hashMissionRepairPendingChanges(outputPendingChanges),
+          approvedPathsHash: hashMissionRepairApprovedPaths(policy.targetPaths),
+          baseTreeHash: candidateContext.baseTreeHash,
+          candidateTreeHash: candidateContext.candidateTreeHash,
+          beforeObservationId: candidateContext.beforeObservationId,
+          validationProfile: policy.validationProfile ?? "not-configured",
+          phase: "candidate_ready",
+        };
+        try {
+          await persistMissionRepairRecoveryCheckpoint(candidateReadyManifest);
+        } catch (error) {
+          await candidateContext.workspace.cleanup();
+          throw error;
+        }
+        candidateEffectContext = candidateContext;
       } catch (error) {
         proofStatus = "UNAVAILABLE";
         logger.warn(
@@ -1713,6 +2073,20 @@ async function executeMissionToolLoop(params: {
     const validationAttestation = validationResult?.evidence.childProcessAttestation;
     const validationEvidenceId = validationResult?.evidence.evidenceId;
     const validatorProfile = validationResult?.evidence.validatorProfile;
+    if (candidateEffectContext && missionRepairRecoveryDraft) {
+      const validatorStatus = validationResult?.status ?? "not-run";
+      if (validatorStatus === "passed" && !validationEvidenceId) {
+        throw new Error("mission_repair_validator_evidence_id_missing");
+      }
+      await persistMissionRepairRecoveryCheckpoint({
+        ...missionRepairRecoveryDraft,
+        phase: "validated",
+        validatorStatus,
+        ...(validationEvidenceId ? { validatorEvidenceId: validationEvidenceId } : {}),
+        ...(validatorProfile ? { validatorProfile } : {}),
+        validatorEnvironmentRevision: validationResult?.evidence.environmentRevision ?? null,
+      });
+    }
     validatorProcessObservations = validationEpisode
       && validationAttestation
       && validationEvidenceId
@@ -1750,7 +2124,31 @@ async function executeMissionToolLoop(params: {
           rootPath: root.canonicalPath,
           context: candidateEffectContext,
           validationStatus: validationResult?.status ?? "not-run",
+          onCommitted: async () => {
+            if (!missionRepairRecoveryDraft) return;
+            await persistMissionRepairRecoveryCheckpoint({
+              ...missionRepairRecoveryDraft,
+              phase: "committed",
+            });
+          },
+          onAfterObserved: async (observationId) => {
+            if (!missionRepairRecoveryDraft) return;
+            await persistMissionRepairRecoveryCheckpoint({
+              ...missionRepairRecoveryDraft,
+              phase: "committed",
+              afterObservationId: observationId,
+            });
+          },
         });
+        if (missionRepairRecoveryDraft) {
+          await persistMissionRepairRecoveryCheckpoint({
+            ...missionRepairRecoveryDraft,
+            phase: "effect_classified",
+            afterObservationId: effect.afterObservationId,
+            ...(effect.effectBundleId ? { effectBundleId: effect.effectBundleId } : {}),
+            effectObserved: effect.observed,
+          });
+        }
         effectBundleId = effect.effectBundleId;
         effectObserved = effect.observed;
         if (!effect.observed) {

@@ -5889,11 +5889,20 @@ base/candidate hashes. يعاد validation فقط إذا ثبت أن profile ا�
 غير bounded يبقي التنفيذ غير مكتمل ويتطلب attempt جديدة معتمدة. checkpoint مدخل
 لإعادة البناء وليس سلطة قبول.
 
-أول خطوة تنفيذية لهذا العقد هي idempotency دلالية لحدث aggregate
-`ACTION_COMMITTED`: داخل Episode نفسها، يعيد retry المطابق كاملًا الحدث المحفوظ؛
-وإعادة استخدام `actionId` نفسه مع payload مختلف أو execution/attempt غير مطابق
-تفشل مغلقًا. يظل `mission-repair-tool:*` خارج هذا السلوك، ولا تجعل هذه الخطوة
-validation أو observations أو effect/acceptance قابلة لإعادة التشغيل تلقائيًا.
+أُغلقت idempotency دلالية لحدث aggregate `ACTION_COMMITTED`: داخل Episode نفسها،
+يعيد retry المطابق كاملًا الحدث المحفوظ؛ وإعادة استخدام `actionId` نفسه مع payload
+مختلف أو execution/attempt غير مطابق تفشل مغلقًا. أضيف بعد ذلك recovery manifest
+داخل checkpoint يتقدم عبر `candidate_ready` و`validated` و`committed` و
+`effect_classified`، ويضم validation evidence جديدة ومراجع الملاحظات وEffectBundle.
+الكتابة fenced بمالك العامل والـattempt والـlease وتسلسل checkpoint.
+
+ما زال same-attempt replay مغلقًا عمدًا: parser يرفض checkpoints الخاصة بـMission
+repair المفقودة أو المشوهة، حتى إن لم تكن pending changes قد وصلت إلى checkpoint
+قبل الانقطاع؛ والـmanifest السليم لا يمنح وحده إذن الاستعادة. الخطوة التالية
+هي مصالحة crash windows مع Episode والـcandidate والـvalidation والأثر والقبول،
+وإثبات idempotency لكل حد بقاعدة البيانات قبل تمكين أي replay. لا schema أو
+migration أو live-root writes أو per-tool EffectBundle أو World Delta في هذه
+الشريحة.
 
 ### 42.25 P5.5 — Server-classified read-only recipe invocation (2026-09-25)
 
