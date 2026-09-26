@@ -6,8 +6,8 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-09-26
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل بعد؛ الاختيار يظل `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شريحة Evidence-Preserved Synthesis Gateway لمسار PROJECT_QUERY المستهدف؛ يظل عقد المطالبات الخادمي للاستعلام العام عملًا منفصلًا وفق §42.49. أضيف في الخطة مرشح تكامل منتج غير منفذ لتحويل finding مقبول إلى Mission؛ لا يغيّر ترتيب §31 أو بوابات القبول.
+**آخر تحديث:** 2026-09-27
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ تسبق جمع البيانات بوابة جاهزية للتحقق من قناة Mission، والتكرار الآمن، والتعافي من التسجيلات غير المكتملة، وصحة القياس. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity؛ يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح ضمن الشريحة الحالية.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -22,7 +22,7 @@
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `pilot closed (scoped)` | اكتمل pilot `runtime.start` الحقيقي `stopped → running`: D1 يمنع الأثر عند غياب/تعارض الدليل؛ materialization يثبت هوية التنفيذ والمحاولة وEpisode والجلسة ومراجع المشروع والبيئة؛ D2 يربط dispatch بالانتقال الحدثي ومراجعاته وملاحظاته وخطتيه. لا يمنع تغير World State غير متعلق هذا dispatch. `running → running` لا ينتج انتقالًا، و`restart/stop` خارج النطاق. |
 | P7 — World-State Failure Diagnosis | `pilot done — runtime.start only` | أُغلق تشخيص bounded للانتقال `runtime.start` وفق إدخال 42.47 في هذا السجل؛ التشخيص العام وربط بقية World State والـfacts والـobservations ما زال غير مكتمل. |
-| P7.5 — Belief and Information Gain | `partial — runtime.start fixed-safe bootstrap` | بدأ تسجيل فرضيات runtime-start موزونة server-side وربط تجربة Mission بالـGoal والخطة والمراجعة والبيئة. الاختيار fixed-safe فقط؛ forecasts وEIG غير المعايرة advisory، ولا يوجد تحديث Belief أو ترتيب آلي أو توسيع إلى restart/stop. تبقى بقية DoD في §42.8 مفتوحة. |
+| P7.5 — Belief and Information Gain | `partial — runtime.start fixed-safe bootstrap; pre-collection readiness open` | التسجيل مؤهل فقط عبر Mission runtime المربوط بـMission/Goal/planRevision وعند transition من stopped؛ endpoint العام لا ينتج عينة P7.5. الـforecast الحالي bootstrap ثابت في project/environment scope ضيق، وليس معايرة selector. لم يوجد scope مؤهل في فحص 2026-09-26. قبل جمع cohort يجب إثبات التكرار الآمن، واستعادة/معالجة التسجيل غير المكتمل دون إسقاط انتقائي، وصحة ECE/bootstrap وheld-out protocol؛ يظل `fixed_safe_probe`. |
 | P8 — Diagnosis-aware Replanning | `partial` | توجد bounded objective recovery وMission replan primitives، لكن لا تضمن دائمًا أن التشخيص هو مدخل إعادة التخطيط، ولا تستهلك World Delta/Belief revision. فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
@@ -104,21 +104,25 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 
 يبقى §31 dependency graph الوحيد؛ pilots المنجزة لا تغلق المراحل العامة ولا
 تسمح بتجاوز بواباتها. لا توسّع capabilities أو strategy learning أفقيًا.
-الوضع الحالي يتطلب الفصل بين إغلاق P7.5 ومعالجة موثوقية Chat:
+الوضع الحالي يقدّم جاهزية P7.5 على أي حملة بيانات، ويثبت أن شريحة PROJECT_QUERY
+المحدودة الحالية مغلقة:
 
-1. **P7.5:** اجمع 30 Mission مستقلة مكتملة على الأقل ضمن scope معايرة واحد،
-   مع held-out partition وشروط ECE وفاصل عدم اليقين المحددة في §25.4 و§42.8.
-   أبقِ `fixed_safe_probe` ولا تفتح ranking تلقائيًا قبل نجاح البوابة.
-2. **PROJECT_QUERY:** نفّذ عقد المطالبات server-owned للاستعلام العام كعمل
-   موثوقية في مسار Chat الحالي، ثم قيّم fallback فقط تحت بوابة القبول القائمة؛
-   لا تعِد استخدام claims يحددها المزود. هذا هو next step المسجل في §42.49،
-   وليس P7 أو P7.5.
-3. **تكامل finding→Mission:** هذا مرشح منتج موثق في §31، وليس مرحلة جديدة.
-   لا يبدأ قبل إكمال claim contract واختبار اتساق هوية `finalMessageId` مع صف
-   acceptance عند التعطل. بعدهما يقتصر على معاينة planHash، موافقة صريحة،
-   مراجع finding المقبول والمراجعة، وإعادة تحقق قبل mutation؛ لا graph أو
-   executor أو acceptance موازٍ.
-4. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
+1. **P7.5 — بوابة الجاهزية قبل البيانات:** اختبر ECE وmission-cluster bootstrap
+   بأمثلة ذات إجابة معروفة، وتحقق من الاستعادة بعد crash/cancellation ومن أن
+   النتيجة الناقصة لا يمكن إسقاطها أو تجاهلها. وثّق cohort مستقبليًا ثابتًا
+   ومأذونًا، ومسار Mission runtime المؤهل، وطريقة إعادة البيئة إلى `stopped`
+   تحت تحكم المشغّل من دون إضافة `stop/restart` لسلطة الوكيل. اختلاف `missionId`
+   وحده ليس برهان استقلال، وتغيّر project/environment revision ينشئ scope آخر.
+2. **P7.5 — جمع النتائج بعد اجتياز الجاهزية:** اجمع فقط outcomes حقيقية ومكتملة
+   من Missions مؤهلة ضمن scope واحد؛ لا تصنع Missions/fixtures لبلوغ 30 ولا
+   تستبعد القياسات الناقصة. أبقِ `fixed_safe_probe` حتى تحقق جميع عتبات §25.4
+   و§42.8؛ اجتياز هذا القياس لا يفعّل ranking ولا يثبت صلاحية selector.
+3. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
+   parity عند غياب objective canonical. أبقِ هذا المسار غير المكتمل fail-closed؛
+   لا تفتح fallback عامًا بلا عقد وقبول مستقلين. لا يعد هذا عملًا منافسًا لـP7.5.
+4. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
+   تثبيت عقد الجمع والاستعادة؛ ليست الخطوة الأولى ولا مصدر قبول أو معايرة.
+5. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
    ومعايير الخروج في §31؛ لا تجعل شريحة Chat سببًا لتجاوزها.
 
 لا تبدأ مرحلة جديدة أو توسع replay/promotion قبل إغلاق بوابات الحلقة.
@@ -1956,8 +1960,10 @@ G9 Revocation Safety
 - **remaining/blocker:** لا توجد بعد 30 Mission held-out ضمن scope واحد، لذلك
   لا scope مؤهل ولا forecast marked validated. expected-decision-value ranking
   وBelief updates وP8 ما زالت مفتوحة.
-- **next step:** اجمع نتائج مكتملة ومطابقة للسياسة داخل scope نفسه؛ أبقِ
-  `fixed_safe_probe` حتى تجتاز بيانات held-out القياس ولا تفتح ranking تلقائيًا.
+- **next step (محدّث في §42.58):** لا تبدأ الجمع مباشرة. أغلق أولًا بوابة
+  الجاهزية: أهلية Mission path، تكرار الانتقال ضمن بيئة مضبوطة، استعادة
+  التسجيلات غير المكتملة، وثبات الـheld-out policy وصحة evaluator. بعد ذلك فقط
+  اجمع outcomes حقيقية ضمن scope واحد، مع بقاء `fixed_safe_probe`.
 
 ### 42.49 — Evidence-Preserved Synthesis Gateway (2026-09-26)
 
@@ -2177,6 +2183,40 @@ G9 Revocation Safety
 - **next step:** اجمع النتائج فقط من تشغيلات Mission فعلية ومأذونة بعد توافر
   قاعدة البيانات المناسبة؛ أعد تقييم scope مع بقاء `fixed_safe_probe` حتى اجتياز
   حدود §25.4.
+
+### 42.58 — P7.5 pre-collection readiness review (2026-09-27)
+
+- **phase/step:** مراجعة جاهزية جمع held-out outcomes وربطها بالبنية الفعلية؛
+  تحديث توثيقي فقط، بلا بدء حملة أو تغيير runtime.
+- **status:** `done` للمراجعة والتوثيق؛ `blocked` لبدء cohort حتى إغلاق شروط
+  الجاهزية في §42.8.
+- **what changed:** ثُبت أن P7.5 الحالية تقيس bootstrap forecast ثابتًا لـ
+  `runtime.start` ضمن scope مشروع/مراجعة/بيئة، ولا تقيس classifier أو
+  `expectedDecisionValue` ولا تمنح اختيارًا آليًا. جمع العينة يتطلب Mission
+  runtime المربوط بـMission/Goal/planRevision وtransition فعليًا من
+  `stopped`; endpoint العام `/runtime/start` لا يملك تلك الهويات. وثّق أن
+  التكرار يتطلب reset مشغّلًا لبيئة مضبوطة من دون توسيع صلاحية الوكيل، وأن
+  `missionId` المختلف وحده لا يثبت الاستقلال. أضيفت مراجعة recovery لأن أي
+  registration غير محسوم يمنع اعتماد scope، ومتطلبات اختبار إحصائي يدوي/مرجعي
+  وثبات policy/held-out قبل جمع النتائج. عُدّل ترتيب الأولوية: readiness أولًا،
+  البيانات الفعلية ثانيًا، وواجهة التقدم اختيارية لاحقًا. لا يلزم production DB
+  لجمع نتائج جديدة إذا كانت Mission runtime المؤهلة تعمل على DB التطوير؛ غيابها
+  يمنع فقط قراءة بيانات production موجودة.
+- **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`
+  و`docs/agent-generalization-progress.md` فقط؛ لا تغييرات كود أو schema أو
+  قاعدة بيانات أو صلاحيات.
+- **validation:** مطابقة الصياغة مع `runtime-start-hypothesis-experiment.ts`،
+  `runtime-start-hypothesis-calibration.ts`، `recipe-operation-runner.ts`،
+  `routes/runtime.ts`، `mission-runtime.ts`، §25.4 و§31؛ `git diff --check`.
+- **authority/safety impact:** لا تغيير في P6/P7/Gate C أو acceptance أو scope
+  والصلاحيات. يبقى `fixed_safe_probe`؛ لا حذف أو استبعاد انتقائي للنتائج
+  غير المكتملة، ولا توليد عينات اصطناعية.
+- **remaining/blocker:** لا نتائج held-out حقيقية. يلزم إثبات قناة الجمع المؤهلة،
+  والتكرار الآمن في scope ثابت، وسلوك التعافي/idempotency بعد interruption،
+  وصحة ECE/فاصل bootstrap على حالات ذات حقيقة متوقعة قبل بدء حملة.
+- **next step:** تنفيذ اختبارات/آلية الجاهزية المحددة في §42.8 قبل أي جمع؛ لا
+  تبدأ لوحة تقدم أو selector بوصفهما بديلًا عن هذه البوابة. تبقى PROJECT_QUERY
+  بلا objective canonical غير مكتملة عمدًا وفق §42.56.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
