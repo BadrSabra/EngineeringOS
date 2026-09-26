@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime داخل process tree؛ لا يثبت ذلك تغطية lifecycle العامة ولا ينشئ قبولًا خارج Gate C. P5.5 تسجل قراءات provider المؤهلة في `/api/ai/chat/stream`، بينما `/api/ai/chat` غير المتدفق لا يملك execution/attempt دائمًا ولا يسجل كل invocation. لا يوجد World Delta أو عقد durable يضمن انتقال الأثر المقبول إلى معرفة قابلة للاستهلاك؛ قبول الأثر مستقل عن materialization والتعلم. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
+> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime داخل process tree؛ لا يثبت ذلك تغطية lifecycle العامة ولا ينشئ قبولًا خارج Gate C. P5.5 تسجل قراءات provider المؤهلة وقراءتي `query_knowledge_graph` و`discover_project_apis` في مساري `/api/ai/chat/stream` و`/api/ai/chat`. ينشئ المسار غير المتدفق execution/attempt قبل أول invocation قرائي مؤهل، ولا ينشئ lifecycle إذا لم تقع قراءة؛ لا يعني ذلك تغطية كل invocation أو جعل `refresh_project_scan` قراءة. لا يوجد World Delta أو عقد durable يضمن انتقال الأثر المقبول إلى معرفة قابلة للاستهلاك؛ قبول الأثر مستقل عن materialization والتعلم. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -3599,6 +3599,42 @@ Information Gain قبل إكمال replanning وcausal credit.
 وcausal evidence الموثوقة؛ candidate discovery أو replay infrastructure لا
 يحقق ذلك. ولا يبدأ `P12` قبل أن تعمل held-out evaluation وcross-project
 transfer وpromotion gates.
+
+### موثوقية synthesis لاستعلام المشروع — عمل عابر للمراحل، لا عقدة جديدة
+
+تعطل صياغة `PROJECT_QUERY` بعد اكتمال الأدلة هو مسألة موثوقية وإسقاط استجابة في
+مسار المحادثة القائم، وليس تنفيذًا لـP7 ولا dependency جديدة تبرر تجاوز P4/P5/P6.
+الفشل الحتمي الداخلي قد يجعل `chat()` يعيد نتيجة طبيعية قبل أن يرى
+`chatWithFallback` إخفاق synthesis؛ الإصلاح المستقبلي، بعد إغلاق بوابة الوثائق في
+`docs/agent-generalization-progress.md` ومراجعتها، ينبغي أن يعالج حدّ النتيجة
+والإسناد المرحلي داخل المسار الحالي، لا أن ينشئ خدمة Gateway أو roadmap ثانية.
+
+تدقيق التطوير في 2026-09-26 فصل بين طلبين: تعثر الطلب السابق قبل قراءة أي ملف
+مصدر مع `EMPTY_RESPONSE` و`RATE_LIMITED`؛ أما طلب شرح المشروع اللاحق فأكمل الأدوار
+الأربعة وثماني قراءات كاملة وقُبلت أدلته، ثم أعاد fallback حتميًا. سجل المحاولات
+للطلب اللاحق يحوي فشلًا واحدًا `INVALID_PROVIDER_RESPONSE` ولا يحوي `RATE_LIMITED`،
+لكن جميع الأحداث موسومة `provider_request` ونتيجة العقد `not_applicable`؛ لذلك
+لا يثبت السجل أي محاولة كانت تصحيح JSON ولا يثبت أن جميع المزوّدين استُنفدوا.
+استهلكت مدد المحاولات المسجلة نحو 150.6 ثانية مقابل ميزانية 150 ثانية. تفاصيل
+الأثر في أحدث إدخال بسجل التقدم.
+
+لا يلزم عقد ردّ موازٍ كي تُحفظ دلالة fallback: `ChatOutput` الحالي يحمل
+`projectQueryResponseSource` و`projectQueryResponseFallbackReason`، وتُسقط
+الـprovenance إلى الاستجابة غير المتدفقة وSSE والتاريخ. إذا ثبتت حاجة لحقول
+أخرى، فالتوسيع يكون في إسقاط الخادم القائم؛ `claimRefs` و`flowRefs` من المزوّد
+ادعاءات لا materialization للأدلة ولا proof. كما يحتفظ مسار fallback الحالي
+بقراءات الطلب في الذاكرة؛ يجب أن تعيد محاولات الصياغة استخدامها دون إعادة جمعها.
+
+لقطة `ai_execution_evidence_snapshots` تُنشأ عند تثبيت القبول النهائي بعد
+synthesis؛ لذا لا يتاح `evidenceSnapshotId` النهائي وقت تسجيل محاولة المزوّد.
+أي ربط مستقبلي للمحاولات يجب ألا يساوي `attemptNumber` الخاص بالمزوّد بمحاولة
+التنفيذ، وألا يغيّر دورة اللقطة ضمن إصلاح موثوقية محدود. يُصمم لاحقًا ربط
+attempt-scoped ثم association بعد finalization، مع إبقاء أجسام الأدلة خارج
+telemetry. وتصنّف سياسة الاسترداد الأخطاء والـ429 بحسب نطاقها والوقت المتبقي؛ لا
+تدوّر نماذج المزوّد نفسه تلقائيًا عند حدّ مشترك، ولا تعيد القراءة عند فشل اللغة.
+
+هذا التوضيح لا يجيز تغييرات runtime/schema قبل إغلاق بوابة الوثائق ومراجعتها،
+ولا يغير ترتيب P6 ثم P7. وهو قرار تصميمي مؤجل، لا إعلان اكتمال أو بدء مرحلة.
 
 ---
 
