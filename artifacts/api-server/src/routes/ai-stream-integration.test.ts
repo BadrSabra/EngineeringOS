@@ -7659,6 +7659,166 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
   });
 
+  it("keeps an unresolved PROJECT_QUERY without a canonical objective incomplete across JSON, SSE, and history", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const message = "Explain the system architecture.";
+    const source = "src/system.ts";
+    const sourceBody = "export const systemFlow = 'retained';\n";
+    const incomplete = "ANALYSIS_INCOMPLETE: no canonical claim contract was resolved.";
+    const observedInputs: Array<{
+      objective?: unknown;
+      turnIntent?: {
+        kind?: string;
+        requiresEvidence?: boolean;
+        projectTarget?: unknown;
+        projectTargetResolution?: string;
+      };
+    }> = [];
+
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const input = args[1] as {
+        objective?: unknown;
+        turnIntent?: {
+          kind?: string;
+          requiresEvidence?: boolean;
+          projectTarget?: unknown;
+          projectTargetResolution?: string;
+        };
+        retainedEvidence?: Map<string, string>;
+        retainedReadStatuses?: Map<string, string>;
+      };
+      observedInputs.push(input);
+      input.retainedEvidence?.set(source, sourceBody);
+      input.retainedReadStatuses?.set(source, "READ_COMPLETE");
+
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        readStatus: "READ_COMPLETE",
+        outputLength: sourceBody.length,
+      });
+      onStep?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: 1,
+        uniqueFilesRead: 1,
+        evidenceFileCount: 1,
+        acceptedEvidenceCount: 0,
+        completedReadFiles: [source],
+        retainedBodyFiles: [source],
+        acceptedEvidenceFiles: [],
+        acceptedClaimCount: 0,
+        completionGateResult: "BLOCKED",
+        finalAnswerType: "NO_ANSWER",
+        missingClaims: [],
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 1,
+        prefetchToolCalls: 0,
+        loopToolCalls: 1,
+        stopReason: "evidence_incomplete",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      args[3]?.(incomplete);
+      return {
+        result: {
+          response: incomplete,
+          sources: [source],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+    expect(stream.status).toBe(200);
+    const events = parseSseEvents(stream.text);
+    const done = events.find((event) => event.type === "done");
+    const terminalError = events.find((event) => event.type === "error");
+    expect(done).toBeUndefined();
+    expect(terminalError).toMatchObject({
+      outcome: "FAILED",
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      failureKind: "INCOMPLETE",
+      recoveryState: "INCOMPLETE",
+      terminalProjection: {
+        status: "failed",
+        taskObjective: { status: "INCOMPLETE" },
+      },
+    });
+    expect(terminalError).not.toHaveProperty("projectQueryResponseSource");
+    expect(terminalError).not.toHaveProperty("projectQueryResponseFallbackReason");
+
+    const streamSessionId = terminalError?.sessionId as string;
+    const streamHistory = await request(app)
+      .get(`/api/ai/chat/${streamSessionId}/messages`)
+      .expect(200);
+    const streamedHistoryMessage = (streamHistory.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
+    expect(streamedHistoryMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(streamedHistoryMessage).toMatchObject({ outcome: "FAILED" });
+    expect(streamedHistoryMessage).not.toHaveProperty("projectQueryResponseSource");
+    expect(streamedHistoryMessage).not.toHaveProperty("projectQueryResponseFallbackReason");
+
+    const json = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+    expect(json.status).toBe(200);
+    const jsonMessage = json.body.message as Record<string, unknown> | undefined;
+    expect(json.body).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "PROJECT_QUERY_OBJECTIVE_REQUIRED",
+    });
+    expect(jsonMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(jsonMessage).toMatchObject({
+      outcome: "FAILED",
+      errorCode: "PROJECT_QUERY_OBJECTIVE_REQUIRED",
+    });
+    expect(json.body).not.toHaveProperty("projectQueryResponseSource");
+    expect(json.body).not.toHaveProperty("projectQueryResponseFallbackReason");
+    expect(jsonMessage).not.toHaveProperty("projectQueryResponseSource");
+    expect(jsonMessage).not.toHaveProperty("projectQueryResponseFallbackReason");
+
+    const jsonHistory = await request(app)
+      .get(`/api/ai/chat/${String(json.body.sessionId)}/messages`)
+      .expect(200);
+    const jsonHistoryMessage = (jsonHistory.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
+    expect(jsonHistoryMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(jsonHistoryMessage).toMatchObject({
+      outcome: "FAILED",
+      errorCode: "PROJECT_QUERY_OBJECTIVE_REQUIRED",
+    });
+    expect(jsonHistoryMessage).not.toHaveProperty("projectQueryResponseSource");
+    expect(jsonHistoryMessage).not.toHaveProperty("projectQueryResponseFallbackReason");
+
+    expect(observedInputs).toHaveLength(2);
+    for (const input of observedInputs) {
+      expect(input.objective).toBeUndefined();
+      expect(input.turnIntent).toMatchObject({
+        kind: "PROJECT_QUERY",
+        requiresEvidence: true,
+        projectTargetResolution: "unresolved",
+      });
+      expect(input.turnIntent).not.toHaveProperty("projectTarget");
+    }
+  });
+
   it("retries a failed analytical PROJECT_QUERY as a new execution with the saved contract", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

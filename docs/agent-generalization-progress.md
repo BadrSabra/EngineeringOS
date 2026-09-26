@@ -2133,6 +2133,32 @@ G9 Revocation Safety
 - **next step:** أبقِ المسار العام بلا objective غير مكتمل؛ أي توسيع لاحق يتبع
   البنود المتبقية المحددة في §36 ولا يفتح fallback غير مسنود بعقد server-owned.
 
+### 42.56 — API terminal parity لـPROJECT_QUERY بلا objective (2026-09-26)
+
+- **phase/step:** تثبيت حد §42.55 عند إسقاط نتيجة API لمسار source-first غير
+  المحلول.
+- **status:** `done`.
+- **what changed:** أضيف اختبار API لعبارة `Explain the system architecture.`
+  التي تدخل `PROJECT_QUERY` غير المحلول بلا target أو objective، مع قراءة
+  retained كاملة. يثبت الاختبار أن SSE ينتهي بقبول `FAILED/INCOMPLETE`، وأن JSON
+  والتاريخ لا يعرضان النتيجة `SUCCEEDED` ولا provenance لـfallback. كشف الاختبار
+  أن JSON كان يصنف الرد غير المكتمل نجاحًا؛ أضيف حارس إسقاط ضيق لا يحول النجاح
+  إلى اكتمال إذا تطلب الاستعلام دليلًا ولم يُحل objective canonical. استُثني
+  مسار project orientation، ولم يتغير fallback.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/routes/ai/chat.ts` و
+  `artifacts/api-server/src/routes/ai-stream-integration.test.ts` و
+  `docs/agent-generalization-progress.md`؛ لا تغييرات schema.
+- **validation:** نجح الاختبار المحدد من `artifacts/api-server` (`1/1`)، ونجح
+  `pnpm run typecheck` من جذر workspace. أُعيد فحص `git diff --check` وأعيد تشغيل
+  API workflow مرة واحدة بعد التعديل.
+- **authority/safety impact:** لا صلاحيات أو أدوات أو fallback إضافية؛ غياب
+  objective يمنع نجاح إسقاط JSON، بينما يبقى قبول المشروع ومصدر fallback
+  محكومين بعقدهما الحاليين.
+- **remaining/blocker:** لا فجوة ضمن هذا المسار.
+- **next step:** استأنف أقرب بند غير مغلق من dependency graph في §31؛ §36 في
+  execution plan حزمة تاريخية مكتملة، وليس نقطة بدء جديدة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

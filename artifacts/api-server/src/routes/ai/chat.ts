@@ -6165,7 +6165,7 @@ router.post("/ai/chat", async (req, res) => {
       operationId: analysisCorrelation.operationId ?? sessionIdToUse,
       sourceRevision: analysisCorrelation.projectRevision,
     });
-    const terminalOutcome = classifyAiTerminalOutcome({
+    const classifiedTerminalOutcome = classifyAiTerminalOutcome({
       result,
       trace: traceSteps,
       requiresEvidence: sourceEvidenceRequiredForTurn,
@@ -6188,6 +6188,23 @@ router.post("/ai/chat", async (req, res) => {
           }
         : {}),
     });
+    const terminalOutcome =
+      classifiedTerminalOutcome.outcome === "SUCCEEDED"
+      && turnIntent.kind === "PROJECT_QUERY"
+      && sourceEvidenceRequiredForTurn
+      && !effectiveObjective
+      && !projectOrientationTurn
+        ? {
+            ...classifiedTerminalOutcome,
+            outcome: "FAILED" as const,
+            failureKind: "INCOMPLETE" as const,
+            retryable: true,
+            code: "PROJECT_QUERY_OBJECTIVE_REQUIRED",
+            message: "The project query is incomplete because no canonical objective was resolved.",
+            recoveryState: "INCOMPLETE" as const,
+            evidenceAccepted: false,
+          }
+        : classifiedTerminalOutcome;
     executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
       outcome: terminalOutcome.outcome,
       trace: traceSteps,
