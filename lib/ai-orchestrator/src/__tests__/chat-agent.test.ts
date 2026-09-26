@@ -71,6 +71,73 @@ describe("ChatOutputSchema — runtime validation (unit)", () => {
   });
 });
 
+describe("project-query incomplete evidence projection", () => {
+  it("renders only bounded excerpts from complete retained reads and stays incomplete", async () => {
+    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+    const fileContents = new Map([
+      ["src/complete.ts", "export function handleRequest() { return 'source excerpt'; }\n"],
+      ["src/targeted.ts", "export function partialWindow() { return 'not a full read'; }\n"],
+      ["src/truncated.ts", "export const partial = true;\n"],
+      [".env", "APP_SECRET=should-not-appear\n"],
+    ]);
+    const readStatuses = new Map([
+      ["src/complete.ts", "READ_COMPLETE"],
+      ["src/targeted.ts", "READ_TARGETED"],
+      ["src/truncated.ts", "READ_TRUNCATED"],
+      [".env", "READ_COMPLETE"],
+    ]);
+
+    const response = buildProjectQueryIncompleteResponse(
+      "Explain the project architecture.",
+      fileContents,
+      "en",
+      readStatuses,
+    );
+
+    expect(response).toContain("ANALYSIS_INCOMPLETE");
+    expect(response).toContain("src/complete.ts");
+    expect(response).toContain("source excerpt");
+    expect(response).not.toContain("partialWindow");
+    expect(response).not.toContain("not a full read");
+    expect(response).not.toContain("APP_SECRET");
+    expect(response).toContain("not a conclusion");
+    expect(response).toContain("No final project summary was proven");
+
+    const arabicResponse = buildProjectQueryIncompleteResponse(
+      "اشرح بنية المشروع.",
+      fileContents,
+      "ar",
+      readStatuses,
+    );
+    expect(arabicResponse).toContain("ANALYSIS_INCOMPLETE");
+    expect(arabicResponse).toContain("مقتطفات الأدلة المحفوظة");
+    expect(arabicResponse).toContain("source excerpt");
+  });
+
+  it("bounds evidence excerpts to three files and a fixed total source-text budget", async () => {
+    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+    const fileContents = new Map(
+      Array.from({ length: 5 }, (_, index) => [
+        `src/file-${index}.ts`,
+        `export const body${index} = '${"x".repeat(1_200)}';`,
+      ]),
+    );
+    const readStatuses = new Map(
+      Array.from({ length: 5 }, (_, index) => [`src/file-${index}.ts`, "READ_COMPLETE"]),
+    );
+
+    const response = buildProjectQueryIncompleteResponse(
+      "Explain the project.",
+      fileContents,
+      "en",
+      readStatuses,
+    );
+
+    expect(response.match(/#### src\/file-\d\.ts/g)).toHaveLength(3);
+    expect(response.length).toBeLessThan(4_000);
+  });
+});
+
 // ── Integration: chat agent returns correct ChatOutput shape ─────────────────
 
 const originalApiKey = process.env.GROQ_API_KEY;
@@ -132,6 +199,57 @@ describe("chat agent — ChatOutputSchema validation", () => {
     vi.doUnmock("../agents/query-planner.js");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it("shows complete retained excerpts for a general project query without claiming completion", async () => {
+    const message = "Explain the project architecture and how its request flow works.";
+    const turnIntent = resolveTurnIntent(message);
+    expect(turnIntent.kind).toBe("PROJECT_QUERY");
+    expect(turnIntent.requiresEvidence).toBe(true);
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    response: "The project has a request pipeline.",
+                    sources: ["src/router.ts"],
+                  }),
+                },
+              }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message,
+      history: [],
+      projectContext: makeContext(),
+      turnIntent,
+      retainedEvidence: new Map([
+        ["src/router.ts", "export function routeRequest() { return 'retained source'; }\n"],
+        ["src/partial.ts", "export const partial = true;\n[read output truncated]"],
+      ]),
+      retainedReadStatuses: new Map([
+        ["src/router.ts", "READ_COMPLETE"],
+        ["src/partial.ts", "READ_TRUNCATED"],
+      ]),
+    });
+
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.response).toContain("Retained evidence excerpts");
+    expect(result.response).toContain("retained source");
+    expect(result.response).not.toContain("[read output truncated]");
+    expect(result.response).not.toContain("partial = true");
+    expect(result.sources).toEqual(["src/router.ts"]);
   });
 
   it("identifies an English-only Arabic fixture by name", () => {

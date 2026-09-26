@@ -5313,27 +5313,92 @@ export function buildBehaviorEvidenceIncompleteResponse(
  * Keep provider degradation target-neutral and explicit instead of projecting
  * a forensic report for an ordinary read-only architecture question.
  */
+function listCompleteProjectQueryReads(
+  fileContents: ReadonlyMap<string, string>,
+  readStatuses: ReadonlyMap<string, string>,
+): Array<[string, string]> {
+  return [...fileContents.entries()]
+    .filter(([file, content]) => {
+      const normalizedPath = file.replace(/\\/g, "/").replace(/^\.\/+/, "");
+      const status = readStatuses.get(file) ?? readStatuses.get(normalizedPath);
+      return (
+        (status === "READ_COMPLETE" || status === "READ_CACHED") &&
+        isUsableObjectiveLocatorBody(content) &&
+        !/(?:^|\/)(?:\.env(?:\.[^/]*)?|secrets?)(?:\/|$)/i.test(normalizedPath)
+      );
+    })
+    .sort(([left], [right]) => left.localeCompare(right));
+}
+
 export function buildProjectQueryIncompleteResponse(
   message: string,
   fileContents: ReadonlyMap<string, string>,
   responseLanguage?: "ar" | "en",
+  readStatuses?: ReadonlyMap<string, string>,
 ): string {
   const isArabic = responseLanguage === "ar" || (
     responseLanguage === undefined && /[\u0600-\u06FF]/.test(message)
   );
-  const files = [...fileContents.keys()].sort();
+  const retainedReads = readStatuses
+    ? listCompleteProjectQueryReads(fileContents, readStatuses)
+    : [];
+  const files = (readStatuses
+    ? retainedReads.map(([file]) => file)
+    : [...fileContents.keys()]
+  ).sort();
+  const displayedFiles = files.slice(0, 8).map((file) => {
+    const boundedPath = file.slice(0, 160);
+    return `- ${boundedPath}${file.length > boundedPath.length ? "…" : ""}`;
+  });
+  if (files.length > displayedFiles.length) {
+    displayedFiles.push(
+      isArabic
+        ? `- و${files.length - displayedFiles.length} ملفاً مقروءاً آخر.`
+        : `- and ${files.length - displayedFiles.length} more retained reads.`,
+    );
+  }
+  const evidenceExcerpts: string[] = [];
+  let remainingExcerptChars = 2_400;
+  for (const [file, content] of retainedReads.slice(0, 3)) {
+    if (remainingExcerptChars <= 0) break;
+    const excerpt = content.trim().slice(0, Math.min(900, remainingExcerptChars)).trimEnd();
+    if (!excerpt) continue;
+    const longestBacktickRun = Math.max(
+      2,
+      ...[...excerpt.matchAll(/`+/g)].map((match) => match[0].length),
+    );
+    const fence = "`".repeat(longestBacktickRun + 1);
+    const safePath = file.replace(/[\r\n]/g, " ").replace(/`/g, "\\`");
+    evidenceExcerpts.push(`#### ${safePath}\n${fence}\n${excerpt}\n${fence}`);
+    remainingExcerptChars -= excerpt.length;
+  }
+  const englishEvidenceExcerptSection = evidenceExcerpts.length > 0
+    ? [
+        "",
+        "### Retained evidence excerpts (source text, not a conclusion)",
+        ...evidenceExcerpts,
+        "These bounded excerpts provide context only; they do not establish a complete answer.",
+      ]
+    : [];
+  const arabicEvidenceExcerptSection = evidenceExcerpts.length > 0
+    ? [
+        "",
+        "### مقتطفات الأدلة المحفوظة (نص من المصدر، وليس استنتاجاً)",
+        ...evidenceExcerpts,
+        "هذه المقتطفات المحدودة للسياق فقط، ولا تثبت اكتمال الإجابة.",
+      ]
+    : [];
   if (isArabic) {
     return [
       "ANALYSIS_INCOMPLETE — لم تكتمل الإجابة المقيّدة بنطاق السؤال من القراءات المتاحة.",
       "",
       "### القراءات المكتملة",
-      ...(files.length > 0
-        ? files.map((file) => `- ${file}`)
-        : ["- لا يوجد ملف مقروء مؤكد."]),
+      ...(displayedFiles.length > 0 ? displayedFiles : ["- لا يوجد ملف مقروء مؤكد."]),
       "",
       "### حالة التحليل",
       "تم الاحتفاظ بالقراءات أعلاه، لكن لم تُغلق الأدلة المطلوبة كل ادعاءات السؤال.",
       "لا يوجد ملخص نهائي مثبت، ولم يتم تعديل أي ملف.",
+      ...arabicEvidenceExcerptSection,
       "",
       "### الخطوة التالية",
       "أعد المحاولة أو حدّد دالة أو مساراً بعينه؛ لن تُعاد القراءات المؤكدة دون حاجة.",
@@ -5343,11 +5408,12 @@ export function buildProjectQueryIncompleteResponse(
     "ANALYSIS_INCOMPLETE — the scoped project answer could not be completed from the available reads.",
     "",
     "### Completed reads",
-    ...(files.length > 0 ? files.map((file) => `- ${file}`) : ["- No confirmed file read."]),
+    ...(displayedFiles.length > 0 ? displayedFiles : ["- No confirmed file read."]),
     "",
     "### Analysis status",
     "The reads above were retained, but the required evidence did not close every claim in the project question.",
     "No final project summary was proven, and no file was modified.",
+    ...englishEvidenceExcerptSection,
     "",
     "### Next step",
     "Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.",
@@ -10034,6 +10100,14 @@ export async function chat(opts: {
     && turnIntent.requiresEvidence
     && !projectQueryHasCompleteEvidenceOverride
   ) {
+    const isGeneralProjectQueryFallback =
+      turnIntent.kind === "PROJECT_QUERY" &&
+      !projectOrientationMode &&
+      (!objective || objective.objectiveType === "PROJECT_QUERY");
+    const retainedSourcePaths = isGeneralProjectQueryFallback
+      ? listCompleteProjectQueryReads(forensicFileContents, prefetchReadStatuses)
+          .map(([file]) => file)
+      : [...forensicFileContents.keys()];
     const retainedEvidenceReport = collectForensicEvidence(
       messages,
       toolSources,
@@ -10047,7 +10121,12 @@ export async function chat(opts: {
       responseLanguage,
     );
     const retainedResponse = turnIntent.kind === "PROJECT_QUERY"
-      ? buildProjectQueryIncompleteResponse(message, forensicFileContents, responseLanguage)
+      ? buildProjectQueryIncompleteResponse(
+          message,
+          forensicFileContents,
+          responseLanguage,
+          isGeneralProjectQueryFallback ? prefetchReadStatuses : undefined,
+        )
       : buildIncompleteForensicReport(retainedEvidenceReport, {
           language: responseLanguage,
           reason: "PROVIDER_SYNTHESIS_UNAVAILABLE",
@@ -10056,7 +10135,7 @@ export async function chat(opts: {
     const retainedTaskResult = buildTaskResult({
       forensicTaskType,
       finalResponse: retainedResponse,
-      mergedSources: [...forensicFileContents.keys()],
+      mergedSources: retainedSourcePaths,
       semanticBehaviorAnswer: undefined,
       structuredRepairPlan: undefined,
       acceptedBehaviorEvidence: [],
@@ -10064,7 +10143,7 @@ export async function chat(opts: {
     onDelta?.(retainedResponse);
     return {
       response: retainedResponse,
-      sources: [...forensicFileContents.keys()],
+      sources: retainedSourcePaths,
       pendingChanges: getExecutionPendingChanges(),
       resolvedModel:
         loopResult.kind === "response" || loopResult.kind === "partial"

@@ -21,3 +21,17 @@ coverage and body-retention capacity.
 **How to apply:** Persist complete read metadata for the whole required scope,
 track omitted bodies/paths explicitly, and make terminal classification use the
 full evidence ledger rather than the retained-body count.
+
+For a general PROJECT_QUERY that cannot be synthesized, a bounded source excerpt
+may preserve useful context only when its retained status confirms a complete
+full-file read. Keep that projection `ANALYSIS_INCOMPLETE`; excerpts do not close
+claims or become acceptance evidence. Do not apply this to project orientation
+or specialized targeted objectives.
+
+**Why:** A user can still benefit from seeing the exact source that was read,
+but a deterministic excerpt has no semantic claim closure and must not appear
+to be a completed project answer.
+
+**How to apply:** Require `READ_COMPLETE`/`READ_CACHED`, reject truncated or
+unknown bodies, cap both displayed files and excerpt text, and keep the existing
+objective acceptance path unchanged.
