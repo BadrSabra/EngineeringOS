@@ -16,7 +16,7 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. سياسة التعافي الموصى بها هجينة: استعادة same-attempt فقط عند تطابق manifest/identities/hashes وإمكان إعادة validation بأمان، وإلا fail-closed ومحاولة جديدة معتمدة. لم يُفعّل replay بعد. Mission repair لا يروّج bytes إلى live root؛ تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. صار aggregate `ACTION_COMMITTED` idempotent دلاليًا داخل Episode/attempt: retry مطابق يعيد الحدث نفسه والتعارض يفشل مغلقًا؛ لا يشمل ذلك tool commits أو replay validation/effects. سياسة التعافي الموصى بها هجينة: استعادة same-attempt فقط عند تطابق manifest/identities/hashes وإمكان إعادة validation بأمان، وإلا fail-closed ومحاولة جديدة معتمدة. لم يُفعّل replay بعد. Mission repair لا يروّج bytes إلى live root؛ تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ كما توجد ملاحظة محدودة لمالك listener في مسارات runtime محددة مع recovery/heartbeat fencing. لا يثبت ذلك lifecycle عامة أو descendants، ورصد validator يثبت PID المباشر فقط. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
@@ -2325,16 +2325,41 @@ G9 Revocation Safety
   سلطة القبول الوحيدة.
 - **recommended policy:** استعادة proof-carrying داخل attempt نفسها فقط عند
   مطابقة identities/checkpoint sequence/approval/revision/approved paths،
-  وإعادة بناء candidate مع تطابق base/candidate hashes. تعاد validation فقط
-  لprofile خادمي ثبت أنه read-only وقابل للتكرار؛ تتطلب النهاية ملاحظة مباشرة
-  حديثة وEffectBundle/acceptance للهوية نفسها. كل حالة غير قابلة للإثبات تفشل
-  مغلقًا وتحتاج attempt جديدة معتمدة.
-- **remaining/blocker:** قبل runtime replay، يجب إثبات صلاحية تكرار validator،
-  تعريف semantic idempotency لـ`ACTION_COMMITTED`، ومصالحة نوافذ checkpoint/
-  Episode/effect/acceptance المنفصلة. checkpoint وحده لا يمنح نجاحًا.
-- **next step:** نفّذ أولًا اختبارات crash-window للـphase transitions وحدد
-  idempotency الفعلية لكل writer؛ بعدها أضف recovery manifest fenced بالـlease.
-  لا تضف schema أو تفعّل replay قبل اجتياز هذه البوابات.
+  وإعادة بناء candidate مع تطابق base/candidate hashes. يمكن تنفيذ validation
+  مجددًا داخل disposable workspace كدليل جديد بمعرّف جديد؛ لا يعاد استخدام receipt
+  قديم كإثبات. تتطلب النهاية ملاحظة مباشرة حديثة وEffectBundle/acceptance للهوية
+  نفسها. كل حالة غير قابلة للإثبات تفشل مغلقًا وتحتاج attempt جديدة معتمدة.
+- **remaining/blocker:** يجب حفظ/ربط validation evidence الجديدة مع candidate
+  manifest ومصالحة نوافذ checkpoint/Episode/effect/acceptance المنفصلة.
+  checkpoint وحده لا يمنح نجاحًا.
+- **next step:** أُغلقت semantic idempotency لaggregate `ACTION_COMMITTED` فقط؛
+  أضف الآن recovery manifest fenced بالـlease يربط candidate hashes والـvalidation
+  evidence الجديدة، مع crash-window tests. لا تضف schema أو تفعّل replay قبل
+  اجتياز هذه البوابات.
+
+### 42.63 — P3.5 idempotent Mission aggregate ACTION_COMMITTED (2026-09-27)
+
+- **phase/step:** P3.5 — منع تكرار أو تغيير commit التجميعي لنفس Mission repair
+  action عند retry.
+- **status:** `done` لهذه الشريحة؛ استعادة aggregate كاملة ما زالت غير مفعّلة.
+- **what changed:** يميز Episode ledger فقط aggregate action ID
+  `mission-repair:${executionId}:${attempt}`. داخل Episode نفسها، يعيد payload
+  المطابق الحدث الموجود بلا sequence جديد؛ أما إعادة استخدام الهوية مع candidate
+  hash أو دلالات مختلفة، أو ربطها بـexecution/attempt آخر، فيفشل `invalid_contract`.
+  لا يشمل هذا `mission-repair-tool:*`؛ فحص worker/lease يسبق dedupe ويظل إلزاميًا.
+- **files/schema/contracts touched:** Episode ledger واختباره، مع تحديث عقد
+  الاستعادة في الخطة وسجل التقدم؛ لا schema أو migration أو صلاحيات أو validator.
+- **validation:** نجحت 16 اختبارات Vitest عبر Episode ledger وMission lifecycle؛
+  ونجح `pnpm run typecheck` و`git diff --check`.
+- **authority/safety impact:** لا يضيف هذا EffectBundle ولا observation ولا
+  acceptance. يمنع تعدد aggregate commit المتعارض فقط؛ التحقق من الأثر الحالي
+  يظل شرط النجاح الوحيد، ولا يسمح replay من checkpoint.
+- **remaining/blocker:** يجب ربط كل validation invocation الجديدة بهوية candidate
+  manifest المقبولة، ولا توجد بعد مصالحة كاملة لنوافذ observation/effect/acceptance.
+  استعادة غير قابلة للمطابقة تبقى incomplete.
+- **next step:** نفّذ manifest/phase-reconciliation واختبارات crash windows؛
+  validation الجديدة دليل جديد لا يعيد استعمال receipt سابقًا. fail-closed عند
+  أي اختلاف، من دون live writes أو per-tool EffectBundle أو World Delta.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

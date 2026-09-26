@@ -5879,6 +5879,22 @@ base/candidate hashes وسلوك validation المكرر وidempotency للـcom
 بالقبول. لا تستنتج نجاحًا من checkpoint أو `ACTION_REQUESTED` أو محتوى المرشح
 وحده.
 
+المسار الموصى به هو **استعادة هجينة تحمل إثباتها**: إعادة استخدام attempt نفسها
+مسموح فقط بعد مطابقة action/Episode/execution/attempt وcheckpoint sequence
+والـapproval/revision وapproved paths، وإعادة بناء candidate workspace مع تطابق
+base/candidate hashes. يعاد validation فقط إذا ثبت أن profile الخادمي read-only
+ويعمل داخل disposable workspace؛ كل إعادة تشغيل تنتج validation evidence جديدة
+ويجب ألا يعاد استخدام receipt قديم كأنه الإثبات نفسه. تبقى الملاحظة المباشرة
+الجديدة وEffectBundle والقبول مرتبطة بالهوية نفسها. أي فقد أو اختلاف أو validator
+غير bounded يبقي التنفيذ غير مكتمل ويتطلب attempt جديدة معتمدة. checkpoint مدخل
+لإعادة البناء وليس سلطة قبول.
+
+أول خطوة تنفيذية لهذا العقد هي idempotency دلالية لحدث aggregate
+`ACTION_COMMITTED`: داخل Episode نفسها، يعيد retry المطابق كاملًا الحدث المحفوظ؛
+وإعادة استخدام `actionId` نفسه مع payload مختلف أو execution/attempt غير مطابق
+تفشل مغلقًا. يظل `mission-repair-tool:*` خارج هذا السلوك، ولا تجعل هذه الخطوة
+validation أو observations أو effect/acceptance قابلة لإعادة التشغيل تلقائيًا.
+
 ### 42.25 P5.5 — Server-classified read-only recipe invocation (2026-09-25)
 
 تُربط أحداث invocation للقراءة فقط بـcapability ID داخل allowlist

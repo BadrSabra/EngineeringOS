@@ -264,6 +264,22 @@ async function persistRequestedActionReferences(
   }).where(eq(aiAgentEpisodesTable.id, episode.id));
 }
 
+function missionRepairAggregateCommitActionId(
+  input: AppendEpisodeEventInput,
+  payload: unknown,
+): string | undefined {
+  if (input.eventType !== "ACTION_COMMITTED") return undefined;
+  const actionId = asRecord(payload)?.actionId;
+  if (typeof actionId !== "string" || !actionId.startsWith("mission-repair:")) {
+    return undefined;
+  }
+  const expectedActionId = `mission-repair:${input.executionId}:${input.attempt}`;
+  if (actionId !== expectedActionId) {
+    ledgerError("invalid_contract", "Mission repair aggregate commit action identity does not match its execution attempt.");
+  }
+  return actionId;
+}
+
 function nextStateForEvent(current: EpisodeState, eventType: EpisodeEventType): EpisodeState {
   if (EVENT_STATE[eventType]) {
     const next = EVENT_STATE[eventType]!;
@@ -315,6 +331,23 @@ async function appendLocked(
     }
   }
   const payloadHash = canonicalJsonHash(payload);
+  const aggregateMissionRepairActionId = missionRepairAggregateCommitActionId(input, payload);
+  if (aggregateMissionRepairActionId) {
+    const priorCommits = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+    )).orderBy(asc(aiAgentEpisodeEventsTable.sequence));
+    const sameActionCommits = priorCommits.filter((row) =>
+      asRecord(row.payload)?.actionId === aggregateMissionRepairActionId
+    );
+    if (sameActionCommits.length > 0) {
+      const priorHashes = new Set(sameActionCommits.map((row) => row.payloadHash));
+      if (priorHashes.size !== 1 || !priorHashes.has(payloadHash)) {
+        ledgerError("invalid_contract", "Mission repair aggregate commit action identity was reused with different semantics.");
+      }
+      return eventToContract(sameActionCommits[0]!);
+    }
+  }
   const [existing] = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
     eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
     eq(aiAgentEpisodeEventsTable.eventType, input.eventType),
