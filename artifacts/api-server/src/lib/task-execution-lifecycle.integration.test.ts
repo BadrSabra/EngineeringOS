@@ -468,6 +468,7 @@ describe("real durable task execution lifecycle", () => {
           episodeId: aiAgentEpisodeEventsTable.episodeId,
           executionId: aiAgentEpisodeEventsTable.executionId,
           attempt: aiAgentEpisodeEventsTable.attempt,
+          actorId: aiAgentEpisodeEventsTable.actorId,
           payload: aiAgentEpisodeEventsTable.payload,
         })
         .from(aiAgentEpisodeEventsTable)
@@ -500,16 +501,25 @@ describe("real durable task execution lifecycle", () => {
         throw new Error("Mission repair fixture did not retain its canonical action request.");
       }
       const requestedEvent = toolRequests[0];
+      expect(requestedEvent.actorId).toBeTruthy();
+      if (!requestedEvent.actorId) {
+        throw new Error("Mission repair request did not retain its worker identity.");
+      }
       const recoveryBinding = {
         projectId: fixture.projectId,
         episodeId: requestedEvent.episodeId,
         executionId: requestedEvent.executionId,
         attempt: requestedEvent.attempt,
+        workerId: requestedEvent.actorId,
         expectedAction: requestedAction,
       };
       // Resolve after executeTaskLifecycle has returned, with no process-local
       // callback state, as a worker restart would.
       await expect(assertMissionRepairToolActionRequested(recoveryBinding)).resolves.toBeUndefined();
+      await expect(assertMissionRepairToolActionRequested({
+        ...recoveryBinding,
+        workerId: "different-worker",
+      })).rejects.toThrow("mission_repair_tool_action_request_conflict");
       const conflictingAction = {
         ...requestedAction,
         scope: {

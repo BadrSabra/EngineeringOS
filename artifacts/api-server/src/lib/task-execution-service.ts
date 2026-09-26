@@ -1252,6 +1252,7 @@ async function executeMissionToolLoop(params: {
             episodeId: episode.episodeId,
             executionId: params.executionId,
             attempt: params.expectedAttempt,
+            workerId: params.workerId,
             expectedAction: action,
           });
           await appendEpisodeEvent({

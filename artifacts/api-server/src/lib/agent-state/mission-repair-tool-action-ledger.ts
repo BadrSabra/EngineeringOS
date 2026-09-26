@@ -20,10 +20,12 @@ export async function assertMissionRepairToolActionRequested(input: {
   episodeId: string;
   executionId: string;
   attempt: number;
+  workerId: string;
   expectedAction: AgentAction;
 }): Promise<void> {
   const events = await db.select({
     actorType: aiAgentEpisodeEventsTable.actorType,
+    actorId: aiAgentEpisodeEventsTable.actorId,
     payload: aiAgentEpisodeEventsTable.payload,
   }).from(aiAgentEpisodeEventsTable).where(and(
     eq(aiAgentEpisodeEventsTable.projectId, input.projectId),
@@ -48,7 +50,11 @@ export async function assertMissionRepairToolActionRequested(input: {
 
   const [event] = matchingEvents;
   const payloadRecord = asRecord(event?.payload);
-  if (event?.actorType !== "worker" || payloadRecord?.invocationKind !== "candidate_overlay") {
+  if (
+    event?.actorType !== "worker"
+    || event.actorId !== input.workerId
+    || payloadRecord?.invocationKind !== "candidate_overlay"
+  ) {
     throw new Error("mission_repair_tool_action_request_conflict");
   }
 

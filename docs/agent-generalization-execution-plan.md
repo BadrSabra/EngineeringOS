@@ -5857,7 +5857,8 @@ best-effort. إذا فشل تسجيل أي من الحدثين، تعاد نتي
 ذاكرة callback المحلية. يقتصر البحث على project/episode/execution/attempt نفسها،
 ويجب أن يطابق الطلب `AgentAction` كاملًا وهوية `candidate_overlay`؛ غياب الطلب أو
 تعارضه يفشل مغلقًا. هذا يدعم استعادة العامل داخل attempt نفسها ولا يسمح بإعادة
-استخدام الفعل عبر attempt أو Episode مختلفين.
+استخدام الفعل عبر attempt أو Episode مختلفين. كما يجب أن يطابق actorId في الطلب
+هوية العامل الحالي؛ actorType=`worker` وحده لا يكفي لإعادة استخدامه.
 
 حد الإثبات لا يتغير: commit يعني أن pending candidate change قد وُضع في overlay
 فقط. لا يوجد per-tool effect أو World Delta، ولا تكتب الأداة live root. يظل
