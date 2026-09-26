@@ -32,3 +32,9 @@ Bounded no-tools project-query recovery must have its own phase-attributed provi
 **Why:** The recovered model returned a function-style `executeToolLoop(...)` call during a request sent with no tools. The provider call itself was HTTP-successful, but normalization raised `INVALID_TOOL_CALL`; deterministic claim assembly then produced the accepted answer.
 
 **How to apply:** Preserve the recovery phase, requested/actual model, and normalized failure kind in durable attempt telemetry. Keep no-tools normalization fail-closed, and use a bounded content-only retry or deterministic fallback without granting the model tools.
+
+Project-orientation no-tools correction must be attributable as both a recovery action and a synthesis/contract attempt. Evidence acceptance after deterministic assembly is not provider-synthesis success.
+
+**Why:** A completed orientation can retain complete, accepted source evidence while its provider correction fails; an aggregate recovery count without the correction's outcome conceals why natural-language synthesis was unavailable.
+
+**How to apply:** Persist bounded phase-specific transport and contract outcomes separately, bind each attempt to the retained evidence snapshot, and keep deterministic fallback provenance visible without promoting it to provider success.
