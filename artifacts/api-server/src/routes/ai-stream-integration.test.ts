@@ -7147,10 +7147,45 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       });
       args[6]?.({
         kind: "diagnostic",
+        code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+        details: [
+          "attempt=1",
+          `attemptId=${"b".repeat(40)}`,
+          `evidenceManifestId=${"a".repeat(64)}`,
+          "contractOutcome=accepted",
+          `outputHash=${"c".repeat(64)}`,
+          "durationMs=23",
+        ],
+      });
+      args[6]?.({
+        kind: "diagnostic",
         code: "PROJECT_QUERY_RESPONSE_SOURCE",
         details: [
-          "source=deterministic_fallback",
-          "fallbackReason=synthesis_failed",
+          "source=provider_synthesis",
+        ],
+      });
+      args[6]?.({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_BINDING",
+        details: [
+          "responseUsesOverride=true",
+          "responseSource=provider_synthesis",
+          `evidenceManifestId=${"a".repeat(64)}`,
+          `synthesisAttemptId=${"b".repeat(40)}`,
+          `responseHash=${"d".repeat(64)}`,
+        ],
+      });
+      args[6]?.({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_TERMINAL_BINDING",
+        details: [
+          "terminalResponseUsesOverride=true",
+          "responseSource=provider_synthesis",
+          `evidenceManifestId=${"a".repeat(64)}`,
+          `synthesisAttemptId=${"b".repeat(40)}`,
+          `terminalResponseHash=${"e".repeat(64)}`,
+          "objectiveGate=PROVEN",
+          "telemetryBlocked=false",
         ],
       });
       args[6]?.({
@@ -7185,10 +7220,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           response,
           sources,
           pendingChanges: [],
-          // Model the server-owned deterministic fallback projection so this
-          // route journey covers public provenance, not only acceptance.
-          projectQueryResponseSource: "deterministic_fallback",
-          projectQueryResponseFallbackReason: "synthesis_failed",
+          projectQueryResponseSource: "provider_synthesis",
         },
         effectiveProvider: "groq" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
@@ -7241,11 +7273,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       message: {
         content: response,
         outcome: "SUCCEEDED",
-        projectQueryResponseSource: "deterministic_fallback",
-        projectQueryResponseFallbackReason: "synthesis_failed",
+        projectQueryResponseSource: "provider_synthesis",
       },
-      projectQueryResponseSource: "deterministic_fallback",
-      projectQueryResponseFallbackReason: "synthesis_failed",
+      projectQueryResponseSource: "provider_synthesis",
     });
 
     const [execution] = await db
@@ -7253,6 +7283,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         id: aiExecutionsTable.id,
         sessionId: aiExecutionsTable.sessionId,
         status: aiExecutionsTable.status,
+        finalMessageId: aiExecutionsTable.finalMessageId,
       })
       .from(aiExecutionsTable)
       .where(eq(aiExecutionsTable.projectId, projectId))
@@ -7285,6 +7316,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
         evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
         evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        messageId: aiExecutionAcceptancesTable.messageId,
       })
       .from(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
@@ -7295,6 +7327,57 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       evidenceComplete: 1,
       evidenceSnapshotId: expect.any(String),
     });
+    expect(acceptance!.messageId).toBe(execution!.finalMessageId);
+
+    const [acceptedMessage] = await db
+      .select({
+        id: aiChatMessagesTable.id,
+        content: aiChatMessagesTable.content,
+        toolTrace: aiChatMessagesTable.toolTrace,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, acceptance!.messageId!))
+      .limit(1);
+    expect(acceptedMessage).toMatchObject({
+      id: execution!.finalMessageId,
+      content: response,
+    });
+    const persistedTrace = JSON.parse(acceptedMessage!.toolTrace ?? "[]") as Array<{
+      kind?: string;
+      code?: string;
+      details?: string[];
+    }>;
+    expect(persistedTrace).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+        details: expect.arrayContaining([
+          `attemptId=${"b".repeat(40)}`,
+          `evidenceManifestId=${"a".repeat(64)}`,
+          "contractOutcome=accepted",
+          `outputHash=${"c".repeat(64)}`,
+        ]),
+      }),
+      expect.objectContaining({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_RESPONSE_BINDING",
+        details: expect.arrayContaining([
+          `synthesisAttemptId=${"b".repeat(40)}`,
+          `evidenceManifestId=${"a".repeat(64)}`,
+          `responseHash=${"d".repeat(64)}`,
+        ]),
+      }),
+      expect.objectContaining({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_TERMINAL_BINDING",
+        details: expect.arrayContaining([
+          `synthesisAttemptId=${"b".repeat(40)}`,
+          `evidenceManifestId=${"a".repeat(64)}`,
+          `terminalResponseHash=${"e".repeat(64)}`,
+        ]),
+      }),
+    ]));
+    expect(acceptedMessage!.toolTrace).not.toContain(response);
 
     const [snapshot] = await db
       .select({
@@ -7339,8 +7422,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         role: "assistant",
         content: response,
         outcome: "SUCCEEDED",
-        projectQueryResponseSource: "deterministic_fallback",
-        projectQueryResponseFallbackReason: "synthesis_failed",
+        projectQueryResponseSource: "provider_synthesis",
       }),
     ]));
   });

@@ -1329,6 +1329,26 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
           detail.includes("failureChain=provider_failure:AUTH_ERROR"),
         ),
       )).toBe(true);
+      const failedSynthesisDetails = synthesisDiagnostics
+        .map((step) => step.details as string[] | undefined)
+        .find((details) => details?.some((detail) => detail.startsWith("attemptId=")));
+      const attemptId = failedSynthesisDetails
+        ?.find((detail) => detail.startsWith("attemptId="))
+        ?.slice("attemptId=".length);
+      const evidenceManifestId = failedSynthesisDetails
+        ?.find((detail) => detail.startsWith("evidenceManifestId="))
+        ?.slice("evidenceManifestId=".length);
+      expect(attemptId).toMatch(/^[a-f0-9]{40}$/);
+      expect(evidenceManifestId).toMatch(/^[a-f0-9]{64}$/);
+      expect(failedSynthesisDetails).toEqual(expect.arrayContaining([
+        "provider=groq",
+        "contractOutcome=not_evaluated",
+        "outputHash=none",
+        expect.stringMatching(/^durationMs=\d+$/),
+      ]));
+      expect(materialization?.details).toEqual(
+        expect.arrayContaining([`evidenceManifestId=${evidenceManifestId}`]),
+      );
 
       const binding = steps.find(
         (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",

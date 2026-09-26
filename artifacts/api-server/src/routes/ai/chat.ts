@@ -1242,6 +1242,59 @@ function safePublicDiagnosticDetails(details: readonly string[] | undefined): st
 }
 
 /**
+ * Keep the synthesis attempt and final-response binding metadata together in
+ * persisted chat traces. These projections accept only opaque IDs, hashes,
+ * bounded integers, and small enums; provider text and source content never
+ * cross this boundary.
+ */
+function safeProjectQueryTraceDetails(
+  code: string,
+  details: readonly string[] | undefined,
+): string[] | undefined {
+  const values = new Map(
+    (details ?? []).flatMap((detail) => {
+      const separator = detail.indexOf("=");
+      return separator > 0
+        ? [[detail.slice(0, separator), detail.slice(separator + 1)] as const]
+        : [];
+    }),
+  );
+  const fields: Array<[string, RegExp]> = code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS"
+    ? [
+        ["attempt", /^\d{1,2}$/],
+        ["attemptId", /^[a-f0-9]{40}$/],
+        ["evidenceManifestId", /^[a-f0-9]{64}$/],
+        ["contractOutcome", /^(?:accepted|rejected|not_evaluated)$/],
+        ["outputHash", /^(?:none|[a-f0-9]{64})$/],
+        ["durationMs", /^\d{1,6}$/],
+      ]
+    : code === "PROJECT_QUERY_RESPONSE_BINDING"
+      ? [
+          ["responseSource", /^(?:provider_synthesis|deterministic_fallback)$/],
+          ["evidenceManifestId", /^[a-f0-9]{64}$/],
+          ["synthesisAttemptId", /^[a-f0-9]{40}$/],
+          ["responseHash", /^[a-f0-9]{64}$/],
+          ["responseUsesOverride", /^(?:true|false)$/],
+        ]
+      : code === "PROJECT_QUERY_TERMINAL_BINDING"
+        ? [
+            ["responseSource", /^(?:provider_synthesis|deterministic_fallback)$/],
+            ["evidenceManifestId", /^[a-f0-9]{64}$/],
+            ["synthesisAttemptId", /^[a-f0-9]{40}$/],
+            ["terminalResponseHash", /^[a-f0-9]{64}$/],
+            ["terminalResponseUsesOverride", /^(?:true|false)$/],
+            ["objectiveGate", /^[A-Z_]{1,32}$/],
+            ["telemetryBlocked", /^(?:true|false)$/],
+          ]
+        : [];
+  if (fields.length === 0) return undefined;
+  return fields.flatMap(([key, pattern]) => {
+    const value = values.get(key);
+    return value !== undefined && pattern.test(value) ? [`${key}=${value}`] : [];
+  });
+}
+
+/**
  * Project the terminal state without trusting persisted worker/provider text.
  * `execution.error` and checkpoint detail remain server-side diagnostics; the
  * public contract gets only a stable, status-derived code.
@@ -4100,17 +4153,24 @@ function serializeToolTrace(
         };
       case "diagnostic":
         {
-          const safeDetails = safePublicDiagnosticDetails(step.details).slice(0, 4);
+          const projectQueryDetails = safeProjectQueryTraceDetails(step.code, step.details);
+          const safeDetails = projectQueryDetails
+            ?? safePublicDiagnosticDetails(step.details).slice(0, 4);
           const responseSourceDetails = step.code === "PROJECT_QUERY_RESPONSE_SOURCE"
             ? safeDetails.filter((detail) =>
                 detail.startsWith("source=") || detail.startsWith("fallbackReason="),
               )
             : [];
+          const boundedDetails = includeDiagnosticDetails
+            ? safeDetails
+            : responseSourceDetails.length > 0
+              ? responseSourceDetails
+              : projectQueryDetails ?? [];
           return {
             kind: step.kind,
             code: step.code,
-            ...((includeDiagnosticDetails ? safeDetails : responseSourceDetails).length > 0
-              ? { details: includeDiagnosticDetails ? safeDetails : responseSourceDetails }
+            ...(boundedDetails.length > 0
+              ? { details: boundedDetails }
               : {}),
           ...(step.code === "EXECUTION_PHASE_TOOL_REJECTED" && step.phase
             ? { phase: step.phase, tool: step.tool }
@@ -9272,9 +9332,10 @@ export async function handleChatStream(req: Request, res: Response) {
         // Forensic recovery/provider details are server diagnostics, not user
         // report content. Keep them in the internal trace for debugging, but
         // do not stream them to a forensic audit client.
+        const projectQueryDetails = safeProjectQueryTraceDetails(step.code, step.details);
         const visibleDiagnosticDetails = streamTurnIntent.requiresEvidence
           ? []
-          : safePublicDiagnosticDetails(step.details).slice(0, 4);
+          : (projectQueryDetails ?? safePublicDiagnosticDetails(step.details)).slice(0, 8);
         if (!diagnosticCodes.includes(step.code)) {
           diagnosticCodes.push(step.code);
         }

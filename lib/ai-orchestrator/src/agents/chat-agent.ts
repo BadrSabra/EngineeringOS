@@ -5354,6 +5354,88 @@ export function buildProjectQueryIncompleteResponse(
   ].join("\n");
 }
 
+type ProjectQueryEvidencePacket = Readonly<{
+  manifestId: string;
+  executionLedgerId: string;
+  projectId: string | null;
+  sourceRevision: string | null;
+  claims: readonly Readonly<{
+    claimId: string;
+    source: string;
+    excerpt: string;
+    excerptHash: string;
+  }>[];
+  reads: readonly Readonly<{
+    pathHash: string;
+    bodyHash: string;
+    byteLength: number;
+    status: string;
+  }>[];
+}>;
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function safeSynthesisIdentifier(value: string | undefined): string {
+  return value && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(value)
+    ? value
+    : "unknown";
+}
+
+/**
+ * Freeze the exact server-materialized evidence passed to project-query
+ * synthesis and give it a content-addressed identity. Bodies and paths remain
+ * in memory for synthesis; only hashes and bounded status metadata are
+ * projected into the durable tool trace.
+ */
+function createProjectQueryEvidencePacket(params: {
+  executionLedgerId: string;
+  projectId?: string;
+  sourceRevision?: string;
+  fileContents: ReadonlyMap<string, string>;
+  readStatuses?: ReadonlyMap<string, ReadStatus>;
+  claims: readonly {
+    claimId: string;
+    source: string;
+    excerpt: string;
+  }[];
+}): ProjectQueryEvidencePacket {
+  const claims = Object.freeze(params.claims.map((claim) => Object.freeze({
+    claimId: claim.claimId,
+    source: claim.source,
+    excerpt: claim.excerpt,
+    excerptHash: sha256(claim.excerpt),
+  })));
+  const reads = Object.freeze([...params.fileContents.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([filePath, body]) => Object.freeze({
+      pathHash: sha256(filePath),
+      bodyHash: sha256(body),
+      byteLength: Buffer.byteLength(body, "utf8"),
+      status: params.readStatuses?.get(filePath) ?? "UNKNOWN",
+    })));
+  const identity = {
+    executionLedgerId: params.executionLedgerId,
+    projectId: params.projectId ?? null,
+    sourceRevision: params.sourceRevision ?? null,
+    claims: claims.map(({ claimId, source, excerptHash }) => ({
+      claimId,
+      sourceHash: sha256(source),
+      excerptHash,
+    })),
+    reads,
+  };
+  return Object.freeze({
+    manifestId: sha256(JSON.stringify(identity)),
+    executionLedgerId: params.executionLedgerId,
+    projectId: params.projectId ?? null,
+    sourceRevision: params.sourceRevision ?? null,
+    claims,
+    reads,
+  });
+}
+
 function objectiveManifestIsComplete(
   objective: ObjectiveContract | undefined,
   fileContents: ReadonlyMap<string, string>,
@@ -5996,6 +6078,8 @@ function relayProjectQueryStreamAcceptance(
     evidence: readonly EvidenceReference[];
     gate: ObjectiveCompletionGateResult | null;
     responseSource?: "provider_synthesis" | "deterministic_fallback";
+    evidenceManifestId?: string;
+    synthesisAttemptId?: string;
   },
 ): void {
   if (!input.gate) return;
@@ -6011,6 +6095,13 @@ function relayProjectQueryStreamAcceptance(
       `finalResponseLength=${input.response.length}`,
       `responseUsesOverride=${input.response === input.override ? "true" : "false"}`,
       ...(input.responseSource ? [`responseSource=${input.responseSource}`] : []),
+      ...(input.evidenceManifestId
+        ? [`evidenceManifestId=${input.evidenceManifestId}`]
+        : []),
+      ...(input.synthesisAttemptId
+        ? [`synthesisAttemptId=${input.synthesisAttemptId}`]
+        : []),
+      `responseHash=${sha256(input.response)}`,
       `responseClaims=${responseClaimMatches.join(",")}`,
       `materializedClaims=${input.materializedEvidence.length}`,
     ],
@@ -9186,6 +9277,8 @@ export async function chat(opts: {
     | "provider_synthesis"
     | "deterministic_fallback"
     | undefined;
+  let projectQueryAcceptedSynthesisAttemptId: string | undefined;
+  let projectQueryEvidenceManifestId: string | undefined;
   let projectQueryFallbackReason:
     | "synthesis_failed"
     | "provider_candidate_incomplete"
@@ -9437,6 +9530,18 @@ export async function chat(opts: {
           ],
         })
       : [];
+  const projectQueryEvidencePacket =
+    projectQueryManifestComplete && canSynthesizeProjectQuery
+      ? createProjectQueryEvidencePacket({
+          executionLedgerId: executionLedger.id,
+          projectId,
+          sourceRevision: projectContext.workspaceRevision,
+          fileContents: forensicFileContents,
+          readStatuses: retainedReadStatuses,
+          claims: materializedProjectQueryEvidence,
+        })
+      : undefined;
+  projectQueryEvidenceManifestId = projectQueryEvidencePacket?.manifestId;
   const gapFalsificationReport =
     objective && isGapAnalysisProjectQueryObjective
       ? (
@@ -9474,6 +9579,12 @@ export async function chat(opts: {
         ...(missingClaimIds.length > 0
           ? [`missingClaims=${missingClaimIds.slice(0, 8).join(",")}`]
           : ["missingClaims=none"]),
+        ...(projectQueryEvidencePacket
+          ? [
+              `evidenceManifestId=${projectQueryEvidencePacket.manifestId}`,
+              `evidenceReadCount=${projectQueryEvidencePacket.reads.length}`,
+            ]
+          : []),
       ],
     });
   }
@@ -9523,7 +9634,7 @@ export async function chat(opts: {
       canSynthesizeProjectQuery &&
       !isValidProjectQueryCandidate(recoveredText)
     ) {
-      const evidenceContext = materializedProjectQueryEvidence
+      const evidenceContext = (projectQueryEvidencePacket?.claims ?? [])
         .map((item) => `Claim ${item.claimId} (${item.source}):\n${item.excerpt}`)
         .join("\n\n");
       // Recovery is deliberately bounded, but a malformed no-tools response
@@ -9539,7 +9650,12 @@ export async function chat(opts: {
         | undefined;
 
       for (let recoveryAttempt = 0; recoveryAttempt < recoveryMaxAttempts; recoveryAttempt += 1) {
-        const admitted = executionLedger.admit("recovery", {
+        const attemptNumber = recoveryAttempt + 1;
+        const attemptId = sha256(
+          `${executionLedger.id}\n${projectQueryEvidencePacket?.manifestId ?? "no-manifest"}\n${attemptNumber}`,
+        ).slice(0, 40);
+        const synthesisStartedAt = Date.now();
+        const admitted = executionLedger.admit("synthesis", {
           provider,
           operation: "project_query_no_tools_synthesis",
         });
@@ -9547,15 +9663,19 @@ export async function chat(opts: {
           recoveryFailureReason ??= "synthesis_failed";
           relayAgentStep({
             kind: "diagnostic",
-            code: "PROJECT_QUERY_NO_TOOLS_RECOVERY_BUDGET_EXHAUSTED",
+            code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS_BUDGET_EXHAUSTED",
             details: [
-              `attempt=${recoveryAttempt + 1}`,
-              "request execution ledger rejected the bounded no-tools recovery",
+              `attempt=${attemptNumber}`,
+              `attemptId=${attemptId}`,
+              ...(projectQueryEvidencePacket
+                ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
+                : []),
+              "outcome=budget_exhausted",
+              "request execution ledger rejected the bounded no-tools synthesis attempt",
             ],
           });
           break;
         }
-        recoveryAttemptsUsed += 1;
         const repairAttempt = recoveryAttempt > 0;
         const recoveryMessages = [
           {
@@ -9623,15 +9743,18 @@ export async function chat(opts: {
               executionLedger,
             },
           );
+          const rawSynthesisOutput = recovery.content ?? "";
+          const outputHash = sha256(rawSynthesisOutput);
           if (providerId === "openrouter" && recovery.model) {
             recoveryExcludedModels.add(recovery.model);
           }
-          recoveredCandidate = parseProjectQuerySynthesisCandidate(recovery.content ?? "");
+          recoveredCandidate = parseProjectQuerySynthesisCandidate(rawSynthesisOutput);
           recoveredText = recoveredCandidate.text;
           const candidateAccepted = isValidProjectQueryCandidate(recoveredText, recoveredCandidate);
           if (candidateAccepted) {
             projectQueryAssertedClaimIds = recoveredCandidate.claimRefs;
             projectQueryFlowRefs = recoveredCandidate.flowRefs;
+            projectQueryAcceptedSynthesisAttemptId = attemptId;
           }
           const candidateClaimsComplete = projectQueryCandidateClaimsAreAsserted(
             objective,
@@ -9653,8 +9776,17 @@ export async function chat(opts: {
             kind: "diagnostic",
             code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
             details: [
-              `attempt=${recoveryAttempt + 1}`,
+              `attempt=${attemptNumber}`,
               repairAttempt ? "protocol repair attempt" : "initial provider synthesis attempt",
+              `attemptId=${attemptId}`,
+              ...(projectQueryEvidencePacket
+                ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
+                : []),
+              `provider=${providerId}`,
+              `model=${safeSynthesisIdentifier(recovery.model)}`,
+              `durationMs=${Math.max(0, Date.now() - synthesisStartedAt)}`,
+              `contractOutcome=${candidateAccepted ? "accepted" : "rejected"}`,
+              `outputHash=${outputHash}`,
               `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
               `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
               `languageValid=${candidateLanguageValid ? "true" : "false"}`,
@@ -9666,9 +9798,10 @@ export async function chat(opts: {
           });
           if (candidateAccepted) {
             recoveryAccepted = true;
-            executionLedger.complete("recovery", {
+            executionLedger.complete("synthesis", {
               provider,
               operation: "project_query_no_tools_synthesis",
+              startedAt: synthesisStartedAt,
               status: "completed",
             });
             break;
@@ -9678,9 +9811,10 @@ export async function chat(opts: {
           projectQueryAssertedClaimIds = undefined;
           projectQueryFlowRefs = undefined;
           recoveryFailureReason = "provider_candidate_incomplete";
-          executionLedger.complete("recovery", {
+          executionLedger.complete("synthesis", {
             provider,
             operation: "project_query_no_tools_synthesis",
+            startedAt: synthesisStartedAt,
             status: "failed",
             reason: "provider_candidate_incomplete",
           });
@@ -9718,8 +9852,22 @@ export async function chat(opts: {
             kind: "diagnostic",
             code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
             details: [
-              `attempt=${recoveryAttempt + 1}`,
+              `attempt=${attemptNumber}`,
               repairAttempt ? "protocol repair attempt failed" : "provider synthesis failed",
+              `attemptId=${attemptId}`,
+              ...(projectQueryEvidencePacket
+                ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
+                : []),
+              `provider=${providerId}`,
+              `model=${safeSynthesisIdentifier(
+                error && typeof error === "object" && typeof (error as { providerModel?: unknown }).providerModel === "string"
+                  ? (error as { providerModel: string }).providerModel
+                  : undefined,
+              )}`,
+              `durationMs=${Math.max(0, Date.now() - synthesisStartedAt)}`,
+              "contractOutcome=not_evaluated",
+              "outputHash=none",
+              `failureKind=${providerOutcome}`,
               `provider outcome:${providerOutcome.slice(0, 48)}`,
               retryableFailure && recoveryAttempt + 1 < recoveryMaxAttempts
                 ? "retrying with an excluded model"
@@ -9727,9 +9875,10 @@ export async function chat(opts: {
               failureChainDetail(),
             ],
           });
-          executionLedger.complete("recovery", {
+          executionLedger.complete("synthesis", {
             provider,
             operation: "project_query_no_tools_synthesis",
+            startedAt: synthesisStartedAt,
             status: "failed",
             reason: providerOutcome,
           });
@@ -10801,7 +10950,9 @@ export async function chat(opts: {
           materializedEvidence: materializedProjectQueryEvidence,
           evidence: streamingBehaviorGated.evidence,
           gate: streamingObjectiveGate.gate,
-            responseSource: projectQueryResponseSource,
+          responseSource: projectQueryResponseSource,
+          evidenceManifestId: projectQueryEvidenceManifestId,
+          synthesisAttemptId: projectQueryAcceptedSynthesisAttemptId,
         });
       }
 
@@ -11155,7 +11306,9 @@ export async function chat(opts: {
           materializedEvidence: materializedProjectQueryEvidence,
           evidence: nativeSseBehaviorValidation.evidence,
           gate: nativeSseObjectiveGate.gate,
-            responseSource: projectQueryResponseSource,
+          responseSource: projectQueryResponseSource,
+          evidenceManifestId: projectQueryEvidenceManifestId,
+          synthesisAttemptId: projectQueryAcceptedSynthesisAttemptId,
         });
       }
       // AI-OBJ-010: native SSE reaches this seam before the non-streaming
@@ -13625,6 +13778,13 @@ export async function chat(opts: {
         ...(projectQueryResponseSource
           ? [`responseSource=${projectQueryResponseSource}`]
           : []),
+        ...(projectQueryEvidenceManifestId
+          ? [`evidenceManifestId=${projectQueryEvidenceManifestId}`]
+          : []),
+        ...(projectQueryAcceptedSynthesisAttemptId
+          ? [`synthesisAttemptId=${projectQueryAcceptedSynthesisAttemptId}`]
+          : []),
+        `responseHash=${sha256(responseBeforeBehaviorEvidence)}`,
         ...(projectQueryFallbackReason
           ? [`fallbackReason=${projectQueryFallbackReason}`]
           : []),
@@ -15078,6 +15238,13 @@ export async function chat(opts: {
         ...(projectQueryResponseSource
           ? [`responseSource=${projectQueryResponseSource}`]
           : []),
+        ...(projectQueryEvidenceManifestId
+          ? [`evidenceManifestId=${projectQueryEvidenceManifestId}`]
+          : []),
+        ...(projectQueryAcceptedSynthesisAttemptId
+          ? [`synthesisAttemptId=${projectQueryAcceptedSynthesisAttemptId}`]
+          : []),
+        `terminalResponseHash=${sha256(terminalResponse)}`,
         ...(projectQueryFallbackReason
           ? [`fallbackReason=${projectQueryFallbackReason}`]
           : []),

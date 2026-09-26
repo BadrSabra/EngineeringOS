@@ -1959,6 +1959,32 @@ G9 Revocation Safety
 - **next step:** اجمع نتائج مكتملة ومطابقة للسياسة داخل scope نفسه؛ أبقِ
   `fixed_safe_probe` حتى تجتاز بيانات held-out القياس ولا تفتح ranking تلقائيًا.
 
+### 42.49 — Evidence-Preserved Synthesis Gateway (2026-09-26)
+
+- **phase/step:** موثوقية synthesis لاستعلام المشروع؛ عمل عابر للمراحل داخل مسار الدردشة.
+- **status:** `done` للنطاق المستهدف المعتمد؛ التوليف الحتمي العام ما زال محظورًا.
+- **what changed:** تُنشأ حزمة أدلة مجمدة وذات بصمة بعد اكتمال manifest والمطالبات
+  server-owned، وتُستخدم حزمة واحدة لمحاولات no-tools. تسجل المحاولات ضمن
+  ميزانية synthesis المشتركة، مع attempt/manifest IDs والمدة ونتيجة العقد وبصمة
+  المخرج أو `none` عند فشل المزود قبل الإخراج. تربط استجابة القبول وterminal
+  attempt المقبولة والحزمة ببصمات الرد النهائي. إسقاط API يحتفظ بهذه الحقول
+  المحددة فقط؛ لا نص مزود أو أجسام ملفات أو مسارات في trace.
+- **files/schema/contracts touched:** `chat-agent.ts` و`tool-execution-engine.ts`
+  واختبارات orchestrator؛ `routes/ai/chat.ts` واختبار تكامل SSE/القبول؛ خطة التنفيذ.
+  لا migration أو جدول أو envelope استجابة جديد.
+- **validation:** اختبار `chat-agent.test.ts` و
+  `objective-evidence-handoff-baseline.test.ts`؛ اختبار تكامل API الذي يثبت أن
+  رسالة `finalMessageId` نفسها تحمل attempt/manifest/response bindings وأن صف
+  القبول يربطها بلقطة الأدلة؛ typecheck و`git diff --check` موثقة بعد نجاحها.
+- **authority/safety impact:** الأدلة والقبول server-owned وبوابة الفشل مغلقة؛
+  لا يفتح provider citations أو prose مسار قبول. لا تغيير في P6/P7 أو صلاحيات
+  الأدوات أو عقد JSON/SSE.
+- **remaining/blocker:** `PROJECT_QUERY` العام بلا عقد مطالبات مغلق يظل
+  `ANALYSIS_INCOMPLETE` عند تعذر الصياغة؛ لا يسمح هذا التنفيذ بـfallback عام.
+- **next step:** أنشئ عقد مطالبات server-owned للاستعلام العام ضمن عمل مستقل،
+  ثم قيّم fallback الحتمي تحت بوابة القبول القائمة دون إعادة استخدام claims
+  يحددها المزود.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

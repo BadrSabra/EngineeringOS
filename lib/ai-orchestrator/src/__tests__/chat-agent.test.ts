@@ -1541,14 +1541,68 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.response).toBe(validResponseText);
       expect(result.projectQueryResponseSource).toBe("provider_synthesis");
       expect(result.projectQueryResponseFallbackReason).toBeUndefined();
-      expect(executionLedger.snapshot().counts.recovery).toBe(2);
+      expect(executionLedger.snapshot().counts.synthesis).toBe(3);
       expect(executionLedger.snapshot().events).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          kind: "recovery",
+          kind: "synthesis",
           operation: "project_query_no_tools_synthesis",
           status: "completed",
         }),
       ]));
+      const synthesisAttemptDetails = steps
+        .filter((step) =>
+          step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+        )
+        .map((step) => step.kind === "diagnostic" ? step.details ?? [] : []);
+      const manifestIds = synthesisAttemptDetails
+        .flatMap((details) => details)
+        .filter((detail) => detail.startsWith("evidenceManifestId="))
+        .map((detail) => detail.slice("evidenceManifestId=".length));
+      const attemptIds = synthesisAttemptDetails
+        .flatMap((details) => details)
+        .filter((detail) => detail.startsWith("attemptId="))
+        .map((detail) => detail.slice("attemptId=".length));
+      const outputHashes = synthesisAttemptDetails
+        .flatMap((details) => details)
+        .filter((detail) => detail.startsWith("outputHash="))
+        .map((detail) => detail.slice("outputHash=".length));
+      expect(manifestIds).toHaveLength(2);
+      expect(new Set(manifestIds).size).toBe(1);
+      expect(attemptIds).toHaveLength(2);
+      expect(new Set(attemptIds).size).toBe(2);
+      expect(outputHashes).toHaveLength(2);
+      expect(outputHashes.filter((hash) => hash === "none")).toHaveLength(1);
+      expect(outputHashes.filter((hash) => /^[a-f0-9]{64}$/.test(hash))).toHaveLength(1);
+      expect(synthesisAttemptDetails.some((details) =>
+        details.includes("failureKind=INVALID_TOOL_CALL")
+          && details.includes("outputHash=none"),
+      )).toBe(true);
+      const responseBindingDetails = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+      );
+      const terminalBindingDetails = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_TERMINAL_BINDING",
+      );
+      expect(responseBindingDetails?.kind === "diagnostic" ? responseBindingDetails.details : [])
+        .toEqual(expect.arrayContaining([
+          `evidenceManifestId=${manifestIds[0]}`,
+          `synthesisAttemptId=${attemptIds[1]}`,
+        ]));
+      expect(terminalBindingDetails?.kind === "diagnostic" ? terminalBindingDetails.details : [])
+        .toEqual(expect.arrayContaining([
+          `evidenceManifestId=${manifestIds[0]}`,
+          `synthesisAttemptId=${attemptIds[1]}`,
+        ]));
+      expect(
+        responseBindingDetails?.kind === "diagnostic"
+          ? responseBindingDetails.details?.find((detail) => detail.startsWith("responseHash="))
+          : undefined,
+      ).toMatch(/^responseHash=[a-f0-9]{64}$/);
+      expect(
+        terminalBindingDetails?.kind === "diagnostic"
+          ? terminalBindingDetails.details?.find((detail) => detail.startsWith("terminalResponseHash="))
+          : undefined,
+      ).toMatch(/^terminalResponseHash=[a-f0-9]{64}$/);
       expect(steps).toEqual(expect.arrayContaining([
         expect.objectContaining({
           kind: "diagnostic",
@@ -1698,16 +1752,16 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.response).toBe(validResponse);
       expect(result.projectQueryResponseSource).toBe("provider_synthesis");
       expect(result.projectQueryResponseFallbackReason).toBeUndefined();
-      expect(executionLedger.snapshot().counts.recovery).toBe(2);
+      expect(executionLedger.snapshot().counts.synthesis).toBe(3);
       expect(executionLedger.snapshot().events).toEqual(expect.arrayContaining([
         expect.objectContaining({
-          kind: "recovery",
+          kind: "synthesis",
           operation: "project_query_no_tools_synthesis",
           status: "failed",
           reason: "EMPTY_RESPONSE",
         }),
         expect.objectContaining({
-          kind: "recovery",
+          kind: "synthesis",
           operation: "project_query_no_tools_synthesis",
           status: "completed",
         }),
@@ -1832,7 +1886,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.response).toContain(claimText);
       expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
       expect(result.projectQueryResponseFallbackReason).toBe("provider_candidate_incomplete");
-      expect(executionLedger.snapshot().counts.recovery).toBe(2);
+      expect(executionLedger.snapshot().counts.synthesis).toBe(3);
 
       const synthesisDiagnostics = steps.filter(
         (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
