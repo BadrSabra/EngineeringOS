@@ -2113,6 +2113,26 @@ G9 Revocation Safety
 - **next step:** أبقِ `PROJECT_QUERY` بلا objective canonical أو بلا كل أدلته
   المطلوبة غير مكتملًا؛ لا توسّع fallback خارج عقده المحدود.
 
+### 42.55 — Generic PROJECT_QUERY بلا objective canonical (2026-09-26)
+
+- **phase/step:** تثبيت حد §42.54 للمسار العام غير المربوط بعقد claims.
+- **status:** `done`.
+- **what changed:** عُزّز اختبار `chat` مباشر لطلب `PROJECT_QUERY` بلا objective،
+  مع قراءة retained كاملة ورد مرشح من النموذج. تبقى الاستجابة
+  `ANALYSIS_INCOMPLETE`، ولا يظهر مصدر fallback أو سببه أو diagnostic لاختيار
+  `PROJECT_QUERY_RESPONSE_SOURCE`. عُزلت حلقة الأدوات بfixture ثابت كي يختبر
+  الاختبار حد القبول دون قراءة مشروع فعلي.
+- **files/schema/contracts touched:**
+  `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts` و
+  `docs/agent-generalization-progress.md`؛ لا ملفات runtime أو schema.
+- **validation:** نجح الاختبار المحدد من `lib/ai-orchestrator` (`1/1`؛ 68 اختبارًا
+  متجاوزة بالمرشح)، ونجح `pnpm run typecheck` من جذر workspace و`git diff --check`.
+- **authority/safety impact:** لا تغيير في runtime أو الصلاحيات؛ غياب objective
+  canonical يمنع fallback/اكتمال الاستعلام حتى مع وجود قراءة كاملة.
+- **remaining/blocker:** لا فجوة أخرى ضمن هذا الحارس.
+- **next step:** أبقِ المسار العام بلا objective غير مكتمل؛ أي توسيع لاحق يتبع
+  البنود المتبقية المحددة في §36 ولا يفتح fallback غير مسنود بعقد server-owned.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

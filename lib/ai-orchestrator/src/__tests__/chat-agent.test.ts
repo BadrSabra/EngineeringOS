@@ -238,6 +238,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     vi.doUnmock("groq-sdk");
     vi.doUnmock("../tools/file-tools.js");
     vi.doUnmock("../agents/query-planner.js");
+    vi.doUnmock("../tool-execution-engine.js");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
   });
@@ -245,6 +246,12 @@ describe("chat agent — ChatOutputSchema validation", () => {
   it("keeps a general project query incomplete without an objective even when retained evidence is complete", async () => {
     const message = "Explain the project architecture and how its request flow works.";
     const turnIntent = resolveTurnIntent(message);
+    const retainedEvidence = new Map([
+      ["src/router.ts", "export function routeRequest() { return 'retained source'; }\n"],
+    ]);
+    const retainedReadStatuses = new Map([
+      ["src/router.ts", "READ_COMPLETE" as const],
+    ]);
     expect(turnIntent.kind).toBe("PROJECT_QUERY");
     expect(turnIntent.requiresEvidence).toBe(true);
 
@@ -268,6 +275,28 @@ describe("chat agent — ChatOutputSchema validation", () => {
         };
       },
     }));
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return {
+        ...actual,
+        executeToolLoop: vi.fn(async () => ({
+          kind: "response" as const,
+          result: {
+            content: JSON.stringify({
+              response: "The project has a request pipeline.",
+              sources: ["src/router.ts"],
+            }),
+            toolCalls: [],
+            model: "m",
+            usage: {},
+          },
+          toolSources: ["src/router.ts"],
+          fileContents: retainedEvidence,
+        })),
+      };
+    });
 
     const { chat } = await import("../agents/chat-agent.js");
     const steps: AgentStep[] = [];
@@ -276,12 +305,8 @@ describe("chat agent — ChatOutputSchema validation", () => {
       history: [],
       projectContext: makeContext(),
       turnIntent,
-      retainedEvidence: new Map([
-        ["src/router.ts", "export function routeRequest() { return 'retained source'; }\n"],
-      ]),
-      retainedReadStatuses: new Map([
-        ["src/router.ts", "READ_COMPLETE"],
-      ]),
+      retainedEvidence,
+      retainedReadStatuses,
       onStep: (step) => steps.push(step),
     });
 
@@ -298,7 +323,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
           step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_SOURCE",
       ),
     ).toBe(false);
-  });
+  }, 15_000);
 
   it("identifies an English-only Arabic fixture by name", () => {
     expect(() =>
