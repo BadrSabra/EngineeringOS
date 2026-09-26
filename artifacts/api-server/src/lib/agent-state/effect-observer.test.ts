@@ -5,6 +5,7 @@ import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
   aiAgentEpisodeEventsTable,
+  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
@@ -283,5 +284,42 @@ describe("server-owned effect observer", () => {
       beforeObservationIds: [pair.beforeId],
       afterObservationIds: [pair.afterId],
     })).rejects.toThrow("effect_stale_worker");
+  });
+
+  it("accepts same-attempt effect work from a replacement lease owner", async () => {
+    const pair = await materializePair();
+    const originalEpisodeWorker = workerId;
+    const replacementWorker = `effect-replacement-${randomUUID()}`;
+    await db.update(aiExecutionsTable)
+      .set({
+        workerId: replacementWorker,
+        leaseUntil: new Date(Date.now() + 300_000),
+      })
+      .where(eq(aiExecutionsTable.id, executionId));
+
+    const result = await verifyAndPersistEffect({
+      projectId,
+      executionId,
+      attempt: 0,
+      episodeId,
+      workerId: replacementWorker,
+      action: actionForFixture(),
+      effectContract,
+      beforeObservationIds: [pair.beforeId],
+      afterObservationIds: [pair.afterId],
+    });
+    const [episode] = await db.select({ workerId: aiAgentEpisodesTable.workerId })
+      .from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, episodeId));
+    const [classified] = await db.select({ actorId: aiAgentEpisodeEventsTable.actorId })
+      .from(aiAgentEpisodeEventsTable)
+      .where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, episodeId),
+        eq(aiAgentEpisodeEventsTable.eventType, "EFFECT_CLASSIFIED"),
+      ));
+
+    expect(result.status).toBe("observed");
+    expect(episode?.workerId).toBe(originalEpisodeWorker);
+    expect(classified?.actorId).toBe(replacementWorker);
   });
 });

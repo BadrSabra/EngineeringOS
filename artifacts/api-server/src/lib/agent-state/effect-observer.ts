@@ -226,7 +226,9 @@ export async function verifyAndPersistEffect(
     if (episode.executionId !== input.executionId || episode.attempt !== input.attempt) {
       throw new Error("effect_episode_identity_mismatch");
     }
-    if (episode.workerId !== input.workerId) throw new Error("effect_episode_worker_mismatch");
+    if (typeof episode.workerId !== "string" || episode.workerId.trim().length === 0) {
+      throw new Error("effect_episode_worker_provenance_missing");
+    }
 
     const existing = await lockExistingBundle(tx, input, effectContractHash, action.actionId);
     if (existing?.existingResult) {

@@ -5896,13 +5896,19 @@ base/candidate hashes. يعاد validation فقط إذا ثبت أن profile ا�
 `effect_classified`، ويضم validation evidence جديدة ومراجع الملاحظات وEffectBundle.
 الكتابة fenced بمالك العامل والـattempt والـlease وتسلسل checkpoint.
 
-ما زال same-attempt replay مغلقًا عمدًا: parser يرفض checkpoints الخاصة بـMission
-repair المفقودة أو المشوهة، حتى إن لم تكن pending changes قد وصلت إلى checkpoint
-قبل الانقطاع؛ والـmanifest السليم لا يمنح وحده إذن الاستعادة. الخطوة التالية
-هي مصالحة crash windows مع Episode والـcandidate والـvalidation والأثر والقبول،
-وإثبات idempotency لكل حد بقاعدة البيانات قبل تمكين أي replay. لا schema أو
-migration أو live-root writes أو per-tool EffectBundle أو World Delta في هذه
-الشريحة.
+أُتيح same-attempt recovery فقط من مرحلتي `candidate_ready` و`validated` بعد
+مطابقة project/task/execution/attempt وEpisode/action والمراجعة والمسارات
+المعتمدة وpending-change hash وbase/candidate tree hashes. يعيد العامل بناء
+candidate داخل validation workspace مؤقت، ينشئ before observation جديدة، ويعيد
+تشغيل validator خادميًا للحصول على دليل جديد قبل استكمال commit وتصنيف الأثر.
+قراءة manifest تستخدم نص checkpoint المحفوظ كاملًا؛ projection العامة تقص
+`detail` ولا تصلح لقراءة عقد recovery.
+
+تبقى `committed` و`effect_classified` محجوبتين حتى تكتمل مصالحة crash windows
+بعد commit مع الملاحظات وEffectBundle والقبول. أي manifest مفقود أو مشوه أو
+متعارض، أو تغير في المصدر/المرشح، يفشل مغلقًا؛ ووجود `ACTION_REQUESTED` بلا
+manifest يمنع إعادة التخطيط على أنها استعادة. لا schema أو migration أو
+live-root writes أو per-tool EffectBundle أو World Delta في هذه الشريحة.
 
 ### 42.25 P5.5 — Server-classified read-only recipe invocation (2026-09-25)
 

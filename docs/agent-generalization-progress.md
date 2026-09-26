@@ -2364,29 +2364,31 @@ G9 Revocation Safety
 ### 42.64 — P3.5 lease-fenced Mission repair recovery manifest (2026-09-27)
 
 - **phase/step:** P3.5 — تسجيل مراحل candidate repair كمدخل استعادة مقيّد بالـlease.
-- **status:** `partial; automatic recovery remains disabled`.
-- **what changed:** يحفظ checkpoint manifest عند `candidate_ready` و`validated`
-  و`committed` و`effect_classified`. يربط project/task/execution/attempt وEpisode/
+- **status:** `partial; same-attempt recovery enabled only before commit`.
+- **what changed:** يحفظ manifest مربوطًا بـproject/task/execution/attempt وEpisode/
   action وsource revision وcandidate identity وhashes للتغييرات والمسارات المعتمدة
-  وbase/candidate trees، ثم يضيف validator evidence الجديدة وملاحظة ما بعد التنفيذ
-  وEffectBundle/verdict. كل مرحلة تستخدم `checkpointAiExecution` وتسلسلًا يتقدم
-  بعد آخر checkpoint؛ لا يحتفظ الـmanifest بمحتوى إضافي للتغييرات. Parser يتحقق
-  من العقد والـhashs وربط sequence، وأي checkpoint tool-loop مشوّه أو Mission
-  repair بلا manifest صالح يمنع الاستعادة بصراحة حتى لو لم تظهر pending changes
-  بعد، لتغطية الانقطاع بين ACTION_REQUESTED وحفظ أول manifest.
-- **files/schema/contracts touched:** `task-execution-service.ts` واختبار
-  `task-execution-lifecycle.integration.test.ts`؛ لا schema أو migration.
-- **validation:** نجح `pnpm --filter @workspace/api-server run typecheck` وملف
-  Mission lifecycle integration كامل (7 اختبارات). اختبار الإصلاح يتحقق من وجود
-  manifest `candidate_ready` قبل validator ومن بقاء الاستعادة محجوبة.
-- **authority/safety impact:** لا replay تلقائي ولا live-root writes جديدة.
-  attempt بها pending candidate لا تستأنف بعد انقطاع حتى تكتمل مصالحة الإثبات؛
-  validator rerun لا يعيد استخدام دليل قديم.
-- **remaining/blocker:** استعادة candidate/validation/commit/effect بعد crash لم
-  تُنفذ بعد؛ يلزم اختبار crash windows يثبت التطابق مع Episode والـlease والقبول
-  قبل فتح same-attempt recovery.
-- **next step:** نفّذ reconciliation proof-carrying على أساس هذا الـmanifest
-  واختبر الانقطاع بين كل مرحلة، مع إبقاء replay مغلقًا حتى اجتياز البوابات.
+  وbase/candidate trees. يسمح الاسترداد من `candidate_ready` و`validated` فقط،
+  ويعيد بناء المرشح في validation workspace مؤقت، وينشئ before observation جديدة،
+  ويعيد validator خادميًا للحصول على receipt جديد. المراحل `committed` و
+  `effect_classified` تبقى محجوبة حتى مصالحة نافذة ما بعد commit مع الملاحظات
+  وEffectBundle والقبول. يقرأ parser نص checkpoint الخام كاملًا لأن projection
+  العامة تحد `detail` إلى 500 حرف. استعادة العامل البديل تستخدم فحص ملكية
+  execution/lease الحالي؛ `Episode.workerId` وactor IDs القديمة تبقى provenance.
+- **files/schema/contracts touched:** task execution service وeffect observer
+  واختبارا lifecycle/effect observer وتوثيقا الخطة والتقدم؛ لا schema أو migration.
+- **validation:** نجح API typecheck، ونجحا اختبارا Mission lifecycle وeffect
+  observer (12 اختبارًا)، مع اختبار استعادة العامل البديل وإثبات before observation
+  وvalidator receipt جديدين. نجح `git diff --check` وأعيد تشغيل API؛ سجل الخدمة
+  يؤكد بدء التشغيل والاستماع على المنفذ 8080 بلا أخطاء بدء.
+- **authority/safety impact:** الاستعادة محكومة بالـlease والهوية والمراجعة،
+  لا تكتب في live project root، ولا تعيد استخدام إثبات قديم. manifest مفقود أو
+  مشوه أو متعارض، أو تغير base/candidate، أو ACTION_REQUESTED دون manifest،
+  يمنع الاستعادة صراحة.
+- **remaining/blocker:** crash windows بعد `committed` وقبل اكتمال observation/
+  EffectBundle/acceptance ما زالت غير قابلة للاستعادة، وتبقى `committed` و
+  `effect_classified` محجوبة.
+- **next step:** أكمل مصالحة proof للحالات بعد commit واختبارات crash windows
+  قبل فتح أي استعادة من تلك المراحل.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
