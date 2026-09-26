@@ -21,3 +21,4 @@ Use the topic matching the current failure surface; these notes cover different 
 - [Project-query proof reads](project-query-proof-reads.md) — proof-required turns force retained reads even when raw intent says evidence is optional.
 - [Project-query synthesis references](project-query-synthesis-references.md) — providers may cite server-owned claim/flow references; evidence closure stays server-owned.
 - [Acceptance coverage target binding](acceptance-coverage-target-binding.md) — incidental provider or analysis keywords cannot turn cross-task acceptance into an embedded-AI query.
+- [Accepted finding Mission handoff](accepted-finding-mission-handoff.md) — only the exact canonical generic-query contract may seed a hash-bound, context-only Mission handoff.

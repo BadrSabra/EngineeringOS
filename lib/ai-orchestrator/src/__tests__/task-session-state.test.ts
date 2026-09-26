@@ -110,6 +110,11 @@ describe("active task session state", () => {
       "Trace authentication, identity context, and project authorization in the API.",
       "artifacts/api-server/src/middlewares/requireAuth.ts",
     ],
+    [
+      "generic-project",
+      "Analyze my project architecture.",
+      "lib/ai-orchestrator/src/turn-intent.ts",
+    ],
   ])("persists the %s target contract across a session resume", (targetId, message, evidencePath) => {
     const classification = classifyRequest(message);
     expect(classification.projectTarget?.id).toBe(targetId);

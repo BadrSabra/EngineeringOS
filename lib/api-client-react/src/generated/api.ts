@@ -124,6 +124,9 @@ import type {
   ListTasksParams,
   ListWorkflowsParams,
   MetricRecord,
+  MissionChatHandoffInput,
+  MissionPlanPreview,
+  MissionPlanPreviewInput,
   OpenRouterKeyStatus,
   OperatorAlertsResponse,
   Plugin,
@@ -8377,14 +8380,20 @@ export const getPreviewAiMissionPlanUrl = () => {
 /**
  * @summary Preview a server-owned AI mission plan
  */
-export const previewAiMissionPlan = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const previewAiMissionPlan = async (missionPlanPreviewInput: MissionPlanPreviewInput, options?: Parameters<typeof customFetch>[1]): Promise<MissionPlanPreview> => {
 
-  return customFetch<void>(getPreviewAiMissionPlanUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<MissionPlanPreview>(getPreviewAiMissionPlanUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(missionPlanPreviewInput)
   }
 );}
 
@@ -8394,9 +8403,9 @@ export const previewAiMissionPlan = async ( options?: Parameters<typeof customFe
 
 export const getPreviewAiMissionPlanMutationKey = () => ['previewAiMissionPlan'] as const;
 
-export const getPreviewAiMissionPlanMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,void, TContext> => {
+export const getPreviewAiMissionPlanMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,PreviewAiMissionPlanMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,PreviewAiMissionPlanMutationVariables, TContext> => {
 
 const mutationKey = getPreviewAiMissionPlanMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -8408,10 +8417,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewAiMissionPlan>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewAiMissionPlan>>, PreviewAiMissionPlanMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  previewAiMissionPlan(requestOptions)
+          return  previewAiMissionPlan(data,requestOptions)
         }
 
 
@@ -8422,19 +8431,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type PreviewAiMissionPlanMutationResult = NonNullable<Awaited<ReturnType<typeof previewAiMissionPlan>>>
-
-    export type PreviewAiMissionPlanMutationError = ErrorType<unknown>
-
+    export type PreviewAiMissionPlanMutationBody = BodyType<MissionPlanPreviewInput>
+    export type PreviewAiMissionPlanMutationError = ErrorType<void>
+    export type PreviewAiMissionPlanMutationVariables = {data: BodyType<MissionPlanPreviewInput>}
 
     /**
  * @summary Preview a server-owned AI mission plan
  */
-export const usePreviewAiMissionPlan = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+export const usePreviewAiMissionPlan = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewAiMissionPlan>>, TError,PreviewAiMissionPlanMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof previewAiMissionPlan>>,
         TError,
-        void,
+        PreviewAiMissionPlanMutationVariables,
         TContext
       > => {
       return useMutation(getPreviewAiMissionPlanMutationOptions(options));
@@ -8451,14 +8460,20 @@ export const getHandoffChatToAiMissionUrl = () => {
 /**
  * @summary Explicitly hand off a chat request to Mission Control
  */
-export const handoffChatToAiMission = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const handoffChatToAiMission = async (missionChatHandoffInput: MissionChatHandoffInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getHandoffChatToAiMissionUrl(),
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getHandoffChatToAiMissionUrl(),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(missionChatHandoffInput)
   }
 );}
 
@@ -8468,9 +8483,9 @@ export const handoffChatToAiMission = async ( options?: Parameters<typeof custom
 
 export const getHandoffChatToAiMissionMutationKey = () => ['handoffChatToAiMission'] as const;
 
-export const getHandoffChatToAiMissionMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,void, TContext> => {
+export const getHandoffChatToAiMissionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,HandoffChatToAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,HandoffChatToAiMissionMutationVariables, TContext> => {
 
 const mutationKey = getHandoffChatToAiMissionMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -8482,10 +8497,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof handoffChatToAiMission>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof handoffChatToAiMission>>, HandoffChatToAiMissionMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  handoffChatToAiMission(requestOptions)
+          return  handoffChatToAiMission(data,requestOptions)
         }
 
 
@@ -8496,19 +8511,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type HandoffChatToAiMissionMutationResult = NonNullable<Awaited<ReturnType<typeof handoffChatToAiMission>>>
-
-    export type HandoffChatToAiMissionMutationError = ErrorType<unknown>
-
+    export type HandoffChatToAiMissionMutationBody = BodyType<MissionChatHandoffInput>
+    export type HandoffChatToAiMissionMutationError = ErrorType<void>
+    export type HandoffChatToAiMissionMutationVariables = {data: BodyType<MissionChatHandoffInput>}
 
     /**
  * @summary Explicitly hand off a chat request to Mission Control
  */
-export const useHandoffChatToAiMission = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useHandoffChatToAiMission = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof handoffChatToAiMission>>, TError,HandoffChatToAiMissionMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof handoffChatToAiMission>>,
         TError,
-        void,
+        HandoffChatToAiMissionMutationVariables,
         TContext
       > => {
       return useMutation(getHandoffChatToAiMissionMutationOptions(options));

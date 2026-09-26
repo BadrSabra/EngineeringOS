@@ -110,7 +110,12 @@ import {
   transitionAutonomousOperation,
   validateAutonomousOperationCompletion,
   validateAnalysisEvidenceCompletion,
+  deriveAcceptedClaimRefs,
 } from "./ai-execution-state.js";
+import {
+  buildProjectQueryObjective,
+  resolveProjectQueryTarget,
+} from "@workspace/ai-orchestrator";
 
 describe("shouldCreateAutonomousOperation", () => {
   it("keeps a resumed project orientation operation when retry is classified as CHAT", () => {
@@ -226,6 +231,49 @@ describe("claimAiExecution", () => {
 });
 
 describe("autonomous operation contract", () => {
+  it("projects only completed immutable objective claims after accepted analysis", () => {
+    const target = resolveProjectQueryTarget("Analyze my project architecture.");
+    expect(target).toBeDefined();
+    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    const complete = { allowed: true, reasons: [] };
+    const claimIds = objective.requiredClaims.map((claim) => claim.claimId);
+    expect(deriveAcceptedClaimRefs({
+      objective,
+      completedClaims: [claimIds[0]!, claimIds[1]!, claimIds[0]!],
+      analysisCompletion: complete,
+    })).toEqual([claimIds[0], claimIds[1]]);
+    expect(deriveAcceptedClaimRefs({
+      objective,
+      completedClaims: [claimIds[0]!, "provider-only"],
+      analysisCompletion: complete,
+    })).toEqual([]);
+    expect(deriveAcceptedClaimRefs({
+      objective,
+      completedClaims: ["flow"],
+      analysisCompletion: { allowed: false, reasons: ["incomplete"] },
+    })).toEqual([]);
+  });
+
+  it("keeps canonical objective refs bounded", () => {
+    const target = resolveProjectQueryTarget("Analyze my project architecture.");
+    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    expect(deriveAcceptedClaimRefs({
+      objective,
+      completedClaims: objective.requiredClaims.map(({ claimId }) => claimId),
+      analysisCompletion: { allowed: true, reasons: [] },
+    })).toHaveLength(objective.requiredClaims.length);
+  });
+
+  it("rejects broad or non-generic objectives even with matching-looking refs", () => {
+    const target = resolveProjectQueryTarget("Analyze my project architecture.");
+    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+    expect(deriveAcceptedClaimRefs({
+      objective: { ...objective, objectiveType: "PROJECT_QUERY_GAP-ANALYSIS" },
+      completedClaims: objective.requiredClaims.map(({ claimId }) => claimId),
+      analysisCompletion: { allowed: true, reasons: [] },
+    })).toEqual([]);
+  });
+
   it("accepts project analysis only when source claims close against the objective", () => {
     const evidence = {
       operationId: "analysis-operation",

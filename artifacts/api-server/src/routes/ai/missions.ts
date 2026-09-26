@@ -27,6 +27,7 @@ import {
 import {
   GoalNextActionSchema,
   buildMissionPlanPreview,
+  extractGenericProjectQueryClaimIds,
   type MissionPlanPreview,
   type GoalNextAction,
 } from "@workspace/ai-orchestrator";
@@ -38,6 +39,7 @@ import {
   runMissionGoal,
   type MissionGoalRunTrigger,
 } from "../../lib/mission-runtime.js";
+import { parseExecutionRequest } from "../../lib/ai-execution-state.js";
 import { executionProfileForMissionStep } from "../../lib/mission-execution-profile.js";
 import { createMissionEventEnvelope } from "../../lib/mission-events.js";
 import { approveMissionGoal } from "../../lib/mission-approval.js";
@@ -133,22 +135,47 @@ const CreateMissionBody = z.object({
 
 const MissionPlanPreviewBody = z.object({
   projectId: z.string().min(1).max(200),
-  message: z.string().trim().min(1).max(10_000),
+  message: z.string().trim().min(1).max(10_000).optional(),
   objective: z.string().trim().min(1).max(2_000).optional(),
+  assistantMessageId: z.string().uuid().optional(),
   projectOrientation: z.boolean().optional(),
   runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
-}).strict();
+}).strict().superRefine((body, context) => {
+  if (!body.assistantMessageId && !body.message) {
+    context.addIssue({
+      code: "custom",
+      path: ["message"],
+      message: "message is required unless an accepted chat result is selected",
+    });
+  }
+});
 
 const MissionChatHandoffBody = z.object({
   projectId: z.string().min(1).max(200),
-  message: z.string().trim().min(1).max(10_000),
+  message: z.string().trim().min(1).max(10_000).optional(),
   title: z.string().trim().min(1).max(200).optional(),
   objective: z.string().trim().min(1).max(2_000).optional(),
   expectedPlanHash: z.string().trim().min(1).max(200).optional(),
+  assistantMessageId: z.string().uuid().optional(),
   sessionId: z.string().uuid().optional(),
   messageId: z.string().uuid().optional(),
   runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
-}).strict();
+}).strict().superRefine((body, context) => {
+  if (!body.assistantMessageId && !body.message) {
+    context.addIssue({
+      code: "custom",
+      path: ["message"],
+      message: "message is required unless an accepted chat result is selected",
+    });
+  }
+  if (body.assistantMessageId && !body.expectedPlanHash) {
+    context.addIssue({
+      code: "custom",
+      path: ["expectedPlanHash"],
+      message: "expectedPlanHash is required for an accepted finding handoff",
+    });
+  }
+});
 
 const MissionReplanBody = z.object({
   message: z.string().trim().min(1).max(10_000).optional(),
@@ -157,6 +184,220 @@ const MissionReplanBody = z.object({
   reason: z.string().trim().min(1).max(2_000).optional(),
   runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
 }).strict();
+
+type AcceptedChatFindingSource = {
+  sessionId: string;
+  userMessageId: string;
+  userMessage: string;
+  assistantMessageId: string;
+  assistantMessage: string;
+  executionId: string;
+  acceptanceId: string;
+  evidenceSnapshotId: string;
+  sourceRevision: string;
+  acceptedClaimRefs: string[];
+};
+
+const DEFAULT_ACCEPTED_FINDING_MISSION_OBJECTIVE =
+  "Investigate and fix the accepted finding from this analysis.";
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readAcceptedProjectQueryClaimRefs(value: unknown): string[] | null {
+  const refs = readRecord(value)?.acceptedClaimRefs;
+  if (
+    !Array.isArray(refs)
+    || refs.length === 0
+    || refs.length > 12
+    || refs.some((ref) => typeof ref !== "string" || !ref.trim() || ref.length > 160)
+  ) {
+    return null;
+  }
+  const normalized = refs.map((ref) => (ref as string).trim());
+  return new Set(normalized).size === normalized.length ? normalized : null;
+}
+
+/**
+ * Resolves a proven PROJECT_QUERY from durable server rows. The request's
+ * objective contract and the acceptance's completed claim refs are cross-
+ * checked here; none of these fields are accepted from the browser.
+ */
+async function resolveAcceptedChatFinding(
+  tx: MissionTransaction,
+  input: { projectId: string; userId: string; assistantMessageId: string },
+): Promise<AcceptedChatFindingSource | null> {
+  const [assistant] = await tx
+    .select({
+      id: aiChatMessagesTable.id,
+      sessionId: aiChatMessagesTable.sessionId,
+      role: aiChatMessagesTable.role,
+      content: aiChatMessagesTable.content,
+      executionId: aiChatMessagesTable.executionId,
+      outcome: aiChatMessagesTable.outcome,
+      sessionProjectId: aiChatSessionsTable.projectId,
+    })
+    .from(aiChatMessagesTable)
+    .innerJoin(
+      aiChatSessionsTable,
+      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+    )
+    .where(and(
+      eq(aiChatMessagesTable.id, input.assistantMessageId),
+      eq(aiChatMessagesTable.role, "assistant"),
+      eq(aiChatSessionsTable.projectId, input.projectId),
+    ))
+    .limit(1);
+  if (
+    !assistant
+    || assistant.sessionProjectId !== input.projectId
+    || assistant.role !== "assistant"
+    || assistant.outcome !== "SUCCEEDED"
+    || !assistant.executionId
+  ) {
+    return null;
+  }
+
+  const [execution] = await tx
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, assistant.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.sessionId, assistant.sessionId),
+      eq(aiExecutionsTable.userId, input.userId),
+    ))
+    .limit(1);
+  if (
+    !execution
+    || execution.status !== "completed"
+    || execution.finalMessageId !== assistant.id
+    || !execution.baseRevision
+  ) {
+    return null;
+  }
+
+  const request = parseExecutionRequest(execution.request);
+  if (
+    !request
+    || request.projectId !== input.projectId
+    || request.sessionId !== assistant.sessionId
+    || request.turnIntent !== "PROJECT_QUERY"
+    || request.proofRequired !== true
+    || request.projectOrientation === true
+  ) {
+    return null;
+  }
+  const requiredClaimIds = extractGenericProjectQueryClaimIds(request.objective);
+  if (!requiredClaimIds) return null;
+
+  const [acceptance] = await tx
+    .select()
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, execution.id),
+      eq(aiExecutionAcceptancesTable.projectId, input.projectId),
+      eq(aiExecutionAcceptancesTable.attempt, execution.attempt),
+    ))
+    .limit(1);
+  if (
+    !acceptance
+    || acceptance.messageId !== assistant.id
+    || acceptance.outcome !== "SUCCEEDED"
+    || acceptance.terminalStatus !== "completed"
+    || Number(acceptance.evidenceRequired) !== 1
+    || Number(acceptance.evidenceComplete) !== 1
+    || !acceptance.evidenceSnapshotId
+    || acceptance.sourceRevision !== execution.baseRevision
+  ) {
+    return null;
+  }
+
+  const acceptedClaimRefs = readAcceptedProjectQueryClaimRefs(acceptance.disposition);
+  if (
+    !acceptedClaimRefs
+    || acceptedClaimRefs.length !== requiredClaimIds.length
+    || requiredClaimIds.some((claimId) => !acceptedClaimRefs.includes(claimId))
+  ) {
+    return null;
+  }
+
+  const proof = await loadCanonicalProof({
+    tx,
+    executionId: execution.id,
+    attempt: execution.attempt,
+    scope: {
+      projectId: input.projectId,
+      executionId: execution.id,
+      operationId: execution.operationId,
+      sourceRevision: execution.baseRevision,
+    },
+    goalStatus: "completed",
+  });
+  if (
+    proof.verdict !== "PROVEN"
+    || proof.evidenceSnapshotId !== acceptance.evidenceSnapshotId
+    || proof.sourceRevision !== execution.baseRevision
+  ) {
+    return null;
+  }
+
+  const userMessages = await tx
+    .select({
+      id: aiChatMessagesTable.id,
+      content: aiChatMessagesTable.content,
+    })
+    .from(aiChatMessagesTable)
+    .where(and(
+      eq(aiChatMessagesTable.sessionId, assistant.sessionId),
+      eq(aiChatMessagesTable.executionId, execution.id),
+      eq(aiChatMessagesTable.role, "user"),
+    ))
+    .limit(2);
+  if (userMessages.length !== 1) return null;
+
+  return {
+    sessionId: assistant.sessionId,
+    userMessageId: userMessages[0].id,
+    userMessage: userMessages[0].content,
+    assistantMessageId: assistant.id,
+    assistantMessage: assistant.content,
+    executionId: execution.id,
+    acceptanceId: acceptance.id,
+    evidenceSnapshotId: acceptance.evidenceSnapshotId,
+    sourceRevision: execution.baseRevision,
+    acceptedClaimRefs: requiredClaimIds,
+  };
+}
+
+function acceptedFindingPlanningMessage(
+  source: AcceptedChatFindingSource,
+  objective: string,
+): string {
+  return [
+    "Inspect the source, then fix the accepted finding.",
+    `User-reviewed Mission objective: ${objective}`,
+    "",
+    "Accepted PROJECT_QUERY context (not proof for future changes):",
+    `Original project question: ${source.userMessage.slice(0, 2_000)}`,
+    source.assistantMessage.slice(0, 8_000),
+  ].join("\n").slice(0, 10_000);
+}
+
+function acceptedFindingMissionObjective(
+  source: AcceptedChatFindingSource,
+  objective: string,
+): string {
+  return [
+    objective.trim().slice(0, 2_000),
+    "Accepted PROJECT_QUERY context (user-reviewed; not proof or authorization for future changes):",
+    `Original project question: ${source.userMessage.slice(0, 1_500)}`,
+    `Accepted finding: ${source.assistantMessage.slice(0, 6_000)}`,
+  ].join("\n\n").slice(0, 10_000);
+}
 
 const CreateGoalBody = z.object({
   title: z.string().trim().min(1).max(200),
@@ -962,12 +1203,45 @@ router.post("/ai/missions/plan-preview", async (req, res) => {
   const body = MissionPlanPreviewBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
-  return res.json(buildMissionPlanPreview({
-    message: body.message,
-    objective: body.objective,
-    projectOrientation: body.projectOrientation,
+  const acceptedSource = body.assistantMessageId
+    ? await db.transaction((tx) => resolveAcceptedChatFinding(tx, {
+        projectId: project.id,
+        userId: req.userId,
+        assistantMessageId: body.assistantMessageId!,
+      }))
+    : null;
+  if (body.assistantMessageId && !acceptedSource) {
+    return res.status(409).json({
+      error: "The selected result is not a current, accepted PROJECT_QUERY finding",
+      code: "MISSION_SOURCE_NOT_ACCEPTED",
+    });
+  }
+  const userObjective = acceptedSource
+    ? body.objective ?? DEFAULT_ACCEPTED_FINDING_MISSION_OBJECTIVE
+    : body.objective;
+  const objective = acceptedSource
+    ? acceptedFindingMissionObjective(acceptedSource, userObjective!)
+    : userObjective;
+  const preview = buildMissionPlanPreview({
+    message: acceptedSource
+      ? acceptedFindingPlanningMessage(acceptedSource, userObjective!)
+      : body.message ?? "",
+    objective,
+    projectOrientation: acceptedSource ? false : body.projectOrientation,
     runtimeStartTargetStepId: body.runtimeStartTargetStepId,
-  }));
+  });
+  return res.json({
+    ...preview,
+    ...(acceptedSource
+      ? {
+          handoffSource: {
+            kind: "accepted_project_query",
+            sourceRevision: acceptedSource.sourceRevision,
+            acceptedClaimCount: acceptedSource.acceptedClaimRefs.length,
+          },
+        }
+      : {}),
+  });
 });
 
 /**
@@ -980,13 +1254,19 @@ router.post("/ai/missions/from-chat", async (req, res) => {
   const body = MissionChatHandoffBody.parse(req.body);
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  if (body.assistantMessageId && (body.sessionId || body.messageId)) {
+    return res.status(400).json({
+      error: "Accepted-finding handoff cannot be combined with a user-message handoff",
+      code: "CHAT_HANDOFF_CONTEXT_AMBIGUOUS",
+    });
+  }
   if ((body.sessionId && !body.messageId) || (!body.sessionId && body.messageId)) {
     return res.status(400).json({
       error: "sessionId and messageId must be provided together",
       code: "CHAT_HANDOFF_CONTEXT_INCOMPLETE",
     });
   }
-  if (body.sessionId && body.messageId) {
+  if (!body.assistantMessageId && body.sessionId && body.messageId) {
     const [source] = await db
       .select({
         sessionProjectId: aiChatSessionsTable.projectId,
@@ -1011,36 +1291,65 @@ router.post("/ai/missions/from-chat", async (req, res) => {
     }
   }
 
-  const preview = buildMissionPlanPreview({
-    message: body.message,
-    objective: body.objective,
-    runtimeStartTargetStepId: body.runtimeStartTargetStepId,
-  });
-  if (preview.admission !== "mission") {
-    return res.status(409).json({
-      error: "This request is not eligible for Mission execution",
-      code: "MISSION_ADMISSION_REQUIRED",
-      admission: preview.admission,
-      admissionReason: preview.admissionReason,
-      preview,
-    });
-  }
-  if (body.expectedPlanHash && body.expectedPlanHash !== preview.plan.planHash) {
-    return res.status(409).json({
-      error: "The Mission preview is stale. Refresh the preview before handing off.",
-      code: "MISSION_PREVIEW_STALE",
-      expectedPlanHash: body.expectedPlanHash,
-      actualPlanHash: preview.plan.planHash,
-    });
-  }
-
   const now = new Date();
   const missionId = randomUUID();
-  const title = body.title ?? preview.objective.slice(0, 200);
-  const source = body.sessionId && body.messageId
-    ? { kind: "chat", sessionId: body.sessionId, messageId: body.messageId }
-    : { kind: "chat", sessionId: null, messageId: null };
   const result = await db.transaction(async (tx) => {
+    const acceptedSource = body.assistantMessageId
+      ? await resolveAcceptedChatFinding(tx, {
+          projectId: project.id,
+          userId: req.userId,
+          assistantMessageId: body.assistantMessageId,
+        })
+      : null;
+    if (body.assistantMessageId && !acceptedSource) {
+      return { kind: "invalid_source" as const };
+    }
+    const userObjective = acceptedSource
+      ? body.objective ?? DEFAULT_ACCEPTED_FINDING_MISSION_OBJECTIVE
+      : body.objective;
+    const objective = acceptedSource
+      ? acceptedFindingMissionObjective(acceptedSource, userObjective!)
+      : userObjective;
+    const preview = buildMissionPlanPreview({
+      message: acceptedSource
+        ? acceptedFindingPlanningMessage(acceptedSource, userObjective!)
+        : body.message ?? "",
+      objective,
+      projectOrientation: acceptedSource ? false : undefined,
+      runtimeStartTargetStepId: body.runtimeStartTargetStepId,
+    });
+    if (preview.admission !== "mission") {
+      return {
+        kind: "not_admitted" as const,
+        preview,
+      };
+    }
+    if (body.expectedPlanHash && body.expectedPlanHash !== preview.plan.planHash) {
+      return {
+        kind: "stale" as const,
+        expectedPlanHash: body.expectedPlanHash,
+        actualPlanHash: preview.plan.planHash,
+      };
+    }
+
+    const title = body.title ?? preview.objective.slice(0, 200);
+    const source = acceptedSource
+      ? {
+          kind: "chat",
+          sourceType: "accepted_project_query",
+          sessionId: acceptedSource.sessionId,
+          messageId: acceptedSource.userMessageId,
+          assistantMessageId: acceptedSource.assistantMessageId,
+          executionId: acceptedSource.executionId,
+          acceptanceId: acceptedSource.acceptanceId,
+          evidenceSnapshotId: acceptedSource.evidenceSnapshotId,
+          sourceRevision: acceptedSource.sourceRevision,
+          acceptedClaimRefs: acceptedSource.acceptedClaimRefs,
+          planHash: preview.plan.planHash,
+        }
+      : body.sessionId && body.messageId
+        ? { kind: "chat", sessionId: body.sessionId, messageId: body.messageId }
+        : { kind: "chat", sessionId: null, messageId: null };
     const [mission] = await tx.insert(aiMissionsTable).values({
       id: missionId,
       projectId: project.id,
@@ -1069,8 +1378,31 @@ router.post("/ai/missions/from-chat", async (req, res) => {
       },
     });
     const activationPlan = await ensureMissionActivationPlan(tx, mission, now, preview);
-    return { mission, activationPlan, preview };
+    return { kind: "created" as const, mission, activationPlan, preview };
   });
+  if (result.kind === "invalid_source") {
+    return res.status(409).json({
+      error: "The selected result is no longer a current, accepted PROJECT_QUERY finding",
+      code: "MISSION_SOURCE_NOT_ACCEPTED",
+    });
+  }
+  if (result.kind === "not_admitted") {
+    return res.status(409).json({
+      error: "This request is not eligible for Mission execution",
+      code: "MISSION_ADMISSION_REQUIRED",
+      admission: result.preview.admission,
+      admissionReason: result.preview.admissionReason,
+      preview: result.preview,
+    });
+  }
+  if (result.kind === "stale") {
+    return res.status(409).json({
+      error: "The Mission preview is stale. Refresh the preview before handing off.",
+      code: "MISSION_PREVIEW_STALE",
+      expectedPlanHash: result.expectedPlanHash,
+      actualPlanHash: result.actualPlanHash,
+    });
+  }
   if (!result.activationPlan) {
     return res.status(500).json({
       error: "Mission activation plan could not be created",

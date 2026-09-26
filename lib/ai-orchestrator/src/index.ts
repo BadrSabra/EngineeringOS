@@ -752,6 +752,7 @@ export {
   isAcceptanceCoverageRequest,
   isEmbeddedAiWeaknessRequest,
   buildProjectQueryObjective,
+  extractGenericProjectQueryClaimIds,
   detectProjectQueryClaimContradictions,
   deriveProjectQueryTargetMode,
 } from "./project-query-target.js";

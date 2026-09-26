@@ -58,6 +58,7 @@ export type ExecutionAcceptanceDisposition = {
     validatorIds: string[];
     status: "PROVEN" | "INCOMPLETE" | "UNAVAILABLE";
   };
+  acceptedClaimRefs?: string[];
   proof?: ExecutionProofProjection;
 };
 
@@ -164,6 +165,8 @@ export type FinalizeExecutionAcceptanceParams = {
   evidence?: EvidenceSnapshotInput;
   resumable?: boolean;
   disposition?: Record<string, unknown>;
+  /** Server-owned PROJECT_QUERY objective claim projection. */
+  acceptedClaimRefs?: readonly string[];
   /** Server-owned managed root used by this terminalization. */
   workspaceRoot?: string | null;
   sourceRevision?: string | null;
@@ -1120,6 +1123,13 @@ function projectAcceptanceDisposition(value: unknown): ExecutionAcceptanceDispos
           },
         }
       : {}),
+    ...(Array.isArray(raw.acceptedClaimRefs)
+      ? {
+          acceptedClaimRefs: raw.acceptedClaimRefs
+            .filter((ref): ref is string => typeof ref === "string")
+            .slice(0, 12),
+        }
+      : {}),
     ...(parseExecutionProofProjection(raw.proof)
       ? { proof: parseExecutionProofProjection(raw.proof) }
       : {}),
@@ -1892,6 +1902,17 @@ export async function finalizeExecutionAcceptance(
       nextActionCode,
       operatorAction: nextActionCode,
       ...(params.disposition ?? {}),
+      ...(params.outcome === "SUCCEEDED"
+        && evidence.complete
+        && evidence.verdict === "PROVEN"
+        && params.acceptedClaimRefs
+        && params.acceptedClaimRefs.length > 0
+        ? {
+            acceptedClaimRefs: [...new Set(params.acceptedClaimRefs)]
+              .filter((ref): ref is string => typeof ref === "string" && ref.length > 0)
+              .slice(0, 12),
+          }
+        : {}),
       ...(taskObjective
         ? {
             taskObjective: {

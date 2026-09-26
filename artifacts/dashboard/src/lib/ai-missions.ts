@@ -255,15 +255,70 @@ export function createMission(body: CreateMissionInput) {
   return requestJson<Mission>('/api/ai/missions', jsonRequest('POST', body));
 }
 
-export interface ChatMissionHandoffInput {
-  projectId: string;
-  message: string;
-  title?: string;
-  objective?: string;
-  expectedPlanHash?: string;
-  sessionId?: string;
-  messageId?: string;
+export type MissionPlanPreviewInput =
+  | {
+      projectId: string;
+      message: string;
+      objective?: string;
+      projectOrientation?: boolean;
+      runtimeStartTargetStepId?: string | null;
+      assistantMessageId?: never;
+    }
+  | {
+      projectId: string;
+      assistantMessageId: string;
+      objective?: string;
+      runtimeStartTargetStepId?: string | null;
+      message?: never;
+    };
+
+export interface MissionPlanPreviewResult {
+  version: 1;
+  objective: string;
+  admission: 'chat' | 'project_query' | 'mission';
+  admissionReason: string;
+  plan: {
+    planHash: string;
+    steps: Array<{
+      id: string;
+      title: string;
+      kind: 'inspect' | 'analyze' | 'execute' | 'validate' | 'deliver';
+      dependencies: string[];
+      files: string[];
+      readOnly: boolean;
+      approvalRequired: boolean;
+    }>;
+  };
+  handoffSource?: {
+    kind: 'accepted_project_query';
+    sourceRevision: string;
+    acceptedClaimCount: number;
+  };
 }
+
+export type ChatMissionHandoffInput =
+  | {
+      projectId: string;
+      message: string;
+      title?: string;
+      objective?: string;
+      expectedPlanHash?: string;
+      sessionId?: string;
+      messageId?: string;
+      assistantMessageId?: never;
+      runtimeStartTargetStepId?: string | null;
+    }
+  | {
+      projectId: string;
+      assistantMessageId: string;
+      title?: string;
+      objective?: string;
+      expectedPlanHash: string;
+      message?: never;
+      sessionId?: never;
+      messageId?: never;
+      runtimeStartTargetStepId?: string | null;
+    };
 
 export interface ChatMissionHandoffResult {
   mission: Mission;
@@ -275,12 +330,14 @@ export interface ChatMissionHandoffResult {
     dependencies: string[];
   }>;
   runs: Array<{ status: string; goalId: string; reason?: string }>;
-  preview: {
-    admission: 'mission';
-    admissionReason: string;
-    objective: string;
-    plan: { planHash: string };
-  };
+  preview: MissionPlanPreviewResult;
+}
+
+export function previewMissionPlanFromChat(body: MissionPlanPreviewInput) {
+  return requestJson<MissionPlanPreviewResult>(
+    '/api/ai/missions/plan-preview',
+    jsonRequest('POST', body),
+  );
 }
 
 export function createMissionFromChat(body: ChatMissionHandoffInput) {

@@ -9,6 +9,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import {
   useListProjects,
@@ -58,7 +66,11 @@ import { EvidenceGraphPanel } from '@/components/EvidenceGraphPanel';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
 import { parseProjectQuerySourceReference } from '@/lib/project-query-source-reference';
-import { createMissionFromChat } from '@/lib/ai-missions';
+import {
+  createMissionFromChat,
+  previewMissionPlanFromChat,
+  type MissionPlanPreviewResult,
+} from '@/lib/ai-missions';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
 // not pull server-only deps (groq-sdk, db) into the client.
@@ -5484,6 +5496,220 @@ function TaskResultPanel({
   }
 }
 
+const DEFAULT_ACCEPTED_FINDING_OBJECTIVE = 'Investigate and fix the accepted finding.';
+
+function AcceptedProjectQueryMissionAction({
+  msg,
+  projectId,
+}: {
+  msg: ChatMessage;
+  projectId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [objective, setObjective] = useState(DEFAULT_ACCEPTED_FINDING_OBJECTIVE);
+  const [preview, setPreview] = useState<MissionPlanPreviewResult | null>(null);
+  const [previewPending, setPreviewPending] = useState(false);
+  const [handoffPending, setHandoffPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadPreview() {
+    if (!objective.trim()) {
+      setError('Enter an objective before previewing the plan.');
+      return;
+    }
+    setPreviewPending(true);
+    setPreview(null);
+    setError(null);
+    try {
+      const result = await previewMissionPlanFromChat({
+        projectId,
+        assistantMessageId: msg.id,
+        objective: objective.trim(),
+      });
+      setPreview(result);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : 'The plan preview could not be loaded.');
+    } finally {
+      setPreviewPending(false);
+    }
+  }
+
+  async function confirmHandoff() {
+    if (!preview || preview.admission !== 'mission') return;
+    setHandoffPending(true);
+    setError(null);
+    try {
+      const result = await createMissionFromChat({
+        projectId,
+        assistantMessageId: msg.id,
+        objective: objective.trim(),
+        expectedPlanHash: preview.plan.planHash,
+      });
+      window.location.assign(
+        `/missions?projectId=${encodeURIComponent(projectId)}&missionId=${encodeURIComponent(result.mission.id)}`,
+      );
+    } catch (handoffError) {
+      setError(handoffError instanceof Error ? handoffError.message : 'The accepted finding could not be handed off.');
+    } finally {
+      setHandoffPending(false);
+    }
+  }
+
+  const acceptedFindingText = redactInternalDetails(extractDisplayText(msg.content));
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 px-2 text-[11px]"
+        onClick={() => {
+          setObjective(DEFAULT_ACCEPTED_FINDING_OBJECTIVE);
+          setPreview(null);
+          setError(null);
+          setOpen(true);
+        }}
+        data-testid={`button-mission-finding-preview-${msg.id}`}
+      >
+        <FileSearch className="mr-1 h-3 w-3" />
+        Review Mission plan
+      </Button>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (previewPending || handoffPending) return;
+          setOpen(nextOpen);
+          if (!nextOpen) {
+            setPreview(null);
+            setError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Turn accepted finding into a Mission</DialogTitle>
+            <DialogDescription>
+              Review the finding, objective, and planned steps. The accepted evidence is context only; the Mission must verify against the current project before any change.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <section className="rounded-lg border border-border/60 bg-muted/20 p-3">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">Accepted project finding</div>
+              <div className="max-h-36 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed">
+                {acceptedFindingText}
+              </div>
+            </section>
+            <div className="space-y-2">
+              <label htmlFor={`mission-finding-objective-${msg.id}`} className="text-sm font-medium">
+                Mission objective
+              </label>
+              <Textarea
+                id={`mission-finding-objective-${msg.id}`}
+                value={objective}
+                maxLength={2_000}
+                onChange={(event) => {
+                  setObjective(event.target.value);
+                  setPreview(null);
+                  setError(null);
+                }}
+                className="min-h-20 resize-y"
+              />
+              <p className="text-xs text-muted-foreground">
+                The accepted finding is included as context only, not as proof or authorization. Previewing is read-only; creating the Mission keeps existing approval and validation gates.
+              </p>
+            </div>
+            {preview && (
+              <section
+                className="space-y-2 rounded-lg border border-border/60 p-3"
+                data-testid={`mission-finding-plan-${msg.id}`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-medium">Plan preview</div>
+                  <span className="text-[11px] text-muted-foreground">
+                    {preview.plan.steps.length} planned steps · {preview.admission}
+                  </span>
+                </div>
+                {preview.handoffSource && (
+                  <p className="text-xs text-muted-foreground">
+                    Bound to accepted evidence at revision {preview.handoffSource.sourceRevision.slice(0, 12)} · {preview.handoffSource.acceptedClaimCount} accepted claims
+                  </p>
+                )}
+                {preview.admission !== 'mission' && (
+                  <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-100">
+                    {preview.admissionReason}
+                  </p>
+                )}
+                <ol className="space-y-2">
+                  {preview.plan.steps.map((step, index) => (
+                    <li key={step.id} className="rounded-md bg-muted/30 p-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-mono text-muted-foreground">{index + 1}.</span>
+                        <span className="font-medium">{step.title}</span>
+                        <span className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                          {step.kind}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {step.readOnly ? 'Read-only' : 'May change project files'}
+                        {step.approvalRequired ? ' · approval required' : ''}
+                        {step.dependencies.length > 0 ? ` · depends on ${step.dependencies.join(', ')}` : ''}
+                      </div>
+                      {step.files.length > 0 && (
+                        <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground/80">
+                          {step.files.slice(0, 4).join(', ')}
+                          {step.files.length > 4 ? `, +${step.files.length - 4} more` : ''}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+            {error && (
+              <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+                {error}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={previewPending || handoffPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void loadPreview()}
+              disabled={previewPending || handoffPending}
+            >
+              {previewPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {previewPending ? 'Building preview…' : preview ? 'Refresh preview' : 'Preview plan'}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void confirmHandoff()}
+              disabled={
+                !preview
+                || preview.admission !== 'mission'
+                || previewPending
+                || handoffPending
+              }
+            >
+              {handoffPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {handoffPending ? 'Starting Mission…' : 'Confirm and start Mission'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function MessageBubble({
   msg,
   projectId,
@@ -5539,6 +5765,18 @@ function MessageBubble({
       (entry.kind === 'decision_trace' && entry.taskType === 'PROJECT_QUERY') ||
       (entry.kind === 'evidence_integrity' && entry.objectiveType?.startsWith('PROJECT_QUERY')),
     )
+  );
+  const canOfferAcceptedFindingMission = Boolean(
+    !isUser
+    && projectId
+    && isProjectQueryTurn
+    && msg.outcome === 'SUCCEEDED'
+    && msg.acceptanceDisposition == null
+    && msg.terminalProjection?.outcome === 'SUCCEEDED'
+    && msg.terminalProjection.messageId === msg.id
+    && msg.terminalProjection.acceptanceId
+    && msg.projection?.verification.proofRequired === true
+    && msg.projection.verification.evidenceVerdict === 'PROVEN',
   );
   const capabilityProbeReport = !isUser
     ? parseCapabilityProbeReport(msg.content, toolTrace)
@@ -5837,6 +6075,9 @@ function MessageBubble({
               : <Zap className="mr-1 h-3 w-3" />}
             {missionHandoffPending ? 'Starting mission…' : 'Start as mission'}
           </Button>
+        )}
+        {canOfferAcceptedFindingMission && projectId && (
+          <AcceptedProjectQueryMissionAction msg={msg} projectId={projectId} />
         )}
         {internalTechnicalDump && (
           <div className="w-full rounded-lg border border-border/40 bg-background/20">

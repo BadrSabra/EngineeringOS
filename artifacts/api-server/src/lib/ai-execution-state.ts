@@ -9,6 +9,7 @@ import type {
   ValidationEvidence,
 } from "@workspace/ai-orchestrator";
 import {
+  extractGenericProjectQueryClaimIds,
   formatUntrustedContent,
   hasCompleteProjectOrientationSources,
   MAX_PROJECT_ORIENTATION_ROLE_FILES,
@@ -612,6 +613,8 @@ export type AnalysisEvidenceCompletion = {
   acceptedEvidenceFiles: readonly string[];
   readManifest?: readonly AnalysisEvidenceRead[];
   acceptedClaimCount: number;
+  /** Server objective-gate claim IDs, never provider/client claim references. */
+  completedClaims?: readonly string[];
   evidenceConsistent: boolean;
   completionGateResult?: string;
   objectiveVerdict?: string;
@@ -628,6 +631,27 @@ export type AnalysisEvidenceCompletion = {
   forensicTerminalKind?: string;
   forensicDiagnosticVerdict?: "FINDING_PROVEN" | "NO_VERIFIED_FINDING" | "ANALYSIS_INCOMPLETE";
 };
+
+/**
+ * Project only server objective-gate claim IDs into acceptance metadata.
+ * The immutable request objective is the allow-list; provider claimRefs are
+ * deliberately not accepted as an input to this projection.
+ */
+export function deriveAcceptedClaimRefs(params: {
+  objective: unknown;
+  completedClaims: readonly string[] | undefined;
+  analysisCompletion: AnalysisEvidenceCompletionCheck;
+}): string[] {
+  if (!params.analysisCompletion.allowed) return [];
+  const canonicalClaimIds = extractGenericProjectQueryClaimIds(params.objective);
+  if (!canonicalClaimIds || canonicalClaimIds.length === 0 || !params.completedClaims) return [];
+  const allowed = new Set(canonicalClaimIds);
+  const completed = [...new Set(params.completedClaims.map((claimId) =>
+    typeof claimId === "string" ? claimId.trim() : ""))];
+  if (completed.some((claimId) => !claimId || !allowed.has(claimId))) return [];
+  return completed
+    .slice(0, 12);
+}
 
 export type AnalysisEvidenceRead = {
   path: string;
@@ -2668,6 +2692,8 @@ export async function completeAiExecution(params: {
     | "candidateHash"
   >[];
   analysisEvidence?: AnalysisEvidenceCompletion;
+  /** Derived server objective-gate refs passed through finalization only. */
+  acceptedClaimRefs?: readonly string[];
   /**
    * A forensic/capability execution must be accepted by the server-owned
    * forensic terminal gate before the durable autonomous completion path can
@@ -2765,6 +2791,7 @@ export async function completeAiExecution(params: {
       : !forensicExecution && params.evidenceReads?.some((read) => read.complete && !read.truncated)
         ? "PROVEN" as const
         : params.evidenceVerdict;
+  let acceptedClaimRefs: string[] = [];
   if (requiresProof) {
     if (taskObjective && !pendingProposal) {
       const objectiveCheck = validateTaskObjectiveContract({
@@ -2826,6 +2853,13 @@ export async function completeAiExecution(params: {
           });
         })();
     if (!completion.allowed) return false;
+    acceptedClaimRefs = params.analysisEvidence
+      ? deriveAcceptedClaimRefs({
+          objective: request?.objective,
+          completedClaims: params.analysisEvidence.completedClaims,
+          analysisCompletion: completion,
+        })
+      : [];
   }
   if (projectOrientationAcceptance && params.orientationCoverageComplete !== true) {
     return false;
@@ -2903,6 +2937,7 @@ export async function completeAiExecution(params: {
     candidateIdentity: params.candidateIdentity,
     proposalId: params.proposalId ?? null,
     recipeReceipt: params.recipeReceipt,
+    ...(acceptedClaimRefs.length > 0 ? { acceptedClaimRefs } : {}),
     goalProjection: params.goalProjection,
     effectRequired: params.effectRequired,
     effectBundleId: params.effectBundleId,

@@ -7330,12 +7330,165 @@ export const CreateAiMissionResponse = zod.void()
 /**
  * @summary Preview a server-owned AI mission plan
  */
-export const PreviewAiMissionPlanResponse = zod.unknown()
+export const previewAiMissionPlanBodyOneProjectIdMax = 200;
+
+export const previewAiMissionPlanBodyOneMessageMax = 10000;
+
+export const previewAiMissionPlanBodyOneObjectiveMax = 2000;
+
+export const previewAiMissionPlanBodyOneRuntimeStartTargetStepIdMax = 80;
+
+
+export const previewAiMissionPlanBodyOneRuntimeStartTargetStepIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]*$');
+export const previewAiMissionPlanBodyTwoProjectIdMax = 200;
+
+export const previewAiMissionPlanBodyTwoObjectiveMax = 2000;
+
+export const previewAiMissionPlanBodyTwoRuntimeStartTargetStepIdMax = 80;
+
+
+export const previewAiMissionPlanBodyTwoRuntimeStartTargetStepIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]*$');
+export const previewAiMissionPlanBodyThreeProjectIdMax = 200;
+
+export const previewAiMissionPlanBodyThreeMessageMax = 10000;
+
+export const previewAiMissionPlanBodyThreeObjectiveMax = 2000;
+
+export const previewAiMissionPlanBodyThreeRuntimeStartTargetStepIdMax = 80;
+
+
+export const previewAiMissionPlanBodyThreeRuntimeStartTargetStepIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]*$');
+
+
+export const PreviewAiMissionPlanBody = zod.union([zod.object({
+  "projectId": zod.string().min(1).max(previewAiMissionPlanBodyOneProjectIdMax).optional(),
+  "message": zod.string().min(1).max(previewAiMissionPlanBodyOneMessageMax),
+  "objective": zod.string().min(1).max(previewAiMissionPlanBodyOneObjectiveMax).optional(),
+  "assistantMessageId": zod.never().optional(),
+  "projectOrientation": zod.boolean().optional(),
+  "runtimeStartTargetStepId": zod.string().max(previewAiMissionPlanBodyOneRuntimeStartTargetStepIdMax).regex(previewAiMissionPlanBodyOneRuntimeStartTargetStepIdRegExp).nullish()
+}),zod.object({
+  "projectId": zod.string().min(1).max(previewAiMissionPlanBodyTwoProjectIdMax).optional(),
+  "message": zod.never().optional(),
+  "objective": zod.string().min(1).max(previewAiMissionPlanBodyTwoObjectiveMax).optional(),
+  "assistantMessageId": zod.string().uuid().describe('Server-resolved accepted PROJECT_QUERY message used only for a non-durable preview.'),
+  "projectOrientation": zod.boolean().optional(),
+  "runtimeStartTargetStepId": zod.string().max(previewAiMissionPlanBodyTwoRuntimeStartTargetStepIdMax).regex(previewAiMissionPlanBodyTwoRuntimeStartTargetStepIdRegExp).nullish()
+})]).and(zod.object({
+  "projectId": zod.string().min(1).max(previewAiMissionPlanBodyThreeProjectIdMax),
+  "message": zod.string().min(1).max(previewAiMissionPlanBodyThreeMessageMax).optional(),
+  "objective": zod.string().min(1).max(previewAiMissionPlanBodyThreeObjectiveMax).optional(),
+  "assistantMessageId": zod.string().uuid().optional().describe('Server-resolved accepted PROJECT_QUERY message used only for a non-durable preview.'),
+  "projectOrientation": zod.boolean().optional(),
+  "runtimeStartTargetStepId": zod.string().max(previewAiMissionPlanBodyThreeRuntimeStartTargetStepIdMax).regex(previewAiMissionPlanBodyThreeRuntimeStartTargetStepIdRegExp).nullish()
+}))
+
+export const previewAiMissionPlanResponseHandoffSourceAcceptedClaimCountMax = 12;
+
+
+
+export const PreviewAiMissionPlanResponse = zod.object({
+  "version": zod.literal(1),
+  "objective": zod.string(),
+  "admission": zod.enum(['chat', 'project_query', 'mission']),
+  "admissionReason": zod.string(),
+  "plan": zod.object({
+  "planHash": zod.string(),
+  "steps": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "kind": zod.enum(['inspect', 'analyze', 'execute', 'validate', 'deliver']),
+  "dependencies": zod.array(zod.string()),
+  "files": zod.array(zod.string()),
+  "readOnly": zod.boolean(),
+  "approvalRequired": zod.boolean()
+}))
+}),
+  "handoffSource": zod.object({
+  "kind": zod.enum(['accepted_project_query']),
+  "sourceRevision": zod.string(),
+  "acceptedClaimCount": zod.number().int().min(1).max(previewAiMissionPlanResponseHandoffSourceAcceptedClaimCountMax)
+}).optional()
+})
 
 
 /**
  * @summary Explicitly hand off a chat request to Mission Control
  */
+export const handoffChatToAiMissionBodyOneProjectIdMax = 200;
+
+export const handoffChatToAiMissionBodyOneMessageMax = 10000;
+
+export const handoffChatToAiMissionBodyOneTitleMax = 200;
+
+export const handoffChatToAiMissionBodyOneObjectiveMax = 2000;
+
+export const handoffChatToAiMissionBodyOneExpectedPlanHashMax = 200;
+
+export const handoffChatToAiMissionBodyOneRuntimeStartTargetStepIdMax = 80;
+
+
+export const handoffChatToAiMissionBodyOneRuntimeStartTargetStepIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]*$');
+export const handoffChatToAiMissionBodyTwoProjectIdMax = 200;
+
+export const handoffChatToAiMissionBodyTwoTitleMax = 200;
+
+export const handoffChatToAiMissionBodyTwoObjectiveMax = 2000;
+
+export const handoffChatToAiMissionBodyTwoExpectedPlanHashMax = 200;
+
+export const handoffChatToAiMissionBodyTwoRuntimeStartTargetStepIdMax = 80;
+
+
+export const handoffChatToAiMissionBodyTwoRuntimeStartTargetStepIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]*$');
+export const handoffChatToAiMissionBodyThreeProjectIdMax = 200;
+
+export const handoffChatToAiMissionBodyThreeMessageMax = 10000;
+
+export const handoffChatToAiMissionBodyThreeTitleMax = 200;
+
+export const handoffChatToAiMissionBodyThreeObjectiveMax = 2000;
+
+export const handoffChatToAiMissionBodyThreeExpectedPlanHashMax = 200;
+
+export const handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdMax = 80;
+
+
+export const handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdRegExp = new RegExp('^[a-z0-9][a-z0-9-]*$');
+
+
+export const HandoffChatToAiMissionBody = zod.union([zod.object({
+  "projectId": zod.string().min(1).max(handoffChatToAiMissionBodyOneProjectIdMax).optional(),
+  "message": zod.string().min(1).max(handoffChatToAiMissionBodyOneMessageMax),
+  "title": zod.string().min(1).max(handoffChatToAiMissionBodyOneTitleMax).optional(),
+  "objective": zod.string().min(1).max(handoffChatToAiMissionBodyOneObjectiveMax).optional(),
+  "expectedPlanHash": zod.string().min(1).max(handoffChatToAiMissionBodyOneExpectedPlanHashMax).optional(),
+  "assistantMessageId": zod.never().optional(),
+  "sessionId": zod.string().uuid().optional(),
+  "messageId": zod.string().uuid().optional(),
+  "runtimeStartTargetStepId": zod.string().max(handoffChatToAiMissionBodyOneRuntimeStartTargetStepIdMax).regex(handoffChatToAiMissionBodyOneRuntimeStartTargetStepIdRegExp).nullish()
+}),zod.object({
+  "projectId": zod.string().min(1).max(handoffChatToAiMissionBodyTwoProjectIdMax).optional(),
+  "message": zod.never().optional(),
+  "title": zod.string().min(1).max(handoffChatToAiMissionBodyTwoTitleMax).optional(),
+  "objective": zod.string().min(1).max(handoffChatToAiMissionBodyTwoObjectiveMax).optional(),
+  "expectedPlanHash": zod.string().min(1).max(handoffChatToAiMissionBodyTwoExpectedPlanHashMax),
+  "assistantMessageId": zod.string().uuid().describe('Accepted assistant PROJECT_QUERY message; never a claim or proof supplied by the client.'),
+  "sessionId": zod.string().uuid().optional(),
+  "messageId": zod.string().uuid().optional(),
+  "runtimeStartTargetStepId": zod.string().max(handoffChatToAiMissionBodyTwoRuntimeStartTargetStepIdMax).regex(handoffChatToAiMissionBodyTwoRuntimeStartTargetStepIdRegExp).nullish()
+})]).and(zod.object({
+  "projectId": zod.string().min(1).max(handoffChatToAiMissionBodyThreeProjectIdMax),
+  "message": zod.string().min(1).max(handoffChatToAiMissionBodyThreeMessageMax).optional(),
+  "title": zod.string().min(1).max(handoffChatToAiMissionBodyThreeTitleMax).optional(),
+  "objective": zod.string().min(1).max(handoffChatToAiMissionBodyThreeObjectiveMax).optional(),
+  "expectedPlanHash": zod.string().min(1).max(handoffChatToAiMissionBodyThreeExpectedPlanHashMax).optional(),
+  "assistantMessageId": zod.string().uuid().optional().describe('Accepted assistant PROJECT_QUERY message; never a claim or proof supplied by the client.'),
+  "sessionId": zod.string().uuid().optional(),
+  "messageId": zod.string().uuid().optional(),
+  "runtimeStartTargetStepId": zod.string().max(handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdMax).regex(handoffChatToAiMissionBodyThreeRuntimeStartTargetStepIdRegExp).nullish()
+})).describe('Ordinary explicit handoffs provide message and may include sessionId\/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records.\n')
+
 export const HandoffChatToAiMissionResponse = zod.void()
 
 

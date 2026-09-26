@@ -13,7 +13,8 @@ export type ProjectQueryTargetId =
   | "embedded-ai"
   | "gap-analysis"
   | "delivery"
-  | "auth";
+  | "auth"
+  | "generic-project";
 export type ProjectQueryTargetResolution =
   | "resolved"
   | "unresolved"
@@ -673,6 +674,70 @@ const AUTH_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
     "authorization, or route-binding claim is not proven.",
 };
 
+/**
+ * The fallback target for an ordinary project question that has no safe
+ * subsystem binding.  This is deliberately finite: provider prose may
+ * explain the user's goal, but it cannot choose a scope, claim, or path.
+ */
+const GENERIC_PROJECT_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
+  id: "generic-project",
+  label: "bounded generic project query",
+  firstEvidencePath: "lib/ai-orchestrator/src/turn-intent.ts",
+  primaryPaths: [
+    "lib/ai-orchestrator/src/turn-intent.ts",
+    "lib/ai-orchestrator/src/project-query-target.ts",
+    "lib/ai-orchestrator/src/evidence-integrity.ts",
+  ],
+  allowedExpansionPaths: [
+    "lib/ai-orchestrator/src",
+  ],
+  forbiddenPaths: [
+    "node_modules",
+    "dist",
+    "build",
+  ],
+  requiredEvidencePaths: [
+    "lib/ai-orchestrator/src/turn-intent.ts",
+    "lib/ai-orchestrator/src/project-query-target.ts",
+    "lib/ai-orchestrator/src/evidence-integrity.ts",
+  ],
+  requiredClaims: [
+    {
+      claimId: "generic-project-routing",
+      text: "The server resolves a project-query intent before selecting the read-only project execution path.",
+      requiredEvidencePaths: [
+        "lib/ai-orchestrator/src/turn-intent.ts",
+      ],
+      evidenceNeedles: ["resolveTurnIntent", "PROJECT_QUERY"],
+    },
+    {
+      claimId: "generic-project-evidence-gate",
+      text: "Project-query answers remain incomplete until the server-owned objective and retained evidence gates are satisfied.",
+      requiredEvidencePaths: [
+        "lib/ai-orchestrator/src/evidence-integrity.ts",
+      ],
+      evidenceNeedles: ["objectiveCompletionGate", "validateFinalAnswer"],
+    },
+    {
+      claimId: "generic-project-bounded-read",
+      text: "Generic project analysis uses bounded read-only source tools and does not grant mutation authority.",
+      requiredEvidencePaths: [
+        "lib/ai-orchestrator/src/turn-intent.ts",
+        "lib/ai-orchestrator/src/evidence-integrity.ts",
+      ],
+      evidenceNeedlesByPath: {
+        "lib/ai-orchestrator/src/turn-intent.ts": ["project-read-only", "requiresTools"],
+        "lib/ai-orchestrator/src/evidence-integrity.ts": ["requiredEvidencePaths"],
+      },
+    },
+  ],
+  promptHint:
+    "Bounded generic project analysis: use only the server-owned claims and paths in this target. " +
+    "Read the listed sources first, expand only within lib/ai-orchestrator/src, and do not infer " +
+    "a subsystem, scope, claim, path, or mutation authority from provider prose. " +
+    "Close every required claim through the existing PROJECT_QUERY evidence gate; otherwise return ANALYSIS_INCOMPLETE.",
+};
+
 const CAPABILITY_GAP_AUDIT_CLAIMS = buildCapabilityParityObjectiveClaims(
   CAPABILITY_PARITY_BASELINE_V1,
 );
@@ -701,6 +766,10 @@ const AUTH_TARGET_RE =
   /(?:\b(?:authentication|authorization|identity|permissions?)\b|مصادقة|توثيق|تفويض|هوية|صلاحيات)/iu;
 const TARGETED_DOMAIN_ANALYSIS_RE =
   /(?:\b(?:analy[sz]e|analysis|explain|describe|understand|trace|follow|flow|architecture|how|what|why|where)\b|تحليل|حلل|اشرح|صف|افهم|تتبع|مسار|تدفق|معمارية|كيف|ماذا|لماذا|أين)/iu;
+const GENERIC_PROJECT_QUERY_EXCLUSION_RE =
+  /(?:\b(?:audit|forensic|review|scan|investigate|root\s+cause|mutate|modify|change|fix|implement|create|write|delete)\b|تدقيق|جنائي|مراجعة|فحص|تحقيق|السبب\s+الجذري|عدّل|غيّر|أصلح|نفّذ|أنشئ|اكتب|احذف)/iu;
+const GENERIC_PROJECT_SCOPE_RE =
+  /(?:\b(?:project|workspace|repository|repo|codebase)\b|مشروع|المشروع|مشروعي|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر))/iu;
 
 const AMBIGUOUS_PROJECT_SCOPE_RE =
   /(?:\b(?:project|workspace|repository|repo|codebase|system|architecture|module|service|component|layer|workflow|pipeline|flow|function|class|handler|endpoint|implementation|source|code)\b|مشروع|المشروع|المستودع|الريبو|قاعدة\s+(?:الكود|الشفرة|المصدر)|النظام|المعمارية|الهندسة|الوحدة|الخدمة|المكوّن|المكون|الطبقة|سير\s+العمل|التدفق|الدالة|الفئة|المعالج|النقطة|التنفيذ|المصدر|الكود|الشفرة)/iu;
@@ -860,7 +929,15 @@ export function resolveProjectQueryTarget(message: string): ProjectQueryTarget |
       (!isGapAnalysisRequest(message) && !isCapabilityGapAuditRequest(message))
       || BROAD_GAP_REQUEST_RE.test(message)
     ) {
-      return undefined;
+      const genericProjectQuery =
+        !BROAD_GAP_REQUEST_RE.test(message)
+        && !PROJECT_ORIENTATION_RE.test(message.trim())
+        && !GENERIC_PROJECT_QUERY_EXCLUSION_RE.test(message)
+        && GENERIC_PROJECT_SCOPE_RE.test(message)
+        && AMBIGUOUS_PROJECT_ANALYSIS_RE.test(message);
+      return genericProjectQuery
+        ? materializeTarget(GENERIC_PROJECT_TARGET, 0.82)
+        : undefined;
     }
     return materializeTarget(
       isCapabilityGapAuditRequest(message)
@@ -968,6 +1045,61 @@ export function buildProjectQueryObjective(
     // Keep the user goal available to the objective-aware tool loop.
     ...(goal.trim() ? { goal: goal.trim() } : {}),
   } as ObjectiveContract;
+}
+
+/**
+ * Validate the generic objective without accepting any target material from a
+ * provider or client. The optional goal is intentionally ignored: it carries
+ * the user's question, while every scope/claim field is canonical.
+ */
+export function extractGenericProjectQueryClaimIds(objective: unknown): string[] | null {
+  if (!objective || typeof objective !== "object" || Array.isArray(objective)) return null;
+  const value = objective as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "objectiveType",
+    "goal",
+    "requiredEvidencePaths",
+    "requiredClaims",
+    "requiredEvidenceEdges",
+    "scopePolicy",
+  ]);
+  if (Object.keys(value).some((key) => !allowedKeys.has(key))) return null;
+  if ("goal" in value && typeof value.goal !== "string") return null;
+
+  const canonical = buildProjectQueryObjective(
+    materializeTarget(GENERIC_PROJECT_TARGET, 0.82),
+    "",
+  );
+  const contractKeys = [
+    "objectiveType",
+    "requiredEvidencePaths",
+    "requiredClaims",
+    "requiredEvidenceEdges",
+    "scopePolicy",
+  ] as const;
+  const deepEqual = (left: unknown, right: unknown): boolean => {
+    if (Object.is(left, right)) return true;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      return Array.isArray(left)
+        && Array.isArray(right)
+        && left.length === right.length
+        && left.every((item, index) => deepEqual(item, right[index]));
+    }
+    if (
+      !left || typeof left !== "object"
+      || !right || typeof right !== "object"
+    ) return false;
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key, index) =>
+        key === rightKeys[index] && deepEqual(leftRecord[key], rightRecord[key]),
+      );
+  };
+  if (!contractKeys.every((key) => deepEqual(value[key], canonical[key]))) return null;
+  return canonical.requiredClaims.map((claim) => claim.claimId);
 }
 
 export type ProjectQueryClaimContradiction = {

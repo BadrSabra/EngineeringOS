@@ -439,7 +439,8 @@ export function resolveTurnIntent(
   const targetedProjectQuery = Boolean(classification.projectTarget);
   const serverBoundTargetedProjectQuery =
     classification.projectTarget?.id === "delivery"
-    || classification.projectTarget?.id === "auth";
+    || classification.projectTarget?.id === "auth"
+    || classification.projectTarget?.id === "generic-project";
   const unresolvedProjectQuery =
     classification.projectTargetResolution === "unresolved";
   const projectQueryTargetMode: ProjectQueryTargetMode | undefined =

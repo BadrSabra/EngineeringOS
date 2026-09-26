@@ -5,6 +5,140 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export type MissionPlanPreviewInput = (unknown & ({
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  projectId: string;
+  /**
+     * @minLength 1
+     * @maxLength 10000
+     */
+  message?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  objective?: string;
+  /** Server-resolved accepted PROJECT_QUERY message used only for a non-durable preview. */
+  assistantMessageId?: string;
+  projectOrientation?: boolean;
+  /**
+     * @maxLength 80
+     * @pattern ^[a-z0-9][a-z0-9-]*$
+     */
+  runtimeStartTargetStepId?: string | null;
+}));
+
+/**
+ * Ordinary explicit handoffs provide message and may include sessionId/messageId together. Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash returned by plan-preview; the server resolves the source user message and proof records.
+ */
+export type MissionChatHandoffInput = (unknown & ({
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  projectId: string;
+  /**
+     * @minLength 1
+     * @maxLength 10000
+     */
+  message?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  objective?: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  expectedPlanHash?: string;
+  /** Accepted assistant PROJECT_QUERY message; never a claim or proof supplied by the client. */
+  assistantMessageId?: string;
+  sessionId?: string;
+  messageId?: string;
+  /**
+     * @maxLength 80
+     * @pattern ^[a-z0-9][a-z0-9-]*$
+     */
+  runtimeStartTargetStepId?: string | null;
+}));
+
+export type MissionPlanPreviewVersion = typeof MissionPlanPreviewVersion[keyof typeof MissionPlanPreviewVersion];
+
+
+export const MissionPlanPreviewVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type MissionPlanPreviewAdmission = typeof MissionPlanPreviewAdmission[keyof typeof MissionPlanPreviewAdmission];
+
+
+export const MissionPlanPreviewAdmission = {
+  chat: 'chat',
+  project_query: 'project_query',
+  mission: 'mission',
+} as const;
+
+export type MissionPlanPreviewPlanStepsItemKind = typeof MissionPlanPreviewPlanStepsItemKind[keyof typeof MissionPlanPreviewPlanStepsItemKind];
+
+
+export const MissionPlanPreviewPlanStepsItemKind = {
+  inspect: 'inspect',
+  analyze: 'analyze',
+  execute: 'execute',
+  validate: 'validate',
+  deliver: 'deliver',
+} as const;
+
+export type MissionPlanPreviewPlanStepsItem = {
+  id: string;
+  title: string;
+  kind: MissionPlanPreviewPlanStepsItemKind;
+  dependencies: string[];
+  files: string[];
+  readOnly: boolean;
+  approvalRequired: boolean;
+};
+
+export type MissionPlanPreviewPlan = {
+  planHash: string;
+  steps: MissionPlanPreviewPlanStepsItem[];
+};
+
+export type MissionPlanPreviewHandoffSourceKind = typeof MissionPlanPreviewHandoffSourceKind[keyof typeof MissionPlanPreviewHandoffSourceKind];
+
+
+export const MissionPlanPreviewHandoffSourceKind = {
+  accepted_project_query: 'accepted_project_query',
+} as const;
+
+export type MissionPlanPreviewHandoffSource = {
+  kind: MissionPlanPreviewHandoffSourceKind;
+  sourceRevision: string;
+  /**
+     * @minimum 1
+     * @maximum 12
+     */
+  acceptedClaimCount: number;
+};
+
+export interface MissionPlanPreview {
+  version: MissionPlanPreviewVersion;
+  objective: string;
+  admission: MissionPlanPreviewAdmission;
+  admissionReason: string;
+  plan: MissionPlanPreviewPlan;
+  handoffSource?: MissionPlanPreviewHandoffSource;
+}
+
 export type AiDeliveryPolicyMode = typeof AiDeliveryPolicyMode[keyof typeof AiDeliveryPolicyMode];
 
 

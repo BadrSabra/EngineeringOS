@@ -411,6 +411,42 @@ describe("server-owned execution acceptance", () => {
     expect(JSON.stringify(projected)).not.toContain("providerPayload");
   });
 
+  it("keeps accepted objective claim refs stable through acceptance replay", () => {
+    const row = {
+      id: "acceptance",
+      executionId: "execution",
+      projectId: "project",
+      attempt: 1,
+      finalizationKey: "key",
+      operationId: "operation",
+      workerId: "worker",
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED" as const,
+      reasonCode: "ACCEPTED",
+      nextActionCode: "NONE" as const,
+      disposition: {
+        reasonCodes: ["ACCEPTED"],
+        outcome: "SUCCEEDED" as const,
+        recoveryState: "NONE" as const,
+        nextActionCode: "NONE" as const,
+        operatorAction: "NONE",
+        acceptedClaimRefs: ["flow", "boundary"],
+      },
+      evidenceSnapshotId: "snapshot",
+      evidenceRequired: 1,
+      evidenceComplete: 1,
+      resumable: 0,
+      messageId: "message",
+      sourceRevision: "revision",
+      candidateIdentity: null,
+      createdAt: new Date(),
+    };
+    expect(projectExecutionAcceptance(row)?.disposition?.acceptedClaimRefs)
+      .toEqual(["flow", "boundary"]);
+    expect(projectExecutionAcceptance(row)?.disposition?.acceptedClaimRefs)
+      .toEqual(projectExecutionAcceptance(row)?.disposition?.acceptedClaimRefs);
+  });
+
   it("derives a bounded digest from recipe nodes without retaining node output", () => {
     const proof = buildExecutionProofProjection({
       outcome: "SUCCEEDED",

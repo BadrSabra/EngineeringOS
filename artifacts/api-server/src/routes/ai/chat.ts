@@ -474,6 +474,9 @@ function deriveProjectQueryAnalysisEvidence(params: {
     acceptedEvidenceFiles: integrity.acceptedEvidenceFiles ?? [],
     readManifest,
     acceptedClaimCount: integrity.acceptedClaimCount ?? 0,
+    ...(integrity.completedClaims
+      ? { completedClaims: [...new Set(integrity.completedClaims)] }
+      : {}),
     evidenceConsistent: integrity.consistent && !durableEvidenceMismatch,
     ...(integrity.completionGateResult
       ? { completionGateResult: integrity.completionGateResult }

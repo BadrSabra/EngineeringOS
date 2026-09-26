@@ -3067,9 +3067,21 @@ paths:
       summary: Preview a server-owned AI mission plan
       tags: [AI]
       x-no-codegen: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MissionPlanPreviewInput"
       responses:
         "200":
           description: Mission plan preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MissionPlanPreview"
+        "409":
+          description: The selected assistant result is not an accepted PROJECT_QUERY finding for this project.
 
   /api/ai/missions/from-chat:
     post:
@@ -3077,9 +3089,19 @@ paths:
       summary: Explicitly hand off a chat request to Mission Control
       tags: [AI]
       x-no-codegen: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MissionChatHandoffInput"
       responses:
         "201":
           description: Created mission handoff
+        "400":
+          description: Invalid or ambiguous chat handoff input.
+        "409":
+          description: Source acceptance or preview hash is stale, or the request is not eligible for Mission execution.
 
   /api/ai/missions/{missionId}:
     parameters:
@@ -3986,6 +4008,105 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    MissionPlanPreviewInput:
+      type: object
+      additionalProperties: false
+      required: [projectId]
+      oneOf:
+        - required: [message]
+          not:
+            required: [assistantMessageId]
+        - required: [assistantMessageId]
+          not:
+            required: [message]
+      properties:
+        projectId: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 10000 }
+        objective: { type: string, minLength: 1, maxLength: 2000 }
+        assistantMessageId:
+          type: string
+          format: uuid
+          description: Server-resolved accepted PROJECT_QUERY message used only for a non-durable preview.
+        projectOrientation: { type: boolean }
+        runtimeStartTargetStepId:
+          type: string
+          nullable: true
+          maxLength: 80
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+    MissionChatHandoffInput:
+      type: object
+      additionalProperties: false
+      required: [projectId]
+      description: >
+        Ordinary explicit handoffs provide message and may include sessionId/messageId together.
+        Accepted PROJECT_QUERY handoffs provide assistantMessageId and the exact expectedPlanHash
+        returned by plan-preview; the server resolves the source user message and proof records.
+      oneOf:
+        - required: [message]
+          not:
+            required: [assistantMessageId]
+        - required: [assistantMessageId, expectedPlanHash]
+          not:
+            required: [message]
+      properties:
+        projectId: { type: string, minLength: 1, maxLength: 200 }
+        message: { type: string, minLength: 1, maxLength: 10000 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        objective: { type: string, minLength: 1, maxLength: 2000 }
+        expectedPlanHash: { type: string, minLength: 1, maxLength: 200 }
+        assistantMessageId:
+          type: string
+          format: uuid
+          description: Accepted assistant PROJECT_QUERY message; never a claim or proof supplied by the client.
+        sessionId: { type: string, format: uuid }
+        messageId: { type: string, format: uuid }
+        runtimeStartTargetStepId:
+          type: string
+          nullable: true
+          maxLength: 80
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+    MissionPlanPreview:
+      type: object
+      required: [version, objective, admission, admissionReason, plan]
+      properties:
+        version: { type: integer, enum: [1] }
+        objective: { type: string }
+        admission:
+          type: string
+          enum: [chat, project_query, mission]
+        admissionReason: { type: string }
+        plan:
+          type: object
+          required: [planHash, steps]
+          properties:
+            planHash: { type: string }
+            steps:
+              type: array
+              items:
+                type: object
+                required: [id, title, kind, dependencies, files, readOnly, approvalRequired]
+                properties:
+                  id: { type: string }
+                  title: { type: string }
+                  kind:
+                    type: string
+                    enum: [inspect, analyze, execute, validate, deliver]
+                  dependencies:
+                    type: array
+                    items: { type: string }
+                  files:
+                    type: array
+                    items: { type: string }
+                  readOnly: { type: boolean }
+                  approvalRequired: { type: boolean }
+        handoffSource:
+          type: object
+          required: [kind, sourceRevision, acceptedClaimCount]
+          properties:
+            kind: { type: string, enum: [accepted_project_query] }
+            sourceRevision: { type: string }
+            acceptedClaimCount: { type: integer, minimum: 1, maximum: 12 }
+
     AiDeliveryPolicy:
       type: object
       additionalProperties: false

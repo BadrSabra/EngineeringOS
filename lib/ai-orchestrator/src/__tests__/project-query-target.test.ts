@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   buildProjectQueryObjective,
+  extractGenericProjectQueryClaimIds,
   classifyRequest,
   detectProjectQueryClaimContradictions,
   deriveProjectQueryTargetMode,
@@ -543,16 +544,67 @@ describe("target-aware project queries", () => {
     expect(resolveProjectQueryTarget("راجع المشروع بالكامل وابحث عن الفجوات")).toBeUndefined();
   });
 
-  it("marks a bounded architecture question unresolved instead of inventing a subsystem", () => {
+  it("resolves a bounded architecture question to the finite generic target", () => {
     const message = "Analyze my project architecture.";
     const classification = classifyRequest(message);
     const intent = resolveTurnIntent(message, { classification });
 
-    expect(classification.projectTarget).toBeUndefined();
-    expect(classification.projectTargetResolution).toBe("unresolved");
-    expect(intent.projectTargetResolution).toBe("unresolved");
+    expect(classification.projectTarget?.id).toBe("generic-project");
+    expect(classification.projectTarget?.requiredClaims).toHaveLength(3);
+    expect(classification.projectTarget?.allowedExpansionPaths).toEqual([
+      "lib/ai-orchestrator/src",
+    ]);
+    expect(classification.projectTargetResolution).toBe("resolved");
+    expect(intent.projectTargetResolution).toBe("resolved");
+    expect(intent.projectTarget?.requiredClaims.every((claim) =>
+      claim.text.length > 0 && claim.requiredEvidencePaths.length > 0,
+    )).toBe(true);
     expect(intent.requiresEvidence).toBe(true);
     expect(intent.kind).toBe("PROJECT_QUERY");
+  });
+
+  it("accepts only the exact server-owned generic objective contract", () => {
+    const target = resolveProjectQueryTarget("Analyze my project architecture.");
+    const objective = buildProjectQueryObjective(target!, "Analyze my project architecture.");
+
+    expect(extractGenericProjectQueryClaimIds(objective)).toEqual([
+      "generic-project-routing",
+      "generic-project-evidence-gate",
+      "generic-project-bounded-read",
+    ]);
+    expect(extractGenericProjectQueryClaimIds({
+      ...objective,
+      requiredClaims: objective.requiredClaims.map((claim, index) =>
+        index === 0 ? { ...claim, text: "provider-selected claim" } : claim,
+      ),
+    })).toBeNull();
+    expect(extractGenericProjectQueryClaimIds({
+      ...objective,
+      objectiveType: "PROJECT_QUERY_GAP-ANALYSIS",
+    })).toBeNull();
+    const { requiredClaims: _requiredClaims, ...missingClaims } = objective;
+    expect(extractGenericProjectQueryClaimIds(missingClaims)).toBeNull();
+    expect(extractGenericProjectQueryClaimIds({
+      ...objective,
+      requiredEvidenceEdges: [{
+        from: "provider",
+        to: "selected",
+        relationship: "DIRECT_INVOCATION",
+      }],
+    })).toBeNull();
+    expect(extractGenericProjectQueryClaimIds({
+      ...objective,
+      scopePolicy: {
+        ...objective.scopePolicy!,
+        allowedExpansionPaths: ["."],
+      },
+    })).toBeNull();
+  });
+
+  it("keeps broad audits, mutations, and simple chat outside the generic target", () => {
+    expect(resolveProjectQueryTarget("Audit the entire repository.")).toBeUndefined();
+    expect(resolveProjectQueryTarget("Fix the project architecture.")).toBeUndefined();
+    expect(resolveProjectQueryTarget("What is this project?")).toBeUndefined();
   });
 
   it("leaves a generic project question as a non-evidence project query", () => {

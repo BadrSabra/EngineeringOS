@@ -35,6 +35,11 @@ import {
   createAiExecution,
   reconcileAiExecutions,
 } from "../../lib/ai-execution-state.js";
+import { finalizeExecutionAcceptance } from "../../lib/ai-execution-acceptance.js";
+import {
+  buildProjectQueryObjective,
+  resolveProjectQueryTarget,
+} from "@workspace/ai-orchestrator";
 import { prepareRecipeOperation } from "../../lib/recipe-operation-runner.js";
 import { runShadowReplayAttempt } from "../../lib/shadow-replay.js";
 import { buildTaskObjectiveContract } from "../../lib/task-objective-contract.js";
@@ -58,6 +63,143 @@ async function insertProject(ownerId = "test-user") {
   });
   projectIds.push(id);
   return id;
+}
+
+async function insertAcceptedProjectQuery(projectId: string) {
+  const userId = "test-user";
+  const sessionId = randomUUID();
+  const userMessageId = randomUUID();
+  const assistantMessageId = randomUUID();
+  const operationId = randomUUID();
+  const sourceRevision = "a".repeat(40);
+  const workspaceRoot = `/tmp/mission-test-${projectId}`;
+  const now = new Date();
+  const userMessage = "Analyze my project architecture.";
+  const target = resolveProjectQueryTarget(userMessage);
+  if (!target) throw new Error("Expected the generic PROJECT_QUERY fixture target");
+  const objective = buildProjectQueryObjective(
+    target,
+    userMessage,
+  );
+  const requiredClaims = objective.requiredClaims;
+  const finalMessageContent =
+    "The project purpose and entrypoints are supported by source evidence.";
+  const finalizationKey = `final-${operationId}`;
+
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Accepted PROJECT_QUERY fixture",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatMessagesTable).values({
+    id: userMessageId,
+    sessionId,
+    role: "user",
+    content: userMessage,
+    createdAt: now,
+  });
+
+  const created = await createAiExecution({
+    userId,
+    projectId,
+    sessionId,
+    correlationId: operationId,
+    idempotencyKey: `project-query-${operationId}`,
+    request: {
+      projectId,
+      sessionId,
+      operationId,
+      turnIntent: "PROJECT_QUERY",
+      message: userMessage,
+      modelMessage: userMessage,
+      workspaceRoot,
+      workspaceRevision: sourceRevision,
+      validationTargetPaths: ["src/index.ts"],
+      objective,
+      proofRequired: true,
+    },
+  });
+  const executionId = created.execution.id;
+  const workerId = `fixture-worker-${operationId}`;
+
+  await db.update(aiChatMessagesTable)
+    .set({ executionId })
+    .where(eq(aiChatMessagesTable.id, userMessageId));
+  await db.insert(aiChatMessagesTable).values({
+    id: assistantMessageId,
+    sessionId,
+    executionId,
+    role: "assistant",
+    content: finalMessageContent,
+    createdAt: new Date(),
+  });
+  await db.update(aiExecutionsTable).set({
+    status: "running",
+    workerId,
+    leaseUntil: new Date(Date.now() + 60_000),
+    lastHeartbeatAt: now,
+    startedAt: now,
+    updatedAt: now,
+    workspaceRoot,
+    baseRevision: sourceRevision,
+  }).where(eq(aiExecutionsTable.id, executionId));
+
+  const finalized = await finalizeExecutionAcceptance({
+    executionId,
+    expectedAttempt: created.execution.attempt,
+    workerId,
+    finalMessageId: assistantMessageId,
+    finalMessageContent,
+    finalizationKey,
+    outcome: "SUCCEEDED",
+    terminalStatus: "completed",
+    reasonCode: "COMPLETED",
+    recoveryState: "NONE",
+    resumable: false,
+    workspaceRoot,
+    acceptedClaimRefs: requiredClaims.map((claim) => claim.claimId),
+    evidence: {
+      operationId,
+      workspaceRoot,
+      sourceRevision,
+      required: true,
+      verdict: "PROVEN",
+      reads: [{
+        path: "src/index.ts",
+        body: "export const projectEntrypoint = true;\n",
+        complete: true,
+        truncated: false,
+      }],
+    },
+  });
+  expect(finalized).toMatchObject({ accepted: true, duplicate: false });
+  const [acceptance] = await db
+    .select({ id: aiExecutionAcceptancesTable.id, evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId })
+    .from(aiExecutionAcceptancesTable)
+    .where(and(
+      eq(aiExecutionAcceptancesTable.executionId, executionId),
+      eq(aiExecutionAcceptancesTable.attempt, created.execution.attempt),
+    ))
+    .limit(1);
+
+  return {
+    sessionId,
+    userMessageId,
+    assistantMessageId,
+    executionId,
+    attempt: created.execution.attempt,
+    workerId,
+    operationId,
+    workspaceRoot,
+    finalMessageContent,
+    finalizationKey,
+    acceptanceId: acceptance!.id,
+    evidenceSnapshotId: acceptance!.evidenceSnapshotId!,
+    sourceRevision,
+    acceptedClaimRefs: requiredClaims.map((claim) => claim.claimId),
+  };
 }
 
 afterEach(async () => {
@@ -119,6 +261,199 @@ describe("AI missions and goals", () => {
     expect(handoff.body.preview.plan.planHash).toBe(preview.body.plan.planHash);
     expect(handoff.body.mission.status).toBe("active");
     expect(handoff.body.activation.goalId).toBeTruthy();
+  });
+
+  it("previews only a server-accepted PROJECT_QUERY source without creating durable work", async () => {
+    const projectId = await insertProject();
+    const source = await insertAcceptedProjectQuery(projectId);
+    const before = {
+      missions: await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+        .where(eq(aiMissionsTable.projectId, projectId)),
+      goals: await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+        .where(eq(aiGoalsTable.projectId, projectId)),
+      tasks: await db.select({ id: tasksTable.id }).from(tasksTable)
+        .where(eq(tasksTable.projectId, projectId)),
+      executions: await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId)),
+    };
+
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({
+        projectId,
+        assistantMessageId: source.assistantMessageId,
+        objective: "Investigate and fix the accepted project finding.",
+      });
+
+    expect(preview.status).toBe(200);
+    expect(preview.body.admission).toBe("mission");
+    expect(preview.body.handoffSource).toMatchObject({
+      kind: "accepted_project_query",
+      sourceRevision: source.sourceRevision,
+      acceptedClaimCount: source.acceptedClaimRefs.length,
+    });
+    expect(preview.body.plan.steps.length).toBeGreaterThan(0);
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toEqual(before.missions);
+    expect(await db.select({ id: aiGoalsTable.id }).from(aiGoalsTable)
+      .where(eq(aiGoalsTable.projectId, projectId))).toEqual(before.goals);
+    expect(await db.select({ id: tasksTable.id }).from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId))).toEqual(before.tasks);
+    expect(await db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId))).toEqual(before.executions);
+  });
+
+  it("requires the reviewed plan hash and stores only server-resolved accepted provenance", async () => {
+    const projectId = await insertProject();
+    const source = await insertAcceptedProjectQuery(projectId);
+    const objective = "Investigate and fix the accepted project finding.";
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({ projectId, assistantMessageId: source.assistantMessageId, objective });
+    expect(preview.status).toBe(200);
+
+    const staleHandoff = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        assistantMessageId: source.assistantMessageId,
+        objective,
+        expectedPlanHash: "stale-plan-hash",
+      });
+    expect(staleHandoff.status).toBe(409);
+    expect(staleHandoff.body.code).toBe("MISSION_PREVIEW_STALE");
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toEqual([]);
+
+    const handoff = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        assistantMessageId: source.assistantMessageId,
+        objective,
+        expectedPlanHash: preview.body.plan.planHash,
+      });
+    expect(handoff.status).toBe(201);
+    expect(handoff.body.preview.plan.planHash).toBe(preview.body.plan.planHash);
+    expect(handoff.body.mission.autonomyPolicy.handoffSource).toMatchObject({
+      kind: "chat",
+      sourceType: "accepted_project_query",
+      sessionId: source.sessionId,
+      messageId: source.userMessageId,
+      assistantMessageId: source.assistantMessageId,
+      executionId: source.executionId,
+      acceptanceId: source.acceptanceId,
+      evidenceSnapshotId: source.evidenceSnapshotId,
+      sourceRevision: source.sourceRevision,
+      acceptedClaimRefs: source.acceptedClaimRefs,
+      planHash: preview.body.plan.planHash,
+    });
+    const missionTasks = await db
+      .select({ description: tasksTable.description, prompt: tasksTable.prompt })
+      .from(tasksTable)
+      .where(eq(tasksTable.goalId, handoff.body.activation.goalId));
+    const durableMissionContext = missionTasks
+      .map((task) => `${task.description}\n${task.prompt}`)
+      .join("\n");
+    expect(durableMissionContext).toContain(
+      "Accepted PROJECT_QUERY context (user-reviewed; not proof or authorization for future changes):",
+    );
+    expect(durableMissionContext).toContain(
+      "The project purpose and entrypoints are supported by source evidence.",
+    );
+  });
+
+  it("rejects a recovered assistant row that no longer matches the acceptance message", async () => {
+    const projectId = await insertProject();
+    const source = await insertAcceptedProjectQuery(projectId);
+    const recoveredMessageId = randomUUID();
+    await db.insert(aiChatMessagesTable).values({
+      id: recoveredMessageId,
+      sessionId: source.sessionId,
+      executionId: source.executionId,
+      role: "assistant",
+      content: "A different recovered terminal message.",
+      createdAt: new Date(),
+    });
+    await db.update(aiExecutionsTable)
+      .set({ finalMessageId: recoveredMessageId })
+      .where(eq(aiExecutionsTable.id, source.executionId));
+
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({
+        projectId,
+        assistantMessageId: source.assistantMessageId,
+        objective: "Investigate and fix the accepted project finding.",
+      });
+
+    expect(preview.status).toBe(409);
+    expect(preview.body.code).toBe("MISSION_SOURCE_NOT_ACCEPTED");
+    expect(await db.select({ id: aiMissionsTable.id }).from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toEqual([]);
+  });
+
+  it("replays a committed acceptance without splitting assistant-message identity", async () => {
+    const projectId = await insertProject();
+    const source = await insertAcceptedProjectQuery(projectId);
+
+    const replay = await finalizeExecutionAcceptance({
+      executionId: source.executionId,
+      expectedAttempt: source.attempt,
+      workerId: source.workerId,
+      finalMessageId: source.assistantMessageId,
+      finalMessageContent: source.finalMessageContent,
+      finalizationKey: source.finalizationKey,
+      outcome: "SUCCEEDED",
+      terminalStatus: "completed",
+      reasonCode: "COMPLETED",
+      recoveryState: "NONE",
+      resumable: false,
+      workspaceRoot: source.workspaceRoot,
+      acceptedClaimRefs: source.acceptedClaimRefs,
+      evidence: {
+        operationId: source.operationId,
+        workspaceRoot: source.workspaceRoot,
+        sourceRevision: source.sourceRevision,
+        required: true,
+        verdict: "PROVEN",
+        reads: [{
+          path: "src/index.ts",
+          body: "export const projectEntrypoint = true;\n",
+          complete: true,
+          truncated: false,
+        }],
+      },
+    });
+    expect(replay).toMatchObject({ accepted: true, duplicate: true });
+
+    const [acceptance] = await db.select()
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, source.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, source.attempt),
+      ))
+      .limit(1);
+    const [assistant] = await db.select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, source.assistantMessageId))
+      .limit(1);
+    const [execution] = await db.select()
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, source.executionId))
+      .limit(1);
+
+    expect(acceptance?.id).toBe(source.acceptanceId);
+    expect(acceptance?.messageId).toBe(source.assistantMessageId);
+    expect(assistant).toMatchObject({
+      id: source.assistantMessageId,
+      executionId: source.executionId,
+      outcome: "SUCCEEDED",
+      content: source.finalMessageContent,
+    });
+    expect(execution?.finalMessageId).toBe(source.assistantMessageId);
+    expect((acceptance?.disposition as Record<string, unknown> | undefined)?.acceptedClaimRefs)
+      .toEqual(source.acceptedClaimRefs);
   });
 
   it("runs the provider-free Chat-to-Mission dependency handoff and preserves history on replan", async () => {
