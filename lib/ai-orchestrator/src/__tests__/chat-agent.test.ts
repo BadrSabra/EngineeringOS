@@ -242,7 +242,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     else process.env.GROQ_API_KEY = originalApiKey;
   });
 
-  it("shows complete retained excerpts for a general project query without claiming completion", async () => {
+  it("keeps a general project query incomplete without an objective even when retained evidence is complete", async () => {
     const message = "Explain the project architecture and how its request flow works.";
     const turnIntent = resolveTurnIntent(message);
     expect(turnIntent.kind).toBe("PROJECT_QUERY");
@@ -270,6 +270,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
     }));
 
     const { chat } = await import("../agents/chat-agent.js");
+    const steps: AgentStep[] = [];
     const result = await chat({
       message,
       history: [],
@@ -277,21 +278,26 @@ describe("chat agent — ChatOutputSchema validation", () => {
       turnIntent,
       retainedEvidence: new Map([
         ["src/router.ts", "export function routeRequest() { return 'retained source'; }\n"],
-        ["src/partial.ts", "export const partial = true;\n[read output truncated]"],
       ]),
       retainedReadStatuses: new Map([
         ["src/router.ts", "READ_COMPLETE"],
-        ["src/partial.ts", "READ_TRUNCATED"],
       ]),
+      onStep: (step) => steps.push(step),
     });
 
     expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.projectQueryResponseSource).toBeUndefined();
+    expect(result.projectQueryResponseFallbackReason).toBeUndefined();
     expect(result.response).toContain("Ranked source excerpts");
     expect(result.response).toContain("`src/router.ts`:L1-L1");
     expect(result.response).toContain("retained source");
-    expect(result.response).not.toContain("[read output truncated]");
-    expect(result.response).not.toContain("partial = true");
     expect(result.sources).toEqual(["src/router.ts"]);
+    expect(
+      steps.some(
+        (step) =>
+          step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_SOURCE",
+      ),
+    ).toBe(false);
   });
 
   it("identifies an English-only Arabic fixture by name", () => {
