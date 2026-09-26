@@ -7427,7 +7427,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
   });
 
-  it("accepts the bounded generic PROJECT_QUERY objective through SSE, claim refs, and history", async () => {
+  it("accepts the bounded generic PROJECT_QUERY objective through JSON, SSE, claim refs, and history", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const message = "Analyze my project architecture.";
@@ -7475,7 +7475,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       requiredClaims?: Array<{ claimId?: string; text?: string }>;
     } | undefined;
 
-    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
       const input = args[1] as {
         objective?: typeof observedObjective;
         retainedEvidence?: Map<string, string>;
@@ -7620,6 +7620,39 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         role: "assistant",
         content: response,
         outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      }),
+    ]));
+
+    const json = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+
+    expect(json.status).toBe(200);
+    expect(json.body).toMatchObject({
+      sources,
+      projectQueryResponseSource: "deterministic_fallback",
+      projectQueryResponseFallbackReason: "synthesis_failed",
+      message: {
+        role: "assistant",
+        content: response,
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      },
+    });
+    expect(observedObjective?.requiredClaims?.map(({ claimId }) => claimId)).toEqual(claimIds);
+    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(2);
+
+    const jsonHistory = await request(app)
+      .get(`/api/ai/chat/${String(json.body.sessionId)}/messages`)
+      .expect(200);
+    expect(jsonHistory.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: message }),
+      expect.objectContaining({
+        role: "assistant",
+        content: response,
         projectQueryResponseSource: "deterministic_fallback",
         projectQueryResponseFallbackReason: "synthesis_failed",
       }),
