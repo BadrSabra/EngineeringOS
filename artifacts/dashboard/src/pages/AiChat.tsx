@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { isValidElement, useState, useRef, useEffect, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
@@ -57,6 +57,7 @@ import { CapabilityProbeReport } from '@/components/CapabilityProbeReport';
 import { EvidenceGraphPanel } from '@/components/EvidenceGraphPanel';
 import { MissionCapsule } from '@/components/MissionCapsule';
 import { parseCapabilityProbeReport } from '@/lib/capability-probe-report';
+import { parseProjectQuerySourceReference } from '@/lib/project-query-source-reference';
 import { createMissionFromChat } from '@/lib/ai-missions';
 // Canonical AI Model Capability Probe prompt — no manual paste of the probe
 // body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
@@ -4820,17 +4821,19 @@ function BehaviorEvidencePanel({ evidence, projectId }: { evidence: AiBehaviorEv
 }
 
 /**
- * Reveals the REAL source lines behind an accepted excerpt so an analyst can
- * verify the claim against the actual code instead of trusting the (often
- * trimmed) excerpt. Fetches the actual file line window from the
- * project-authorized /api/ai/chat/file-content endpoint, anchored at the
- * evidence's sourceSpan.startLine, and highlights the span. The line numbers
- * shown are the file's true 1-indexed offsets returned by the server — it never
- * fabricates offsets from the excerpt text. When the file cannot be read
- * (unavailable), it degrades to the excerpt WITHOUT labeling it as exact source
- * lines.
+ * Loads real project-file lines for an evidence or navigation reference. The
+ * file-content endpoint supplies true 1-indexed line numbers; this viewer does
+ * not accept evidence or alter the assistant's terminal outcome.
  */
-function EvidenceSourceLines({ evidence, projectId }: { evidence: AiBehaviorEvidence; projectId?: string }) {
+function EvidenceSourceLines({
+  evidence,
+  projectId,
+  language = 'en',
+}: {
+  evidence: AiBehaviorEvidence;
+  projectId?: string;
+  language?: 'ar' | 'en';
+}) {
   const span = evidence.sourceSpan;
   const canLoad = Boolean(projectId && span && evidence.source && Number.isFinite(span.startLine));
   // Request a window WIDER than the exact span (a few lines above and below)
@@ -4867,17 +4870,23 @@ function EvidenceSourceLines({ evidence, projectId }: { evidence: AiBehaviorEvid
   if (!span || !Number.isFinite(span.startLine)) return null;
 
   if (isPending) {
-    return <div className="mt-1.5 px-2 py-1 text-[10px] text-muted-foreground/70">Loading source lines…</div>;
+    return (
+      <div className="mt-1.5 px-2 py-1 text-[10px] text-muted-foreground/70" lang={language} dir={language === 'ar' ? 'rtl' : undefined}>
+        {language === 'ar' ? 'جارٍ تحميل أسطر المصدر…' : 'Loading source lines…'}
+      </div>
+    );
   }
 
-  // File not readable/authorized — degrade to the raw excerpt but do NOT paint
-  // it as exact source lines (we have no true line offsets from the real file).
+  // File not readable/authorized — do not paint an old quote as current source
+  // lines when the project-scoped read cannot verify the requested range.
   if (isError || !data?.available || !data.lines?.length) {
     const reason = data?.reason ? ` · ${data.reason}` : '';
     return (
-      <div className="mt-1.5 rounded-md border border-border/40 bg-background/50 px-2 py-1.5">
+      <div className="mt-1.5 rounded-md border border-border/40 bg-background/50 px-2 py-1.5" lang={language} dir={language === 'ar' ? 'rtl' : undefined}>
         <div className="text-[10px] text-muted-foreground/70 italic">
-          Source file unavailable{reason} — showing the quoted excerpt (line numbers not verifiable)
+          {language === 'ar'
+            ? `تعذّر عرض ملف المصدر${reason} — لم يمكن التحقق من موضع الأسطر.`
+            : `Source file unavailable${reason} — source line numbers could not be verified.`}
         </div>
         {evidence.excerpt && (
           <pre className="mt-1 whitespace-pre-wrap break-words text-[10px] leading-5 text-muted-foreground/80">{evidence.excerpt}</pre>
@@ -4888,8 +4897,8 @@ function EvidenceSourceLines({ evidence, projectId }: { evidence: AiBehaviorEvid
 
   const inSpan = (line: number) => line >= span.startLine && line <= span.endLine;
   return (
-    <div className="mt-1.5 overflow-hidden rounded-md border border-border/40 bg-background/50">
-      <pre className="max-h-48 overflow-auto px-0 py-1.5 text-[10px] leading-5">
+    <div className="mt-1.5 overflow-hidden rounded-md border border-border/40 bg-background/50" lang={language}>
+      <pre className="max-h-48 overflow-auto px-0 py-1.5 text-[10px] leading-5" dir="ltr">
         {data.lines!.map((row) => {
           const inRange = inSpan(row.line);
           return (
@@ -4909,9 +4918,96 @@ function EvidenceSourceLines({ evidence, projectId }: { evidence: AiBehaviorEvid
       </pre>
       {data.truncated && (
         <div className="border-t border-border/40 px-2 py-1 text-[10px] text-muted-foreground/60">
-          ↕ window truncated (file has {data.fileLines ?? '?'} lines)
+          {language === 'ar'
+            ? `↕ عُرض جزء محدود من الملف (عدد الأسطر: ${data.fileLines ?? '؟'})`
+            : `↕ window truncated (file has ${data.fileLines ?? '?'} lines)`}
         </div>
       )}
+    </div>
+  );
+}
+
+function markdownNodeText(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(markdownNodeText).join('');
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return markdownNodeText(node.props.children);
+  }
+  return '';
+}
+
+function ProjectQuerySourceHeading({
+  children,
+  projectId,
+}: {
+  children: ReactNode;
+  projectId?: string;
+}) {
+  const [isViewing, setViewing] = useState(false);
+  const headingText = markdownNodeText(children);
+  const reference = parseProjectQuerySourceReference(headingText);
+  const isArabic = /[\u0600-\u06ff]/u.test(headingText);
+
+  if (!reference) {
+    return <h4 className="text-sm font-semibold mb-1">{children}</h4>;
+  }
+
+  const referenceId = encodeURIComponent(
+    `${reference.path}:${reference.startLine}-${reference.endLine}`,
+  ).replace(/%/g, '_');
+  const panelId = `project-query-source-${referenceId}`;
+  const referenceEvidence: AiBehaviorEvidence = {
+    source: reference.path,
+    sourceSpan: {
+      startLine: reference.startLine,
+      endLine: reference.endLine,
+    },
+    supportsClaim: false,
+  };
+  const toggleLabel = isArabic
+    ? isViewing ? 'إخفاء الأسطر' : 'عرض أسطر المصدر'
+    : isViewing ? 'Hide source' : 'View source lines';
+
+  return (
+    <div className="mb-2 min-w-0">
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+        <h4 className="min-w-0 flex-1 break-words text-sm font-semibold">{children}</h4>
+        <button
+          type="button"
+          data-testid={`button-view-project-query-source-${referenceId}`}
+          aria-expanded={isViewing}
+          aria-controls={panelId}
+          title={isArabic
+            ? projectId
+              ? 'عرض الملف الحالي عند هذا النطاق؛ لا يغيّر ذلك حالة قبول الإجابة.'
+              : 'اختر مشروعاً لعرض الملف.'
+            : projectId
+              ? 'View the current project file at this range; this does not accept the answer.'
+              : 'Select a project to view the file.'}
+          disabled={!projectId}
+          onClick={() => setViewing((open) => !open)}
+          className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md border border-border/50 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Eye className="h-3 w-3" />
+          {toggleLabel}
+        </button>
+      </div>
+      <div id={panelId} className="mt-1.5" hidden={!isViewing} aria-live="polite">
+        {isViewing && projectId && (
+          <>
+            <p className="text-[10px] text-muted-foreground/70" lang={isArabic ? 'ar' : 'en'} dir={isArabic ? 'rtl' : undefined}>
+              {isArabic
+                ? 'هذه أسطر الملف الحالي؛ قد يكون المشروع تغيّر منذ الإجابة. عرضها لا يثبت اكتمال الإجابة ولا يغيّر قرار القبول.'
+                : 'These are the current file lines; the project may have changed since the answer. Viewing them does not complete the answer or change acceptance.'}
+            </p>
+            <EvidenceSourceLines
+              evidence={referenceEvidence}
+              projectId={projectId}
+              language={isArabic ? 'ar' : 'en'}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -5717,6 +5813,9 @@ function MessageBubble({
                 h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
                 h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
                 h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                h4: ({ children }) => (
+                  <ProjectQuerySourceHeading projectId={projectId}>{children}</ProjectQuerySourceHeading>
+                ),
               }}
             >
               {userFacingContent}
@@ -12446,6 +12545,11 @@ export default function AiChat() {
                             h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
                             h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
                             h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                            h4: ({ children }) => (
+                              <ProjectQuerySourceHeading projectId={selectedProjectId ?? undefined}>
+                                {children}
+                              </ProjectQuerySourceHeading>
+                            ),
                           }}
                         >
                           {streamingContent}

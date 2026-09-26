@@ -9,11 +9,11 @@ The running API process serves its compiled bundle; changing orchestrator source
 
 **How to apply:** Before validating an AI-session fix, compare process/build timing, restart the managed API workflow once after the batch, then run the Arabic journey and inspect durable execution, acceptance, evidence, SSE, history, and Dashboard projections together.
 
-Managed Vite dashboard workflows can report a stale port-in-use failure even when the application code is healthy; restarting the artifact-owned workflow and running the dashboard restart smoke check clears this condition.
+An artifact dashboard workflow can report a port-in-use failure while an existing Vite process still serves the preview.
 
-**Why:** A previous dashboard start failed only because an old listener occupied the assigned port; the managed restart and isolated replacement-process check both passed afterward.
+**Why:** A duplicate managed start can fail with `EADDRINUSE` while the original dashboard process remains healthy; stopping that listener without checking can take down the working preview.
 
-**How to apply:** Treat a port-only dashboard startup failure as a workflow lifecycle issue first. Restart the exact artifact workflow and verify the replacement listener rather than changing Vite port configuration.
+**How to apply:** Identify the port owner and probe the artifact preview before restarting. Leave a serving Vite process in place; restart the exact artifact workflow only when replacement is safe, and do not change Vite ports to work around a duplicate.
 
 An API workflow marked failed may still have an old server child or listener alive. Workflow status alone does not establish whether the API is serving or which process owns its port.
 

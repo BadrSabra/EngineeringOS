@@ -117,6 +117,8 @@ const mocks = vi.hoisted(() => {
       ],
     },
     fileContentRequest: undefined as unknown,
+    fileContentIsPending: false,
+    fileContentIsError: false,
     streamIsPending: false,
     groqStatus: undefined as unknown,
     aiMetrics: {
@@ -311,8 +313,8 @@ vi.mock('@workspace/api-client-react', () => {
       mocks.fileContentRequest = params;
       return {
         data: mocks.fileContent,
-        isPending: false,
-        isError: false,
+        isPending: mocks.fileContentIsPending,
+        isError: mocks.fileContentIsError,
         error: null,
       };
     }),
@@ -381,6 +383,24 @@ beforeEach(() => {
   mocks.sessionsFetched = true;
   mocks.sessionsError = false;
   mocks.historicalAudits = [];
+  mocks.fileContent = {
+    available: true,
+    path: 'src/routes/ai/chat.ts',
+    startLine: 1394,
+    endLine: 1398,
+    fileLines: 500,
+    truncated: false,
+    lines: [
+      { line: 1394, text: '  // real context before the span' },
+      { line: 1395, text: '  const ctx = buildContext();' },
+      { line: 1396, text: '  const result = await chat(req, res);' },
+      { line: 1397, text: '  return result;' },
+      { line: 1398, text: '}' },
+    ],
+  };
+  mocks.fileContentRequest = undefined;
+  mocks.fileContentIsPending = false;
+  mocks.fileContentIsError = false;
   mocks.proposalMessages[0] = {
     ...mocks.proposalMessages[0],
     id: 'message-1',
@@ -2860,6 +2880,64 @@ it('shows Groq model readiness without requiring a personal key when the server 
     } finally {
       mocks.fileContent = prev;
     }
+  });
+
+  it('opens retained PROJECT_QUERY source references without changing incomplete acceptance', async () => {
+    mocks.serverProposal = { proposalId: 'query-reference-proposal', changes: [] };
+    mocks.proposalMessages[0].content = [
+      'ANALYSIS_INCOMPLETE — source snippets are for navigation only.',
+      '',
+      '#### `src/routes/ai/chat.ts`:L1396-L1397 — Exact question-term matches: chat',
+      '```',
+      '1396 │ const result = await chat(req, res);',
+      '1397 │ return result;',
+      '```',
+    ].join('\n');
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    expect(await screen.findByText(/ANALYSIS_INCOMPLETE/)).toBeInTheDocument();
+    const openButton = await screen.findByRole('button', { name: 'View source lines' });
+    expect(openButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('1396', { exact: true })).not.toBeInTheDocument();
+
+    fireEvent.click(openButton);
+    expect(await screen.findByText('These are the current file lines; the project may have changed since the answer. Viewing them does not complete the answer or change acceptance.')).toBeInTheDocument();
+    expect(screen.getByText('1396')).toBeInTheDocument();
+    expect(screen.getByText((content: string) => content.trim() === 'return result;')).toBeInTheDocument();
+    expect(openButton).toHaveAttribute('aria-expanded', 'true');
+    expect(mocks.fileContentRequest).toMatchObject({
+      projectId: 'project-1',
+      path: 'src/routes/ai/chat.ts',
+    });
+  });
+
+  it('shows a loading state while a PROJECT_QUERY source reference is being fetched', async () => {
+    mocks.serverProposal = { proposalId: 'query-reference-loading-proposal', changes: [] };
+    mocks.fileContentIsPending = true;
+    mocks.proposalMessages[0].content =
+      '#### `src/routes/ai/chat.ts`:L1396-L1397 — Exact question-term matches: chat';
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'View source lines' }));
+
+    expect(await screen.findByText('Loading source lines…')).toBeInTheDocument();
+    expect(screen.queryByText('1396', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('reports an unavailable file for a PROJECT_QUERY source reference without inventing lines', async () => {
+    mocks.serverProposal = { proposalId: 'query-reference-unavailable-proposal', changes: [] };
+    mocks.fileContent = { available: false, reason: 'file_not_found', lines: [] };
+    mocks.proposalMessages[0].content =
+      '#### `src/routes/ai/chat.ts`:L1396-L1397 — Exact question-term matches: chat';
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'View source lines' }));
+
+    expect(await screen.findByText(/Source file unavailable.*source line numbers could not be verified/)).toBeInTheDocument();
+    expect(screen.queryByText('1396', { exact: true })).not.toBeInTheDocument();
   });
 
   it('renders a CODE_EXTRACTION_RESULT as a syntax-highlighted code block', async () => {
