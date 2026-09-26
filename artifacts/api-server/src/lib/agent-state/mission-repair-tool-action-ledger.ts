@@ -20,7 +20,6 @@ export async function assertMissionRepairToolActionRequested(input: {
   episodeId: string;
   executionId: string;
   attempt: number;
-  workerId: string;
   expectedAction: AgentAction;
 }): Promise<void> {
   const events = await db.select({
@@ -50,9 +49,11 @@ export async function assertMissionRepairToolActionRequested(input: {
 
   const [event] = matchingEvents;
   const payloadRecord = asRecord(event?.payload);
+  // The original worker identity is provenance; ACTION_COMMITTED append checks
+  // current lease ownership independently and permits same-attempt recovery.
   if (
     event?.actorType !== "worker"
-    || event.actorId !== input.workerId
+    || !event.actorId?.trim()
     || payloadRecord?.invocationKind !== "candidate_overlay"
   ) {
     throw new Error("mission_repair_tool_action_request_conflict");

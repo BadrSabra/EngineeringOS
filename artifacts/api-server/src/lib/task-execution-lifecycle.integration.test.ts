@@ -510,16 +510,13 @@ describe("real durable task execution lifecycle", () => {
         episodeId: requestedEvent.episodeId,
         executionId: requestedEvent.executionId,
         attempt: requestedEvent.attempt,
-        workerId: requestedEvent.actorId,
         expectedAction: requestedAction,
       };
-      // Resolve after executeTaskLifecycle has returned, with no process-local
-      // callback state, as a worker restart would.
+      // A replacement worker may own the same attempt after a restart. The
+      // request's actorId remains provenance; the commit append rechecks lease
+      // ownership for whichever worker currently owns the execution.
+      expect(requestedEvent.actorId).not.toBe("task-worker:replacement-after-claim");
       await expect(assertMissionRepairToolActionRequested(recoveryBinding)).resolves.toBeUndefined();
-      await expect(assertMissionRepairToolActionRequested({
-        ...recoveryBinding,
-        workerId: "different-worker",
-      })).rejects.toThrow("mission_repair_tool_action_request_conflict");
       const conflictingAction = {
         ...requestedAction,
         scope: {

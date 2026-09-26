@@ -16,7 +16,7 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الآن الطلب canonical من Episode وتطابق actorId مع العامل الحالي، وتفشل عند اختلاف الهوية، من دون الاعتماد على ذاكرة العامل. هذا ليس إثبات أثر مستقلًا؛ Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. هذا يدعم استعادة نفس attempt دون الاعتماد على ذاكرة العامل. لا يشكل هذا إثبات أثر مستقلًا؛ Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ كما توجد ملاحظة محدودة لمالك listener في مسارات runtime محددة مع recovery/heartbeat fencing. لا يثبت ذلك lifecycle عامة أو descendants، ورصد validator يثبت PID المباشر فقط. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
@@ -2276,24 +2276,30 @@ G9 Revocation Safety
 - **next step:** تابع أصغر فجوة P3.5 التالية وفق §42.2، مع عدم تجاوز اعتماديات
   الرصد المستقل والتحقق من الأثر في P4/P5.
 
-### 42.61 — P3.5 durable Mission repair worker identity fence (2026-09-27)
+### 42.61 — P3.5 durable Mission repair worker provenance during recovery (2026-09-27)
 
-- **phase/step:** P3.5 — تثبيت هوية العامل عند استعادة `ACTION_REQUESTED`.
+- **phase/step:** P3.5 — حفظ provenance الكاتب مع استعادة `ACTION_REQUESTED`
+  عبر تغيير العامل ضمن attempt نفسها.
 - **status:** `done` لهذه الشريحة؛ P3.5 العامة ما زالت `partial`.
-- **what changed:** استعادة الطلب الموثق أصبحت تتطلب actorType=`worker` وactorId
-  مطابقًا تمامًا لـworkerId الحالي، بالإضافة إلى تطابق المشروع وEpisode والتنفيذ
-  والمحاولة والـAction الكامل وهوية `candidate_overlay`. الطلب الصادر عن عامل
-  آخر في attempt نفسها يفشل مغلقًا.
+- **what changed:** عند إعادة امتلاك execution للـattempt نفسها يتغير workerId
+  بينما يعيد Mission repair Episode نفسها. لذلك يحفظ request actorId كـprovenance
+  (ويشترط actorType=`worker` وactorId غير فارغ) بدل مساواته بالعامل الحالي؛
+  equivalence الخطرية يحسمها التطابق الكامل للـAction/project/Episode/execution/
+  attempt و`candidate_overlay`. حدث `ACTION_COMMITTED` اللاحق ما زال يمر عبر
+  `appendEpisodeEvent` الذي يفرض lease وهوية العامل الحالي.
 - **files/schema/contracts touched:** helper الاستعادة، مستدعي Mission tool loop،
   اختبار التكامل وسجلات الخطة/التقدم؛ بلا تغيير schema أو migration أو صلاحيات.
-- **validation:** اختبار DB-backed يغطي العامل الصحيح والخاطئ، بالإضافة إلى رفض
-  الطلب الغائب وتعارض Action واختلاف المحاولة؛ تُسجّل نتائج التشغيل وفحص الأنواع
-  بعد إتمام التحقق.
-- **authority/safety impact:** يعتمد الفحص على هوية العامل الحالية ولا يغير
-  append/lease ownership fence. لا إعادة لأداة أو كتابة إلى live root أو إنشاء
-  أثر/قبول لكل tool.
+- **validation:** اختبارات API المستهدفة 18/18 (Mission lifecycle/effect ‏10/10؛
+  Episode ledger ‏8/8)، و`pnpm run typecheck` و`git diff --check` نجحت؛ أُعيد
+  تشغيل API وظهر `Server listening`. يغطي اختبار DB-backed استعادة الطلب بعد
+  عودة دورة التنفيذ، مع رفض الطلب الغائب وتعارض Action واختلاف المحاولة.
+- **authority/safety impact:** هوية الكاتب الدائمة provenance وليست سلطة؛
+  `appendEpisodeEvent` هو الذي يثبت العامل الحالي والـlease قبل تسجيل commit.
+  لا إعادة لأداة أو كتابة إلى live root أو إنشاء أثر/قبول لكل tool.
 - **remaining/blocker:** هذه طبقة دفاع إضافية ضمن attempt نفسها؛ لا تستعيد سجلًا
-  عبر عامل أو attempt مختلفة. ما زال P3.5 الأشمل وP4/P5 جزئيًا.
+  عبر attempt أو Episode مختلفة. يبقى actorId provenance للكاتب الأصلي، فيما
+  يحسم lease الحالي صلاحية تسجيل commit بعد الاستعادة. ما زال P3.5 الأشمل
+  وP4/P5 جزئيًا.
 - **next step:** تابع أصغر فجوة P3.5 التالية وفق §42.2؛ لا تتجاوز متطلبات الرصد
   المستقل والتحقق من الأثر، ولا تبدأ P6/P7 قبل استحقاقها.
 
