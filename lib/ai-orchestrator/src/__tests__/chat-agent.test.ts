@@ -72,7 +72,7 @@ describe("ChatOutputSchema — runtime validation (unit)", () => {
 });
 
 describe("project-query incomplete evidence projection", () => {
-  it("renders only bounded excerpts from complete retained reads and stays incomplete", async () => {
+  it("ranks bounded line-range excerpts from complete retained reads and stays incomplete", async () => {
     const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
     const fileContents = new Map([
       ["src/complete.ts", "export function handleRequest() { return 'source excerpt'; }\n"],
@@ -102,6 +102,8 @@ describe("project-query incomplete evidence projection", () => {
     expect(response).not.toContain("APP_SECRET");
     expect(response).toContain("not a conclusion");
     expect(response).toContain("No final project summary was proven");
+    expect(response).toContain("L1-L1");
+    expect(response).toContain("structural context only; no exact question-term match");
 
     const arabicResponse = buildProjectQueryIncompleteResponse(
       "اشرح بنية المشروع.",
@@ -110,8 +112,47 @@ describe("project-query incomplete evidence projection", () => {
       readStatuses,
     );
     expect(arabicResponse).toContain("ANALYSIS_INCOMPLETE");
-    expect(arabicResponse).toContain("مقتطفات الأدلة المحفوظة");
+    expect(arabicResponse).toContain("مقتطفات المصدر مرتبة الصلة");
     expect(arabicResponse).toContain("source excerpt");
+  });
+
+  it("prioritizes exact query-term matches over unrelated structural excerpts", async () => {
+    const { buildProjectQueryIncompleteResponse } = await import("../agents/chat-agent.js");
+    const fileContents = new Map([
+      ["src/a-unrelated.ts", "export function initializeCache() {\n  return true;\n}\n"],
+      [
+        "src/z-session.ts",
+        [
+          "import { persistSession } from './session-store';",
+          "",
+          "export async function createUserSession(user: User) {",
+          "  return persistSession(user);",
+          "}",
+          "",
+          "export function closeSession(id: string) {",
+          "  return removeSession(id);",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+    const readStatuses = new Map([
+      ["src/a-unrelated.ts", "READ_COMPLETE"],
+      ["src/z-session.ts", "READ_COMPLETE"],
+    ]);
+
+    const response = buildProjectQueryIncompleteResponse(
+      "Where does createUserSession persist user session state?",
+      fileContents,
+      "en",
+      readStatuses,
+    );
+
+    expect(response).toContain("`src/z-session.ts`:L2-L6");
+    expect(response).toContain(
+      "Exact question-term matches: create, user, session, persist",
+    );
+    expect(response).not.toContain("`src/a-unrelated.ts`");
+    expect(response).toContain("ANALYSIS_INCOMPLETE");
   });
 
   it("bounds evidence excerpts to three files and a fixed total source-text budget", async () => {
@@ -133,7 +174,7 @@ describe("project-query incomplete evidence projection", () => {
       readStatuses,
     );
 
-    expect(response.match(/#### src\/file-\d\.ts/g)).toHaveLength(3);
+    expect(response.match(/#### `src\/file-\d\.ts`:L\d+-L\d+/g)).toHaveLength(3);
     expect(response.length).toBeLessThan(4_000);
   });
 });
@@ -245,7 +286,8 @@ describe("chat agent — ChatOutputSchema validation", () => {
     });
 
     expect(result.response).toContain("ANALYSIS_INCOMPLETE");
-    expect(result.response).toContain("Retained evidence excerpts");
+    expect(result.response).toContain("Ranked source excerpts");
+    expect(result.response).toContain("`src/router.ts`:L1-L1");
     expect(result.response).toContain("retained source");
     expect(result.response).not.toContain("[read output truncated]");
     expect(result.response).not.toContain("partial = true");

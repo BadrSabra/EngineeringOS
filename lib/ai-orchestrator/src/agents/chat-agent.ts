@@ -160,6 +160,7 @@ import {
   type ProjectOrientationSources,
   type QuerySourceSelectionRecord,
 } from "./query-planner.js";
+import { rankProjectQueryReadExcerpts } from "./project-query-incomplete-excerpts.js";
 import {
   buildGeneralTaskPlan,
   canReuseTaskPlanRevision,
@@ -5357,37 +5358,65 @@ export function buildProjectQueryIncompleteResponse(
         : `- and ${files.length - displayedFiles.length} more retained reads.`,
     );
   }
-  const evidenceExcerpts: string[] = [];
-  let remainingExcerptChars = 2_400;
-  for (const [file, content] of retainedReads.slice(0, 3)) {
-    if (remainingExcerptChars <= 0) break;
-    const excerpt = content.trim().slice(0, Math.min(900, remainingExcerptChars)).trimEnd();
-    if (!excerpt) continue;
+  const rankedExcerpts = rankProjectQueryReadExcerpts(message, retainedReads);
+  const inlineCode = (value: string): string => {
+    const longestBacktickRun = Math.max(
+      0,
+      ...[...value.matchAll(/`+/g)].map((match) => match[0].length),
+    );
+    const delimiter = "`".repeat(longestBacktickRun + 1);
+    const padded = value.startsWith("`") || value.endsWith("`") ? ` ${value} ` : value;
+    return `${delimiter}${padded}${delimiter}`;
+  };
+  const evidenceExcerpts = rankedExcerpts.map((excerpt) => {
+    const path = excerpt.path.replace(/[\r\n]/g, " ");
+    const lineReference = `L${excerpt.startLine}-L${excerpt.endLine}`;
+    const relevanceLabel = excerpt.matchedTerms.length > 0
+      ? isArabic
+        ? ` — تطابق حرفي مع مصطلحات السؤال: ${excerpt.matchedTerms.join("، ")}`
+        : ` — Exact question-term matches: ${excerpt.matchedTerms.join(", ")}`
+      : isArabic
+        ? " — سياق بنيوي فقط؛ لا يوجد تطابق حرفي مع مصطلحات السؤال"
+        : " — structural context only; no exact question-term match";
     const longestBacktickRun = Math.max(
       2,
-      ...[...excerpt.matchAll(/`+/g)].map((match) => match[0].length),
+      ...[...excerpt.sourceText.matchAll(/`+/g)].map((match) => match[0].length),
     );
     const fence = "`".repeat(longestBacktickRun + 1);
-    const safePath = file.replace(/[\r\n]/g, " ").replace(/`/g, "\\`");
-    evidenceExcerpts.push(`#### ${safePath}\n${fence}\n${excerpt}\n${fence}`);
-    remainingExcerptChars -= excerpt.length;
-  }
+    return `#### ${inlineCode(path)}:${lineReference}${relevanceLabel}\n${fence}\n${excerpt.sourceText}\n${fence}`;
+  });
+  const nextTargets = rankedExcerpts
+    .slice(0, 2)
+    .map((excerpt) =>
+      inlineCode(`${excerpt.path.replace(/[\r\n]/g, " ")}:L${excerpt.startLine}-L${excerpt.endLine}`),
+    )
+    .join(isArabic ? "، " : "; ");
   const englishEvidenceExcerptSection = evidenceExcerpts.length > 0
     ? [
         "",
-        "### Retained evidence excerpts (source text, not a conclusion)",
+        "### Ranked source excerpts (context, not a conclusion)",
         ...evidenceExcerpts,
-        "These bounded excerpts provide context only; they do not establish a complete answer.",
+        "Excerpts are ranked by exact question-term matches. If none match, only source structure is shown.",
+        "Selection is bounded, not exhaustive; other completed reads may contain relevant material.",
+        "These source excerpts provide context only; they do not establish a complete answer.",
       ]
     : [];
   const arabicEvidenceExcerptSection = evidenceExcerpts.length > 0
     ? [
         "",
-        "### مقتطفات الأدلة المحفوظة (نص من المصدر، وليس استنتاجاً)",
+        "### مقتطفات المصدر مرتبة الصلة (سياق، وليست استنتاجات)",
         ...evidenceExcerpts,
-        "هذه المقتطفات المحدودة للسياق فقط، ولا تثبت اكتمال الإجابة.",
+        "يكون الترتيب بحسب التطابق الحرفي مع مصطلحات السؤال؛ وعند غيابه نعرض بنية المصدر فقط.",
+        "الاختيار محدود وغير شامل؛ قد توجد مادة ذات صلة في قراءات مكتملة أخرى.",
+        "هذه المقتطفات للسياق فقط، ولا تثبت اكتمال الإجابة.",
       ]
     : [];
+  const englishNextStep = nextTargets
+    ? `For a focused follow-up, name one source range (${nextTargets}); retained reads may be reused.`
+    : "Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.";
+  const arabicNextStep = nextTargets
+    ? `للمتابعة بدقة، حدّد مرجعاً واحداً من المصدر (${nextTargets})؛ ويمكن إعادة استخدام القراءات المحفوظة.`
+    : "أعد المحاولة أو حدّد دالة أو مساراً بعينه؛ لن تُعاد القراءات المؤكدة دون حاجة.";
   if (isArabic) {
     return [
       "ANALYSIS_INCOMPLETE — لم تكتمل الإجابة المقيّدة بنطاق السؤال من القراءات المتاحة.",
@@ -5401,7 +5430,7 @@ export function buildProjectQueryIncompleteResponse(
       ...arabicEvidenceExcerptSection,
       "",
       "### الخطوة التالية",
-      "أعد المحاولة أو حدّد دالة أو مساراً بعينه؛ لن تُعاد القراءات المؤكدة دون حاجة.",
+      arabicNextStep,
     ].join("\n");
   }
   return [
@@ -5416,7 +5445,7 @@ export function buildProjectQueryIncompleteResponse(
     ...englishEvidenceExcerptSection,
     "",
     "### Next step",
-    "Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.",
+    englishNextStep,
   ].join("\n");
 }
 

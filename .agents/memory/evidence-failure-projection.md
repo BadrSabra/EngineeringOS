@@ -35,3 +35,15 @@ to be a completed project answer.
 **How to apply:** Require `READ_COMPLETE`/`READ_CACHED`, reject truncated or
 unknown bodies, cap both displayed files and excerpt text, and keep the existing
 objective acceptance path unchanged.
+
+For a general project-query failure, choose source windows by exact normalized
+question-term overlap and show their line ranges and matched terms. If no query
+term appears in the retained bodies, fall back to recognizable source structure
+and label it as structural context only. Keep selection explicitly bounded and
+non-exhaustive.
+
+**Why:** Deterministic relevance and line references make a failed answer useful
+to inspect without disguising ranking as semantic analysis or proof.
+
+**How to apply:** Keep the ranker lexical and server-side; never let excerpt
+ranking alter claims, evidence closure, or terminal acceptance.
