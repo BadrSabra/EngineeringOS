@@ -5853,6 +5853,12 @@ best-effort. إذا فشل تسجيل أي من الحدثين، تعاد نتي
 المسار بعد التطبيع بقائمة target paths server-owned. أحداث `ACTION_REQUESTED`
 المكررة بالهوية نفسها تظل idempotent.
 
+مرحلة `ACTION_COMMITTED` تستعيد الطلب من سجل Episode الدائم بدل الاعتماد على
+ذاكرة callback المحلية. يقتصر البحث على project/episode/execution/attempt نفسها،
+ويجب أن يطابق الطلب `AgentAction` كاملًا وهوية `candidate_overlay`؛ غياب الطلب أو
+تعارضه يفشل مغلقًا. هذا يدعم استعادة العامل داخل attempt نفسها ولا يسمح بإعادة
+استخدام الفعل عبر attempt أو Episode مختلفين.
+
 حد الإثبات لا يتغير: commit يعني أن pending candidate change قد وُضع في overlay
 فقط. لا يوجد per-tool effect أو World Delta، ولا تكتب الأداة live root. يظل
 aggregate candidate قبل/بعد والملاحظة المباشرة وEffectBundle الحالي وحدهم قادرين

@@ -16,7 +16,7 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ هذا ليس إثبات أثر مستقلًا. Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call عند staging داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الآن الطلب canonical من Episode وتفشل عند اختلاف الهوية، من دون الاعتماد على ذاكرة العامل. هذا ليس إثبات أثر مستقلًا؛ Mission repair لا يروّج bytes إلى live root. تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ كما توجد ملاحظة محدودة لمالك listener في مسارات runtime محددة مع recovery/heartbeat fencing. لا يثبت ذلك lifecycle عامة أو descendants، ورصد validator يثبت PID المباشر فقط. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
@@ -2250,6 +2250,31 @@ G9 Revocation Safety
 - **next step:** اعتماد مسار observe-only يحفظ ربط التجربة الأصلية دون إعادة
   الأثر، أو توثيق إنشاء scope جديد يتضمن policy version جديدة وheld-out cohort
   مستقبلية؛ لا تبدأ حملة بيانات قبل ذلك.
+
+### 42.60 — P3.5 durable Mission repair tool-action recovery (2026-09-27)
+
+- **phase/step:** P3.5 — استعادة request/commit لهوية tool action المعتمدة داخل
+  `mission_repair`.
+- **status:** `done` لهذه الشريحة؛ P3.5 العامة ما زالت `partial`.
+- **what changed:** أزيل الاعتماد على خريطة actions داخل ذاكرة العامل. قبل
+  `ACTION_COMMITTED` يسترجع الخادم `ACTION_REQUESTED` من Episode الدائم، مع تقييد
+  الاستعلام بـproject/episode/execution/attempt، ثم يتحقق من actor و
+  `candidate_overlay` ومن تطابق `AgentAction` canonical كاملًا. الطلب الغائب أو
+  المتعارض أو المشوه يفشل مغلقًا؛ لا يسمح ذلك بإعادة استخدام request من attempt
+  أو Episode آخر. يظل حدث commit دليلًا على staging داخل candidate overlay فقط.
+- **files/schema/contracts touched:** helper استعادة داخلي، `task-execution-service`
+  واختبار Mission lifecycle، وهذا السجل؛ لا schema أو migration أو توسيع
+  authorization/tool inventory.
+- **validation:** 10 اختبارات Vitest مستهدفة نجحت؛ نجح `pnpm run typecheck` و
+  `git diff --check`. أُعيد تشغيل API workflow وبُني وبدأ دون خطأ إقلاع ظاهر.
+- **authority/safety impact:** لا إعادة لتشغيل أداة، ولا كتابة إلى live root، ولا
+  per-tool EffectBundle أو acceptance. تبقى الملاحظة المستقلة المجمعة وبوابة
+  الأثر الحالية وحدهما أساس قبول candidate.
+- **remaining/blocker:** الاستعادة مقيّدة بالـattempt نفسها؛ الـattempt الجديد
+  يحتاج هوية ودليلًا جديدين. بقية توحيد Action/Observation وWorld Delta في
+  P3.5–P6 ما زالت مفتوحة.
+- **next step:** تابع أصغر فجوة P3.5 التالية وفق §42.2، مع عدم تجاوز اعتماديات
+  الرصد المستقل والتحقق من الأثر في P4/P5.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

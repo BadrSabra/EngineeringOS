@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { MISSION_REPAIR_TOOL_CAPABILITY_ID } from "./agent-state/mission-repair-effect.js";
+import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
+import type { AgentAction } from "@workspace/ai-orchestrator";
 import {
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
@@ -378,6 +380,10 @@ describe("real durable task execution lifecycle", () => {
         path: "src/target.ts",
         inputHash: "a".repeat(64),
       };
+      const mutationCallback = baseParams.onMutationInvocation;
+      expect(mutationCallback).toBeDefined();
+      await expect(mutationCallback!({ ...invocation, phase: "committed" }))
+        .rejects.toThrow("mission_repair_tool_action_request_missing");
       await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
       await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
       // A replay of the same provider call must be idempotent in the Episode ledger.
@@ -459,6 +465,9 @@ describe("real durable task execution lifecycle", () => {
       const episodeEvents = await db
         .select({
           eventType: aiAgentEpisodeEventsTable.eventType,
+          episodeId: aiAgentEpisodeEventsTable.episodeId,
+          executionId: aiAgentEpisodeEventsTable.executionId,
+          attempt: aiAgentEpisodeEventsTable.attempt,
           payload: aiAgentEpisodeEventsTable.payload,
         })
         .from(aiAgentEpisodeEventsTable)
@@ -480,6 +489,42 @@ describe("real durable task execution lifecycle", () => {
       );
       expect(toolRequests).toHaveLength(1);
       expect(toolCommits).toHaveLength(1);
+
+      const requestPayload = toolRequests[0]?.payload as
+        | { action?: AgentAction }
+        | null
+        | undefined;
+      const requestedAction = requestPayload?.action;
+      expect(requestedAction).toBeDefined();
+      if (!requestedAction || !toolRequests[0]) {
+        throw new Error("Mission repair fixture did not retain its canonical action request.");
+      }
+      const requestedEvent = toolRequests[0];
+      const recoveryBinding = {
+        projectId: fixture.projectId,
+        episodeId: requestedEvent.episodeId,
+        executionId: requestedEvent.executionId,
+        attempt: requestedEvent.attempt,
+        expectedAction: requestedAction,
+      };
+      // Resolve after executeTaskLifecycle has returned, with no process-local
+      // callback state, as a worker restart would.
+      await expect(assertMissionRepairToolActionRequested(recoveryBinding)).resolves.toBeUndefined();
+      const conflictingAction = {
+        ...requestedAction,
+        scope: {
+          ...(requestedAction.scope as unknown as Record<string, unknown>),
+          targetPath: "src/other.ts",
+        },
+      } as AgentAction;
+      await expect(assertMissionRepairToolActionRequested({
+        ...recoveryBinding,
+        expectedAction: conflictingAction,
+      })).rejects.toThrow("mission_repair_tool_action_request_conflict");
+      await expect(assertMissionRepairToolActionRequested({
+        ...recoveryBinding,
+        attempt: recoveryBinding.attempt + 1,
+      })).rejects.toThrow("mission_repair_tool_action_request_missing");
     } finally {
       await fixture.cleanup();
     }

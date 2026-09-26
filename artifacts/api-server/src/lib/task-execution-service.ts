@@ -82,6 +82,7 @@ import {
   type ServerOwnedObservationSource,
 } from "./agent-state/observation-materializer.js";
 import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
+import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
 import {
   buildMissionRepairAction,
   buildMissionRepairEffectContract,
@@ -1180,10 +1181,6 @@ async function executeMissionToolLoop(params: {
     });
     return missionRepairEpisodePromise;
   };
-  const repairToolActions = new Map<
-    string,
-    ReturnType<typeof buildMissionRepairToolAction>
-  >();
   const onMutationInvocation:
     | import("@workspace/ai-orchestrator").MutationToolInvocationCallback
     | undefined =
@@ -1247,22 +1244,16 @@ async function executeMissionToolLoop(params: {
               actorId: params.workerId,
               correlationId: params.correlationId,
             });
-            repairToolActions.set(actionId, action);
             return;
           }
 
-          const requestedAction = repairToolActions.get(actionId);
-          const requestedScope = requestedAction?.scope as
-            | Record<string, unknown>
-            | undefined;
-          if (
-            !requestedAction
-            || requestedScope?.toolName !== invocation.toolName
-            || requestedScope?.targetPath !== targetPath
-            || requestedScope?.inputHash !== invocation.inputHash
-          ) {
-            throw new Error("mission_repair_tool_action_request_missing");
-          }
+          await assertMissionRepairToolActionRequested({
+            projectId: params.task.projectId,
+            episodeId: episode.episodeId,
+            executionId: params.executionId,
+            attempt: params.expectedAttempt,
+            expectedAction: action,
+          });
           await appendEpisodeEvent({
             episodeId: episode.episodeId,
             projectId: params.task.projectId,
@@ -1283,7 +1274,6 @@ async function executeMissionToolLoop(params: {
             actorId: params.workerId,
             correlationId: params.correlationId,
           });
-          repairToolActions.delete(actionId);
         }
       : undefined;
   const recordedObservationIds = new Set<string>();
