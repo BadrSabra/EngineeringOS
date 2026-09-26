@@ -22,6 +22,11 @@ import {
   type GoalNextAction,
 } from "@workspace/ai-orchestrator";
 import {
+  diagnoseRuntimeStartWorldStateFailure,
+  type WorldStateFailureDiagnosis,
+  type WorldStateFailureReason,
+} from "./world-state-failure-diagnosis.js";
+import {
   deriveMissionStatusFromGoals,
   selectActiveMissionGoals,
 } from "./ai-execution-acceptance.js";
@@ -152,6 +157,29 @@ type RuntimeStartRequirementState =
   | { kind: "invalid" }
   | { kind: "valid"; requirement: RuntimeStartTransitionRequirement };
 
+type RuntimeStartTransitionProof = {
+  transitionId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+  parentWorldRevision: string;
+  resultingWorldRevision: string;
+  projectRevision: string;
+  environmentRevision: string;
+  beforeObservationIds: string[];
+  afterObservationIds: string[];
+  sourceStepId: string;
+  targetStepId: string;
+  activePlanHash: string;
+};
+
+type RuntimeStartGateResult =
+  | { state: "ready"; proof: RuntimeStartTransitionProof }
+  | { state: "pending" }
+  | { state: "failed"; diagnosis: WorldStateFailureDiagnosis };
+
 function runtimeStartRequirementForGoal(
   goal: typeof aiGoalsTable.$inferSelect,
   activePlanRevision: string | undefined,
@@ -212,6 +240,49 @@ function runtimeStartRequirementForGoal(
   };
 }
 
+async function persistRuntimeTransitionFailure(
+  tx: MissionTransaction,
+  input: {
+    goal: typeof aiGoalsTable.$inferSelect;
+    mission: typeof aiMissionsTable.$inferSelect;
+    planRevision: string | undefined;
+    requirement: RuntimeStartTransitionRequirement;
+    diagnosis: WorldStateFailureDiagnosis;
+  },
+): Promise<void> {
+  const now = new Date();
+  await tx.update(aiGoalsTable)
+    .set({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+      nextWakeAt: null,
+      outcomeContract: {
+        ...jsonRecord(input.goal.outcomeContract),
+        worldStateFailureDiagnosis: input.diagnosis,
+      },
+      updatedAt: now,
+    })
+    .where(eq(aiGoalsTable.id, input.goal.id));
+  await tx.update(aiMissionsTable)
+    .set({ status: "needs_replan", updatedAt: now })
+    .where(eq(aiMissionsTable.id, input.mission.id));
+  await tx.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiGoalTransitionRequirementBlocked",
+    projectId: input.goal.projectId,
+    goalId: input.goal.id,
+    severity: "warning",
+    message: `AI goal "${input.goal.title}" requires a replan because its runtime transition was not proven`,
+    payload: {
+      missionId: input.mission.id,
+      planRevision: input.planRevision ?? null,
+      sourceStepId: input.requirement.sourceStepId,
+      targetStepId: input.requirement.targetStepId,
+      worldStateFailureDiagnosis: input.diagnosis,
+    },
+  });
+}
+
 async function evaluateRuntimeStartTransitionGate(
   tx: MissionTransaction,
   input: {
@@ -219,7 +290,18 @@ async function evaluateRuntimeStartTransitionGate(
     activePlanRevision: string | undefined;
     requirement: RuntimeStartTransitionRequirement;
   },
-): Promise<"ready" | "pending" | "failed"> {
+): Promise<RuntimeStartGateResult> {
+  const failed = (
+    reasonCode: WorldStateFailureReason,
+    evidence: {
+      transition?: unknown;
+      supportingObservationIds?: string[];
+      contradictingObservationIds?: string[];
+    } = {},
+  ): RuntimeStartGateResult => ({
+    state: "failed",
+    diagnosis: diagnoseRuntimeStartWorldStateFailure({ reasonCode, ...evidence }),
+  });
   const missionGoals = await tx
     .select()
     .from(aiGoalsTable)
@@ -233,7 +315,7 @@ async function evaluateRuntimeStartTransitionGate(
     return criteria.stepId === input.requirement.sourceStepId
       && goalPlanRevision(candidate) === input.activePlanRevision;
   });
-  if (!source || source.id === input.goal.id) return "failed";
+  if (!source || source.id === input.goal.id) return failed("source_step_missing");
   const sourceCriteria = jsonRecord(source.successCriteria);
   const sourcePlan = jsonRecord(sourceCriteria.planRevision);
   const parsedAction = GoalNextActionSchema.safeParse(source.nextAction);
@@ -244,9 +326,9 @@ async function evaluateRuntimeStartTransitionGate(
     || parsedAction.data.recipeId !== "runtime.start"
     || parsedAction.data.recipeVersion !== 1
   ) {
-    return "failed";
+    return failed("source_action_mismatch");
   }
-  if (source.status !== "completed") return "pending";
+  if (source.status !== "completed") return { state: "pending" };
 
   const executions = await tx
     .select()
@@ -257,7 +339,7 @@ async function evaluateRuntimeStartTransitionGate(
       eq(aiExecutionsTable.status, "completed"),
     ))
     .for("update");
-  if (executions.length === 0) return "failed";
+  if (executions.length === 0) return failed("accepted_execution_missing");
   const executionIds = executions.map((execution) => execution.id);
   const acceptances = await tx
     .select()
@@ -275,25 +357,36 @@ async function evaluateRuntimeStartTransitionGate(
       inArray(aiWorldTransitionsTable.executionId, executionIds),
     ))
     .for("update");
-  const transition = transitions.find((candidate) => acceptances.some((acceptance) =>
-    acceptance.executionId === candidate.executionId
-    && acceptance.attempt === candidate.attempt
-    && acceptance.effectBundleId !== null
-    && acceptance.effectBundleId === candidate.effectBundleId,
-  ));
-  if (!transition) return "failed";
-  if (transition.status === "pending" || transition.status === "retrying") return "pending";
-  if (transition.status !== "materialized") return "failed";
+  const transition = transitions
+    .filter((candidate) => acceptances.some((acceptance) =>
+      acceptance.executionId === candidate.executionId
+      && acceptance.attempt === candidate.attempt
+      && acceptance.effectBundleId !== null
+      && acceptance.effectBundleId === candidate.effectBundleId,
+    ))
+    .sort((left, right) =>
+      right.createdAt.getTime() - left.createdAt.getTime()
+      || left.id.localeCompare(right.id),
+    )[0];
+  if (!transition) return failed("accepted_transition_missing");
+  if (transition.status === "pending" || transition.status === "retrying") return { state: "pending" };
+  if (transition.status !== "materialized") {
+    return failed("transition_terminal_failure", { transition });
+  }
   if (
     !transition.resultingWorldRevision
     || !/^[a-f0-9]{64}$/.test(transition.parentWorldRevision)
     || !/^[a-f0-9]{64}$/.test(transition.resultingWorldRevision)
-    || !transition.environmentRevision
-    || !/^env-v1:[a-f0-9]{64}$/.test(transition.environmentRevision)
     || transition.freshness !== "fresh"
     || transition.taskScope !== "project"
   ) {
-    return "failed";
+    return failed("transition_identity_invalid", { transition });
+  }
+  if (
+    !transition.environmentRevision
+    || !/^env-v1:[a-f0-9]{64}$/.test(transition.environmentRevision)
+  ) {
+    return failed("environment_revision_mismatch", { transition });
   }
 
   const idsFromJson = (value: unknown): string[] => Array.isArray(value)
@@ -303,7 +396,9 @@ async function evaluateRuntimeStartTransitionGate(
     : [];
   const beforeIds = idsFromJson(transition.beforeObservationIds);
   const afterIds = idsFromJson(transition.afterObservationIds);
-  if (beforeIds.length === 0 || afterIds.length === 0) return "failed";
+  if (beforeIds.length === 0 || afterIds.length === 0) {
+    return failed("transition_observation_set_missing", { transition });
+  }
   const observationIds = [...new Set([...beforeIds, ...afterIds])];
   const observations = await tx
     .select()
@@ -324,7 +419,20 @@ async function evaluateRuntimeStartTransitionGate(
       || observation.environmentFreshness !== "fresh"
     ))
   ) {
-    return "failed";
+    const foundIds = new Set(observations.map((observation) => observation.id));
+    const invalidObservationIds = observations.filter((observation) => (
+      observation.executionId !== transition.executionId
+      || observation.episodeId !== transition.episodeId
+      || observation.provenance !== "DIRECT_OBSERVATION"
+      || observation.completeness !== "complete"
+      || observation.freshness !== "fresh"
+      || observation.environmentFreshness !== "fresh"
+    )).map((observation) => observation.id);
+    return failed("observation_rows_invalid", {
+      transition,
+      supportingObservationIds: observationIds.filter((id) => foundIds.has(id)),
+      contradictingObservationIds: invalidObservationIds,
+    });
   }
   const beforeRows = observations.filter((observation) => beforeIds.includes(observation.id));
   const afterRows = observations.filter((observation) => afterIds.includes(observation.id));
@@ -339,43 +447,131 @@ async function evaluateRuntimeStartTransitionGate(
       && typeof value.revision === "string"
       && observation.projectRevision === value.revision;
   });
-  const sourceRevision = before
-    ? jsonRecord(before.value).revision as string
-    : undefined;
-  const after = sourceRevision
-    ? afterRows.find((observation) => {
-        const value = jsonRecord(observation.value);
-        return observation.predicate === "runtime.after_state"
-          && value.status === "passed"
-          && value.runtimeStatus === "running"
-          && value.projectId === input.goal.projectId
-          && value.revision === sourceRevision
-          && observation.projectRevision === sourceRevision
-          && typeof value.sessionId === "string"
-          && value.sessionId.trim().length > 0
-          && value.environmentRevision === transition.environmentRevision
-          && value.processAlive === true
-          && value.portReady === true
-          && Number.isInteger(value.pid)
-          && Number.isInteger(value.port)
-          && typeof value.observedAt === "string"
-          && Number.isFinite(Date.parse(value.observedAt));
-      })
-    : undefined;
-  const afterSessionId = after ? jsonRecord(after.value).sessionId as string : undefined;
-  const evidenceRefs = idsFromJson(transition.evidenceRefs);
-  if (
-    !before
-    || !after
-    || !afterSessionId
-    || !evidenceRefs.includes(`runtime:${afterSessionId}`)
-    || !afterRows.some((observation) =>
-      observation.predicate === "runtime.status" && observation.value === "running",
-    )
-  ) {
-    return "failed";
+  if (!before) {
+    const beforePredicateRows = beforeRows.filter(
+      (observation) => observation.predicate === "runtime.before_state",
+    );
+    const environmentRevisionMismatches = beforePredicateRows.filter((observation) =>
+      jsonRecord(observation.value).environmentRevision !== transition.environmentRevision
+      || observation.environmentRevision !== transition.environmentRevision,
+    );
+    if (environmentRevisionMismatches.length > 0) {
+      return failed("environment_revision_mismatch", {
+        transition,
+        contradictingObservationIds: environmentRevisionMismatches.map((observation) => observation.id),
+      });
+    }
+    return failed(beforePredicateRows.length > 0 ? "before_state_contradicted" : "before_state_missing", {
+      transition,
+      contradictingObservationIds: beforePredicateRows.map((observation) => observation.id),
+    });
   }
-  return "ready";
+  const sourceRevision = jsonRecord(before.value).revision as string;
+  const after = afterRows.find((observation) => {
+    const value = jsonRecord(observation.value);
+    return observation.predicate === "runtime.after_state"
+      && value.status === "passed"
+      && value.runtimeStatus === "running"
+      && value.projectId === input.goal.projectId
+      && value.revision === sourceRevision
+      && observation.projectRevision === sourceRevision
+      && typeof value.sessionId === "string"
+      && value.sessionId.trim().length > 0
+      && value.environmentRevision === transition.environmentRevision
+      && value.processAlive === true
+      && value.portReady === true
+      && Number.isInteger(value.pid)
+      && Number.isInteger(value.port)
+      && typeof value.observedAt === "string"
+      && Number.isFinite(Date.parse(value.observedAt));
+  });
+  if (!after) {
+    const afterPredicateRows = afterRows.filter(
+      (observation) => observation.predicate === "runtime.after_state",
+    );
+    if (afterPredicateRows.length === 0) {
+      return failed("after_state_missing", {
+        transition,
+        supportingObservationIds: [before.id],
+      });
+    }
+    const projectRevisionMismatches = afterPredicateRows.filter((observation) => {
+      const value = jsonRecord(observation.value);
+      return value.revision !== sourceRevision
+        || observation.projectRevision !== sourceRevision;
+    });
+    if (projectRevisionMismatches.length > 0) {
+      return failed("project_revision_mismatch", {
+        transition,
+        supportingObservationIds: [before.id],
+        contradictingObservationIds: projectRevisionMismatches.map((observation) => observation.id),
+      });
+    }
+    const environmentRevisionMismatches = afterPredicateRows.filter(
+      (observation) => jsonRecord(observation.value).environmentRevision !== transition.environmentRevision,
+    );
+    if (environmentRevisionMismatches.length > 0) {
+      return failed("environment_revision_mismatch", {
+        transition,
+        supportingObservationIds: [before.id],
+        contradictingObservationIds: environmentRevisionMismatches.map((observation) => observation.id),
+      });
+    }
+    const missingSessionRows = afterPredicateRows.filter((observation) => {
+      const sessionId = jsonRecord(observation.value).sessionId;
+      return typeof sessionId !== "string" || sessionId.trim().length === 0;
+    });
+    if (missingSessionRows.length > 0) {
+      return failed("session_evidence_missing", {
+        transition,
+        supportingObservationIds: [before.id, ...missingSessionRows.map((observation) => observation.id)],
+      });
+    }
+    return failed("after_state_contradicted", {
+      transition,
+      supportingObservationIds: [before.id],
+      contradictingObservationIds: afterPredicateRows.map((observation) => observation.id),
+    });
+  }
+  const afterSessionId = jsonRecord(after.value).sessionId as string;
+  const statusRows = afterRows.filter((observation) => observation.predicate === "runtime.status");
+  const runningStatus = statusRows.find((observation) => observation.value === "running");
+  if (!runningStatus) {
+    return failed(statusRows.length > 0 ? "runtime_status_contradicted" : "runtime_status_missing", {
+      transition,
+      supportingObservationIds: [before.id, after.id],
+      contradictingObservationIds: statusRows.map((observation) => observation.id),
+    });
+  }
+  const evidenceRefs = idsFromJson(transition.evidenceRefs);
+  if (!evidenceRefs.includes(`runtime:${afterSessionId}`)) {
+    return failed("session_evidence_missing", {
+      transition,
+      supportingObservationIds: [before.id, after.id, runningStatus.id],
+    });
+  }
+  // D2 is event-scoped: consume the exact revision and observations recorded
+  // by this locked transition, without invalidating it for unrelated project changes.
+  return {
+    state: "ready",
+    proof: {
+      transitionId: transition.id,
+      executionId: transition.executionId,
+      attempt: transition.attempt,
+      episodeId: transition.episodeId,
+      actionId: transition.actionId,
+      effectBundleId: transition.effectBundleId!,
+      parentWorldRevision: transition.parentWorldRevision,
+      resultingWorldRevision: transition.resultingWorldRevision,
+      projectRevision: sourceRevision,
+      environmentRevision: transition.environmentRevision,
+      beforeObservationIds: beforeIds,
+      afterObservationIds: afterIds,
+      sourceStepId: input.requirement.sourceStepId,
+      targetStepId: input.requirement.targetStepId,
+      activePlanHash: input.activePlanRevision!,
+    },
+  };
 }
 
 type RecipeDispatch = {
@@ -1177,13 +1373,17 @@ export async function runMissionGoal(params: {
       });
       return { status: "blocked" as const, goalId: goal.id, reason: "runtime_start_transition_requirement_invalid" };
     }
+    let runtimeTransitionProof: RuntimeStartTransitionProof | undefined;
     if (runtimeStartRequirement.kind === "valid") {
-      const transitionState = await evaluateRuntimeStartTransitionGate(tx, {
+      const transitionResult = await evaluateRuntimeStartTransitionGate(tx, {
         goal,
         activePlanRevision,
         requirement: runtimeStartRequirement.requirement,
       });
-      if (transitionState === "pending") {
+      if (transitionResult.state === "ready") {
+        runtimeTransitionProof = transitionResult.proof;
+      }
+      if (transitionResult.state === "pending") {
         const now = new Date();
         await tx.update(aiGoalsTable)
           .set({
@@ -1216,32 +1416,13 @@ export async function runMissionGoal(params: {
         }
         return { status: "waiting" as const, goalId: goal.id, reason: "runtime_transition_pending" };
       }
-      if (transitionState === "failed") {
-        const now = new Date();
-        await tx.update(aiGoalsTable)
-          .set({
-            status: "needs_replan",
-            blockedReason: "runtime_start_transition_unproven",
-            nextWakeAt: null,
-            updatedAt: now,
-          })
-          .where(eq(aiGoalsTable.id, goal.id));
-        await tx.update(aiMissionsTable)
-          .set({ status: "needs_replan", updatedAt: now })
-          .where(eq(aiMissionsTable.id, mission.id));
-        await tx.insert(eventsTable).values({
-          id: randomUUID(),
-          type: "AiGoalTransitionRequirementBlocked",
-          projectId: goal.projectId,
-          goalId: goal.id,
-          severity: "warning",
-          message: `AI goal "${goal.title}" requires a replan because its runtime transition was not proven`,
-          payload: {
-            missionId: mission.id,
-            planRevision: goalRevision,
-            sourceStepId: runtimeStartRequirement.requirement.sourceStepId,
-            targetStepId: runtimeStartRequirement.requirement.targetStepId,
-          },
+      if (transitionResult.state === "failed") {
+        await persistRuntimeTransitionFailure(tx, {
+          goal,
+          mission,
+          planRevision: goalRevision,
+          requirement: runtimeStartRequirement.requirement,
+          diagnosis: transitionResult.diagnosis,
         });
         return { status: "blocked" as const, goalId: goal.id, reason: "runtime_start_transition_unproven" };
       }
@@ -1345,6 +1526,7 @@ export async function runMissionGoal(params: {
           candidateIdentity: action.candidateIdentity ?? null,
           trigger: params.trigger,
           delegation,
+          ...(runtimeTransitionProof ? { transitionProof: runtimeTransitionProof } : {}),
         },
       });
       return {
@@ -1584,6 +1766,8 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
 
       const requirementState = runtimeStartRequirementForGoal(goal, activePlanRevision);
       let transitionState: "ready" | "pending" | "failed";
+      let runtimeTransitionProof: RuntimeStartTransitionProof | undefined;
+      let runtimeTransitionDiagnosis: WorldStateFailureDiagnosis | undefined;
       if (requirementState.kind !== "valid") {
         transitionState = "failed";
       } else {
@@ -1592,36 +1776,57 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
           dependencyState.dependencies.length === dependencyState.dependencyGoals.length
           && dependencyState.dependencyGoals.every((dependency) => dependency.status === "completed");
         if (!dependenciesComplete) return undefined;
-        transitionState = await evaluateRuntimeStartTransitionGate(tx, {
+        const transitionResult = await evaluateRuntimeStartTransitionGate(tx, {
           goal,
           activePlanRevision,
           requirement: requirementState.requirement,
         });
+        transitionState = transitionResult.state;
+        if (transitionResult.state === "ready") {
+          runtimeTransitionProof = transitionResult.proof;
+        } else if (transitionResult.state === "failed") {
+          runtimeTransitionDiagnosis = transitionResult.diagnosis;
+        }
       }
 
       const now = new Date();
       if (transitionState === "pending") return undefined;
       if (transitionState === "failed") {
-        await tx.update(aiGoalsTable)
-          .set({
-            status: "needs_replan",
-            blockedReason: "runtime_start_transition_unproven",
-            nextWakeAt: null,
-            updatedAt: now,
-          })
-          .where(eq(aiGoalsTable.id, goal.id));
-        await tx.update(aiMissionsTable)
-          .set({ status: "needs_replan", updatedAt: now })
-          .where(eq(aiMissionsTable.id, mission.id));
-        await tx.insert(eventsTable).values({
-          id: randomUUID(),
-          type: "AiGoalTransitionRequirementBlocked",
-          projectId: goal.projectId,
-          goalId: goal.id,
-          severity: "warning",
-          message: `AI goal "${goal.title}" requires a replan because its runtime transition was not proven`,
-          payload: { missionId: mission.id, planRevision: activePlanRevision },
-        });
+        if (requirementState.kind === "valid" && runtimeTransitionDiagnosis) {
+          await persistRuntimeTransitionFailure(tx, {
+            goal,
+            mission,
+            planRevision: activePlanRevision,
+            requirement: requirementState.requirement,
+            diagnosis: runtimeTransitionDiagnosis,
+          });
+        } else {
+          await tx.update(aiGoalsTable)
+            .set({
+              status: "needs_replan",
+              blockedReason: "runtime_start_transition_unproven",
+              nextWakeAt: null,
+              updatedAt: now,
+            })
+            .where(eq(aiGoalsTable.id, goal.id));
+          await tx.update(aiMissionsTable)
+            .set({ status: "needs_replan", updatedAt: now })
+            .where(eq(aiMissionsTable.id, mission.id));
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "AiGoalTransitionRequirementBlocked",
+            projectId: goal.projectId,
+            goalId: goal.id,
+            severity: "warning",
+            message: `AI goal "${goal.title}" requires a replan because its runtime transition was not proven`,
+            payload: {
+              missionId: mission.id,
+              planRevision: activePlanRevision,
+              sourceStepId: "runtime-start",
+              targetStepId: null,
+            },
+          });
+        }
         return { state: "failed" as const };
       }
 
@@ -1640,7 +1845,11 @@ export async function wakeRuntimeTransitionMissionGoals(limit = 32): Promise<num
         goalId: goal.id,
         severity: "info",
         message: `AI goal "${goal.title}" runtime transition requirement is proven`,
-        payload: { missionId: mission.id, planRevision: activePlanRevision },
+        payload: {
+          missionId: mission.id,
+          planRevision: activePlanRevision,
+          ...(runtimeTransitionProof ? { transitionProof: runtimeTransitionProof } : {}),
+        },
       });
       return { state: "ready" as const, userId: mission.userId };
     });

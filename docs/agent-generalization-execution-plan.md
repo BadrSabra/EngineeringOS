@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime داخل process tree؛ لا يثبت ذلك تغطية lifecycle العامة ولا ينشئ قبولًا خارج Gate C. P5.5 تسجل قراءات provider المؤهلة وقراءتي `query_knowledge_graph` و`discover_project_apis` في مساري `/api/ai/chat/stream` و`/api/ai/chat`. ينشئ المسار غير المتدفق execution/attempt قبل أول invocation قرائي مؤهل، ولا ينشئ lifecycle إذا لم تقع قراءة؛ لا يعني ذلك تغطية كل invocation أو جعل `refresh_project_scan` قراءة. لا يوجد World Delta أو عقد durable يضمن انتقال الأثر المقبول إلى معرفة قابلة للاستهلاك؛ قبول الأثر مستقل عن materialization والتعلم. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
+> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime ضمن مسارات محددة؛ لا يثبت ذلك تغطية lifecycle أو descendants العامة ولا ينشئ قبولًا خارج Gate C. P5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط: تسجل قراءات provider المؤهلة وقراءتي `query_knowledge_graph` و`discover_project_apis` في مساري `/api/ai/chat/stream` و`/api/ai/chat`. ينشئ المسار غير المتدفق execution/attempt قبل أول invocation قرائي مؤهل، ولا ينشئ lifecycle إذا لم تقع قراءة؛ لا يعني ذلك تغطية كل invocation أو جعل `refresh_project_scan` قراءة. لا يوجد World Delta أو عقد durable يضمن انتقال الأثر المقبول إلى معرفة قابلة للاستهلاك؛ قبول الأثر مستقل عن materialization والتعلم. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -546,8 +546,11 @@ type EffectContract = {
 الـmutation وeffect-gated validation يستخدمان `AgentAction` الكامل أدناه، حتى
 لا تبقى semantics موزعة بين recipe node وtool call وMission action وexecution
 node. ينطبق هذا التمييز أيضًا على provider tool calls: هوية ونتيجة لكل call؛
-والعقد الكامل عند mutation أو effect-gated validation. تغطية الاستدعاءات
-المتبقية جزء من P5.5:
+والعقد الكامل عند mutation أو effect-gated validation. حالة P5.5 الحالية مكتملة
+ضمن أسطح invocation المخولة والمدرجة في §42.5، ولا تدعي تغطية كل capability في
+النظام. تبقى الأسطح غير المدرجة، ومنها `refresh_project_scan` وأدوات Mission
+المستبعدة من manifest، خارج النطاق إلى أن يحددها change-control صريح؛ لا ينشئ
+جرد telemetry صلاحية أو هوية للاستدعاء:
 
 ```ts
 type AgentAction = {
@@ -2318,8 +2321,8 @@ created_at             timestamp not null
 ```text
 FK episode_id → ai_agent_episodes.id ON DELETE CASCADE
 UNIQUE(execution_id, attempt, action_id, effect_contract_hash)
-INDEX(project_id, status, created_at)
-INDEX(episode_id, action_id)
+INDEX(episode_id, created_at)
+INDEX(project_id, status)
 ```
 
 حالات effect:
@@ -3151,6 +3154,7 @@ success regression versus baseline: <= 2 percentage points
 required improvement: >= 5 percentage points
 or tool/retry reduction: >= 15% with no safety regression
 pre-registered outcome forecast calibration (ECE): <= 0.15
+upper uncertainty bound for ECE in each promoted scope/task stratum: <= 0.15
 ```
 
 إذا لم تتوفر 3 independent transfer fixtures، تبقى strategy غير قابلة للترقية
@@ -3164,14 +3168,17 @@ pre-registered outcome forecast calibration (ECE): <= 0.15
 يسجل evaluator نسخة طريقة ECE وoutcome schema المستخدمة، ويطبق الطريقة نفسها
 على baseline والمرشح؛ لا تقارن نتائج محسوبة بإعدادات مختلفة.
 حدود `held-out cases >= 30` و`independent transfer fixtures >= 3` هي minimums
-وليست ضمانًا كافيًا لدقة المعايرة. يثبت split قبل التقييم: للمعايرة scoped
+وليست ضمانًا كافيًا لدقة المعايرة. يجب كذلك ألا يتجاوز الحد الأعلى لفاصل عدم
+اليقين لـECE مقدار `0.15` في كل scope/task stratum يجري الترويج له؛ إذا لم يثبت
+الفاصل اجتياز هذا الحد يبقى التقييم غير مكتمل. يثبت split قبل التقييم: للمعايرة scoped
 تكون وحدات held-out مستقلة من episodes/missions داخل scope نفسه؛ ولـcross-project
 transfer تُحجز projects/fixtures كاملة مع trajectories المرتبطة بها. لا تتسرب
 episode أو revision مشتقة من المصدر نفسه بين training وcalibration وfinal holdout.
 تعرض النتائج لكل scope/task stratum، مع Brier وECE وفاصل عدم يقين محسوب على
 وحدة الاستقلال (episode/mission للمعايرة المحلية، وproject/fixture للنقل). إذا
-كان فاصل عدم اليقين لا يسمح بالحكم الواضح على اجتياز الحد القائم، يبقى التقييم
-غير مكتمل؛ لا تعدل العتبات الرقمية في §25.4 لتجاوز نقص القوة الإحصائية. بيانات
+كان فاصل عدم اليقين لا يسمح بالحكم الواضح على اجتياز أي حد قائم، يبقى التقييم
+غير مكتمل؛ وبالنسبة إلى ECE تحديدًا يجب أن يكون الحد الأعلى نفسه `<= 0.15`.
+لا تعدل العتبات الرقمية في §25.4 لتجاوز نقص القوة الإحصائية. بيانات
 التقييم النهائي المحجوزة لا تستخدم لضبط forecasts أو selection policy.
 
 لا تعني نتيجة canary نجاح هذه البوابة. promotion إلى live/shared registry يحتاج
@@ -3575,8 +3582,10 @@ bootstrap؛ ولا يفتح automatic decision-value selection إلا لforecast
 المقاس في P10/P11، مع held-out split مستقل على مستوى المشروع/الـfixture. لا
 يجوز دمج هذه المراحل في ادعاء قدرة واحدة قبل اجتياز بواباتها.
 
-P5.5 Unified Action Semantics هو work package عابر: ابدأ به قبل إضافة مسارات
-Action/Effect جديدة، ثم استمر على graph أعلاه دون إنشاء dependency roadmap ثانية.
+P5.5 Unified Action Semantics هو work package عابر، لا عقدة إضافية في graph.
+الأسطح المخولة والمدرجة مغلقة وفق §42.5؛ أي مسار جديد أو سطح مستبعد يحتاج
+inventory وسياسة invocation server-owned قبل إضافته، دون إنشاء dependency roadmap
+ثانية أو توسيع صلاحيات عبر telemetry.
 
 P4/P5 لها staged closure: independent observations وeffect verification هما
 مدخلات لازمة لبدء تكامل P6؛ لكن لا تسجل P4/P5 كـ`done` في الحالة التنفيذية حتى
@@ -3591,9 +3600,11 @@ Golden Slice بملاحظة قبل/بعد مستقلة وEffect Verification، �
 ظل التخطيط يقرأ المراجعة السابقة.
 
 لا يبدأ التوسع الأفقي في capabilities أو strategy learning بينما P3.5/P4/P5/P6
-غير مغلقة. أولوية التنفيذ الحالية هي Unified `AgentAction`، ثم independent
-observation وeffect closure، ثم World Delta، ثم World-State diagnosis وBelief/
-Information Gain قبل إكمال replanning وcausal credit.
+غير مغلقة. P5.5 مكتملة ضمن نطاقها المخول الحالي. أولوية التنفيذ هي استكمال
+متطلبات P3.5 اللازمة للشريحة المختارة، ثم إغلاق independent observation وEffect
+Verification كمدخلين لـP4/P5، ثم World Delta وrevision closure في P6. بعد إغلاق
+P6 فقط يبدأ World-State diagnosis ثم Belief/Information Gain، قبل إكمال replanning
+وcausal credit.
 
 لا يتوسع `P10` ولا يعتبر مغلقًا قبل إغلاق P7.5/P8/P9 وتوفر effects وacceptance
 وcausal evidence الموثوقة؛ candidate discovery أو replay infrastructure لا
@@ -4967,13 +4978,30 @@ schema؛ لا تغيير schema أو بيانات إنتاج ضمن قرار ا�
 
 ### 42.6 P6 — World Delta / Revision Closure
 
-**الحالة:** `PARTIAL — يوجد أساس انتقال محدود لـruntime.start؛ إغلاق D1/D2 غير مكتمل`
+**الحالة:** `CLOSED FOR THE SCOPED PILOT — runtime.start stopped → running؛ لا يشمل restart/stop`
 
 **مرشح pilot مؤجل فقط:** `runtime.start` عند إثبات انتقال حقيقي
 `stopped → running`. `running → running` هو no-op قد يحقق هدفًا عاديًا من نوع
 «اجعل runtime يعمل»، لكنه ليس انتقال P6. يبقى `runtime.restart` و`runtime.stop`
 خارج أول pilot. لا يجيز هذا التعريف توسيع التنفيذ أو materialization إلى مسارات
 أخرى أو تحويل القارئ الحالي إلى سلطة قبول؛ يلزم تحديد نطاق أي تغيير إضافي صراحة.
+
+**إغلاق الـpilot (2026-09-26):** يمنع D1 استدعاء `manager.start` عند غياب أو
+تعذر مراجعة الأب أو عند تعارضها مع الملاحظة المباشرة السابقة. بعد قبول الأثر،
+يتحقق materialization من هوية التنفيذ والمحاولة وEpisode والفعل والجلسة ومراجعة
+المشروع والبيئة، مع إبقاء Gate C مستقلًا. يعيد D2 فحص الانتقال والملاحظات
+المقيدة به داخل معاملة Mission، ويربط dispatch بالمراجعتين `parentWorldRevision`
+و`resultingWorldRevision`، ومراجع الملاحظات، وهوية البيئة، وخطوتي المصدر والهدف
+وبصمة الخطة النشطة. يستخدم القرار مراجعة الانتقال الحدثية ولا يشترط ثبات إسقاط
+المشروع كله؛ لذلك لا يبطل تغير غير متعلق انتقالًا صحيحًا. لا يمنح D2 اكتمال
+Goal أو `PROVEN`.
+
+غطت اختبارات الإغلاق المسارات الإيجابية والسلبية لـD1/D2، mismatch للجلسة
+والبيئة ومراجعة المشروع والخطوات والخطة، غياب/تعذر الأب، وحالة no-op
+`running → running`. كما أثبت اختبار dispatch أن تغير World State غير متعلق
+لا يمنع استهلاك المراجعة الحدثية. تحقق الإغلاق عبر `pnpm run typecheck` من جذر
+المستودع و55 اختبارًا ناجحًا في ملفات Mission وrecipe وWorld State وruntime
+transition وAPI route. لا تغييرات schema أو بيانات إنتاج.
 
 المتطلبات أدناه معايير الإغلاق المقترحة. لا يفرض وجود جدول الانتقال أو حالات
 `pending/retrying/terminal_failed` أن هناك مسار استعادة تلقائيًا؛ finalizer
@@ -5022,27 +5050,26 @@ Effect Verification، لا يُmaterialize الانتقال إلا من ملاح
 
 ### 42.7 P7 — World-State Failure Diagnosis
 
-**الحالة:** `NOT STARTED — provider/validator diagnostics and bounded-replan primitives are pre-existing foundations, not P7 execution; world-state diagnosis is not implemented`
+**الحالة:** `CLOSED FOR THE SCOPED P6 RUNTIME.START PILOT — deterministic failure diagnosis is bound to the accepted transition and its exact observations`
 
-التشخيص يجب أن يجيب:
+في pilot `runtime.start`، يربط التشخيص كل فشل بـ`failedAssumptionCode` و
+`expectedEffectCode`، ومراجع الحقائق المتأثرة، ومعرّفات observations الداعمة أو
+المناقضة، وhypotheses غير موزونة، وأكواد observations التي تميز بينها، و
+`recommendedDisposition`. جميعها قيم server-owned ومحدودة ومتحققة بمخطط ثابت.
 
-- أي assumption فشل؟
-- ما world facts المتأثرة؟
-- ما expected effect المفقود؟
-- ما observations التي تناقض الخطة؟
-- ما hypotheses التي ما زالت ممكنة؟
-- ما observation التي تميز بينها؟
-- هل الخطوة التالية `retry` أو `observe` أو `replan` أو `request approval`
-  أو `terminate`؟
+مصدر التشخيص هو `WorldTransition` المقبول والصفوف المرتبطة به فقط؛ لا يستنتج
+التأثير من `EffectBundle` أو receipt وحدهما، ولا يعيد قراءة World State العام
+لإبطال transition بسبب تغيير غير مرتبط. اختيار transition المرتبط بالقبول
+حتمي، والفشل نفسه يُحفظ بالطريقة ذاتها من مساري التشغيل المباشر وwake.
 
-Provider failure diagnostics ضرورية، لكنها ليست agent-level failure diagnosis.
-لا تغلق `diagnoseFailure` الحتمية وbounded replan هذه المرحلة: المطلوب ربط
-الافتراضات الفاشلة بالـfacts المتأثرة والتناقضات والملاحظة الفاصلة في World State.
-بعد إغلاق P6، يجب أن يستهلك التشخيص `WorldTransition` وما يثبته أو يناقضه، لا
-أن يستنتج تغير العالم من `EffectBundle` أو receipt وحدهما. إعادة تخطيط Mission
-الموجودة primitive جزئية: قد تستخدم تشخيصًا صالحًا و`replanContext`، لكن مسارها
-يبني الخطة من intent والسياق المتاح أيضًا؛ لذلك لا تُعد حاليًا diagnosis-aware
-بالمعنى المطلوب هنا.
+يُحفظ `worldStateFailureDiagnosis` في جذر `outcomeContract`، منفصلًا عن
+`acceptance`. يمرر auto-replan الأكواد ومراجع evidence إلى `replanContext`
+بوصفها بيانات استشارية غير موثوقة؛ لا يمنح التشخيص صلاحية أو scope، ولا يحقق
+Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب موافقة، بينما حالات نقص
+الدليل تطلب observations محددة قبل أي إعادة محاولة.
+
+الإغلاق هنا محصور في انتقال `runtime.start` من `stopped` إلى `running`؛ لا
+يدّعي تغطية ملفات World State أو أفعال runtime الأخرى.
 
 ### 42.8 P7.5 — Belief and Information Gain
 
@@ -5967,9 +5994,9 @@ P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المرا�
 
 ### 42.41 P6 — تدقيق عقد Runtime start وقراري D1/D2 (2026-09-26)
 
-هذا تحديث توثيقي وتحليل قراءة فقط. يبقى P6 `PARTIAL`: أساس الانتقال المحدود
-موجود، لكن D1 وD2 غير مغلقين. لم تتغير الشيفرة أو schema أو بيانات الإنتاج في
-هذا التحديث، ولم تُشغّل اختبارات.
+هذا القسم لقطة تدقيق ما قبل التنفيذ. كانت حالة P6 `PARTIAL` وقت إعدادها؛ أُغلق
+نطاق pilot في §42.6، وسُجلت الشيفرة والتحقق في `docs/agent-generalization-progress.md`
+§42.46. بقيت تفاصيل هذا القسم مرجعًا لمتطلبات التصميم والحدود.
 
 **النطاق المقترح:** `runtime.start` فقط، وبإثبات انتقال `stopped → running`.
 `running → running` قد ينجح كعملية idempotent عادية، لكنه لا ينتج انتقال P6 ولا
@@ -6026,13 +6053,10 @@ P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المرا�
 
 **فجوات التحقق**
 
-- اختبار `runtime.start` الحالي يغطي المسار الإيجابي، materialization، قراءة
-  حالة `running`، وCanonical Proof؛ استدعاء قارئ World State فيه لا يختبر
-  admission لـMission.
-- يلزم قبل إغلاق P6 اختبار أن Wn المفقود أو المتعارض يمنع الأثر، وأن
-  `running → running` لا ينتج انتقالًا، وأن الدليل غير المكتمل أو المختلف في
-  الجلسة/البيئة أو المراجعة لا يجيز D2، وأن علاقة source-step/target-step تدخل
-  الهاش وتبقى محفوظة بعد materialization.
+- لم يختبر المسار الإيجابي القديم admission لـMission؛ أُضيف اختبار يثبت
+  dispatch فعليًا مع proof مربوط بالانتقال والخطوات والخطة والمراجعة.
+- عولجت فجوات Wn المفقود/المتعارض و`running → running` ومطابقة الجلسة والبيئة
+  ومراجعة المشروع والخطوات والخطة في إغلاق pilot المسجل في §42.6 و§42.46.
 - لا تستخدم تبعية اكتمال Goal بديلًا عن D2؛ قد يجتاز Goal مصدره acceptance
   المستقل حتى عند فشل World State materialization.
 

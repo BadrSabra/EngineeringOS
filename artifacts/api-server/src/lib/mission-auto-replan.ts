@@ -9,12 +9,17 @@ import {
 import { buildMissionPlanPreview } from "@workspace/ai-orchestrator";
 import {
   FailureDiagnosisSummarySchema,
+  toFailureDiagnosisSummary,
   type FailureDiagnosisSummary,
 } from "@workspace/ai-orchestrator";
 import {
   createMissionPlanGoal,
   type MissionPlanMaterialization,
 } from "../routes/ai/missions.js";
+import {
+  WorldStateFailureDiagnosisSchema,
+  type WorldStateFailureDiagnosis,
+} from "./world-state-failure-diagnosis.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
 
 type AutoReplanResult =
@@ -53,17 +58,34 @@ function stringList(value: unknown, max: number, itemMax: number): string[] {
     ? value
       .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       .slice(0, max)
-      .map((item) => item.slice(0, itemMax))
+      .map((item) => item.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, itemMax))
+      .filter(Boolean)
     : [];
 }
 
 function failureDiagnosisFromOutcome(outcome: unknown): FailureDiagnosisSummary | undefined {
-  const acceptance = jsonRecord(jsonRecord(outcome).acceptance);
-  const parsed = FailureDiagnosisSummarySchema.safeParse(acceptance.failureDiagnosis);
+  const outcomeRecord = jsonRecord(outcome);
+  const acceptance = jsonRecord(outcomeRecord.acceptance);
+  if (Object.prototype.hasOwnProperty.call(acceptance, "failureDiagnosis")) {
+    const parsed = FailureDiagnosisSummarySchema.safeParse(acceptance.failureDiagnosis);
+    return parsed.success ? parsed.data : undefined;
+  }
+  const worldStateDiagnosis = WorldStateFailureDiagnosisSchema.safeParse(
+    outcomeRecord.worldStateFailureDiagnosis,
+  );
+  return worldStateDiagnosis.success
+    ? toFailureDiagnosisSummary(worldStateDiagnosis.data.failureDiagnosis)
+    : undefined;
+}
+
+function worldStateFailureDiagnosisFromOutcome(outcome: unknown): WorldStateFailureDiagnosis | undefined {
+  const parsed = WorldStateFailureDiagnosisSchema.safeParse(
+    jsonRecord(outcome).worldStateFailureDiagnosis,
+  );
   return parsed.success ? parsed.data : undefined;
 }
 
-function buildReplanContext(goal: {
+export function buildReplanContext(goal: {
   id: string;
   blockedReason: string | null;
   nextAction: unknown;
@@ -75,6 +97,7 @@ function buildReplanContext(goal: {
   const receipt = jsonRecord(acceptance.receipt);
   const stateProjection = jsonRecord(acceptance.stateProjection);
   const failureDiagnosis = failureDiagnosisFromOutcome(goal.outcomeContract);
+  const worldStateDiagnosis = worldStateFailureDiagnosisFromOutcome(goal.outcomeContract);
   const success = jsonRecord(goal.successCriteria);
   const planRevision = jsonRecord(outcome.planRevision).hash ?? jsonRecord(success.planRevision).hash;
   const nextActionReason = jsonRecord(goal.nextAction).reason;
@@ -95,21 +118,50 @@ function buildReplanContext(goal: {
       24,
       500,
     ),
+    ...(worldStateDiagnosis
+      ? { affectedFacts: stringList(worldStateDiagnosis.affectedFactRefs, 24, 240) }
+      : {}),
     affectedClaims: stringList(
       acceptance.affectedClaims ?? stateProjection.proofObligations ?? stateProjection.contradictions,
       24,
       240,
     ),
-    evidenceRefs: stringList(
-      acceptance.acceptedRefs ?? receipt.evidenceRefs ?? outcome.evidenceRefs,
+    evidenceRefs: stringList([
+      ...(Array.isArray(acceptance.acceptedRefs) ? acceptance.acceptedRefs : []),
+      ...(Array.isArray(receipt.evidenceRefs) ? receipt.evidenceRefs : []),
+      ...(Array.isArray(outcome.evidenceRefs) ? outcome.evidenceRefs : []),
+      ...(worldStateDiagnosis?.transition?.id
+        ? [`world-transition:${worldStateDiagnosis.transition.id}`]
+        : []),
+      ...(worldStateDiagnosis?.supportingObservationIds.map((id) => `observation:${id}`) ?? []),
+      ...(worldStateDiagnosis?.contradictingObservationIds.map((id) => `observation:${id}`) ?? []),
+    ],
       16,
       500,
     ),
-    ...(typeof outcome.hypothesisImpact === "string"
+    ...(worldStateDiagnosis
+      ? {
+          hypothesisImpact: [
+            `assumption=${worldStateDiagnosis.failedAssumptionCode}`,
+            `expectedEffect=${worldStateDiagnosis.expectedEffectCode}`,
+            `disposition=${worldStateDiagnosis.recommendedDisposition}`,
+            `remaining=${worldStateDiagnosis.remainingHypotheses.join(",")}`,
+          ].join(";").slice(0, 500),
+        }
+      : typeof outcome.hypothesisImpact === "string"
       ? { hypothesisImpact: outcome.hypothesisImpact.slice(0, 500) }
       : {}),
     nextActions: [
       ...(failureDiagnosis ? [failureDiagnosis.nextActionCode] : []),
+      ...(worldStateDiagnosis
+        ? [
+            `world-state:${worldStateDiagnosis.reasonCode}`,
+            `world-state-assumption:${worldStateDiagnosis.failedAssumptionCode}`,
+            `world-state-expected-effect:${worldStateDiagnosis.expectedEffectCode}`,
+            `world-state-disposition:${worldStateDiagnosis.recommendedDisposition}`,
+            ...worldStateDiagnosis.distinguishingObservationCodes,
+          ]
+        : []),
       ...(goal.blockedReason ? [goal.blockedReason] : []),
       ...(typeof nextActionReason === "string" ? [nextActionReason.slice(0, 240)] : []),
       ...stringList(outcome.nextActions, 4, 240),
@@ -174,7 +226,10 @@ async function terminalizeAutomaticReplanFailure(
  * coordinator runs after that commit, under the Mission row lock, so planning
  * and materialization cannot make terminal acceptance less reliable.
  */
-export async function autoReplanMission(missionId: string): Promise<AutoReplanResult> {
+export async function autoReplanMission(
+  missionId: string,
+  runGoal: typeof runMissionGoal = runMissionGoal,
+): Promise<AutoReplanResult> {
   const prepared = await db.transaction(async (tx) => {
     const [mission] = await tx
       .select()
@@ -204,15 +259,29 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
       ))
       .orderBy(asc(aiGoalsTable.updatedAt), asc(aiGoalsTable.id))
       .limit(1);
-    const failureDiagnosis = failedGoal
-      ? failureDiagnosisFromOutcome(failedGoal.outcomeContract)
-      : undefined;
-    const acceptance = jsonRecord(jsonRecord(failedGoal?.outcomeContract).acceptance);
-    const hasFailureDiagnosis = Object.prototype.hasOwnProperty.call(
+    const failedOutcome = jsonRecord(failedGoal?.outcomeContract);
+    const acceptance = jsonRecord(failedOutcome.acceptance);
+    const hasAcceptanceFailureDiagnosis = Object.prototype.hasOwnProperty.call(
       acceptance,
       "failureDiagnosis",
     );
-    if (hasFailureDiagnosis && !failureDiagnosis) {
+    const hasWorldStateFailureDiagnosis = Object.prototype.hasOwnProperty.call(
+      failedOutcome,
+      "worldStateFailureDiagnosis",
+    );
+    const parsedAcceptanceDiagnosis = hasAcceptanceFailureDiagnosis
+      ? FailureDiagnosisSummarySchema.safeParse(acceptance.failureDiagnosis)
+      : undefined;
+    const worldStateDiagnosis = failedGoal
+      ? worldStateFailureDiagnosisFromOutcome(failedGoal.outcomeContract)
+      : undefined;
+    const failureDiagnosis = failedGoal
+      ? failureDiagnosisFromOutcome(failedGoal.outcomeContract)
+      : undefined;
+    if (
+      (hasAcceptanceFailureDiagnosis && !parsedAcceptanceDiagnosis?.success)
+      || (hasWorldStateFailureDiagnosis && !worldStateDiagnosis)
+    ) {
       return {
         status: "skipped" as const,
         missionId,
@@ -287,7 +356,7 @@ export async function autoReplanMission(missionId: string): Promise<AutoReplanRe
 
   const runs: MissionGoalRunResult[] = [];
   for (const planGoal of prepared.plan.goals.filter((goal) => goal.dependencies.length === 0)) {
-    runs.push(await runMissionGoal({
+    runs.push(await runGoal({
       goalId: planGoal.goalId,
       userId: prepared.userId,
       trigger: "replan",

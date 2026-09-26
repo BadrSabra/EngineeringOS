@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  aiWorldFactsTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
   aiAgentEpisodesTable,
@@ -11,6 +12,7 @@ import {
   aiMissionsTable,
   aiWorldTransitionsTable,
   db,
+  eventsTable,
   projectsTable,
   tasksTable,
 } from "@workspace/db";
@@ -25,6 +27,8 @@ import {
 import { createMissionEventEnvelope } from "./mission-events.js";
 import { buildMissionDelegationBinding } from "./mission-delegation.js";
 import { createHash } from "node:crypto";
+import { getProjectWorldState } from "./agent-state/world-state.js";
+import { heavyJobQueue } from "./job-queue.js";
 
 const projectIds: string[] = [];
 
@@ -68,7 +72,10 @@ async function createMissionFixture(nextAction: Record<string, unknown>) {
   return { projectId, missionId, goalId, now };
 }
 
-async function createRuntimeTransitionFixture(status: "pending" | "retrying" | "materialized" | "terminal_failed") {
+async function createRuntimeTransitionFixture(
+  status: "pending" | "retrying" | "materialized" | "terminal_failed",
+  dispatchTarget = false,
+) {
   const fixture = await createMissionFixture({ kind: "wait", reason: "event", wakeAt: null });
   const sourceId = randomUUID();
   const targetId = fixture.goalId;
@@ -104,6 +111,9 @@ async function createRuntimeTransitionFixture(status: "pending" | "retrying" | "
     updatedAt: now,
   });
   await db.update(aiGoalsTable).set({
+    ...(dispatchTarget
+      ? { nextAction: { kind: "recipe", recipeId: "candidate.verify", recipeVersion: 1, approvedPaths: ["package.json"] } }
+      : {}),
     successCriteria: { stepId: "target-step", planRevision: plan, transitionRequirement: requirement },
     outcomeContract: { planRevision: { hash: planRevision } },
     blockedReason: "runtime_transition_pending",
@@ -209,16 +219,135 @@ async function createRuntimeTransitionFixture(status: "pending" | "retrying" | "
     status, idempotencyKey: `transition:${transitionId}`, retryCount: 0,
     createdAt: now, updatedAt: now,
   });
-  return { ...fixture, sourceId, transitionId, targetId, beforeId, afterId, statusId };
+  const projection = await getProjectWorldState(fixture.projectId);
+  if (status === "materialized") {
+    await db.update(aiWorldTransitionsTable).set({
+      resultingWorldRevision: projection.worldRevision,
+      updatedAt: new Date(),
+    }).where(eq(aiWorldTransitionsTable.id, transitionId));
+  }
+  return {
+    ...fixture, sourceId, transitionId, targetId, beforeId, afterId, statusId,
+    executionId,
+    attempt: 0,
+    episodeId,
+    actionId,
+    effectBundleId,
+    sourceRevision,
+    environmentRevision,
+    parentWorldRevision: "c".repeat(64),
+    worldRevision: projection.worldRevision,
+  };
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const projectId of projectIds.splice(0)) {
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
   }
 });
 
 describe("Mission goal runtime", () => {
+  it("dispatches the transition-bound successor despite unrelated project World State changes", async () => {
+    const fixture = await createRuntimeTransitionFixture("materialized", true);
+    await db.insert(aiWorldFactsTable).values({
+      id: randomUUID(),
+      projectId: fixture.projectId,
+      subject: `unrelated:${fixture.projectId}`,
+      predicate: "unrelated.status",
+      value: "changed",
+      valueHash: createHash("sha256").update("changed").digest("hex"),
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: "a".repeat(40),
+    });
+    expect((await getProjectWorldState(fixture.projectId)).worldRevision)
+      .not.toBe(fixture.worldRevision);
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(1);
+    const dispatches = await db.select({
+      type: eventsTable.type,
+      goalId: eventsTable.goalId,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+    const event = dispatches.find((row) =>
+      row.type === "AiGoalRecipeDispatchRequested"
+      && row.payload
+      && (row.payload as Record<string, unknown>).transitionProof,
+    );
+    expect(event?.goalId).toBe(fixture.targetId);
+    expect(event?.payload).toMatchObject({
+      transitionProof: {
+        transitionId: fixture.transitionId,
+        executionId: fixture.executionId,
+        attempt: fixture.attempt,
+        episodeId: fixture.episodeId,
+        actionId: fixture.actionId,
+        effectBundleId: fixture.effectBundleId,
+        parentWorldRevision: fixture.parentWorldRevision,
+        resultingWorldRevision: fixture.worldRevision,
+        projectRevision: fixture.sourceRevision,
+        environmentRevision: fixture.environmentRevision,
+        beforeObservationIds: [fixture.beforeId],
+        afterObservationIds: [fixture.afterId, fixture.statusId],
+        sourceStepId: "runtime-start",
+        targetStepId: "target-step",
+        activePlanHash: "plan-runtime-start",
+      },
+    });
+    expect(dispatches.filter((row) =>
+      row.goalId === fixture.targetId && row.type === "AiGoalRecipeDispatchRequested",
+    ).length).toBe(1);
+    const [targetGoal] = await db.select({ status: aiGoalsTable.status })
+      .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
+    expect(targetGoal?.status).toBe("running");
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    enqueue.mockRestore();
+  });
+
+  it("fails closed when a materialized transition has an invalid resulting revision", async () => {
+    const fixture = await createRuntimeTransitionFixture("materialized");
+    await db.update(aiWorldTransitionsTable).set({
+      resultingWorldRevision: "not-a-world-revision",
+      updatedAt: new Date(),
+    }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
+    expect(goal).toMatchObject({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+      outcomeContract: {
+        worldStateFailureDiagnosis: {
+          version: 1,
+          reasonCode: "transition_identity_invalid",
+          transition: { id: fixture.transitionId },
+          failureDiagnosis: {
+            kind: "EVIDENCE_INCOMPLETE",
+            retryable: true,
+            requiresApproval: false,
+          },
+          recommendedDisposition: "observe",
+        },
+      },
+    });
+    const events = await db.select({ type: eventsTable.type, payload: eventsTable.payload })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, fixture.projectId));
+    const blockedEvent = events.find((event) => event.type === "AiGoalTransitionRequirementBlocked");
+    expect(blockedEvent?.payload).toMatchObject({
+      worldStateFailureDiagnosis: {
+        reasonCode: "transition_identity_invalid",
+        transition: { id: fixture.transitionId },
+      },
+    });
+    expect(events.some((event) => event.type === "AiGoalRecipeDispatchRequested")).toBe(false);
+  });
+
   it("keeps a runtime.start target pending until its exact transition is materialized", async () => {
     const fixture = await createRuntimeTransitionFixture("pending");
     expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
@@ -233,7 +362,7 @@ describe("Mission goal runtime", () => {
 
     await db.update(aiWorldTransitionsTable).set({
       status: "materialized",
-      resultingWorldRevision: "d".repeat(64),
+      resultingWorldRevision: fixture.worldRevision,
       freshness: "fresh",
       materializedObservationIds: [fixture.beforeId, fixture.afterId, fixture.statusId],
       updatedAt: new Date(),
@@ -280,6 +409,123 @@ describe("Mission goal runtime", () => {
       blockedReason: aiGoalsTable.blockedReason,
     }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
     expect(goal?.status).toBe("needs_replan");
+  });
+
+  it.each([
+    ["after-state session", async (fixture: Awaited<ReturnType<typeof createRuntimeTransitionFixture>>) => {
+      const [observation] = await db.select({ value: aiAgentObservationsTable.value })
+        .from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.id, fixture.afterId));
+      const value = observation?.value as Record<string, unknown>;
+      await db.update(aiAgentObservationsTable).set({
+        value: { ...value, sessionId: "session-not-the-transition-session" },
+      }).where(eq(aiAgentObservationsTable.id, fixture.afterId));
+    }, "session_evidence_missing"],
+    ["environment revision", async (fixture: Awaited<ReturnType<typeof createRuntimeTransitionFixture>>) => {
+      await db.update(aiWorldTransitionsTable).set({
+        environmentRevision: `env-v1:${"e".repeat(64)}`,
+        updatedAt: new Date(),
+      }).where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    }, "environment_revision_mismatch"],
+    ["project revision", async (fixture: Awaited<ReturnType<typeof createRuntimeTransitionFixture>>) => {
+      const [observation] = await db.select({ value: aiAgentObservationsTable.value })
+        .from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.id, fixture.afterId));
+      const value = observation?.value as Record<string, unknown>;
+      await db.update(aiAgentObservationsTable).set({
+        value: { ...value, revision: "f".repeat(40) },
+      }).where(eq(aiAgentObservationsTable.id, fixture.afterId));
+    }, "project_revision_mismatch"],
+  ])("fails closed for a mismatched %s", async (_description, mutate, expectedDiagnosisCode) => {
+    const fixture = await createRuntimeTransitionFixture("materialized");
+    await mutate(fixture);
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+      outcomeContract: aiGoalsTable.outcomeContract,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
+    expect(goal).toMatchObject({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+    });
+    expect(goal?.outcomeContract).toMatchObject({
+      worldStateFailureDiagnosis: { reasonCode: expectedDiagnosisCode },
+    });
+    const dispatches = await db.select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, fixture.projectId));
+    expect(dispatches.some((event) => event.type === "AiGoalRecipeDispatchRequested")).toBe(false);
+  });
+
+  it.each([
+    ["source step", async (fixture: Awaited<ReturnType<typeof createRuntimeTransitionFixture>>) => {
+      const [source] = await db.select({ successCriteria: aiGoalsTable.successCriteria })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.sourceId));
+      const criteria = source?.successCriteria as Record<string, unknown>;
+      await db.update(aiGoalsTable).set({
+        successCriteria: { ...criteria, stepId: "different-source-step" },
+        updatedAt: new Date(),
+      }).where(eq(aiGoalsTable.id, fixture.sourceId));
+    }, "needs_replan", "runtime_start_transition_unproven"],
+    ["target step", async (fixture: Awaited<ReturnType<typeof createRuntimeTransitionFixture>>) => {
+      const [target] = await db.select({ successCriteria: aiGoalsTable.successCriteria })
+        .from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
+      const criteria = target?.successCriteria as Record<string, unknown>;
+      await db.update(aiGoalsTable).set({
+        successCriteria: { ...criteria, stepId: "different-target-step" },
+        updatedAt: new Date(),
+      }).where(eq(aiGoalsTable.id, fixture.targetId));
+    }, "needs_replan", "runtime_start_transition_unproven"],
+    ["active plan hash", async (fixture: Awaited<ReturnType<typeof createRuntimeTransitionFixture>>) => {
+      await db.update(aiMissionsTable).set({
+        autonomyPolicy: { activePlanRevision: "different-active-plan" },
+        updatedAt: new Date(),
+      }).where(eq(aiMissionsTable.id, fixture.missionId));
+    }, "waiting_for_event", "runtime_transition_pending"],
+  ])("does not dispatch valid-looking evidence for a mismatched %s", async (
+    _description,
+    mutate,
+    expectedStatus,
+    expectedBlockedReason,
+  ) => {
+    const fixture = await createRuntimeTransitionFixture("materialized");
+    await mutate(fixture);
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const [goal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, fixture.targetId));
+    expect(goal).toEqual({
+      status: expectedStatus,
+      blockedReason: expectedBlockedReason,
+    });
+    const dispatches = await db.select({ type: eventsTable.type })
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, fixture.projectId));
+    expect(dispatches.some((event) => event.type === "AiGoalRecipeDispatchRequested")).toBe(false);
+  });
+
+  it("clears the transition wait only for the exact materialized target", async () => {
+    const ready = await createRuntimeTransitionFixture("materialized");
+    const pending = await createRuntimeTransitionFixture("pending");
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const [readyGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, ready.targetId));
+    const [pendingGoal] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, pending.targetId));
+    expect(readyGoal).toEqual({ status: "waiting_for_event", blockedReason: null });
+    expect(pendingGoal).toEqual({
+      status: "waiting_for_event",
+      blockedReason: "runtime_transition_pending",
+    });
   });
 
   it("persists a server-owned wait transition", async () => {

@@ -7,7 +7,8 @@ import {
   eventsTable,
   projectsTable,
 } from "@workspace/db";
-import { autoReplanMission } from "./mission-auto-replan.js";
+import { autoReplanMission, buildReplanContext } from "./mission-auto-replan.js";
+import { diagnoseRuntimeStartWorldStateFailure } from "./world-state-failure-diagnosis.js";
 
 const projectIds: string[] = [];
 
@@ -71,7 +72,14 @@ describe("automatic Mission replanning", () => {
       updatedAt: now,
     });
 
-    const result = await autoReplanMission(missionId);
+    const result = await autoReplanMission(
+      missionId,
+      async ({ goalId }) => ({
+        status: "scheduled",
+        goalId,
+        reason: "scheduled_by_test_fixture",
+      }),
+    );
 
     expect(result.status).toBe("replanned");
     if (result.status !== "replanned") return;
@@ -119,6 +127,59 @@ describe("automatic Mission replanning", () => {
       .from(aiMissionsTable)
       .where(eq(aiMissionsTable.id, missionId));
     expect(mission?.status).toBe("active");
+  });
+
+  it("uses a server-owned World State diagnosis in the fresh replan context", () => {
+    const failedGoalId = crypto.randomUUID();
+    const diagnosis = diagnoseRuntimeStartWorldStateFailure({
+      reasonCode: "after_state_missing",
+      transition: {
+        id: "world-transition-1",
+        executionId: "execution-1",
+        attempt: 1,
+        episodeId: "episode-1",
+        actionId: "action-1",
+        status: "materialized",
+        parentWorldRevision: "a".repeat(64),
+        resultingWorldRevision: "b".repeat(64),
+        environmentRevision: `env-v1:${"c".repeat(64)}`,
+        parentFactRefs: ["runtime.session"],
+        changedFactRefs: ["runtime.status"],
+      },
+      supportingObservationIds: ["before-observation-1"],
+    });
+    const context = buildReplanContext({
+      id: failedGoalId,
+      blockedReason: "runtime_start_transition_unproven",
+      nextAction: { kind: "replan", reason: "collect direct runtime observations" },
+      outcomeContract: { worldStateFailureDiagnosis: diagnosis },
+      successCriteria: { kind: "historical_failure" },
+    });
+
+    expect(context).toMatchObject({
+      failedGoalId,
+      failureClass: "EVIDENCE_INCOMPLETE",
+      failureCode: "EVIDENCE_INCOMPLETE",
+      failureDiagnosis: {
+        kind: "EVIDENCE_INCOMPLETE",
+        retryable: true,
+        requiresApproval: false,
+      },
+      affectedFacts: ["runtime.session", "runtime.status"],
+      evidenceRefs: [
+        "world-transition:world-transition-1",
+        "observation:before-observation-1",
+      ],
+      hypothesisImpact: "assumption=runtime_is_running_after_start;expectedEffect=runtime_status_stopped_to_running;disposition=observe;remaining=runtime_effect_not_applied,runtime_effect_applied_but_not_observed",
+      nextActions: expect.arrayContaining([
+        "world-state:after_state_missing",
+        "world-state-assumption:runtime_is_running_after_start",
+        "world-state-expected-effect:runtime_status_stopped_to_running",
+        "world-state-disposition:observe",
+        "runtime:after_state",
+        "runtime:direct_status",
+      ]),
+    });
   });
 
   it("terminalizes a Mission when its automatic replan budget is exhausted", async () => {

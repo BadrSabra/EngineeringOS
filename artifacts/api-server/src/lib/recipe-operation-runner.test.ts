@@ -17,6 +17,7 @@ import {
   aiStrategyCandidatesTable,
   aiStrategyReplayCaseRunsTable,
   aiStrategyReplayCasesTable,
+  aiWorldFactsTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -38,6 +39,7 @@ import {
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 import { readWorldStateForDecision } from "./agent-state/runtime-start-transition.js";
+import * as worldState from "./agent-state/world-state.js";
 import { extractAcceptedEpisodeStrategy } from "./agent-state/strategy-candidate-extractor.js";
 import {
   materializeStrategyReplayCaseProofBinding,
@@ -602,6 +604,111 @@ describe("recipe operation preparation", () => {
       recipeVersion: 1,
       approvedPaths: ["src/index.ts"],
     })).toThrow(/Unknown server recipe/);
+  });
+
+  it("bounds runtime.start when the parent World State revision is unavailable", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify");
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      startPreStateObserver: async ({ projectId, revision }) => ({
+        status: "observed",
+        runtimeStatus: "stopped",
+        projectId,
+        revision,
+        sessionId: null,
+        pid: null,
+        port: null,
+        processAlive: false,
+        portReady: false,
+        source: "test_observer",
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        observedAt: new Date().toISOString(),
+        detail: "Independent test pre-state confirms no runtime is running.",
+      }),
+    });
+    const startSpy = vi.spyOn(manager, "start");
+    const worldStateSpy = vi.spyOn(worldState, "getProjectWorldState")
+      .mockRejectedValue(new Error("parent World State revision unavailable"));
+    let executionId: string | undefined;
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionId = result.executionId;
+      expect(result.status).toBe("blocked");
+      expect(startSpy).not.toHaveBeenCalled();
+      expect(await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, executionId))).toHaveLength(0);
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      ))).toHaveLength(0);
+    } finally {
+      startSpy.mockRestore();
+      worldStateSpy.mockRestore();
+      await fixture.cleanup(executionId);
+    }
+  });
+
+  it("bounds runtime.start when server-owned runtime.status conflicts with an independent stopped pre-state", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify");
+    await db.insert(aiWorldFactsTable).values({
+      id: crypto.randomUUID(),
+      projectId: fixture.params.projectId,
+      subject: `runtime:${fixture.params.projectId}`,
+      predicate: "runtime.status",
+      value: "running",
+      valueHash: "runtime-status-running-fixture",
+      version: 1,
+      status: "believed",
+      sourceObservationIds: [],
+      projectRevision: fixture.params.sourceRevision,
+    });
+    const manager = new WorkspaceRuntimeManager({
+      store: createInMemoryWorkspaceRuntimeStore(),
+      startPreStateObserver: async ({ projectId, revision }) => ({
+        status: "observed",
+        runtimeStatus: "stopped",
+        projectId,
+        revision,
+        sessionId: null,
+        pid: null,
+        port: null,
+        processAlive: false,
+        portReady: false,
+        source: "test_observer",
+        inventoryComplete: true,
+        unknownListenerPorts: [],
+        observedAt: new Date().toISOString(),
+        detail: "Independent test pre-state confirms no runtime is running.",
+      }),
+    });
+    const startSpy = vi.spyOn(manager, "start");
+    let executionId: string | undefined;
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        runtimeStartRunner: createRuntimeStartRunner(manager),
+      });
+      executionId = result.executionId;
+      expect(result.status).toBe("blocked");
+      expect(startSpy).not.toHaveBeenCalled();
+      expect(await db.select().from(aiWorldTransitionsTable)
+        .where(eq(aiWorldTransitionsTable.executionId, executionId))).toHaveLength(0);
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      ))).toHaveLength(0);
+    } finally {
+      startSpy.mockRestore();
+      await db.delete(aiWorldFactsTable)
+        .where(eq(aiWorldFactsTable.projectId, fixture.params.projectId));
+      await fixture.cleanup(executionId);
+    }
   });
 
   it("resumes a reclaimed recipe from passed checkpoint nodes instead of rerunning them", async () => {

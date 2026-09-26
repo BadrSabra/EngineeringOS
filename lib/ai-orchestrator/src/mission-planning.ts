@@ -29,6 +29,7 @@ export type MissionReplanContext = {
   failureCode?: string;
   failureDiagnosis?: FailureDiagnosisSummary;
   affectedPaths: string[];
+  affectedFacts?: string[];
   affectedClaims: string[];
   evidenceRefs: string[];
   hypothesisImpact?: string;
@@ -132,6 +133,9 @@ export function buildMissionPlanPreview(input: {
           ? { failureDiagnosis: failureDiagnosis.data }
           : {}),
         affectedPaths: input.replanContext.affectedPaths.slice(0, 24).map((path) => path.slice(0, 500)),
+        ...(input.replanContext.affectedFacts
+          ? { affectedFacts: input.replanContext.affectedFacts.slice(0, 24).map((fact) => fact.slice(0, 240)) }
+          : {}),
         affectedClaims: input.replanContext.affectedClaims.slice(0, 24).map((claim) => claim.slice(0, 240)),
         evidenceRefs: input.replanContext.evidenceRefs.slice(0, 16).map((ref) => ref.slice(0, 500)),
         ...(input.replanContext.hypothesisImpact
