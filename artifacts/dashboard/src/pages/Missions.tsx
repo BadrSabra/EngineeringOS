@@ -64,6 +64,61 @@ function compactId(value: string) {
   return value.length > 24 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 }
 
+type AcceptedProjectQueryHandoffSource = {
+  sessionId: string;
+  messageId: string;
+  assistantMessageId: string;
+  executionId: string;
+  acceptanceId: string;
+  evidenceSnapshotId: string;
+  sourceRevision: string;
+  acceptedClaimRefs: string[];
+  planHash: string;
+};
+
+function readAcceptedProjectQueryHandoffSource(
+  policy: unknown,
+): AcceptedProjectQueryHandoffSource | null {
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return null;
+  const handoffSource = (policy as Record<string, unknown>).handoffSource;
+  if (!handoffSource || typeof handoffSource !== 'object' || Array.isArray(handoffSource)) return null;
+  const source = handoffSource as Record<string, unknown>;
+  const requiredStrings = [
+    'sessionId',
+    'messageId',
+    'assistantMessageId',
+    'executionId',
+    'acceptanceId',
+    'evidenceSnapshotId',
+    'sourceRevision',
+    'planHash',
+  ] as const;
+  if (
+    source.kind !== 'chat'
+    || source.sourceType !== 'accepted_project_query'
+    || requiredStrings.some((key) => typeof source[key] !== 'string' || !source[key].trim())
+    || !Array.isArray(source.acceptedClaimRefs)
+    || source.acceptedClaimRefs.length === 0
+    || source.acceptedClaimRefs.length > 12
+    || source.acceptedClaimRefs.some((claim) => typeof claim !== 'string' || !claim.trim())
+  ) {
+    return null;
+  }
+  const acceptedClaimRefs = source.acceptedClaimRefs as string[];
+  if (new Set(acceptedClaimRefs).size !== acceptedClaimRefs.length) return null;
+  return {
+    sessionId: source.sessionId as string,
+    messageId: source.messageId as string,
+    assistantMessageId: source.assistantMessageId as string,
+    executionId: source.executionId as string,
+    acceptanceId: source.acceptanceId as string,
+    evidenceSnapshotId: source.evidenceSnapshotId as string,
+    sourceRevision: source.sourceRevision as string,
+    acceptedClaimRefs,
+    planHash: source.planHash as string,
+  };
+}
+
 function displayJsonValue(value: unknown, fallback: string) {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -1059,6 +1114,16 @@ export default function Missions() {
     ? Number((projectsQueryError as { status?: unknown }).status)
     : null;
   const projectionGoals = projection?.goals ?? [];
+  const acceptedFindingSource = activeMission
+    ? readAcceptedProjectQueryHandoffSource(activeMission.autonomyPolicy)
+    : null;
+  const latestMissionExecution = projectionGoals
+    .flatMap((item) => item.executions)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.completedAt ?? left.updatedAt);
+      const rightTime = Date.parse(right.completedAt ?? right.updatedAt);
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+    })[0];
   const projectionIsPartial = projection
     ? projection.counts.goals !== projectionGoals.length
       || projection.counts.tasks !== projectionGoals.reduce((sum, item) => sum + item.tasks.length, 0)
@@ -1346,6 +1411,95 @@ export default function Missions() {
                         <Metric label="Tasks" value={projection?.counts.tasks ?? '—'} />
                       </div>
                     </div>
+
+                    {acceptedFindingSource ? (
+                      <section
+                        data-testid={`mission-source-provenance-${activeMission.id}`}
+                        className="border-b border-cyan-400/15 bg-cyan-300/[0.035] px-4 py-4 md:px-5"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan-200/70">
+                              Accepted PROJECT_QUERY source
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-400">
+                              User-reviewed context only. This finding is not proof or authorization for future changes.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <a
+                              href={`/ai?${new URLSearchParams({
+                                projectId: String(activeMission.projectId),
+                                sessionId: acceptedFindingSource.sessionId,
+                                messageId: acceptedFindingSource.assistantMessageId,
+                              }).toString()}`}
+                              data-testid="link-mission-source-chat"
+                              className="inline-flex items-center gap-1 rounded-md border border-cyan-400/25 bg-cyan-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-300/15"
+                            >
+                              <ArrowUpRight className="h-3 w-3" />
+                              Open original finding in Chat
+                            </a>
+                            {latestMissionExecution ? (
+                              <a
+                                href={`/mission-control?${new URLSearchParams({
+                                  projectId: String(activeMission.projectId),
+                                  executionId: latestMissionExecution.id,
+                                }).toString()}`}
+                                data-testid="link-mission-source-execution"
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-950/40 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:border-cyan-400/35 hover:text-cyan-100"
+                              >
+                                <ArrowUpRight className="h-3 w-3" />
+                                Inspect linked Mission execution
+                              </a>
+                            ) : (
+                              <span className="self-center text-[11px] text-slate-500">
+                                Mission execution not recorded yet
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <dl className="mt-3 grid gap-x-4 gap-y-2 text-[11px] sm:grid-cols-2 xl:grid-cols-4">
+                          <div>
+                            <dt className="text-slate-500">Source session</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.sessionId}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">User message</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.messageId}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Assistant message</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.assistantMessageId}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Source execution</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.executionId}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Acceptance</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.acceptanceId}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Evidence snapshot</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.evidenceSnapshotId}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Source revision</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.sourceRevision}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Accepted claims</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">
+                              {acceptedFindingSource.acceptedClaimRefs.join(', ')}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-slate-500">Plan hash</dt>
+                            <dd className="mt-0.5 break-all font-mono text-slate-300">{acceptedFindingSource.planHash}</dd>
+                          </div>
+                        </dl>
+                      </section>
+                    ) : null}
 
                     {projectionLoading ? (
                       <div className="space-y-3 p-4 md:p-5">

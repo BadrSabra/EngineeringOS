@@ -1542,6 +1542,16 @@ router.post("/ai/missions/:missionId/goals/:goalId/approve", async (req, res) =>
 
 router.post("/ai/missions", async (req, res) => {
   const body = CreateMissionBody.parse(req.body);
+  if (
+    body.autonomyPolicy
+    && Object.prototype.hasOwnProperty.call(body.autonomyPolicy, "handoffSource")
+  ) {
+    res.status(400).json({
+      error: "handoffSource is server-owned",
+      code: "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
+    });
+    return;
+  }
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
   const now = new Date();
@@ -1601,6 +1611,22 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   if (Object.keys(body).length === 0) return res.status(400).json({ error: "At least one mission field is required" });
 
   const before = owned.mission;
+  const existingAutonomyPolicy = readRecord(before.autonomyPolicy);
+  const hasServerOwnedHandoffSource = Boolean(
+    existingAutonomyPolicy
+    && Object.prototype.hasOwnProperty.call(existingAutonomyPolicy, "handoffSource"),
+  );
+  if (
+    body.autonomyPolicy
+    && Object.prototype.hasOwnProperty.call(body.autonomyPolicy, "handoffSource")
+    && !hasServerOwnedHandoffSource
+  ) {
+    res.status(400).json({
+      error: "handoffSource is server-owned",
+      code: "MISSION_HANDOFF_SOURCE_SERVER_OWNED",
+    });
+    return;
+  }
   const now = new Date();
   if (body.status === "completed") {
     const completion = await db.transaction(async (tx) =>
@@ -1621,10 +1647,20 @@ router.patch("/ai/missions/:missionId", async (req, res) => {
   // Keep activation idempotent so missions that were already marked active
   // before activation plans existed can be repaired by saving "active" again.
   const shouldActivate = body.status === "active";
-  const { deadline, ...rest } = body;
+  const { deadline, autonomyPolicy, ...rest } = body;
   const updateValues: Partial<typeof aiMissionsTable.$inferInsert> = {
     ...rest,
     updatedAt: now,
+    ...(autonomyPolicy !== undefined
+      ? {
+          autonomyPolicy: {
+            ...autonomyPolicy,
+            ...(hasServerOwnedHandoffSource
+              ? { handoffSource: existingAutonomyPolicy!.handoffSource }
+              : {}),
+          },
+        }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(body, "deadline")
       ? { deadline: deadline ? new Date(deadline) : null }
       : {}),

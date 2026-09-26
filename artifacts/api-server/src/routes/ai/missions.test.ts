@@ -363,6 +363,69 @@ describe("AI missions and goals", () => {
     );
   });
 
+  it("keeps handoff provenance server-owned across generic Mission writes", async () => {
+    const projectId = await insertProject();
+    const spoofedCreate = await request(app)
+      .post("/api/ai/missions")
+      .send({
+        projectId,
+        title: "Spoofed source",
+        intent: "Attempt to provide client-owned provenance.",
+        autonomyPolicy: {
+          handoffSource: {
+            kind: "chat",
+            sourceType: "accepted_project_query",
+            acceptanceId: "client-acceptance",
+          },
+        },
+      });
+    expect(spoofedCreate.status).toBe(400);
+    expect(spoofedCreate.body.code).toBe("MISSION_HANDOFF_SOURCE_SERVER_OWNED");
+
+    const source = await insertAcceptedProjectQuery(projectId);
+    const objective = "Investigate and fix the accepted project finding.";
+    const preview = await request(app)
+      .post("/api/ai/missions/plan-preview")
+      .send({ projectId, assistantMessageId: source.assistantMessageId, objective });
+    expect(preview.status).toBe(200);
+    const handoff = await request(app)
+      .post("/api/ai/missions/from-chat")
+      .send({
+        projectId,
+        assistantMessageId: source.assistantMessageId,
+        objective,
+        expectedPlanHash: preview.body.plan.planHash,
+      });
+    expect(handoff.status).toBe(201);
+
+    const attemptedRewrite = await request(app)
+      .patch(`/api/ai/missions/${handoff.body.mission.id}`)
+      .send({
+        autonomyPolicy: {
+          userPreference: "preserved",
+          handoffSource: {
+            kind: "chat",
+            sourceType: "accepted_project_query",
+            acceptanceId: "client-acceptance",
+            assistantMessageId: "client-message",
+          },
+        },
+      });
+
+    expect(attemptedRewrite.status).toBe(200);
+    expect(attemptedRewrite.body.autonomyPolicy).toMatchObject({
+      userPreference: "preserved",
+      handoffSource: {
+        acceptanceId: source.acceptanceId,
+        assistantMessageId: source.assistantMessageId,
+        evidenceSnapshotId: source.evidenceSnapshotId,
+        sourceRevision: source.sourceRevision,
+        acceptedClaimRefs: source.acceptedClaimRefs,
+        planHash: preview.body.plan.planHash,
+      },
+    });
+  });
+
   it("rejects a recovered assistant row that no longer matches the acceptance message", async () => {
     const projectId = await insertProject();
     const source = await insertAcceptedProjectQuery(projectId);

@@ -121,6 +121,85 @@ describe('Missions management', () => {
     expect(fetchMissionsMock).toHaveBeenCalledTimes(1);
   });
 
+  it('shows accepted finding provenance with links to its Chat message and Mission execution', async () => {
+    const acceptedMission = {
+      ...mission,
+      status: 'active' as const,
+      autonomyPolicy: {
+        handoffSource: {
+          kind: 'chat',
+          sourceType: 'accepted_project_query',
+          sessionId: 'session-accepted-1',
+          messageId: 'user-message-1',
+          assistantMessageId: 'assistant-message-1',
+          executionId: 'source-execution-1',
+          acceptanceId: 'acceptance-1',
+          evidenceSnapshotId: 'evidence-snapshot-1',
+          sourceRevision: 'revision-accepted-1',
+          acceptedClaimRefs: ['claim-1', 'claim-2'],
+          planHash: 'mission-plan-hash-1',
+        },
+      },
+    };
+    fetchMissionsMock.mockResolvedValue([acceptedMission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: acceptedMission,
+      goals: [{
+        goal: {
+          id: 'goal-1',
+          missionId: acceptedMission.id,
+          projectId: project.id,
+          parentGoalId: null,
+          title: 'Verify accepted finding',
+          description: null,
+          status: 'completed',
+          priority: 'p1',
+          successCriteria: {},
+          evidenceContract: {},
+          outcomeContract: {},
+          nextAction: null,
+          blockedReason: null,
+          nextWakeAt: null,
+          createdAt: '2026-09-22T00:00:00.000Z',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: '2026-09-22T00:01:00.000Z',
+        },
+        tasks: [],
+        workflows: [],
+        executions: [{
+          id: 'mission-execution-1',
+          status: 'completed',
+          attempt: 1,
+          operationId: 'mission-operation-1',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: '2026-09-22T00:01:00.000Z',
+        }],
+        events: [],
+      }],
+      counts: { goals: 1, tasks: 0, workflows: 0, executions: 1, events: 0 },
+    });
+
+    renderPage();
+
+    expect(await screen.findByTestId(`mission-source-provenance-${mission.id}`)).toBeInTheDocument();
+    expect(screen.getByText('session-accepted-1')).toBeInTheDocument();
+    expect(screen.getByText('user-message-1')).toBeInTheDocument();
+    expect(screen.getByText('assistant-message-1')).toBeInTheDocument();
+    expect(screen.getByText('source-execution-1')).toBeInTheDocument();
+    expect(screen.getByText('acceptance-1')).toBeInTheDocument();
+    expect(screen.getByText('evidence-snapshot-1')).toBeInTheDocument();
+    expect(screen.getByText('claim-1, claim-2')).toBeInTheDocument();
+    expect(screen.getByText('mission-plan-hash-1')).toBeInTheDocument();
+    expect(screen.getByTestId('link-mission-source-chat')).toHaveAttribute(
+      'href',
+      '/ai?projectId=project-1&sessionId=session-accepted-1&messageId=assistant-message-1',
+    );
+    expect(await screen.findByTestId('link-mission-source-execution')).toHaveAttribute(
+      'href',
+      '/mission-control?projectId=project-1&executionId=mission-execution-1',
+    );
+  });
+
   it('binds a committed proposal from the delivery goal action', async () => {
     const deliveryGoal = {
       id: 'goal-delivery-1',

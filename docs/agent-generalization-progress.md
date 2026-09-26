@@ -1979,11 +1979,11 @@ G9 Revocation Safety
 - **authority/safety impact:** الأدلة والقبول server-owned وبوابة الفشل مغلقة؛
   لا يفتح provider citations أو prose مسار قبول. لا تغيير في P6/P7 أو صلاحيات
   الأدوات أو عقد JSON/SSE.
-- **remaining/blocker:** `PROJECT_QUERY` العام بلا عقد مطالبات مغلق يظل
-  `ANALYSIS_INCOMPLETE` عند تعذر الصياغة؛ لا يسمح هذا التنفيذ بـfallback عام.
-- **next step:** أنشئ عقد مطالبات server-owned للاستعلام العام ضمن عمل مستقل،
-  ثم قيّم fallback الحتمي تحت بوابة القبول القائمة دون إعادة استخدام claims
-  يحددها المزود.
+- **remaining/blocker:** يظل fallback الحتمي العام لـ`PROJECT_QUERY` محظورًا عند
+  غياب المطالبات المكتملة. عقد claims المحدود لأهلية handoff من نتيجة مقبولة
+  أُنجز في §42.51، لكنه لا يوسّع fallback ولا يعامل claims المزود كسلطة.
+- **next step:** أي توسيع لـfallback يحتاج عقدًا عامًا وتقييمًا مستقلين تحت
+  بوابة القبول الحالية؛ لا يتطلب handoff المحدود إعادة فتح هذا المسار.
 
 ### 42.50 — Chat-to-Mission handoff من finding مقبول (2026-09-26)
 
@@ -2005,6 +2005,37 @@ G9 Revocation Safety
   تحتاج held-out outcomes ضمن scope مؤهل.
 - **next step:** أنجز شروط §31 والاعتماد المذكور في شريحة finding→Mission؛
   بعد ذلك فقط يحدد تنفيذ UI منفصل مع اختبار planHash والمصدر stale والقبول.
+
+### 42.51 — Accepted PROJECT_QUERY finding to Mission integration (2026-09-26)
+
+- **phase/step:** تكامل اختياري عابر للمراحل بين Chat Read-Only وMission
+  Validation؛ لا يضيف مرحلة أو dependency إلى §31.
+- **status:** `done` للنطاق المحدود: معاينة غير دائمة، موافقة `planHash`،
+  handoff مرتبط بمصدر PROJECT_QUERY المقبول، وعرض provenance وروابط الرجوع.
+- **what changed:** اكتمل عقد claims server-owned لهوية الرسالة والقبول؛ ربط
+  الخادم مصدر handoff بصفوف المشروع والجلسة والرسائل والقبول ولقطة evidence
+  والمراجعة والclaims المقبولة. تستقبل Chat روابط المشروع/الجلسة/رسالة المصدر
+  وتنتقل إليها. تعرض Missions معرّفات القبول ولقطة evidence والمراجعة والclaims
+  و`planHash`، ورابط Chat ورابط Mission Control للتنفيذ. رفضت API إنشاء provenance
+  مزيف من Mission عادي، وتحفظ المصدر server-owned عند تحديث `autonomyPolicy`.
+- **files/schema/contracts touched:** `artifacts/api-server/src/routes/ai/missions.ts`
+  واختبارها؛ `artifacts/dashboard/src/pages/AiChat.tsx` و`Missions.tsx`
+  واختبار Missions؛ `docs/agent-generalization-execution-plan.md`. لا migration،
+  جدول أو envelope استجابة جديد.
+- **validation:** `pnpm run typecheck` و`git diff --check` نجحا؛ خمسة اختبارات
+  API مركزة لعقد handoff/الاسترداد/عدم قابلية تزوير المصدر نجحت؛ اختبار UI
+  لبطاقة provenance وروابط Chat وMission Control واختبار Chat route-target
+  نجحا. نجح `dashboard-restart-smoke`، وأعاد `/api/healthz` حالة 200. أعادت
+  الخدمات العمل؛ preview غير المصادق عليه انتقل إلى Clerk sign-in ولم يسجل
+  أخطاء متصفح، لذلك لم تُعاين صفحة Missions بعد الدخول.
+- **authority/safety impact:** لا تغيير في صلاحيات mutation أو بوابات Goal،
+  runtime، approval أو Canonical Proof. provenance سياق فقط ولا يعوّض قراءة أو
+  تحققًا على المراجعة الحالية؛ لا graph أو planner أو executor موازٍ.
+- **remaining/blocker:** تشغيل `missions.test.ts` كاملًا ما زال معروفًا بأنه
+  يفشل في حالة paired-baseline ضمن المجموعة بينما ينجح منفردًا؛ لم يثبت السبب،
+  ولا يمنع ذلك الاختبارات المركزة الناجحة.
+- **next step:** متابعة فشل paired-baseline في تشغيل المجموعة كتحسين اختبار
+  منفصل. يبقى fallback الحتمي العام لـPROJECT_QUERY خارج هذه الشريحة.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

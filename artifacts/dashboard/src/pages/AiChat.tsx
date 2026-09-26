@@ -813,6 +813,25 @@ function isOpaqueSelectionId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 512;
 }
 
+type AiChatRouteTarget = {
+  projectId: string;
+  sessionId?: string;
+  messageId?: string;
+};
+
+export function parseAiChatRouteTarget(search: string): AiChatRouteTarget | null {
+  const params = new URLSearchParams(search);
+  const projectId = params.get('projectId');
+  if (!isOpaqueSelectionId(projectId)) return null;
+  const sessionId = params.get('sessionId');
+  const messageId = params.get('messageId');
+  return {
+    projectId,
+    ...(isOpaqueSelectionId(sessionId) ? { sessionId } : {}),
+    ...(isOpaqueSelectionId(messageId) ? { messageId } : {}),
+  };
+}
+
 export function parseAiChatSelection(raw: string | null, projectId: string): AiChatSelection | null {
   if (!raw || !isOpaqueSelectionId(projectId)) return null;
   try {
@@ -5911,7 +5930,10 @@ function MessageBubble({
     && onRetryProjectQuery,
   );
   return (
-    <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+    <div
+      data-chat-message-id={msg.id}
+      className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}
+    >
       <div
         className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
           isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary border border-border'
@@ -9038,6 +9060,7 @@ export default function AiChat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isLoaded, user } = useUser();
 
+  const [chatRouteTarget] = useState(() => parseAiChatRouteTarget(window.location.search));
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [metricsProvider, setMetricsProvider] = useState<MetricsProviderFilter>('all');
   const [metricsWindowDays, setMetricsWindowDays] = useState<number>(30);
@@ -10180,7 +10203,20 @@ export default function AiChat() {
     } catch {
       return;
     }
-    const selection = parseAiChatSelection(rawSelection, selectedProjectId);
+    const routeSessionId = chatRouteTarget?.projectId === selectedProjectId
+      ? chatRouteTarget.sessionId
+      : undefined;
+    const routeSelection = routeSessionId && sessions.some((session) => session.id === routeSessionId)
+      ? {
+          version: 1 as const,
+          projectId: selectedProjectId,
+          kind: 'session' as const,
+          sessionId: routeSessionId,
+        }
+      : null;
+    const selection = routeSessionId
+      ? routeSelection
+      : parseAiChatSelection(rawSelection, selectedProjectId);
     if (!selection) {
       hydratedSelectionProjectRef.current = selectedProjectId;
       if (rawSelection !== null) clearAiChatSelection(selectedProjectId);
@@ -10222,6 +10258,7 @@ export default function AiChat() {
         return;
       }
       resetVisibleSelection(recoveredExecution);
+      if (routeSelection) persistAiChatSelection(routeSelection);
       setSessionId(selection.sessionId);
       return;
     }
@@ -10274,6 +10311,7 @@ export default function AiChat() {
     sessionsError,
     sessionsFetched,
     storedExecution?.id,
+    chatRouteTarget,
   ]);
 
   const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
@@ -10600,13 +10638,39 @@ export default function AiChat() {
 
   useEffect(() => {
     if (projects.length > 0 && !selectedProjectId) {
-      setSelectedProjectId(projects[0].id);
+      const routeProject = chatRouteTarget
+        ? projects.find((project) => project.id === chatRouteTarget.projectId)
+        : undefined;
+      setSelectedProjectId(routeProject?.id ?? projects[0].id);
     }
-  }, [projects, selectedProjectId]);
+  }, [projects, selectedProjectId, chatRouteTarget]);
 
   useEffect(() => {
+    const targetMessageId = chatRouteTarget?.messageId;
+    if (
+      !targetMessageId
+      || !messagesFetched
+      || !sessionId
+      || chatRouteTarget?.projectId !== selectedProjectId
+      || chatRouteTarget.sessionId !== sessionId
+    ) {
+      return;
+    }
+    const target = [...document.querySelectorAll<HTMLElement>('[data-chat-message-id]')]
+      .find((element) => element.dataset.chatMessageId === targetMessageId);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [chatRouteTarget, localMessages, messagesFetched, selectedProjectId, sessionId]);
+
+  useEffect(() => {
+    if (
+      chatRouteTarget?.messageId
+      && chatRouteTarget.projectId === selectedProjectId
+      && chatRouteTarget.sessionId === sessionId
+    ) {
+      return;
+    }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [localMessages]);
+  }, [chatRouteTarget, localMessages, selectedProjectId, sessionId]);
 
   /** Map server-side stage identifiers to user-facing labels. */
   const STAGE_LABELS: Record<string, string> = {

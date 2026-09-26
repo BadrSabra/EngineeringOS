@@ -5,6 +5,7 @@ import AiChat, {
   AI_CHAT_SELECTION_STORAGE_PREFIX,
   auditExportFilename,
   BenchmarkMissionControlPanel,
+  parseAiChatRouteTarget,
 } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 
@@ -451,6 +452,19 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe('AiChat route target parsing', () => {
+  it('accepts only explicit project-scoped session and message targets', () => {
+    expect(parseAiChatRouteTarget(
+      '?projectId=project-1&sessionId=session-1&messageId=assistant-message-1',
+    )).toEqual({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      messageId: 'assistant-message-1',
+    });
+    expect(parseAiChatRouteTarget('?sessionId=session-1&messageId=assistant-message-1')).toBeNull();
+  });
 });
 
 describe('AiChat authenticated generated mutations', () => {
