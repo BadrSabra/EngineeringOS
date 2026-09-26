@@ -1406,6 +1406,193 @@ describe("phase 0 baseline — PROJECT_QUERY objective evidence handoff", () => 
     }
   });
 
+  it("closes the bounded generic-project objective from retained evidence when provider synthesis fails", async () => {
+    const message = "Analyze my project architecture.";
+    const target = resolveProjectQueryTarget(message);
+    expect(target?.id).toBe("generic-project");
+    const objective = buildProjectQueryObjective(target!, message);
+    expect(objective.objectiveType).toBe("PROJECT_QUERY_GENERIC-PROJECT");
+    const claimIds = [
+      "generic-project-routing",
+      "generic-project-evidence-gate",
+      "generic-project-bounded-read",
+    ];
+    expect(objective.requiredClaims.map(({ claimId }) => claimId)).toEqual(claimIds);
+
+    const requiredPaths = [
+      "lib/ai-orchestrator/src/turn-intent.ts",
+      "lib/ai-orchestrator/src/project-query-target.ts",
+      "lib/ai-orchestrator/src/evidence-integrity.ts",
+    ];
+    expect(objective.requiredEvidencePaths).toEqual(requiredPaths);
+    const completeFileContents = new Map<string, string>([
+      [
+        requiredPaths[0]!,
+        [
+          "export function resolveTurnIntent(message: string) {",
+          "  const kind = message ? 'PROJECT_QUERY' : 'CHAT';",
+          "  const projectReadOnly = 'project-read-only';",
+          "  const requiresTools = true;",
+          "  return { kind, projectReadOnly, requiresTools };",
+          "}",
+        ].join("\n"),
+      ],
+      [
+        requiredPaths[1]!,
+        "export const genericTargetFixture = true;",
+      ],
+      [
+        requiredPaths[2]!,
+        [
+          "export const objectiveCompletionGate = true;",
+          "export function validateFinalAnswer() {",
+          "  const requiredEvidencePaths = [];",
+          "  return requiredEvidencePaths;",
+          "}",
+        ].join("\n"),
+      ],
+    ]);
+    const retainedReadStatuses = new Map(requiredPaths.map((requiredPath) =>
+      [requiredPath, "READ_COMPLETE"] as const,
+    ));
+
+    const executeToolLoop = vi.fn(async () => ({
+      kind: "partial" as const,
+      reason: "provider_failure" as const,
+      result: {
+        content: "",
+        toolCalls: null,
+        model: "provider-failure-model",
+        usage: {},
+      },
+      toolSources: requiredPaths,
+      fileContents: completeFileContents,
+      evidenceWindows: [],
+      sourceRetrieval: {
+        readAttempts: requiredPaths.length,
+        readPaths: requiredPaths,
+        uniqueReads: requiredPaths.length,
+        truncatedReads: 0,
+        targetedReads: 0,
+        redundantReads: 0,
+        cachedReads: 0,
+        evidenceWindows: 0,
+        prefetchReads: requiredPaths.length,
+        dependencyReads: 0,
+        duplicateReads: 0,
+        firstEvidenceAcquired: true,
+        iterationsUntilFirstRead: 0,
+        iterationsWithoutEvidence: 0,
+        planningIterations: 0,
+        evidenceIterations: requiredPaths.length,
+        crossFileQueriesBeforeFirstRead: 0,
+        prefetchBeforeFirstRead: true,
+        progressForced: false,
+        budgetAllocation: { planning: 1, evidence: 3, reasoning: 1 },
+      },
+    }));
+
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      return { ...actual, executeToolLoop };
+    });
+
+    const providerCreate = vi.fn().mockRejectedValue(
+      Object.assign(new Error("fixture provider failure"), {
+        code: "FIXTURE_PROVIDER_FAILURE",
+        status: 401,
+        response: { status: 401 },
+      }),
+    );
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: providerCreate,
+          },
+        };
+      },
+    }));
+
+    const classification = classifyRequest(message);
+    const turnIntent = resolveTurnIntent(message, {
+      classification,
+      resumed: false,
+    });
+    const steps: Array<Record<string, unknown>> = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message,
+      history: [],
+      projectContext: makeContext(),
+      rootPath: undefined,
+      provider: "groq",
+      apiKey: "test-key",
+      retainedEvidence: completeFileContents,
+      retainedReadStatuses,
+      objective,
+      turnIntent,
+      onStep: (step) => steps.push(step as unknown as Record<string, unknown>),
+    });
+
+    expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
+    expect(result.projectQueryResponseFallbackReason).toBe("synthesis_failed");
+    for (const claim of objective.requiredClaims) {
+      expect(result.response).toContain(claim.text);
+    }
+    expect(executeToolLoop).toHaveBeenCalledTimes(1);
+    expect(providerCreate).toHaveBeenCalledTimes(1);
+
+    const materialization = steps.find(
+      (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_CLAIM_MATERIALIZATION",
+    );
+    expect(materialization?.details).toEqual(
+      expect.arrayContaining([
+        "manifestComplete=true",
+        "requiredClaims=3",
+        "materializedClaims=3",
+        "missingClaims=none",
+      ]),
+    );
+
+    const binding = steps.find(
+      (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_BINDING",
+    );
+    expect(binding?.details).toEqual(
+      expect.arrayContaining([
+        "overridePresent=true",
+        "responseUsesOverride=true",
+        "responseSource=deterministic_fallback",
+        "fallbackReason=synthesis_failed",
+        `responseClaims=${claimIds.map((claimId) => `${claimId}:true`).join(",")}`,
+        "materializedClaims=3",
+      ]),
+    );
+
+    const closure = steps.find(
+      (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_OBJECTIVE_CLOSURE",
+    );
+    expect(closure?.details).toEqual(
+      expect.arrayContaining([
+        `closedClaims=${claimIds.join(",")}`,
+        "acceptedEvidenceCount=3",
+        "gateStatus=PROVEN",
+      ]),
+    );
+
+    const integrity = [...steps]
+      .reverse()
+      .find((step) => step.kind === "evidence_integrity");
+    expect(integrity).toMatchObject({
+      acceptedClaimCount: 3,
+      completionGateResult: "PROVEN",
+      finalAnswerType: "BEHAVIORAL_ANSWER",
+      missingClaims: [],
+    });
+  });
+
   it("does not replace a proven project query with the outer forensic fallback", async () => {
     const message = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع وحدد نقاط الضعف";
     const objectiveMessage = "اشرح آلية عمل وكيل الذكاء الاصطناعي داخل المشروع";

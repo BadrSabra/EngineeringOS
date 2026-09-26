@@ -3624,12 +3624,14 @@ transfer وpromotion gates.
 
 تعطل صياغة `PROJECT_QUERY` بعد اكتمال الأدلة هو مسألة موثوقية وإسقاط استجابة في
 مسار المحادثة القائم، وليس تنفيذًا لـP7 ولا dependency جديدة تبرر تجاوز P4/P5/P6.
-بعد مراجعة التنفيذ، لا يُعامل فشل المزود أو صياغة `PROJECT_QUERY` العام كأنه
-وصل إلى fallback حتمي عام: مسار الاستنفاد ينتج `ANALYSIS_INCOMPLETE` من الأدلة
-المحتفظ بها. الـfallback الحتمي الموجود منفصل ومقصور على `projectOrientation`
-مع اكتمال manifest الأدوار. تُنفذ أي معالجة لاحقة داخل مسار المحادثة الحالي،
-بعد إغلاق بوابة الوثائق في `docs/agent-generalization-progress.md` ومراجعتها؛
-لا تنشئ خدمة Gateway أو roadmap ثانية.
+بعد مراجعة التنفيذ، يجب الفصل بين هدف `PROJECT_QUERY_*` المحدود ذي objective
+ومطالبات server-owned، وبين `PROJECT_QUERY` العام الذي لا يملك عقدًا قانونيًا
+للمطالبات. قد يستخدم الهدف المحدود مسار synthesis الحتمي القائم بعد اكتمال
+manifest وإغلاق المطالبات؛ أما المسار العام بلا objective فيظل
+`ANALYSIS_INCOMPLETE` بعد استنفاد المزودين. fallback `projectOrientation` مستقل
+ولا يُستخدم بدلًا من أي من المسارين. تُنفذ أي معالجة لاحقة داخل مسار المحادثة
+القائم، بعد إغلاق بوابة الوثائق في `docs/agent-generalization-progress.md`
+ومراجعتها؛ لا تنشئ خدمة Gateway أو roadmap ثانية.
 
 تدقيق التطوير في 2026-09-26 فصل بين طلبين: تعثر الطلب السابق قبل قراءة أي ملف
 مصدر مع `EMPTY_RESPONSE` و`RATE_LIMITED`؛ أما طلب شرح المشروع اللاحق فأكمل الأدوار
@@ -3649,7 +3651,8 @@ transfer وpromotion gates.
 - يوجد retained-read manifest وبصمات مرتبطة بقبول الأدلة؛ يثبت الخادم اكتمال
   الأجسام قبل proof. لكنه ليس `EvidencePacket` ثابتًا واحدًا يُمرر إلى gateway.
 - fallback `projectOrientation` يتطلب الأدوار الأربعة ويعرض دليلها المباشر؛ لا
-  يُعاد استخدامه كـfallback عام لـ`PROJECT_QUERY` أو `FORENSIC_AUDIT`.
+  يُعاد استخدامه كـfallback عام لـ`PROJECT_QUERY` أو `FORENSIC_AUDIT`. أهداف
+  `PROJECT_QUERY_*` المحددة لها مسار objective/claims منفصل.
 - `ProjectQuerySynthesisSchema` يحدد `response` و`sources` ومراجع اختيارية
   لـ`claimRefs` و`flowRefs`. توجد provenance متوافقة إلى حد كبير عبر JSON وSSE
   والتاريخ، لكن لا يوجد public canonical envelope موحد للادعاءات والأدلة وحالة
@@ -3676,10 +3679,11 @@ transfer وpromotion gates.
    public `CanonicalAgentResponse` موازٍ. إذا احتاج العقد حقول claims أو evidence
    refs أو subquery status أو uncertainties، أضفها إلى العقد القائم مع مصدر
    server-owned، لا بمجرد نسخ provider prose.
-4. أضف fallback حتميًا عامًا فقط لـ`PROJECT_QUERY` الذي اجتاز عقد اكتمال الأدلة
-   والادعاءات. يبنى من الأجسام والمراجع المقبولة server-side، ولا يستخدم
-   `claimRefs` أو citations من المزود كإثبات. التغطية الناقصة أو الادعاءات غير
-   المغلقة تظل `ANALYSIS_INCOMPLETE`. أبقِ fallback orientation الحالي منفصلًا.
+4. لا توسّع fallback إلى `PROJECT_QUERY` العام بلا objective canonical. الأهداف
+   المحددة `PROJECT_QUERY_*` تستخدم مسارها القائم فقط بعد اكتمال الأدلة وإغلاق
+   المطالبات server-side؛ لا تستخدم `claimRefs` أو citations من المزود كإثبات.
+   التغطية الناقصة أو الادعاءات غير المغلقة تظل `ANALYSIS_INCOMPLETE`. أبقِ
+   fallback orientation الحالي منفصلًا.
 5. اختبر فشل المزود بعد قراءة كاملة ثم نجاح provider آخر أو fallback مع إثبات
    ثبات evidence reference وعدم إعادة القراءة؛ واختبر أيضًا النتيجة غير المكتملة،
    حد الميزانية المشترك، وربط المحاولات بالـsnapshot النهائي، وتكافؤ projections
@@ -3719,9 +3723,18 @@ runtime/schema قبل إغلاق بوابة الوثائق ومراجعتها. �
   الحتمية محظورة على `PROJECT_QUERY` العام الذي لا يملك عقد مطالبات
   server-owned مكتملًا؛ fallback orientation منفصل كما كان. لا تغيير في P6/P7.
 
-**الحالة:** الشريحة المنفذة مكتملة؛ يبقى إنشاء عقد مطالبات موثوق للاستعلام
-العام عملًا منفصلًا قبل توسيع fallback. اختبارات التنفيذ ومسار API هي معيار
-التحقق المسجل في أحدث إدخال تقدم §42.49.
+#### توضيح نطاق generic-project بعد التدقيق (2026-09-26)
+
+كان وصف fallback بأنه محصور في `projectOrientation` يخلط بين الهدف المحدود
+`PROJECT_QUERY_GENERIC-PROJECT` وبين المسار العام بلا objective. الأول يملك
+العقد القانوني الثابت للادعاءات الثلاثة ويستخدم synthesis الحتمي الموجود بعد
+اكتمال القراءات وإغلاق المطالبات. أضيفت اختبارات لمسار orchestrator وقبول SSE
+تثبت هذا السلوك؛ لم تُنشأ أهلية جديدة ولم يتغير المسار العام بلا objective.
+
+**الحالة:** الشريحة المنفذة مكتملة؛ الهدف المحدود `generic-project` يملك عقدًا
+server-owned ومسار fallback مشروطًا بالقبول. يظل `PROJECT_QUERY` بلا objective
+canonical غير مكتمل عند فشل synthesis، ولا يفتح هذا التحقق fallback عامًا.
+الاختبارات والحدود المتبقية موثقة في أحدث إدخال تقدم §42.53.
 
 ### Product integration seam — accepted finding to Mission
 

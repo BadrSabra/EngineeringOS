@@ -2031,11 +2031,60 @@ G9 Revocation Safety
 - **authority/safety impact:** لا تغيير في صلاحيات mutation أو بوابات Goal،
   runtime، approval أو Canonical Proof. provenance سياق فقط ولا يعوّض قراءة أو
   تحققًا على المراجعة الحالية؛ لا graph أو planner أو executor موازٍ.
-- **remaining/blocker:** تشغيل `missions.test.ts` كاملًا ما زال معروفًا بأنه
-  يفشل في حالة paired-baseline ضمن المجموعة بينما ينجح منفردًا؛ لم يثبت السبب،
-  ولا يمنع ذلك الاختبارات المركزة الناجحة.
-- **next step:** متابعة فشل paired-baseline في تشغيل المجموعة كتحسين اختبار
-  منفصل. يبقى fallback الحتمي العام لـPROJECT_QUERY خارج هذه الشريحة.
+- **remaining/blocker:** ظهر سابقًا فشل paired-baseline ضمن التشغيل الكامل؛
+  إعادة التحقق الموثقة في §42.52 لم تستعده، ولم يتضح سبب ظهوره السابق.
+- **next step:** لا تغيّر بوابة المقارنة ما دام الفشل غير قابل لإعادة الإنتاج؛
+  يبقى fallback الحتمي العام لـPROJECT_QUERY عملًا منفصلًا وفق §31.
+
+### 42.52 — Mission paired-baseline reliability recheck (2026-09-26)
+
+- **phase/step:** إعادة تحقق لاختبار Gate 3 داخل تكامل Mission؛ لا تغيير runtime.
+- **status:** `done` لإعادة التحقق؛ لم يُعثر على فشل قابل لإعادة الإنتاج.
+- **what changed:** شُغّل `missions.test.ts` من جذر API package ثلاث مرات؛
+  نجحت كل مرة `23/23`، بما فيها paired-baseline وGate 4 registry. لم تُعدّل
+  شروط المقارنة أو receipt أو مسارات القبول لأن الفشل السابق لم يظهر مجددًا.
+- **files/schema/contracts touched:** سجل التقدم فقط؛ لا تغييرات كود أو schema.
+- **validation:** `cd artifacts/api-server && pnpm exec vitest run
+  src/routes/ai/missions.test.ts`؛ ثلاثة تشغيلات متتابعة اكتملت كلها بنجاح.
+  هذا هو جذر الاختبار المعتمد في package ويستخدم إعداد Vitest الخاص به.
+- **authority/safety impact:** لا تغيير في Gate 3 أو شرط Gate 4 الذي يتطلب
+  paired baseline ناجحًا و`promotionAllowed: true`.
+- **remaining/blocker:** سبب نتيجة `incomplete` السابقة غير معروف، ولم يعد
+  متاحًا لإعادة الإنتاج في التشغيل الحالي. لا يُعد هذا إثباتًا لسبب جذري أو
+  مبررًا لتخفيف gate.
+- **next step:** تابع ترتيب §31؛ أي fallback حتمي عام لـPROJECT_QUERY يحتاج
+  عقدًا وتقييمًا مستقلين، ولا يرتبط بإعادة تحقق Gate 3.
+
+### 42.53 — Bounded generic PROJECT_QUERY claim-closure proof (2026-09-26)
+
+- **phase/step:** تحقق من العقد المحدود `PROJECT_QUERY_GENERIC-PROJECT`؛ لا تغيير
+  في dependency graph أو صلاحيات التنفيذ.
+- **status:** `done` لمسار النجاح المحدود؛ يظل المسار العام بلا objective
+  canonical مغلقًا عند نقص الدليل أو فشل synthesis.
+- **what changed:** أضيف اختبار orchestrator يفشل فيه synthesis بعد ثلاث قراءات
+  كاملة retained، ثم يثبت materialization للمطالبات الثلاث، fallback الحتمي،
+  وعدم إعادة حلقة الأدوات، وإغلاق objective بحالة `PROVEN`. أضيف اختبار API/SSE
+  بtrace fixture يثبت أن الخادم مرر objective canonical، وقبل refs الثلاثة فقط،
+  وأسقط provenance في الرسالة النهائية والتاريخ. fixture الـAPI يغطي acceptance
+  والإسقاط، بينما اختبار orchestrator يغطي synthesis الفعلي. لم يتغير runtime.
+- **files/schema/contracts touched:**
+  `lib/ai-orchestrator/src/__tests__/objective-evidence-handoff-baseline.test.ts`
+  و`artifacts/api-server/src/routes/ai-stream-integration.test.ts`؛ لا ملفات
+  runtime أو schema.
+- **validation:** من `lib/ai-orchestrator` نجح
+  `pnpm exec vitest run src/__tests__/objective-evidence-handoff-baseline.test.ts`
+  (`17/17`). ومن `artifacts/api-server` نجح
+  `pnpm exec vitest run src/routes/ai-stream-integration.test.ts -t 'bounded generic PROJECT_QUERY objective'`
+  (`1/1`، 102 متجاوزة بالمرشح). نجح أيضًا
+  `cd artifacts/api-server && pnpm run typecheck` و`git diff --check`.
+- **authority/safety impact:** claims والقبول ما زالا server-owned؛ لا قبول
+  لاقتباسات provider. لم يتغير fallback لـ`projectOrientation` أو بوابات P6/P7،
+  ولم يُفتح fallback للمسار العام بلا objective.
+- **remaining/blocker:** لم تضف هذه الشريحة اختبارًا سلبيًا منفصلًا للمسار
+  generic عند قراءة truncated/needle غائب، ولا تغطي JSON وSSE معًا لنفس fixture.
+  اختبارات JSON العامة الحالية منفصلة عن اختبار قبول `generic-project`.
+- **next step:** أضف تغطية نقص الدليل وتكافؤ JSON/SSE/history للهدف المحدود إن
+  لزم، مع إبقاء `PROJECT_QUERY` بلا objective canonical غير مكتمل.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
