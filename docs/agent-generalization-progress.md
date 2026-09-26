@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-26
-**الوضع:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية ولديها شرائح runtime محدودة. P5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة: تشمل Action محدودًا لـ`mission_repair` وقراءتي recipe fail-closed، ويسجل مسارا `/api/ai/chat` و`/api/ai/chat/stream` قراءات provider المؤهلة. كما يسجل المساران قراءات `query_knowledge_graph` و`discover_project_apis` على Episode/attempt الدردشة، مع manifest وscope وrevision مملوكة للخادم؛ يظل `refresh_project_scan` خارج observation read-only. ينشئ `/api/ai/chat` غير المتدفق lifecycle دائمًا عند أول invocation قرائي مؤهل ويغلقه مع حواجز ownership؛ لا ينشئ lifecycle بلا قراءة ولا يغير دلالات acceptance أو ينشئ EffectBundle من الملاحظات. أدوات Mission غير المدرجة و`refresh_project_scan` وأدوات validation/effect خارج هذا الجرد، ولا تفتح P5.5 الحالية صلاحيات أو أسطحًا جديدة. أُغلق pilot محدود لـP6 على انتقال `runtime.start` الحقيقي `stopped → running` مع D1 قبل الأثر وD2 في Mission dispatch؛ تبقى `restart/stop` خارج النطاق. P7 للتشخيص العام ما زالت غير مكتملة؛ بدأ P7.5 بشريحة bootstrap ضيقة لـMission-owned `runtime.start` فقط. توجد primitives جزئية لـP8/P9/P10، لكنها لا تغلق التشخيص المعرفي أو belief أو السببية أو strategy portability. الأولوية إغلاق الحلقة المعرفية قبل التوسع الأفقي في capabilities أو learning.
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل بعد؛ الاختيار يظل `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شريحة Evidence-Preserved Synthesis Gateway لمسار PROJECT_QUERY المستهدف؛ يظل عقد المطالبات الخادمي للاستعلام العام عملًا منفصلًا وفق §42.49. أضيف في الخطة مرشح تكامل منتج غير منفذ لتحويل finding مقبول إلى Mission؛ لا يغيّر ترتيب §31 أو بوابات القبول.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -21,7 +21,7 @@
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `pilot closed (scoped)` | اكتمل pilot `runtime.start` الحقيقي `stopped → running`: D1 يمنع الأثر عند غياب/تعارض الدليل؛ materialization يثبت هوية التنفيذ والمحاولة وEpisode والجلسة ومراجع المشروع والبيئة؛ D2 يربط dispatch بالانتقال الحدثي ومراجعاته وملاحظاته وخطتيه. لا يمنع تغير World State غير متعلق هذا dispatch. `running → running` لا ينتج انتقالًا، و`restart/stop` خارج النطاق. |
-| P7 — World-State Failure Diagnosis | `not_started` | توجد foundations سابقة من provider/validator diagnostics وbounded replan، لكنها لا تعني بدء P7. تشخيص World State وربط الافتراضات بالـfacts المتأثرة و`WorldTransition` والملاحظة الفاصلة لم يبدأ. |
+| P7 — World-State Failure Diagnosis | `pilot done — runtime.start only` | أُغلق تشخيص bounded للانتقال `runtime.start` وفق إدخال 42.47 في هذا السجل؛ التشخيص العام وربط بقية World State والـfacts والـobservations ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `partial — runtime.start fixed-safe bootstrap` | بدأ تسجيل فرضيات runtime-start موزونة server-side وربط تجربة Mission بالـGoal والخطة والمراجعة والبيئة. الاختيار fixed-safe فقط؛ forecasts وEIG غير المعايرة advisory، ولا يوجد تحديث Belief أو ترتيب آلي أو توسيع إلى restart/stop. تبقى بقية DoD في §42.8 مفتوحة. |
 | P8 — Diagnosis-aware Replanning | `partial` | توجد bounded objective recovery وMission replan primitives، لكن لا تضمن دائمًا أن التشخيص هو مدخل إعادة التخطيط، ولا تستهلك World Delta/Belief revision. فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
@@ -102,26 +102,26 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 
 ## أولوية التنفيذ الحالية
 
-لم تعد الأولوية بناء بنية تحتية إضافية؛ الأولوية الآن إغلاق الحلقة السببية
-للإدراك والفعل والأثر والتشخيص والتعلم. أوقف التوسع الأفقي في capabilities
-وstrategy learning إلى أن تُغلق الحلقة المعرفية. اتبع الاعتماديات في §31؛
-الخطوات التالية تفاصيل للـpilot ولا تستبدل dependency graph في §31:
+يبقى §31 dependency graph الوحيد؛ pilots المنجزة لا تغلق المراحل العامة ولا
+تسمح بتجاوز بواباتها. لا توسّع capabilities أو strategy learning أفقيًا.
+الوضع الحالي يتطلب الفصل بين إغلاق P7.5 ومعالجة موثوقية Chat:
 
-1. نطاق P5.5 المخول والمدرج مكتمل. لا توسّع الجرد أو الصلاحيات؛ أي capability
-   جديدة تحتاج invocation identity ونتيجة server-owned قبل تنفيذ المسار الجديد.
-2. أكمل متطلبات P3.5 اللازمة للشريحة المختارة، ثم أغلق independent before/after
-   observations وEffect Verification كمدخلين لـP4/P5. لا تبدأ P6 قبل جاهزية هذه
-   المداخل، ولا تسجل P4/P5 كـ`done` قبل ربطها بـWorld Delta وفق staged closure.
-3. بعد جاهزية P3.5/P4/P5 فقط، نفّذ P6 على `runtime.start` عند انتقال مثبت
-   `stopped → running`: اربط القرار بـ`worldRevision` المقروء، وأكمل
-   `WorldTransition` durable/idempotent مع retry أو terminal failure لا يغير
-   acceptance. يبقى `restart/stop` خارج الـpilot.
-4. أثبت أن قرارًا لاحقًا يستهلك `resultingWorldRevision`؛ من دون ذلك لا تُغلق P6.
-5. بعد إغلاق P6، ابدأ World-State diagnosis ثم Belief/Information Gain
-   (P7 ثم P7.5)، ثم hypothesis-aware replan وcausal-credit safety (P8 ثم P9).
-6. بعد ذلك فقط استكمل portable strategy وheld-out/transfer learning.
+1. **P7.5:** اجمع 30 Mission مستقلة مكتملة على الأقل ضمن scope معايرة واحد،
+   مع held-out partition وشروط ECE وفاصل عدم اليقين المحددة في §25.4 و§42.8.
+   أبقِ `fixed_safe_probe` ولا تفتح ranking تلقائيًا قبل نجاح البوابة.
+2. **PROJECT_QUERY:** نفّذ عقد المطالبات server-owned للاستعلام العام كعمل
+   موثوقية في مسار Chat الحالي، ثم قيّم fallback فقط تحت بوابة القبول القائمة؛
+   لا تعِد استخدام claims يحددها المزود. هذا هو next step المسجل في §42.49،
+   وليس P7 أو P7.5.
+3. **تكامل finding→Mission:** هذا مرشح منتج موثق في §31، وليس مرحلة جديدة.
+   لا يبدأ قبل إكمال claim contract واختبار اتساق هوية `finalMessageId` مع صف
+   acceptance عند التعطل. بعدهما يقتصر على معاينة planHash، موافقة صريحة،
+   مراجع finding المقبول والمراجعة، وإعادة تحقق قبل mutation؛ لا graph أو
+   executor أو acceptance موازٍ.
+4. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
+   ومعايير الخروج في §31؛ لا تجعل شريحة Chat سببًا لتجاوزها.
 
-لا تبدأ مرحلة جديدة أو توسع replay/promotion قبل إغلاق بوابات هذه الحلقة.
+لا تبدأ مرحلة جديدة أو توسع replay/promotion قبل إغلاق بوابات الحلقة.
 
 ## Cognitive Spine Reality Check
 
@@ -1984,6 +1984,27 @@ G9 Revocation Safety
 - **next step:** أنشئ عقد مطالبات server-owned للاستعلام العام ضمن عمل مستقل،
   ثم قيّم fallback الحتمي تحت بوابة القبول القائمة دون إعادة استخدام claims
   يحددها المزود.
+
+### 42.50 — Chat-to-Mission handoff من finding مقبول (2026-09-26)
+
+- **phase/step:** توثيق قرار تكامل منتج بين Chat Read-Only وMission Validation؛
+  ليس P-stage أو dependency جديدة.
+- **status:** `not_started` — proposal موثق فقط؛ لم يتغير runtime أو UI.
+- **what changed:** أضيف عقد bounded لتحويل finding ذي claims مقبولة إلى Mission
+  عبر plan preview ذات planHash، موافقة المستخدم، ومراجع خادمية للرسالة والقبول
+  وevidence snapshot ومراجعة المصدر. أعيد تأكيد أن provenance لا يمنح scope
+  أو write authority، وأن أي mutation يحتاج أدلة وvalidation على المراجعة الحالية.
+- **files/schema/contracts touched:** `docs/agent-generalization-execution-plan.md`
+  و`docs/agent-generalization-progress.md`؛ لا code أو schema أو بيانات.
+- **validation:** مطابقة وثائقية مع §31، Slice A/B، §3.1–§3.6، §42.49،
+  ومسارات Chat/Mission الحالية؛ لا اختبارات runtime لأن التغيير توثيقي.
+- **authority/safety impact:** لا تغيير في acceptance أو permissions أو
+  dependency graph؛ لا graph أو executor أو response envelope جديد.
+- **remaining/blocker:** يلزم عقد claims server-owned لـPROJECT_QUERY العام،
+  واختبار crash/recovery لهوية الرسالة النهائية وصف القبول. خطة P7.5 ما زالت
+  تحتاج held-out outcomes ضمن scope مؤهل.
+- **next step:** أنجز شروط §31 والاعتماد المذكور في شريحة finding→Mission؛
+  بعد ذلك فقط يحدد تنفيذ UI منفصل مع اختبار planHash والمصدر stale والقبول.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

@@ -12,14 +12,20 @@ The general planning layer is an adapter and decision point, not a fourth planne
 The Mission adapter may expose a read-only admission preview and bind its
 bounded plan snapshot to the first activation Goal, but it must not create a
 second executor or grant write authority. Keep the plan hash and dependency
-edges identical across the Goal's success and outcome contracts.
+edges identical across the Goal's success and outcome contracts. A
+claim-linked Chat handoff is a product-integration seam, not a new planning or
+execution layer: it may carry only server-resolved accepted-claim/evidence
+references and their source revision into the existing Mission path.
 
 **Why:** A preview that differs from the first durable activation plan creates
 two interpretations of the same objective and makes later recovery ambiguous.
 
-**How to apply:** Derive both surfaces from the same server-owned preview;
-defer cross-Goal dependency persistence and natural-language Mission handoff
-until their ownership and consent boundaries are explicit.
+**How to apply:** Derive both surfaces from the same server-owned preview and
+require explicit consent plus the matching plan hash. Keep ordinary Chat and
+PROJECT_QUERY paths unchanged. Before mutation, revalidate against the current
+workspace revision; source evidence is planning context, not write authority or
+proof for the new effect. Do not add a cross-mission evidence graph or second
+executor for this handoff.
 
 The durable dependency owner is a revision-bound completion-edge table between
 Goals in one Mission. `parentGoalId` remains hierarchy only; dependency writes

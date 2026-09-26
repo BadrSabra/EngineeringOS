@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية:** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة تشمل Candidate Validation وRuntime وBrowser/Delivery وapply-changes وMission repair. P4 لديها environment identity وscoped World State، وملاحظة validator child، وإثبات محدود لمالك listener runtime ضمن مسارات محددة؛ لا يثبت ذلك تغطية lifecycle أو descendants العامة ولا ينشئ قبولًا خارج Gate C. P5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط: تسجل قراءات provider المؤهلة وقراءتي `query_knowledge_graph` و`discover_project_apis` في مساري `/api/ai/chat/stream` و`/api/ai/chat`. ينشئ المسار غير المتدفق execution/attempt قبل أول invocation قرائي مؤهل، ولا ينشئ lifecycle إذا لم تقع قراءة؛ لا يعني ذلك تغطية كل invocation أو جعل `refresh_project_scan` قراءة. لا يوجد World Delta أو عقد durable يضمن انتقال الأثر المقبول إلى معرفة قابلة للاستهلاك؛ قبول الأثر مستقل عن materialization والتعلم. توجد primitives جزئية لـP7/P8/P9/P10؛ الأولوية إغلاق cognitive loop لا التوسع الأفقي في capabilities أو strategy learning.
+> **آخر حالة تنفيذية (2026-09-26):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل بعد، ويبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. اكتملت شريحة Evidence-Preserved Synthesis Gateway لمسار PROJECT_QUERY المستهدف؛ لا يزال عقد المطالبات الخادمي للاستعلام العام والخطوة التالية لتقييم fallback عملاً منفصلاً. الأولوية تبقى إغلاق الحلقة المعرفية دون تجاوز §31. سجل التفاصيل في `docs/agent-generalization-progress.md`.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -3522,7 +3522,8 @@ Candidate Validation. لكل action معدِّل للحالة أو external effe
 هذا هو dependency plan المعتمد. أسماء الأقسام التنفيذية الأقدم في هذه الوثيقة
 تبقى مواصفات تفصيلية للوحدات، لكن لا يجوز استخدامها لتجاوز ترتيب الاعتماديات
 أدناه. حزم Phase 0–9 في §6 ليست roadmap ثانية. P5.5 ليس عقدة إضافية في هذا
-graph؛ هو work package عابر وأول أولوية تنفيذية قبل توسيع تكامل P4/P5.
+graph؛ هو work package عابر اكتمل ضمن الأسطح المخولة والمدرجة فقط، ولا يغيّر
+حالة P3.5/P4/P5 أو يجيز توسيع inventory.
 
 ```text
 P0   Contracts / invariants
@@ -3588,23 +3589,31 @@ inventory وسياسة invocation server-owned قبل إضافته، دون إن
 ثانية أو توسيع صلاحيات عبر telemetry.
 
 P4/P5 لها staged closure: independent observations وeffect verification هما
-مدخلات لازمة لبدء تكامل P6؛ لكن لا تسجل P4/P5 كـ`done` في الحالة التنفيذية حتى
-يثبت P6 ربطها بـWorld Delta قابل لإعادة البناء. هذا handoff مرحلي، لا إعفاء من
-ترتيب الاعتماديات ولا circular completion claim.
+مدخلان لازمان لإغلاقها عبر World Delta قابل لإعادة البناء. اكتمل pilot P6
+المحدود لـ`runtime.start` من `stopped` إلى `running` وفق §42.6؛ ويسجل
+`docs/agent-generalization-progress.md` في الإدخالين 42.46 و42.47 إغلاق pilot
+P6 وتشخيص P7 bounded للانتقال نفسه. لا يغلق أي منهما المراحل العامة أو يغطي
+`restart/stop` أو كل World State. أبقِ هذه الحدود واضحة في الحالة التنفيذية.
 
-تفصيل pilot لـP5.5/P4/P5/P6 لا ينشئ dependency graph موازيًا ولا يتجاوز أي
-بوابة: اربط قرارًا server-owned بـ`worldRevision` الذي قرأه، ثم نفّذ Runtime
-Golden Slice بملاحظة قبل/بعد مستقلة وEffect Verification، ثم أنشئ
-`WorldTransition` ونتيجة materialization دائمة، وأخيرًا أثبت أن القرار التالي
-استهلك `resultingWorldRevision`. لا يعد P6 مكتملًا بمجرد إنشاء سجل انتقال إذا
-ظل التخطيط يقرأ المراجعة السابقة.
+لا ينشئ إغلاق pilot dependency graph موازيًا ولا يغيّر ترتيب P0–P14. حالة
+P7.5 الحالية جزئية: يجمع النظام outcomes ضمن scope `runtime.start`، لكن لا يوجد
+حتى الآن scope اجتاز متطلبات held-out؛ لذلك يظل `fixed_safe_probe` ولا يبدأ
+الاختيار الآلي. لا تتوسع إلى P8/P9/P10 قبل إغلاق الاعتماديات ومعايير P7.5
+المحددة في هذا المستند.
 
-لا يبدأ التوسع الأفقي في capabilities أو strategy learning بينما P3.5/P4/P5/P6
-غير مغلقة. P5.5 مكتملة ضمن نطاقها المخول الحالي. أولوية التنفيذ هي استكمال
-متطلبات P3.5 اللازمة للشريحة المختارة، ثم إغلاق independent observation وEffect
-Verification كمدخلين لـP4/P5، ثم World Delta وrevision closure في P6. بعد إغلاق
-P6 فقط يبدأ World-State diagnosis ثم Belief/Information Gain، قبل إكمال replanning
-وcausal credit.
+للتنفيذ القريب مساران يجب عدم الخلط بينهما:
+
+1. **المسار المعرفي:** اجمع outcomes المؤهلة لمعايرة P7.5 مع إبقاء
+   `fixed_safe_probe` حتى تحقق عتبات §25.4 و§42.8.
+2. **موثوقية PROJECT_QUERY:** أكمل عقد المطالبات server-owned للاستعلام العام
+   ثم قيّم fallback تحت بوابة القبول الحالية، كما يسجل §42.49. هذا عمل
+   عابر للمراحل داخل مسار Chat القائم؛ لا يعد إغلاقًا لـP7/P7.5 ولا يغيّر
+   سلطة evidence أو acceptance.
+
+لا يبدأ التوسع الأفقي في capabilities أو strategy learning قبل إغلاق الحلقة
+وفق §31. تكامل Chat-to-Mission الموضح أدناه ليس مرحلة P جديدة، ولا يبرر تجاوز
+عقد المطالبات أو متطلبات هوية الرسالة والقبول؛ يسجل كمرشح تكامل منتج مؤجل
+ومحدود فوق Mission/Goal وProof Spine الموجودين.
 
 لا يتوسع `P10` ولا يعتبر مغلقًا قبل إغلاق P7.5/P8/P9 وتوفر effects وacceptance
 وcausal evidence الموثوقة؛ candidate discovery أو replay infrastructure لا
@@ -3713,6 +3722,68 @@ runtime/schema قبل إغلاق بوابة الوثائق ومراجعتها. �
 **الحالة:** الشريحة المنفذة مكتملة؛ يبقى إنشاء عقد مطالبات موثوق للاستعلام
 العام عملًا منفصلًا قبل توسيع fallback. اختبارات التنفيذ ومسار API هي معيار
 التحقق المسجل في أحدث إدخال تقدم §42.49.
+
+### Product integration seam — accepted finding to Mission
+
+**الحالة:** مقترح موثق؛ غير منفذ، وليس مرحلة أو dependency جديدة في §31.
+
+الهدف هو وصل مخرجات `Slice A: Chat Read-Only` بمسار `Slice B: Mission
+Validation` من دون إضافة planner أو executor أو evidence graph موازٍ. الكود
+الحالي يملك معاينة Mission خادمية وواجهة handoff صريحة؛ الفجوة المقترحة هي أن
+الواجهة لا تعرض معاينة الخطة قبل تشغيلها، وأن handoff الحالي لا يربط البعثة
+بادعاء assistant مقبول ولقطة دليله على نحو يتيح الرجوع من الأثر إلى النتيجة
+الأصلية.
+
+#### تدفق مقترح
+
+1. يظل السؤال العادي في Chat، ويظل PROJECT_QUERY مسار قراءة وإثبات مستقلًا.
+   لا تنشأ Mission لمجرد أن provider اقترحها.
+2. لا يظهر تحويل finding إلى Mission إلا لنتيجة تحمل قبولًا خادميًا وادعاءات
+   مقبولة. النتيجة غير المثبتة تتيح متابعة التحقيق فقط، ولا تعامل كحقيقة.
+3. يعرض العميل معاينة `plan-preview` للقراءة فقط. يؤكد المستخدم الخطوات والنطاق
+   قبل handoff، ويرسل `expectedPlanHash` نفسه الذي عُرض عليه.
+4. يثبت الخادم مصدر handoff من صفوفه الدائمة: المشروع، رسالة المستخدم، رسالة
+   assistant النهائية، acceptance، evidence snapshot، مراجعة المصدر، ومعرّفات
+   الادعاءات المقبولة. لا يثق بقائمة claims أو مسارات أو أجسام دليل يرسلها
+   العميل، ويرفض المصدر غير المملوك أو الخطة المتغيرة.
+5. تحفظ Mission مراجع المصدر و`planHash` ومراجعة المصدر كسياق provenance.
+   هذه المراجع قد تساعد التخطيط فقط؛ لا تمنح write authority ولا تفي بمتطلبات
+   قراءة أو تحقق حديثة. عند اختلاف مراجعة مساحة العمل، يلزم تحديث النطاق أو
+   إعادة القراءة قبل أي mutation.
+6. يستخدم التفعيل runtime وGoals والتبعيات وapproval وrecipes وCanonical Proof
+   الحاليين. بعد الإنهاء، تعرض Chat وMission الرابط نفسه بين finding الأصلي،
+   قرار القبول، التنفيذ، والأثر المتحقق.
+
+#### شروط قبول هذه الشريحة
+
+- معاينة الخطة لا تنشئ Mission أو Goal أو Task أو lease أو execution.
+- handoff يتطلب موافقة صريحة، ويعيد رفض stale `planHash` أو مصدر لا يطابق
+  المشروع/الجلسة/الرسالة/القبول.
+- لا يُقبل finding غير `PROVEN` ولا provider prose وحده كمصدر للبعثة.
+- لا تنتقل أدلة revision قديمة كدليل على revision جديدة؛ يتم إعادة التحقق
+  server-side قبل أي تغيير.
+- لا تتغير بوابات القبول أو الصلاحيات أو policy الموافقة؛ نجاح Mission يظل
+  تابعًا إلى Goal/runtime/Canonical Proof الحالي.
+- يحافظ الاسترداد على هوية الرسالة النهائية نفسها التي يرتبط بها صف القبول؛
+  يلزم اختبار تعطل بين حفظ الرسالة وإتمام القبول قبل إظهار أي finding بوصفه
+  قابلاً للتحويل إلى عمل.
+- لا يضاف تخزين أجسام evidence أو cross-mission claim graph أو جدول attempts
+  جديد لهذه الشريحة. تبقى إعادة استخدام الأدلة مرجعية ومحدودة بالمراجعة؛
+  World State materialization والتعلم لهما عقودهما ومراحلهما المستقلة.
+
+#### نقاط التعديل المرجحة عند التنفيذ
+
+- الواجهة: `artifacts/dashboard/src/pages/AiChat.tsx` و
+  `artifacts/dashboard/src/lib/ai-missions.ts`.
+- handoff ومعاينة الخطة: `artifacts/api-server/src/routes/ai/missions.ts`
+  و`artifacts/api-server/src/lib/mission-runtime.ts`؛ تحقق الاستمرارية/القبول
+  في مسار الدردشة القائم عند الحاجة.
+- هذه نقاط تعديل متوقعة فقط، وليست تكليفًا أو تغييرات منفذة في هذا التحديث.
+
+**الاعتماد المقترح:** أتمم أولًا عقد المطالبات الخادمي لـPROJECT_QUERY العام
+المسجل في §42.49، واختبار اتساق هوية final message/acceptance تحت التعطل.
+بعدها يمكن تنفيذ معاينة الخطة والربط في واجهة Chat باستخدام المسارات الحالية؛
+لا يبدأ هذا العمل أي capability أو مرحلة cognition إضافية.
 
 ---
 

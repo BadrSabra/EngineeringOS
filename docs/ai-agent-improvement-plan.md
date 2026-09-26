@@ -1,5 +1,12 @@
 # خطة تطوير الوكيل الذكي الداخلي — EngineeringOS
 
+> **الحالة (2026-09-26): وثيقة تاريخية غير حاكمة.** هذه الخطة ذات المراحل الخمس
+> كُتبت قبل مواصفة التعميم والتعلم الحالية. لا تستخدم مقترحات A-Mem أو رسم
+> معرفة/منفذ إضافي كـroadmap مستقلة أو لتجاوز الاعتماديات. المرجع الحالي هو
+> `docs/agent-generalization-execution-plan.md` مع سجل
+> `docs/agent-generalization-progress.md`. أُضيف مسار finding→Mission إلى
+> المرجع الحالي بوصفه تكامل منتج مقترحًا وغير منفذ؛ لا يغيّر Proof أو صلاحياته.
+
 > **تاريخ الإصدار:** 2026-08-04  
 > **المصادر العلمية:**  
 > - *When Agents Do Not Stop: Uncovering Infinite Agentic Loops in LLM Agents* — arXiv:2607.01641 (2026)  
