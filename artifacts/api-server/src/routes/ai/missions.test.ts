@@ -704,11 +704,7 @@ describe("AI missions and goals", () => {
       intent: "Inspect the source, then fix the blocking issue.",
     });
     const replan = await request(app)
-      .post(`/api/ai/missions/${mission.body.id}/replan`)
-      .send({
-        message: "Inspect the source, then fix the newly discovered issue.",
-        reason: "The first execution found a changed objective.",
-      });
+      .post(`/api/ai/missions/${mission.body.id}/replan`);
     expect(replan.status).toBe(201);
     expect(replan.body.goal.goalId).toBeTruthy();
     expect(replan.body.plan.planHash).toBeTruthy();

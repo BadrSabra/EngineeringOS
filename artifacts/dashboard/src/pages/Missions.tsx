@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import {
   createTask,
   getListProjectsQueryKey,
+  useApproveAiMissionGoal,
   useListProjects,
+  useReplanAiMission,
   type CreateTaskInput as ApiCreateTaskInput,
 } from '@workspace/api-client-react';
 import {
@@ -50,6 +52,9 @@ import {
   UpdateGoalInput,
   UpdateMissionInput,
 } from '@/lib/ai-missions';
+import MissionActionDialog, {
+  type MissionActionConfirmation,
+} from '@/components/MissionActionDialog';
 
 function formatDate(value: string | null | undefined, includeTime = false) {
   if (!value) return 'Not set';
@@ -851,6 +856,8 @@ function GoalCard({
   onEdit,
   onCreateTask,
   onBindDelivery,
+  onReviewApproval,
+  approvalDisabled,
 }: {
   item: MissionProjection['goals'][number];
   expanded: boolean;
@@ -858,6 +865,8 @@ function GoalCard({
   onEdit: () => void;
   onCreateTask: () => void;
   onBindDelivery: () => void;
+  onReviewApproval: (executionId: string | null) => void;
+  approvalDisabled: boolean;
 }) {
   const { goal, tasks, workflows, executions, events, skillCandidate } = item;
   const linkedCount = tasks.length + workflows.length + executions.length + events.length;
@@ -904,6 +913,19 @@ function GoalCard({
               <GitBranch className="h-3 w-3" />
               <span className="hidden sm:inline">Bind proposal</span>
               <span className="sm:hidden">Bind</span>
+            </button>
+          ) : null}
+          {goal.status === 'waiting_for_approval' ? (
+            <button
+              type="button"
+              onClick={() => onReviewApproval(item.executions[0]?.id ?? null)}
+              disabled={approvalDisabled}
+              data-testid={`button-review-approval-${goal.id}`}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-300/25 bg-amber-300/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-wait disabled:opacity-60"
+            >
+              <ShieldAlert className="h-3 w-3" />
+              <span className="hidden sm:inline">Review approval</span>
+              <span className="sm:hidden">Approve</span>
             </button>
           ) : null}
           <button type="button" onClick={onEdit} data-testid={`button-edit-goal-${goal.id}`} aria-label={`Edit ${goal.title}`} className="rounded-md border border-transparent p-1.5 text-slate-600 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-cyan-200">
@@ -1017,6 +1039,8 @@ export default function Missions() {
   } = useListProjects(undefined, {
     query: { queryKey: getListProjectsQueryKey() },
   });
+  const replanMission = useReplanAiMission();
+  const approveMissionGoal = useApproveAiMissionGoal();
   const projects = useMemo(() => rawProjects ?? [], [rawProjects]);
   const [projectId, setProjectId] = useState('');
   const [selectedMissionId, setSelectedMissionId] = useState<string | null>(null);
@@ -1033,6 +1057,8 @@ export default function Missions() {
   const [mutationSaving, setMutationSaving] = useState(false);
   const [mutationError, setMutationError] = useState<unknown>(null);
   const [mutationNotice, setMutationNotice] = useState<string | null>(null);
+  const [pendingMissionAction, setPendingMissionAction] = useState<MissionActionConfirmation | null>(null);
+  const [missionActionError, setMissionActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -1099,6 +1125,8 @@ export default function Missions() {
 
   useEffect(() => {
     setExpandedGoalId(null);
+    setPendingMissionAction(null);
+    setMissionActionError(null);
   }, [activeMissionId]);
 
   useEffect(() => {
@@ -1114,6 +1142,9 @@ export default function Missions() {
     ? Number((projectsQueryError as { status?: unknown }).status)
     : null;
   const projectionGoals = projection?.goals ?? [];
+  const needsReplan = activeMission?.status === 'needs_replan'
+    || projectionGoals.some((item) => item.goal.status === 'needs_replan');
+  const missionActionPending = replanMission.isPending || approveMissionGoal.isPending;
   const acceptedFindingSource = activeMission
     ? readAcceptedProjectQueryHandoffSource(activeMission.autonomyPolicy)
     : null;
@@ -1232,6 +1263,50 @@ export default function Missions() {
     } finally {
       setMutationSaving(false);
     }
+  };
+
+  const confirmMissionAction = () => {
+    if (!pendingMissionAction || missionActionPending) return;
+    setMissionActionError(null);
+    const refreshMissionData = () => {
+      setMissionsReload((value) => value + 1);
+      setProjectionReload((value) => value + 1);
+    };
+    if (pendingMissionAction.type === 'replan') {
+      replanMission.mutate(
+        { missionId: pendingMissionAction.missionId },
+        {
+          onSuccess: () => {
+            setPendingMissionAction(null);
+            setMutationNotice('A new plan revision was created. Mission execution has resumed.');
+            refreshMissionData();
+          },
+          onError: (error) => {
+            setMissionActionError(errorMessage(error, 'The Mission could not be replanned. Refresh and try again.'));
+            refreshMissionData();
+          },
+        },
+      );
+      return;
+    }
+
+    approveMissionGoal.mutate(
+      {
+        missionId: pendingMissionAction.missionId,
+        goalId: pendingMissionAction.goalId,
+      },
+      {
+        onSuccess: () => {
+          setPendingMissionAction(null);
+          setMutationNotice('The Goal was approved and Mission execution resumed.');
+          refreshMissionData();
+        },
+        onError: (error) => {
+          setMissionActionError(errorMessage(error, 'The Goal could not be approved. Refresh and try again.'));
+          refreshMissionData();
+        },
+      },
+    );
   };
 
   return (
@@ -1388,6 +1463,25 @@ export default function Missions() {
                         </div>
                         <div className="flex shrink-0 items-start gap-3 sm:flex-col sm:items-end">
                           <div className="flex items-center gap-2">
+                            {needsReplan ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMissionActionError(null);
+                                  setPendingMissionAction({
+                                    type: 'replan',
+                                    missionId: activeMission.id,
+                                    missionTitle: activeMission.title,
+                                  });
+                                }}
+                                disabled={mutationSaving || missionActionPending}
+                                data-testid={`button-replan-mission-${activeMission.id}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/25 bg-amber-300/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                Create new plan
+                              </button>
+                            ) : null}
                             {activeMission.status === 'draft' ? (
                               <button type="button" onClick={() => void startMission()} disabled={mutationSaving} data-testid={`button-start-mission-${activeMission.id}`} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-300/15 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-300/25 disabled:cursor-wait disabled:opacity-60">
                                 {mutationSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpRight className="h-3.5 w-3.5" />}
@@ -1546,6 +1640,19 @@ export default function Missions() {
                                 onEdit={() => openEditor({ type: 'goal-edit', missionId: activeMission.id, goal: item.goal })}
                                  onCreateTask={() => openEditor({ type: 'task-create', goal: item.goal, projectId })}
                                  onBindDelivery={() => openEditor({ type: 'delivery-bind', goal: item.goal })}
+                                onReviewApproval={(executionId) => {
+                                  setMissionActionError(null);
+                                  setPendingMissionAction({
+                                    type: 'approve',
+                                    missionId: activeMission.id,
+                                    missionTitle: activeMission.title,
+                                    goalId: item.goal.id,
+                                    goalTitle: item.goal.title,
+                                    projectId: String(activeMission.projectId),
+                                    executionId,
+                                  });
+                                }}
+                                approvalDisabled={mutationSaving || missionActionPending}
                               />
                             ))}
                           </div>
@@ -1587,6 +1694,16 @@ export default function Missions() {
       {editor?.type === 'task-create' ? (
         <TaskEditor projectId={editor.projectId} goal={editor.goal} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleSave} />
       ) : null}
+      <MissionActionDialog
+        action={pendingMissionAction}
+        isPending={missionActionPending}
+        error={missionActionError}
+        onClose={() => {
+          setPendingMissionAction(null);
+          setMissionActionError(null);
+        }}
+        onConfirm={confirmMissionAction}
+      />
     </main>
   );
 }

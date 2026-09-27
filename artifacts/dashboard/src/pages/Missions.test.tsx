@@ -10,18 +10,24 @@ const {
   fetchMissionsMock,
   fetchMissionProjectionMock,
   useListProjectsMock,
+  approveMissionGoalMutateMock,
+  replanMissionMutateMock,
 } = vi.hoisted(() => ({
   createMissionMock: vi.fn(),
   bindMissionDeliveryMock: vi.fn(),
   fetchMissionsMock: vi.fn(),
   fetchMissionProjectionMock: vi.fn(),
   useListProjectsMock: vi.fn(),
+  approveMissionGoalMutateMock: vi.fn(),
+  replanMissionMutateMock: vi.fn(),
 }));
 
 vi.mock('@workspace/api-client-react', () => ({
   createTask: vi.fn(),
   getListProjectsQueryKey: vi.fn(() => ['projects']),
+  useApproveAiMissionGoal: () => ({ mutate: approveMissionGoalMutateMock, isPending: false }),
   useListProjects: useListProjectsMock,
+  useReplanAiMission: () => ({ mutate: replanMissionMutateMock, isPending: false }),
 }));
 
 vi.mock('@/lib/ai-missions', () => ({
@@ -86,6 +92,8 @@ beforeEach(() => {
     counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
   });
   createMissionMock.mockResolvedValue(mission);
+  approveMissionGoalMutateMock.mockReset();
+  replanMissionMutateMock.mockReset();
 });
 
 describe('Missions management', () => {
@@ -250,5 +258,117 @@ describe('Missions management', () => {
 
     await waitFor(() => expect(bindMissionDeliveryMock).toHaveBeenCalledWith(deliveryGoal.id, 'proposal-1'));
     expect(await screen.findByRole('status')).toHaveTextContent('Delivery proposal bound.');
+  });
+
+  it('confirms a server-owned replan and refreshes mission state after success', async () => {
+    const needsReplanMission = { ...mission, status: 'needs_replan' as const };
+    fetchMissionsMock.mockResolvedValue([needsReplanMission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: needsReplanMission,
+      goals: [],
+      counts: { goals: 0, tasks: 0, workflows: 0, executions: 0, events: 0 },
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByTestId(`button-replan-mission-${mission.id}`));
+
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(
+      'Previous Goals and evidence remain in the Mission history.',
+    );
+    fireEvent.click(screen.getByTestId('button-confirm-mission-action'));
+
+    await waitFor(() => {
+      expect(replanMissionMutateMock).toHaveBeenCalledWith(
+        { missionId: mission.id },
+        expect.objectContaining({
+          onSuccess: expect.any(Function),
+          onError: expect.any(Function),
+        }),
+      );
+    });
+
+    const [, callbacks] = replanMissionMutateMock.mock.calls[0] as [
+      unknown,
+      { onSuccess: () => void },
+    ];
+    callbacks.onSuccess();
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'A new plan revision was created.',
+    );
+    await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('reviews the linked execution before approving a waiting Goal and resumes through the API gate', async () => {
+    const activeMission = { ...mission, status: 'active' as const };
+    const waitingGoal = {
+      id: 'goal-approval-1',
+      missionId: activeMission.id,
+      projectId: project.id,
+      parentGoalId: null,
+      title: 'Apply the proposed fix',
+      description: null,
+      status: 'waiting_for_approval' as const,
+      priority: 'p1',
+      successCriteria: {},
+      evidenceContract: {},
+      outcomeContract: {},
+      nextAction: { proposalId: 'server-owned-proposal-1' },
+      blockedReason: null,
+      nextWakeAt: null,
+      createdAt: '2026-09-22T00:00:00.000Z',
+      updatedAt: '2026-09-22T00:01:00.000Z',
+      completedAt: null,
+    };
+    fetchMissionsMock.mockResolvedValue([activeMission]);
+    fetchMissionProjectionMock.mockResolvedValue({
+      mission: activeMission,
+      goals: [{
+        goal: waitingGoal,
+        tasks: [],
+        workflows: [],
+        executions: [{
+          id: 'execution-approval-1',
+          status: 'waiting',
+          attempt: 1,
+          operationId: 'operation-approval-1',
+          updatedAt: '2026-09-22T00:01:00.000Z',
+          completedAt: null,
+        }],
+        events: [],
+      }],
+      counts: { goals: 1, tasks: 0, workflows: 0, executions: 1, events: 0 },
+    });
+
+    renderPage();
+    fireEvent.click(await screen.findByTestId(`button-review-approval-${waitingGoal.id}`));
+
+    expect(screen.getByTestId('link-review-mission-approval')).toHaveAttribute(
+      'href',
+      '/mission-control?projectId=project-1&executionId=execution-approval-1',
+    );
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(
+      'it does not apply or deliver files by itself.',
+    );
+    fireEvent.click(screen.getByTestId('button-confirm-mission-action'));
+
+    await waitFor(() => {
+      expect(approveMissionGoalMutateMock).toHaveBeenCalledWith(
+        { missionId: activeMission.id, goalId: waitingGoal.id },
+        expect.objectContaining({
+          onSuccess: expect.any(Function),
+          onError: expect.any(Function),
+        }),
+      );
+    });
+
+    const [, callbacks] = approveMissionGoalMutateMock.mock.calls[0] as [
+      unknown,
+      { onSuccess: () => void },
+    ];
+    callbacks.onSuccess();
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'The Goal was approved and Mission execution resumed.',
+    );
+    await waitFor(() => expect(fetchMissionProjectionMock).toHaveBeenCalledTimes(2));
   });
 });

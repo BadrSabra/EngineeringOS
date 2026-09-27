@@ -1425,7 +1425,7 @@ router.post("/ai/missions/from-chat", async (req, res) => {
  * it never rewrites a historical revision in place.
  */
 router.post("/ai/missions/:missionId/replan", async (req, res) => {
-  const body = MissionReplanBody.parse(req.body);
+  const body = MissionReplanBody.parse(req.body ?? {});
   const owned = await loadOwnedMission(req.params.missionId, req.userId, res);
   if (!owned) return;
   if (["completed", "cancelled"].includes(owned.mission.status)) {
