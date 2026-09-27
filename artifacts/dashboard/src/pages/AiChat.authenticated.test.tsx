@@ -3071,6 +3071,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     });
 
     expect(screen.getByRole('status', { name: 'Behavior analysis progress' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Assistant response in progress' })).toBeInTheDocument();
     expect(screen.getByText('Reading project evidence')).toBeInTheDocument();
     expect(screen.getByText('1 read')).toBeInTheDocument();
     expect(screen.getByText(/src\/routes\/request\.ts/)).toBeInTheDocument();
@@ -3129,6 +3130,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     await waitFor(() => {
       expect(screen.queryByRole('status', { name: 'Behavior analysis progress' })).not.toBeInTheDocument();
     });
+    expect(screen.queryByRole('group', { name: 'Assistant response in progress' })).not.toBeInTheDocument();
     expect(screen.getByText('Behavior answer')).toBeInTheDocument();
     expect(screen.getAllByText('The handler validates the request before dispatch.').length).toBeGreaterThan(0);
   });
@@ -3169,6 +3171,9 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.getAllByText(/Behavior evidence · 1 excerpt/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('if (!flag) return "partial"').length).toBeGreaterThan(0);
     expect(screen.getAllByText('src/pick.ts').length).toBeGreaterThan(0);
+    expect(screen.getByRole('group', { name: 'Assistant response' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Evidence and context' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Run details' })).toBeInTheDocument();
   });
 
   it('renders a FINDING_RESULT with a severity badge and description', async () => {

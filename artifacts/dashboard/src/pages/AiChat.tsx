@@ -5927,10 +5927,33 @@ function MessageBubble({
     && msg.retryable !== false
     && onRetryProjectQuery,
   );
+  const behaviorEvidenceCount = parseBehaviorEvidence(msg.behaviorEvidence).length;
+  const hasEvidenceDetails = !isUser && Boolean(
+    msg.contextProvenance
+    || msg.projectQueryTarget
+    || isProjectQueryTurn
+    || msg.sourceSelectionRecord
+    || evidenceGraph
+    || behaviorEvidenceCount > 0,
+  );
+  const hasExecutionDetails = !isUser && Boolean(
+    isForensicFallback
+    || incompleteBeforeEvidence
+    || executionSummary
+    || executionLedger
+    || repairRadar
+    || isEngineeringExecution
+    || isForensicRun
+    || activityEvents.length > 0
+    || productionTrace
+    || crossFileTraces.length > 0,
+  );
   return (
     <div
       data-chat-message-id={msg.id}
-      className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}
+      role="group"
+      aria-label={isUser ? 'Your message' : 'Assistant response'}
+      className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-6`}
     >
       <div
         className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
@@ -5939,12 +5962,21 @@ function MessageBubble({
       >
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-primary" />}
       </div>
-      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-2 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+        <div
+          aria-hidden="true"
+          className={`flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+            isUser ? 'text-primary/80' : 'text-muted-foreground'
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${isUser ? 'bg-primary' : 'bg-sky-300/70'}`} />
+          {isUser ? 'You' : 'EngineeringOS AI'}
+        </div>
         {!isStructuredPlan && <div
-          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed shadow-sm [overflow-wrap:anywhere] ${
             isUser
-              ? 'bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap'
-              : 'bg-secondary border border-border rounded-tl-sm prose prose-sm prose-invert'
+              ? 'rounded-tr-sm border border-primary/35 bg-primary text-primary-foreground whitespace-pre-wrap'
+              : 'rounded-tl-sm border border-border/80 bg-secondary/70 prose prose-sm prose-invert'
           }`}
         >
           {failedTurn ? (
@@ -6057,20 +6089,20 @@ function MessageBubble({
           ) : (
             <ReactMarkdown
               components={{
-                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
-                ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
-                li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                p: ({ children }) => <p className="mb-3 leading-7 last:mb-0">{children}</p>,
+                ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5">{children}</ul>,
+                ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5">{children}</ol>,
+                li: ({ children }) => <li className="leading-6">{children}</li>,
                 strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                 code: ({ children, className }) => (
-                  <code className={`${className ?? ''} ${className ? '' : 'break-all'} bg-black/20 rounded px-1 py-0.5 text-xs font-mono`}>
+                  <code className={`${className ?? ''} ${className ? '' : 'break-all'} rounded border border-border/50 bg-background/60 px-1 py-0.5 text-xs font-mono text-sky-100`}>
                     {children}
                   </code>
                 ),
-                pre: ({ children }) => <pre className="mb-2 max-w-full overflow-x-auto rounded bg-black/20 p-2 text-xs font-mono whitespace-pre">{children}</pre>,
-                h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
-                h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                pre: ({ children }) => <pre className="mb-3 max-w-full overflow-x-auto rounded-lg border border-border/60 bg-background/70 p-3 text-xs font-mono leading-5 whitespace-pre">{children}</pre>,
+                h1: ({ children }) => <h1 className="mb-3 mt-5 border-b border-border/50 pb-1 text-lg font-bold leading-snug tracking-tight text-foreground first:mt-0">{children}</h1>,
+                h2: ({ children }) => <h2 className="mb-2 mt-5 text-base font-semibold leading-snug tracking-tight text-foreground first:mt-0">{children}</h2>,
+                h3: ({ children }) => <h3 className="mb-1.5 mt-4 text-sm font-semibold leading-snug text-foreground first:mt-0">{children}</h3>,
                 h4: ({ children }) => (
                   <ProjectQuerySourceHeading projectId={projectId}>{children}</ProjectQuerySourceHeading>
                 ),
@@ -6124,24 +6156,41 @@ function MessageBubble({
             ))}
           </div>
         )}
-        {!isUser && msg.contextProvenance && (
-          <ContextProvenanceCard provenance={msg.contextProvenance} />
+        {hasEvidenceDetails && (
+          <div aria-hidden="true" className="mt-1 flex items-center gap-2 px-1">
+            <span className="h-px w-4 shrink-0 bg-sky-400/40" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-sky-200/70">
+              Evidence &amp; context
+            </span>
+            <span className="h-px flex-1 bg-border/60" />
+          </div>
         )}
-        {!isUser && msg.projectQueryTarget && (
-          <ProjectQueryTargetCard decision={msg.projectQueryTarget} />
-        )}
-        {!isUser && isProjectQueryTurn && (
-          <ProjectQueryResponseCard
-            source={msg.projectQueryResponseSource}
-            fallbackReason={msg.projectQueryResponseFallbackReason}
-            acceptanceDisposition={msg.acceptanceDisposition}
-          />
-        )}
-        {!isUser && msg.sourceSelectionRecord && (
-          <SourceCoveragePanel record={msg.sourceSelectionRecord} />
-        )}
-        {!isUser && evidenceGraph && <EvidenceGraphPanel graph={evidenceGraph} />}
-        {!isUser && <BehaviorEvidencePanel evidence={parseBehaviorEvidence(msg.behaviorEvidence)} projectId={projectId} />}
+        <div
+          role={hasEvidenceDetails ? 'group' : undefined}
+          aria-label={hasEvidenceDetails ? 'Evidence and context' : undefined}
+          className={hasEvidenceDetails
+            ? 'flex w-full flex-col gap-3 border-l-2 border-sky-400/20 pl-3'
+            : 'flex w-full flex-col gap-0'}
+        >
+          {!isUser && msg.contextProvenance && (
+            <ContextProvenanceCard provenance={msg.contextProvenance} />
+          )}
+          {!isUser && msg.projectQueryTarget && (
+            <ProjectQueryTargetCard decision={msg.projectQueryTarget} />
+          )}
+          {!isUser && isProjectQueryTurn && (
+            <ProjectQueryResponseCard
+              source={msg.projectQueryResponseSource}
+              fallbackReason={msg.projectQueryResponseFallbackReason}
+              acceptanceDisposition={msg.acceptanceDisposition}
+            />
+          )}
+          {!isUser && msg.sourceSelectionRecord && (
+            <SourceCoveragePanel record={msg.sourceSelectionRecord} />
+          )}
+          {!isUser && evidenceGraph && <EvidenceGraphPanel graph={evidenceGraph} />}
+          {!isUser && <BehaviorEvidencePanel evidence={parseBehaviorEvidence(msg.behaviorEvidence)} projectId={projectId} />}
+        </div>
         {!isUser && (
           <TaskResultPanel
             result={msg.taskResult}
@@ -6184,61 +6233,78 @@ function MessageBubble({
             </time>
           </div>
         )}
-        {isForensicFallback
-          ? <ForensicFallbackBanner
-              evidenceOnly={isEvidenceOnlyFallback}
-              noFinding={isNoFindingFallback}
+        {hasExecutionDetails && (
+          <div aria-hidden="true" className="mt-1 flex items-center gap-2 px-1">
+            <span className="h-px w-4 shrink-0 bg-primary/40" />
+            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              Run details
+            </span>
+            <span className="h-px flex-1 bg-border/60" />
+          </div>
+        )}
+        <div
+          role={hasExecutionDetails ? 'group' : undefined}
+          aria-label={hasExecutionDetails ? 'Run details' : undefined}
+          className={hasExecutionDetails
+            ? 'flex w-full flex-col gap-3 border-l-2 border-primary/20 pl-3'
+            : 'flex w-full flex-col gap-0'}
+        >
+          {isForensicFallback
+            ? <ForensicFallbackBanner
+                evidenceOnly={isEvidenceOnlyFallback}
+                noFinding={isNoFindingFallback}
+              />
+            : incompleteBeforeEvidence
+              ? null
+              : <ExecutionSummaryBanner
+                  summary={executionSummary}
+                  operatorTraceId={`operator-trace-${msg.id}`}
+                  // Generic chats do not show forensic evidence cards, but a
+                  // failed provider/connection still needs its persisted
+                  // execution stop reason and diagnostic surfaced. Keep this
+                  // narrow so successful ordinary chat stays telemetry-free.
+                  visible={isForensicRun || isEngineeringExecution || (failedTurn && executionSummary !== null)}
+                />}
+          {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
+          {!isUser && !isChatTurn && <ExecutionLedgerCard snapshot={executionLedger} />}
+          {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
+            <PersistedExecutionProof
+              summary={executionSummary}
+              trace={activityTrace}
+              evidence={forensicEvidence}
+              finalVerdict={finalVerdict}
+              behaviorEvidenceCount={behaviorEvidenceCount}
+              traceId={`operator-trace-${msg.id}`}
             />
-          : incompleteBeforeEvidence
-            ? null
-            : <ExecutionSummaryBanner
-                summary={executionSummary}
-                operatorTraceId={`operator-trace-${msg.id}`}
-                // Generic chats do not show forensic evidence cards, but a
-                // failed provider/connection still needs its persisted
-                // execution stop reason and diagnostic surfaced. Keep this
-                // narrow so successful ordinary chat stays telemetry-free.
-                visible={isForensicRun || isEngineeringExecution || (failedTurn && executionSummary !== null)}
-              />}
-        {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
-        {!isUser && !isChatTurn && <ExecutionLedgerCard snapshot={executionLedger} />}
-        {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
-          <PersistedExecutionProof
-            summary={executionSummary}
-            trace={activityTrace}
-            evidence={forensicEvidence}
-            finalVerdict={finalVerdict}
-            behaviorEvidenceCount={parseBehaviorEvidence(msg.behaviorEvidence).length}
-            traceId={`operator-trace-${msg.id}`}
-          />
-        )}
-        {!isChatTurn && (
-          <CompletedActivityTimeline
-            events={activityEvents}
-            defaultOpen={false}
-          />
-        )}
-        {!isChatTurn && (
-          <SemanticTraceCard
-            productionTrace={productionTrace}
-            crossFileTraces={crossFileTraces}
-          />
-        )}
-        {forensicEvidence && (
-          <ForensicEvidenceCard
-            evidence={forensicEvidence}
-            // Task #43: keep the forensic card expanded by default whenever the
-            // audit is fixture-local, so the FIXTURE-LOCAL / NOT PROVEN
-            // separation is never hidden behind a collapsed card.
-            defaultExpanded={isForensicFallback || forensicEvidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL'}
-            finalVerdict={finalVerdict}
-            // NI-35: ship the claim-bound behavioral evidence so the card can
-            // render "these lines prove this behavior" instead of just the
-            // raw list of files that were read.
-            claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
-          />
-        )}
-        {isEngineeringExecution && <FlightRecorder trace={activityTrace} />}
+          )}
+          {!isChatTurn && (
+            <CompletedActivityTimeline
+              events={activityEvents}
+              defaultOpen={false}
+            />
+          )}
+          {!isChatTurn && (
+            <SemanticTraceCard
+              productionTrace={productionTrace}
+              crossFileTraces={crossFileTraces}
+            />
+          )}
+          {forensicEvidence && (
+            <ForensicEvidenceCard
+              evidence={forensicEvidence}
+              // Task #43: keep the forensic card expanded by default whenever the
+              // audit is fixture-local, so the FIXTURE-LOCAL / NOT PROVEN
+              // separation is never hidden behind a collapsed card.
+              defaultExpanded={isForensicFallback || forensicEvidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL'}
+              finalVerdict={finalVerdict}
+              // NI-35: ship the claim-bound behavioral evidence so the card can
+              // render "these lines prove this behavior" instead of just the
+              // raw list of files that were read.
+              claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
+            />
+          )}
+          {isEngineeringExecution && <FlightRecorder trace={activityTrace} />}
+        </div>
       </div>
     </div>
   );
@@ -12878,11 +12944,27 @@ export default function AiChat() {
                <RecipeProgressPanel nodes={recipeNodes} />
                {(isAgentBusy || liveBehaviorProgress) ? (
                 /* Single unified live bubble — steps always visible above streaming text */
-                <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">
+                 <div
+                   role="group"
+                   aria-label="Assistant response in progress"
+                   className="chat-message flex min-w-0 max-w-full gap-3 mb-6"
+                 >
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="w-4 h-4 text-primary" />
                   </div>
                   <div className="chat-message-content min-w-0 max-w-[calc(100%-2.75rem)] rounded-xl rounded-tl-sm border border-border bg-secondary px-3 py-3 flex flex-col gap-2 sm:max-w-[75%] sm:px-4">
+                     <div aria-hidden="true" className="flex items-center justify-between gap-3 border-b border-border/50 pb-2">
+                       <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                         EngineeringOS AI
+                       </span>
+                       <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-2 py-1 text-[10px] font-medium text-primary">
+                         <span className="relative flex h-1.5 w-1.5">
+                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
+                           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                         </span>
+                         In progress
+                       </span>
+                     </div>
                       <LiveAgentActivity
                        stage={agentStage}
                        steps={agentSteps}
@@ -12922,20 +13004,25 @@ export default function AiChat() {
                      )}
                      {/* Recent tool activity stays visible below the summary card. */}
                      {agentSteps.length > 0 && (
-                       <div className="flex flex-col gap-1 text-xs font-mono">
-                         {agentSteps.slice(-6).map((step, i) => (
-                           <div key={`${step.tool}-${i}`} className="flex items-center gap-1.5 leading-5">
-                             {step.done ? (
-                               <span className="text-green-400 shrink-0">✓</span>
-                             ) : (
-                               <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />
-                             )}
-                             <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>
-                               {liveToolLabel(step)}
-                             </span>
-                             {step.cached && <span className="text-[10px] text-muted-foreground/60">(cached)</span>}
-                           </div>
-                         ))}
+                        <div className="rounded-lg border border-border/60 bg-background/25 px-3 py-2">
+                          <div aria-hidden="true" className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Recent activity
+                          </div>
+                          <div className="flex flex-col gap-1 text-xs font-mono">
+                            {agentSteps.slice(-6).map((step, i) => (
+                              <div key={`${step.tool}-${i}`} className="flex items-center gap-1.5 leading-5">
+                                {step.done ? (
+                                  <span className="text-green-400 shrink-0">✓</span>
+                                ) : (
+                                  <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />
+                                )}
+                                <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>
+                                  {liveToolLabel(step)}
+                                </span>
+                                {step.cached && <span className="text-[10px] text-muted-foreground/60">(cached)</span>}
+                              </div>
+                            ))}
+                          </div>
                        </div>
                      )}
                      {streamingContent && <div className="border-t border-border/50 -mx-1" />}
@@ -12945,20 +13032,20 @@ export default function AiChat() {
                       <div className="min-w-0 max-w-full overflow-hidden prose prose-sm prose-invert [overflow-wrap:anywhere]">
                         <ReactMarkdown
                           components={{
-                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                            ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
-                            ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
-                            li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                            p: ({ children }) => <p className="mb-3 leading-7 last:mb-0">{children}</p>,
+                            ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5">{children}</ul>,
+                            ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5">{children}</ol>,
+                            li: ({ children }) => <li className="leading-6">{children}</li>,
                             strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                             code: ({ children, className }) => (
-                              <code className={`${className ?? ''} ${className ? '' : 'break-all'} bg-black/20 rounded px-1 py-0.5 text-xs font-mono`}>
+                              <code className={`${className ?? ''} ${className ? '' : 'break-all'} rounded border border-border/50 bg-background/60 px-1 py-0.5 text-xs font-mono text-sky-100`}>
                                 {children}
                               </code>
                             ),
-                            pre: ({ children }) => <pre className="mb-2 max-w-full overflow-x-auto rounded bg-black/20 p-2 text-xs font-mono whitespace-pre">{children}</pre>,
-                            h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
-                            h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
-                            h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                            pre: ({ children }) => <pre className="mb-3 max-w-full overflow-x-auto rounded-lg border border-border/60 bg-background/70 p-3 text-xs font-mono leading-5 whitespace-pre">{children}</pre>,
+                            h1: ({ children }) => <h1 className="mb-3 mt-5 border-b border-border/50 pb-1 text-lg font-bold leading-snug tracking-tight text-foreground first:mt-0">{children}</h1>,
+                            h2: ({ children }) => <h2 className="mb-2 mt-5 text-base font-semibold leading-snug tracking-tight text-foreground first:mt-0">{children}</h2>,
+                            h3: ({ children }) => <h3 className="mb-1.5 mt-4 text-sm font-semibold leading-snug text-foreground first:mt-0">{children}</h3>,
                             h4: ({ children }) => (
                               <ProjectQuerySourceHeading projectId={selectedProjectId ?? undefined}>
                                 {children}
