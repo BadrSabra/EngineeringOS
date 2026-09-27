@@ -292,3 +292,28 @@ provider-configured, isolated check:
 
 These are acceptance prerequisites, not claims that the capabilities are
 absent.
+
+## 10. Follow-up evidence supplement (2026-09-27)
+
+This supplement preserves the 2026-08-26 baseline as a dated snapshot and adds
+the newer retained evidence available in the workspace:
+
+- The 2026-09-22 provider-free AI release decision passed 14 cases, skipped one
+  preview check, and had no blocking failures. Both live-provider and preview
+  checks were disabled; this does not establish live model quality or browser
+  acceptance.
+- The 2026-09-23 deterministic benchmark artifact remains
+  `qualityEligible: false`. It is expected-terminal-contract replay evidence,
+  not empirical provider-quality evidence.
+- A 2026-09-22 `GIT_REPOSITORY` discovery receipt records one controlled
+  lifecycle reaching `ready`, import HTTP 201, an active project, durable-root
+  materialization, and temporary-clone cleanup. This updates the discovery
+  evidence for that fixture only; it does not establish a complete authenticated
+  discovery → scan → AI work → promotion → Git delivery journey or broad remote
+  source parity. The earlier HTTP 400 remains a result for its specific fixture,
+  not a verdict on every discovery path.
+
+No retained evidence was located for live-provider quality, a complete
+authenticated browser journey through delivery, an external GitHub push from
+that journey, or production deployment. The smoke checks above remain
+acceptance prerequisites for those broader claims.

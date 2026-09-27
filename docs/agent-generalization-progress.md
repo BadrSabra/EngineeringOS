@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-27
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ اختبارات القياس المرجعية أضيفت، لكن جاهزية الجمع ما زالت محجوبة لأن resume يدوّر attempt وEpisode ولا يكمل registration السابق، والإلغاء نهائي. يلزم مسار observe-only مربوط بالتجربة الأصلية أو قرار موثق بإنشاء scope ذي policy version جديدة مع held-out cohort مستقل. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity؛ أكد تدقيق 2026-09-27 فجوة أضيق في failover synthesis بعد اكتمال الأدلة، وخطتها موثقة ولم تنفذ. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ اختبارات القياس المرجعية أضيفت، لكن جاهزية الجمع ما زالت محجوبة لأن resume يدوّر attempt وEpisode ولا يكمل registration السابق، والإلغاء نهائي. يلزم مسار observe-only مربوط بالتجربة الأصلية أو قرار موثق بإنشاء scope ذي policy version جديدة مع held-out cohort مستقل. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ تبقى فجوة قبول route-level لمسار A→B وتكافؤ JSON/SSE/history. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -120,11 +120,13 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
    تستبعد القياسات الناقصة. أبقِ `fixed_safe_probe` حتى تحقق جميع عتبات §25.4
    و§42.8؛ اجتياز هذا القياس لا يفعّل ranking ولا يثبت صلاحية selector.
 3. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
-   parity عند غياب objective canonical. أبقِ هذا المسار غير المكتمل fail-closed؛
-   لا تفتح fallback عامًا بلا عقد وقبول مستقلين. وُثقت في §42.70 متابعة موثوقية
-   ضيقة لمسار objective ذي evidence مكتمل: تجربة provider بديل عند فشل synthesis
-   دون إعادة القراءة أو تغيير القبول. لم يبدأ تنفيذها، ولا تضيف مرحلة أو تعيد
-   ترتيب §31؛ لا يعد ذلك عملًا منافسًا لبوابة P7.5.
+   parity عند غياب objective canonical. نُفذ في §42.71 failover synthesis محدود
+   بعد اكتمال الأدلة، بمزودين مختارين من API وبالحزمة نفسها ومن دون إعادة قراءة؛
+   يبقى المسار بلا objective canonical fail-closed ولا يفتح fallback عامًا.
+   المتبقي هو قبول route-level لمسار provider A failure → B success، وتكافؤ
+   JSON/SSE/history مع التنفيذ الحقيقي، إضافة إلى حدود استنفاد الميزانية والمهلة.
+   هذا عمل تحقق عابر للمراحل ولا يضيف عقدة أو يعيد ترتيب §31، ولا يسبق بوابة
+   جاهزية P7.5.
 4. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
    تثبيت عقد الجمع والاستعادة؛ ليست الخطوة الأولى ولا مصدر قبول أو معايرة.
 5. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
@@ -2546,6 +2548,40 @@ G9 Revocation Safety
   واختبارات provider A failure → provider B success وno-objective fail-closed
   وbudget/deadline وJSON/SSE/history parity. لا توسع fallback العام ولا تغير
   acceptance أو ترتيب §31.
+
+### 42.71 — تنفيذ failover محدود لـPROJECT_QUERY بعد اكتمال الأدلة (2026-09-27)
+
+- **phase/step:** موثوقية synthesis لأهداف `PROJECT_QUERY_*` ذات objective
+  canonical؛ متابعة عابرة للمراحل، وليست P-stage جديدة.
+- **status:** `implemented — orchestrator verified; route-level acceptance partial`.
+- **what changed:** يمرر API قائمة المزودين المرتبة والمصرح بها إلى synthesis
+  فقط بعد اكتمال evidence packet والـclaims. يعيد المسار استخدام packet وmanifest
+  نفسيهما، ويقيّد محاولات synthesis وتغيير المزود بميزانية `ExecutionLedger`
+  والمهلة المتبقية وميزانية المشروع. معرف المحاولة يتضمن execution وmanifest
+  والمزود وprovider index وتسلسل المحاولة. أخطاء availability/transport تنتقل
+  إلى المزود التالي؛ الخطأ المحلي يحصل على إصلاح محدود، بينما الإلغاء ونفاد
+  الميزانية/المهلة يوقفان المسار. يظل deterministic fallback خلف القبول الحالي
+  للهدف ذي العقد المكتمل، ويبقى `PROJECT_QUERY` بلا objective canonical
+  `ANALYSIS_INCOMPLETE`.
+- **files/schema/contracts touched:** `lib/ai-orchestrator/src/agents/chat-agent.ts`,
+  `artifacts/api-server/src/lib/ai-route-helpers.ts` واختبارات المنسق؛ لا جدول
+  أو public envelope جديد. allowlist التشخيص يمرر معرفات وenums محدودة فقط.
+- **validation:** اجتاز الاختبار المركز
+  `moves a shared-pool-limited synthesis attempt to the next authorized provider`
+  (1/1). الاختبارات الموجودة تتحقق أيضًا من إصلاح محلي واحد، ثبات manifest،
+  تميّز attempt IDs، وربط الاستجابة والـterminal بالـmanifest والمحاولة المقبولة،
+  ومن توقف المحاولات عند الإلغاء.
+- **authority/safety impact:** لا تتغير قراءات الأدلة أو scope أو acceptance أو
+  الصلاحيات. الـorchestrator لا يختار credentials؛ يستخدم المرشحين المعتمدين من
+  طبقة API. لا تُعد `claimRefs` أو نصوص المزود دليلًا.
+- **remaining/blocker:** اختبار route الحالي لنجاح synthesis يحقن `chatWithFallback`
+  mock، ولا يثبت رحلة HTTP فعلية من A failure إلى B success. يلزم اختبار
+  route-level يثبت عدم إعادة القراءة وJSON/SSE/history parity وحدود budget/deadline
+  واستنفاد المرشحين، مع الحفاظ على no-objective fail-closed. لا يثبت هذا التشغيل
+  الحي أو جودة مزود.
+- **next step:** أكمل اختبار قبول route-level للمسار الحقيقي باستخدام مزودين
+  اختباريين، ثم أبقِ حدود عدم وجود objective والميزانية والإلغاء ضمن بوابات
+  القبول؛ لا توسع fallback العام أو dependency graph.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

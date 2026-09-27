@@ -483,3 +483,27 @@ This order maximizes evidence value without widening the product prematurely:
 The current product should be described as a **specialized,
 provider-free-contract-proven engineering console with incomplete live
 operational evidence**, not as a general Replit replacement.
+
+## 10. Follow-up evidence supplement (2026-09-27)
+
+This supplement adds later evidence without changing the 2026-09-14 observation
+date or broadening the claims in this inventory:
+
+- The 2026-09-22 provider-free AI release decision passed 14 cases with no
+  blocking failures; one dashboard preview check was skipped, and live-provider
+  and preview checks were disabled. This is contract and operational-safety
+  evidence, not live-provider or authenticated-browser acceptance.
+- A retained 2026-09-22 `GIT_REPOSITORY` receipt confirms one controlled
+  discovery lifecycle: ready state, import HTTP 201, active project,
+  durable-root materialization, and temporary-clone cleanup. The earlier
+  rejected localhost smart-HTTP fixture remains a run-specific result. The new
+  receipt does not prove a full authenticated discovery-to-push journey, broad
+  remote-source parity, or external GitHub delivery.
+- The 2026-09-23 deterministic benchmark remains marked
+  `qualityEligible: false`; it is not evidence of live model quality or rollout
+  readiness.
+
+Accordingly, discovery has a successful controlled-fixture lifecycle receipt,
+while the complete authenticated browser journey, live-provider quality,
+external delivery, and production deployment remain unproven by retained
+evidence.

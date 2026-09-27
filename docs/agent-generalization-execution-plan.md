@@ -5,9 +5,10 @@
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
 > **آخر حالة تنفيذية (2026-09-27):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل؛ تسبق جمع النتائج بوابة جاهزية للتحقق من قناة Mission، وقابلية التكرار والاستعادة، وصحة القياس. يبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. اكتملت شرائح Evidence-Preserved Synthesis Gateway وclaims المحدودة لـPROJECT_QUERY المقبول وterminal parity عند غياب objective؛ لا يزال fallback الحتمي العام بلا عقد مقبول محظورًا. الأولوية تبقى إغلاق الحلقة المعرفية دون تجاوز §31. سجل التفاصيل في `docs/agent-generalization-progress.md`.
-> **ملاحظة متابعة PROJECT_QUERY (2026-09-27):** رصد التدقيق فجوة failover
-> synthesis عند اكتمال الأدلة في هدف ذي objective canonical؛ الخطة محدودة
-> وموثقة في §31، ولم يبدأ تنفيذها. هذا لا يفتح fallback عامًا بلا objective.
+> **ملاحظة متابعة PROJECT_QUERY (2026-09-27):** نُفذ failover synthesis محدود
+> بعد اكتمال الأدلة للمرشحين المصرح بهم ضمن objective canonical. يبقى اختبار
+> route-level لمسار A→B وتكافؤ JSON/SSE/history فجوة قبول؛ لا يفتح هذا fallback
+> عامًا بلا objective.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -3618,9 +3619,11 @@ P8/P9/P10 قبل إغلاق الاعتماديات ومعايير P7.5 المح�
    objective canonical غير مكتمل عمدًا. كشف تدقيق 2026-09-27 فجوة موثوقية أضيق
    بعد اكتمال evidence: قد يعيد `chat()` fallback حتميًا كاستجابة عادية بعد فشل
    synthesis، فلا يصل فشل المزود إلى حلقة `chatWithFallback` لتجربة مزود آخر.
-   المعالجة المقيدة موثقة في القسم التالي وسجل §42.70؛ لم يبدأ تنفيذها. لا يفتح
-   ذلك fallback عامًا، ولا يغيّر ترتيب P7.5 أو سلطة evidence وacceptance أو
-   dependency graph.
+    نُفذ failover محدود داخل synthesis بعد اكتمال evidence للمرشحين المصرح بهم من
+    API، مع packet ثابت وميزانية موحدة؛ سجل التحقق والحدود المتبقية في §42.71.
+    يلزم استكمال اختبار route-level لمسار A→B وتكافؤ JSON/SSE/history. لا يفتح
+    ذلك fallback عامًا، ولا يغيّر ترتيب P7.5 أو سلطة evidence وacceptance أو
+    dependency graph.
 
 لا يبدأ التوسع الأفقي في capabilities أو strategy learning قبل إغلاق الحلقة
 وفق §31. تكامل Chat-to-Mission الموضح أدناه شريحة منتج اختيارية مكتملة ومحدودة،
@@ -3811,9 +3814,36 @@ canonical غير مكتمل عند فشل synthesis، ولا يفتح هذا ا�
    وربط attempt/manifest/responseHash؛ وJSON/SSE/history parity. أعد استخدام
    اختبار OpenRouter provider-scoped 429 القائم بدل تكراره بلا حاجة.
 
-لا تضيف هذه المعالجة مرحلة إلى §31، ولا تعيد فتح generic fallback، ولا تغير
-acceptance أو proof أو P6/P7 أو الصلاحيات. الحالة الحالية لهذه الخطوة هي
-`plan-only`؛ يلزم طلب تنفيذ مستقل بعد مراجعة هذا التحديث.
+كان هذا المسار `plan-only` وقت التدقيق الأولي. لا تضيف المعالجة مرحلة إلى §31،
+ولا تعيد فتح generic fallback، ولا تغير acceptance أو proof أو P6/P7 أو
+الصلاحيات. الحالة اللاحقة وحدود القبول موثقة أدناه.
+
+#### متابعة التنفيذ المحدود — synthesis provider failover (2026-09-27)
+
+**الحالة:** التنفيذ المقيّد موجود؛ قبول المنسق مثبت باختبار focused، بينما
+القبول عبر route من فشل المزود A إلى نجاح B وتكافؤ JSON/SSE/history ما زال
+فجوة اختبار وتشغيل.
+
+- يمرر `chatWithFallback()` المرشحين المصرح بهم بعد المزود الحالي إلى synthesis
+  فقط؛ لا يعاد تشغيل tool/evidence loop ولا تعاد القراءات. يستعمل كل مرشح
+  evidence packet والـmanifest نفسيهما، وتسجل المحاولات في `ExecutionLedger`
+  المشترك مع provider/manifest-scoped attempt ID وحدود synthesis وprovider-change
+  والمهلة.
+- فشل provider availability/transport يمكنه الانتقال إلى المزود التالي؛ الخطأ
+  المحلي محدود بإصلاح واحد. الإلغاء أو انتهاء الميزانية/المهلة يوقف المحاولات.
+  يظل تصنيف rate-limit scope محفوظًا، ولا تتحول `RATE_LIMITED` إلى repair prompt.
+- يتحقق اختبار المنسق من انتقال OpenRouter ذي shared-pool limit إلى Gemini مخول،
+  واستخدام prompt evidence نفسه، وقبول المرشح، وتسجيل الفشل والنجاح في ledger
+  والميزانية. اختبارات أخرى تتحقق من محاولة الإصلاح المحلية، attempt IDs، وربط
+  manifest/response/terminal؛ الاختبار المركز الحالي نجح 1/1.
+- اختبار API الحالي يثبت إسقاط provider synthesis المقبول وربط الـterminal
+  والـevidence، لكنه يحقن `chatWithFallback` mock؛ لذلك لا يثبت تنفيذ A→B عبر
+  route فعليًا. يلزم اختبار provider-free يمر عبر route مع المرشحين الحقيقيين
+  المختبريين، ويثبت ثبات القراءات وJSON/SSE/history parity واستنفاد الميزانية
+  والمرشحين.
+- لا يغيّر هذا قبول evidence أو proof أو صلاحيات المزود، ولا يسمح بالـfallback
+  العام بلا objective canonical. يظل المسار العام `ANALYSIS_INCOMPLETE`، ولا
+  تتغير P6/P7 أو dependency graph.
 
 ### Product integration seam — accepted finding to Mission
 
