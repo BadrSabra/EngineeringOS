@@ -6125,6 +6125,13 @@ World State ‏23/23، بينها اختبار live validator child المعرو
 واختبار direct child في `runRepairRuntimeValidation`؛ إعادة تشغيل API وفحص سجلات
 startup؛ `git diff --check`.
 
+إضافة متابعة 2026-09-27: أُضيفت ملاحظة مستقلة لشجرة validator bounded بحد 32
+عملية، ولا تكون `known` إلا بعد مسحين كاملين متطابقين وفحص marker والبيئة والجذر
+لكل عضو. تحملها مسارات Mission Task وRecipe إلى materializer كـ
+`DIRECT_OBSERVATION` hash-only. يخفف ذلك فجوة descendant المذكورة أعلاه في لقطة
+وقتية فقط؛ لا يثبت الاستقرار طوال مدة validator ولا ملكية listener أو acceptance،
+ولا يغيّر schema. تبقى P4 جزئية.
+
 ### 42.31 P4/P5 — Runtime listener ownership observation (2026-09-25)
 
 ينفذ API resolver محدودًا لملكية listening socket باستخدام procfs، ولا يقبل PID

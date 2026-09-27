@@ -56,6 +56,8 @@ export type ValidationEvidence = {
   validatorProfile?: string;
   /** Hash-only observation of the direct validator child; it does not determine validation status. */
   childProcessAttestation?: ValidationProcessAttestation;
+  /** Bounded point-in-time validator process-tree evidence; never determines validation status. */
+  validatorProcessTreeAttestation?: ValidationProcessTreeAttestation;
   treeDigestVersion?: string;
   baseTreeHash?: string;
   candidateHash?: string;
@@ -72,6 +74,29 @@ export type ValidationProcessAttestation = {
   bindingDigest: string | null;
   attestationDigest: string | null;
   processEnvironmentDigest: string | null;
+  observedAt: string;
+};
+
+export type ValidationProcessTreeAttestation = {
+  status: "known" | "mismatch" | "unknown";
+  reasonCode:
+    | "process_tree_observed"
+    | "child_environment_mismatch"
+    | "process_root_mismatch"
+    | "process_tree_changed"
+    | "process_tree_unavailable"
+    | "process_tree_truncated"
+    | "process_tree_descendant_unavailable"
+    | "process_unavailable"
+    | "procfs_unavailable"
+    | "binding_missing"
+    | "unsupported_platform";
+  bindingDigest: string | null;
+  treeDigest: string | null;
+  treeDigestVersion: "validator-process-tree-v1";
+  processEnvironmentDigest: string | null;
+  visibleProcessCount: number | null;
+  sampledProcessCount: number | null;
   observedAt: string;
 };
 
@@ -145,6 +170,9 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
       ...(evidence.validatorProfile ? { validatorProfile: evidence.validatorProfile } : {}),
       ...(evidence.childProcessAttestation
         ? { childProcessAttestation: evidence.childProcessAttestation }
+        : {}),
+      ...(evidence.validatorProcessTreeAttestation
+        ? { validatorProcessTreeAttestation: evidence.validatorProcessTreeAttestation }
         : {}),
       ...(evidence.treeDigestVersion ? { treeDigestVersion: evidence.treeDigestVersion } : {}),
       ...(evidence.baseTreeHash ? { baseTreeHash: evidence.baseTreeHash } : {}),

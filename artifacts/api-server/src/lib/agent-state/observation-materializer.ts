@@ -10,6 +10,7 @@ import {
   invalidateContextSlice,
   parseBoundedJson,
   type JsonValue,
+  type ValidationProcessTreeAttestation,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../logger.js";
 import {
@@ -109,6 +110,27 @@ export type ServerOwnedObservationSource =
       bindingDigest: string;
       attestationDigest?: string | null;
       processEnvironmentDigest?: string | null;
+      environmentRevision?: string | null;
+      observedAt?: Date | string;
+    }
+  | {
+      kind: "validator_process_tree_attestation";
+      projectId: string;
+      executionId: string;
+      attempt: number;
+      episodeId: string;
+      operationId: string;
+      sessionId: string;
+      validatorProfile: string;
+      revision: string;
+      status: ValidationProcessTreeAttestation["status"];
+      reasonCode: ValidationProcessTreeAttestation["reasonCode"];
+      bindingDigest: string;
+      treeDigest?: string | null;
+      treeDigestVersion: "validator-process-tree-v1";
+      processEnvironmentDigest?: string | null;
+      visibleProcessCount?: number | null;
+      sampledProcessCount?: number | null;
       environmentRevision?: string | null;
       observedAt?: Date | string;
     }
@@ -387,6 +409,40 @@ function normalizeSource(
           : "partial",
     };
   }
+  if (source.kind === "validator_process_tree_attestation") {
+    const value = parseBoundedJson(JSON.stringify({
+      status: source.status,
+      reasonCode: source.reasonCode,
+      bindingDigest: source.bindingDigest,
+      treeDigest: source.treeDigest ?? null,
+      treeDigestVersion: source.treeDigestVersion,
+      processEnvironmentDigest: source.processEnvironmentDigest ?? null,
+      visibleProcessCount: source.visibleProcessCount ?? null,
+      sampledProcessCount: source.sampledProcessCount ?? null,
+      operationId: boundedText(source.operationId, 500),
+      validationEvidenceId: boundedText(source.sessionId, 500),
+      validatorProfile: boundedText(source.validatorProfile, 200),
+    }), MAX_VALUE_BYTES);
+    return {
+      sourceType: "validator_process_tree_attestation",
+      provenance: "DIRECT_OBSERVATION",
+      sourceId: boundedText(`validator-process-tree:${source.sessionId}`, 500),
+      sourceVersion: sourceVersion(source.revision, attempt),
+      subject: `validator:${boundedText(source.validatorProfile, 200)}:${boundedText(source.sessionId, 500)}`,
+      predicate: "validator.child_process_tree",
+      value,
+      sourceRefs: boundedRefs([`validation:${source.sessionId}`]),
+      observedAt: observedAt(source.observedAt),
+      ...(source.environmentRevision
+        ? { environmentRevision: boundedText(source.environmentRevision, 2_000) }
+        : {}),
+      completeness: source.status === "known"
+        ? "complete"
+        : source.status === "mismatch"
+          ? "failed"
+          : "partial",
+    };
+  }
 
   const value = parseBoundedJson(JSON.stringify({
     status: source.status,
@@ -513,6 +569,79 @@ export async function materializeServerOwnedObservations(
         throw new Error("observation_materialization_validator_attestation_mismatch");
       }
     }
+    if (source.kind === "validator_process_tree_attestation") {
+      const binding = {
+        projectId: source.projectId,
+        sessionId: source.sessionId,
+        executionId: source.executionId,
+        executionAttempt: source.attempt,
+        episodeId: source.episodeId,
+        operationId: source.operationId,
+        revision: source.revision,
+        processRole: "validator_tree" as const,
+        validatorProfile: source.validatorProfile,
+      };
+      const hasValidDigest = (value: string | null | undefined): value is string =>
+        typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+      const validCounts = Number.isInteger(source.visibleProcessCount)
+        && Number.isInteger(source.sampledProcessCount)
+        && (source.visibleProcessCount ?? -1) >= 0
+        && (source.sampledProcessCount ?? -1) >= 0
+        && (source.visibleProcessCount ?? Number.MAX_SAFE_INTEGER) <= 32
+        && (source.sampledProcessCount ?? Number.MAX_SAFE_INTEGER) <= 32;
+      const isKnownEvidence = source.status === "known"
+        && source.reasonCode === "process_tree_observed"
+        && hasValidDigest(source.treeDigest)
+        && hasValidDigest(source.processEnvironmentDigest)
+        && source.treeDigestVersion === "validator-process-tree-v1"
+        && validCounts
+        && source.visibleProcessCount === source.sampledProcessCount
+        && (source.visibleProcessCount ?? 0) >= 2;
+      const isEnvironmentMismatch = source.status === "mismatch"
+        && source.reasonCode === "child_environment_mismatch"
+        && hasValidDigest(source.treeDigest)
+        && hasValidDigest(source.processEnvironmentDigest)
+        && source.treeDigestVersion === "validator-process-tree-v1"
+        && validCounts
+        && (source.sampledProcessCount ?? 0) >= 1
+        && (source.sampledProcessCount ?? Number.MAX_SAFE_INTEGER)
+          <= (source.visibleProcessCount ?? -1)
+        && (source.visibleProcessCount ?? 0) >= 1;
+      const isRootMismatch = source.status === "mismatch"
+        && source.reasonCode === "process_root_mismatch"
+        && (source.treeDigest == null || hasValidDigest(source.treeDigest))
+        && source.processEnvironmentDigest == null
+        && source.treeDigestVersion === "validator-process-tree-v1"
+        && validCounts
+        && (source.sampledProcessCount ?? 0)
+          <= (source.visibleProcessCount ?? -1)
+        && (source.visibleProcessCount ?? 0) >= 1;
+      const isUnknown = source.status === "unknown"
+        && source.treeDigest == null
+        && source.processEnvironmentDigest == null
+        && source.treeDigestVersion === "validator-process-tree-v1"
+        && (
+          (source.visibleProcessCount == null && source.sampledProcessCount == null)
+          || validCounts
+        );
+      if (
+        source.projectId !== input.projectId
+        || source.executionId !== input.executionId
+        || source.attempt !== input.attempt
+        || !Number.isInteger(source.attempt)
+        || !source.sessionId
+        || !source.operationId
+        || !source.episodeId
+        || !source.revision
+        || !source.validatorProfile.trim()
+        || !/^[a-f0-9]{64}$/.test(source.bindingDigest)
+        || source.treeDigestVersion !== "validator-process-tree-v1"
+        || source.bindingDigest !== childProcessBindingDigest(binding)
+        || !(isKnownEvidence || isEnvironmentMismatch || isRootMismatch || isUnknown)
+      ) {
+        throw new Error("observation_materialization_validator_process_tree_attestation_mismatch");
+      }
+    }
   }
   let observedEnvironmentRevision: string | undefined;
   const environmentCaptureAttempted = Boolean(input.environmentRootPath);
@@ -564,6 +693,7 @@ export async function materializeServerOwnedObservations(
       if (
         source.kind !== "child_process_attestation"
         && source.kind !== "validator_process_attestation"
+        && source.kind !== "validator_process_tree_attestation"
       ) continue;
       const scope = episode.scope !== null
         && typeof episode.scope === "object"

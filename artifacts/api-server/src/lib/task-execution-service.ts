@@ -522,7 +522,7 @@ type MissionToolLoopExecution = {
     episodeId?: string;
     validatorProcessObservations: Extract<
       ServerOwnedObservationSource,
-      { kind: "validator_process_attestation" }
+      { kind: "validator_process_attestation" | "validator_process_tree_attestation" }
     >[];
     evidence?: EvidenceSnapshotInput;
     candidateIdentity: string;
@@ -2082,7 +2082,7 @@ async function executeMissionToolLoop(params: {
   let validationEpisode: Awaited<ReturnType<typeof getMissionRepairEpisode>> | undefined;
   let validatorProcessObservations: Extract<
     ServerOwnedObservationSource,
-    { kind: "validator_process_attestation" }
+    { kind: "validator_process_attestation" | "validator_process_tree_attestation" }
   >[] = [];
   let missionRepairRecoveryDraft: MissionRepairRecoveryManifestDraft | undefined = recoveryManifest;
   const persistMissionRepairRecoveryCheckpoint = async (
@@ -2325,6 +2325,7 @@ async function executeMissionToolLoop(params: {
     }
 
     const validationAttestation = validationResult?.evidence.childProcessAttestation;
+    const validationTreeAttestation = validationResult?.evidence.validatorProcessTreeAttestation;
     const validationEvidenceId = validationResult?.evidence.evidenceId;
     const validatorProfile = validationResult?.evidence.validatorProfile;
     if (
@@ -2348,28 +2349,53 @@ async function executeMissionToolLoop(params: {
       });
     }
     validatorProcessObservations = validationEpisode
-      && validationAttestation
       && validationEvidenceId
       && validatorProfile
-      && typeof validationAttestation.bindingDigest === "string"
-      ? [{
-          kind: "validator_process_attestation",
-          projectId: params.task.projectId,
-          executionId: params.executionId,
-          attempt: params.expectedAttempt,
-          episodeId: validationEpisode.episodeId,
-          operationId: params.executionId,
-          sessionId: validationEvidenceId,
-          validatorProfile,
-          revision: params.workspaceRevision,
-          status: validationAttestation.status,
-          reasonCode: validationAttestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
-          bindingDigest: validationAttestation.bindingDigest,
-          attestationDigest: validationAttestation.attestationDigest,
-          processEnvironmentDigest: validationAttestation.processEnvironmentDigest,
-          environmentRevision: validationResult?.evidence.environmentRevision ?? null,
-          observedAt: validationAttestation.observedAt,
-        }]
+      ? [
+          ...(validationAttestation && typeof validationAttestation.bindingDigest === "string"
+            ? [{
+                kind: "validator_process_attestation" as const,
+                projectId: params.task.projectId,
+                executionId: params.executionId,
+                attempt: params.expectedAttempt,
+                episodeId: validationEpisode.episodeId,
+                operationId: params.executionId,
+                sessionId: validationEvidenceId,
+                validatorProfile,
+                revision: params.workspaceRevision,
+                status: validationAttestation.status,
+                reasonCode: validationAttestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
+                bindingDigest: validationAttestation.bindingDigest,
+                attestationDigest: validationAttestation.attestationDigest,
+                processEnvironmentDigest: validationAttestation.processEnvironmentDigest,
+                environmentRevision: validationResult?.evidence.environmentRevision ?? null,
+                observedAt: validationAttestation.observedAt,
+              }]
+            : []),
+          ...(validationTreeAttestation && typeof validationTreeAttestation.bindingDigest === "string"
+            ? [{
+                kind: "validator_process_tree_attestation" as const,
+                projectId: params.task.projectId,
+                executionId: params.executionId,
+                attempt: params.expectedAttempt,
+                episodeId: validationEpisode.episodeId,
+                operationId: params.executionId,
+                sessionId: validationEvidenceId,
+                validatorProfile,
+                revision: params.workspaceRevision,
+                status: validationTreeAttestation.status,
+                reasonCode: validationTreeAttestation.reasonCode,
+                bindingDigest: validationTreeAttestation.bindingDigest,
+                treeDigest: validationTreeAttestation.treeDigest,
+                treeDigestVersion: validationTreeAttestation.treeDigestVersion,
+                processEnvironmentDigest: validationTreeAttestation.processEnvironmentDigest,
+                visibleProcessCount: validationTreeAttestation.visibleProcessCount,
+                sampledProcessCount: validationTreeAttestation.sampledProcessCount,
+                environmentRevision: validationResult?.evidence.environmentRevision ?? null,
+                observedAt: validationTreeAttestation.observedAt,
+              }]
+            : []),
+        ]
       : [];
 
     if (effectRequired && candidateEffectContext) {

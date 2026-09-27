@@ -566,6 +566,37 @@ describe("read-only World State projection", () => {
         ...validatorBinding,
         sessionId: unknownValidatorSessionId,
       };
+      const validatorTreeSessionId = `validation-tree-evidence-${randomUUID()}`;
+      const validatorTreeBinding = {
+        ...validatorBinding,
+        sessionId: validatorTreeSessionId,
+        processRole: "validator_tree" as const,
+      };
+      const validatorTreeSource = {
+        kind: "validator_process_tree_attestation" as const,
+        projectId,
+        executionId: scoped.executionId,
+        attempt: 0,
+        episodeId: scoped.episodeId,
+        operationId,
+        sessionId: validatorTreeSessionId,
+        validatorProfile: "go-tests",
+        revision: "revision-1",
+        status: "known" as const,
+        reasonCode: "process_tree_observed" as const,
+        bindingDigest: childProcessBindingDigest(validatorTreeBinding),
+        treeDigest: "e".repeat(64),
+        treeDigestVersion: "validator-process-tree-v1" as const,
+        processEnvironmentDigest: "f".repeat(64),
+        visibleProcessCount: 2,
+        sampledProcessCount: 2,
+        environmentRevision: null,
+      };
+      const unknownValidatorTreeSessionId = `validation-tree-evidence-unknown-${randomUUID()}`;
+      const unknownValidatorTreeBinding = {
+        ...validatorTreeBinding,
+        sessionId: unknownValidatorTreeSessionId,
+      };
       await materializeServerOwnedObservations({
         projectId,
         executionId: scoped.executionId,
@@ -582,6 +613,18 @@ describe("read-only World State projection", () => {
             bindingDigest: childProcessBindingDigest(unknownValidatorBinding),
             attestationDigest: null,
             processEnvironmentDigest: null,
+          },
+          validatorTreeSource,
+          {
+            ...validatorTreeSource,
+            sessionId: unknownValidatorTreeSessionId,
+            status: "unknown",
+            reasonCode: "process_tree_unavailable",
+            bindingDigest: childProcessBindingDigest(unknownValidatorTreeBinding),
+            treeDigest: null,
+            processEnvironmentDigest: null,
+            visibleProcessCount: null,
+            sampledProcessCount: null,
           },
         ],
       });
@@ -613,6 +656,42 @@ describe("read-only World State projection", () => {
           status: "unknown",
           validatorProfile: "go-tests",
           validationEvidenceId: unknownValidatorSessionId,
+        },
+      });
+      const [validatorTreeObservation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(aiAgentObservationsTable.sourceId, `validator-process-tree:${validatorTreeSessionId}`));
+      expect(validatorTreeObservation).toMatchObject({
+        sourceType: "validator_process_tree_attestation",
+        provenance: "DIRECT_OBSERVATION",
+        completeness: "complete",
+        predicate: "validator.child_process_tree",
+        value: {
+          status: "known",
+          validatorProfile: "go-tests",
+          bindingDigest: validatorTreeSource.bindingDigest,
+          treeDigest: validatorTreeSource.treeDigest,
+          treeDigestVersion: "validator-process-tree-v1",
+          processEnvironmentDigest: validatorTreeSource.processEnvironmentDigest,
+          visibleProcessCount: 2,
+          sampledProcessCount: 2,
+          validationEvidenceId: validatorTreeSessionId,
+          operationId,
+        },
+      });
+      const [unknownValidatorTreeObservation] = await db.select().from(aiAgentObservationsTable)
+        .where(eq(
+          aiAgentObservationsTable.sourceId,
+          `validator-process-tree:${unknownValidatorTreeSessionId}`,
+        ));
+      expect(unknownValidatorTreeObservation).toMatchObject({
+        completeness: "partial",
+        predicate: "validator.child_process_tree",
+        value: {
+          status: "unknown",
+          validatorProfile: "go-tests",
+          visibleProcessCount: null,
+          sampledProcessCount: null,
+          validationEvidenceId: unknownValidatorTreeSessionId,
         },
       });
 

@@ -377,6 +377,7 @@ export {
 export type {
   ValidationEvidence,
   ValidationProcessAttestation,
+  ValidationProcessTreeAttestation,
   ValidationFailure,
   ValidationFailureKind,
   PublicValidationResult,

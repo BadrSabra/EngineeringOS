@@ -2953,6 +2953,17 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           processEnvironmentDigest: string | null;
           observedAt: string;
         };
+        validatorProcessTreeAttestation?: {
+          status: "known" | "mismatch" | "unknown";
+          reasonCode: string;
+          bindingDigest: string | null;
+          treeDigest: string | null;
+          treeDigestVersion: "validator-process-tree-v1";
+          processEnvironmentDigest: string | null;
+          visibleProcessCount: number | null;
+          sampledProcessCount: number | null;
+          observedAt: string;
+        };
       } => Boolean(
         value
         && typeof value === "object"
@@ -2971,30 +2982,57 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
     const validatorProcessObservations = episode
       ? completionEvidence.flatMap((evidence) => {
           const attestation = evidence.childProcessAttestation;
-          if (
-            !evidence.validatorProfile
-            || !attestation
-            || typeof attestation.bindingDigest !== "string"
-            || typeof attestation.observedAt !== "string"
-          ) return [];
-          return [{
-            kind: "validator_process_attestation" as const,
-            projectId: params.projectId,
-            executionId: claimed.id,
-            attempt: claimed.attempt,
-            episodeId: episode.episodeId,
-            operationId: params.operationId,
-            sessionId: evidence.evidenceId,
-            validatorProfile: evidence.validatorProfile,
-            revision: params.sourceRevision,
-            status: attestation.status,
-            reasonCode: attestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
-            bindingDigest: attestation.bindingDigest,
-            attestationDigest: attestation.attestationDigest,
-            processEnvironmentDigest: attestation.processEnvironmentDigest,
-            environmentRevision: evidence.environmentRevision ?? null,
-            observedAt: attestation.observedAt,
-          }];
+          const treeAttestation = evidence.validatorProcessTreeAttestation;
+          if (!evidence.validatorProfile) return [];
+          return [
+            ...(attestation
+              && typeof attestation.bindingDigest === "string"
+              && typeof attestation.observedAt === "string"
+              ? [{
+                  kind: "validator_process_attestation" as const,
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  episodeId: episode.episodeId,
+                  operationId: params.operationId,
+                  sessionId: evidence.evidenceId,
+                  validatorProfile: evidence.validatorProfile,
+                  revision: params.sourceRevision,
+                  status: attestation.status,
+                  reasonCode: attestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
+                  bindingDigest: attestation.bindingDigest,
+                  attestationDigest: attestation.attestationDigest,
+                  processEnvironmentDigest: attestation.processEnvironmentDigest,
+                  environmentRevision: evidence.environmentRevision ?? null,
+                  observedAt: attestation.observedAt,
+                }]
+              : []),
+            ...(treeAttestation
+              && typeof treeAttestation.bindingDigest === "string"
+              && typeof treeAttestation.observedAt === "string"
+              ? [{
+                  kind: "validator_process_tree_attestation" as const,
+                  projectId: params.projectId,
+                  executionId: claimed.id,
+                  attempt: claimed.attempt,
+                  episodeId: episode.episodeId,
+                  operationId: params.operationId,
+                  sessionId: evidence.evidenceId,
+                  validatorProfile: evidence.validatorProfile,
+                  revision: params.sourceRevision,
+                  status: treeAttestation.status,
+                  reasonCode: treeAttestation.reasonCode as import("@workspace/ai-orchestrator").ValidationProcessTreeAttestation["reasonCode"],
+                  bindingDigest: treeAttestation.bindingDigest,
+                  treeDigest: treeAttestation.treeDigest,
+                  treeDigestVersion: treeAttestation.treeDigestVersion,
+                  processEnvironmentDigest: treeAttestation.processEnvironmentDigest,
+                  visibleProcessCount: treeAttestation.visibleProcessCount,
+                  sampledProcessCount: treeAttestation.sampledProcessCount,
+                  environmentRevision: evidence.environmentRevision ?? null,
+                  observedAt: treeAttestation.observedAt,
+                }]
+              : []),
+          ];
         })
       : [];
     if (evidenceRefs.length !== result.nodes.length) {

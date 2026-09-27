@@ -2486,6 +2486,31 @@ G9 Revocation Safety
 - **next step:** لا توسع مراحل P3.5/P4–P14 أو نطاق runtime actions دون طلب
   مستقل ومعايير قبول إضافية.
 
+### 42.69 — P4 — Bounded validator process-tree observation (2026-09-27)
+
+- **phase/step:** إضافة ملاحظة مستقلة لشجرة عمليات validator، امتدادًا محدودًا
+  لـ§42.30 دون ادعاء إغلاق P4.
+- **status:** `done لهذه الشريحة فقط؛ P3.5/P4/P5 تبقى partial`.
+- **what changed:** يأخذ validator probe عينات محدودة من شجرة `/proc`، ويقبل
+  `known` فقط بعد مسحين كاملين متطابقين ضمن حد 32 عملية، ثم يثبت marker والبيئة
+  وجذر المشروع لكل عضو مرئي. تغير الشجرة أو نقص المصدر أو تجاوز الحد أو غياب
+  descendant يبقى `unknown`، ومخالفة البيئة المقاسة تبقى `mismatch`. يمر
+  الإسقاط hash-only كـ`DIRECT_OBSERVATION` منفصلة عبر Mission Task وRecipe.
+- **files/schema/contracts touched:** عقد `ValidationProcessTreeAttestation`،
+  validator process probe، process-tree resolver، observation materializer،
+  ومسارا task/recipe واختباراتهما؛ لا schema أو migration.
+- **validation:** نجح API typecheck؛ نجحت 59 اختبارات مركزة عبر attestation،
+  runtime listener، AI validation، World State، Task execution وRecipe runner؛
+  نجح `git diff --check`. أُعيد تشغيل API وأعاد `/api/healthz` الحالة `ok`.
+- **authority/safety impact:** الدليل يصف snapshot وقتيًا فقط؛ لا يخزن PID أو
+  marker أو بيئة أو مسارات خام، ولا يغير validator status أو objective proof أو
+  acceptance/OBSERVED أو صلاحيات mutation. لا جدول أو Gateway موازية ولا تعميم
+  إلى قدرات أخرى.
+- **remaining/blocker:** لا يثبت هذا الرصد استقرار الشجرة طوال مدة validator أو
+  اكتمال P4/P5؛ المراحل تظل جزئية وفق §31.
+- **next step:** واصل من dependency التالية المصرح بها في §31 بعد مراجعة بقية
+  متطلبات P3.5/P4/P5؛ لا تعتبر هذه الشريحة إغلاقًا للمرحلة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

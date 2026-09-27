@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
 import { open, realpath, readlink, stat } from "node:fs/promises";
 import path from "node:path";
+import { resolveRuntimeProcessTree } from "./runtime-listener-process.js";
 
 export const CHILD_ATTESTATION_ENV_NAME = "ENGINEERINGOS_CHILD_ATTESTATION";
 
@@ -28,7 +29,7 @@ export type ChildProcessAttestationBinding = {
   episodeId: string;
   operationId: string;
   revision: string;
-  processRole?: "validator" | "runtime_listener";
+  processRole?: "validator" | "runtime_listener" | "validator_tree";
   validatorProfile?: string;
 };
 
@@ -53,6 +54,29 @@ export type ChildProcessEnvironmentAttestation = {
   bindingDigest: string | null;
   attestationDigest: string | null;
   processEnvironmentDigest: string | null;
+  observedAt: string;
+};
+
+type ValidationProcessTreeAttestation = {
+  status: "known" | "mismatch" | "unknown";
+  reasonCode:
+    | "process_tree_observed"
+    | "child_environment_mismatch"
+    | "process_root_mismatch"
+    | "process_tree_changed"
+    | "process_tree_unavailable"
+    | "process_tree_truncated"
+    | "process_tree_descendant_unavailable"
+    | "process_unavailable"
+    | "procfs_unavailable"
+    | "binding_missing"
+    | "unsupported_platform";
+  bindingDigest: string | null;
+  treeDigest: string | null;
+  treeDigestVersion: "validator-process-tree-v1";
+  processEnvironmentDigest: string | null;
+  visibleProcessCount: number | null;
+  sampledProcessCount: number | null;
   observedAt: string;
 };
 
@@ -315,4 +339,169 @@ export async function attestChildProcessEnvironment(input: {
     // The procfs snapshot may contain credentials unrelated to this proof.
     environment?.fill(0);
   }
+}
+
+function treeUnknown(
+  reasonCode: ValidationProcessTreeAttestation["reasonCode"],
+  observedAt: string,
+  binding?: ChildProcessAttestationBinding,
+  visibleProcessCount: number | null = null,
+  sampledProcessCount: number | null = null,
+  treeDigest: string | null = null,
+  processEnvironmentDigest: string | null = null,
+): ValidationProcessTreeAttestation {
+  return {
+    status: "unknown",
+    reasonCode,
+    bindingDigest: binding ? childProcessBindingDigest(binding) : null,
+    treeDigest,
+    treeDigestVersion: "validator-process-tree-v1",
+    processEnvironmentDigest,
+    visibleProcessCount,
+    sampledProcessCount,
+    observedAt,
+  };
+}
+
+function sameTree(
+  first: Awaited<ReturnType<typeof resolveRuntimeProcessTree>>,
+  second: Awaited<ReturnType<typeof resolveRuntimeProcessTree>>,
+): boolean {
+  if (!first || !second || first.descendants.size !== second.descendants.size) return false;
+  for (const pid of first.descendants) {
+    const left = first.processes.get(pid);
+    const right = second.processes.get(pid);
+    if (!left || !right
+      || left.parentPid !== right.parentPid
+      || left.startTime !== right.startTime) return false;
+  }
+  return true;
+}
+
+/**
+ * Attest a bounded, point-in-time validator process tree. This deliberately
+ * does not make any claim about process identity after this observation.
+ */
+export async function attestValidatorProcessTreeEnvironment(input: {
+  pid: number | null | undefined;
+  projectRoot: string;
+  marker: string | null | undefined;
+  binding?: ChildProcessAttestationBinding;
+  expectedEnvironment?: Readonly<Record<string, string>>;
+  observedAt?: string;
+}): Promise<ValidationProcessTreeAttestation> {
+  const observedAt = input.observedAt ?? new Date().toISOString();
+  if (!input.binding || input.binding.processRole !== "validator_tree") {
+    return treeUnknown("binding_missing", observedAt, input.binding);
+  }
+  if (process.platform !== "linux") return treeUnknown("unsupported_platform", observedAt, input.binding);
+  if (!input.marker || !Number.isInteger(input.pid) || (input.pid ?? 0) <= 0) {
+    return treeUnknown("process_unavailable", observedAt, input.binding);
+  }
+
+  const first = await resolveRuntimeProcessTree(input.pid!, 32);
+  if (!first) return treeUnknown("process_tree_unavailable", observedAt, input.binding);
+  if (first.truncated) return treeUnknown("process_tree_truncated", observedAt, input.binding);
+  if (!first.complete) return treeUnknown("procfs_unavailable", observedAt, input.binding);
+  if (!first.processes.has(input.pid!)) {
+    return treeUnknown("process_unavailable", observedAt, input.binding);
+  }
+  if (first.descendants.size < 2) {
+    return treeUnknown(
+      "process_tree_descendant_unavailable",
+      observedAt,
+      input.binding,
+      first.descendants.size,
+      0,
+    );
+  }
+
+  const second = await resolveRuntimeProcessTree(input.pid!, 32);
+  if (!second) return treeUnknown("process_tree_unavailable", observedAt, input.binding);
+  if (second.truncated) return treeUnknown("process_tree_truncated", observedAt, input.binding);
+  if (!second.complete) return treeUnknown("procfs_unavailable", observedAt, input.binding);
+  if (second.descendants.size < 2) {
+    return treeUnknown(
+      "process_tree_descendant_unavailable",
+      observedAt,
+      input.binding,
+      second.descendants.size,
+      0,
+    );
+  }
+  if (!sameTree(first, second)) {
+    return treeUnknown(
+      "process_tree_changed",
+      observedAt,
+      input.binding,
+      second.descendants.size,
+      0,
+    );
+  }
+
+  const bindingDigest = childProcessBindingDigest(input.binding);
+  const identitySet = [...second.descendants].sort((a, b) => a - b).map((pid) => {
+    const identity = second.processes.get(pid)!;
+    return { pid, parentPid: identity.parentPid, startTime: identity.startTime };
+  });
+  const treeDigest = sha256(JSON.stringify({
+    schema: "validator-process-tree-v1",
+    bindingDigest,
+    identities: identitySet,
+  }));
+  const memberEnvironmentDigests: string[] = [];
+  let sampledProcessCount = 0;
+  for (const pid of second.descendants) {
+    sampledProcessCount += 1;
+    const result = await attestChildProcessEnvironment({
+      pid,
+      projectRoot: input.projectRoot,
+      marker: input.marker,
+      binding: input.binding,
+      expectedEnvironment: input.expectedEnvironment,
+      observedAt,
+    });
+    if (result.status === "mismatch") {
+      return {
+        ...treeUnknown(
+          result.reasonCode === "process_root_mismatch"
+            ? "process_root_mismatch"
+            : "child_environment_mismatch",
+          observedAt,
+          input.binding,
+          second.descendants.size,
+          sampledProcessCount,
+          treeDigest,
+          sha256(JSON.stringify([
+            ...memberEnvironmentDigests,
+            ...(result.processEnvironmentDigest ? [result.processEnvironmentDigest] : []),
+          ].sort())),
+        ),
+        status: "mismatch",
+      };
+    }
+    if (result.status !== "known" || !result.processEnvironmentDigest) {
+      return treeUnknown(
+        result.reasonCode === "process_unavailable" ? "process_unavailable" : "process_tree_descendant_unavailable",
+        observedAt,
+        input.binding,
+        second.descendants.size,
+        sampledProcessCount,
+      );
+    }
+    memberEnvironmentDigests.push(result.processEnvironmentDigest);
+  }
+
+  const processEnvironmentDigest = sha256(JSON.stringify([...memberEnvironmentDigests].sort()));
+  return {
+    status: "known",
+    reasonCode: "process_tree_observed",
+    bindingDigest,
+    treeDigest,
+    treeDigestVersion: "validator-process-tree-v1",
+    processEnvironmentDigest,
+    visibleProcessCount: second.descendants.size,
+    sampledProcessCount,
+    observedAt,
+  };
 }

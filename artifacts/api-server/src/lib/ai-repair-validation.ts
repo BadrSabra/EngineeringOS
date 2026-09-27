@@ -8,6 +8,7 @@ import {
   type ValidationResult,
   type ValidationStatus,
   type ValidationEvidence,
+  type ValidationProcessTreeAttestation,
   withValidationFailureKind,
 } from "@workspace/ai-orchestrator";
 import {
@@ -16,6 +17,7 @@ import {
 } from "./agent-state/environment-attestation.js";
 import {
   attestChildProcessEnvironment,
+  attestValidatorProcessTreeEnvironment,
   childProcessBindingDigest,
   childProcessExpectedEnvironment,
   CHILD_ATTESTATION_ENV_NAME,
@@ -166,6 +168,7 @@ const VALIDATION_COPY_OMIT = new Set([
 type ValidationDraft = Omit<ValidationResult, "evidence"> & {
   environmentRevision?: string | null;
   childProcessAttestation?: ChildProcessEnvironmentAttestation;
+  validatorProcessTreeAttestation?: ValidationProcessTreeAttestation;
 };
 
 function validationNextAction(status: ValidationStatus, terminalState?: ValidationResult["terminalState"]): string {
@@ -335,6 +338,7 @@ type ValidationEvidenceContext = Pick<
   environmentRevision?: string | null;
   childProcessIdentity?: ValidationProcessIdentity;
   childProcessAttestation?: ChildProcessEnvironmentAttestation;
+  validatorProcessTreeAttestation?: ValidationProcessTreeAttestation;
   evidenceId?: string;
   validatorProfile?: string;
 };
@@ -358,6 +362,9 @@ function attachValidationEvidence(
       ...(context.childProcessAttestation
         ? { childProcessAttestation: context.childProcessAttestation }
         : {}),
+      ...(context.validatorProcessTreeAttestation
+        ? { validatorProcessTreeAttestation: context.validatorProcessTreeAttestation }
+        : {}),
     },
   };
 }
@@ -380,6 +387,7 @@ type ValidatorProcessProbe = {
   redactValues: readonly string[];
   onSpawn: (input: { pid: number | null; cwd: string }) => void;
   observe: () => Promise<ChildProcessEnvironmentAttestation>;
+  observeTree: () => Promise<ValidationProcessTreeAttestation>;
 };
 
 function createValidatorProcessProbe(input: {
@@ -408,6 +416,10 @@ function createValidatorProcessProbe(input: {
     processRole: "validator",
     validatorProfile: input.profile,
   };
+  const treeBinding: ChildProcessAttestationBinding = {
+    ...binding,
+    processRole: "validator_tree",
+  };
   const marker = randomUUID();
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
@@ -415,6 +427,13 @@ function createValidatorProcessProbe(input: {
   };
   let observation: Promise<ChildProcessEnvironmentAttestation> | undefined;
   let observedAt = new Date().toISOString();
+  let processPid: number | null = null;
+  let treeObservation: ValidationProcessTreeAttestation | undefined;
+  let treeTimer: ReturnType<typeof setTimeout> | undefined;
+  let treeSampleInFlight: Promise<void> | undefined;
+  let treeSamplingStopped = false;
+  let treeSampleIndex = 0;
+  const treeSampleDelays = [40, 120, 300, 700, 1_400] as const;
   const unknown = (
     reasonCode: ChildProcessEnvironmentAttestation["reasonCode"],
   ): ChildProcessEnvironmentAttestation => ({
@@ -425,11 +444,59 @@ function createValidatorProcessProbe(input: {
     processEnvironmentDigest: null,
     observedAt,
   });
+  const unknownTree = (
+    reasonCode: ValidationProcessTreeAttestation["reasonCode"],
+  ): ValidationProcessTreeAttestation => ({
+    status: "unknown",
+    reasonCode,
+    bindingDigest: childProcessBindingDigest(treeBinding),
+    treeDigest: null,
+    treeDigestVersion: "validator-process-tree-v1",
+    processEnvironmentDigest: null,
+    visibleProcessCount: null,
+    sampledProcessCount: null,
+    observedAt,
+  });
+  const scheduleTreeSample = (): void => {
+    if (
+      treeSamplingStopped
+      || processPid === null
+      || treeSampleIndex >= treeSampleDelays.length
+    ) return;
+    const delay = treeSampleDelays[treeSampleIndex++]!;
+    treeTimer = setTimeout(() => {
+      treeTimer = undefined;
+      if (treeSamplingStopped || processPid === null) return;
+      const sampleObservedAt = new Date().toISOString();
+      treeSampleInFlight = attestValidatorProcessTreeEnvironment({
+        pid: processPid,
+        projectRoot: input.rootPath,
+        marker,
+        binding: treeBinding,
+        expectedEnvironment: childProcessExpectedEnvironment(environment),
+        observedAt: sampleObservedAt,
+      }).then((sample) => {
+        treeObservation = sample;
+        if (
+          sample.status !== "unknown"
+          || sample.reasonCode === "process_tree_truncated"
+        ) {
+          treeSamplingStopped = true;
+          return;
+        }
+        scheduleTreeSample();
+      }).catch(() => {
+        treeObservation = unknownTree("procfs_unavailable");
+        scheduleTreeSample();
+      });
+    }, delay);
+  };
 
   return {
     environment,
     redactValues: [marker],
     onSpawn: ({ pid }) => {
+      processPid = pid;
       observedAt = new Date().toISOString();
       observation = attestChildProcessEnvironment({
         pid,
@@ -439,6 +506,7 @@ function createValidatorProcessProbe(input: {
         expectedEnvironment: childProcessExpectedEnvironment(environment),
         observedAt,
       });
+      scheduleTreeSample();
     },
     observe: async () => {
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -454,6 +522,26 @@ function createValidatorProcessProbe(input: {
       } finally {
         if (timeout) clearTimeout(timeout);
       }
+    },
+    observeTree: async () => {
+      treeSamplingStopped = true;
+      if (treeTimer) clearTimeout(treeTimer);
+      if (treeSampleInFlight) {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            treeSampleInFlight,
+            new Promise<void>((resolve) => {
+              timeout = setTimeout(resolve, 1_000);
+            }),
+          ]);
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
+      }
+      return treeObservation ?? unknownTree(processPid === null
+        ? "process_unavailable"
+        : "process_tree_unavailable");
     },
   };
 }
@@ -558,6 +646,7 @@ async function runRepairValidationCore(
       },
     });
     const childProcessAttestation = await processProbe?.observe();
+    const validatorProcessTreeAttestation = await processProbe?.observeTree();
     const spawnedEnvironmentRevision = execution.status === "spawn_error" || execution.status === "cancelled"
       ? null
       : environmentRevision;
@@ -581,6 +670,7 @@ async function runRepairValidationCore(
         failedTests: executionEvidence.failedTests.map(toValidationFailure),
         environmentRevision: spawnedEnvironmentRevision,
         ...(childProcessAttestation ? { childProcessAttestation } : {}),
+        ...(validatorProcessTreeAttestation ? { validatorProcessTreeAttestation } : {}),
         detail:
           execution.status === "timed_out"
             ? "Validation timed out before the candidate could be approved."
@@ -604,6 +694,7 @@ async function runRepairValidationCore(
       ...executionEvidence,
       failedTests: executionEvidence.failedTests.map(toValidationFailure),
       ...(childProcessAttestation ? { childProcessAttestation } : {}),
+      ...(validatorProcessTreeAttestation ? { validatorProcessTreeAttestation } : {}),
       detail: output.slice(-2_000) || "Registered validation completed successfully.",
       processBudgetMs: definition.timeoutMs,
       overallBudgetMs: config.validationOverallTimeoutMs,
@@ -714,7 +805,12 @@ export async function runRepairValidation(
     evidenceContext.childProcessIdentity,
     evidenceId,
   );
-  const { environmentRevision, childProcessAttestation, ...draft } = result;
+  const {
+    environmentRevision,
+    childProcessAttestation,
+    validatorProcessTreeAttestation,
+    ...draft
+  } = result;
   const elapsedMs = Math.max(draft.elapsedMs ?? 0, Date.now() - startedAt);
   const terminalState = draft.terminalState ?? (
     draft.status === "blocked" ? "timed_out" : validationTerminalState(draft.status)
@@ -733,6 +829,7 @@ export async function runRepairValidation(
     validatorProfile: profile,
     environmentRevision: environmentRevision ?? null,
     ...(childProcessAttestation ? { childProcessAttestation } : {}),
+    ...(validatorProcessTreeAttestation ? { validatorProcessTreeAttestation } : {}),
   }));
 }
 
@@ -818,6 +915,7 @@ export async function runRepairRuntimeValidation(
       },
     });
     const childProcessAttestation = await processProbe?.observe();
+    const validatorProcessTreeAttestation = await processProbe?.observeTree();
     const output = boundedDetail(execution.combinedOutput.trim());
     const passed = execution.status === "passed";
     const timedOut = execution.status === "timed_out";
@@ -844,6 +942,7 @@ export async function runRepairRuntimeValidation(
         artifactRef: `runtime-oracle:${execution.status}`,
         validatorProfile: "runtime-oracle",
         ...(childProcessAttestation ? { childProcessAttestation } : {}),
+        ...(validatorProcessTreeAttestation ? { validatorProcessTreeAttestation } : {}),
         environmentRevision: execution.status === "spawn_error" || execution.status === "cancelled"
           ? null
           : environmentRevision,

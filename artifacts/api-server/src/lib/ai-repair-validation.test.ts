@@ -44,6 +44,12 @@ describe("AI repair validation registry", () => {
       expect(result.status).toBe("passed");
       expect(result.evidence.validatorProfile).toBe("runtime-oracle");
       expect(result.evidence.childProcessAttestation?.status).toBe("known");
+      const treeAttestation = result.evidence.validatorProcessTreeAttestation;
+      expect(treeAttestation?.status).toBe("known");
+      expect(treeAttestation?.treeDigestVersion).toBe("validator-process-tree-v1");
+      expect(treeAttestation?.visibleProcessCount).toBeGreaterThan(1);
+      expect(treeAttestation?.sampledProcessCount).toBe(treeAttestation?.visibleProcessCount);
+      expect(JSON.stringify(treeAttestation)).not.toContain(rootPath);
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

@@ -12,6 +12,13 @@ type ProcessIdentity = {
   startTime: string;
 };
 
+export type RuntimeProcessTree = {
+  processes: Map<number, ProcessIdentity>;
+  descendants: Set<number>;
+  complete: boolean;
+  truncated: boolean;
+};
+
 export type RuntimeListenerProcessResolution = {
   status: "known" | "unknown";
   reasonCode:
@@ -56,13 +63,18 @@ function parseProcessIdentity(pid: number, statLine: string): ProcessIdentity | 
   return { pid, parentPid, startTime };
 }
 
-async function readProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
+async function readProcessIdentity(pid: number): Promise<{ identity: ProcessIdentity | null; complete: boolean }> {
   try {
     const stat = await fs.readFile(`/proc/${pid}/stat`);
-    if (stat.byteLength > MAX_PROC_STAT_BYTES) return null;
-    return parseProcessIdentity(pid, stat.toString("utf8"));
-  } catch {
-    return null;
+    if (stat.byteLength > MAX_PROC_STAT_BYTES) return { identity: null, complete: false };
+    const identity = parseProcessIdentity(pid, stat.toString("utf8"));
+    return { identity, complete: identity !== null };
+  } catch (error) {
+    // Processes can disappear between /proc enumeration and sampling.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { identity: null, complete: true };
+    }
+    return { identity: null, complete: false };
   }
 }
 
@@ -104,9 +116,10 @@ async function readListenerInodes(port: number): Promise<Set<string> | null> {
   }
 }
 
-async function processTree(
+export async function resolveRuntimeProcessTree(
   launchPid: number,
-): Promise<{ processes: Map<number, ProcessIdentity>; descendants: Set<number> } | null> {
+  maxMembers = MAX_PROC_ENTRIES,
+): Promise<RuntimeProcessTree | null> {
   let entries;
   try {
     entries = await fs.readdir("/proc", { withFileTypes: true });
@@ -116,17 +129,19 @@ async function processTree(
   const pids = entries
     .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
     .map((entry) => Number(entry.name));
-  if (pids.length > MAX_PROC_ENTRIES) return null;
+  if (pids.length > MAX_PROC_ENTRIES) return { processes: new Map(), descendants: new Set(), complete: false, truncated: true };
 
   const processes = new Map<number, ProcessIdentity>();
+  let complete = true;
   for (let offset = 0; offset < pids.length; offset += 64) {
     const chunk = pids.slice(offset, offset + 64);
     const identities = await Promise.all(chunk.map(readProcessIdentity));
-    for (const identity of identities) {
-      if (identity) processes.set(identity.pid, identity);
+    for (const result of identities) {
+      if (!result.complete) complete = false;
+      if (result.identity) processes.set(result.identity.pid, result.identity);
     }
   }
-  if (!processes.has(launchPid)) return null;
+  if (!processes.has(launchPid)) return { processes, descendants: new Set(), complete, truncated: false };
 
   const children = new Map<number, number[]>();
   for (const identity of processes.values()) {
@@ -136,7 +151,7 @@ async function processTree(
   }
   const descendants = new Set<number>([launchPid]);
   const pending = [launchPid];
-  while (pending.length > 0 && descendants.size <= MAX_PROC_ENTRIES) {
+  while (pending.length > 0 && descendants.size <= maxMembers) {
     const parent = pending.pop()!;
     for (const child of children.get(parent) ?? []) {
       if (descendants.has(child)) continue;
@@ -144,8 +159,7 @@ async function processTree(
       pending.push(child);
     }
   }
-  if (descendants.size > MAX_PROC_ENTRIES) return null;
-  return { processes, descendants };
+  return { processes, descendants, complete, truncated: descendants.size > maxMembers };
 }
 
 async function socketOwners(
@@ -212,8 +226,10 @@ export async function resolveRuntimeListenerProcess(input: {
   }
 
   const launchPid = input.launchPid!;
-  const initialTree = await processTree(launchPid);
+  const initialTree = await resolveRuntimeProcessTree(launchPid);
   if (!initialTree) return unknown("process_unavailable", observedAt);
+  if (!initialTree.complete) return unknown("procfs_unavailable", observedAt);
+  if (initialTree.truncated) return unknown("procfs_unavailable", observedAt);
   const launchIdentity = initialTree.processes.get(launchPid);
   if (!launchIdentity) return unknown("process_unavailable", observedAt);
 
@@ -239,8 +255,9 @@ export async function resolveRuntimeListenerProcess(input: {
     return unknown("listener_ambiguous", observedAt);
   }
 
-  const afterTree = await processTree(launchPid);
+  const afterTree = await resolveRuntimeProcessTree(launchPid);
   if (!afterTree) return unknown("procfs_unavailable", observedAt);
+  if (!afterTree.complete || afterTree.truncated) return unknown("procfs_unavailable", observedAt);
   const [afterListenerInodes, finalOwners] = await Promise.all([
     readListenerInodes(input.port),
     socketOwners(afterTree.descendants, listenerInodes),
