@@ -5255,6 +5255,27 @@ Mission D2 صف الانتقال وملاحظاته المرتبطة، ولا ي
 المخاطر أولًا داخل مسار الانتقال الحالي، مع إبقاء تحقق الأدلة الخاص بـ
 `runtime.start` منفصلًا عن آليات التخزين والاستعادة المشتركة.
 
+#### تنفيذ معالجة نافذة القبول وهوية retry — 2026-09-27
+
+عولج الخطر داخل `runtime-start-transition.ts` دون تغيير schema أو عقد
+`ai-execution-acceptance.ts`: قبل claim، يتحقق العامل من وجود acceptance ناجح
+مرتبط بالـEffectBundle نفسه. إذا كان execution ما يزال نشطًا ولا يوجد قبول،
+يبقى الانتقال `pending` ويعود العامل دون claim أو استهلاك `retryCount`. إذا
+انتهى execution دون قبول ناجح، يصبح الانتقال `terminal_failed` بسبب
+`runtime_start_transition_acceptance_missing`. اختلاف EffectBundle عن القبول
+ينتهي أيضًا بفشل مغلق.
+
+أصبح فحص إعادة إنشاء الانتقال يقارن `environmentRevision` و
+`parentFactRefs` و`evidenceRefs` إضافة إلى الهوية والمراجع السابقة؛ لا تعيد
+المحاولة استخدام الصف إذا تغير أي منها. غطت الاختبارات الانتظار أثناء التنفيذ
+النشط، والفشل بعد انتهاء التنفيذ بلا قبول، واستئناف الفحص بعد تسجيل القبول،
+وعدم تطابق acceptance مع EffectBundle، وإعادة المحاولة المطابقة والمتعارضة
+للحقول الثلاثة. نجح ملف الاختبار `runtime-start-transition.test.ts` بنتيجة
+12/12 ونجح API typecheck.
+
+هذا يغلق خطر الترتيب المحدد داخل pilot القائم فقط؛ لا يوسع `runtime.start`
+إلى capabilities أخرى، ولا يغير استقلال acceptance، ولا يغلق P3.5 العام.
+
 ### 42.7 P7 — World-State Failure Diagnosis
 
 **الحالة:** `CLOSED FOR THE SCOPED P6 RUNTIME.START PILOT — deterministic failure diagnosis is bound to the accepted transition and its exact observations`

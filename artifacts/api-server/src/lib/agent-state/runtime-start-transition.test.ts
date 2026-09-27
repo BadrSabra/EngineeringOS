@@ -214,6 +214,27 @@ describe("runtime.start transition retry scheduling", () => {
     });
   });
 
+  it("fails closed when acceptance is not bound to the transition EffectBundle", async () => {
+    const fixture = await transitionFixture();
+    await db.update(aiExecutionAcceptancesTable)
+      .set({ effectBundleId: null })
+      .where(eq(aiExecutionAcceptancesTable.executionId, fixture.executionId));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "runtime_start_transition_acceptance_effect_bundle_mismatch",
+      retryCount: 0,
+    });
+  });
+
   it("resumes transition processing after the active execution is accepted", async () => {
     const fixture = await transitionFixture({ accepted: false });
     expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
@@ -230,7 +251,7 @@ describe("runtime.start transition retry scheduling", () => {
     // reaching this failure proves the accepted transition passed the wait gate.
     expect(transition).toMatchObject({
       status: "terminal_failed",
-      failureCode: "runtime_start_transition_observations_missing",
+      failureCode: "runtime_start_transition_observations_incomplete",
     });
   });
 
