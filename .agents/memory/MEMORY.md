@@ -148,3 +148,4 @@
 - [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
 - [World State failure diagnosis](world-state-failure-diagnosis.md) — scoped runtime.start diagnoses use exact linked evidence and stay separate from Gate C acceptance and authority.
 - [Non-stream chat terminal and acceptance barriers](chat-terminal-response-barrier.md) — Settle lifecycle before JSON and fail closed when an evidence-required project query has no canonical objective.
+- [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.

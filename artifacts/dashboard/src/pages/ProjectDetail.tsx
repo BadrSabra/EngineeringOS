@@ -37,6 +37,7 @@ import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { useQuery } from '@tanstack/react-query';
 import { useMonotonicData } from '@/lib/freshness';
 import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
+import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
 
 type BrowserValidationProfile = {
   id: string;
@@ -257,6 +258,7 @@ export default function ProjectDetail() {
       </div>
 
       <WorkspaceRuntimePanel projectId={projectId} />
+      <ProjectAiBudgetPanel projectId={projectId} />
 
       {/* Project info panel */}
       {showProjectInfo && (
