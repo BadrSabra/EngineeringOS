@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Workflows from './Workflows';
+import type { AiOrchestrationDecision } from '@workspace/api-client-react';
 
 vi.mock('@workspace/api-client-react', () => ({
   useListWorkflows: vi.fn(),
@@ -14,13 +15,17 @@ vi.mock('@workspace/api-client-react', () => ({
   useRetryWorkflowPhase: vi.fn(),
   useRollbackWorkflowPhase: vi.fn(),
   useListWorkflowExecutions: vi.fn(),
+  useAiOrchestrateWorkflow: vi.fn(),
+  useDeleteWorkflow: vi.fn(),
   getListWorkflowsQueryKey: vi.fn(() => ['workflows']),
   getListWorkflowExecutionsQueryKey: vi.fn((workflowId: string) => ['workflow-executions', workflowId]),
 }));
 
 import {
   useAdvanceWorkflow,
+  useAiOrchestrateWorkflow,
   useCreateWorkflow,
+  useDeleteWorkflow,
   useFailWorkflowPhase,
   useListProjects,
   useListWorkflowExecutions,
@@ -32,6 +37,8 @@ import {
 } from '@workspace/api-client-react';
 
 const mutation = () => ({ mutate: vi.fn(), isPending: false });
+const aiOrchestrationMutation = mutation();
+const deleteWorkflowMutation = mutation();
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -95,9 +102,13 @@ beforeEach(() => {
     useFailWorkflowPhase,
     useRetryWorkflowPhase,
     useRollbackWorkflowPhase,
+    useAiOrchestrateWorkflow,
+    useDeleteWorkflow,
   ]) {
     vi.mocked(hook).mockReturnValue(mutation() as never);
   }
+  vi.mocked(useAiOrchestrateWorkflow).mockReturnValue(aiOrchestrationMutation as never);
+  vi.mocked(useDeleteWorkflow).mockReturnValue(deleteWorkflowMutation as never);
 });
 
 describe('Workflows recovery rendering', () => {
@@ -119,5 +130,76 @@ describe('Workflows recovery rendering', () => {
     expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw upstream response/i)).not.toBeInTheDocument();
+  });
+
+  it('shows AI decisions as recommendations without advancing the workflow', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+
+    expect(aiOrchestrationMutation.mutate).toHaveBeenCalledWith(
+      { workflowId: 'workflow-1', data: {} },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+
+    const decision: AiOrchestrationDecision = {
+      action: 'advance',
+      reasoning: 'The build phase passed its checks.',
+      nextPhase: 'deploy',
+      blockers: [],
+      suggestions: ['Review the release notes.'],
+    };
+    const options = aiOrchestrationMutation.mutate.mock.calls[0]?.[1] as {
+      onSuccess?: (value: AiOrchestrationDecision) => void;
+    };
+    act(() => options.onSuccess?.(decision));
+
+    const suggestion = screen.getByRole('region', { name: 'AI workflow suggestion' });
+    expect(within(suggestion).getByText('AI suggestion: advance')).toBeInTheDocument();
+    expect(within(suggestion).getByText('The build phase passed its checks.')).toBeInTheDocument();
+    expect(within(suggestion).getByText('Next phase: deploy')).toBeInTheDocument();
+    expect(within(suggestion).getByText('Recommendation only. It does not advance, fail, or complete this workflow.')).toBeInTheDocument();
+    expect(within(suggestion).getByText('Review the release notes.')).toBeInTheDocument();
+    expect(vi.mocked(useAdvanceWorkflow).mock.results[0]?.value.mutate).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation before deleting and warns that history is removed', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Delete "Release pipeline"? This also permanently deletes its workflow execution history.',
+    );
+    expect(deleteWorkflowMutation.mutate).toHaveBeenCalledWith(
+      { workflowId: 'workflow-1' },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    confirm.mockRestore();
+  });
+
+  it('prevents deletion from the page while the workflow is running', () => {
+    vi.mocked(useListWorkflows).mockReturnValue({
+      data: [{
+        id: 'workflow-1',
+        projectId: 'project-1',
+        name: 'Release pipeline',
+        description: 'An active workflow.',
+        status: 'running',
+        currentPhase: 'deploy',
+        executionCount: 1,
+        phases: [{ name: 'deploy', steps: ['Publish'] }],
+      }],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isRefetching: false,
+      dataUpdatedAt: 0,
+    } as ReturnType<typeof useListWorkflows>);
+    renderPage();
+
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(screen.getByText('Stop this workflow before deleting it.')).toBeInTheDocument();
+    expect(deleteWorkflowMutation.mutate).not.toHaveBeenCalled();
   });
 });

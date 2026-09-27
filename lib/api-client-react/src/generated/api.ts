@@ -620,7 +620,7 @@ export const deleteProject = async (projectId: string, options?: Parameters<type
 
 export const getDeleteProjectMutationKey = () => ['deleteProject'] as const;
 
-export const getDeleteProjectMutationOptions = <TError = ErrorType<unknown>,
+export const getDeleteProjectMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProject>>, TError,DeleteProjectMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteProject>>, TError,DeleteProjectMutationVariables, TContext> => {
 
@@ -649,13 +649,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type DeleteProjectMutationResult = NonNullable<Awaited<ReturnType<typeof deleteProject>>>
 
-    export type DeleteProjectMutationError = ErrorType<unknown>
+    export type DeleteProjectMutationError = ErrorType<void>
     export type DeleteProjectMutationVariables = {projectId: string}
 
     /**
  * @summary Delete a project
  */
-export const useDeleteProject = <TError = ErrorType<unknown>,
+export const useDeleteProject = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProject>>, TError,DeleteProjectMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteProject>>,

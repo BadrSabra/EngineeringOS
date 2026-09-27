@@ -122,6 +122,8 @@ paths:
       responses:
         "204":
           description: Deleted
+        "409":
+          description: Workflow is active and must be stopped before deletion
 
   /api/projects/{projectId}/scan:
     post:

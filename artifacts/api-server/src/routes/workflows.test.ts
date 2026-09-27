@@ -69,6 +69,34 @@ describe("Workflow phase orchestration", () => {
     return { projectId, workflowId };
   }
 
+  it("rejects deletion while a workflow execution is running", async () => {
+    const { workflowId } = await createStartedWorkflow();
+
+    const response = await request(app).delete(`/api/workflows/${workflowId}`);
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("WORKFLOW_RUNNING");
+    const workflow = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId)).limit(1);
+    expect(workflow[0]?.status).toBe("running");
+    const executions = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+    expect(executions.some((execution) => execution.status === "running")).toBe(true);
+  });
+
+  it("deletes a stopped workflow and its execution history", async () => {
+    const { workflowId } = await createStartedWorkflow();
+    const stopped = await request(app).post(`/api/workflows/${workflowId}/stop`);
+    expect(stopped.status).toBe(200);
+
+    const response = await request(app).delete(`/api/workflows/${workflowId}`);
+
+    expect(response.status).toBe(204);
+    expect(await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId))).toHaveLength(0);
+    expect(await db.select().from(workflowExecutionsTable).where(eq(workflowExecutionsTable.workflowId, workflowId))).toHaveLength(0);
+  });
+
   it("advances through phases in order and completes after the last one", async () => {
     const { workflowId } = await createStartedWorkflow();
 

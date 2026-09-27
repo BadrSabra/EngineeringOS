@@ -25,7 +25,7 @@
 - [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
 - [Forensic resume contract](forensic-resume-contract.md) — persist task intent, scope, revision, and identities before provider work; legacy recovery must remain proof- and revision-bound.
 - [Recovery candidate binding](recovery-candidate-binding.md) — bind acceptances to the execution attempt; never compare workspace hashes to project timestamps; partial orientation checkpoints can resume.
-- [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
+- [Workflow transition serialization](workflow-transition-lock.md) — serialize phase transitions; workflow deletion locks retryable executions before the workflow row to avoid retry races.
 - [Mission plan materialization](mission-plan-materialization.md) — materialize typed steps into durable Goals, but let the existing runtime gate dependencies and wake downstream work.
 - [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
 - [Mission replan test isolation](mission-replan-test-isolation.md) — inject a fake root-goal runner; real auto-replans persist tasks that startup recovery may retry.

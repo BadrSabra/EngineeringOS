@@ -10,9 +10,12 @@ import {
   useRetryWorkflowPhase,
   useRollbackWorkflowPhase,
   useListWorkflowExecutions,
+  useAiOrchestrateWorkflow,
+  useDeleteWorkflow,
   getListWorkflowsQueryKey,
   getListWorkflowExecutionsQueryKey,
 } from '@workspace/api-client-react';
+import type { AiOrchestrationDecision } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   GitMerge,
@@ -30,6 +33,7 @@ import {
   ChevronUp,
   X,
   Trash2,
+  Sparkles,
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
@@ -413,11 +417,20 @@ export default function Workflows() {
   const { data: workflows, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListWorkflows({});
   const [expandedId, setExpandedId] = useState<string>('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [orchestrationState, setOrchestrationState] = useState<
+    | { workflowId: string; status: 'loading' }
+    | { workflowId: string; status: 'success'; decision: AiOrchestrationDecision }
+    | { workflowId: string; status: 'error'; message: string }
+    | null
+  >(null);
+  const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
 
   const startWorkflow = useStartWorkflow();
   const stopWorkflow = useStopWorkflow();
   const advanceWorkflow = useAdvanceWorkflow();
   const failPhase = useFailWorkflowPhase();
+  const orchestrateWorkflow = useAiOrchestrateWorkflow();
+  const deleteWorkflow = useDeleteWorkflow();
 
   const invalidateWorkflow = (workflowId: string) => {
     queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
@@ -441,6 +454,51 @@ export default function Workflows() {
     failPhase.mutate(
       { workflowId, data: { error: 'Manually marked as failed by operator' } },
       { onSuccess: () => invalidateWorkflow(workflowId) },
+    );
+  };
+
+  const handleOrchestrate = (workflowId: string) => {
+    setOrchestrationState({ workflowId, status: 'loading' });
+    orchestrateWorkflow.mutate(
+      { workflowId, data: {} },
+      {
+        onSuccess: (decision) => setOrchestrationState({ workflowId, status: 'success', decision }),
+        onError: (requestError) => setOrchestrationState({
+          workflowId,
+          status: 'error',
+          message: requestError instanceof Error ? requestError.message : 'Unable to get an AI suggestion.',
+        }),
+      },
+    );
+  };
+
+  const handleDelete = (workflowId: string, workflowName: string) => {
+    const confirmed = window.confirm(
+      `Delete "${workflowName}"? This also permanently deletes its workflow execution history.`,
+    );
+    if (!confirmed) return;
+
+    setDeleteErrors((previous) => {
+      const next = { ...previous };
+      delete next[workflowId];
+      return next;
+    });
+    deleteWorkflow.mutate(
+      { workflowId },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: getListWorkflowsQueryKey() });
+          queryClient.removeQueries({ queryKey: getListWorkflowExecutionsQueryKey(workflowId) });
+          setExpandedId((current) => current === workflowId ? '' : current);
+          setOrchestrationState((current) => current?.workflowId === workflowId ? null : current);
+        },
+        onError: (requestError) => {
+          setDeleteErrors((previous) => ({
+            ...previous,
+            [workflowId]: requestError instanceof Error ? requestError.message : 'Unable to delete this workflow.',
+          }));
+        },
+      },
     );
   };
 
@@ -554,6 +612,74 @@ export default function Workflows() {
                   </button>
                 </div>
               </div>
+
+              <div className="mb-5 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleOrchestrate(workflow.id)}
+                  disabled={orchestrateWorkflow.isPending}
+                  className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-2 border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 disabled:opacity-50"
+                  title="Get an AI recommendation without changing workflow state"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'loading'
+                    ? 'Analyzing…'
+                    : 'Ask AI'}
+                </button>
+                <button
+                  onClick={() => handleDelete(workflow.id, workflow.name)}
+                  disabled={workflow.status === 'running' || deleteWorkflow.isPending}
+                  className="px-3 py-2 rounded-md font-medium text-sm flex items-center gap-2 border border-destructive/25 text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={workflow.status === 'running' ? 'Stop the workflow before deleting it' : 'Delete workflow and its execution history'}
+                >
+                  <Trash2 className="w-4 h-4" /> Delete
+                </button>
+                {workflow.status === 'running' && (
+                  <span className="text-xs text-muted-foreground">Stop this workflow before deleting it.</span>
+                )}
+              </div>
+
+              {deleteErrors[workflow.id] && (
+                <p className="mb-4 text-sm text-destructive" role="alert">{deleteErrors[workflow.id]}</p>
+              )}
+
+              {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'error' && (
+                <p className="mb-4 text-sm text-destructive" role="alert">{orchestrationState.message}</p>
+              )}
+              {orchestrationState?.workflowId === workflow.id && orchestrationState.status === 'success' && (
+                <section className="mb-5 rounded-lg border border-primary/20 bg-primary/5 p-4" aria-label="AI workflow suggestion">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <h3 className="font-semibold text-sm">
+                      AI suggestion: {orchestrationState.decision.action}
+                    </h3>
+                    {orchestrationState.decision.nextPhase && (
+                      <span className="rounded bg-background px-2 py-0.5 text-xs text-muted-foreground">
+                        Next phase: {orchestrationState.decision.nextPhase}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{orchestrationState.decision.reasoning}</p>
+                  {orchestrationState.decision.blockers && orchestrationState.decision.blockers.length > 0 && (
+                    <div className="mt-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Blockers</h4>
+                      <ul className="mt-1 list-disc pl-5 text-sm">
+                        {orchestrationState.decision.blockers.map((blocker, index) => <li key={`${index}-${blocker}`}>{blocker}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {orchestrationState.decision.suggestions && orchestrationState.decision.suggestions.length > 0 && (
+                    <div className="mt-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Suggestions</h4>
+                      <ul className="mt-1 list-disc pl-5 text-sm">
+                        {orchestrationState.decision.suggestions.map((suggestion, index) => <li key={`${index}-${suggestion}`}>{suggestion}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Recommendation only. It does not advance, fail, or complete this workflow.
+                  </p>
+                </section>
+              )}
 
               {/* Phase timeline */}
               {workflow.phases && workflow.phases.length > 0 && (() => {

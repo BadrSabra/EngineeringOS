@@ -16,7 +16,7 @@ import {
   ListWorkflowExecutionsParams,
   ListWorkflowsQueryParams,
 } from "@workspace/api-zod";
-import { eq, desc, and, isNull } from "drizzle-orm";
+import { eq, desc, and, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -136,34 +136,81 @@ router.get("/workflows/:workflowId", async (req, res) => {
 router.delete("/workflows/:workflowId", async (req, res) => {
   const { workflowId } = DeleteWorkflowParams.parse(req.params);
 
-  const before = await db
+  const existing = await db
     .select()
     .from(workflowsTable)
     .where(eq(workflowsTable.id, workflowId))
     .limit(1);
-  if (!before[0]) return res.status(404).json({ error: "Workflow not found" });
+  if (!existing[0]) return res.status(404).json({ error: "Workflow not found" });
 
-  const ownerProject = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+  const ownerProject = await loadProjectByIdForUser(existing[0].projectId, req.userId, res);
   if (!ownerProject) return;
 
-  await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
+    // Lock retryable/active executions before the workflow row. Retry claims an
+    // execution before updating its workflow; using the same order avoids
+    // deleting history while a retry is becoming active.
+    await tx
+      .select({ id: workflowExecutionsTable.id })
+      .from(workflowExecutionsTable)
+      .where(
+        and(
+          eq(workflowExecutionsTable.workflowId, workflowId),
+          inArray(workflowExecutionsTable.status, ["running", "failed"]),
+        ),
+      )
+      .for("update");
+
+    const [workflow] = await tx
+      .select()
+      .from(workflowsTable)
+      .where(eq(workflowsTable.id, workflowId))
+      .for("update")
+      .limit(1);
+    if (!workflow) return { kind: "missing" as const };
+
+    const [runningExecution] = await tx
+      .select({ id: workflowExecutionsTable.id })
+      .from(workflowExecutionsTable)
+      .where(
+        and(
+          eq(workflowExecutionsTable.workflowId, workflowId),
+          eq(workflowExecutionsTable.status, "running"),
+        ),
+      )
+      .limit(1);
+    if (workflow.status === "running" || runningExecution) {
+      return { kind: "running" as const };
+    }
+
     await tx.insert(eventsTable).values({
-      id: randomUUID(), type: "WorkflowDeleted", projectId: before[0].projectId,
-      workflowId, severity: "info", message: `Workflow "${before[0].name}" deleted`,
+      id: randomUUID(), type: "WorkflowDeleted", projectId: workflow.projectId,
+      workflowId, severity: "info", message: `Workflow "${workflow.name}" deleted`,
     });
     await tx.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    return { kind: "deleted" as const, workflow };
   });
+
+  if (result.kind === "missing") {
+    return res.status(404).json({ error: "Workflow not found" });
+  }
+  if (result.kind === "running") {
+    return res.status(409).json({
+      error: "Stop the workflow before deleting it",
+      code: "WORKFLOW_RUNNING",
+    });
+  }
 
   await recordAudit({
     entityType: "workflow",
     entityId: workflowId,
     action: "deleted",
-    projectId: before[0].projectId,
-    stateBefore: before[0],
+    projectId: result.workflow.projectId,
+    stateBefore: result.workflow,
     actor: req.userId,
   });
 
-  invalidateContextCache(before[0].projectId);
+  invalidateContextCache(result.workflow.projectId);
 
   return res.status(204).send();
 });
