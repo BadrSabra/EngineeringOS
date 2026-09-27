@@ -6912,8 +6912,8 @@ const AI_ACTIONS = [
   // panels surface per-sub-question in the existing live-activity UI.
   { id: 'probe', label: 'Capability Probe', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
 ];
-const COMMON_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id !== 'probe');
-const ADVANCED_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id === 'probe');
+const COMMON_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id === 'analyze' || action.id === 'review');
+const ADDITIONAL_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id !== 'analyze' && action.id !== 'review');
 
 type LiveAgentToolStep = {
   activityId?: number;
@@ -12742,7 +12742,7 @@ export default function AiChat() {
                      </button>
                    ))}
                  </div>
-                 {ADVANCED_AI_ACTIONS.length > 0 && (
+                  {ADDITIONAL_AI_ACTIONS.length > 0 && (
                    <div className="mt-2">
                      <button
                        type="button"
@@ -12755,7 +12755,7 @@ export default function AiChat() {
                        <ChevronRight className={`h-3 w-3 transition-transform ${moreActionsExpanded ? 'rotate-90' : ''}`} />
                      </button>
                      <div id="ai-additional-actions" hidden={!moreActionsExpanded} className="mt-1 grid grid-cols-2 gap-2">
-                       {ADVANCED_AI_ACTIONS.map((action) => (
+                        {ADDITIONAL_AI_ACTIONS.map((action) => (
                          <button
                            key={action.id}
                            onClick={() => handleQuickAction(action)}

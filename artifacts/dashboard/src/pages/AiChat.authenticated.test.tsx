@@ -4558,10 +4558,14 @@ it('shows Groq model readiness without requiring a personal key when the server 
     const moreActions = screen.getByRole('button', { name: 'More actions' });
     expect(moreActions).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: 'Capability Probe' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Task Status' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Workflow Health' })).not.toBeInTheDocument();
     fireEvent.click(moreActions);
     expect(moreActions).toHaveAttribute('aria-expanded', 'true');
 
-    // The advanced area retains the one-click probe runner.
+    // Secondary actions remain available in the expanded list.
+    expect(await screen.findByRole('button', { name: 'Task Status' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Workflow Health' })).toBeInTheDocument();
     const probeButton = await screen.findByRole('button', { name: 'Capability Probe' });
     expect(probeButton).toBeInTheDocument();
 
