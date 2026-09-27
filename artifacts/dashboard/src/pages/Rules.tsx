@@ -19,6 +19,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import RuleDetailActions from '@/components/RuleDetailActions';
 
 type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
@@ -467,6 +468,7 @@ export default function Rules() {
                     {rule.projectId && <div>Scoped to project</div>}
                     <div>{rule.enabled ? '● Enabled' : '○ Disabled'}</div>
                   </div>
+                  <RuleDetailActions rule={rule} />
                 </div>
               )}
             </div>
