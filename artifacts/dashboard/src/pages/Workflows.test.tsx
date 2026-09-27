@@ -42,11 +42,12 @@ const deleteWorkflowMutation = mutation();
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <QueryClientProvider client={queryClient}>
       <Workflows />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 beforeEach(() => {
@@ -175,6 +176,68 @@ describe('Workflows recovery rendering', () => {
       expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
     confirm.mockRestore();
+  });
+
+  it('does not delete a workflow when the operator cancels confirmation', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(deleteWorkflowMutation.mutate).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('invalidates the workflow list and clears its execution cache after deletion', () => {
+    const queryClient = renderPage();
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
+    const removeQueries = vi.spyOn(queryClient, 'removeQueries');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const options = deleteWorkflowMutation.mutate.mock.calls[0]?.[1] as {
+      onSuccess?: () => void;
+    };
+
+    act(() => options.onSuccess?.());
+
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['workflows'] });
+    expect(removeQueries).toHaveBeenCalledWith({
+      queryKey: ['workflow-executions', 'workflow-1'],
+    });
+    confirm.mockRestore();
+  });
+
+  it('shows the server reason when deletion is rejected', () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const options = deleteWorkflowMutation.mutate.mock.calls[0]?.[1] as {
+      onError?: (error: Error) => void;
+    };
+
+    act(() => options.onError?.(new Error('Stop the workflow before deleting it')));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Stop the workflow before deleting it',
+    );
+    confirm.mockRestore();
+  });
+
+  it('shows an orchestration error without rendering a recommendation', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI' }));
+    const options = aiOrchestrationMutation.mutate.mock.calls[0]?.[1] as {
+      onError?: (error: Error) => void;
+    };
+
+    act(() => options.onError?.(new Error('AI service temporarily unavailable')));
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'AI service temporarily unavailable',
+    );
+    expect(
+      screen.queryByRole('region', { name: 'AI workflow suggestion' }),
+    ).not.toBeInTheDocument();
   });
 
   it('prevents deletion from the page while the workflow is running', () => {
