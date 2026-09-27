@@ -3,6 +3,7 @@ import request from "supertest";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import {
+  aiMissionsTable,
   auditLogsTable,
   db,
   eventsTable,
@@ -10,6 +11,7 @@ import {
   projectsTable,
 } from "@workspace/db";
 import {
+  buildMissionPlanPreview,
   authorizeToolInvocation,
   createServerCapabilityRegistry,
   getFullAuthorizedToolManifest,
@@ -131,6 +133,12 @@ describe("Plugin registry", () => {
 
   it("does not let project plugin activation change capability or tool authorization", async () => {
     const projectId = await insertProject();
+    const plannerRequest = { message: "Inspect the source, then fix the blocking issue." };
+    const beforePlanner = buildMissionPlanPreview(plannerRequest);
+    const beforeMissions = await db
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId));
     const beforeRegistry = createServerCapabilityRegistry().list();
     const beforeManifest = getFullAuthorizedToolManifest();
     const beforeAuthorization = authorizeToolInvocation({
@@ -151,6 +159,21 @@ describe("Plugin registry", () => {
         allowedTools: new Set(["read_file"]),
       }),
     ).toEqual(beforeAuthorization);
+    const afterPlanner = buildMissionPlanPreview(plannerRequest);
+    expect({
+      admission: afterPlanner.admission,
+      planHash: afterPlanner.plan?.planHash,
+      steps: afterPlanner.plan?.steps,
+    }).toEqual({
+      admission: beforePlanner.admission,
+      planHash: beforePlanner.plan?.planHash,
+      steps: beforePlanner.plan?.steps,
+    });
+    expect(beforeMissions).toEqual([]);
+    expect(await db
+      .select({ id: aiMissionsTable.id })
+      .from(aiMissionsTable)
+      .where(eq(aiMissionsTable.projectId, projectId))).toEqual(beforeMissions);
   });
 
   it("rejects untyped configuration and never returns persisted legacy values", async () => {
