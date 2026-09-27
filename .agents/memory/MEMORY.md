@@ -109,6 +109,7 @@
 - [Orientation acceptance boundary](orientation-acceptance.md) — complete role coverage is the orientation proof gate; do not force orientation through targeted project-query analysis evidence.
 - [Orientation proof compatibility](orientation-acceptance-proof.md) — proof-required orientation needs an explicit acceptance branch that maps role coverage to server-owned evidence.
 - [Project orientation recovery](project-orientation-recovery.md) — orientation PROJECT_QUERY is proof-bound but may resume after a pre-read provider failure; targeted claims remain incomplete.
+- [P7.5 measurement continuation](p75-measurement-continuation.md) — cross-attempt measurement needs distinct source/observer identities and stays outside calibration until versioned review.
 - [Recovery coordinator boundary](recovery-coordinator-boundary.md) — automatic recovery currently targets durable AI task executions; conversational recovery needs a separate request/evidence adapter.
 - [Delivery promotion boundary](delivery-promotion-boundary.md) — first-phase promotion is decision-only and requires candidate integrity plus validation; it never grants write authority.
 - [Delivery promotion policy](delivery-promotion-policy.md) — project-owner consent enables only server-eligible candidates through the existing guarded apply path.

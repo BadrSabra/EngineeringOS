@@ -5504,6 +5504,14 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 جديدة مع cohort held-out مستقبلية. لا يجوز وصل دليل المحاولة الجديدة بالتسجيل
 القديم أو إسقاط التسجيل غير المحسوم.
 
+أضيف في 2026-09-28 عقد typed أولي لـobserve-only measurement continuation:
+يربط hash التسجيل الأصلي بهوية القياس في attempt لاحق وEpisode جديد، مع ثبات
+Mission/Goal والخطة ومراجع المشروع والبيئة، ويحصر profile في `runtime.status`.
+هذا العقد غير موصول بمسار runtime أو event writer، ولا يجعل النتيجة مؤهلة
+لـcalibration scope v1؛ فهو لا يفتح الجمع ولا يصلح التسجيلات القديمة. يلزم قبل
+الاستعمال إثبات ownership/idempotency والقراءة المباشرة fresh عبر crash/cancel/
+worker-recovery، ثم اعتماد policy/scope version قبل أي cohort جديدة.
+
 يجوز لاحقًا إضافة projection تشغيلية للقراءة فقط لعرض عدد العينات والنتائج
 والحالات غير المحسومة لكل scope، باستخدام Episode events الحالية. هذه observability
 اختيارية وليست بديلًا عن بوابة الجاهزية أو معالجة التعافي، ولا تتطلب جدولًا جديدًا

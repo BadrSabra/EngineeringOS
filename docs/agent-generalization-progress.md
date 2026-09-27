@@ -2707,6 +2707,30 @@ G9 Revocation Safety
 - **next step:** عرّف schemas وsecret bindings وMission authorization وCER كلًا
   بعقد مستقل قبل توسيع التنفيذ؛ أثبت تفعيل المشروع عبر رحلة متصفح مصادق عليها.
 
+### 42.76 — عقد continuation للملاحظة فقط في P7.5 (2026-09-28)
+
+- **phase/step:** P7.5 — تثبيت هوية قياس observe-only بعد تدوير attempt.
+- **status:** `partial`
+- **what changed:** أضيف عقد typed مستقل لطلب ونتيجة continuation، يربط hash
+  التسجيل الأصلي بهوية قياس جديدة في attempt لاحق وEpisode جديد، مع ثبات Mission
+  وGoal وplan/project/environment revisions. يقيّد العملية بقراءة
+  `runtime.status` خادمية فقط؛ والنتيجة معلّمة صراحةً بأنها غير مؤهلة لمعايرة
+  scope v1 قبل مراجعة policy/scope version.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/runtime-start-hypothesis-measurement-continuation.ts`
+  واختباراته؛ لا DB schema أو migration أو event writer جديد.
+- **validation:** اختبارات عقد P7.5 مع اختبارات registration الحالية (13/13)،
+  API typecheck، و`git diff --check` نجحت.
+- **authority/safety impact:** العقد لا يستدعي observer ولا يكتب أحداثًا ولا
+  يعيد `runtime.start`؛ لا يحدّث معايرة v1 أو Gate C أو acceptance، ولا يغيّر
+  `fixed_safe_probe`. التسجيلات القديمة غير المحسومة تبقى كذلك.
+- **remaining/blocker:** لم يُوصل العقد بعد بمسار Mission recovery أو ownership
+  fences أو تخزين النتيجة. يلزم اختبار الانقطاع/الإلغاء/إعادة العامل وidempotency
+  والتحقق من صف الملاحظة المباشر قبل جمع أي cohort.
+- **next step:** أوصل request/result بمسار خادمي observe-only تحت lease المحاولة
+  الحالية، مع إبقاء التسجيل والنتيجة الجديدين منفصلين عن Episode الأصلي؛ ثم
+  راجع scope/policy version واختبر مسار التعافي قبل بدء cohort مستقبلية.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
