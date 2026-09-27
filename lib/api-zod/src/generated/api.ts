@@ -3306,10 +3306,10 @@ export const ImportProjectResponse = zod.object({
 
 
 /**
- * @summary Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+ * @summary Upload a .zip, .tar.gz, or .tgz archive for ARCHIVE_UPLOAD discovery
  */
 export const UploadArchiveBody = zod.object({
-  "archive": zod.instanceof(File).describe('Archive file (.zip or .tar.gz), max 50 MB')
+  "archive": zod.instanceof(File).describe('Archive file (.zip, .tar.gz, or .tgz), max 50 MiB')
 })
 
 export const UploadArchiveResponse = zod.object({

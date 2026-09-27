@@ -3610,12 +3610,13 @@ P8/P9/P10 قبل إغلاق الاعتماديات ومعايير P7.5 المح�
 
 للتنفيذ القريب ثلاثة مسارات يجب عدم الخلط بينها:
 
-1. **مسار الوصول المنتجّي:** أغلق أولًا فجوة الوصول المؤكدة إلى Archive Upload
-   واختبار رحلة Dashboard → upload → discovery الحقيقي، وفق التدقيق في
-   `docs/replit-platform-gap-inventory.md` §11. قرر نطاق Graph المتقدم وصنف
-   World State وRuntime Observations وRuntime Disagreements كواجهات داخلية أو
-   عملياتية قبل وعد المستخدم بها. هذا المسار يعرض capabilities قائمة ولا يضيف
-   عقدة إلى dependency graph أو صلاحية جديدة.
+1. **مسار الوصول المنتجّي:** أُغلقت فجوة الوصول إلى Archive Upload في Dashboard
+   وربط `uploadId` باختبار متصفح للـwizard واختبار تكامل فعلي للـAPI، وفق التدقيق
+   في `docs/replit-platform-gap-inventory.md` §11. يبقى اختبار Clerk browser
+   عبر المسارين الحقيقيين وتغطية رفض الأرشيفات غير الصالحة. قرر نطاق Graph
+   المتقدم وصنف World State وRuntime Observations وRuntime Disagreements كواجهات
+   داخلية أو عملياتية قبل وعد المستخدم بها. هذا المسار يعرض capabilities قائمة
+   ولا يضيف عقدة إلى dependency graph أو صلاحية جديدة.
 2. **المسار المعرفي:** تظل بوابة جاهزية جمع P7.5 في §42.8 شرطًا قبل أي cohort؛
    لا تجمع النتائج قبل إغلاقها. يمكن تنفيذ أعمال Dashboard المستقلة قبلها دون
    تجاوزها.

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useStartDiscovery,
+  useUploadArchive,
   useGetDiscoverySession,
   useGetDiscoverySummary,
   useImportProject,
@@ -11,7 +12,7 @@ import {
   getGetDiscoverySessionQueryKey,
   getGetDiscoverySummaryQueryKey,
 } from '@workspace/api-client-react';
-import type { Project } from '@workspace/api-client-react';
+import type { ArchiveUploadOutput, Project } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
 import {
   X,
@@ -138,6 +139,22 @@ interface Props {
   onClose: () => void;
 }
 
+const MAX_ARCHIVE_SIZE_BYTES = 50 * 1024 * 1024;
+const ARCHIVE_FILE_ACCEPT = '.zip,.tar.gz,.tgz';
+
+function getArchiveFileError(file: File | null): string | null {
+  if (!file) return 'Choose an archive file to continue.';
+
+  const name = file.name.toLowerCase();
+  if (!name.endsWith('.zip') && !name.endsWith('.tar.gz') && !name.endsWith('.tgz')) {
+    return 'Choose a .zip, .tar.gz, or .tgz archive.';
+  }
+  if (file.size > MAX_ARCHIVE_SIZE_BYTES) {
+    return 'Archive must be 50 MiB or smaller.';
+  }
+  return null;
+}
+
 // ─── Source type definitions ────────────────────────────────────────────────────
 
 interface SourceDef {
@@ -176,12 +193,10 @@ const SOURCE_DEFS: SourceDef[] = [
   },
   {
     type: 'ARCHIVE_UPLOAD',
-    label: 'Zip Archive',
-    description: 'Upload and scan a .zip file',
+    label: 'Archive Upload',
+    description: 'Upload and scan a .zip, .tar.gz, or .tgz file',
     icon: Package,
-    available: false,
-    badge: 'Unavailable',
-    disabledReason: 'Requires server-side file-upload handling — not supported in this deployment. Use Git Repository instead.',
+    available: true,
   },
   {
     type: 'REMOTE_FILESYSTEM',
@@ -384,6 +399,8 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [gitUsername, setGitUsername] = useState('');
   const [gitToken, setGitToken] = useState('');
   const [useCredentials, setUseCredentials] = useState(false);
+  const [archiveFile, setArchiveFile] = useState<File | null>(null);
+  const [uploadedArchive, setUploadedArchive] = useState<ArchiveUploadOutput | null>(null);
 
   const [discoveryId, setDiscoveryId] = useState<string | null>(null);
   const [session, setSession] = useState<DiscoverySession | null>(null);
@@ -396,6 +413,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [scanTriggered, setScanTriggered] = useState(false);
 
   const startDiscovery = useStartDiscovery();
+  const archiveUpload = useUploadArchive();
   const importProject = useImportProject();
   const scanProject = useScanProject();
   const { data: projectsListData } = useListProjects();
@@ -447,6 +465,9 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       const proj = projects?.find((p) => p.id === workspaceProjectId);
       return proj?.name ?? 'Existing Project';
     }
+    if (sourceType === 'ARCHIVE_UPLOAD') {
+      return uploadedArchive?.originalName ?? archiveFile?.name ?? 'Archive Upload';
+    }
     return sourceType;
   };
 
@@ -471,6 +492,25 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     } else if (sourceType === 'WORKSPACE_PROJECT') {
       if (!workspaceProjectId) { setStartError('Please select a project.'); return; }
       sourceConfig = { projectId: workspaceProjectId };
+    } else if (sourceType === 'ARCHIVE_UPLOAD') {
+      const file = archiveFile;
+      const fileError = getArchiveFileError(file);
+      if (fileError || !file) {
+        setStartError(fileError ?? 'Choose an archive file to continue.');
+        return;
+      }
+
+      let upload = uploadedArchive;
+      if (!upload) {
+        try {
+          upload = await archiveUpload.mutateAsync({ data: { archive: file } });
+          setUploadedArchive(upload);
+        } catch (err: unknown) {
+          setStartError(extractApiError(err, 'Failed to upload archive. Please try again.'));
+          return;
+        }
+      }
+      sourceConfig = { uploadId: upload.uploadId };
     }
 
     try {
@@ -527,6 +567,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           return (
             <button
               key={src.type}
+              data-testid={src.type === 'ARCHIVE_UPLOAD' ? 'source-card-ARCHIVE_UPLOAD' : undefined}
               type="button"
               disabled={!src.available}
               onClick={() => { if (src.available) setSourceType(src.type); }}
@@ -611,6 +652,47 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                 </div>
               );
             })()}
+          </div>
+        )}
+
+        {sourceType === 'ARCHIVE_UPLOAD' && (
+          <div className="space-y-2">
+            <label
+              htmlFor="discovery-archive-file"
+              className="text-xs font-semibold text-muted-foreground uppercase tracking-wider"
+            >
+              Project Archive
+            </label>
+            <input
+              id="discovery-archive-file"
+              data-testid="archive-file-input"
+              name="archive"
+              type="file"
+              accept={ARCHIVE_FILE_ACCEPT}
+              aria-required="true"
+              aria-describedby="discovery-archive-help"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0] ?? null;
+                setArchiveFile(file);
+                setUploadedArchive(null);
+                setStartError(getArchiveFileError(file));
+              }}
+              className="block w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90 focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            <p id="discovery-archive-help" className="text-xs text-muted-foreground/70">
+              Supported formats: .zip, .tar.gz, and .tgz. Maximum size: 50 MiB.
+            </p>
+            {archiveFile && (
+              <p data-testid="archive-file-selection" className="text-xs text-muted-foreground">
+                Selected: <span className="font-medium text-foreground">{archiveFile.name}</span>
+                {' · '}{fmt(archiveFile.size)}
+              </p>
+            )}
+            {uploadedArchive && (
+              <p data-testid="archive-upload-success" role="status" className="text-xs text-emerald-400">
+                Archive uploaded. If discovery needs a retry, it will reuse this upload.
+              </p>
+            )}
           </div>
         )}
 
@@ -746,11 +828,18 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         </button>
         <button
           type="submit"
-          disabled={startDiscovery.isPending}
+          data-testid="start-discovery"
+          disabled={startDiscovery.isPending || archiveUpload.isPending}
           className="px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors"
         >
-          {startDiscovery.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
-          Start Discovery
+          {startDiscovery.isPending || archiveUpload.isPending
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : <ChevronRight className="w-4 h-4" />}
+          {archiveUpload.isPending
+            ? 'Uploading archive…'
+            : startDiscovery.isPending
+              ? 'Starting discovery…'
+              : 'Start Discovery'}
         </button>
       </div>
     </form>

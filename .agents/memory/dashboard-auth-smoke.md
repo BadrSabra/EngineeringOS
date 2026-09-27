@@ -8,3 +8,9 @@ The protected dashboard smoke should send its real authenticated API probe throu
 **Why:** The release runner serves the dashboard and API on different local ports while the Clerk handoff session is established on the dashboard origin. The browser's normal relative API request follows the proxy and carries the session correctly.
 
 **How to apply:** Keep the page-level data fixture in place, allow only an explicit probe request to continue to the real API, and treat the provider-free 428 AI fixture response as the sole documented console-error exception.
+
+Run full dashboard journeys through the configured `release-dashboard-journey` workflow. Direct Playwright CLI runs may lack the injected `signInClerkUser` helper and fail before exercising the journey.
+
+**Why:** The controlled release runner supplies the browser authentication helper; a plain CLI invocation does not reproduce that setup.
+
+**How to apply:** Use the managed journey workflow for authenticated browser verification rather than treating a missing-helper failure from a direct CLI run as an application defect.

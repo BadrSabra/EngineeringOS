@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import express from "express";
+import AdmZip from "adm-zip";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
 import discoveryRouter, { cleanupOldSessions } from "./discovery.js";
@@ -26,6 +27,7 @@ import {
   removeManagedProjectRoot,
 } from "../lib/project-materialization.js";
 import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
+import { removeUpload } from "../lib/upload-store.js";
 
 const execFileAsync = promisify(execFile);
 const OTHER_USER = "someone-else";
@@ -133,6 +135,21 @@ async function cleanupSessionAndProject(): Promise<void> {
     await db.delete(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId)).catch(() => undefined);
     sessionId = null;
   }
+}
+
+async function waitForDiscoveryToSettle(id: string): Promise<void> {
+  const terminalStatuses = new Set(["ready", "error", "imported"]);
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const rows = await db
+      .select({ status: discoverySessionsTable.status })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, id))
+      .limit(1);
+    if (terminalStatuses.has(rows[0]?.status ?? "")) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Discovery session ${id} did not settle before cleanup`);
 }
 
 async function writeDiscoveryReleaseReceipt(input: {
@@ -384,6 +401,71 @@ describe("POST /projects/discover — path validation and session creation", () 
     expect(res.body).toHaveProperty("error");
     expect(res.body).toHaveProperty("importedProjectId");
     createdSessionIds.push(res.body.id);
+  });
+});
+
+describe("POST /api/upload/archive → POST /api/projects/discover", () => {
+  let uploadId: string | null = null;
+  let managedRootPath: string | null = null;
+
+  afterEach(async () => {
+    // The archive adapter normally consumes the upload when the job settles;
+    // this is also safe when discovery failed before its cleanup hook ran.
+    let settleError: unknown;
+    try {
+      if (sessionId) await waitForDiscoveryToSettle(sessionId);
+    } catch (error) {
+      settleError = error;
+    } finally {
+      if (uploadId) await removeUpload(uploadId, "test-user");
+      await cleanupSessionAndProject();
+      if (managedRootPath) {
+        await removeManagedProjectRoot(managedRootPath).catch(() => undefined);
+        managedRootPath = null;
+      }
+      uploadId = null;
+    }
+    if (settleError) throw settleError;
+  });
+
+  it("uses the upload route output to start owned ARCHIVE_UPLOAD discovery", async () => {
+    const archive = new AdmZip();
+    archive.addFile("package.json", Buffer.from('{"name":"archive-discovery-fixture"}\n'));
+    archive.addFile("src/index.ts", Buffer.from("export const fixture = true;\n"));
+
+    const upload = await request(app)
+      .post("/api/upload/archive")
+      .attach("archive", archive.toBuffer(), "archive-discovery-fixture.zip");
+    expect(upload.status).toBe(201);
+    expect(typeof upload.body.uploadId).toBe("string");
+    uploadId = upload.body.uploadId;
+
+    const sourceConfig = { uploadId: upload.body.uploadId };
+    const discover = await request(app)
+      .post("/api/projects/discover")
+      .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig });
+    expect(discover.status).toBe(202);
+    expect(typeof discover.body.id).toBe("string");
+    const createdSessionId = discover.body.id as string;
+    sessionId = createdSessionId;
+
+    const sessionRows = await db
+      .select({
+        ownerId: discoverySessionsTable.ownerId,
+        sourceType: discoverySessionsTable.sourceType,
+        sourceConfig: discoverySessionsTable.sourceConfig,
+        rootPath: discoverySessionsTable.rootPath,
+      })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, createdSessionId))
+      .limit(1);
+    expect(sessionRows).toHaveLength(1);
+    expect(sessionRows[0]?.ownerId).toBe("test-user");
+    expect(sessionRows[0]?.sourceType).toBe("ARCHIVE_UPLOAD");
+    expect(sessionRows[0]?.sourceConfig).toEqual(sourceConfig);
+    managedRootPath = sessionRows[0]?.rootPath ?? null;
+
+    await waitForDiscoveryToSettle(createdSessionId);
   });
 });
 

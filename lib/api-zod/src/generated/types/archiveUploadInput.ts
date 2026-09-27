@@ -7,6 +7,6 @@
  */
 
 export interface ArchiveUploadInput {
-  /** Archive file (.zip or .tar.gz), max 50 MB */
+  /** Archive file (.zip, .tar.gz, or .tgz), max 50 MiB */
   archive: Blob;
 }

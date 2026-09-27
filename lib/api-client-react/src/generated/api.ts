@@ -4798,7 +4798,7 @@ export const getUploadArchiveUrl = () => {
 }
 
 /**
- * @summary Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+ * @summary Upload a .zip, .tar.gz, or .tgz archive for ARCHIVE_UPLOAD discovery
  */
 export const uploadArchive = async (archiveUploadInput: ArchiveUploadInput, options?: Parameters<typeof customFetch>[1]): Promise<ArchiveUploadOutput> => {
     const formData = new FormData();
@@ -4852,7 +4852,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UploadArchiveMutationVariables = {data: BodyType<ArchiveUploadInput>}
 
     /**
- * @summary Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+ * @summary Upload a .zip, .tar.gz, or .tgz archive for ARCHIVE_UPLOAD discovery
  */
 export const useUploadArchive = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadArchive>>, TError,UploadArchiveMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}

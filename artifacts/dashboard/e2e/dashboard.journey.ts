@@ -660,6 +660,11 @@ async function installApiFixtures(
     archiveUpload?: {
       uploadId: string;
       originalName: string;
+      requests?: string[];
+    };
+    discoveryStart?: {
+      session: Record<string, unknown>;
+      requests: Array<Record<string, unknown>>;
     };
     auditExport?: {
       body: Record<string, unknown>;
@@ -1200,7 +1205,27 @@ async function installApiFixtures(
         }),
       );
     }
+    if (
+      overrides?.discoveryStart &&
+      path === "/api/projects/discover" &&
+      route.request().method() === "POST"
+    ) {
+      overrides.discoveryStart.requests.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      return route.fulfill(
+        jsonResponse(overrides.discoveryStart.session, 202),
+      );
+    }
+    if (
+      overrides?.discoveryStart &&
+      route.request().method() === "GET" &&
+      path.includes(String(overrides.discoveryStart.session.id))
+    ) {
+      return route.fulfill(jsonResponse(overrides.discoveryStart.session));
+    }
     if (overrides?.archiveUpload && path === "/api/upload/archive") {
+      overrides.archiveUpload.requests?.push(route.request().url());
       const contentType = route.request().headers()["content-type"] ?? "";
       if (!contentType.startsWith("multipart/form-data;")) {
         return route.fulfill(
@@ -6487,7 +6512,58 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(auditRequests).toHaveLength(3);
   });
 
-  test("uploads an archive and renders a live task update", async ({
+  test("starts archive discovery from the Projects wizard", async ({ page }) => {
+    const uploadRequests: string[] = [];
+    const discoveryRequests: Array<Record<string, unknown>> = [];
+    const discoverySession = {
+      id: "e2e-archive-discovery",
+      status: "discovering",
+      progress: 0,
+      currentStep: "Initializing",
+      steps: [{ name: "Initialize", status: "running" }],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    };
+    await installApiFixtures(page, {
+      archiveUpload: {
+        uploadId: "e2e-upload",
+        originalName: "dashboard-journey.zip",
+        requests: uploadRequests,
+      },
+      discoveryStart: {
+        session: discoverySession,
+        requests: discoveryRequests,
+      },
+    });
+    await programmaticSignIn(page);
+    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+
+    await page.getByRole("button", { name: "Discover Project" }).first().click();
+    await expect(
+      page.getByRole("heading", { name: "Discover Project" }),
+    ).toBeVisible();
+    await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
+    await page.getByTestId("archive-file-input").setInputFiles({
+      name: "dashboard-journey.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==", "base64"),
+    });
+    await expect(page.getByTestId("archive-file-selection")).toContainText(
+      "dashboard-journey.zip",
+    );
+
+    await page.getByTestId("start-discovery").click();
+    await expect(
+      page.getByRole("heading", { name: "Analyzing Repository…" }),
+    ).toBeVisible();
+    await expect.poll(() => uploadRequests).toHaveLength(1);
+    await expect.poll(() => discoveryRequests).toHaveLength(1);
+    expect(discoveryRequests[0]).toMatchObject({
+      sourceType: "ARCHIVE_UPLOAD",
+      sourceConfig: { uploadId: "e2e-upload" },
+    });
+  });
+
+  test("renders a live task update in the activity feed", async ({
     page,
   }) => {
     const taskId = "e2e-live-task";
@@ -6499,10 +6575,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       timestamp: "2026-01-01T00:00:02.000Z",
     };
     await installApiFixtures(page, {
-      archiveUpload: {
-        uploadId: "e2e-upload",
-        originalName: "dashboard-journey.zip",
-      },
       liveTask: {
         id: taskId,
         title: "Verify live dashboard updates",
@@ -6511,34 +6583,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     await programmaticSignIn(page);
-
-    // This is a valid, empty ZIP archive. Keeping it inline makes the browser
-    // test self-contained while still exercising FormData and multipart bytes.
-    const uploadResult = await page.evaluate(async (apiBaseUrl) => {
-      const bytes = Uint8Array.from(
-        atob("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA=="),
-        (character) => character.charCodeAt(0),
-      );
-      const body = new FormData();
-      body.append(
-        "archive",
-        new Blob([bytes], { type: "application/zip" }),
-        "dashboard-journey.zip",
-      );
-      const response = await fetch(
-        new URL("/api/upload/archive", apiBaseUrl).toString(),
-        { method: "POST", credentials: "include", body },
-      );
-      return {
-        status: response.status,
-        body: (await response.json()) as Record<string, unknown>,
-      };
-    }, process.env.DASHBOARD_E2E_API_BASE_URL ?? page.url());
-    expect(uploadResult.status).toBe(201);
-    expect(uploadResult.body).toEqual({
-      uploadId: "e2e-upload",
-      originalName: "dashboard-journey.zip",
-    });
 
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
     const taskRow = page.getByLabel(

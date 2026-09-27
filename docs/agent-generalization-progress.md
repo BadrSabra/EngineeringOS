@@ -109,12 +109,14 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 دون تغيير ترتيب المراحل أو فتح جمع البيانات. تبقى جاهزية P7.5 شرطًا مانعًا لأي
 cohort أو تعلم لاحق، لا شرطًا يمنع أعمال الواجهة المستقلة:
 
-1. **Dashboard — الوصول إلى الميزات الحالية:** ابدأ بفجوة Archive Upload
-   المؤكدة واختبار رحلة wizard إلى discovery عبر API الفعلي؛ صحّح توصيف اختبار
-   archive الحالي لأنه يستدعي endpoint مباشرة. احسم نطاق Graph المتقدم قبل
-   اعتباره P0، وقرّر صراحةً هل World State وRuntime Observations وRuntime
-   Disagreements أسطح داخلية أم عملياتية. عالج بعد ذلك فجوات P1 الموثقة وقرارات
-   P2 من دون توسيع صلاحيات الوكيل.
+1. **Dashboard — الوصول إلى الميزات الحالية:** أُوصل Archive Upload في Discover
+   وربط `uploadId` عبر الخطاف المولّد. اختبار المتصفح يختار الملف ويبدأ discovery
+   عبر fixtures، واختبار API منفصل يثبت الرفع الفعلي ثم إنشاء الجلسة والتنظيف.
+   لم يثبت بعد مسار Clerk browser إلى endpoint الحقيقي حتى scan/import، ولا
+   تغطية رفض الحجم/الصيغة/الأرشيف غير الآمن. احسم نطاق Graph المتقدم قبل اعتباره
+   P0، وقرّر صراحةً هل World State وRuntime Observations وRuntime Disagreements
+   أسطح داخلية أم عملياتية. عالج بعد ذلك فجوات P1 وقرارات P2 من دون توسيع
+   صلاحيات الوكيل.
 2. **P7.5 — بوابة الجاهزية قبل البيانات:** اختبارات ECE وmission-cluster
    bootstrap ذات الإجابة المعروفة أضيفت؛ أثبت تتبع التعافي أن resume يدوّر
    attempt/Episode ولا يكمل registration القديم، وأن الإلغاء نهائي. لذلك لا تجمع
