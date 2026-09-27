@@ -317,3 +317,8 @@ No retained evidence was located for live-provider quality, a complete
 authenticated browser journey through delivery, an external GitHub push from
 that journey, or production deployment. The smoke checks above remain
 acceptance prerequisites for those broader claims.
+
+A source-level Dashboard reachability audit is recorded in
+`docs/replit-platform-gap-inventory.md` §11. It distinguishes missing user
+actions from API-only/internal surfaces and does not change the live-provider
+or production-evidence boundaries above.

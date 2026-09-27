@@ -103,11 +103,19 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 ## أولوية التنفيذ الحالية
 
 يبقى §31 dependency graph الوحيد؛ pilots المنجزة لا تغلق المراحل العامة ولا
-تسمح بتجاوز بواباتها. لا توسّع capabilities أو strategy learning أفقيًا.
-الوضع الحالي يقدّم جاهزية P7.5 على أي حملة بيانات، ويثبت أن شريحة PROJECT_QUERY
-المحدودة الحالية مغلقة:
+تسمح بتجاوز بواباتها. لا توسّع capabilities الوكيلة أو strategy learning
+أفقيًا. يوجد مسار تسليم منتجي منفصل لإظهار الوظائف الموجودة أصلًا في Dashboard،
+موثق في `docs/replit-platform-gap-inventory.md` §11؛ يمكن أن يسبق تنفيذ P7.5
+دون تغيير ترتيب المراحل أو فتح جمع البيانات. تبقى جاهزية P7.5 شرطًا مانعًا لأي
+cohort أو تعلم لاحق، لا شرطًا يمنع أعمال الواجهة المستقلة:
 
-1. **P7.5 — بوابة الجاهزية قبل البيانات:** اختبارات ECE وmission-cluster
+1. **Dashboard — الوصول إلى الميزات الحالية:** ابدأ بفجوة Archive Upload
+   المؤكدة واختبار رحلة wizard إلى discovery عبر API الفعلي؛ صحّح توصيف اختبار
+   archive الحالي لأنه يستدعي endpoint مباشرة. احسم نطاق Graph المتقدم قبل
+   اعتباره P0، وقرّر صراحةً هل World State وRuntime Observations وRuntime
+   Disagreements أسطح داخلية أم عملياتية. عالج بعد ذلك فجوات P1 الموثقة وقرارات
+   P2 من دون توسيع صلاحيات الوكيل.
+2. **P7.5 — بوابة الجاهزية قبل البيانات:** اختبارات ECE وmission-cluster
    bootstrap ذات الإجابة المعروفة أضيفت؛ أثبت تتبع التعافي أن resume يدوّر
    attempt/Episode ولا يكمل registration القديم، وأن الإلغاء نهائي. لذلك لا تجمع
    cohort حتى يثبت مسار observe-only للتجربة الأصلية، أو يعتمد قرار موثق لإنشاء
@@ -115,11 +123,11 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
    المأذون ومسار Mission runtime، وطريقة إعادة البيئة إلى `stopped` تحت تحكم
    المشغّل دون إضافة `stop/restart` لسلطة الوكيل. اختلاف `missionId` وحده ليس
    برهان استقلال، وتغيّر project/environment revision ينشئ scope آخر.
-2. **P7.5 — جمع النتائج بعد اجتياز الجاهزية:** اجمع فقط outcomes حقيقية ومكتملة
+3. **P7.5 — جمع النتائج بعد اجتياز الجاهزية:** اجمع فقط outcomes حقيقية ومكتملة
    من Missions مؤهلة ضمن scope واحد؛ لا تصنع Missions/fixtures لبلوغ 30 ولا
    تستبعد القياسات الناقصة. أبقِ `fixed_safe_probe` حتى تحقق جميع عتبات §25.4
    و§42.8؛ اجتياز هذا القياس لا يفعّل ranking ولا يثبت صلاحية selector.
-3. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
+4. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
    parity عند غياب objective canonical. نُفذ في §42.71 failover synthesis محدود
    بعد اكتمال الأدلة، بمزودين مختارين من API وبالحزمة نفسها ومن دون إعادة قراءة؛
    يبقى المسار بلا objective canonical fail-closed ولا يفتح fallback عامًا.
@@ -127,9 +135,9 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
    JSON/SSE/history مع التنفيذ الحقيقي، إضافة إلى حدود استنفاد الميزانية والمهلة.
    هذا عمل تحقق عابر للمراحل ولا يضيف عقدة أو يعيد ترتيب §31، ولا يسبق بوابة
    جاهزية P7.5.
-4. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
+5. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
    تثبيت عقد الجمع والاستعادة؛ ليست الخطوة الأولى ولا مصدر قبول أو معايرة.
-5. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
+6. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
    ومعايير الخروج في §31؛ لا تجعل شريحة Chat سببًا لتجاوزها.
 
 لا تبدأ مرحلة جديدة أو توسع replay/promotion قبل إغلاق بوابات الحلقة.

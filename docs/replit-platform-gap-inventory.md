@@ -99,7 +99,7 @@ validate, recover, deliver, and use broader platform capabilities.
 
 | Outcome | Current implementation and evidence | Classification | User-visible boundary |
 |---|---|---|---|
-| **Project understanding** | Project list/search and discovery wizard in `artifacts/dashboard/src/pages/Projects.tsx` and `DiscoverProjectWizard.tsx`; discovery source resolution, durable materialization, ownership, polling, summary, import, and cleanup in `artifacts/api-server/src/routes/discovery.ts`; scan, graph, metrics, and project detail in `ProjectDetail.tsx` and `Graph.tsx`. Route/component coverage exists in `artifacts/api-server/src/routes/discovery.test.ts`, `artifacts/dashboard/src/pages/Projects.test.tsx`, and `Graph.test.tsx`. | **Implemented but evidence incomplete** | Local/fixture-backed discovery and project views are present. A full real-source, authenticated browser discovery → scan → import journey is not established. The wizard intentionally disables ZIP, remote FS, and Docker sources. |
+| **Project understanding** | Project list/search and discovery wizard in `artifacts/dashboard/src/pages/Projects.tsx` and `DiscoverProjectWizard.tsx`; discovery source resolution, durable materialization, ownership, polling, summary, import, and cleanup in `artifacts/api-server/src/routes/discovery.ts`; scan, graph, metrics, and project detail in `ProjectDetail.tsx` and `Graph.tsx`. Route/component coverage exists in `artifacts/api-server/src/routes/discovery.test.ts`, `artifacts/dashboard/src/pages/Projects.test.tsx`, and `Graph.test.tsx`. | **Partial: Archive Upload API-ready but not reachable from the Dashboard** | Local/fixture-backed discovery and project views are present. The backend advertises authenticated `.zip`/`.tar.gz` Archive Upload, but the wizard marks it unavailable and has no upload → `uploadId` → discovery flow. The Dashboard does not offer archive, remote-FS, or Docker sources as usable paths. A full real-source, authenticated browser discovery → scan → import journey is not established. |
 | **Grounded questions** | `POST /api/ai/chat` and `/stream`; `chat-agent.ts`, `tool-execution-engine.ts`, `query-planner.ts`, filesystem manifest/evidence integrity, persisted sessions, source spans, provenance and redaction in `AiChat.tsx`. Tests include `tool-execution-engine.test.ts`, `query-planner.test.ts`, `evidence-integrity.test.ts`, `chat-evidence-integrity-e2e.test.ts`, `AiChat.authenticated.test.tsx`, and dashboard journey contracts. | **Implemented and proven for provider-free contracts; live/browser incomplete** | The system can reject unsupported scope, retain source lineage, and distinguish incomplete evidence. A live configured-provider answer is not proven by deterministic fixtures. |
 | **Broad project analysis** | Bounded hierarchical execution in `lib/ai-orchestrator/src/agents/hierarchical-executor.ts`, structured analyze/review routes, no-tools synthesis, preserved partial results, and coverage checks. | **Implemented but evidence incomplete** | Bounded waves are deliberate. Recursive nesting, per-subquery SSE, and broad large-repository completeness are not current guarantees. |
 | **Conversational planning** | `implementation-planner.ts` requires a verified manifest/source excerpts and uses `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback; chat routes and dashboard render proposals and rehydration. Evidence: `implementation-planner-grounding.test.ts`, `AiChat.authenticated.test.tsx`, and acceptance tests. | **Implemented and proven as a safety boundary; provider/browser evidence incomplete** | Planning is not write authorization. The missing proof is a live generation and browser transition, not permission to bypass approval. |
@@ -155,6 +155,10 @@ Flight Deck, and Mission Control. The dashboard has tested surfaces for:
 - Flight Deck operation phases and proof;
 - Mission Control history, correlation, recovery, redacted exports, and
   next-safe-action states.
+
+Presence of a page or route does not mean every backend action in that domain is
+reachable; the verified per-feature gaps and contract boundaries are listed in
+§11.
 
 The dashboard does not expose editor, hosted preview, deployment, teams,
 billing, collaboration, or environment-provisioning routes.
@@ -425,6 +429,7 @@ accepted-evidence reuse, and benchmark work.
 
 | Gap | Why it matters | Dependency | Observable acceptance criteria |
 |---|---|---|---|
+| **Archive Upload is not reachable through the Dashboard** | The backend and generated client support archive upload, but DiscoverProjectWizard disables the source; the test named for archive upload calls the API directly through a fixture and can pass while the UI remains unusable. | Existing authenticated upload/discovery routes, OpenAPI operation, generated upload hook, and discovery `uploadId` contract. | The wizard accepts supported archive types, uploads through the route, passes the returned `uploadId` into discovery, and renders the resulting session. A browser journey exercises the wizard and actual API route rather than a mocked direct fetch; size, format, unsafe-archive, and authorization failures are covered. |
 | **Token budget is reported but not enforced at admission** | A project can appear to have a daily token limit while still allowing provider attempts after projected token exhaustion. | Existing `ai-budget.ts` reservation/usage model; no new budget subsystem. | A request that would exceed the projected token limit is rejected before provider work; reservations are idempotent; partial/unknown usage remains conservative; reconciliation after crash cannot reopen exhausted budget; API/operator projection states the reason without provider diagnostics. |
 | **Graph and scanner freshness are not a complete proof guarantee** | Stale or weak graph/fallback data can mislead navigation or scope selection if later code treats it as source proof. | Existing graph provenance, scanner revision, source-read/evidence acceptance. | A changed/deleted file or graph revision mismatch is surfaced as stale/incomplete; every graph traversal used for project evidence is project-scoped; regex/fallback evidence cannot satisfy a behavioral objective without a complete source read; focused tests cover incoming-edge and cleanup paths. |
 
@@ -432,6 +437,7 @@ accepted-evidence reuse, and benchmark work.
 
 | Gap | Why it matters | Dependency | Observable acceptance criteria |
 |---|---|---|---|
+| **Existing backend controls are missing from the Dashboard** | Project AI Budget, plugin controls, Rules edit/delete/evaluate, Mission replan/approval, Workflow AI orchestration/delete, Task edit/delete, and Browser Validation Profile write/delete have backend paths, but users cannot reach the complete actions from the relevant pages. | Use the existing server authorization and lifecycle guards. Browser Validation Profile writes still need an OpenAPI/generated-client contract; plugin scope/authorization needs resolution before exposing controls. Details and current exceptions are in §11. | Each committed UI action reaches the intended API, preserves server-side access/approval/conflict checks, and has a page-to-API test. Project AI Budget is distinguished from Mission budget; plugins are not presented as project-scoped until the backend actually enforces that scope. |
 | **No complete controlled discovery-to-push acceptance receipt** | Operators cannot distinguish “the route exists” from “the product completed its main user journey.” | Provider/configured test account, Clerk browser state, disposable project and remote, existing release isolation. | One retained, redacted campaign receipt correlates discovery session, scan, chat/analysis, plan, approval, validation, Apply, conflict or retry, cancellation/restart recovery, audit export, commit and push; every terminal state matches durable server acceptance. |
 | **Restart/reconnect evidence is not yet a full browser proof** | A user may lose confidence after an API restart even though durable recovery code exists. | Existing execution leases/checkpoints/reconciliation and dashboard recovery UI. | Kill/restart during a bounded stream and during a queued job; reload the dashboard; show exactly one authoritative terminal state, retained evidence, safe next action, and no false success or duplicate assistant result. |
 | **Provider diagnostics need live confirmation** | Provider-free fixtures prove classification shape but not real catalog, quota, or outage behavior. | Existing provider registry, catalog, fallback, telemetry and redaction. | Controlled provider checks distinguish missing credential, auth failure, no compatible model, stale catalog, rate limit, quota and outage; each renders one safe action and correlation ID; secrets/raw diagnostics never reach persisted or streamed user output. |
@@ -440,6 +446,7 @@ accepted-evidence reuse, and benchmark work.
 
 | Gap | Why it matters | Dependency | Observable acceptance criteria |
 |---|---|---|---|
+| **Product intent is unclear for API-only surfaces and status labels** | World State, Runtime Observations, and Runtime Disagreements may be internal or machine-facing rather than operator features; general Project CRUD is not exposed; Sidebar “Connected” is not bound to API health and its meaning is undefined. | Product-scope decision; publish contracts and UI only for capabilities committed to operators. | Classify each backend-only surface as internal/machine-facing or operator-facing; define whether Project CRUD is in scope; define “Connected” as session or API health and make the displayed state match that definition. |
 | **Blocked and incomplete states are not yet a uniform critical-path guide** | The individual surfaces expose safe actions, but a user should not have to infer whether to refresh, rescan, reapprove, rebase, resume validation or review manually. | Stable terminal outcome and evidence projections; current `AiChat`, `FlightDeck`, `MissionControl`. | Every blocked, conflicted, cancelled, unavailable and retained-with-gaps state shows one operation/revision-aware next action; action cannot silently mutate or bypass evidence gates; component and browser checks cover each state. |
 | **Large-project completeness needs more visible admission detail** | Manifest and excerpt caps are safe but can feel like unexplained partial understanding. | Existing manifest status, context admission and evidence panels. | The UI identifies omitted/truncated scope, explains its effect on the answer, offers a bounded rescan/narrowing action, and never labels a partial read comprehensive. |
 
@@ -459,6 +466,7 @@ The following statements are intentionally conservative:
 |---|---|---|
 | **Live provider use** | Provider registry, capability filtering, fallback, classification and redaction are source-backed and provider-free tested. | No live provider quality, model availability, quota behavior, or complete provider-backed browser answer is claimed. |
 | **Authenticated browser journeys** | Clerk middleware, dashboard protection, component tests, contract tests, and recorded shell navigation exist. | No full green authenticated discovery-to-push browser journey is claimed. |
+| **Dashboard feature reachability** | Some backend routes also have OpenAPI/generated clients, and other routes are API-only; the 2026-09-27 audit maps the current UI consumers in §11. | API or generated-client existence is not proof that a user can reach the feature or that an E2E exercised the intended UI. |
 | **Discovery/import** | Local folders, supported Git source policy, durable sessions/materialization, ownership, polling, import, cleanup and fixture tests exist. | No broad remote repository/provider parity; the recorded localhost smart-HTTP fixture was rejected by the production URL policy. |
 | **Reload/restart recovery** | Durable rows, leases, checkpoints, resume/cancel fences and reconciliation are tested. | No production or exhaustive cross-process browser reload/restart campaign is claimed. |
 | **Validation/promotion** | Server-owned profiles, isolated workspaces, candidate/revision/tree gates, receipts and Apply route tests exist. | No live authenticated plan-to-promotion receipt is claimed. |
@@ -469,16 +477,31 @@ The following statements are intentionally conservative:
 
 ## 9. Suggested verification order
 
-This order maximizes evidence value without widening the product prematurely:
+Prioritize verified user-reachability gaps without confusing them with missing
+backend capability or the separate agent-generalization dependency graph:
 
-1. Correct and test token-budget admission.
-2. Add graph project-scope and stale-revision/deletion regression checks.
-3. Define the freshness receipt and large-project partial-evidence UX.
-4. Run the isolated authenticated provider campaign with a disposable project
-   and remote.
-5. Run restart/reconnect checks during both a stream and queued durable work.
-6. Use the retained receipts to decide whether P2 UX work is needed before
-   considering any P3 platform expansion.
+1. Wire Archive Upload into Discover and replace the current direct-API
+   “archive upload” E2E with a real wizard → upload → `uploadId` → discovery
+   journey.
+2. Keep token-budget admission as a separate concrete release-readiness issue;
+   correct and test it without conflating it with the missing Project AI Budget
+   control UI.
+3. Decide which advanced Graph modes are committed user-facing scope, then
+   expose and test those modes. Reconcile backend-only Runtime Disagreements,
+   World State, and Runtime Observations with an explicit internal-versus-
+   operator-facing contract before adding clients or UI.
+4. Add UI actions and user-journey tests for the verified P1 gaps: Project AI
+   Budget, plugin management, Rules edit/delete/evaluate, Mission replan/approval,
+   Workflow AI orchestration/delete, Task edit/delete, and Browser Validation
+   Profile write/delete.
+5. Resolve the P2 product decisions for general Project CRUD and the meaning of
+   the Sidebar “Connected” indicator before treating either as a defect.
+6. Define the freshness receipt and large-project partial-evidence UX; then run
+   authenticated provider, restart/reconnect, and delivery journeys with retained
+   receipts.
+
+This order exposes existing functionality; it does not grant new agent
+authority or prove production readiness.
 
 The current product should be described as a **specialized,
 provider-free-contract-proven engineering console with incomplete live
@@ -507,3 +530,52 @@ Accordingly, discovery has a successful controlled-fixture lifecycle receipt,
 while the complete authenticated browser journey, live-provider quality,
 external delivery, and production deployment remain unproven by retained
 evidence.
+
+## 11. Dashboard feature reachability audit (2026-09-27)
+
+This audit traces each capability through backend route → OpenAPI → generated
+client → Dashboard adapter/page → user action → E2E. A backend route or generated
+hook alone does not establish Dashboard reachability. “API-only” below means the
+surface is absent from the Dashboard; it does not by itself mean the backend
+capability is absent or that the route must become user-facing.
+
+| Feature | Verified current boundary | Priority / correction |
+|---|---|---|
+| **Archive Upload** | Authenticated backend upload accepts `.zip`, `.tar.gz`/`.tgz` up to 50 MiB and returns an `uploadId`; discovery accepts that ID. OpenAPI and generated client exist. DiscoverProjectWizard hardcodes the source unavailable, disables it, and has no upload branch. | **P0 reachability gap.** Replace the UI’s “not supported in this deployment” wording with “not wired into this Dashboard”; do not call it user-accessible until the wizard supports upload and discovery. |
+| **Archive Upload E2E** | The test named for archive upload sends multipart `fetch` directly to `/api/upload/archive`; it does not select the Archive source in the wizard or start discovery. Its fixture intercepts the API response. | **P0 false confidence.** Treat it as an API/multipart fixture test, not Dashboard or real-backend journey proof. Add a wizard test covering upload, `uploadId`, discovery, and validation/error cases. |
+| **Advanced Knowledge Graph** | Backend, OpenAPI, and generated client support path, subgraph, semantic neighborhood, evidence, and runtime-subgraph operations. The Graph page exposes only basic entities/relationships/neighbors/impact. Runtime Disagreements exists in the backend but has no OpenAPI/generated-client operation. | **P0 only if committed product scope.** Decide which graph modes are user-facing; expose those with page tests. Classify Runtime Disagreements separately as backend-only contract drift until its API contract is published or it is explicitly marked internal. |
+| **World State** | An owner-scoped, read-only project projection and filters are tested in the backend. No OpenAPI operation, generated client, or Dashboard consumer was found. “Backend complete” would overstate the evidence. | **Contract-governance decision, not a confirmed UI defect.** Decide whether this is internal state or an operator-facing feature before adding a public contract/client/UI. |
+| **Runtime Observations** | A backend ingestion route exists and requires an active runtime session/revision. No OpenAPI, generated-client, or Dashboard surface was found. | **Contract-governance decision.** It may be machine/agent ingestion. Do not promise an operator UI until that intent is established. |
+| **Project AI Budget** | Budget and alert routes, OpenAPI operations, and generated hooks exist; no Dashboard control surface uses them. Mission budget JSON is a separate feature. | **P1, not P0.** Describe it as an API/client-ready Project AI Budget with no Dashboard controls; do not confuse it with Mission budget. |
+| **Plugins** | List/enable/disable routes and generated hooks exist, but the Dashboard has no plugin page/actions. Although requests carry `projectId`, the current backend updates global plugin state; `GET /plugins` is not operator-gated. | **P1 with scope caveat.** Do not describe current plugin state as project-scoped; resolve authorization and scope semantics before exposing controls. |
+| **Rules** | Dashboard supports list/create but exposes no edit/delete/evaluate actions; backend routes and generated hooks exist. | **P1 reachability gap.** Add only actions consistent with the existing operator/project authorization and test them through the page. |
+| **Mission replan / approval** | Mission status can say “Needs your attention” or show approval state, but the page exposes no replan/approve actions. Backend routes and generated hooks exist. | **P1 reachability gap.** Surface the server-gated actions and prove the proposal/approval lifecycle; do not bypass existing authorization. |
+| **Workflow AI orchestration / delete** | Backend routes and generated hooks exist. The Dashboard supports workflow phase execution controls but has no AI orchestration or workflow delete action. | **P1 reachability gap.** Add explicit controls and user-action tests; distinguish phase removal from workflow deletion. |
+| **Task edit / delete** | Backend PATCH/DELETE routes and generated hooks exist, including running-task and active-execution guards. The Tasks page exposes execute/retry/rollback, not edit/delete. | **P1 reachability gap.** Add controls that respect the existing conflict and active-execution rules. |
+| **Browser Validation Profiles** | Backend GET/PUT/DELETE supports read and write project access. ProjectDetail and AiChat read profiles through raw fetch; no OpenAPI/generated-client operation or Dashboard write/delete control was found. | **P1 contract and reachability gap.** Describe reads as present in two surfaces; add a typed contract/client and write/delete controls only with corresponding page/API tests. |
+| **Project CRUD** | Create/update/delete routes, OpenAPI, and generated hooks exist. Projects exposes discovery/list; ProjectDetail’s update is limited to `strategyReplayOptIn`; no general edit/delete controls were found. | **P2 product decision.** This is a deliberate UI omission unless general project management is committed scope, not an absent backend capability. |
+| **Sidebar “Connected”** | The label is hard-coded and not bound to the health hook; Dashboard separately polls API health. | **P2 semantics issue.** If “Connected” means API health, bind it to health state; if it means session presence, define that meaning first. |
+
+**Primary source pointers:** Archive routes and wizard are in
+`artifacts/api-server/src/routes/discovery.ts`,
+`artifacts/api-server/src/routes/upload.ts`, and
+`artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`; the archive journey
+fixture is in `artifacts/dashboard/e2e/dashboard.journey.ts`. Graph and
+backend-only contracts are in `artifacts/api-server/src/routes/graph.ts`,
+`artifacts/api-server/src/routes/projects.ts`, and
+`artifacts/api-server/src/routes/runtime.ts`, compared with
+`artifacts/dashboard/src/pages/Graph.tsx`,
+`lib/api-spec/openapi.yaml`, and
+`lib/api-client-react/src/generated/api.ts`. The action surfaces are in route
+files under `artifacts/api-server/src/routes/`
+(`ai/operator-alerts.ts`, `plugins.ts`, `rules.ts`, `ai/missions.ts`,
+`ai/workflows.ts`, `workflows.ts`, `tasks.ts`, and `projects.ts`) and Dashboard
+pages under `artifacts/dashboard/src/pages/` (`Rules.tsx`, `Missions.tsx`,
+`Workflows.tsx`, `Tasks.tsx`, `ProjectDetail.tsx`, `AiChat.tsx`, `Projects.tsx`,
+`Sidebar.tsx`, and `Dashboard.tsx`).
+
+The audit’s strongest immediate release issue is Archive Upload reachability and
+the misleading E2E proof. Other rows distinguish confirmed missing UI actions
+from backend-only routes whose operator-facing intent is not established. Keep
+“implemented,” “exposed in the UI,” and “proven by the intended user journey” as
+separate claims.
