@@ -1880,6 +1880,19 @@ it('shows Groq model readiness without requiring a personal key when the server 
     }
   });
 
+  it('lets desktop users collapse sessions for focus and restore the same project context', () => {
+    renderAiChat(true);
+    const drawer = screen.getByTestId('sessions-drawer');
+
+    expect(drawer).toHaveClass('md:flex');
+    fireEvent.click(screen.getByRole('button', { name: 'Close sessions' }));
+    expect(drawer).toHaveClass('hidden', 'md:hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    expect(drawer).toHaveClass('flex', 'md:flex');
+    expect(within(drawer).getByLabelText('Project for chat and model quality')).toHaveValue('project-1');
+  });
+
   it('shows persisted forensic session statuses and distinguishes incomplete audits from no findings', async () => {
     mocks.sessions = [
       {
