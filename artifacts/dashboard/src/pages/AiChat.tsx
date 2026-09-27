@@ -12176,7 +12176,7 @@ export default function AiChat() {
     });
   }
 
-  // UI-01: desktop keeps the sessions sidebar visible; mobile uses it as an
+  // UI-01: desktop sessions can collapse for a focused chat; mobile uses an
   // overlay drawer so it never steals the chat column's usable width.
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
@@ -12212,11 +12212,11 @@ export default function AiChat() {
       )}
 
       {/* Sidebar — sessions */}
-      {/* UI-01: desktop sidebar; mobile drawer overlays the chat instead of
-       * shrinking it to a narrow unreadable column. */}
+      {/* UI-01: desktop sidebar is collapsible; mobile drawer overlays the chat
+       * instead of shrinking it to a narrow unreadable column. */}
       <div
         data-testid="sessions-drawer"
-        className={`${sidebarOpen ? 'flex' : 'hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:h-auto md:w-56 md:max-w-none md:shadow-none`}
+        className={`${sidebarOpen ? 'flex md:flex' : 'hidden md:hidden'} sessions-drawer absolute inset-y-0 left-0 z-30 h-full min-h-0 w-[min(16rem,100%)] max-w-full min-w-0 flex-col overflow-hidden overscroll-contain border-r border-border bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:h-auto md:w-56 md:max-w-none md:shadow-none`}
         onWheel={(event) => event.stopPropagation()}
         onTouchMove={(event) => event.stopPropagation()}
       >
@@ -12517,18 +12517,16 @@ export default function AiChat() {
       <div className="flex min-w-0 max-w-full flex-1 flex-col overflow-hidden">
         {/* Header */}
         <div className="chat-header flex h-12 min-w-0 max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 sm:px-4">
-          {!sidebarOpen && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 shrink-0 md:hidden"
-              onClick={() => setSidebarOpen(true)}
-              title="Open sessions"
-              aria-label="Open sessions"
-            >
-              <Menu className="h-4 w-4" />
-            </Button>
-          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className={`h-8 w-8 shrink-0 ${sidebarOpen ? 'hidden md:inline-flex' : 'inline-flex'}`}
+            onClick={() => setSidebarOpen((open) => !open)}
+            title={sidebarOpen ? 'Close sessions' : 'Open sessions'}
+            aria-label={sidebarOpen ? 'Close sessions' : 'Open sessions'}
+          >
+            {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </Button>
           <Bot className="w-4 h-4 text-primary" />
           <span className="min-w-0 truncate text-sm font-medium">EngineeringOS AI</span>
           <Badge variant="outline" className="ml-auto max-w-[48%] truncate text-[10px] font-mono sm:text-xs">
