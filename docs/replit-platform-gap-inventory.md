@@ -480,9 +480,11 @@ The following statements are intentionally conservative:
 Prioritize verified user-reachability gaps without confusing them with missing
 backend capability or the separate agent-generalization dependency graph:
 
-1. Wire Archive Upload into Discover and replace the current direct-API
-   “archive upload” E2E with a real wizard → upload → `uploadId` → discovery
-   journey.
+1. Close the remaining Archive Upload proof. The focused wizard journey passed
+   (1/1) with API fixtures, and the separate API integration test proves real
+   upload → discovery. Still required: a Clerk-authenticated browser journey
+   through the real routes and scan/import, explicit rejection cases, and a
+   completed broader browser run (the 50-test run stopped at 21/50).
 2. Keep token-budget admission as a separate concrete release-readiness issue;
    correct and test it without conflating it with the missing Project AI Budget
    control UI.
@@ -542,7 +544,7 @@ capability is absent or that the route must become user-facing.
 | Feature | Verified current boundary | Priority / correction |
 |---|---|---|
 | **Archive Upload** | Authenticated backend upload accepts `.zip`, `.tar.gz`/`.tgz` up to 50 MiB and returns an `uploadId`; DiscoverProjectWizard now offers these formats, uploads through the generated hook, and starts discovery with that ID. The OpenAPI/generated contract is aligned. | **P0 reachability gap resolved.** A real upload → discovery integration test verifies owner-bound session creation and cleanup. A complete Clerk-authenticated browser → real API → scan → import journey remains unproven. |
-| **Archive Upload browser/API coverage** | The browser journey now selects an archive in Discover and asserts that the returned `uploadId` is sent to discovery; its upload/start responses are fixture-backed. A separate API integration test uses the actual multipart route and starts discovery with its returned ID. | **Improved, with remaining test gaps.** Do not describe the fixture-backed browser journey as live API proof. Follow up with a Clerk-authenticated browser journey through both real routes and explicit rejection tests for size, format, unsafe archives, and authorization. |
+| **Archive Upload browser/API coverage** | The focused browser journey selects an archive in Discover and asserts that the returned `uploadId` is sent to discovery; its upload/start responses are fixture-backed, and the focused test passed (1/1). A separate API integration test uses the actual multipart route and starts discovery with its returned ID. The broader 50-test browser journey stopped at 21/50. | **Improved, with remaining test gaps.** Do not describe the fixture-backed browser journey as live API proof. Follow up with a Clerk-authenticated browser journey through both real routes and explicit rejection tests for size, format, unsafe archives, and authorization. |
 | **Advanced Knowledge Graph** | Backend, OpenAPI, and generated client support path, subgraph, semantic neighborhood, evidence, and runtime-subgraph operations. The Graph page exposes only basic entities/relationships/neighbors/impact. Runtime Disagreements exists in the backend but has no OpenAPI/generated-client operation. | **P0 only if committed product scope.** Decide which graph modes are user-facing; expose those with page tests. Classify Runtime Disagreements separately as backend-only contract drift until its API contract is published or it is explicitly marked internal. |
 | **World State** | An owner-scoped, read-only project projection and filters are tested in the backend. No OpenAPI operation, generated client, or Dashboard consumer was found. “Backend complete” would overstate the evidence. | **Contract-governance decision, not a confirmed UI defect.** Decide whether this is internal state or an operator-facing feature before adding a public contract/client/UI. |
 | **Runtime Observations** | A backend ingestion route exists and requires an active runtime session/revision. No OpenAPI, generated-client, or Dashboard surface was found. | **Contract-governance decision.** It may be machine/agent ingestion. Do not promise an operator UI until that intent is established. |
