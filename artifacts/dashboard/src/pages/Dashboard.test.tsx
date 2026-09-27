@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Dashboard from "./Dashboard";
 
@@ -108,6 +108,28 @@ describe("Dashboard operator alerts", () => {
       "No active provider alerts",
     );
     expect(screen.queryByText("Groq Fast model is unavailable")).not.toBeInTheDocument();
+  });
+
+  it("keeps routine retention details collapsed until requested", () => {
+    vi.mocked(useListOperatorAlerts).mockReturnValue({
+      data: { alerts: [] },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as ReturnType<typeof useListOperatorAlerts>);
+
+    render(<Dashboard />);
+
+    const diagnostics = screen.getByTestId("details-ai-diagnostics");
+    expect(diagnostics).not.toHaveAttribute("open");
+    expect(screen.getByTestId("status-ai-diagnostics")).toHaveTextContent("Healthy");
+    expect(screen.queryByText(/Last completed/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("summary-ai-diagnostics"));
+
+    expect(diagnostics).toHaveAttribute("open");
+    expect(screen.getByText(/Last completed/)).toBeInTheDocument();
   });
 
   it("distinguishes a temporary catalog outage from retired-model drift", () => {

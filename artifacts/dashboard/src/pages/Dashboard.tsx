@@ -15,6 +15,7 @@ import {
   FolderGit2,
   Database,
   TrendingUp,
+  ChevronDown,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
@@ -38,6 +39,25 @@ function OperatorAlertsCard() {
     },
   );
   const alerts = data?.alerts ?? [];
+
+  if (!error && alerts.length === 0) {
+    return (
+      <section
+        aria-label="Operator alerts"
+        className="flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/90"
+      >
+        {isLoading ? (
+          <Activity className="h-3.5 w-3.5 shrink-0 animate-pulse" />
+        ) : (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+        )}
+        <span>{isLoading ? 'Checking provider health…' : 'No active provider alerts.'}</span>
+        {isFetching && !isLoading && (
+          <span className="ml-auto text-[10px] text-muted-foreground">Updating…</span>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section
@@ -229,20 +249,18 @@ export default function Dashboard() {
       <OperatorAlertsCard />
 
       {/* Retention health is deliberately limited to content-free sweep metadata. */}
-      <section
+      <details
         aria-label="AI diagnostics retention health"
-        className={`rounded-xl border p-4 shadow-sm ${
-          retention?.status === 'failed'
-            ? 'border-destructive/30 bg-destructive/5'
-            : retention?.status === 'success'
-              ? 'border-emerald-500/20 bg-emerald-500/5'
-              : 'border-border bg-card'
-        }`}
+        data-testid="details-ai-diagnostics"
+        className="group rounded-xl border border-border bg-card"
       >
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
+        <summary
+          data-testid="summary-ai-diagnostics"
+          className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-xl p-4 outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden"
+        >
+          <div className="flex min-w-0 items-center gap-3">
             <div
-              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
                 retention?.status === 'failed'
                   ? 'bg-destructive/10 text-destructive'
                   : retention?.status === 'success'
@@ -256,46 +274,71 @@ export default function Dashboard() {
                 <Database className="h-4 w-4" />
               )}
             </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-semibold text-sm">AI diagnostics retention</h2>
-                {retention?.status === 'success' && (
-                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-500">
-                    Healthy
-                  </span>
-                )}
-                {retention?.status === 'failed' && (
-                  <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
-                    Sweep failed
-                  </span>
-                )}
-                {!retention && (
-                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Checking
-                  </span>
-                )}
-              </div>
-              {retention?.status === 'failed' ? (
-                <p className="mt-1 text-xs text-destructive/80">
-                  The sweep will be retried automatically on the next startup.
-                </p>
-              ) : (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Last completed {formatHealthTimestamp(retention?.completedAt)}
-                </p>
-              )}
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-semibold">AI diagnostics</h2>
+              <p className={`mt-0.5 truncate text-xs ${
+                retention?.status === 'failed'
+                  ? 'text-destructive/80'
+                  : 'text-muted-foreground'
+              }`}>
+                {retention?.status === 'failed'
+                  ? 'Retention sweep needs attention'
+                  : retention?.status === 'success'
+                    ? 'Retention health is normal'
+                    : 'Checking retention health'}
+              </p>
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              data-testid="status-ai-diagnostics"
+              className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wide ${
+                retention?.status === 'failed'
+                  ? 'bg-destructive/10 text-destructive'
+                  : retention?.status === 'success'
+                    ? 'bg-emerald-500/10 text-emerald-500'
+                    : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              {retention?.status === 'failed'
+                ? 'Needs attention'
+                : retention?.status === 'success'
+                  ? 'Healthy'
+                  : 'Checking'}
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180"
+            />
+          </div>
+        </summary>
+        <section
+          aria-label="AI diagnostics retention details"
+          className="border-t border-border px-4 py-3"
+        >
+          {retention?.status === 'failed' ? (
+            <p className="text-xs text-destructive/80">
+              The sweep will be retried automatically on the next startup.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Last completed {formatHealthTimestamp(retention?.completedAt)}
+            </p>
+          )}
           {retention?.status === 'success' && (
-            <div className="grid grid-cols-2 gap-x-5 gap-y-1 text-xs sm:text-right">
+            <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-1 text-xs sm:max-w-xl">
               <span className="text-muted-foreground">Chat rows</span>
-              <span className="font-mono font-medium">{retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned</span>
+              <span className="font-mono font-medium">
+                {retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned
+              </span>
               <span className="text-muted-foreground">Execution rows</span>
-              <span className="font-mono font-medium">{retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned</span>
+              <span className="font-mono font-medium">
+                {retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned
+              </span>
             </div>
           )}
-        </div>
-      </section>
+        </section>
+      </details>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

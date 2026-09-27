@@ -1,40 +1,14 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useUser, useClerk } from '@clerk/react';
-import {
-  LayoutDashboard,
-  FolderGit2,
-  ListTodo,
-  ShieldAlert,
-  GitMerge,
-  Activity,
-  BarChart3,
-  Network,
-  LogOut,
-  Bot,
-  Plane,
-  Gauge,
-  Target,
-  ShieldCheck,
-  X,
-} from 'lucide-react';
+import { ChevronDown, LogOut, Network, X } from 'lucide-react';
 import { basePath } from '@/lib/clerk';
-
-const NAV_ITEMS = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/projects', label: 'Projects', icon: FolderGit2 },
-  { href: '/tasks', label: 'Tasks', icon: ListTodo },
-  { href: '/rules', label: 'Rules Engine', icon: ShieldAlert },
-  { href: '/workflows', label: 'Workflows', icon: GitMerge },
-  { href: '/events', label: 'Event Stream', icon: Activity },
-  { href: '/metrics', label: 'Metrics', icon: BarChart3 },
-  { href: '/graph', label: 'Knowledge Graph', icon: Network },
-  { href: '/ai', label: 'AI Assistant', icon: Bot },
-  { href: '/flight-deck', label: 'Flight Deck', icon: Plane },
-  { href: '/mission-control', label: 'Mission Control', icon: Gauge },
-  { href: '/missions', label: 'Missions', icon: Target },
-  { href: '/skill-registry', label: 'Skill Registry', icon: ShieldCheck },
-];
+import {
+  NAV_GROUPS,
+  PRIMARY_NAV_ITEMS,
+  isNavigationItemActive,
+  type NavigationItem,
+} from './navigation';
 
 function operatorInitials(name: string | null | undefined): string {
   if (!name) return 'OP';
@@ -53,8 +27,54 @@ export function Sidebar({
   const [location] = useLocation();
   const { user } = useUser();
   const { signOut } = useClerk();
+  const activeGroupId = NAV_GROUPS.find((group) =>
+    group.items.some((item) => isNavigationItemActive(location, item.href)),
+  )?.id;
+  const [openGroupIds, setOpenGroupIds] = useState<string[]>(() =>
+    activeGroupId ? [activeGroupId] : [],
+  );
   const displayName =
     user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || 'Operator';
+
+  useEffect(() => {
+    if (!activeGroupId) return;
+    setOpenGroupIds((current) =>
+      current.includes(activeGroupId) ? current : [...current, activeGroupId],
+    );
+  }, [activeGroupId]);
+
+  const renderNavigationLink = (item: NavigationItem) => {
+    const isActive = isNavigationItemActive(location, item.href);
+    const testId = item.href === '/'
+      ? 'dashboard'
+      : item.href.slice(1).replace(/\//g, '-');
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={onMobileClose}
+        aria-current={isActive ? 'page' : undefined}
+        data-testid={`link-nav-${testId}`}
+        className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+          isActive
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+        }`}
+      >
+        <item.icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-primary' : ''}`} />
+        <span className="truncate">{item.label}</span>
+      </Link>
+    );
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setOpenGroupIds((current) =>
+      current.includes(groupId)
+        ? current.filter((id) => id !== groupId)
+        : [...current, groupId],
+    );
+  };
 
   return (
     <div
@@ -73,36 +93,63 @@ export function Sidebar({
           className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
           aria-label="Close navigation"
           title="Close navigation"
+          data-testid="button-close-navigation"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex-1 py-4 px-3 flex flex-col gap-1 overflow-y-auto">
-        <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2 px-2">
-          Core Ops
+      <nav
+        aria-label="Main navigation"
+        className="flex-1 overflow-y-auto px-3 py-4"
+      >
+        <div className="mb-2 px-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Workspace
         </div>
-        {NAV_ITEMS.map((item) => {
-          const isActive =
-            location === item.href ||
-            (item.href !== '/' && location.startsWith(item.href));
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onMobileClose}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-              }`}
-            >
-              <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
+        <div className="space-y-1">
+          {PRIMARY_NAV_ITEMS.map(renderNavigationLink)}
+        </div>
+
+        <div className="mt-5 space-y-2">
+          {NAV_GROUPS.map((group) => {
+            const isOpen = openGroupIds.includes(group.id);
+            const isActive = group.items.some((item) =>
+              isNavigationItemActive(location, item.href),
+            );
+            const groupContentId = `navigation-group-${group.id}`;
+
+            return (
+              <section key={group.id}>
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={groupContentId}
+                  data-testid={`button-nav-group-${group.id}`}
+                  onClick={() => toggleGroup(group.id)}
+                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'text-primary'
+                      : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                  }`}
+                >
+                  <span>{group.label}</span>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                <div
+                  id={groupContentId}
+                  hidden={!isOpen}
+                  className="space-y-1 pl-2"
+                >
+                  {group.items.map(renderNavigationLink)}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </nav>
 
       <div className="p-4 border-t border-border shrink-0">
         <div className="flex items-center gap-3">
@@ -110,15 +157,16 @@ export function Sidebar({
             {operatorInitials(displayName)}
           </div>
           <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-sm font-semibold leading-none truncate">{displayName}</span>
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Connected
+            <span className="truncate text-sm font-semibold leading-none" data-testid="text-operator-name">
+              {displayName}
             </span>
           </div>
           <button
             type="button"
             onClick={() => signOut({ redirectUrl: basePath || '/' })}
             title="Sign out"
+            aria-label="Sign out"
+            data-testid="button-sign-out"
             className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-secondary shrink-0"
           >
             <LogOut className="w-4 h-4" />
