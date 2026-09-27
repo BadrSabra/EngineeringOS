@@ -9060,6 +9060,8 @@ export default function AiChat() {
 
   const [chatRouteTarget] = useState(() => parseAiChatRouteTarget(window.location.search));
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
+  const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
   const [metricsProvider, setMetricsProvider] = useState<MetricsProviderFilter>('all');
   const [metricsWindowDays, setMetricsWindowDays] = useState<number>(30);
   const [qualityExportPending, setQualityExportPending] = useState(false);
@@ -12447,25 +12449,45 @@ export default function AiChat() {
           </div>
 
           {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
-          <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2 md:max-h-[45%] md:overflow-y-auto">
-            <ModelContractQualityCard
-              usage={metricsData?.usage}
-              projectLabel={projects.find((project) => project.id === selectedProjectId)?.name ?? (selectedProjectId || 'All projects')}
-              provider={metricsProvider}
-              days={metricsWindowDays}
-              isLoading={metricsLoading}
-              isFetching={metricsFetching}
-              isError={metricsError}
-              onProviderChange={setMetricsProvider}
-              onDaysChange={setMetricsWindowDays}
-              onRetry={() => void refetchMetrics()}
-              onExport={() => void exportQualityReport()}
-              isExporting={qualityExportPending}
-            />
-            <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
-            <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
-            <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
-            <GroqKeyCard      runtimeMetric={metricsMap.get('groq')} />
+          <div className="provider-key-cards min-h-0 shrink-0 border-t border-border pt-2">
+            <button
+              type="button"
+              aria-label="AI settings and diagnostics"
+              aria-expanded={providerSettingsOpen}
+              aria-controls="ai-provider-settings-content"
+              onClick={() => setProviderSettingsOpen((open) => !open)}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-secondary/70"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium text-foreground">AI settings and diagnostics</span>
+                <span className="mt-0.5 block text-[10px] text-muted-foreground">Providers, credentials, model quality</span>
+              </span>
+              <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${providerSettingsOpen ? 'rotate-90' : ''}`} />
+            </button>
+            <div
+              id="ai-provider-settings-content"
+              hidden={!providerSettingsOpen}
+              className="min-h-0 md:max-h-[45vh] md:overflow-y-auto"
+            >
+              <ModelContractQualityCard
+                usage={metricsData?.usage}
+                projectLabel={projects.find((project) => project.id === selectedProjectId)?.name ?? (selectedProjectId || 'All projects')}
+                provider={metricsProvider}
+                days={metricsWindowDays}
+                isLoading={metricsLoading}
+                isFetching={metricsFetching}
+                isError={metricsError}
+                onProviderChange={setMetricsProvider}
+                onDaysChange={setMetricsWindowDays}
+                onRetry={() => void refetchMetrics()}
+                onExport={() => void exportQualityReport()}
+                isExporting={qualityExportPending}
+              />
+              <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
+              <GeminiKeyCard runtimeMetric={metricsMap.get('gemini')} />
+              <DeepSeekKeyCard runtimeMetric={metricsMap.get('deepseek')} />
+              <GroqKeyCard runtimeMetric={metricsMap.get('groq')} />
+            </div>
           </div>
         </div>
       </div>
@@ -12521,27 +12543,36 @@ export default function AiChat() {
           )}
           {selectedProjectId && (
             <div
-              className="mb-4 rounded-lg border border-border/60 bg-card/30 p-3"
+              className="mb-3 rounded-lg border border-border/60 bg-card/30"
               role="region"
               aria-label="Automatic delivery promotion policy"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                    {deliveryPolicy?.automaticPromotionEnabled
-                      ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" />
-                      : <ShieldAlert className="h-3.5 w-3.5 text-amber-300" />}
-                    Automatic delivery promotion
-                    <Badge variant={deliveryPolicy?.automaticPromotionEnabled ? 'default' : 'outline'} className="text-[10px]">
-                      {deliveryPolicy?.automaticPromotionEnabled ? 'Enabled' : 'Manual review'}
-                    </Badge>
-                  </div>
-                  <div className="mt-1 max-w-2xl text-[11px] text-muted-foreground">
-                    When enabled, only small, server-validated documentation or test candidates
-                    can use the existing guarded apply path automatically. Source, config,
-                    credential, deployment, and failed candidates remain blocked or review-required.
-                  </div>
-                </div>
+              <button
+                type="button"
+                aria-expanded={deliveryPolicyExpanded}
+                aria-controls="delivery-promotion-details"
+                onClick={() => setDeliveryPolicyExpanded((expanded) => !expanded)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-secondary/40"
+              >
+                {deliveryPolicy?.automaticPromotionEnabled
+                  ? <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                  : <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-300" />}
+                <span className="text-xs font-medium text-foreground">Automatic delivery promotion</span>
+                <Badge variant={deliveryPolicy?.automaticPromotionEnabled ? 'default' : 'outline'} className="ml-auto text-[10px]">
+                  {deliveryPolicy?.automaticPromotionEnabled ? 'Enabled' : 'Manual review'}
+                </Badge>
+                <ChevronRight className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${deliveryPolicyExpanded ? 'rotate-90' : ''}`} />
+              </button>
+              <div
+                id="delivery-promotion-details"
+                hidden={!deliveryPolicyExpanded}
+                className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 px-3 py-2.5"
+              >
+                <p className="max-w-2xl text-[11px] text-muted-foreground">
+                  When enabled, only small, server-validated documentation or test candidates
+                  can use the existing guarded apply path automatically. Source, config,
+                  credential, deployment, and failed candidates remain blocked or review-required.
+                </p>
                 <Button
                   type="button"
                   size="sm"

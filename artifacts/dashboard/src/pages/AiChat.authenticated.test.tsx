@@ -255,6 +255,13 @@ vi.mock('@workspace/api-client-react', () => {
       isError: false,
       error: null,
     })),
+    useListBrowserValidationProfiles: vi.fn(() => ({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+    })),
+    getListBrowserValidationProfilesQueryKey: (projectId: string) => ['browser-validation-profiles', projectId],
     useGetAiPendingProposal: vi.fn((sessionId: string) => ({
       data: sessionId ? mocks.serverProposal : undefined,
       isFetched: true,
@@ -348,6 +355,10 @@ function renderAiChat(isDesktop = true) {
     </QueryClientProvider>,
   );
   return { invalidateQueries, ...rendered };
+}
+
+function openProviderSettings() {
+  fireEvent.click(screen.getByRole('button', { name: 'AI settings and diagnostics' }));
 }
 
 beforeEach(() => {
@@ -467,6 +478,30 @@ describe('AiChat route target parsing', () => {
   });
 });
 
+describe('AiChat settings disclosure', () => {
+  it('keeps secondary controls collapsed and preserves the delivery-policy status', () => {
+    renderAiChat();
+
+    const settingsToggle = screen.getByRole('button', { name: 'AI settings and diagnostics' });
+    expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('region', { name: 'Model contract quality' })).not.toBeInTheDocument();
+
+    const policy = screen.getByRole('region', { name: 'Automatic delivery promotion policy' });
+    const policyToggle = within(policy).getByRole('button', { name: /Automatic delivery promotion/i });
+    expect(policy).toHaveTextContent('Manual review');
+    expect(policyToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(within(policy).queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
+
+    fireEvent.click(policyToggle);
+    expect(policyToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(policy).getByRole('button', { name: 'Enable' })).toBeInTheDocument();
+
+    fireEvent.click(settingsToggle);
+    expect(settingsToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('region', { name: 'Model contract quality' })).toBeInTheDocument();
+  });
+});
+
 describe('AiChat authenticated generated mutations', () => {
   it('shows model contract quality without exposing raw AI content', () => {
     mocks.aiMetrics = {
@@ -547,6 +582,7 @@ describe('AiChat authenticated generated mutations', () => {
     };
 
     renderAiChat();
+    openProviderSettings();
 
     const card = screen.getByRole('region', { name: 'Model contract quality' });
     expect(card).toHaveTextContent('llama-test');
@@ -562,6 +598,7 @@ describe('AiChat authenticated generated mutations', () => {
 
   it('refreshes model quality with the selected project, provider, and time window', () => {
     renderAiChat();
+    openProviderSettings();
 
     expect(mocks.useGetAiMetrics).toHaveBeenLastCalledWith(
       { projectId: 'project-1', provider: undefined, days: 30 },
@@ -588,6 +625,7 @@ describe('AiChat authenticated generated mutations', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
 
     renderAiChat();
+    openProviderSettings();
     fireEvent.change(screen.getByLabelText('Model quality provider'), {
       target: { value: 'gemini' },
     });
@@ -1703,6 +1741,7 @@ describe('AiChat authenticated generated mutations', () => {
 
   it('sends a provider key through the generated mutation and reports success/error', async () => {
     const { invalidateQueries } = renderAiChat();
+    openProviderSettings();
     const input = await screen.findByPlaceholderText('sk-…');
     fireEvent.change(input, { target: { value: 'sk_test_key_123' } });
     fireEvent.click(input.parentElement?.querySelector('button') as HTMLElement);
@@ -1750,6 +1789,7 @@ it('shows the affected Groq model role and a safe correction when a default is r
   };
 
   renderAiChat();
+  openProviderSettings();
 
   expect(await screen.findByText(/Groq credential is valid, but the configured Fast \(openai\/retired-fast\) is unavailable/i))
     .toBeInTheDocument();
@@ -1775,6 +1815,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
   };
 
   renderAiChat();
+  openProviderSettings();
 
   expect(await screen.findByText(/Groq models available · Fast: openai\/gpt-oss-20b · Powerful: openai\/gpt-oss-120b/i))
     .toBeInTheDocument();
@@ -1793,6 +1834,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
     fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
     const drawer = screen.getByTestId('sessions-drawer');
     expect(await within(drawer).findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'AI settings and diagnostics' }));
     expect(drawer).toHaveClass('w-[min(16rem,100%)]', 'max-w-full', 'overflow-hidden', 'overscroll-contain');
     expect(drawer.querySelector('.drawer-scroll-region')).toHaveClass('overflow-y-auto', 'overscroll-contain', 'md:overflow-hidden');
     expect(drawer.querySelector('.provider-key-cards')).not.toHaveClass('overflow-y-auto');
@@ -1820,6 +1862,7 @@ it('shows Groq model readiness without requiring a personal key when the server 
 
     fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
     const drawer = screen.getByTestId('sessions-drawer');
+    fireEvent.click(within(drawer).getByRole('button', { name: 'AI settings and diagnostics' }));
 
     for (const provider of ['OpenRouter', 'Gemini', 'DeepSeek', 'Groq']) {
       const card = within(drawer)
