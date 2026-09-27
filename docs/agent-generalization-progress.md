@@ -20,7 +20,7 @@
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ كما توجد ملاحظة محدودة لمالك listener في مسارات runtime محددة مع recovery/heartbeat fencing. لا يثبت ذلك lifecycle عامة أو descendants، ورصد validator يثبت PID المباشر فقط. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
-| P6 — World Delta and Revision Closure | `pilot closed (scoped)` | اكتمل pilot `runtime.start` الحقيقي `stopped → running`: D1 يمنع الأثر عند غياب/تعارض الدليل؛ materialization يثبت هوية التنفيذ والمحاولة وEpisode والجلسة ومراجع المشروع والبيئة؛ D2 يربط dispatch بالانتقال الحدثي ومراجعاته وملاحظاته وخطتيه. لا يمنع تغير World State غير متعلق هذا dispatch. `running → running` لا ينتج انتقالًا، و`restart/stop` خارج النطاق. |
+| P6 — World Delta and Revision Closure | `pilot closed (scoped; retry-order risk flagged)` | اكتمل pilot `runtime.start` الحقيقي `stopped → running`: D1 يمنع الأثر عند غياب/تعارض الدليل؛ materialization يثبت هوية التنفيذ والمحاولة وEpisode والجلسة ومراجع المشروع والبيئة؛ D2 يربط dispatch بالانتقال الحدثي ومراجعاته وملاحظاته وخطتيه. لا يمنع تغير World State غير متعلق هذا dispatch. `running → running` لا ينتج انتقالًا، و`restart/stop` خارج النطاق. كشف تدقيق 2026-09-27 خطر أن يسبق retry قبول التنفيذ؛ لا توسّع الـpilot قبل تغطيته باختبار ومعالجة، وفق §42.67. |
 | P7 — World-State Failure Diagnosis | `pilot done — runtime.start only` | أُغلق تشخيص bounded للانتقال `runtime.start` وفق إدخال 42.47 في هذا السجل؛ التشخيص العام وربط بقية World State والـfacts والـobservations ما زال غير مكتمل. |
 | P7.5 — Belief and Information Gain | `partial — runtime.start fixed-safe bootstrap; recovery gate blocks collection` | التسجيل مؤهل فقط عبر Mission runtime المربوط بـMission/Goal/planRevision وعند transition من stopped؛ endpoint العام لا ينتج عينة P7.5. الـforecast bootstrap ثابت، لا selector. اختبارات ECE المرجعية وmission-cluster bootstrap مضافة. resume يدوّر attempt وEpisode، فلا يكمل registration القديم؛ الإلغاء نهائي. لا يوجد scope مؤهل. اجمع فقط بعد إثبات observe-only recovery للتجربة الأصلية أو اعتماد scope جديد ذي policy version جديدة وheld-out cohort مستقبلية؛ يظل `fixed_safe_probe`. |
 | P8 — Diagnosis-aware Replanning | `partial` | توجد bounded objective recovery وMission replan primitives، لكن لا تضمن دائمًا أن التشخيص هو مدخل إعادة التخطيط، ولا تستهلك World Delta/Belief revision. فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
@@ -2435,6 +2435,33 @@ G9 Revocation Safety
   revision closure في P6؛ الاستعادة لا تزال bounded ولا يوجد replay عام.
 - **next step:** لا تبدأ P4–P14 ضمن هذه الشريحة؛ يلزم طلب مستقل قبل توسيع النطاق
   إلى مراحل الاعتماد.
+
+### 42.67 — P3.5/P6 — تدقيق إعادة استخدام World Transition وترتيب retry (2026-09-27)
+
+- **phase/step:** مراجعة معمارية قراءة فقط لمسار World Delta الحالي وعلاقته
+  بـP3.5 وP6.
+- **status:** `done (تدقيق فقط؛ لا تنفيذ للكود)`.
+- **what changed:** تأكد وجود `ai_world_transitions` ومسار
+  `runtime-start-transition` الخاص بـ`stopped → running`، مع materialization
+  للملاحظات والـfacts وتحديث حالة الانتقال في معاملة واحدة، وretry دوري،
+  واستهلاك Mission D2 للانتقال المقبول. لا حاجة إلى جدول أو Gateway موازية.
+- **files/schema/contracts reviewed:** `ai_world_transitions`، و
+  `runtime-start-transition.ts`، و`world-state.ts`،
+  `recipe-operation-runner.ts`، و`job-reconciliation.ts`،
+  `mission-runtime.ts`، و`ai-execution-acceptance.ts`، مع §§42.2 و42.6.
+- **validation:** مراجعة قراءة للاستدعاءات والعقود فقط؛ لم تُشغّل اختبارات أو
+  typecheck في هذا التحديث التوثيقي، ولم يتغير الكود أو schema.
+- **authority/safety impact:** يظل Gate C acceptance مستقلًا عن حالة World
+  Transition؛ failure لاحق لا يسحب قبولًا محفوظًا. بيانات candidate overlay
+  تبقى خارج World State الحي إلى أن يحدث promotion وتُلتقط ملاحظة مباشرة بعده.
+- **remaining/blocker:** يوجد خطر توقيت محتمل موثق: الصف يصبح `pending` قبل
+  `completeAiExecution`، وعامل retry يلتقطه دون اشتراط وجود acceptance؛ غياب
+  القبول يتحول حاليًا إلى `terminal_failed`. كذلك لا يقارن idempotency check
+  `environmentRevision` أو `parentFactRefs` أو `evidenceRefs` عند إعادة الصف.
+  يلزم اختبار السلوك وحسم الربط قبل توسيع المسار.
+- **next step:** اختبر نافذة `pending → acceptance` ثم عالجها داخل مسار الانتقال
+  الموجود، وأضف اختبارات تعارض للحقول الدلالية؛ لا تنشئ خدمة/جدولًا جديدًا ولا
+  تعمم pilot على capabilities أخرى بهذا التحديث.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

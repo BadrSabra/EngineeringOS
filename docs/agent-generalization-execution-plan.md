@@ -4682,6 +4682,21 @@ Action / Invocation identity
 ويطبق عليه عقد الأثر رغم أنه لا يكتب إلى live root. المتطلبات أعلاه هي DoD
 للحلقة المغلقة عبر P3.5–P6، ولا تدعي أن الشرائح الجزئية الحالية قد أغلقتها.
 
+#### قيد إعادة الاستخدام وعدم التكرار — 2026-09-27
+
+يوجد بالفعل سجل `ai_world_transitions` ومسار P6 محدود لـ
+`runtime.start: stopped → running`. لا تنشئ جدول World Delta أو Gateway موازية.
+عند إضافة قدرة مؤهلة أخرى، ابدأ بمراجعة هذا السجل و
+`runtime-start-transition.ts` و`materializeWorldStateForProject`؛ شارك فقط
+حدود التخزين والمعاملة وrevision-CAS التي تتكرر فعلًا، وأبقِ شروط الإثبات
+الخاصة بكل capability في محولها. لا يدخل candidate overlay إلى World State
+الحي؛ يلزم promotion ناجح وملاحظة مباشرة للحالة الحية بعده.
+
+يحافظ pilot الحالي على استقلال Gate C acceptance عن World Transition؛ فشل
+المعرفة لا يسحب قبول التنفيذ بأثر رجعي. لا تجعل World Delta شرطًا عامًا للقبول
+ولا تعكس ترتيب هذا المسار من دون تصميم صريح يفصل التحقق من proof عن تسجيل
+القبول النهائي؛ finalizer الحالي نفسه يشترط وجود قبول ناجح.
+
 #### شرائح تنفيذ جزئية — 2026-09-24
 
 المسارات المباشرة `POST /projects/:projectId/runtime/start`,
@@ -5213,6 +5228,32 @@ Effect Verification، لا يُmaterialize الانتقال إلا من ملاح
 العادية بلا استهلاك دليل الانتقال في D2 لا يغلق الحلقة. لا يتطلب هذا الـpilot
 بناء Belief Engine أو Strategy Promotion. تفاصيل التدقيق والحدود واختبارات
 القبول في §42.41.
+
+#### تحديث تدقيق 2026-09-27 — إعادة الاستخدام وترتيب الاستعادة
+
+تصحح هذه الملاحظة الفقرة التاريخية أعلاه التي لم يظهر فيها عامل retry:
+الشيفرة الحالية تستخدم `retryPendingRuntimeStartTransitions` من durable job
+dispatcher. ويظل `ai_world_transitions` هو السجل الدائم الوحيد للـpilot؛
+`materializeWorldStateForProject` يقفل المشروع ويفحص `parentWorldRevision`،
+ويحدّث facts وصف الانتقال و`resultingWorldRevision` في المعاملة نفسها. يستهلك
+Mission D2 صف الانتقال وملاحظاته المرتبطة، ولا يعتمد على Gateway أو جدول آخر.
+
+ظهر خطر توقيت يحتاج اختبارًا قبل توسيع هذا النمط: ينشئ recipe runner صفًا
+`pending` قبل `completeAiExecution`؛ عامل retry يختار الصفوف المعلقة كل نحو
+10 ثوانٍ بلا شرط قبول ناجح؛ وإذا سبق القبول، يحول غياب القبول إلى
+`terminal_failed` بدل إبقاء الصف منتظرًا. المطلوب اختبار نافذة
+`pending → acceptance` ثم جعل retry يؤجل الصف ما دام execution نشطًا، وينهيه
+بسبب واضح فقط عند فشل التنفيذ أو غياب قبول صالح بعد انتهائه. لا يغيّر ذلك
+استقلال acceptance ولا يسحب قبوله بأثر رجعي.
+
+كما أن فحص تعارض idempotency عند إعادة إنشاء الصف يطابق هوية التنفيذ والفعل
+والـEffectBundle ومراجعة الأب ومراجع before/after، لكنه لا يقارن
+`environmentRevision` أو `parentFactRefs` أو `evidenceRefs`. يجب حسم ثبات هذه
+القيم وإضافة اختبار تعارض لها قبل إعادة استخدام المسار لقدرة أخرى.
+
+لا تغييرات schema أو كود ضمن هذا التدقيق. لا تُنشأ خدمة أو جدول جديد؛ تُعالج
+المخاطر أولًا داخل مسار الانتقال الحالي، مع إبقاء تحقق الأدلة الخاص بـ
+`runtime.start` منفصلًا عن آليات التخزين والاستعادة المشتركة.
 
 ### 42.7 P7 — World-State Failure Diagnosis
 
