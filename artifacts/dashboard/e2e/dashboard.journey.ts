@@ -643,6 +643,7 @@ async function installApiFixtures(
       resumedStreamBody: string;
     };
     missionControl?: Record<string, unknown>;
+    executionDetails?: Record<string, Record<string, unknown>>;
     deliveryRecovery?: {
       operations: Array<Record<string, unknown>>;
       requests: string[];
@@ -1455,6 +1456,13 @@ async function installApiFixtures(
           overrides.historicalAudits.executions[path.split("/").pop() ?? ""],
         ),
       );
+    }
+    const executionId = path.match(/^\/api\/ai\/executions\/([^/]+)$/)?.[1];
+    const executionDetail = executionId
+      ? overrides?.executionDetails?.[decodeURIComponent(executionId)]
+      : undefined;
+    if (executionDetail) {
+      return route.fulfill(jsonResponse(executionDetail));
     }
     if (path === `/api/ai/executions/${EXECUTION_ID}`)
       return route.fulfill(
@@ -4805,6 +4813,124 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(deliveryProof).toContainText("AiChangesApplied");
     await expect(deliveryProof).toContainText("GitCommitCreated");
     await expect(deliveryProof).toContainText("GitPushed");
+  });
+
+  test("keeps the runtime.start transition chain visible after Mission Control reload", async ({
+    page,
+  }) => {
+    const executionId = "e2e-runtime-start-execution";
+    const attempt = 3;
+    const acceptance = {
+      attempt,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "ACCEPTED",
+      nextActionCode: "NONE",
+      evidenceComplete: true,
+      evidenceRequired: true,
+      resumable: false,
+    };
+    const beforeObservation = {
+      id: "e2e-runtime-start-observation-before",
+      predicate: "runtime.before_state",
+      provenance: "DIRECT_OBSERVATION",
+      completeness: "complete",
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      runtimeStatus: "stopped",
+      observedAt: "2026-09-27T10:00:00.000Z",
+    };
+    const afterObservation = {
+      id: "e2e-runtime-start-observation-after",
+      predicate: "runtime.after_state",
+      provenance: "DIRECT_OBSERVATION",
+      completeness: "complete",
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      runtimeStatus: "running",
+      observedAt: "2026-09-27T10:00:01.000Z",
+    };
+    const transition = {
+      id: "e2e-runtime-start-transition",
+      executionId,
+      attempt,
+      episodeId: "e2e-runtime-start-episode",
+      actionId: "e2e-runtime-start-action",
+      status: "pending",
+      parentWorldRevision: "e2e-world-before",
+      resultingWorldRevision: null,
+      environmentRevision: "e2e-runtime-environment",
+      freshness: "fresh",
+      beforeObservations: [beforeObservation],
+      afterObservations: [afterObservation],
+      effectBundle: { id: "e2e-runtime-start-effect", verdict: "OBSERVED" },
+      failureCode: null,
+      createdAt: "2026-09-27T10:00:00.000Z",
+      materializedAt: null,
+    };
+    const missionControl = {
+      updatedAt: "2026-09-27T10:00:01.000Z",
+      executions: [{
+        id: executionId,
+        state: "COMPLETED",
+        objective: "Start the runtime",
+        attempts: attempt,
+        acceptance,
+        evidence: { verdict: "PROVEN", reason: "The execution was accepted." },
+        eventCount: 5,
+        recentEvents: [{ kind: "acceptance", status: "accepted" }],
+      }],
+    };
+    const executionDetails: Record<string, Record<string, unknown>> = {
+      [executionId]: {
+        id: executionId,
+        status: "completed",
+        attempt,
+        recipeReceipt: { recipeId: "runtime.start" },
+        worldTransitions: [transition],
+        acceptance,
+        operationEvidence: { proof: { verdict: "PROVEN" } },
+      },
+    };
+
+    await installApiFixtures(page, { missionControl, executionDetails });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}mission-control?projectId=e2e-project`);
+
+    const timeline = page.getByRole("region", {
+      name: "World Transition timeline",
+    });
+    await expect(timeline).toBeVisible();
+    await expect(timeline).toContainText("e2e-runtime-start-episode");
+    await expect(timeline).toContainText("e2e-runtime-start-observation-before");
+    await expect(timeline).toContainText("e2e-runtime-start-observation-after");
+    await expect(timeline).toContainText("e2e-runtime-start-effect");
+    await expect(timeline).toContainText("PROVEN");
+    await expect(timeline).toContainText("Status: pending");
+    await expect(timeline).not.toContainText("e2e-world-after");
+
+    executionDetails[executionId] = {
+      ...executionDetails[executionId],
+      worldTransitions: [{
+        ...transition,
+        status: "materialized",
+        resultingWorldRevision: "e2e-world-after",
+        materializedAt: "2026-09-27T10:00:02.000Z",
+      }],
+    };
+
+    await page.reload();
+    const timelineAfterReload = page.getByRole("region", {
+      name: "World Transition timeline",
+    });
+    await expect(timelineAfterReload).toBeVisible();
+    await expect(timelineAfterReload).toContainText("e2e-runtime-start-episode");
+    await expect(timelineAfterReload).toContainText("e2e-runtime-start-observation-before");
+    await expect(timelineAfterReload).toContainText("e2e-runtime-start-observation-after");
+    await expect(timelineAfterReload).toContainText("e2e-runtime-start-effect");
+    await expect(timelineAfterReload).toContainText("PROVEN");
+    await expect(timelineAfterReload).toContainText("Status: materialized");
+    await expect(timelineAfterReload).toContainText("e2e-world-after");
   });
 
   test("creates and edits Missions and Goals without losing changes", async ({
