@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
+  aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiAgentShadowCampaignEventsTable,
+  aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   db,
   projectsTable,
 } from "@workspace/db";
@@ -17,6 +21,7 @@ import {
   publicEpisodeProjection,
   replayEpisode,
   startEpisode,
+  terminalizeP75MeasurementContinuationEpisode,
 } from "./agent-episode-ledger.js";
 import {
   loadLatestAgentEpisodeShadowCampaignScorecard,
@@ -62,6 +67,17 @@ async function removeFixture() {
   await db.delete(aiAgentShadowCampaignEventsTable)
     .where(eq(aiAgentShadowCampaignEventsTable.executionId, executionId));
   if (projectId) {
+    await db.delete(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+    await db.delete(aiAgentEpisodeEventsTable)
+      .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+    await db.delete(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.executionId, executionId));
+    await db.delete(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.executionId, executionId));
+    await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+    await db.delete(aiGoalsTable).where(eq(aiGoalsTable.projectId, projectId));
+    await db.delete(aiMissionsTable).where(eq(aiMissionsTable.projectId, projectId));
     await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
   }
 }
@@ -91,6 +107,56 @@ function eventInput(episodeId: string, overrides: Record<string, unknown> = {}) 
     payload: { role: "test" },
     ...overrides,
   } as Parameters<typeof appendEpisodeEvent>[0];
+}
+
+async function p75TerminalizationInput() {
+  const operationId = `agent-episode-p75-operation-${randomUUID()}`;
+  const missionId = `agent-episode-p75-mission-${randomUUID()}`;
+  const goalId = `agent-episode-p75-goal-${randomUUID()}`;
+  const planRevision = "p75-terminalization-plan";
+  await db.insert(aiMissionsTable).values({
+    id: missionId,
+    projectId,
+    userId,
+    title: "P7.5 continuation fixture",
+    intent: "Recover a recorded runtime observation",
+    status: "active",
+    scope: { kind: "project", projectId },
+  });
+  await db.insert(aiGoalsTable).values({
+    id: goalId,
+    missionId,
+    projectId,
+    title: "Replan after runtime observation",
+    status: "running",
+  });
+  await db.update(aiExecutionsTable).set({
+    operationId,
+    goalId,
+  }).where(eq(aiExecutionsTable.id, executionId));
+  const episode = await startEpisode(startInput({
+    missionId,
+    goalId,
+    planRevision,
+  }));
+  return {
+    episodeId: episode.episodeId,
+    projectId,
+    executionId,
+    attempt: 0,
+    workerId,
+    userId,
+    operationId,
+    missionId,
+    goalId,
+    planRevision,
+    projectRevision: "revision-1",
+    sourceExperimentId: "p75-source-experiment",
+    continuationId: "p75-continuation",
+    resultId: "p75-result",
+    measurementValidity: "complete_fresh",
+    reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
+  };
 }
 
 describe("agent episode ledger", () => {
@@ -323,6 +389,59 @@ describe("agent episode ledger", () => {
       eventType: "OBSERVATION_RECORDED",
       payload: { late: true },
     }))).rejects.toMatchObject({ code: "terminal_immutable" });
+  });
+
+  it("does not terminalize a recorded P7.5 result after cancellation wins", async () => {
+    const input = await p75TerminalizationInput();
+    await db.update(aiExecutionsTable).set({
+      cancelRequestedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, executionId));
+
+    await expect(terminalizeP75MeasurementContinuationEpisode(input))
+      .rejects.toMatchObject({ code: "stale_worker" });
+
+    const terminalEvents = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.executionId, executionId),
+      eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+    ));
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, input.episodeId));
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId));
+    expect(terminalEvents).toHaveLength(0);
+    expect(episode).toMatchObject({ state: "running", verdict: null, closedAt: null });
+    expect(execution).toMatchObject({ status: "running", workerId });
+    expect(execution?.cancelRequestedAt).toBeInstanceOf(Date);
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId))).toHaveLength(0);
+  });
+
+  it("rejects P7.5 terminalization from a worker after the execution lease rotates", async () => {
+    const input = await p75TerminalizationInput();
+    await db.update(aiExecutionsTable).set({
+      workerId: "replacement-p75-worker",
+      leaseUntil: new Date(Date.now() + 300_000),
+    }).where(eq(aiExecutionsTable.id, executionId));
+
+    await expect(terminalizeP75MeasurementContinuationEpisode(input))
+      .rejects.toMatchObject({ code: "stale_worker" });
+
+    const terminalEvents = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.executionId, executionId),
+      eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+    ));
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, input.episodeId));
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId));
+    expect(terminalEvents).toHaveLength(0);
+    expect(episode).toMatchObject({ state: "running", verdict: null, closedAt: null });
+    expect(execution).toMatchObject({
+      status: "running",
+      workerId: "replacement-p75-worker",
+    });
+    expect(await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId))).toHaveLength(0);
   });
 
   it("loads only owner-scoped episodes and redacts private episode scope", async () => {

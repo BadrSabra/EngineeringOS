@@ -784,8 +784,11 @@ describe("recipe operation preparation", () => {
       status: "running",
     });
     const continuationRunner = vi.fn(async () => ({
-      reasonCode: "measurement_continuation_required",
+      reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
       sourceExperimentId: "source-experiment",
+      continuationId: "continuation-recovered",
+      resultId: "result-recovered",
+      measurementValidity: "complete_fresh" as const,
     }));
     const runtimeStartRunner = vi.fn(async () => ({
       status: "passed" as const,
@@ -806,7 +809,7 @@ describe("recipe operation preparation", () => {
       expect(result).toMatchObject({
         status: "blocked",
         measurementContinuation: {
-          reasonCode: "measurement_continuation_required",
+          reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
           sourceExperimentId: "source-experiment",
         },
       });
@@ -834,6 +837,21 @@ describe("recipe operation preparation", () => {
       expect(await db.select().from(aiExecutionAcceptancesTable).where(
         eq(aiExecutionAcceptancesTable.executionId, executionId),
       )).toHaveLength(0);
+      const terminalEvents = await db.select({
+        eventType: aiAgentEpisodeEventsTable.eventType,
+        payload: aiAgentEpisodeEventsTable.payload,
+      }).from(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.executionId, executionId),
+        eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+      ));
+      expect(terminalEvents).toHaveLength(1);
+      expect(terminalEvents[0]?.payload).toMatchObject({
+        verdict: "replan_required",
+        reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
+        continuationId: "continuation-recovered",
+        resultId: "result-recovered",
+        measurementValidity: "complete_fresh",
+      });
     } finally {
       await fixture.cleanup(executionId);
     }

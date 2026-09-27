@@ -421,6 +421,50 @@ describe("P7.5 runtime-start measurement continuation runner", () => {
     expect(fixture.appended).toHaveLength(0);
   });
 
+  it("reuses a committed result when its append acknowledgment is lost before terminalization", async () => {
+    const fixture = dependencies([sourceEvent()]);
+    vi.mocked(fixture.deps.appendEvent).mockImplementation(async (event) => {
+      fixture.trace.push(event.eventType);
+      fixture.appended.push(event);
+      if (event.eventType === "OBSERVATION_RECORDED") {
+        throw new Error("simulated worker loss after durable result append");
+      }
+    });
+
+    await expect(runRuntimeStartHypothesisMeasurementContinuation(
+      context(),
+      fixture.deps,
+    )).rejects.toThrow(/durable result append/);
+
+    const persistedRequestAndResult = fixture.appended.map((event, index) => ({
+      ...event,
+      sequence: index + 2,
+    }));
+    vi.mocked(fixture.deps.loadPriorEvents).mockResolvedValue([
+      sourceEvent(),
+      ...persistedRequestAndResult,
+    ] as never);
+
+    const recovered = await runRuntimeStartHypothesisMeasurementContinuation(
+      context({ attempt: 4, episodeId: "episode-after-crash" }),
+      fixture.deps,
+    );
+
+    const recordedResult = fixture.appended.find(
+      (event) => event.eventType === "OBSERVATION_RECORDED",
+    )?.payload as { resultId?: string; continuationId?: string };
+    expect(recovered).toMatchObject({
+      reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
+      resultId: recordedResult.resultId,
+      continuationId: recordedResult.continuationId,
+      measurementValidity: "complete_fresh",
+    });
+    expect(fixture.deps.observeRuntime).toHaveBeenCalledTimes(1);
+    expect(fixture.appended.filter(
+      (event) => event.eventType === "OBSERVATION_RECORDED",
+    )).toHaveLength(1);
+  });
+
   it("fails before writing a request or reading runtime when already cancelled", async () => {
     const abortController = new AbortController();
     abortController.abort();
