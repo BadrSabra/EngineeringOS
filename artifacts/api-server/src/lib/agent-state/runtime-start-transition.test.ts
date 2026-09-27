@@ -35,7 +35,36 @@ afterEach(async () => {
   }
 });
 
-async function transitionFixture() {
+async function acceptTransitionFixture(fixture: {
+  projectId: string;
+  executionId: string;
+  operationId: string;
+  effectBundleId: string;
+}) {
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.update(aiExecutionsTable)
+      .set({ status: "completed", completedAt: now, updatedAt: now })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    await tx.insert(aiExecutionAcceptancesTable).values({
+      id: crypto.randomUUID(),
+      executionId: fixture.executionId,
+      projectId: fixture.projectId,
+      attempt: 0,
+      finalizationKey: `final:${fixture.executionId}`,
+      operationId: fixture.operationId,
+      workerId: `runtime-transition-worker:${fixture.projectId}`,
+      terminalStatus: "completed",
+      outcome: "SUCCEEDED",
+      reasonCode: "CANONICAL_PROOF_PROVEN",
+      nextActionCode: "none",
+      effectBundleId: fixture.effectBundleId,
+      createdAt: now,
+    });
+  });
+}
+
+async function transitionFixture(options: { accepted?: boolean } = {}) {
   const projectId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
   const operationId = crypto.randomUUID();
@@ -105,7 +134,7 @@ async function transitionFixture() {
     effectContractHashes: [],
     verdict: "OBSERVED",
   });
-  const transitionId = await createPendingRuntimeStartTransition({
+  const transitionInput = {
     projectId,
     executionId: actualExecutionId,
     attempt: 0,
@@ -119,34 +148,112 @@ async function transitionFixture() {
     afterObservationIds: ["after"],
     evidenceRefs: ["evidence"],
     environmentRevision: "env-v1:" + "c".repeat(64),
-  });
-  await db.update(aiExecutionsTable)
-    .set({ status: "completed", completedAt: now, updatedAt: now })
-    .where(eq(aiExecutionsTable.id, actualExecutionId));
-  await db.insert(aiExecutionAcceptancesTable).values({
-    id: crypto.randomUUID(),
-    executionId: actualExecutionId,
-    projectId,
-    attempt: 0,
-    finalizationKey: `final:${actualExecutionId}`,
-    operationId,
-    workerId,
-    terminalStatus: "completed",
-    outcome: "SUCCEEDED",
-    reasonCode: "CANONICAL_PROOF_PROVEN",
-    nextActionCode: "none",
-    effectBundleId,
-    createdAt: now,
-  });
+  };
+  const transitionId = await createPendingRuntimeStartTransition(transitionInput);
+  if (options.accepted !== false) {
+    await acceptTransitionFixture({
+      projectId,
+      executionId: actualExecutionId,
+      operationId,
+      effectBundleId,
+    });
+  }
   return {
     projectId,
     executionId: actualExecutionId,
     episodeId: episode.episodeId,
     transitionId,
+    operationId,
+    effectBundleId,
+    transitionInput,
   };
 }
 
 describe("runtime.start transition retry scheduling", () => {
+  it("leaves an active transition pending without consuming retries before acceptance", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(transition).toMatchObject({
+      status: "pending",
+      retryCount: 0,
+      failureCode: null,
+      nextRetryAt: null,
+    });
+  });
+
+  it("fails explicitly when execution ends without a successful acceptance", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+    const now = new Date();
+    await db.update(aiExecutionsTable)
+      .set({ status: "failed", completedAt: now, updatedAt: now })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+      retryCount: aiWorldTransitionsTable.retryCount,
+      nextRetryAt: aiWorldTransitionsTable.nextRetryAt,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "runtime_start_transition_acceptance_missing",
+      retryCount: 0,
+      nextRetryAt: null,
+    });
+  });
+
+  it("resumes transition processing after the active execution is accepted", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    await acceptTransitionFixture(fixture);
+
+    expect(await retryPendingRuntimeStartTransitions(1)).toBe(1);
+    const [transition] = await db.select({
+      status: aiWorldTransitionsTable.status,
+      failureCode: aiWorldTransitionsTable.failureCode,
+    }).from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+
+    // The fixture intentionally lacks direct before/after observation rows;
+    // reaching this failure proves the accepted transition passed the wait gate.
+    expect(transition).toMatchObject({
+      status: "terminal_failed",
+      failureCode: "runtime_start_transition_observations_missing",
+    });
+  });
+
+  it("returns the same transition for an identical retry", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+
+    await expect(createPendingRuntimeStartTransition(fixture.transitionInput))
+      .resolves.toBe(fixture.transitionId);
+  });
+
+  it.each([
+    ["environmentRevision", { environmentRevision: `env-v1:${"e".repeat(64)}` }],
+    ["parentFactRefs", { parentFactRefs: ["fact:different"] }],
+    ["evidenceRefs", { evidenceRefs: ["evidence:different"] }],
+  ] as const)("rejects an idempotency retry with changed %s", async (_field, changed) => {
+    const fixture = await transitionFixture({ accepted: false });
+
+    await expect(createPendingRuntimeStartTransition({
+      ...fixture.transitionInput,
+      ...changed,
+    })).rejects.toThrow("runtime_start_transition_idempotency_conflict");
+  });
+
   it("does not claim a pending transition before its backoff is due", async () => {
     const fixture = await transitionFixture();
     const nextRetryAt = new Date(Date.now() + 60_000);

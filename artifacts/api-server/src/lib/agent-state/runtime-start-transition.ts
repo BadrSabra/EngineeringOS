@@ -31,6 +31,8 @@ export type RuntimeStartTransitionIntent = {
   environmentRevision: string | null;
 };
 
+const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
+
 function unique(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
@@ -43,8 +45,10 @@ export async function createPendingRuntimeStartTransition(
   input: RuntimeStartTransitionIntent,
 ): Promise<string> {
   const idempotencyKey = transitionIdempotencyKey(input);
+  const parentFactRefs = unique(input.parentFactRefs);
   const beforeObservationIds = unique(input.beforeObservationIds);
   const afterObservationIds = unique(input.afterObservationIds);
+  const evidenceRefs = unique(input.evidenceRefs);
   return db.transaction(async (tx) => {
     const [execution] = await tx
       .select()
@@ -83,8 +87,11 @@ export async function createPendingRuntimeStartTransition(
         || existing.actionId !== input.actionId
         || existing.effectBundleId !== input.effectBundleId
         || existing.parentWorldRevision !== input.parentWorldRevision
+        || existing.environmentRevision !== input.environmentRevision
+        || JSON.stringify(existing.parentFactRefs) !== JSON.stringify(parentFactRefs)
         || JSON.stringify(existing.beforeObservationIds) !== JSON.stringify(beforeObservationIds)
         || JSON.stringify(existing.afterObservationIds) !== JSON.stringify(afterObservationIds)
+        || JSON.stringify(existing.evidenceRefs) !== JSON.stringify(evidenceRefs)
       ) {
         throw new Error("runtime_start_transition_idempotency_conflict");
       }
@@ -110,9 +117,9 @@ export async function createPendingRuntimeStartTransition(
       beforeObservationIds,
       afterObservationIds,
       materializedObservationIds: [],
-      parentFactRefs: unique(input.parentFactRefs),
+      parentFactRefs,
       changedFactRefs: [],
-      evidenceRefs: unique(input.evidenceRefs),
+      evidenceRefs,
       status: "pending",
       idempotencyKey,
       retryCount: 0,
@@ -250,6 +257,52 @@ async function claimRuntimeStartTransition(input: {
       };
     }
     const now = new Date();
+    const terminalizeBeforeClaim = async (
+      failureCode: string,
+    ): Promise<RuntimeStartTransitionClaim> => {
+      await tx.update(aiWorldTransitionsTable)
+        .set({
+          status: "terminal_failed",
+          failureCode,
+          nextRetryAt: null,
+          updatedAt: now,
+        })
+        .where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode };
+    };
+    const [acceptance] = await tx.select({
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+    })
+      .from(aiExecutionAcceptancesTable)
+      .where(and(
+        eq(aiExecutionAcceptancesTable.executionId, input.executionId),
+        eq(aiExecutionAcceptancesTable.attempt, input.attempt),
+        eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+      ))
+      .limit(1);
+    if (!acceptance) {
+      const [execution] = await tx.select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+      })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, input.executionId),
+          eq(aiExecutionsTable.projectId, input.projectId),
+        ))
+        .limit(1);
+      if (
+        execution
+        && execution.attempt === input.attempt
+        && ACTIVE_EXECUTION_STATUSES.has(execution.status)
+      ) {
+        return { kind: "pending" };
+      }
+      return terminalizeBeforeClaim("runtime_start_transition_acceptance_missing");
+    }
+    if (acceptance.effectBundleId !== input.effectBundleId) {
+      return terminalizeBeforeClaim("runtime_start_transition_acceptance_effect_bundle_mismatch");
+    }
     if (transition.nextRetryAt && transition.nextRetryAt > now) {
       return {
         kind: "pending",
