@@ -10,12 +10,15 @@ import {
   useRecordTaskVerification,
   useAiResumeTask,
   useCreateTask,
+  useUpdateTask,
+  useDeleteTask,
   useListProjects,
   getListTasksQueryKey,
   getListProjectsQueryKey,
   getGetTaskLogsQueryKey,
   getGetTaskQueryKey,
   type CreateTaskInput,
+  type UpdateTaskInput,
   type TaskLog,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -40,6 +43,8 @@ import {
   WifiOff,
   ShieldCheck,
   FileCheck2,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
@@ -974,6 +979,90 @@ function TaskCreateDialog({
   );
 }
 
+function TaskEditDialog({
+  task,
+  saving,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  task: { id: string; title: string; description?: string; priority: TaskPriorityFilter };
+  saving: boolean;
+  error: unknown;
+  onClose: () => void;
+  onSubmit: (data: UpdateTaskInput) => void;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? '');
+  const [priority, setPriority] = useState<TaskPriorityFilter>(task.priority);
+  const [fieldError, setFieldError] = useState('');
+
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!title.trim()) {
+      setFieldError('Task title is required.');
+      return;
+    }
+    setFieldError('');
+    onSubmit({
+      title: title.trim(),
+      // An explicit empty string clears an existing description in the PATCH API.
+      description: description.trim(),
+      priority,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 px-3 py-6 backdrop-blur-sm sm:px-6 sm:py-10" role="presentation">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-primary/25 bg-card shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="task-edit-title">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary/80">Task / edit</p>
+            <h2 id="task-edit-title" className="mt-1 text-lg font-semibold">Edit task</h2>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Close task editor" className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="space-y-4 px-5 py-5">
+            {error ? (
+              <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">
+                {error instanceof Error ? error.message : 'The task could not be updated. Try again.'}
+              </div>
+            ) : null}
+            <div>
+              <label htmlFor="edit-task-title" className="mb-1.5 block text-xs font-semibold text-muted-foreground">Task title</label>
+              <input id="edit-task-title" data-testid="input-edit-task-title" value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
+            </div>
+            <div>
+              <label htmlFor="edit-task-description" className="mb-1.5 block text-xs font-semibold text-muted-foreground">Description <span className="font-normal text-muted-foreground/70">(optional)</span></label>
+              <textarea id="edit-task-description" data-testid="input-edit-task-description" value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
+            </div>
+            <div>
+              <label htmlFor="edit-task-priority" className="mb-1.5 block text-xs font-semibold text-muted-foreground">Priority</label>
+              <select id="edit-task-priority" data-testid="select-edit-task-priority" value={priority} onChange={(event) => setPriority(event.target.value as TaskPriorityFilter)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary">
+                <option value="p0">P0 — Critical</option>
+                <option value="p1">P1 — High</option>
+                <option value="p2">P2 — Medium</option>
+                <option value="p3">P3 — Low</option>
+              </select>
+            </div>
+            {fieldError ? <p className="text-xs text-destructive">{fieldError}</p> : null}
+          </div>
+          <div className="flex flex-col-reverse gap-2 border-t border-border bg-secondary/20 px-5 py-4 sm:flex-row sm:justify-end">
+            <button type="button" onClick={onClose} disabled={saving} className="rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">Cancel</button>
+            <button type="submit" disabled={saving} data-testid="button-submit-edit-task" className="inline-flex items-center justify-center gap-2 rounded-md border border-primary/40 bg-primary/15 px-4 py-2 text-xs font-semibold text-primary hover:bg-primary/25 disabled:cursor-wait disabled:opacity-60">
+              {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Tasks() {
@@ -986,6 +1075,14 @@ export default function Tasks() {
   const [expandedTask, setExpandedTask] = useState<string | null>(() => requestedTaskId || null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<{
+    id: string;
+    title: string;
+    description?: string;
+    priority: TaskPriorityFilter;
+  } | null>(null);
+  const [deletingTask, setDeletingTask] = useState<{ id: string; title: string } | null>(null);
+  const [deleteError, setDeleteError] = useState('');
 
   const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
     { status: filterStatus || undefined, priority: filterPriority || undefined },
@@ -1015,6 +1112,8 @@ export default function Tasks() {
   const rollbackTask = useRollbackTask();
   const resumeTask = useAiResumeTask();
   const createTask = useCreateTask();
+  const updateTask = useUpdateTask();
+  const deleteTask = useDeleteTask();
 
   const visibleTasks = tasks?.filter((t) =>
     (!searchTerm ||
@@ -1062,6 +1161,60 @@ export default function Tasks() {
             description: err instanceof Error ? err.message : 'The API rejected the task.',
             variant: 'destructive',
           });
+        },
+      },
+    );
+  };
+
+  const handleUpdateTask = (data: UpdateTaskInput) => {
+    if (!editingTask) return;
+    const taskId = editingTask.id;
+    updateTask.mutate(
+      { taskId, data },
+      {
+        onSuccess: (updated) => {
+          setEditingTask(null);
+          void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetTaskQueryKey(taskId) });
+          toast({ title: 'Task updated', description: `${updated.title} was saved.` });
+        },
+        onError: (err: unknown) => {
+          toast({
+            title: 'Task update failed',
+            description: err instanceof Error ? err.message : 'The API rejected the task update.',
+            variant: 'destructive',
+          });
+        },
+      },
+    );
+  };
+
+  const handleDeleteTask = () => {
+    if (!deletingTask) return;
+    const taskId = deletingTask.id;
+    setDeleteError('');
+    deleteTask.mutate(
+      { taskId },
+      {
+        onSuccess: () => {
+          setDeletingTask(null);
+          setExpandedTask((current) => current === taskId ? null : current);
+          setLogsTab((current) => {
+            const next = { ...current };
+            delete next[taskId];
+            return next;
+          });
+          queryClient.removeQueries({ queryKey: getGetTaskQueryKey(taskId) });
+          queryClient.removeQueries({ queryKey: getGetTaskLogsQueryKey(taskId) });
+          void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() });
+          toast({ title: 'Task deleted', description: 'The task was removed from the backlog.' });
+        },
+        onError: (err: unknown) => {
+          const message = err instanceof Error
+            ? err.message
+            : 'The task could not be deleted. It may have active execution work.';
+          setDeleteError(message);
+          toast({ title: 'Task deletion failed', description: message, variant: 'destructive' });
         },
       },
     );
@@ -1302,6 +1455,36 @@ export default function Tasks() {
                       <RotateCcw className="w-4 h-4" />
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditingTask({
+                        id: task.id,
+                        title: task.title,
+                        description: task.description ?? '',
+                        priority: task.priority as TaskPriorityFilter,
+                      });
+                    }}
+                    aria-label={`Edit task ${task.title}`}
+                    title="Edit task"
+                    className="p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground rounded transition-colors"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteError('');
+                      setDeletingTask({ id: task.id, title: task.title });
+                    }}
+                    aria-label={`Delete task ${task.title}`}
+                    title="Delete task"
+                    className="p-1.5 text-destructive/80 hover:bg-destructive/10 hover:text-destructive rounded transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                   {expandedTask === task.id ? (
                     <ChevronDown className="w-4 h-4 text-muted-foreground" />
                   ) : (
@@ -1539,6 +1722,38 @@ export default function Tasks() {
           }}
           onSubmit={handleCreateTask}
         />
+      ) : null}
+      {editingTask ? (
+        <TaskEditDialog
+          task={editingTask}
+          saving={updateTask.isPending}
+          error={updateTask.error}
+          onClose={() => setEditingTask(null)}
+          onSubmit={handleUpdateTask}
+        />
+      ) : null}
+      {deletingTask ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-3 py-6 backdrop-blur-sm" role="presentation">
+          <div className="w-full max-w-md rounded-xl border border-destructive/30 bg-card shadow-2xl" role="alertdialog" aria-modal="true" aria-labelledby="task-delete-title" aria-describedby="task-delete-description">
+            <div className="space-y-3 px-5 py-5">
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                <h2 id="task-delete-title" className="text-lg font-semibold">Delete task?</h2>
+              </div>
+              <p id="task-delete-description" className="text-sm text-muted-foreground">
+                This permanently deletes “{deletingTask.title}” and its task execution logs. This cannot be undone.
+              </p>
+              {deleteError ? <p role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs text-destructive">{deleteError}</p> : null}
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-border bg-secondary/20 px-5 py-4 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setDeletingTask(null)} disabled={deleteTask.isPending} className="rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-40">Cancel</button>
+              <button type="button" onClick={handleDeleteTask} disabled={deleteTask.isPending} data-testid="button-confirm-delete-task" className="inline-flex items-center justify-center gap-2 rounded-md bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:cursor-wait disabled:opacity-60">
+                {deleteTask.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+                {deleteTask.isPending ? 'Deleting…' : 'Delete task'}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

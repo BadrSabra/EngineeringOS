@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Tasks from './Tasks';
 
 const createTaskMutate = vi.hoisted(() => vi.fn());
+const updateTaskMutate = vi.hoisted(() => vi.fn());
+const deleteTaskMutate = vi.hoisted(() => vi.fn());
 
 vi.mock('@workspace/api-client-react', () => ({
   useListTasks: vi.fn(),
@@ -17,6 +19,8 @@ vi.mock('@workspace/api-client-react', () => ({
   useRecordTaskVerification: vi.fn(),
   useAiResumeTask: vi.fn(),
   useCreateTask: vi.fn(),
+  useUpdateTask: vi.fn(),
+  useDeleteTask: vi.fn(),
   getListTasksQueryKey: vi.fn(() => ['tasks']),
   getListProjectsQueryKey: vi.fn(() => ['projects']),
   getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
@@ -38,6 +42,8 @@ import {
   useRecordTaskVerification,
   useAiResumeTask,
   useCreateTask,
+  useUpdateTask,
+  useDeleteTask,
   useListProjects,
 } from '@workspace/api-client-react';
 
@@ -149,9 +155,62 @@ beforeEach(() => {
     isPending: false,
     error: null,
   } as ReturnType<typeof useCreateTask>);
+  vi.mocked(useUpdateTask).mockReturnValue({
+    mutate: updateTaskMutate,
+    isPending: false,
+    error: null,
+  } as ReturnType<typeof useUpdateTask>);
+  vi.mocked(useDeleteTask).mockReturnValue({
+    mutate: deleteTaskMutate,
+    isPending: false,
+    error: null,
+  } as ReturnType<typeof useDeleteTask>);
 });
 
 describe('Tasks recovery rendering', () => {
+  it('edits task title, description, and priority through the generated PATCH mutation', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit task Repair provider authentication' }));
+    fireEvent.change(screen.getByTestId('input-edit-task-title'), { target: { value: 'Repair authentication flow' } });
+    fireEvent.change(screen.getByTestId('input-edit-task-description'), { target: { value: '' } });
+    fireEvent.change(screen.getByTestId('select-edit-task-priority'), { target: { value: 'p0' } });
+    fireEvent.click(screen.getByTestId('button-submit-edit-task'));
+
+    expect(updateTaskMutate).toHaveBeenCalledWith(
+      {
+        taskId: 'task-auth',
+        data: {
+          title: 'Repair authentication flow',
+          description: '',
+          priority: 'p0',
+        },
+      },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+  });
+
+  it('requires confirmation before deleting and shows server conflicts in the dialog', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete task Repair provider authentication' }));
+    const confirmation = screen.getByRole('alertdialog', { name: 'Delete task?' });
+    expect(within(confirmation).getByText(/permanently deletes “Repair provider authentication” and its task execution logs/)).toBeInTheDocument();
+    fireEvent.click(within(confirmation).getByTestId('button-confirm-delete-task'));
+
+    expect(deleteTaskMutate).toHaveBeenCalledWith(
+      { taskId: 'task-auth' },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    const [, callbacks] = deleteTaskMutate.mock.calls[0];
+    act(() => {
+      callbacks.onError(new Error('Cancel and terminalize the task execution before deleting this task.'));
+    });
+    expect(within(screen.getByRole('alertdialog')).getByRole('alert')).toHaveTextContent(
+      'Cancel and terminalize the task execution before deleting this task.',
+    );
+  });
+
   it('preserves authentication, quota, and outage guidance from failed receipts', () => {
     renderPage();
 
