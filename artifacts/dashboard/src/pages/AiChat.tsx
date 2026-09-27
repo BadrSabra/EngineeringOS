@@ -12331,13 +12331,28 @@ export default function AiChat() {
                 </span>
               </button>
             ))}
-            <div className="mt-3 border-t border-border pt-3">
-              <div className="flex items-center justify-between px-2 pb-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  Past audits
-                </span>
-                {historicalAuditsLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-              </div>
+            {(historicalAudits.length > 0 || historicalAuditsLoading || historicalAuditsError) && (
+              <div className="mt-3 border-t border-border pt-3">
+                <button
+                  type="button"
+                  aria-label="Past audits"
+                  aria-expanded={historicalAuditsExpanded}
+                  aria-controls="historical-audits-content"
+                  onClick={() => setHistoricalAuditsExpanded((expanded) => !expanded)}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-secondary/70"
+                >
+                  <span className="min-w-0 flex-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                    Past audits
+                  </span>
+                  {historicalAudits.length > 0 && (
+                    <Badge variant="outline" className="h-4 px-1 text-[9px]">
+                      {historicalAudits.length}
+                    </Badge>
+                  )}
+                  {historicalAuditsLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                  <ChevronRight className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${historicalAuditsExpanded ? 'rotate-90' : ''}`} />
+                </button>
+                <div id="historical-audits-content" hidden={!historicalAuditsExpanded} className="mt-1">
               {historicalAuditsError ? (
                 <div className="px-2 py-2 text-[10px] leading-4 text-muted-foreground">
                   Historical audits are unavailable. Your current sessions are still available.
@@ -12448,7 +12463,9 @@ export default function AiChat() {
                   })}
                 </div>
               )}
-            </div>
+                </div>
+              </div>
+            )}
             </div>
           </div>
 
@@ -12710,18 +12727,50 @@ export default function AiChat() {
                   {getStatusSubtitle()}
                 </p>
               </div>
-               <div className="grid w-full max-w-sm grid-cols-2 gap-2">
-                {AI_ACTIONS.map((action) => (
-                  <button
-                    key={action.id}
-                    onClick={() => handleQuickAction(action)}
-                    disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-xs text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-secondary"
-                  >
-                    <action.icon className="w-3.5 h-3.5 text-primary shrink-0" />
-                    {action.label}
-                  </button>
-                ))}
+               <div className="w-full max-w-sm">
+                 <div className="mb-2 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                   Common starting points
+                 </div>
+                 <div className="grid grid-cols-2 gap-2">
+                   {COMMON_AI_ACTIONS.map((action) => (
+                     <button
+                       key={action.id}
+                       onClick={() => handleQuickAction(action)}
+                       disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
+                       className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-2 text-left text-xs transition-colors hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-secondary"
+                     >
+                       <action.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                       {action.label}
+                     </button>
+                   ))}
+                 </div>
+                 {ADVANCED_AI_ACTIONS.length > 0 && (
+                   <div className="mt-2">
+                     <button
+                       type="button"
+                       aria-expanded={moreActionsExpanded}
+                       aria-controls="ai-additional-actions"
+                       onClick={() => setMoreActionsExpanded((expanded) => !expanded)}
+                       className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                     >
+                       <span>More actions</span>
+                       <ChevronRight className={`h-3 w-3 transition-transform ${moreActionsExpanded ? 'rotate-90' : ''}`} />
+                     </button>
+                     <div id="ai-additional-actions" hidden={!moreActionsExpanded} className="mt-1 grid grid-cols-2 gap-2">
+                       {ADVANCED_AI_ACTIONS.map((action) => (
+                         <button
+                           key={action.id}
+                           onClick={() => handleQuickAction(action)}
+                           disabled={!isLoaded || projectsLoading || !selectedProjectId}
+                           className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-2 text-left text-xs transition-colors hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-secondary"
+                         >
+                           <action.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                           {action.label}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                 )}
               </div>
             </div>
           ) : (

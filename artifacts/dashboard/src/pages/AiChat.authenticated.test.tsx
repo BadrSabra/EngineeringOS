@@ -485,6 +485,7 @@ describe('AiChat settings disclosure', () => {
     const settingsToggle = screen.getByRole('button', { name: 'AI settings and diagnostics' });
     expect(settingsToggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('region', { name: 'Model contract quality' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No cancelled or incomplete audits for this project.')).not.toBeInTheDocument();
 
     const policy = screen.getByRole('region', { name: 'Automatic delivery promotion policy' });
     const policyToggle = within(policy).getByRole('button', { name: /Automatic delivery promotion/i });
@@ -1528,6 +1529,9 @@ describe('AiChat authenticated generated mutations', () => {
     renderAiChat();
 
     expect(await screen.findByText('Existing response')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Review audit Review the retained audit/ }))
+      .not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Past audits' }));
     expect(screen.getByRole('button', { name: /Review audit Review the retained audit/ }))
       .toHaveClass('bg-primary/10');
     expect(screen.getByText(/Execution historical-/)).toBeInTheDocument();
@@ -4535,10 +4539,16 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(screen.queryByText('FIXTURE LOCAL')).not.toBeInTheDocument();
   });
 
-  it('renders the Capability Probe quick action and, on click, sends the canonical probe message', async () => {
+  it('keeps the Capability Probe under More actions and sends the canonical probe message', async () => {
     renderAiChat();
 
-    // Empty-state quick actions include the one-click probe runner.
+    const moreActions = screen.getByRole('button', { name: 'More actions' });
+    expect(moreActions).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'Capability Probe' })).not.toBeInTheDocument();
+    fireEvent.click(moreActions);
+    expect(moreActions).toHaveAttribute('aria-expanded', 'true');
+
+    // The advanced area retains the one-click probe runner.
     const probeButton = await screen.findByRole('button', { name: 'Capability Probe' });
     expect(probeButton).toBeInTheDocument();
 
