@@ -1388,11 +1388,11 @@ paths:
   /api/plugins:
     get:
       operationId: listPlugins
-      summary: List all registered plugins
+      summary: List globally governed plugin definitions
       tags: [Plugins]
       responses:
         "200":
-          description: List of plugins
+          description: Plugin definitions and global availability state
           content:
             application/json:
               schema:
@@ -1403,7 +1403,8 @@ paths:
   /api/plugins/{pluginId}/enable:
     post:
       operationId: enablePlugin
-      summary: Enable a plugin for a project
+      summary: Make a plugin globally available
+      description: Global availability is a ceiling and does not activate a plugin for any project. Operator-only.
       tags: [Plugins]
       parameters:
         - name: pluginId
@@ -1411,15 +1412,9 @@ paths:
           required: true
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PluginProjectRequest"
       responses:
         "200":
-          description: Plugin enabled
+          description: Plugin globally available
           content:
             application/json:
               schema:
@@ -1428,9 +1423,61 @@ paths:
   /api/plugins/{pluginId}/disable:
     post:
       operationId: disablePlugin
-      summary: Disable a plugin for a project
+      summary: Make a plugin globally unavailable
+      description: Removes this plugin from every project's effective scan-hook set. Operator-only.
       tags: [Plugins]
       parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plugin globally unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  /api/projects/{projectId}/plugins:
+    get:
+      operationId: listProjectPlugins
+      summary: List plugin availability and activation for a project
+      description: Lists globally available definitions and this project's independent activation state.
+      tags: [Plugins]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project-scoped plugin states
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectPluginState"
+        "403":
+          description: Project is not owned by the authenticated user
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/plugins/{pluginId}:
+    put:
+      operationId: updateProjectPluginBinding
+      summary: Update a project's plugin activation
+      description: Project owners can activate or deactivate a globally available plugin for scans in this project.
+      tags: [Plugins]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
         - name: pluginId
           in: path
           required: true
@@ -1441,14 +1488,22 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PluginProjectRequest"
+              $ref: "#/components/schemas/ProjectPluginBindingUpdate"
       responses:
         "200":
-          description: Plugin disabled
+          description: Updated project plugin state
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Plugin"
+                $ref: "#/components/schemas/ProjectPluginState"
+        "400":
+          description: Invalid activation or configuration
+        "403":
+          description: Project is archived or not owned by the authenticated user
+        "404":
+          description: Project or plugin not found
+        "409":
+          description: Plugin is globally unavailable or has no registered scan hook
 
   # ─── Discovery ───────────────────────────────────────────────────────────────
   /api/discovery/sources:
@@ -9446,13 +9501,19 @@ components:
           items:
             $ref: "#/components/schemas/GraphRelationship"
 
-    # ─── Plugin request bodies ─────────────────────────────────────────────────
-    PluginProjectRequest:
+    # ─── Project plugin request bodies ─────────────────────────────────────────
+    ProjectPluginBindingUpdate:
       type: object
-      required: [projectId]
+      required: [enabled]
       properties:
-        projectId:
-          type: string
+        enabled:
+          type: boolean
+          description: Project-specific activation; cannot override global unavailability.
+        configuration:
+          type: object
+          description: No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here.
+          maxProperties: 0
+          additionalProperties: true
 
     EvaluateRuleRequest:
       type: object
@@ -9464,18 +9525,19 @@ components:
     # ─── Plugin ────────────────────────────────────────────────────────────────
     Plugin:
       type: object
-      required: [id, name, version, enabled, capabilities]
+      required: [id, name, version, available, capabilities]
       properties:
         id:
           type: string
         name:
           type: string
         description:
-          type: string
+          type: [string, "null"]
         version:
           type: string
-        enabled:
+        available:
           type: boolean
+          description: Global availability ceiling, independent of any project's activation.
         capabilities:
           type: array
           items:
@@ -9485,6 +9547,44 @@ components:
           type: array
           items:
             type: string
+
+    ProjectPluginState:
+      type: object
+      required:
+        [id, name, version, available, projectEnabled, scanHookImplemented, effectiveForProjectScan, capabilities, supportedLanguages, configuration]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, "null"]
+        version:
+          type: string
+        available:
+          type: boolean
+          description: Whether global policy allows this plugin to be activated.
+        projectEnabled:
+          type: boolean
+          description: Whether this project has an explicit activation binding.
+        scanHookImplemented:
+          type: boolean
+          description: Whether the server has a scan hook implementation registered for this definition.
+        effectiveForProjectScan:
+          type: boolean
+          description: True only when globally available, activated for this project, and backed by a registered scan hook.
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [analyzer, rules, prompts, verifier, reporter]
+        supportedLanguages:
+          type: array
+          items:
+            type: string
+        configuration:
+          type: object
+          additionalProperties: true
 
     # ─── Discovery ─────────────────────────────────────────────────────────────
     SourceType:

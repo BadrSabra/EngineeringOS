@@ -132,8 +132,9 @@ import type {
   OpenRouterKeyStatus,
   OperatorAlertsResponse,
   Plugin,
-  PluginProjectRequest,
   Project,
+  ProjectPluginBindingUpdate,
+  ProjectPluginState,
   ProjectSummary,
   ProviderKeyStatus,
   RecipeExecutionResponse,
@@ -4406,7 +4407,7 @@ export const getListPluginsUrl = () => {
 }
 
 /**
- * @summary List all registered plugins
+ * @summary List globally governed plugin definitions
  */
 export const listPlugins = async ( options?: Parameters<typeof customFetch>[1]): Promise<Plugin[]> => {
 
@@ -4453,7 +4454,7 @@ export type ListPluginsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List all registered plugins
+ * @summary List globally governed plugin definitions
  */
 
 export function useListPlugins<TData = Awaited<ReturnType<typeof listPlugins>>, TError = ErrorType<unknown>>(
@@ -4483,23 +4484,17 @@ export const getEnablePluginUrl = (pluginId: string,) => {
 }
 
 /**
- * @summary Enable a plugin for a project
+ * Global availability is a ceiling and does not activate a plugin for any project. Operator-only.
+ * @summary Make a plugin globally available
  */
-export const enablePlugin = async (pluginId: string,
-    pluginProjectRequest: PluginProjectRequest, options?: Parameters<typeof customFetch>[1]): Promise<Plugin> => {
+export const enablePlugin = async (pluginId: string, options?: Parameters<typeof customFetch>[1]): Promise<Plugin> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<Plugin>(getEnablePluginUrl(pluginId),
+  return customFetch<Plugin>(getEnablePluginUrl(pluginId),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(pluginProjectRequest)
+    method: 'POST'
+
+
   }
 );}
 
@@ -4524,9 +4519,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof enablePlugin>>, EnablePluginMutationVariables> = (props) => {
-          const {pluginId,data} = props ?? {};
+          const {pluginId} = props ?? {};
 
-          return  enablePlugin(pluginId,data,requestOptions)
+          return  enablePlugin(pluginId,requestOptions)
         }
 
 
@@ -4537,12 +4532,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type EnablePluginMutationResult = NonNullable<Awaited<ReturnType<typeof enablePlugin>>>
-    export type EnablePluginMutationBody = BodyType<PluginProjectRequest>
+
     export type EnablePluginMutationError = ErrorType<unknown>
-    export type EnablePluginMutationVariables = {pluginId: string;data: BodyType<PluginProjectRequest>}
+    export type EnablePluginMutationVariables = {pluginId: string}
 
     /**
- * @summary Enable a plugin for a project
+ * @summary Make a plugin globally available
  */
 export const useEnablePlugin = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enablePlugin>>, TError,EnablePluginMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -4564,23 +4559,17 @@ export const getDisablePluginUrl = (pluginId: string,) => {
 }
 
 /**
- * @summary Disable a plugin for a project
+ * Removes this plugin from every project's effective scan-hook set. Operator-only.
+ * @summary Make a plugin globally unavailable
  */
-export const disablePlugin = async (pluginId: string,
-    pluginProjectRequest: PluginProjectRequest, options?: Parameters<typeof customFetch>[1]): Promise<Plugin> => {
+export const disablePlugin = async (pluginId: string, options?: Parameters<typeof customFetch>[1]): Promise<Plugin> => {
 
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customFetch<Plugin>(getDisablePluginUrl(pluginId),
+  return customFetch<Plugin>(getDisablePluginUrl(pluginId),
   {
     ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(pluginProjectRequest)
+    method: 'POST'
+
+
   }
 );}
 
@@ -4605,9 +4594,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof disablePlugin>>, DisablePluginMutationVariables> = (props) => {
-          const {pluginId,data} = props ?? {};
+          const {pluginId} = props ?? {};
 
-          return  disablePlugin(pluginId,data,requestOptions)
+          return  disablePlugin(pluginId,requestOptions)
         }
 
 
@@ -4618,12 +4607,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type DisablePluginMutationResult = NonNullable<Awaited<ReturnType<typeof disablePlugin>>>
-    export type DisablePluginMutationBody = BodyType<PluginProjectRequest>
+
     export type DisablePluginMutationError = ErrorType<unknown>
-    export type DisablePluginMutationVariables = {pluginId: string;data: BodyType<PluginProjectRequest>}
+    export type DisablePluginMutationVariables = {pluginId: string}
 
     /**
- * @summary Disable a plugin for a project
+ * @summary Make a plugin globally unavailable
  */
 export const useDisablePlugin = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof disablePlugin>>, TError,DisablePluginMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -4634,6 +4623,168 @@ export const useDisablePlugin = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDisablePluginMutationOptions(options));
+    }
+
+export const getListProjectPluginsUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/plugins`
+}
+
+/**
+ * Lists globally available definitions and this project's independent activation state.
+ * @summary List plugin availability and activation for a project
+ */
+export const listProjectPlugins = async (projectId: string, options?: Parameters<typeof customFetch>[1]): Promise<ProjectPluginState[]> => {
+
+  return customFetch<ProjectPluginState[]>(getListProjectPluginsUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProjectPluginsQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/plugins`
+    ] as const;
+    }
+
+
+export const getListProjectPluginsQueryOptions = <TData = Awaited<ReturnType<typeof listProjectPlugins>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjectPlugins>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProjectPluginsQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProjectPlugins>>> = ({ signal }) => listProjectPlugins(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProjectPlugins>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProjectPluginsQueryResult = NonNullable<Awaited<ReturnType<typeof listProjectPlugins>>>
+export type ListProjectPluginsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List plugin availability and activation for a project
+ */
+
+export function useListProjectPlugins<TData = Awaited<ReturnType<typeof listProjectPlugins>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjectPlugins>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProjectPluginsQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateProjectPluginBindingUrl = (projectId: string,
+    pluginId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/plugins/${pluginId}`
+}
+
+/**
+ * Project owners can activate or deactivate a globally available plugin for scans in this project.
+ * @summary Update a project's plugin activation
+ */
+export const updateProjectPluginBinding = async (projectId: string,
+    pluginId: string,
+    projectPluginBindingUpdate: ProjectPluginBindingUpdate, options?: Parameters<typeof customFetch>[1]): Promise<ProjectPluginState> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<ProjectPluginState>(getUpdateProjectPluginBindingUrl(projectId,pluginId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(projectPluginBindingUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateProjectPluginBindingMutationKey = () => ['updateProjectPluginBinding'] as const;
+
+export const getUpdateProjectPluginBindingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProjectPluginBinding>>, TError,UpdateProjectPluginBindingMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateProjectPluginBinding>>, TError,UpdateProjectPluginBindingMutationVariables, TContext> => {
+
+const mutationKey = getUpdateProjectPluginBindingMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProjectPluginBinding>>, UpdateProjectPluginBindingMutationVariables> = (props) => {
+          const {projectId,pluginId,data} = props ?? {};
+
+          return  updateProjectPluginBinding(projectId,pluginId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateProjectPluginBindingMutationResult = NonNullable<Awaited<ReturnType<typeof updateProjectPluginBinding>>>
+    export type UpdateProjectPluginBindingMutationBody = BodyType<ProjectPluginBindingUpdate>
+    export type UpdateProjectPluginBindingMutationError = ErrorType<void>
+    export type UpdateProjectPluginBindingMutationVariables = {projectId: string;pluginId: string;data: BodyType<ProjectPluginBindingUpdate>}
+
+    /**
+ * @summary Update a project's plugin activation
+ */
+export const useUpdateProjectPluginBinding = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProjectPluginBinding>>, TError,UpdateProjectPluginBindingMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateProjectPluginBinding>>,
+        TError,
+        UpdateProjectPluginBindingMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateProjectPluginBindingMutationOptions(options));
     }
 
 export const getListDiscoverySourcesUrl = () => {

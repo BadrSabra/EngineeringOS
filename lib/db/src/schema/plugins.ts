@@ -5,9 +5,12 @@ export const pluginsTable = pgTable("plugins", {
   name: text("name").notNull().unique(),
   description: text("description"),
   version: text("version").notNull(),
+  // Global availability ceiling only; activation is project-scoped.
   enabled: boolean("enabled").notNull().default(true),
   capabilities: jsonb("capabilities").$type<string[]>().default([]),
   supportedLanguages: jsonb("supported_languages").$type<string[]>().default([]),
+  // Legacy column retained for schema compatibility only. Project configuration
+  // belongs to project_plugin_bindings; API responses and runtime ignore this.
   config: jsonb("config").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

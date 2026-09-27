@@ -5404,8 +5404,16 @@ export interface GraphRuntimeSubgraph {
   relationships: GraphRelationship[];
 }
 
-export interface PluginProjectRequest {
-  projectId: string;
+/**
+ * No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here.
+ */
+export type ProjectPluginBindingUpdateConfiguration = { [key: string]: unknown };
+
+export interface ProjectPluginBindingUpdate {
+  /** Project-specific activation; cannot override global unavailability. */
+  enabled: boolean;
+  /** No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here. */
+  configuration?: ProjectPluginBindingUpdateConfiguration;
 }
 
 export interface EvaluateRuleRequest {
@@ -5426,11 +5434,45 @@ export const PluginCapabilitiesItem = {
 export interface Plugin {
   id: string;
   name: string;
-  description?: string;
+  /** @nullable */
+  description?: string | null;
   version: string;
-  enabled: boolean;
+  /** Global availability ceiling, independent of any project's activation. */
+  available: boolean;
   capabilities: PluginCapabilitiesItem[];
   supportedLanguages?: string[];
+}
+
+export type ProjectPluginStateCapabilitiesItem = typeof ProjectPluginStateCapabilitiesItem[keyof typeof ProjectPluginStateCapabilitiesItem];
+
+
+export const ProjectPluginStateCapabilitiesItem = {
+  analyzer: 'analyzer',
+  rules: 'rules',
+  prompts: 'prompts',
+  verifier: 'verifier',
+  reporter: 'reporter',
+} as const;
+
+export type ProjectPluginStateConfiguration = { [key: string]: unknown };
+
+export interface ProjectPluginState {
+  id: string;
+  name: string;
+  /** @nullable */
+  description?: string | null;
+  version: string;
+  /** Whether global policy allows this plugin to be activated. */
+  available: boolean;
+  /** Whether this project has an explicit activation binding. */
+  projectEnabled: boolean;
+  /** Whether the server has a scan hook implementation registered for this definition. */
+  scanHookImplemented: boolean;
+  /** True only when globally available, activated for this project, and backed by a registered scan hook. */
+  effectiveForProjectScan: boolean;
+  capabilities: ProjectPluginStateCapabilitiesItem[];
+  supportedLanguages: string[];
+  configuration: ProjectPluginStateConfiguration;
 }
 
 export type SourceType = typeof SourceType[keyof typeof SourceType];

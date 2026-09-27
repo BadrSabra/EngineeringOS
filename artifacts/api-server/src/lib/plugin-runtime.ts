@@ -13,8 +13,12 @@
 
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
-import { pluginsTable, eventsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import {
+  eventsTable,
+  pluginsTable,
+  projectPluginBindingsTable,
+} from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
 // ─── Hook context ─────────────────────────────────────────────────────────────
@@ -322,12 +326,16 @@ export const PLUGIN_HOOKS: Record<string, PluginHook> = {
   },
 };
 
+export function isScanHookImplemented(pluginId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PLUGIN_HOOKS, pluginId);
+}
+
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 /**
  * Called after a successful scan transaction has committed.
- * Loads all enabled plugins from the database, invokes their `onScanComplete`
- * hook, and persists any events they return.
+ * Loads plugins that are globally available and explicitly activated for this
+ * project, invokes their `onScanComplete` hook, and persists returned events.
  *
  * Like recordAudit, plugin dispatch is best-effort telemetry: a plugin
  * failure must not fail or roll back the scan itself. Errors are logged
@@ -336,20 +344,18 @@ export const PLUGIN_HOOKS: Record<string, PluginHook> = {
 export async function dispatchOnScanComplete(
   ctx: ScanCompleteContext,
 ): Promise<void> {
-  let enabledPlugins: { id: string }[] = [];
+  let effectivePluginIds: string[] = [];
   try {
-    enabledPlugins = await db
-      .select({ id: pluginsTable.id })
-      .from(pluginsTable)
-      .where(eq(pluginsTable.enabled, true));
+    effectivePluginIds = await resolveEffectivePluginIds(ctx.projectId);
   } catch (err) {
-    logger.error({ err }, "plugin-runtime: failed to load enabled plugins");
+    logger.error(
+      { err, projectId: ctx.projectId },
+      "plugin-runtime: failed to resolve project plugin activation",
+    );
     return;
   }
 
-  const dispatches = enabledPlugins
-    .filter(({ id }) => id in PLUGIN_HOOKS)
-    .map(async ({ id }) => {
+  const dispatches = effectivePluginIds.map(async (id) => {
       const hook = PLUGIN_HOOKS[id]!;
       try {
         const result = await hook.onScanComplete(ctx);
@@ -374,7 +380,35 @@ export async function dispatchOnScanComplete(
           "plugin-runtime: plugin hook onScanComplete threw — skipping",
         );
       }
-    });
+  });
 
   await Promise.allSettled(dispatches);
+}
+
+/**
+ * Resolve the scan-hook set as the intersection of global availability and
+ * the project's explicit activation bindings. A missing binding is disabled.
+ */
+export async function resolveEffectivePluginIds(
+  projectId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: pluginsTable.id })
+    .from(projectPluginBindingsTable)
+    .innerJoin(
+      pluginsTable,
+      eq(projectPluginBindingsTable.pluginId, pluginsTable.id),
+    )
+    .where(
+      and(
+        eq(projectPluginBindingsTable.projectId, projectId),
+        eq(projectPluginBindingsTable.enabled, true),
+        eq(pluginsTable.enabled, true),
+      ),
+    );
+
+  return rows
+    .map(({ id }) => id)
+    .filter(isScanHookImplemented)
+    .sort();
 }

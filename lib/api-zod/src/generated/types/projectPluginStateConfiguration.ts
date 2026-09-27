@@ -6,6 +6,4 @@
  * OpenAPI spec version: 1.0.0
  */
 
-export interface PluginProjectRequest {
-  projectId: string;
-}
+export type ProjectPluginStateConfiguration = { [key: string]: unknown };

@@ -3175,14 +3175,14 @@ export const GetGraphRuntimeSubgraphResponse = zod.object({
 
 
 /**
- * @summary List all registered plugins
+ * @summary List globally governed plugin definitions
  */
 export const ListPluginsResponseItem = zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string().optional(),
+  "description": zod.string().nullish(),
   "version": zod.string(),
-  "enabled": zod.boolean(),
+  "available": zod.boolean().describe('Global availability ceiling, independent of any project\'s activation.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
   "supportedLanguages": zod.array(zod.string()).optional()
 })
@@ -3190,46 +3190,93 @@ export const ListPluginsResponse = zod.array(ListPluginsResponseItem)
 
 
 /**
- * @summary Enable a plugin for a project
+ * Global availability is a ceiling and does not activate a plugin for any project. Operator-only.
+ * @summary Make a plugin globally available
  */
 export const EnablePluginParams = zod.object({
   "pluginId": zod.coerce.string()
 })
 
-export const EnablePluginBody = zod.object({
-  "projectId": zod.string()
-})
-
 export const EnablePluginResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string().optional(),
+  "description": zod.string().nullish(),
   "version": zod.string(),
-  "enabled": zod.boolean(),
+  "available": zod.boolean().describe('Global availability ceiling, independent of any project\'s activation.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
   "supportedLanguages": zod.array(zod.string()).optional()
 })
 
 
 /**
- * @summary Disable a plugin for a project
+ * Removes this plugin from every project's effective scan-hook set. Operator-only.
+ * @summary Make a plugin globally unavailable
  */
 export const DisablePluginParams = zod.object({
   "pluginId": zod.coerce.string()
 })
 
-export const DisablePluginBody = zod.object({
-  "projectId": zod.string()
-})
-
 export const DisablePluginResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
-  "description": zod.string().optional(),
+  "description": zod.string().nullish(),
   "version": zod.string(),
-  "enabled": zod.boolean(),
+  "available": zod.boolean().describe('Global availability ceiling, independent of any project\'s activation.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
   "supportedLanguages": zod.array(zod.string()).optional()
+})
+
+
+/**
+ * Lists globally available definitions and this project's independent activation state.
+ * @summary List plugin availability and activation for a project
+ */
+export const ListProjectPluginsParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const ListProjectPluginsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "version": zod.string(),
+  "available": zod.boolean().describe('Whether global policy allows this plugin to be activated.'),
+  "projectEnabled": zod.boolean().describe('Whether this project has an explicit activation binding.'),
+  "scanHookImplemented": zod.boolean().describe('Whether the server has a scan hook implementation registered for this definition.'),
+  "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, and backed by a registered scan hook.'),
+  "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
+  "supportedLanguages": zod.array(zod.string()),
+  "configuration": zod.record(zod.string(), zod.unknown())
+})
+export const ListProjectPluginsResponse = zod.array(ListProjectPluginsResponseItem)
+
+
+/**
+ * Project owners can activate or deactivate a globally available plugin for scans in this project.
+ * @summary Update a project's plugin activation
+ */
+export const UpdateProjectPluginBindingParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "pluginId": zod.coerce.string()
+})
+
+export const UpdateProjectPluginBindingBody = zod.object({
+  "enabled": zod.boolean().describe('Project-specific activation; cannot override global unavailability.'),
+  "configuration": zod.record(zod.string(), zod.unknown()).optional().describe('No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here.')
+})
+
+export const UpdateProjectPluginBindingResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullish(),
+  "version": zod.string(),
+  "available": zod.boolean().describe('Whether global policy allows this plugin to be activated.'),
+  "projectEnabled": zod.boolean().describe('Whether this project has an explicit activation binding.'),
+  "scanHookImplemented": zod.boolean().describe('Whether the server has a scan hook implementation registered for this definition.'),
+  "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, and backed by a registered scan hook.'),
+  "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
+  "supportedLanguages": zod.array(zod.string()),
+  "configuration": zod.record(zod.string(), zod.unknown())
 })
 
 

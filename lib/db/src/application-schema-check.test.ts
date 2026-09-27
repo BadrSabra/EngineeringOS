@@ -65,6 +65,15 @@ function completeSnapshot() {
     if (tableName === "ai_agent_episodes" && columnName === "state") {
       return "'created'::ai_agent_episode_state";
     }
+    if (tableName === "project_plugin_bindings" && columnName === "enabled") {
+      return "false";
+    }
+    if (
+      tableName === "project_plugin_bindings" &&
+      columnName === "configuration"
+    ) {
+      return "'{}'::jsonb";
+    }
     if (tableName === "ai_agent_effects" && columnName === "status") {
       return "'pending'::ai_agent_effect_status";
     }

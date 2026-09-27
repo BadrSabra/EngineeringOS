@@ -8,6 +8,10 @@
 
 **آخر تحديث:** 2026-09-27
 **الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ اختبارات القياس المرجعية أضيفت، لكن جاهزية الجمع ما زالت محجوبة لأن resume يدوّر attempt وEpisode ولا يكمل registration السابق، والإلغاء نهائي. يلزم مسار observe-only مربوط بالتجربة الأصلية أو قرار موثق بإنشاء scope ذي policy version جديدة مع held-out cohort مستقل. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ تبقى فجوة قبول route-level لمسار A→B وتكافؤ JSON/SSE/history. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
+**تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
+مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
+تغيّر هذه الشريحة حالة P0–P14 أو dependency graph، ولا تمنح Mission أو planner
+أو tool صلاحية.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -117,7 +121,10 @@ cohort أو تعلم لاحق، لا شرطًا يمنع أعمال الواجه
    رفض الحجم/الصيغة/الأرشيف غير الآمن غير مثبتين. احسم نطاق Graph المتقدم قبل
    اعتباره P0، وقرّر صراحةً هل World State وRuntime Observations وRuntime
    Disagreements أسطح داخلية أم عملياتية. عالج بعد ذلك فجوات P1 وقرارات P2 من
-   دون توسيع صلاحيات الوكيل.
+   دون توسيع صلاحيات الوكيل. اكتملت أيضًا شريحة تفعيل scan hooks للإضافات
+   من صفحة Project Detail؛ اختبارات API والمكوّن مركّزة، لكن رحلة متصفح
+   موثقة الهوية وإعادة التحميل لم تثبت بعد. الإعدادات typed، وربط credentials
+   الآمن، وسياق Mission/CER تبقى عقودًا مستقلة مؤجلة.
 2. **P7.5 — بوابة الجاهزية قبل البيانات:** اختبارات ECE وmission-cluster
    bootstrap ذات الإجابة المعروفة أضيفت؛ أثبت تتبع التعافي أن resume يدوّر
    attempt/Episode ولا يكمل registration القديم، وأن الإلغاء نهائي. لذلك لا تجمع
@@ -2670,6 +2677,35 @@ G9 Revocation Safety
   P7.5.
 - **next step:** قيّم فجوة Plugins المتبقية في §11 مع الحفاظ على حالة API
   الحالية كحالة عامة؛ لا تضف تحكمات Dashboard حتى تُحسم دلالات النطاق والتفويض.
+
+### 42.75 — تفعيل scan hooks للإضافات على مستوى المشروع (2026-09-27)
+
+- **phase/step:** تكامل المنتج — Plugins؛ شريحة مستقلة عن إغلاق مراحل P0–P14.
+- **status:** `done`
+- **what changed:** بقيت تعريفات الإضافات والتوافر العام عالميين، وأضيف ربط
+  project/plugin معطل افتراضيًا. يتطلب dispatch كلاً من التوافر العام وتفعيل
+  المشروع ووجود scan hook مسجل. أضيفت لوحة تفعيل إلى Project Detail.
+- **files/schema/contracts touched:** `lib/db/src/schema/project_plugin_bindings.ts`,
+  `lib/db/src/application-schema-check.ts`, `artifacts/api-server/src/lib/plugin-runtime.ts`,
+  `artifacts/api-server/src/routes/plugins.ts`, OpenAPI والعميل المولد،
+  `artifacts/dashboard/src/components/ProjectPluginsPanel.tsx` وProjectDetail
+  واختباراتها.
+- **validation:** API plugin/runtime tests (8/8)، DB application-schema
+  contract tests (14/14)، Dashboard panel tests (2/2)، API وDashboard
+  typecheck، `pnpm run codegen:check`، Dashboard restart smoke و`git diff --check`
+  نجحت. تطبيق schema التطويري أعلن جاهزية schema. فشلت رحلة
+  `release-dashboard-journey` عند محدد صف مهام غير فريد
+  (`getByRole` طابق الصف وزري edit/delete)؛ 51 ناجحًا وواحد متجاوز. لا يخص
+  الفشل تغييرات Plugins. أعيد تشغيل API وDashboard بنجاح.
+- **authority/safety impact:** تتحقق الخوادم من صلاحية المشروع وحالة الأرشفة؛
+  التفعيل لا يتجاوز عدم التوافر العام ولا ينفذ كود إضافات اعتباطيًا. لا تمنح
+  الشريحة planner أو Mission أو tool صلاحيات أو acceptance.
+- **remaining/blocker:** لا يوجد schema إعدادات typed حاليًا ويقبل API `{}` فقط؛
+  لم تُنفذ credentials آمنة أو وصول/تدوير/redaction لها، ولا تفويض capabilities
+  خاص بـMission ولا عقد Capability Environment Revision. رحلة متصفح موثقة الهوية
+  للتفعيل وإعادة التحميل لم تثبت.
+- **next step:** عرّف schemas وsecret bindings وMission authorization وCER كلًا
+  بعقد مستقل قبل توسيع التنفيذ؛ أثبت تفعيل المشروع عبر رحلة متصفح مصادق عليها.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

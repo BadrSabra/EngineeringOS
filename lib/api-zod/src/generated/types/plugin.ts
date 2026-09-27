@@ -10,9 +10,11 @@ import type { PluginCapabilitiesItem } from './pluginCapabilitiesItem';
 export interface Plugin {
   id: string;
   name: string;
-  description?: string;
+  /** @nullable */
+  description?: string | null;
   version: string;
-  enabled: boolean;
+  /** Global availability ceiling, independent of any project's activation. */
+  available: boolean;
   capabilities: PluginCapabilitiesItem[];
   supportedLanguages?: string[];
 }

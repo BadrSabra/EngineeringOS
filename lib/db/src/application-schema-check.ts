@@ -70,6 +70,40 @@ export const APPLICATION_SCHEMA_CONTRACT = {
         defaultExpression: /false/,
       },
     ] satisfies readonly ColumnContract[],
+    project_plugin_bindings: [
+      { name: "id", dataType: "text", udtName: "text", nullable: false },
+      { name: "project_id", dataType: "text", udtName: "text", nullable: false },
+      { name: "plugin_id", dataType: "text", udtName: "text", nullable: false },
+      {
+        name: "enabled",
+        dataType: "boolean",
+        udtName: "bool",
+        nullable: false,
+        defaultExpression: /false/,
+      },
+      {
+        name: "configuration",
+        dataType: "jsonb",
+        udtName: "jsonb",
+        nullable: false,
+        defaultExpression: /'\{\}'::jsonb/,
+      },
+      { name: "approved_by", dataType: "text", udtName: "text", nullable: true },
+      {
+        name: "created_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+      {
+        name: "updated_at",
+        dataType: "timestamp without time zone",
+        udtName: "timestamp",
+        nullable: false,
+        defaultExpression: /(?:now\(\)|current_timestamp)/,
+      },
+    ] satisfies readonly ColumnContract[],
     workspace_runtime: [
       { name: "environment_revision", dataType: "text", udtName: "text", nullable: true },
     ] as readonly ColumnContract[],
@@ -688,6 +722,16 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     ] satisfies readonly ColumnContract[],
   },
   indexes: [
+    {
+      name: "uq_project_plugin_bindings_project_plugin",
+      tableName: "project_plugin_bindings",
+      columns: ["project_id", "plugin_id"],
+    },
+    {
+      name: "idx_project_plugin_bindings_project_enabled",
+      tableName: "project_plugin_bindings",
+      columns: ["project_id", "enabled"],
+    },
     { name: "idx_tasks_project_id", tableName: "tasks", columns: ["project_id"] },
     {
       name: "idx_tasks_project_id_created_at",
@@ -973,6 +1017,20 @@ export const APPLICATION_SCHEMA_CONTRACT = {
     },
   ] satisfies readonly IndexContract[],
   foreignKeys: [
+    {
+      tableName: "project_plugin_bindings",
+      columnName: "project_id",
+      foreignTableName: "projects",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
+    {
+      tableName: "project_plugin_bindings",
+      columnName: "plugin_id",
+      foreignTableName: "plugins",
+      foreignColumnName: "id",
+      deleteRule: "CASCADE",
+    },
     {
       tableName: "tasks",
       columnName: "project_id",

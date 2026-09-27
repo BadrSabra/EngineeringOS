@@ -9,6 +9,10 @@
 > بعد اكتمال الأدلة للمرشحين المصرح بهم ضمن objective canonical. يبقى اختبار
 > route-level لمسار A→B وتكافؤ JSON/SSE/history فجوة قبول؛ لا يفتح هذا fallback
 > عامًا بلا objective.
+> **تكامل المنتج (2026-09-27):** أضيف تفعيل project-scoped لـscan hooks مع
+> بقاء plugin definitions والتوافر العام عالميين. هذه شريحة platform integration
+> مستقلة؛ لا تغيّر P0–P14 أو dependency graph، ولا تغلق أي capability phase أو
+> تمنح Mission/tool authority.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -6591,3 +6595,29 @@ P7.5 قبل إغلاق هذا الربط وإثبات استهلاك المرا�
 expected-decision-value ranking أو Belief updates، ولم يبدأ P8 integration.
 توثيق التحقق النهائي لهذه الشريحة موجود في `docs/agent-generalization-progress.md`
 ضمن سجل 2026-09-26.
+
+### 42.43 — تكامل تفعيل Plugins على مستوى المشروع (2026-09-27)
+
+- **phase/step:** platform/plugin integration؛ خارج dependency graph ومراحل
+  cognition P0–P14.
+- **status:** `done` للشريحة المحدودة.
+- **what changed:** بقيت تعريفات plugin والتوافر العام تحت الحوكمة العالمية؛
+  أضيفت project bindings معطلة افتراضيًا، ويشترط dispatch توافر plugin عالميًا
+  وتفعيل المشروع وscan hook مسجلًا. أضيفت واجهة تفعيل للمشروع.
+- **files/schema/contracts touched:** `project_plugin_bindings` وعقد schema؛
+  routes وruntime resolver؛ OpenAPI والأنواع المولدة؛ مكوّن Project Detail
+  واختبارات API/runtime/component.
+- **validation:** API tests (8/8)، DB schema contract tests (14/14)، Dashboard
+  panel tests (2/2)، API وDashboard typecheck، `codegen:check`، Dashboard restart
+  smoke، و`git diff --check` نجحت. رحلة `release-dashboard-journey` سجّلت
+  51 نجاحًا واختبارًا متجاوزًا واحدًا وفشلًا واحدًا بسبب locator غير فريد في
+  Tasks، وليس في Plugins.
+- **authority/safety impact:** لا تحميل أو تنفيذ لكود إضافات اعتباطي؛ global
+  availability تظل سقفًا، وتفعيل المشروع يتطلب صلاحية المشروع. لا صلاحية
+  planner/Mission/tool أو acceptance أو capability composition جديدة.
+- **remaining/blocker:** schemas إعدادات typed، credentials آمنة ودورة حياتها،
+  authorization/allowlisting خاصة بـMission، وعقد Capability Environment
+  Revision مؤجلة. أُبقيت إعدادات API على `{}` فقط. رحلة متصفح موثقة الهوية
+  للتفعيل/reload لم تثبت.
+- **next step:** صمّم العقود المؤجلة منفصلة وأثبت مسار activation المصادق عليه؛
+  لا تعدّل مصفوفة §42.19 أو حالة المراحل العامة بناءً على هذه الشريحة.

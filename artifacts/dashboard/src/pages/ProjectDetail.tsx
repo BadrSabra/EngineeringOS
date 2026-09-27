@@ -37,6 +37,7 @@ import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { useMonotonicData } from '@/lib/freshness';
 import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
 import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
+import ProjectPluginsPanel from '@/components/ProjectPluginsPanel';
 import BrowserValidationProfilesPanel from '@/components/BrowserValidationProfilesPanel';
 
 export default function ProjectDetail() {
@@ -237,6 +238,7 @@ export default function ProjectDetail() {
 
       <WorkspaceRuntimePanel projectId={projectId} />
       <ProjectAiBudgetPanel projectId={projectId} />
+      <ProjectPluginsPanel projectId={projectId} />
 
       {/* Project info panel */}
       {showProjectInfo && (
