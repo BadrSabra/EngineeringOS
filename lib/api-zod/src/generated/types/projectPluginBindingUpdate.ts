@@ -5,11 +5,8 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
-import type { ProjectPluginBindingUpdateConfiguration } from './projectPluginBindingUpdateConfiguration';
 
 export interface ProjectPluginBindingUpdate {
   /** Project-specific activation; cannot override global unavailability. */
   enabled: boolean;
-  /** No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here. */
-  configuration?: ProjectPluginBindingUpdateConfiguration;
 }

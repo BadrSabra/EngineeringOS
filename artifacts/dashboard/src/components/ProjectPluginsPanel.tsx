@@ -25,14 +25,10 @@ export default function ProjectPluginsPanel({
   const updateBinding = useUpdateProjectPluginBinding();
   const [error, setError] = useState<string | null>(null);
 
-  const setProjectActivation = (
-    pluginId: string,
-    enabled: boolean,
-    configuration: Record<string, unknown>,
-  ) => {
+  const setProjectActivation = (pluginId: string, enabled: boolean) => {
     setError(null);
     updateBinding.mutate(
-      { projectId, pluginId, data: { enabled, configuration } },
+      { projectId, pluginId, data: { enabled } },
       {
         onSuccess: () => {
           void queryClient.invalidateQueries({
@@ -133,7 +129,6 @@ export default function ProjectPluginsPanel({
                     setProjectActivation(
                       plugin.id,
                       !plugin.projectEnabled,
-                      plugin.configuration,
                     )
                   }
                   className="shrink-0 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50"

@@ -51,7 +51,6 @@ describe("ProjectPluginsPanel", () => {
         effectiveForProjectScan: false,
         capabilities: ["analyzer"],
         supportedLanguages: ["typescript"],
-        configuration: {},
       },
       {
         id: "plugin-performance",
@@ -64,7 +63,6 @@ describe("ProjectPluginsPanel", () => {
         effectiveForProjectScan: false,
         capabilities: ["analyzer"],
         supportedLanguages: ["typescript"],
-        configuration: {},
       },
     ];
     updateMutation.mutate.mockReset();
@@ -105,7 +103,7 @@ describe("ProjectPluginsPanel", () => {
       {
         projectId: "project-a",
         pluginId: "plugin-react",
-        data: { enabled: true, configuration: {} },
+        data: { enabled: true },
       },
       expect.objectContaining({
         onSuccess: expect.any(Function),

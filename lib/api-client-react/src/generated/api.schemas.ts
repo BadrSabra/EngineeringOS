@@ -5404,16 +5404,9 @@ export interface GraphRuntimeSubgraph {
   relationships: GraphRelationship[];
 }
 
-/**
- * No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here.
- */
-export type ProjectPluginBindingUpdateConfiguration = { [key: string]: unknown };
-
 export interface ProjectPluginBindingUpdate {
   /** Project-specific activation; cannot override global unavailability. */
   enabled: boolean;
-  /** No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here. */
-  configuration?: ProjectPluginBindingUpdateConfiguration;
 }
 
 export interface EvaluateRuleRequest {
@@ -5454,8 +5447,6 @@ export const ProjectPluginStateCapabilitiesItem = {
   reporter: 'reporter',
 } as const;
 
-export type ProjectPluginStateConfiguration = { [key: string]: unknown };
-
 export interface ProjectPluginState {
   id: string;
   name: string;
@@ -5472,7 +5463,6 @@ export interface ProjectPluginState {
   effectiveForProjectScan: boolean;
   capabilities: ProjectPluginStateCapabilitiesItem[];
   supportedLanguages: string[];
-  configuration: ProjectPluginStateConfiguration;
 }
 
 export type SourceType = typeof SourceType[keyof typeof SourceType];

@@ -21,13 +21,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isSafeProjectConfiguration(value: unknown): value is Record<string, unknown> {
-  // No built-in scan hook currently consumes project configuration. Keep the
-  // contract empty until a hook declares and reads a typed schema; in
-  // particular, never persist arbitrary values that could contain credentials.
-  return isPlainRecord(value) && Object.keys(value).length === 0;
-}
-
 function serializePlugin(plugin: {
   id: string;
   name: string;
@@ -205,7 +198,6 @@ router.get(
         capabilities: pluginsTable.capabilities,
         supportedLanguages: pluginsTable.supportedLanguages,
         projectEnabled: projectPluginBindingsTable.enabled,
-        configuration: projectPluginBindingsTable.configuration,
       })
       .from(pluginsTable)
       .leftJoin(
@@ -226,7 +218,6 @@ router.get(
           row.enabled &&
           (row.projectEnabled ?? false) &&
           isScanHookImplemented(row.id),
-        configuration: row.configuration ?? {},
       })),
     );
   },
@@ -240,20 +231,25 @@ router.put(
     const projectId = req.project?.id;
     if (!projectId) return res.status(404).json({ error: "Project not found" });
     const pluginId = String(req.params.pluginId);
+    if (
+      !isPlainRecord(req.body) ||
+      Object.keys(req.body).some((key) => key !== "enabled")
+    ) {
+      const hasConfiguration =
+        isPlainRecord(req.body) &&
+        Object.prototype.hasOwnProperty.call(req.body, "configuration");
+      return res.status(400).json({
+        error: hasConfiguration
+          ? "This plugin has no project-configuration schema yet. Do not store credentials in plugin configuration."
+          : "Invalid project plugin update",
+        code: hasConfiguration
+          ? "PLUGIN_CONFIGURATION_SCHEMA_UNAVAILABLE"
+          : "INVALID_PROJECT_PLUGIN_UPDATE",
+      });
+    }
     const parsed = UpdateProjectPluginBindingBody.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid project plugin update" });
-    }
-
-    if (
-      parsed.data.configuration !== undefined &&
-      !isSafeProjectConfiguration(parsed.data.configuration)
-    ) {
-      return res.status(400).json({
-        error:
-          "This plugin has no project-configuration schema yet. Do not store credentials in plugin configuration.",
-        code: "PLUGIN_CONFIGURATION_SCHEMA_UNAVAILABLE",
-      });
     }
 
     const plugin = await db
@@ -291,7 +287,6 @@ router.put(
       projectId,
       pluginId,
       enabled: parsed.data.enabled,
-      configuration: parsed.data.configuration ?? {},
       approvedBy: parsed.data.enabled ? req.userId : null,
       createdAt: now,
       updatedAt: now,
@@ -300,9 +295,6 @@ router.put(
       enabled: parsed.data.enabled,
       approvedBy: parsed.data.enabled ? req.userId : null,
       updatedAt: now,
-      ...(parsed.data.configuration === undefined
-        ? {}
-        : { configuration: parsed.data.configuration }),
     };
     const [binding] = await db
       .insert(projectPluginBindingsTable)
@@ -340,7 +332,6 @@ router.put(
         plugin[0].enabled &&
         binding.enabled &&
         isScanHookImplemented(pluginId),
-      configuration: binding.configuration,
     });
   },
 );

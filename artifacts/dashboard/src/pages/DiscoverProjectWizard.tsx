@@ -58,7 +58,7 @@ interface DiscoveryStep {
 
 interface DiscoverySession {
   id: string;
-  status: 'discovering' | 'ready' | 'imported' | 'error';
+  status: 'pending' | 'discovering' | 'ready' | 'imported' | 'error';
   progress: number;
   currentStep: string | null;
   steps: DiscoveryStep[];
@@ -456,7 +456,9 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       refetchInterval: (query) => {
         const s = query.state.data as DiscoverySession | undefined;
         if (!s) return 800;
-        return s.status === 'discovering' ? 800 : false;
+        return s.status === 'pending' || s.status === 'discovering'
+          ? 800
+          : false;
       },
     },
   });

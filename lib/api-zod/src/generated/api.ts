@@ -3245,8 +3245,7 @@ export const ListProjectPluginsResponseItem = zod.object({
   "scanHookImplemented": zod.boolean().describe('Whether the server has a scan hook implementation registered for this definition.'),
   "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, and backed by a registered scan hook.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
-  "supportedLanguages": zod.array(zod.string()),
-  "configuration": zod.record(zod.string(), zod.unknown())
+  "supportedLanguages": zod.array(zod.string())
 })
 export const ListProjectPluginsResponse = zod.array(ListProjectPluginsResponseItem)
 
@@ -3261,8 +3260,7 @@ export const UpdateProjectPluginBindingParams = zod.object({
 })
 
 export const UpdateProjectPluginBindingBody = zod.object({
-  "enabled": zod.boolean().describe('Project-specific activation; cannot override global unavailability.'),
-  "configuration": zod.record(zod.string(), zod.unknown()).optional().describe('No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here.')
+  "enabled": zod.boolean().describe('Project-specific activation; cannot override global unavailability.')
 })
 
 export const UpdateProjectPluginBindingResponse = zod.object({
@@ -3275,8 +3273,7 @@ export const UpdateProjectPluginBindingResponse = zod.object({
   "scanHookImplemented": zod.boolean().describe('Whether the server has a scan hook implementation registered for this definition.'),
   "effectiveForProjectScan": zod.boolean().describe('True only when globally available, activated for this project, and backed by a registered scan hook.'),
   "capabilities": zod.array(zod.enum(['analyzer', 'rules', 'prompts', 'verifier', 'reporter'])),
-  "supportedLanguages": zod.array(zod.string()),
-  "configuration": zod.record(zod.string(), zod.unknown())
+  "supportedLanguages": zod.array(zod.string())
 })
 
 

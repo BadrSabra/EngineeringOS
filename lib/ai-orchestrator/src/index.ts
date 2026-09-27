@@ -420,6 +420,9 @@ export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";
 export {
   CAPABILITY_CONTRACT_VERSION,
   SUPPORTED_RECIPE_VERSIONS,
+  CAPABILITY_ENVIRONMENT_CONTRACT_VERSION,
+  CapabilityEnvironmentSchema,
+  buildCapabilityEnvironment,
   CapabilityIdSchema,
   RecipeVersionSchema,
   CapabilityRiskSchema,
@@ -482,6 +485,7 @@ export type {
   CapabilityPolicy,
   CapabilityDescriptor,
   CapabilityRegistration,
+  CapabilityEnvironment,
   CapabilityExecutionContext,
   CapabilityAdapter,
   CapabilityFailureCode,

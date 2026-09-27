@@ -5,6 +5,7 @@ import {
   advanceCompiledRecipeTransition,
   compileCapabilityRecipe,
   createServerCapabilityRegistry,
+  buildCapabilityEnvironment,
   createServerRecipeDefinitionRegistry,
   evaluateRecipeEvidencePredicate,
   executeExecutionNodePlan,
@@ -867,6 +868,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       databaseReadRunner: params.databaseReadRunner ?? DEFAULT_DATABASE_READ_RUNNER,
     },
   );
+  const capabilityEnvironment = buildCapabilityEnvironment(registry);
   const compiled = compileCapabilityRecipe(recipe, {
     registry,
     context: {
@@ -917,6 +919,7 @@ export function prepareRecipeOperation(params: PrepareRecipeOperationParams): Pr
       maxInFlightNodes: definition.maxParallelNodes,
       maxProcesses: definition.maxParallelNodes,
     },
+    capabilityEnvironment,
     ...(params.skillBinding
       ? {
           skillRegistryBinding: {

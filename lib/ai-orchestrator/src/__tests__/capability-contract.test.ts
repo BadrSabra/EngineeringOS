@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
   CAPABILITY_CONTRACT_VERSION,
+  buildCapabilityEnvironment,
+  CapabilityEnvironmentSchema,
   CapabilityRegistry,
   CapabilityRegistryError,
   DEFAULT_CAPABILITY_POLICY,
@@ -33,6 +35,48 @@ describe("capability contract and registry", () => {
     expect(registry.list().map((entry) => entry.id)).toEqual(["a.first", "z.last"]);
     expect(registry.list()[0]).not.toHaveProperty("execute");
     expect(registry.get("a.first")).toBeDefined();
+  });
+
+  it("builds a strict deterministic environment identity from IDs and recipe versions only", () => {
+    const registry = new CapabilityRegistry([
+      makeCapability({ id: "z.last", supportedRecipeVersions: [1] }),
+      makeCapability({ id: "a.first", supportedRecipeVersions: [1] }),
+    ]);
+    const environment = buildCapabilityEnvironment(registry);
+    expect(environment).toMatchObject({
+      contractVersion: 1,
+      environmentId: "engineeringos-server-capabilities",
+      environmentVersion: "1",
+      capabilitySetDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(Object.keys(environment).sort()).toEqual([
+      "capabilitySetDigest",
+      "contractVersion",
+      "environmentId",
+      "environmentVersion",
+    ]);
+    expect(CapabilityEnvironmentSchema.safeParse(environment).success).toBe(true);
+    expect(CapabilityEnvironmentSchema.safeParse({
+      ...environment,
+      plugins: ["project-plugin"],
+    }).success).toBe(false);
+    expect(CapabilityEnvironmentSchema.safeParse({
+      ...environment,
+      capabilitySetDigest: "not-a-sha256",
+    }).success).toBe(false);
+    expect(buildCapabilityEnvironment(registry)).toEqual(environment);
+    expect(buildCapabilityEnvironment(new CapabilityRegistry([
+      makeCapability({ id: "a.first" }),
+      makeCapability({ id: "different" }),
+    ])).capabilitySetDigest).not.toBe(environment.capabilitySetDigest);
+    const policyChanged = buildCapabilityEnvironment(new CapabilityRegistry([
+      makeCapability({
+        id: "a.first",
+        policy: { ...DEFAULT_CAPABILITY_POLICY, requiresApproval: true },
+      }),
+      makeCapability({ id: "z.last" }),
+    ]));
+    expect(policyChanged).toEqual(environment);
   });
 
   it("rejects duplicate, malformed, and unsupported registrations", () => {

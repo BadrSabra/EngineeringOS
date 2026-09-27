@@ -3,12 +3,14 @@ import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import type {
+  CapabilityEnvironment,
   ExecutionNode,
   FlightDeckEvidenceVerdict,
   RecipeReceipt,
   ValidationEvidence,
 } from "@workspace/ai-orchestrator";
 import {
+  CapabilityEnvironmentSchema,
   extractGenericProjectQueryClaimIds,
   formatUntrustedContent,
   hasCompleteProjectOrientationSources,
@@ -132,6 +134,8 @@ export type RecipeSkillRegistryBinding = {
 };
 
 export type RecipeOperationBinding = {
+  /** Version 2 bindings carry the server-selected capability environment. */
+  bindingVersion?: 2;
   projectId: string;
   operationId: string;
   sourceRevision: string;
@@ -147,6 +151,7 @@ export type RecipeOperationBinding = {
     maxProcesses: number;
   };
   skillRegistryBinding?: RecipeSkillRegistryBinding;
+  capabilityEnvironment?: CapabilityEnvironment;
 };
 
 export type RecipeBindingExpectation = {
@@ -160,6 +165,7 @@ export type RecipeBindingExpectation = {
   now?: Date;
   requireLease?: boolean;
   approvedPaths?: readonly string[];
+  capabilityEnvironment?: CapabilityEnvironment;
 };
 
 export type RecipeBindingCheck = {
@@ -170,6 +176,7 @@ export type RecipeBindingCheck = {
     | "project_mismatch"
     | "operation_mismatch"
     | "revision_mismatch"
+    | "environment_mismatch"
     | "candidate_mismatch"
     | "workspace_mismatch"
     | "scope_mismatch"
@@ -204,6 +211,21 @@ function validSkillRegistryBinding(value: unknown): value is RecipeSkillRegistry
     .every((item) => typeof item === "string" && item.length >= 1 && item.length <= 240);
 }
 
+function validCapabilityEnvironment(value: unknown): value is CapabilityEnvironment {
+  return CapabilityEnvironmentSchema.safeParse(value).success;
+}
+
+function sameCapabilityEnvironment(left: unknown, right: unknown): boolean {
+  const parsedLeft = CapabilityEnvironmentSchema.safeParse(left);
+  const parsedRight = CapabilityEnvironmentSchema.safeParse(right);
+  return parsedLeft.success
+    && parsedRight.success
+    && parsedLeft.data.contractVersion === parsedRight.data.contractVersion
+    && parsedLeft.data.environmentId === parsedRight.data.environmentId
+    && parsedLeft.data.environmentVersion === parsedRight.data.environmentVersion
+    && parsedLeft.data.capabilitySetDigest === parsedRight.data.capabilitySetDigest;
+}
+
 function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | undefined {
   if (!value || typeof value !== "object") return undefined;
   const candidate = value as Partial<RecipeOperationBinding> & {
@@ -214,6 +236,7 @@ function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | u
     : [];
   const leaseUntil = candidate.leaseUntil;
   const concurrencyBudget = candidate.concurrencyBudget;
+  const bindingVersion = candidate.bindingVersion;
   if (
     typeof candidate.projectId !== "string" || candidate.projectId.length < 1 || candidate.projectId.length > 160
     || typeof candidate.operationId !== "string" || candidate.operationId.length < 1 || candidate.operationId.length > 160
@@ -234,6 +257,9 @@ function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | u
     || !Number.isInteger(concurrencyBudget.maxProcesses)
     || concurrencyBudget.maxProcesses < 1 || concurrencyBudget.maxProcesses > 24
     || (candidate.skillRegistryBinding !== undefined && !validSkillRegistryBinding(candidate.skillRegistryBinding))
+    || (bindingVersion !== undefined && bindingVersion !== 2)
+    || (bindingVersion === 2 && !validCapabilityEnvironment(candidate.capabilityEnvironment))
+    || (bindingVersion === undefined && candidate.capabilityEnvironment !== undefined)
   ) return undefined;
   return {
     projectId: candidate.projectId,
@@ -253,6 +279,9 @@ function parseRecipeOperationBinding(value: unknown): RecipeOperationBinding | u
     ...(candidate.skillRegistryBinding
       ? { skillRegistryBinding: { ...candidate.skillRegistryBinding } }
       : {}),
+    ...(bindingVersion === 2
+      ? { bindingVersion: 2 as const, capabilityEnvironment: { ...candidate.capabilityEnvironment! } }
+      : {}),
   };
 }
 
@@ -269,6 +298,7 @@ export function createRecipeOperationBinding(params: {
   missionBudget?: Partial<RecipeOperationBudget>;
   concurrencyBudget?: Partial<RecipeOperationBinding["concurrencyBudget"]>;
   skillRegistryBinding?: RecipeSkillRegistryBinding;
+  capabilityEnvironment: CapabilityEnvironment;
 }): RecipeOperationBinding {
   const binding = parseRecipeOperationBinding({
     projectId: params.projectId,
@@ -292,6 +322,8 @@ export function createRecipeOperationBinding(params: {
       maxProcesses: params.concurrencyBudget?.maxProcesses ?? 8,
     },
     ...(params.skillRegistryBinding ? { skillRegistryBinding: params.skillRegistryBinding } : {}),
+    bindingVersion: 2 as const,
+    capabilityEnvironment: params.capabilityEnvironment,
   });
   if (!binding) throw new Error("Invalid server-owned recipe operation binding.");
   return binding;
@@ -311,6 +343,15 @@ export function checkRecipeOperationBinding(
   }
   if (expected.sourceRevision !== undefined && parsed.sourceRevision !== expected.sourceRevision) {
     return { allowed: false, reason: "revision_mismatch", detail: "Recipe source revision is stale." };
+  }
+  if (expected.capabilityEnvironment !== undefined) {
+    if (
+      parsed.bindingVersion !== 2
+      || !parsed.capabilityEnvironment
+      || !sameCapabilityEnvironment(parsed.capabilityEnvironment, expected.capabilityEnvironment)
+    ) {
+      return { allowed: false, reason: "environment_mismatch", detail: "Recipe capability environment identity is stale or missing." };
+    }
   }
   if (expected.candidateIdentity !== undefined && parsed.candidateIdentity !== expected.candidateIdentity) {
     return { allowed: false, reason: "candidate_mismatch", detail: "Recipe candidate identity does not match the durable execution." };
@@ -1294,8 +1335,8 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
       : parseRecipeOperationBinding(value.recipeBinding);
     if (value.recipeBinding !== undefined && !recipeBinding) return undefined;
     if (recipeBinding && operation?.binding
-      && JSON.stringify(recipeBindingIdentity(recipeBinding))
-        !== JSON.stringify(recipeBindingIdentity(operation.binding))) return undefined;
+      && stableJson(recipeBindingIdentity(recipeBinding))
+        !== stableJson(recipeBindingIdentity(operation.binding))) return undefined;
     const capabilityProbe = value.capabilityProbe === undefined
       ? undefined
       : parseCapabilityProbeCheckpoint(value.capabilityProbe);
@@ -1420,6 +1461,79 @@ function recipeBindingIdentity(
   return identity;
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record)
+      .filter((key) => record[key] !== undefined)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function sameRecipeBindingIdentity(
+  left: RecipeOperationBinding | null | undefined,
+  right: RecipeOperationBinding | null | undefined,
+): boolean {
+  if (left == null || right == null) return left == null && right == null;
+  const parsedLeft = parseRecipeOperationBinding(left);
+  const parsedRight = parseRecipeOperationBinding(right);
+  if (!parsedLeft || !parsedRight) return false;
+  if (stableJson(recipeBindingIdentity(parsedLeft)) === stableJson(recipeBindingIdentity(parsedRight))) {
+    return true;
+  }
+  if (parsedLeft.bindingVersion !== undefined || parsedRight.bindingVersion !== 2) {
+    return false;
+  }
+  const legacyCompatibleRight = { ...parsedRight };
+  delete legacyCompatibleRight.bindingVersion;
+  delete legacyCompatibleRight.capabilityEnvironment;
+  return stableJson(recipeBindingIdentity(parsedLeft))
+    === stableJson(recipeBindingIdentity(legacyCompatibleRight));
+}
+
+function sameRecipeBindingSnapshot(
+  left: RecipeOperationBinding | null | undefined,
+  right: RecipeOperationBinding | null | undefined,
+): boolean {
+  if (!sameRecipeBindingIdentity(left, right) || left == null || right == null) {
+    return left == null && right == null;
+  }
+  const parsedLeft = parseRecipeOperationBinding(left);
+  const parsedRight = parseRecipeOperationBinding(right);
+  return Boolean(
+    parsedLeft
+    && parsedRight
+    && parsedLeft.phase === parsedRight.phase
+    && parsedLeft.leaseOwner === parsedRight.leaseOwner
+    && parsedLeft.leaseUntil === parsedRight.leaseUntil,
+  );
+}
+
+function preserveLegacyRecipeBinding(
+  stored: RecipeOperationBinding | undefined,
+  requested: RecipeOperationBinding | undefined,
+): RecipeOperationBinding | undefined {
+  if (!stored) return requested;
+  if (!requested) return stored;
+  if (stored.bindingVersion === undefined && requested.bindingVersion === 2) {
+    if (!sameRecipeBindingIdentity(stored, requested)) return undefined;
+    return {
+      ...stored,
+      phase: requested.phase,
+      leaseOwner: requested.leaseOwner,
+      leaseUntil: requested.leaseUntil,
+    };
+  }
+  return requested;
+}
+
 function recipeBindingMatches(
   checkpointRaw: string,
   requestedBinding: RecipeOperationBinding | undefined,
@@ -1429,8 +1543,7 @@ function recipeBindingMatches(
   // Phase and lease fields are worker lifecycle state, not idempotency
   // identity. A replay or reclaim must be able to bind the same candidate
   // after a prior worker advanced the phase or lost its lease.
-  return JSON.stringify(recipeBindingIdentity(storedBinding))
-    === JSON.stringify(recipeBindingIdentity(requestedBinding));
+  return sameRecipeBindingIdentity(storedBinding, requestedBinding);
 }
 
 function parseEvidenceProgressCheckpoint(value: unknown): AiEvidenceProgressCheckpoint | undefined {
@@ -2418,9 +2531,12 @@ export async function claimAiExecution(params: {
   const existing = params.recipeBinding
     ? await getAiExecutionForUser(params.executionId, params.userId)
     : undefined;
+  const claimCheckpoint = existing && params.recipeBinding
+    ? parseAiExecutionCheckpoint(existing.checkpoint)
+    : undefined;
+  const storedBinding = claimCheckpoint?.recipeBinding ?? claimCheckpoint?.operation?.binding;
   if (params.recipeBinding) {
     if (!existing) return undefined;
-    const storedBinding = parseAiExecutionCheckpoint(existing.checkpoint)?.recipeBinding;
     if (!storedBinding || !recipeBindingMatches(existing.checkpoint, params.recipeBinding)) return undefined;
     try {
       assertRecipeOperationBinding(params.recipeBinding, {
@@ -2434,9 +2550,12 @@ export async function claimAiExecution(params: {
   }
   const claimTime = new Date();
   const claimLeaseUntil = new Date(claimTime.getTime() + AI_EXECUTION_LEASE_MS);
-  const claimCheckpoint = existing && params.recipeBinding ? parseAiExecutionCheckpoint(existing.checkpoint) : undefined;
-  const claimedBinding = params.recipeBinding
-    ? { ...params.recipeBinding, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
+  const bindingToClaim = params.recipeBinding
+    ? preserveLegacyRecipeBinding(storedBinding, params.recipeBinding)
+    : undefined;
+  if (params.recipeBinding && !bindingToClaim) return undefined;
+  const claimedBinding = bindingToClaim
+    ? { ...bindingToClaim, phase: "running" as const, leaseOwner: params.workerId, leaseUntil: claimLeaseUntil.toISOString() }
     : undefined;
   const [claimed] = await db
     .update(aiExecutionsTable)
@@ -2523,7 +2642,7 @@ export async function checkpointAiExecution(params: {
     } catch {
       return false;
     }
-    if (JSON.stringify(checkpointBinding) !== JSON.stringify(params.recipeBinding)) return false;
+    if (!sameRecipeBindingSnapshot(checkpointBinding, params.recipeBinding)) return false;
   }
   const durableCheckpoint = durableOperation
     ? { ...params.checkpoint, operation: durableOperation, ...(checkpointBinding ? { recipeBinding: checkpointBinding } : {}) }
@@ -2880,11 +2999,23 @@ export async function completeAiExecution(params: {
         updatedAt: now.toISOString(),
       }
     : operation;
+  const storedCheckpoint = current
+    ? parseAiExecutionCheckpoint(current.checkpoint)
+    : undefined;
+  const storedRecipeBinding = storedCheckpoint?.recipeBinding ?? storedCheckpoint?.operation?.binding;
+  if (storedRecipeBinding && params.recipeBinding
+    && !sameRecipeBindingIdentity(storedRecipeBinding, params.recipeBinding)) {
+    return false;
+  }
+  const checkpointRecipeBinding = preserveLegacyRecipeBinding(
+    storedRecipeBinding,
+    params.recipeBinding,
+  );
   const checkpointEnvelope = {
     stage: "completed" as const,
     sequence: nextSequence,
     ...(terminalOperation ? { operation: terminalOperation } : {}),
-    ...(params.recipeBinding ? { recipeBinding: params.recipeBinding } : {}),
+    ...(checkpointRecipeBinding ? { recipeBinding: checkpointRecipeBinding } : {}),
     ...(params.nodeStates && params.nodeStates.length > 0
       ? {
           nodeStates: params.nodeStates,

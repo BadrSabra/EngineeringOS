@@ -114,6 +114,8 @@ import {
 } from "./ai-execution-state.js";
 import {
   buildProjectQueryObjective,
+  buildCapabilityEnvironment,
+  createServerCapabilityRegistry,
   resolveProjectQueryTarget,
 } from "@workspace/ai-orchestrator";
 
@@ -771,6 +773,7 @@ describe("autonomous operation contract", () => {
       operationId: "operation-2",
       projectId: "project-1",
       workspaceRevision: "revision-1",
+      environmentRevision: null,
       artifactRef: "converted.json",
     };
     const checkpoint = parseAiExecutionCheckpoint(JSON.stringify({
@@ -804,6 +807,7 @@ describe("autonomous operation contract", () => {
   });
 
   it("fails closed for stale identity, scope, phase, and lease ownership", () => {
+    const capabilityEnvironment = buildCapabilityEnvironment(createServerCapabilityRegistry());
     const binding = createRecipeOperationBinding({
       projectId: "project-1",
       operationId: "recipe-operation-1",
@@ -814,6 +818,7 @@ describe("autonomous operation contract", () => {
       phase: "running",
       leaseOwner: "worker-1",
       leaseUntil: "2026-01-01T00:05:00.000Z",
+      capabilityEnvironment,
     });
     expect(checkRecipeOperationBinding(binding, { projectId: "project-2" }).reason).toBe("project_mismatch");
     expect(checkRecipeOperationBinding(binding, { sourceRevision: "revision-2" }).reason).toBe("revision_mismatch");
@@ -825,6 +830,38 @@ describe("autonomous operation contract", () => {
       requireLease: true,
       now: new Date("2026-01-01T00:06:00.000Z"),
     }).reason).toBe("lease_expired");
+  });
+
+  it("binds new capability environments while preserving legacy bindings", () => {
+    const environment = buildCapabilityEnvironment(createServerCapabilityRegistry());
+    const binding = createRecipeOperationBinding({
+      projectId: "project-1",
+      operationId: "recipe-operation-environment",
+      sourceRevision: "revision-1",
+      capabilityEnvironment: environment,
+      missionBudget: { maxProcessCount: 8 },
+    });
+    expect(binding.bindingVersion).toBe(2);
+    expect(checkRecipeOperationBinding(binding, { capabilityEnvironment: environment }).reason).toBe("allowed");
+    expect(checkRecipeOperationBinding(binding, {
+      capabilityEnvironment: {
+        capabilitySetDigest: environment.capabilitySetDigest,
+        environmentVersion: environment.environmentVersion,
+        environmentId: environment.environmentId,
+        contractVersion: environment.contractVersion,
+      },
+    }).reason).toBe("allowed");
+    expect(checkRecipeOperationBinding(binding, {
+      capabilityEnvironment: { ...environment, capabilitySetDigest: "0".repeat(64) },
+    }).reason).toBe("environment_mismatch");
+    const legacy = { ...binding };
+    delete legacy.bindingVersion;
+    delete legacy.capabilityEnvironment;
+    expect(legacy).not.toHaveProperty("bindingVersion");
+    expect(legacy).not.toHaveProperty("capabilityEnvironment");
+    expect(checkRecipeOperationBinding(legacy).reason).toBe("allowed");
+    expect(checkRecipeOperationBinding(legacy, { capabilityEnvironment: environment }).reason)
+      .toBe("environment_mismatch");
   });
 
   it("blocks completion when acceptance evidence is missing or bound to stale bytes", () => {

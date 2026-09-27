@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
 
@@ -9,6 +10,44 @@ import { z } from "zod";
  */
 export const CAPABILITY_CONTRACT_VERSION = 1 as const;
 export const SUPPORTED_RECIPE_VERSIONS = [1] as const;
+export const CAPABILITY_ENVIRONMENT_CONTRACT_VERSION = 1 as const;
+
+export const CapabilityEnvironmentSchema = z.object({
+  contractVersion: z.literal(CAPABILITY_ENVIRONMENT_CONTRACT_VERSION),
+  environmentId: z.string().min(1).max(120).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+  environmentVersion: z.string().min(1).max(40).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  capabilitySetDigest: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export type CapabilityEnvironment = z.infer<typeof CapabilityEnvironmentSchema>;
+
+const CAPABILITY_ENVIRONMENT_ID = "engineeringos-server-capabilities";
+const CAPABILITY_ENVIRONMENT_VERSION = "1";
+
+/**
+ * Build a compatibility identity from the server registry's public capability
+ * IDs only. This is not an authorization grant and intentionally excludes all
+ * policy, catalog, process, profile, root, and plugin data.
+ */
+export function buildCapabilityEnvironment(
+  registry: Pick<CapabilityRegistry, "list">,
+): CapabilityEnvironment {
+  const capabilities = registry.list()
+    .map((descriptor) => ({
+      contractVersion: descriptor.contractVersion,
+      id: descriptor.id,
+      supportedRecipeVersions: [...descriptor.supportedRecipeVersions].sort((a, b) => a - b),
+    }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const capabilitySetDigest = createHash("sha256")
+    .update(JSON.stringify(capabilities))
+    .digest("hex");
+  return {
+    contractVersion: CAPABILITY_ENVIRONMENT_CONTRACT_VERSION,
+    environmentId: CAPABILITY_ENVIRONMENT_ID,
+    environmentVersion: CAPABILITY_ENVIRONMENT_VERSION,
+    capabilitySetDigest,
+  };
+}
 
 export const CapabilityIdSchema = z
   .string()

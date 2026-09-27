@@ -6,7 +6,6 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { ProjectPluginStateCapabilitiesItem } from './projectPluginStateCapabilitiesItem';
-import type { ProjectPluginStateConfiguration } from './projectPluginStateConfiguration';
 
 export interface ProjectPluginState {
   id: string;
@@ -24,5 +23,4 @@ export interface ProjectPluginState {
   effectiveForProjectScan: boolean;
   capabilities: ProjectPluginStateCapabilitiesItem[];
   supportedLanguages: string[];
-  configuration: ProjectPluginStateConfiguration;
 }

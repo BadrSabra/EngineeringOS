@@ -135,6 +135,7 @@
 - [Mission replan context](mission-replan-context.md) — automatic replans must persist bounded failure evidence and affected claims in the fresh plan revision.
 - [Mission world-state projection](mission-world-state-projection.md) — bounded state travels checkpoint → receipt → Goal acceptance; provider prose is never authoritative state.
 - [Delegation and skill replay boundaries](delegation-skill-replay-boundaries.md) — bind Mission dispatch to owner/revision identities; keep candidate replay strict, proof-bound, isolated, and non-production.
+- [Capability environment identity](capability-environment-identity.md) — derive compatibility identity from canonical registry IDs and versions; never treat it as permission or infer it for legacy records.
 - [Paired baseline gate](paired-baseline-gate.md) — Gate 3 needs per-case server-owned evidence and an exact shared contract; aggregate baselines cannot authorize candidate promotion.
 - [Shadow replay proof boundary](shadow-replay-proof-boundary.md) — replay needs a completed Goal, matching active plan revision, and a Canonical Proof from the replay execution itself.
 - [Shadow replay validator contract](shadow-replay-validator-contract.md) — replay profiles and receipts stay server-owned and must pass through normal acceptance before proof.

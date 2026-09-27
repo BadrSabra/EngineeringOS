@@ -9,6 +9,10 @@ import {
   projectsTable,
 } from "@workspace/db";
 import {
+  buildCapabilityEnvironment,
+  createServerCapabilityRegistry,
+} from "@workspace/ai-orchestrator";
+import {
   claimAiExecution,
   checkpointAiExecution,
   completeAiExecution,
@@ -19,6 +23,8 @@ import {
   recoverAiExecutionRetryToken,
   type AiOrientationRoleManifest,
 } from "./ai-execution-state.js";
+
+const testCapabilityEnvironment = buildCapabilityEnvironment(createServerCapabilityRegistry());
 
 function orientationManifest(projectRevision: string, rootPath: string): AiOrientationRoleManifest {
   return {
@@ -64,6 +70,7 @@ describe("durable conversational retry authorization", () => {
       approvedPaths: ["src/changed.ts"],
       phase: "planned",
       missionBudget: { maxProcessCount: 8 },
+      capabilityEnvironment: testCapabilityEnvironment,
     });
     const bindingB = createRecipeOperationBinding({
       projectId,
@@ -74,7 +81,11 @@ describe("durable conversational retry authorization", () => {
       approvedPaths: ["src/changed.ts"],
       phase: "planned",
       missionBudget: { maxProcessCount: 8 },
+      capabilityEnvironment: testCapabilityEnvironment,
     });
+    const legacyBindingA = { ...bindingA };
+    delete legacyBindingA.bindingVersion;
+    delete legacyBindingA.capabilityEnvironment;
 
     await db.insert(projectsTable).values({
       id: projectId,
@@ -102,7 +113,7 @@ describe("durable conversational retry authorization", () => {
         projectId,
         sessionId,
         workspaceRoot: rootPath,
-        recipeBinding: bindingA,
+        recipeBinding: legacyBindingA,
       });
       expect(first.created).toBe(true);
 
@@ -113,12 +124,36 @@ describe("durable conversational retry authorization", () => {
         projectId,
         sessionId,
         workspaceRoot: rootPath,
-        recipeBinding: bindingA,
+        recipeBinding: legacyBindingA,
       });
       expect(sameBindingReplay, "the same recipe generation remains idempotent").toMatchObject({
         created: false,
         execution: { id: first.execution.id },
       });
+
+      const versionedReplay = await createAiExecution({
+        userId,
+        request,
+        idempotencyKey,
+        projectId,
+        sessionId,
+        workspaceRoot: rootPath,
+        recipeBinding: bindingA,
+      });
+      expect(versionedReplay, "legacy bindings remain resumable without gaining a fabricated environment").toMatchObject({
+        created: false,
+        execution: { id: first.execution.id },
+      });
+      const claimed = await claimAiExecution({
+        executionId: first.execution.id,
+        userId,
+        workerId: "legacy-binding-resume-worker",
+        recipeBinding: bindingA,
+      });
+      expect(claimed).toMatchObject({ status: "running", workerId: "legacy-binding-resume-worker" });
+      const claimedCheckpoint = JSON.parse(claimed!.checkpoint);
+      expect(claimedCheckpoint.recipeBinding).not.toHaveProperty("bindingVersion");
+      expect(claimedCheckpoint.recipeBinding).not.toHaveProperty("capabilityEnvironment");
 
       await expect(createAiExecution({
         userId,
@@ -164,7 +199,10 @@ describe("durable conversational retry authorization", () => {
         .from(aiExecutionsTable)
         .where(eq(aiExecutionsTable.id, first.execution.id))
         .limit(1);
-      expect(JSON.parse(stored!.checkpoint).recipeBinding, "candidate binding must remain generation A").toEqual(bindingA);
+        const storedBinding = JSON.parse(stored!.checkpoint).recipeBinding;
+        expect(storedBinding.candidateIdentity, "candidate binding must remain generation A").toBe("candidate-tree-a");
+        expect(storedBinding).not.toHaveProperty("bindingVersion");
+        expect(storedBinding).not.toHaveProperty("capabilityEnvironment");
     } finally {
       await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.userId, userId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
@@ -191,6 +229,7 @@ describe("durable conversational retry authorization", () => {
       approvedPaths: ["src/changed.ts"],
       phase: "planned",
       missionBudget: { maxProcessCount: 8 },
+      capabilityEnvironment: testCapabilityEnvironment,
     });
     const request = {
       projectId,

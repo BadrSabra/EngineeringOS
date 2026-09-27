@@ -9,6 +9,11 @@ import {
   projectPluginBindingsTable,
   projectsTable,
 } from "@workspace/db";
+import {
+  authorizeToolInvocation,
+  createServerCapabilityRegistry,
+  getFullAuthorizedToolManifest,
+} from "@workspace/ai-orchestrator";
 import app from "../app.js";
 
 const projectIds: string[] = [];
@@ -107,7 +112,6 @@ describe("Plugin registry", () => {
       available: true,
       projectEnabled: true,
       effectiveForProjectScan: true,
-      configuration: {},
     });
 
     const otherProject = await request(app).get(
@@ -125,14 +129,38 @@ describe("Plugin registry", () => {
     });
   });
 
-  it("keeps the project configuration boundary fail-closed until plugin schemas exist", async () => {
+  it("does not let project plugin activation change capability or tool authorization", async () => {
+    const projectId = await insertProject();
+    const beforeRegistry = createServerCapabilityRegistry().list();
+    const beforeManifest = getFullAuthorizedToolManifest();
+    const beforeAuthorization = authorizeToolInvocation({
+      toolName: "read_file",
+      allowedTools: new Set(["read_file"]),
+    });
+
+    const activated = await request(app)
+      .put(`/api/projects/${projectId}/plugins/plugin-react`)
+      .send({ enabled: true });
+    expect(activated.status).toBe(200);
+
+    expect(createServerCapabilityRegistry().list()).toEqual(beforeRegistry);
+    expect(getFullAuthorizedToolManifest()).toEqual(beforeManifest);
+    expect(
+      authorizeToolInvocation({
+        toolName: "read_file",
+        allowedTools: new Set(["read_file"]),
+      }),
+    ).toEqual(beforeAuthorization);
+  });
+
+  it("rejects untyped configuration and never returns persisted legacy values", async () => {
     const projectId = await insertProject();
     const empty = await request(app)
       .put(`/api/projects/${projectId}/plugins/plugin-react`)
       .send({ enabled: false, configuration: {} });
 
-    expect(empty.status).toBe(200);
-    expect(empty.body.configuration).toEqual({});
+    expect(empty.status).toBe(400);
+    expect(empty.body.code).toBe("PLUGIN_CONFIGURATION_SCHEMA_UNAVAILABLE");
 
     const unsafe = await request(app)
       .put(`/api/projects/${projectId}/plugins/plugin-react`)
@@ -143,6 +171,25 @@ describe("Plugin registry", () => {
 
     expect(unsafe.status).toBe(400);
     expect(unsafe.body.code).toBe("PLUGIN_CONFIGURATION_SCHEMA_UNAVAILABLE");
+
+    await db.insert(projectPluginBindingsTable).values({
+      id: randomUUID(),
+      projectId,
+      pluginId: "plugin-react",
+      enabled: false,
+      configuration: { apiToken: "legacy-secret-must-not-leak" },
+    });
+    const listed = await request(app).get(
+      `/api/projects/${projectId}/plugins`,
+    );
+    expect(listed.status).toBe(200);
+    const reactPlugin = listed.body.find(
+      (plugin: { id: string }) => plugin.id === "plugin-react",
+    );
+    expect(reactPlugin).not.toHaveProperty("configuration");
+    expect(JSON.stringify(listed.body)).not.toContain(
+      "legacy-secret-must-not-leak",
+    );
   });
 
   it("does not allow activating a globally unavailable plugin", async () => {

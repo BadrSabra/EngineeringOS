@@ -9509,11 +9509,6 @@ components:
         enabled:
           type: boolean
           description: Project-specific activation; cannot override global unavailability.
-        configuration:
-          type: object
-          description: No built-in scan hook currently consumes project configuration; only an empty object is accepted. Credentials must not be stored here.
-          maxProperties: 0
-          additionalProperties: false
 
     EvaluateRuleRequest:
       type: object
@@ -9582,9 +9577,6 @@ components:
           type: array
           items:
             type: string
-        configuration:
-          type: object
-          additionalProperties: true
 
     # ─── Discovery ─────────────────────────────────────────────────────────────
     SourceType:
