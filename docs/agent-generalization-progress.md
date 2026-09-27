@@ -16,7 +16,7 @@
 | P1 — Durable execution | `done` | durable execution وleases وcheckpoints وownership fences هي substrate التنفيذ الحالية. |
 | P2 — Evidence and acceptance | `done` | evidence contracts وvalidation وCanonical Proof وMission/Goal terminal gates موجودة؛ لا تمنح receipt/projection وحدها النجاح. |
 | P3 — World State foundation | `foundation complete / cognitive integration partial` | عقود facts، materialization، supersession، contradictions، world revision وcurrent-fact projection موجودة مع task/environment scoping وAPI filters؛ Belief مؤجلة إلى P7.5 والملاحظات المستقلة من المصدر الفعلي ضمن P4. |
-| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. صار aggregate `ACTION_COMMITTED` idempotent دلاليًا داخل Episode/attempt: retry مطابق يعيد الحدث نفسه والتعارض يفشل مغلقًا؛ لا يشمل ذلك tool commits أو replay validation/effects. سياسة التعافي الموصى بها هجينة: استعادة same-attempt فقط عند تطابق manifest/identities/hashes وإمكان إعادة validation بأمان، وإلا fail-closed ومحاولة جديدة معتمدة. لم يُفعّل replay بعد. Mission repair لا يروّج bytes إلى live root؛ تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تبقى دلالات Action الموحدة والتعافي الأوسع غير مكتملة؛ إغلاق World Delta المستقل في P6 ما زال مطلوبًا. |
+| P3.5 — Cognitive Action / Observation Spine | `partial` | Candidate Validation وRuntime start/restart/stop وBrowser/Delivery وAI apply-changes وMission `mission_repair` تستخدم Episode → Action → Before/After Observation → Effect → Acceptance في شرائح محدودة. قبول Effect لا يضمن بحد ذاته تحديث World State أو إنشاء سجل معرفة قابل للاستهلاك. في `mission_repair` تسجل الكتابات المعتمدة Action لكل tool call داخل candidate overlay؛ استعادة `ACTION_COMMITTED` تقرأ الطلب canonical من Episode وتحفظ actorId كـprovenance، بينما يظل append محكومًا بملكية lease العامل الحالي. صار aggregate وper-tool `ACTION_COMMITTED` idempotent دلاليًا ضمن execution/attempt: retry المطابق يعيد الحدث نفسه، وإعادة استخدام الهوية بمعنى مختلف أو attempt غير مطابق تفشل مغلقًا. أحداث الأدوات تثبت staging في candidate overlay فقط؛ aggregate observations وEffectBundle يظلان بوابة قبول الأثر. استعادة Mission repair محدودة بمراحل manifest المثبتة؛ لم يُفعّل replay عامًا. سياسة التعافي same-attempt فقط عند تطابق manifest/identities/hashes وإمكان إعادة validation بأمان، وإلا fail-closed ومحاولة جديدة معتمدة. Mission repair لا يروّج bytes إلى live root؛ تقارير Task و`mission_observe`/`mission_validate` تبقى خارج mutation-effect gate. تظل P3.5 جزئية لأن الإغلاق الكامل في §42.2 يعتمد World Delta/revision من P6 وتكامل الحلقة عبر القدرات. |
 | P4 — Independent Observation and World Integration | `partial` | task/environment scoping وAPI filters منجزة ضمن P3. توجد ملاحظات receipt-time وruntime launch، ورصد مباشر محدود لعملية validator عند توفر binding كامل إلى Episode؛ كما توجد ملاحظة محدودة لمالك listener في مسارات runtime محددة مع recovery/heartbeat fencing. لا يثبت ذلك lifecycle عامة أو descendants، ورصد validator يثبت PID المباشر فقط. في تدقيق الاستدعاءات المباشر لم يظهر مستهلك لـ`getProjectWorldState` داخل مسار planner/replan؛ هذا لا يثبت غياب كل تكامل غير مباشر، لكنه يمنع ادعاء أن projection تدخل القرار. ما زال propagation للتناقضات وإغلاق مصادر الملاحظة الأوسع مطلوبًا؛ World Delta/revision closure يخص P6. |
 | P5 — Authoritative Effect Verification | `partial` | Candidate Validation مغلق؛ Runtime start/restart/stop المباشر وBrowser/Delivery وapply-changes وMission `mission_repair` يستخدمون effect gate. تعافي restart لـapply-changes أصبح fail-closed ودائمًا. في مسار `apply-changes` تُحفظ ملاحظتا الشجرة قبل/بعد مع `materializeWorldState: false` لعزل candidate؛ لم يظهر إسقاط لاحق لحالة live بعد نجاح الترقية في هذا المسار. يبقى هذا فصلًا صحيحًا عن قبول الأثر، لكنه يعني أن نجاح الأثر لا يحدّث وحده World State. تبقى الحالات غير المثبتة للمعالجة اليدوية ومسارات lease/reconnect الأوسع؛ لا يكتمل DoD المرحلي قبل ربط الآثار بـWorld Delta في P6. |
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
@@ -2414,6 +2414,27 @@ G9 Revocation Safety
 - **remaining/blocker:** هذه الشريحة تغلق crash recovery بعد commit فقط؛ بقية
   DoD لـP3.5 ما زالت جزئية، وP4–P14 لم تبدأ ضمن هذه الخطوة.
 - **next step:** راجع بقية P3.5 مقابل DoD في §42.2 قبل الانتقال إلى P4.
+
+### 42.66 — P3.5 — Per-tool Mission repair commit idempotency (2026-09-27)
+
+- **phase/step:** P3.5 — جعل إعادة محاولة أحداث `ACTION_COMMITTED` لأدوات
+  `mission_repair` آمنة ودلالية ضمن execution/attempt.
+- **status:** `done لهذه الشريحة؛ P3.5 الكامل يبقى partial وفق اعتماد §42.2 على P6`.
+- **what changed:** يثبت ledger هوية commit من execution وattempt وtool-call hash،
+  ويتحقق من tool/input hash وكون العملية staging داخل candidate overlay بلا
+  live writes. تعيد إعادة المحاولة المطابقة الحدث المحفوظ؛ إعادة استخدام
+  actionId مع target/payload مختلف أو attempt غير مطابق تفشل مغلقًا.
+- **files/schema/contracts touched:** agent episode ledger واختباراته؛ لا schema
+  أو migration، ولا تغيير في عقد per-tool EffectBundle.
+- **validation:** API typecheck و9 اختبارات agent episode ledger و10 اختبارات
+  task execution lifecycle نجحت؛ `git diff --check` نظيف.
+- **authority/safety impact:** هذا يثبت idempotency لسجل staging فقط ولا يمنح
+  الأداة سلطة جديدة ولا يحول `ACTION_COMMITTED` إلى proof للأثر. يبقى aggregate
+  before/after وEffectBundle بوابة القبول الوحيدة.
+- **remaining/blocker:** لا يمكن إعلان P3.5 `done` وفق §42.2 دون World Delta/
+  revision closure في P6؛ الاستعادة لا تزال bounded ولا يوجد replay عام.
+- **next step:** لا تبدأ P4–P14 ضمن هذه الشريحة؛ يلزم طلب مستقل قبل توسيع النطاق
+  إلى مراحل الاعتماد.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

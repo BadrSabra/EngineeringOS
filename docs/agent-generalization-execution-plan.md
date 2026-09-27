@@ -4817,6 +4817,13 @@ server-owned من target path مقابل القائمة المعتمدة ويس�
 ولا يتغير authorization أو schema. تغطي هذه الشريحة provider tool calls الخاصة
 بـMission repair فقط؛ ولا تبدأ P6 أو P7 أو P7.5 ولا تغلق P3.5/P5.5.
 
+**تحديث 2026-09-27 — per-tool commit idempotency:** يربط ledger الآن commit
+الأداة بهوية execution/attempt وtool-call hash ويثبت أن payload يصف staging
+محدودًا إلى candidate overlay. الإعادة المطابقة ترجع الحدث المسجل نفسه؛ اختلاف
+الدلالة تحت actionId نفسه أو عدم تطابق attempt أو وصف live write يفشل مغلقًا.
+هذا لا ينشئ per-tool EffectBundle: أثر `mission_repair` وقبوله يظلان aggregate
+ومقيدين بملاحظات before/after وEffectBundle الحاليين.
+
 ### 42.3 P4 — Authoritative Observation and World Integration
 
 **الحالة:** `PARTIAL`

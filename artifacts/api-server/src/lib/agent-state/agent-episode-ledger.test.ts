@@ -244,14 +244,62 @@ describe("agent episode ledger", () => {
       payload: commitPayload,
     }))).rejects.toMatchObject({ code: "stale_worker" });
 
-    const toolCommit = await appendEpisodeEvent(eventInput(episode.episodeId, {
-      eventType: "ACTION_COMMITTED",
+    const toolCallIdentity = "c".repeat(64);
+    const toolActionId =
+      `mission-repair-tool:${executionId}:0:${toolCallIdentity.slice(0, 32)}`;
+    const toolAction = {
+      ...action,
+      actionId: toolActionId,
+      capabilityId: "mission.repair.tool.write_file",
+      intent: "Stage the approved tool result in the candidate overlay.",
+      expectedEffects: ["The approved candidate overlay contains this tool result."],
+      idempotencyKey: `${idempotencyKey}:mission-repair-tool`,
+    } as const;
+    await appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_REQUESTED",
       payload: {
-        actionId: `mission-repair-tool:${executionId}:0:tool-call-one`,
-        stagedInCandidateOverlay: true,
+        action: toolAction,
+        expectedEffects: toolAction.expectedEffects,
+        invocationKind: "candidate_overlay",
       },
     }));
+
+    const toolCommitPayload = {
+      actionId: toolActionId,
+      toolName: "write_file",
+      targetPath: "src/target.ts",
+      toolCallIdentity,
+      inputHash: "d".repeat(64),
+      stagedInCandidateOverlay: true,
+      liveWorkspaceWrites: false,
+    };
+    const toolCommit = await appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_COMMITTED",
+      payload: toolCommitPayload,
+    }));
     expect(toolCommit.eventId).not.toBe(first.eventId);
+    const toolCommitRetry = await appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_COMMITTED",
+      payload: toolCommitPayload,
+    }));
+    expect(toolCommitRetry.eventId).toBe(toolCommit.eventId);
+    expect(toolCommitRetry.sequence).toBe(toolCommit.sequence);
+
+    await expect(appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_COMMITTED",
+      payload: { ...toolCommitPayload, targetPath: "src/other.ts" },
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
+    await expect(appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_COMMITTED",
+      payload: {
+        ...toolCommitPayload,
+        actionId: `mission-repair-tool:${executionId}:1:${toolCallIdentity.slice(0, 32)}`,
+      },
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
+    await expect(appendEpisodeEvent(eventInput(episode.episodeId, {
+      eventType: "ACTION_COMMITTED",
+      payload: { ...toolCommitPayload, liveWorkspaceWrites: true },
+    }))).rejects.toMatchObject({ code: "invalid_contract" });
   });
 
   it("keeps terminal outcomes immutable, including cancellation", async () => {

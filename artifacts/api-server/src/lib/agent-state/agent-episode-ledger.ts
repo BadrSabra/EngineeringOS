@@ -280,6 +280,39 @@ function missionRepairAggregateCommitActionId(
   return actionId;
 }
 
+function missionRepairToolCommitActionId(
+  input: AppendEpisodeEventInput,
+  payload: unknown,
+): string | undefined {
+  if (input.eventType !== "ACTION_COMMITTED") return undefined;
+  const record = asRecord(payload);
+  if (!record) return undefined;
+  const actionId = record.actionId;
+  if (typeof actionId !== "string" || !actionId.startsWith("mission-repair-tool:")) {
+    return undefined;
+  }
+
+  const actionPrefix = `mission-repair-tool:${input.executionId}:${input.attempt}:`;
+  const toolCallIdentity = record.toolCallIdentity;
+  if (
+    !actionId.startsWith(actionPrefix)
+    || !/^[a-f0-9]{32}$/.test(actionId.slice(actionPrefix.length))
+    || typeof toolCallIdentity !== "string"
+    || !/^[a-f0-9]{64}$/.test(toolCallIdentity)
+    || actionId !== `${actionPrefix}${toolCallIdentity.slice(0, 32)}`
+    || !["write_file", "replace_text"].includes(String(record.toolName))
+    || typeof record.targetPath !== "string"
+    || !record.targetPath.trim()
+    || typeof record.inputHash !== "string"
+    || !/^[a-f0-9]{64}$/.test(record.inputHash)
+    || record.stagedInCandidateOverlay !== true
+    || record.liveWorkspaceWrites !== false
+  ) {
+    ledgerError("invalid_contract", "Mission repair tool commit identity or staging contract is invalid.");
+  }
+  return actionId;
+}
+
 function nextStateForEvent(current: EpisodeState, eventType: EpisodeEventType): EpisodeState {
   if (EVENT_STATE[eventType]) {
     const next = EVENT_STATE[eventType]!;
@@ -344,6 +377,23 @@ async function appendLocked(
       const priorHashes = new Set(sameActionCommits.map((row) => row.payloadHash));
       if (priorHashes.size !== 1 || !priorHashes.has(payloadHash)) {
         ledgerError("invalid_contract", "Mission repair aggregate commit action identity was reused with different semantics.");
+      }
+      return eventToContract(sameActionCommits[0]!);
+    }
+  }
+  const toolMissionRepairActionId = missionRepairToolCommitActionId(input, payload);
+  if (toolMissionRepairActionId) {
+    const priorCommits = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.episodeId, episode.id),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+    )).orderBy(asc(aiAgentEpisodeEventsTable.sequence));
+    const sameActionCommits = priorCommits.filter((row) =>
+      asRecord(row.payload)?.actionId === toolMissionRepairActionId
+    );
+    if (sameActionCommits.length > 0) {
+      const priorHashes = new Set(sameActionCommits.map((row) => row.payloadHash));
+      if (priorHashes.size !== 1 || !priorHashes.has(payloadHash)) {
+        ledgerError("invalid_contract", "Mission repair tool action identity was reused with different semantics.");
       }
       return eventToContract(sameActionCommits[0]!);
     }

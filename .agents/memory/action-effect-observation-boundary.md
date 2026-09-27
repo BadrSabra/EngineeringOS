@@ -80,5 +80,7 @@ through this mutation callback.
 tool completion as an observed effect would collapse the distinction between staged intent and
 independent state change.
 
-**How to apply:** Keep per-tool Action events idempotent and scope-bound, but leave effect
-classification and acceptance attached to the aggregate candidate verification path.
+**How to apply:** Keep per-tool Action events idempotent and scope-bound: bind the
+commit identity to execution, attempt, and tool-call identity; exact retries return
+the original event and semantic reuse fails closed. Leave effect classification and
+acceptance attached to the aggregate candidate verification path.
