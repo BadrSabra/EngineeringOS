@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-27
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ اختبارات القياس المرجعية أضيفت، لكن جاهزية الجمع ما زالت محجوبة لأن resume يدوّر attempt وEpisode ولا يكمل registration السابق، والإلغاء نهائي. يلزم مسار observe-only مربوط بالتجربة الأصلية أو قرار موثق بإنشاء scope ذي policy version جديدة مع held-out cohort مستقل. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity؛ يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح ضمن الشريحة الحالية.
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ اختبارات القياس المرجعية أضيفت، لكن جاهزية الجمع ما زالت محجوبة لأن resume يدوّر attempt وEpisode ولا يكمل registration السابق، والإلغاء نهائي. يلزم مسار observe-only مربوط بالتجربة الأصلية أو قرار موثق بإنشاء scope ذي policy version جديدة مع held-out cohort مستقل. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity؛ أكد تدقيق 2026-09-27 فجوة أضيق في failover synthesis بعد اكتمال الأدلة، وخطتها موثقة ولم تنفذ. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -121,7 +121,10 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
    و§42.8؛ اجتياز هذا القياس لا يفعّل ranking ولا يثبت صلاحية selector.
 3. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
    parity عند غياب objective canonical. أبقِ هذا المسار غير المكتمل fail-closed؛
-   لا تفتح fallback عامًا بلا عقد وقبول مستقلين. لا يعد هذا عملًا منافسًا لـP7.5.
+   لا تفتح fallback عامًا بلا عقد وقبول مستقلين. وُثقت في §42.70 متابعة موثوقية
+   ضيقة لمسار objective ذي evidence مكتمل: تجربة provider بديل عند فشل synthesis
+   دون إعادة القراءة أو تغيير القبول. لم يبدأ تنفيذها، ولا تضيف مرحلة أو تعيد
+   ترتيب §31؛ لا يعد ذلك عملًا منافسًا لبوابة P7.5.
 4. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
    تثبيت عقد الجمع والاستعادة؛ ليست الخطوة الأولى ولا مصدر قبول أو معايرة.
 5. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
@@ -2510,6 +2513,39 @@ G9 Revocation Safety
   اكتمال P4/P5؛ المراحل تظل جزئية وفق §31.
 - **next step:** واصل من dependency التالية المصرح بها في §31 بعد مراجعة بقية
   متطلبات P3.5/P4/P5؛ لا تعتبر هذه الشريحة إغلاقًا للمرحلة.
+
+### 42.70 — تدقيق failover synthesis بعد اكتمال evidence (2026-09-27)
+
+- **phase/step:** موثوقية `PROJECT_QUERY_*` ذات objective canonical؛ عمل عابر
+  للمراحل، وليس P-stage جديدة.
+- **status:** `verified gap; plan-only` — لم يتغير runtime.
+- **what changed:** تأكد أن §42.49 نفّذ packet أدلة مجمدًا وmanifest hash ومحاولات
+  synthesis ضمن `ExecutionLedger` وربط attempt المقبول والـmanifest وبصمة الرد
+  في response/terminal trace. لكن عند فشل synthesis، يعيد `chat()` حاليًا
+  deterministic fallback كـresult طبيعي؛ لذلك لا تنتقل `chatWithFallback()` إلى
+  provider آخر. كما أن `RATE_LIMITED` و`QUOTA` ليستا من حالات repair المحلية.
+  خطة المعالجة في §31 من `agent-generalization-execution-plan.md`: تمرير بدائل
+  مختارة server-side إلى synthesis وحدها، استعمال evidence packet نفسه،
+  failover محدود وفق التصنيف والميزانية، والحفاظ على OpenRouter rate-limit scope.
+- **files/schema/contracts touched:** وثيقتا خطة التنفيذ وسجل التقدم فقط؛ لا
+  تغييرات كود أو schema أو migration.
+- **validation:** مطابقة الادعاءات مع `chat-agent.ts` و`ai-route-helpers.ts` و
+  `execution-ledger.ts` و`openai-compatible-client.ts` و`ChatOutputSchema`،
+  واختبارات المسار الحالية؛ اجتاز التحديث `git diff --check`.
+- **authority/safety impact:** لا يتغير acceptance أو proof أو permissions؛
+  deterministic fallback ليس قبولًا بذاته. لا يعاد تصنيف provider prose كدليل،
+  ويبقى `PROJECT_QUERY` بلا objective canonical fail-closed. لا public envelope
+  أو جدول محاولات جديد في الخطة الحالية.
+- **remaining/blocker:** التنفيذ العابر للمزودين غير موجود. يجب قبل تنفيذه جعل
+  attempt identity فريدة لكل provider candidate؛ الهوية الحالية لا تتضمن المزود.
+  يلزم أيضًا توسيع telemetry allowlist بقيم enums ومعرفات محدودة، لا رسائل
+  provider الخام. لقطة evidence النهائية لا تخزن synthesis attempts؛ الربط
+  المعتمد هو trace والـresponse/terminal binding الحاليان.
+- **next step:** إذا طُلب التنفيذ، أضف failover للمحاولات بعد evidence completion
+  فقط، مع provider candidates المصرح بها من API، وmanifest/read set ثابت،
+  واختبارات provider A failure → provider B success وno-objective fail-closed
+  وbudget/deadline وJSON/SSE/history parity. لا توسع fallback العام ولا تغير
+  acceptance أو ترتيب §31.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

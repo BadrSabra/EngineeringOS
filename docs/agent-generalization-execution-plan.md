@@ -5,6 +5,9 @@
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
 > **آخر حالة تنفيذية (2026-09-27):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل؛ تسبق جمع النتائج بوابة جاهزية للتحقق من قناة Mission، وقابلية التكرار والاستعادة، وصحة القياس. يبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. اكتملت شرائح Evidence-Preserved Synthesis Gateway وclaims المحدودة لـPROJECT_QUERY المقبول وterminal parity عند غياب objective؛ لا يزال fallback الحتمي العام بلا عقد مقبول محظورًا. الأولوية تبقى إغلاق الحلقة المعرفية دون تجاوز §31. سجل التفاصيل في `docs/agent-generalization-progress.md`.
+> **ملاحظة متابعة PROJECT_QUERY (2026-09-27):** رصد التدقيق فجوة failover
+> synthesis عند اكتمال الأدلة في هدف ذي objective canonical؛ الخطة محدودة
+> وموثقة في §31، ولم يبدأ تنفيذها. هذا لا يفتح fallback عامًا بلا objective.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -3612,9 +3615,12 @@ P8/P9/P10 قبل إغلاق الاعتماديات ومعايير P7.5 المح�
    الحد الأدنى.
 2. **PROJECT_QUERY:** أُنجز العقد المحدود للـclaims والـhandoff في §42.51،
    وأُغلق terminal parity عند غياب objective في §42.56. يبقى المسار العام بلا
-   objective canonical غير مكتملًا عمدًا؛ لا يعد fallback الحتمي العام عملًا
-   مفتوحًا ضمن الشريحة الحالية، وأي توسيع مستقبلًا يحتاج عقدًا وقبولًا مستقلين.
-   لا يغير هذا المسار ترتيب P7.5 أو سلطة evidence وacceptance.
+   objective canonical غير مكتمل عمدًا. كشف تدقيق 2026-09-27 فجوة موثوقية أضيق
+   بعد اكتمال evidence: قد يعيد `chat()` fallback حتميًا كاستجابة عادية بعد فشل
+   synthesis، فلا يصل فشل المزود إلى حلقة `chatWithFallback` لتجربة مزود آخر.
+   المعالجة المقيدة موثقة في القسم التالي وسجل §42.70؛ لم يبدأ تنفيذها. لا يفتح
+   ذلك fallback عامًا، ولا يغيّر ترتيب P7.5 أو سلطة evidence وacceptance أو
+   dependency graph.
 
 لا يبدأ التوسع الأفقي في capabilities أو strategy learning قبل إغلاق الحلقة
 وفق §31. تكامل Chat-to-Mission الموضح أدناه شريحة منتج اختيارية مكتملة ومحدودة،
@@ -3648,7 +3654,7 @@ manifest وإغلاق المطالبات؛ أما المسار العام بلا
 استهلكت مدد المحاولات المسجلة نحو 150.6 ثانية مقابل ميزانية 150 ثانية. تفاصيل
 الأثر في أحدث إدخال بسجل التقدم.
 
-#### الجرد الحالي بعد مقارنة الكود
+#### خط أساس التدقيق قبل تنفيذ §42.49 (2026-09-26)
 
 - `chatWithFallback` يحتفظ بـ`retainedEvidence` و`retainedReadStatuses` عبر
   محاولات المزودين؛ كما يستطيع مسار recovery تحميل القراءات الدائمة. محاولات
@@ -3667,7 +3673,7 @@ manifest وإغلاق المطالبات؛ أما المسار العام بلا
   لا يوجد `SynthesisAttempt` دائم يربط كل محاولة ببصمة evidence snapshot وبصمة
   المخرج. لا تصبح `claimRefs` أو `sources` التي يذكرها المزود دليلًا أو proof.
 
-#### الخطة بعد إغلاق بوابة الوثائق
+#### خطة التنفيذ الأصلية قبل تنفيذ §42.49
 
 1. أنشئ مرجعًا ثابتًا قبل synthesis مشتقًا من retained-read manifest المقبول،
    ويضم هوية المشروع والتنفيذ والمراجعة وحالة التغطية وبصمات الأجسام. استخدم
@@ -3741,6 +3747,73 @@ runtime/schema قبل إغلاق بوابة الوثائق ومراجعتها. �
 server-owned ومسار fallback مشروطًا بالقبول. يظل `PROJECT_QUERY` بلا objective
 canonical غير مكتمل عند فشل synthesis، ولا يفتح هذا التحقق fallback عامًا.
 الاختبارات والحدود المتبقية موثقة في أحدث إدخال تقدم §42.53.
+
+#### تدقيق 2026-09-27 — failover للمزود بعد اكتمال الأدلة
+
+**ما تأكد في التنفيذ الحالي**
+
+- لا يلزم إعادة بناء Evidence-Preserved Synthesis Gateway: ينشئ المسار packet
+  مجمدًا وبصمة `manifestId` بعد اكتمال manifest والـclaims؛ وتسجل محاولات
+  synthesis الإضافية في `ExecutionLedger`، ثم يربط trace المحاولة المقبولة
+  والـmanifest وبصمة الاستجابة ببوابتي response وterminal. يحمل `ChatOutput`
+  أصل الاستجابة وسبب fallback دون public response envelope جديد.
+- الفجوة المتبقية أضيق: داخل `chat()`، فشل synthesis بعد اكتمال الدليل ينتهي
+  حاليًا إلى deterministic fallback ويُعاد كـresult طبيعي. لذلك لا ترى
+  `chatWithFallback()` فشل المزود ولا تنتقل إلى provider آخر، رغم امتلاكها قائمة
+  providers مرتبة وميزانية `provider_change`. كما أن
+  `isProjectQuerySynthesisRetryableFailure` لا يصنف `RATE_LIMITED` أو `QUOTA`
+  كإعادة محلية؛ هذه الحالات قد تنتهي مباشرة إلى fallback بدل provider failover.
+- يملك `ExecutionLedger` حدودًا مشتركة لمحاولات synthesis وتغيير المزود وdeadline
+  وواجهة `timeoutMs`; لكن استدعاء synthesis يمرر حاليًا 30 ثانية ثابتة. يجب أن
+  تستخدم المعالجة المستقبلية الوقت المتبقي من ledger ولا تنشئ ميزانية ثانية.
+- `chatWithFallback()` هو حد اختيار المزود والاعتماد credential-ready؛ لا يمرر
+  حاليًا قائمة بدائل synthesis إلى `chat()`. يجب أن تبقى معرفة credentials
+  واختيار المزود في طبقة API، لا داخل `chat-agent`.
+- يعالج OpenRouter سلسلة النماذج وفق rate-limit scope؛ يحافظ الإصلاح على
+  السلوك القائم الذي يوقف سلسلة النموذج عند حدود provider-scoped، ولا يعيد
+  تدوير النماذج نفسها عند `upstream_shared_pool` أو `provider_credential`.
+- trace الحالي يربط المحاولة المقبولة والـmanifest والرد، لكن `attemptId`
+  الحالي لا يتضمن provider identity. يجب أن تكون هوية محاولة synthesis فريدة
+  عبر انتقالات المزود، وأن يبقى model قيمة منفصلة لأن OpenRouter قد يختار
+  النموذج داخل السلسلة. كما أن allowlist التشخيصي لا يمرر كل حقول التصنيف
+  والتعافي؛ أي توسيع يجب أن يقبل enums ومعرفات محدودة فقط.
+- لقطة `ai_execution_evidence_snapshots` وصف القبول النهائي وليست سجل محاولات
+  synthesis. لهذا النطاق يعاد استخدام trace/response/terminal binding الحالي؛
+  لا تنشأ table موازية ما لم يثبت أن الربط الدائم وidempotency لا يمكن تحقيقهما
+  به. تبقى citations وprose و`claimRefs` من المزود غير سلطوية.
+
+**خطة الإغلاق المحدود — توثيق فقط، لم يبدأ التنفيذ**
+
+1. مرر من `chatWithFallback()` قائمة البدائل المصرح بها والمتاحة إلى مرحلة
+   synthesis فقط، بعد استبعاد المزود الحالي. لا تعاود تشغيل tool/evidence loop،
+   ولا تبحث عن credentials داخل orchestrator.
+2. استخدم state machine داخلية محدودة: إصلاح واحد لخطأ محلي في شكل المرشح أو
+   اكتماله؛ فشل transport/availability بعد سلسلة النماذج المسموح بها ينتقل إلى
+   provider التالي. الإلغاء أو دليل غير صالح يوقف المسار؛ budget/deadline لا
+   يسمحان بمحاولة جديدة. أبقِ سياسة OpenRouter الحالية لمستوى النموذج ونطاق
+   429، ولا تجعل `RATE_LIMITED` repair prompt.
+3. استخدم `ExecutionLedger` نفسه لكل synthesis attempt وprovider change، واقصر
+   timeout على remaining deadline. اربط كل attempt بـprovider وmanifest وهوية
+   فريدة؛ سجل model والنتيجة عند توفرهما. لا تضف ميزانية أو جدولًا جديدًا.
+4. أعد استخدام packet والـmanifest نفسيهما في كل provider candidate: لا قراءات
+   جديدة، ولا evidence scope أو objective جديد. بعد استنفاد البدائل المؤهلة فقط،
+   يجوز لمسار الهدف ذي objective canonical والدليل الكامل استعمال deterministic
+   assembly الحالي؛ يظل acceptance gate مستقلًا. يبقى المسار بلا objective
+   canonical أو claims مكتملة `ANALYSIS_INCOMPLETE`.
+5. مدّد allowlist التشخيصي بحقول محدودة من قبيل `provider`,
+   `failureClass`, `recoveryAction` وprovider-candidate index عند الحاجة؛ لا
+   تسجل prompt أو provider text أو credentials أو body أو raw path. لا تضف
+   public envelope أو تغيّر `ChatOutput` إلا إذا أثبت اختبار contract حاجة
+   فعلية.
+6. أضف/وسّع اختبارات route وorchestrator لمسار provider A failure ثم B success
+   مع manifest ثابت وبدون reads جديدة؛ repair محلي واحد؛ استنفاد جميع المرشحين؛
+   بقاء no-objective fail-closed؛ budget/deadline/cancellation؛ uniqueness
+   وربط attempt/manifest/responseHash؛ وJSON/SSE/history parity. أعد استخدام
+   اختبار OpenRouter provider-scoped 429 القائم بدل تكراره بلا حاجة.
+
+لا تضيف هذه المعالجة مرحلة إلى §31، ولا تعيد فتح generic fallback، ولا تغير
+acceptance أو proof أو P6/P7 أو الصلاحيات. الحالة الحالية لهذه الخطوة هي
+`plan-only`؛ يلزم طلب تنفيذ مستقل بعد مراجعة هذا التحديث.
 
 ### Product integration seam — accepted finding to Mission
 
