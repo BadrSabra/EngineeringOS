@@ -2648,6 +2648,29 @@ G9 Revocation Safety
   الحالية؛ بعد ذلك راجع عقد Workflow AI orchestration/delete قبل إضافة تحكمات،
   مع إبقاء P7.5 وبوابة الإضافات خارج النطاق.
 
+### 42.74 — مطابقة فجوة تحكم Workflows مع التنفيذ الحالي (2026-09-27)
+
+- **phase/step:** P1 Dashboard reachability؛ مراجعة Workflow AI orchestration
+  والحذف بعد تحديث §11.
+- **status:** `done — existing controls verified; action coverage completed`
+- **what changed:** كانت خانة الجرد قديمة: صفحة Workflows تحتوي بالفعل على
+  `Ask AI` كتوصية لا تغيّر المرحلة، وحذف مع تأكيد ورسالة خطأ، وتعطيل الحذف
+  أثناء التشغيل. أضفنا اختبارات للإلغاء، وإبطال قائمة Workflows وإزالة cache
+  سجل التنفيذ بعد النجاح، وأخطاء الحذف والتوصية؛ لم نكرر عناصر UI أو نغيّر API.
+- **files/schema/contracts touched:** `artifacts/dashboard/src/pages/Workflows.test.tsx`
+  و`docs/replit-platform-gap-inventory.md` وهذا السجل؛ لا schema أو migration.
+- **validation:** اختبارات صفحة Workflows (9 ناجحة)، واختبارات routes (20
+  ناجحة)، واختبارات AI orchestration route (6 ناجحة، 181 متجاوزة خارج التصفية)،
+  و`git diff --check` ناجح.
+- **authority/safety impact:** قرار AI يظل advisory ولا يقدّم المرحلة تلقائيًا.
+  الحذف يحذر من حذف سجل التنفيذ، والواجهة تمنعه أثناء التشغيل؛ صلاحية المشروع
+  وأقفال التنفيذ ورفض الخادم `409` تبقى المرجع.
+- **remaining/blocker:** لا تدعي اختبارات الصفحة رحلة مزود حي؛ تختبر الواجهة
+  عبر hooks mock، واختبارات API تستخدم orchestrator fixtures. لا تغيير في حدود
+  P7.5.
+- **next step:** قيّم فجوة Plugins المتبقية في §11 مع الحفاظ على حالة API
+  الحالية كحالة عامة؛ لا تضف تحكمات Dashboard حتى تُحسم دلالات النطاق والتفويض.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
