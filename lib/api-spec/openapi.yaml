@@ -125,6 +125,85 @@ paths:
         "409":
           description: Workflow is active and must be stopped before deletion
 
+  /api/projects/{projectId}/browser-validation-profiles:
+    get:
+      operationId: listBrowserValidationProfiles
+      summary: List registered browser validation profiles for a project
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Browser validation profiles with server-computed freshness
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BrowserValidationProfile"
+        "403":
+          description: The user cannot access this project
+
+  /api/projects/{projectId}/browser-validation-profiles/{name}:
+    put:
+      operationId: upsertBrowserValidationProfile
+      summary: Create or replace a project's browser validation profile
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrowserValidationProfileInput"
+      responses:
+        "200":
+          description: Saved browser validation profile with server-computed revision and freshness
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowserValidationProfile"
+        "400":
+          description: Invalid profile steps, timeout, or project profile limit
+        "403":
+          description: The user cannot write to this project
+    delete:
+      operationId: deleteBrowserValidationProfile
+      summary: Delete a project's browser validation profile
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$"
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: The user cannot write to this project
+
   /api/projects/{projectId}/scan:
     post:
       operationId: scanProject
@@ -8014,6 +8093,156 @@ components:
         strategyReplayOptIn:
           type: boolean
           description: Enable or disable future proof-bound Strategy Replay case registration for this project.
+
+    BrowserValidationStep:
+      oneOf:
+        - $ref: "#/components/schemas/BrowserValidationNavigateStep"
+        - $ref: "#/components/schemas/BrowserValidationAssertVisibleStep"
+        - $ref: "#/components/schemas/BrowserValidationAssertTextStep"
+        - $ref: "#/components/schemas/BrowserValidationReadVisibleTextStep"
+        - $ref: "#/components/schemas/BrowserValidationScreenshotStep"
+      discriminator:
+        propertyName: type
+
+    BrowserValidationNavigateStep:
+      type: object
+      required: [type, path]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [navigate]
+        path:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: "^/(?!/)"
+
+    BrowserValidationAssertVisibleStep:
+      type: object
+      required: [type, selector]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [assert_visible]
+        selector:
+          type: string
+          minLength: 1
+          maxLength: 240
+
+    BrowserValidationAssertTextStep:
+      type: object
+      required: [type, selector, text]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [assert_text]
+        selector:
+          type: string
+          minLength: 1
+          maxLength: 240
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    BrowserValidationReadVisibleTextStep:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [read_visible_text]
+        selector:
+          type: string
+          minLength: 1
+          maxLength: 240
+
+    BrowserValidationScreenshotStep:
+      type: object
+      required: [type, name]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [screenshot]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+
+    BrowserValidationProfileInput:
+      type: object
+      required: [steps]
+      additionalProperties: false
+      properties:
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 24
+          items:
+            $ref: "#/components/schemas/BrowserValidationStep"
+        timeoutMs:
+          type: integer
+          minimum: 1
+          maximum: 60000
+          default: 60000
+
+    BrowserValidationProfile:
+      type: object
+      required:
+        - id
+        - projectId
+        - name
+        - revision
+        - permittedOrigin
+        - steps
+        - timeoutMs
+        - createdAt
+        - updatedAt
+        - currentRevision
+        - freshnessStatus
+        - freshnessReason
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+          pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$"
+        revision:
+          type: string
+          format: date-time
+        permittedOrigin:
+          type: string
+          description: Server-controlled isolated Preview origin
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/BrowserValidationStep"
+        timeoutMs:
+          type: integer
+          minimum: 1
+          maximum: 60000
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        currentRevision:
+          type: string
+          format: date-time
+        freshnessStatus:
+          type: string
+          enum: [fresh, stale]
+        freshnessReason:
+          type: ["string", "null"]
+          enum: [stale_revision, null]
 
     ScanResult:
       type: object

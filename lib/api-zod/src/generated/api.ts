@@ -227,6 +227,183 @@ export const DeleteProjectResponse = zod.void()
 
 
 /**
+ * @summary List registered browser validation profiles for a project
+ */
+export const ListBrowserValidationProfilesParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const listBrowserValidationProfilesResponseNameRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$');
+export const listBrowserValidationProfilesResponseStepsItemOnePathMax = 500;
+
+
+export const listBrowserValidationProfilesResponseStepsItemOnePathRegExp = new RegExp('^/(?!/)');
+export const listBrowserValidationProfilesResponseStepsItemTwoSelectorMax = 240;
+
+export const listBrowserValidationProfilesResponseStepsItemThreeSelectorMax = 240;
+
+export const listBrowserValidationProfilesResponseStepsItemThreeTextMax = 500;
+
+export const listBrowserValidationProfilesResponseStepsItemFourSelectorMax = 240;
+
+export const listBrowserValidationProfilesResponseStepsItemFiveNameMax = 80;
+
+export const listBrowserValidationProfilesResponseTimeoutMsMax = 60000;
+
+
+
+export const ListBrowserValidationProfilesResponseItem = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "name": zod.string().regex(listBrowserValidationProfilesResponseNameRegExp),
+  "revision": zod.coerce.date(),
+  "permittedOrigin": zod.string().describe('Server-controlled isolated Preview origin'),
+  "steps": zod.array(zod.union([zod.object({
+  "type": zod.enum(['navigate']),
+  "path": zod.string().min(1).max(listBrowserValidationProfilesResponseStepsItemOnePathMax).regex(listBrowserValidationProfilesResponseStepsItemOnePathRegExp)
+}),zod.object({
+  "type": zod.enum(['assert_visible']),
+  "selector": zod.string().min(1).max(listBrowserValidationProfilesResponseStepsItemTwoSelectorMax)
+}),zod.object({
+  "type": zod.enum(['assert_text']),
+  "selector": zod.string().min(1).max(listBrowserValidationProfilesResponseStepsItemThreeSelectorMax),
+  "text": zod.string().min(1).max(listBrowserValidationProfilesResponseStepsItemThreeTextMax)
+}),zod.object({
+  "type": zod.enum(['read_visible_text']),
+  "selector": zod.string().min(1).max(listBrowserValidationProfilesResponseStepsItemFourSelectorMax).optional()
+}),zod.object({
+  "type": zod.enum(['screenshot']),
+  "name": zod.string().min(1).max(listBrowserValidationProfilesResponseStepsItemFiveNameMax)
+})])),
+  "timeoutMs": zod.number().int().min(1).max(listBrowserValidationProfilesResponseTimeoutMsMax),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "currentRevision": zod.coerce.date(),
+  "freshnessStatus": zod.enum(['fresh', 'stale']),
+  "freshnessReason": zod.union([zod.literal('stale_revision'),zod.literal(null)]).nullable()
+})
+export const ListBrowserValidationProfilesResponse = zod.array(ListBrowserValidationProfilesResponseItem)
+
+
+/**
+ * @summary Create or replace a project's browser validation profile
+ */
+export const upsertBrowserValidationProfilePathNameRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$');
+
+
+export const UpsertBrowserValidationProfileParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "name": zod.coerce.string().regex(upsertBrowserValidationProfilePathNameRegExp)
+})
+
+export const upsertBrowserValidationProfileBodyStepsItemOnePathMax = 500;
+
+
+export const upsertBrowserValidationProfileBodyStepsItemOnePathRegExp = new RegExp('^/(?!/)');
+export const upsertBrowserValidationProfileBodyStepsItemTwoSelectorMax = 240;
+
+export const upsertBrowserValidationProfileBodyStepsItemThreeSelectorMax = 240;
+
+export const upsertBrowserValidationProfileBodyStepsItemThreeTextMax = 500;
+
+export const upsertBrowserValidationProfileBodyStepsItemFourSelectorMax = 240;
+
+export const upsertBrowserValidationProfileBodyStepsItemFiveNameMax = 80;
+
+export const upsertBrowserValidationProfileBodyStepsMax = 24;
+
+export const upsertBrowserValidationProfileBodyTimeoutMsDefault = 60000;
+export const upsertBrowserValidationProfileBodyTimeoutMsMax = 60000;
+
+
+
+export const UpsertBrowserValidationProfileBody = zod.object({
+  "steps": zod.array(zod.union([zod.object({
+  "type": zod.enum(['navigate']),
+  "path": zod.string().min(1).max(upsertBrowserValidationProfileBodyStepsItemOnePathMax).regex(upsertBrowserValidationProfileBodyStepsItemOnePathRegExp)
+}),zod.object({
+  "type": zod.enum(['assert_visible']),
+  "selector": zod.string().min(1).max(upsertBrowserValidationProfileBodyStepsItemTwoSelectorMax)
+}),zod.object({
+  "type": zod.enum(['assert_text']),
+  "selector": zod.string().min(1).max(upsertBrowserValidationProfileBodyStepsItemThreeSelectorMax),
+  "text": zod.string().min(1).max(upsertBrowserValidationProfileBodyStepsItemThreeTextMax)
+}),zod.object({
+  "type": zod.enum(['read_visible_text']),
+  "selector": zod.string().min(1).max(upsertBrowserValidationProfileBodyStepsItemFourSelectorMax).optional()
+}),zod.object({
+  "type": zod.enum(['screenshot']),
+  "name": zod.string().min(1).max(upsertBrowserValidationProfileBodyStepsItemFiveNameMax)
+})])).min(1).max(upsertBrowserValidationProfileBodyStepsMax),
+  "timeoutMs": zod.number().int().min(1).max(upsertBrowserValidationProfileBodyTimeoutMsMax).default(upsertBrowserValidationProfileBodyTimeoutMsDefault)
+})
+
+export const upsertBrowserValidationProfileResponseNameRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$');
+export const upsertBrowserValidationProfileResponseStepsItemOnePathMax = 500;
+
+
+export const upsertBrowserValidationProfileResponseStepsItemOnePathRegExp = new RegExp('^/(?!/)');
+export const upsertBrowserValidationProfileResponseStepsItemTwoSelectorMax = 240;
+
+export const upsertBrowserValidationProfileResponseStepsItemThreeSelectorMax = 240;
+
+export const upsertBrowserValidationProfileResponseStepsItemThreeTextMax = 500;
+
+export const upsertBrowserValidationProfileResponseStepsItemFourSelectorMax = 240;
+
+export const upsertBrowserValidationProfileResponseStepsItemFiveNameMax = 80;
+
+export const upsertBrowserValidationProfileResponseTimeoutMsMax = 60000;
+
+
+
+export const UpsertBrowserValidationProfileResponse = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "name": zod.string().regex(upsertBrowserValidationProfileResponseNameRegExp),
+  "revision": zod.coerce.date(),
+  "permittedOrigin": zod.string().describe('Server-controlled isolated Preview origin'),
+  "steps": zod.array(zod.union([zod.object({
+  "type": zod.enum(['navigate']),
+  "path": zod.string().min(1).max(upsertBrowserValidationProfileResponseStepsItemOnePathMax).regex(upsertBrowserValidationProfileResponseStepsItemOnePathRegExp)
+}),zod.object({
+  "type": zod.enum(['assert_visible']),
+  "selector": zod.string().min(1).max(upsertBrowserValidationProfileResponseStepsItemTwoSelectorMax)
+}),zod.object({
+  "type": zod.enum(['assert_text']),
+  "selector": zod.string().min(1).max(upsertBrowserValidationProfileResponseStepsItemThreeSelectorMax),
+  "text": zod.string().min(1).max(upsertBrowserValidationProfileResponseStepsItemThreeTextMax)
+}),zod.object({
+  "type": zod.enum(['read_visible_text']),
+  "selector": zod.string().min(1).max(upsertBrowserValidationProfileResponseStepsItemFourSelectorMax).optional()
+}),zod.object({
+  "type": zod.enum(['screenshot']),
+  "name": zod.string().min(1).max(upsertBrowserValidationProfileResponseStepsItemFiveNameMax)
+})])),
+  "timeoutMs": zod.number().int().min(1).max(upsertBrowserValidationProfileResponseTimeoutMsMax),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "currentRevision": zod.coerce.date(),
+  "freshnessStatus": zod.enum(['fresh', 'stale']),
+  "freshnessReason": zod.union([zod.literal('stale_revision'),zod.literal(null)]).nullable()
+})
+
+
+/**
+ * @summary Delete a project's browser validation profile
+ */
+export const deleteBrowserValidationProfilePathNameRegExp = new RegExp('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$');
+
+
+export const DeleteBrowserValidationProfileParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "name": zod.coerce.string().regex(deleteBrowserValidationProfilePathNameRegExp)
+})
+
+export const DeleteBrowserValidationProfileResponse = zod.void()
+
+
+/**
  * @summary Enqueue a project scan (runs in the background; poll the returned job)
  */
 export const ScanProjectParams = zod.object({

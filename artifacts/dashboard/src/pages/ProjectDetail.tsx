@@ -34,20 +34,10 @@ import {
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
-import { useQuery } from '@tanstack/react-query';
 import { useMonotonicData } from '@/lib/freshness';
 import WorkspaceRuntimePanel from '@/components/WorkspaceRuntimePanel';
 import ProjectAiBudgetPanel from '@/components/ProjectAiBudgetPanel';
-
-type BrowserValidationProfile = {
-  id: string;
-  name: string;
-  revision: string;
-  currentRevision: string;
-  freshnessStatus: 'fresh' | 'stale';
-  freshnessReason: 'stale_revision' | null;
-  updatedAt: string;
-};
+import BrowserValidationProfilesPanel from '@/components/BrowserValidationProfilesPanel';
 
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
@@ -101,18 +91,6 @@ export default function ProjectDetail() {
   const { data: graphSummary, isLoading: loadingGraphSummary, isError: graphSummaryError } = useGetGraphSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetGraphSummaryQueryKey(projectId), staleTime: 60_000 },
   });
-  const { data: browserProfileData, isError: browserProfilesError } = useQuery<BrowserValidationProfile[]>({
-    queryKey: ['browser-validation-profiles', projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-validation-profiles`);
-      if (!response.ok) throw new Error('Browser validation profiles are unavailable.');
-      return response.json();
-    },
-    staleTime: 15_000,
-  });
-  const browserProfiles = Array.isArray(browserProfileData) ? browserProfileData : [];
-
   const [showProjectInfo, setShowProjectInfo] = useState(false);
 
   const scanProject = useScanProject();
@@ -348,40 +326,7 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <h2 className="font-semibold flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-primary" /> Browser validation profiles
-          </h2>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            revision {project.updatedAt ? new Date(project.updatedAt).toLocaleString() : 'unknown'}
-          </span>
-        </div>
-        {browserProfilesError ? (
-          <p className="text-sm text-muted-foreground">Freshness information is unavailable. Refresh before starting delivery.</p>
-        ) : browserProfiles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No registered browser checks.</p>
-        ) : (
-          <div className="space-y-2">
-            {browserProfiles.map((profile) => {
-              const fresh = profile.freshnessStatus === 'fresh';
-              return (
-                <div key={profile.id} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-secondary/30 px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="font-mono text-sm truncate">{profile.name}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      Last updated {new Date(profile.updatedAt).toLocaleString()}
-                    </div>
-                  </div>
-                  <span className={`shrink-0 rounded border px-2 py-1 text-[10px] font-medium ${fresh ? 'border-emerald-500/30 text-emerald-400' : 'border-amber-500/30 text-amber-300'}`}>
-                    {fresh ? 'Fresh for current revision' : 'Unavailable · stale revision'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <BrowserValidationProfilesPanel projectId={projectId} />
 
       {/* Knowledge graph summary strip */}
       {loadingGraphSummary ? (

@@ -57,6 +57,8 @@ import {
   useUpdateAiDeliveryPolicy,
   useGitCommit,
   useGitPush,
+  useListBrowserValidationProfiles,
+  getListBrowserValidationProfilesQueryKey,
 } from '@workspace/api-client-react';
 import { useRecipeStream } from '@/lib/use-recipe-stream';
 import { RecipeProgressPanel } from '@/components/RecipeProgressPanel';
@@ -97,7 +99,12 @@ import type {
   AiExecutionProjection,
   EvidenceGraph,
   QuerySourceSelectionRecord,
+  BrowserValidationProfile,
 } from '@workspace/api-client-react';
+type BrowserValidationProfileFreshness = Pick<
+  BrowserValidationProfile,
+  'name' | 'freshnessStatus' | 'freshnessReason' | 'currentRevision'
+>;
 type AcceptanceNextActionCode =
   | 'NONE'
   | 'RESUME_ALLOWED'
@@ -128,12 +135,6 @@ import {
 } from '@/lib/mission-correlation-report';
 
 type Project = { id: string; name: string; language: string };
-type BrowserValidationProfileFreshness = {
-  name: string;
-  freshnessStatus: 'fresh' | 'stale';
-  freshnessReason: 'stale_revision' | null;
-  currentRevision: string;
-};
 type BenchmarkScorecard = {
   suiteVersion?: string;
   generatedAt?: string;
@@ -5151,15 +5152,12 @@ function TaskResultPanel({
   const browserProfileName = result?.kind === 'IMPLEMENTATION_PLAN_RESULT'
     ? result.browserValidationProfile
     : undefined;
-  const { data: browserProfileData } = useQuery<BrowserValidationProfileFreshness[]>({
-    queryKey: ['browser-validation-profiles', projectId, browserProfileName],
-    enabled: Boolean(projectId && browserProfileName),
-    queryFn: async () => {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId!)}/browser-validation-profiles`);
-      if (!response.ok) throw new Error('Browser validation profiles are unavailable.');
-      return response.json();
+  const { data: browserProfileData } = useListBrowserValidationProfiles(projectId ?? '', {
+    query: {
+      enabled: Boolean(projectId && browserProfileName),
+      queryKey: getListBrowserValidationProfilesQueryKey(projectId ?? ''),
+      staleTime: 15_000,
     },
-    staleTime: 15_000,
   });
   const resolvedBrowserProfileFreshness = browserProfileFreshness
     ?? (Array.isArray(browserProfileData)

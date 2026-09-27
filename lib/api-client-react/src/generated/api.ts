@@ -52,6 +52,8 @@ import type {
   ApproveAiExecutionProposal200,
   ArchiveUploadInput,
   ArchiveUploadOutput,
+  BrowserValidationProfile,
+  BrowserValidationProfileInput,
   CancelAiExecutionById200,
   CreateProjectInput,
   CreateRuleInput,
@@ -664,6 +666,242 @@ export const useDeleteProject = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteProjectMutationOptions(options));
+    }
+
+export const getListBrowserValidationProfilesUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/browser-validation-profiles`
+}
+
+/**
+ * @summary List registered browser validation profiles for a project
+ */
+export const listBrowserValidationProfiles = async (projectId: string, options?: Parameters<typeof customFetch>[1]): Promise<BrowserValidationProfile[]> => {
+
+  return customFetch<BrowserValidationProfile[]>(getListBrowserValidationProfilesUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBrowserValidationProfilesQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/browser-validation-profiles`
+    ] as const;
+    }
+
+
+export const getListBrowserValidationProfilesQueryOptions = <TData = Awaited<ReturnType<typeof listBrowserValidationProfiles>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrowserValidationProfiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBrowserValidationProfilesQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBrowserValidationProfiles>>> = ({ signal }) => listBrowserValidationProfiles(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBrowserValidationProfiles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBrowserValidationProfilesQueryResult = NonNullable<Awaited<ReturnType<typeof listBrowserValidationProfiles>>>
+export type ListBrowserValidationProfilesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List registered browser validation profiles for a project
+ */
+
+export function useListBrowserValidationProfiles<TData = Awaited<ReturnType<typeof listBrowserValidationProfiles>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBrowserValidationProfiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBrowserValidationProfilesQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpsertBrowserValidationProfileUrl = (projectId: string,
+    name: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/browser-validation-profiles/${name}`
+}
+
+/**
+ * @summary Create or replace a project's browser validation profile
+ */
+export const upsertBrowserValidationProfile = async (projectId: string,
+    name: string,
+    browserValidationProfileInput: BrowserValidationProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<BrowserValidationProfile> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<BrowserValidationProfile>(getUpsertBrowserValidationProfileUrl(projectId,name),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(browserValidationProfileInput)
+  }
+);}
+
+
+
+
+
+export const getUpsertBrowserValidationProfileMutationKey = () => ['upsertBrowserValidationProfile'] as const;
+
+export const getUpsertBrowserValidationProfileMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertBrowserValidationProfile>>, TError,UpsertBrowserValidationProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof upsertBrowserValidationProfile>>, TError,UpsertBrowserValidationProfileMutationVariables, TContext> => {
+
+const mutationKey = getUpsertBrowserValidationProfileMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof upsertBrowserValidationProfile>>, UpsertBrowserValidationProfileMutationVariables> = (props) => {
+          const {projectId,name,data} = props ?? {};
+
+          return  upsertBrowserValidationProfile(projectId,name,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpsertBrowserValidationProfileMutationResult = NonNullable<Awaited<ReturnType<typeof upsertBrowserValidationProfile>>>
+    export type UpsertBrowserValidationProfileMutationBody = BodyType<BrowserValidationProfileInput>
+    export type UpsertBrowserValidationProfileMutationError = ErrorType<void>
+    export type UpsertBrowserValidationProfileMutationVariables = {projectId: string;name: string;data: BodyType<BrowserValidationProfileInput>}
+
+    /**
+ * @summary Create or replace a project's browser validation profile
+ */
+export const useUpsertBrowserValidationProfile = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof upsertBrowserValidationProfile>>, TError,UpsertBrowserValidationProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof upsertBrowserValidationProfile>>,
+        TError,
+        UpsertBrowserValidationProfileMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpsertBrowserValidationProfileMutationOptions(options));
+    }
+
+export const getDeleteBrowserValidationProfileUrl = (projectId: string,
+    name: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/browser-validation-profiles/${name}`
+}
+
+/**
+ * @summary Delete a project's browser validation profile
+ */
+export const deleteBrowserValidationProfile = async (projectId: string,
+    name: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteBrowserValidationProfileUrl(projectId,name),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteBrowserValidationProfileMutationKey = () => ['deleteBrowserValidationProfile'] as const;
+
+export const getDeleteBrowserValidationProfileMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrowserValidationProfile>>, TError,DeleteBrowserValidationProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBrowserValidationProfile>>, TError,DeleteBrowserValidationProfileMutationVariables, TContext> => {
+
+const mutationKey = getDeleteBrowserValidationProfileMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBrowserValidationProfile>>, DeleteBrowserValidationProfileMutationVariables> = (props) => {
+          const {projectId,name} = props ?? {};
+
+          return  deleteBrowserValidationProfile(projectId,name,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBrowserValidationProfileMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBrowserValidationProfile>>>
+
+    export type DeleteBrowserValidationProfileMutationError = ErrorType<void>
+    export type DeleteBrowserValidationProfileMutationVariables = {projectId: string;name: string}
+
+    /**
+ * @summary Delete a project's browser validation profile
+ */
+export const useDeleteBrowserValidationProfile = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrowserValidationProfile>>, TError,DeleteBrowserValidationProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBrowserValidationProfile>>,
+        TError,
+        DeleteBrowserValidationProfileMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteBrowserValidationProfileMutationOptions(options));
     }
 
 export const getScanProjectUrl = (projectId: string,) => {

@@ -4477,6 +4477,147 @@ export interface UpdateProjectInput {
   strategyReplayOptIn?: boolean;
 }
 
+export type BrowserValidationNavigateStepType = typeof BrowserValidationNavigateStepType[keyof typeof BrowserValidationNavigateStepType];
+
+
+export const BrowserValidationNavigateStepType = {
+  navigate: 'navigate',
+} as const;
+
+export interface BrowserValidationNavigateStep {
+  type: BrowserValidationNavigateStepType;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     * @pattern ^/(?!/)
+     */
+  path: string;
+}
+
+export type BrowserValidationAssertVisibleStepType = typeof BrowserValidationAssertVisibleStepType[keyof typeof BrowserValidationAssertVisibleStepType];
+
+
+export const BrowserValidationAssertVisibleStepType = {
+  assert_visible: 'assert_visible',
+} as const;
+
+export interface BrowserValidationAssertVisibleStep {
+  type: BrowserValidationAssertVisibleStepType;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  selector: string;
+}
+
+export type BrowserValidationAssertTextStepType = typeof BrowserValidationAssertTextStepType[keyof typeof BrowserValidationAssertTextStepType];
+
+
+export const BrowserValidationAssertTextStepType = {
+  assert_text: 'assert_text',
+} as const;
+
+export interface BrowserValidationAssertTextStep {
+  type: BrowserValidationAssertTextStepType;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  selector: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  text: string;
+}
+
+export type BrowserValidationReadVisibleTextStepType = typeof BrowserValidationReadVisibleTextStepType[keyof typeof BrowserValidationReadVisibleTextStepType];
+
+
+export const BrowserValidationReadVisibleTextStepType = {
+  read_visible_text: 'read_visible_text',
+} as const;
+
+export interface BrowserValidationReadVisibleTextStep {
+  type: BrowserValidationReadVisibleTextStepType;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  selector?: string;
+}
+
+export type BrowserValidationScreenshotStepType = typeof BrowserValidationScreenshotStepType[keyof typeof BrowserValidationScreenshotStepType];
+
+
+export const BrowserValidationScreenshotStepType = {
+  screenshot: 'screenshot',
+} as const;
+
+export interface BrowserValidationScreenshotStep {
+  type: BrowserValidationScreenshotStepType;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+}
+
+export type BrowserValidationStep = BrowserValidationNavigateStep | BrowserValidationAssertVisibleStep | BrowserValidationAssertTextStep | BrowserValidationReadVisibleTextStep | BrowserValidationScreenshotStep;
+
+export interface BrowserValidationProfileInput {
+  /**
+     * @minItems 1
+     * @maxItems 24
+     */
+  steps: BrowserValidationStep[];
+  /**
+     * @minimum 1
+     * @maximum 60000
+     */
+  timeoutMs?: number;
+}
+
+export type BrowserValidationProfileFreshnessStatus = typeof BrowserValidationProfileFreshnessStatus[keyof typeof BrowserValidationProfileFreshnessStatus];
+
+
+export const BrowserValidationProfileFreshnessStatus = {
+  fresh: 'fresh',
+  stale: 'stale',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BrowserValidationProfileFreshnessReason = typeof BrowserValidationProfileFreshnessReason[keyof typeof BrowserValidationProfileFreshnessReason] | null;
+
+
+export const BrowserValidationProfileFreshnessReason = {
+  stale_revision: 'stale_revision',
+} as const;
+
+export interface BrowserValidationProfile {
+  id: string;
+  projectId: string;
+  /** @pattern ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$ */
+  name: string;
+  revision: string;
+  /** Server-controlled isolated Preview origin */
+  permittedOrigin: string;
+  steps: BrowserValidationStep[];
+  /**
+     * @minimum 1
+     * @maximum 60000
+     */
+  timeoutMs: number;
+  createdAt: string;
+  updatedAt: string;
+  currentRevision: string;
+  freshnessStatus: BrowserValidationProfileFreshnessStatus;
+  /** @nullable */
+  freshnessReason: BrowserValidationProfileFreshnessReason;
+}
+
 export interface ScanResult {
   projectId: string;
   scannedAt: string;
