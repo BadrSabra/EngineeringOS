@@ -15,6 +15,7 @@ import type { ProjectContext } from "../context-builder.js";
 import { GroqClientError } from "../errors.js";
 import { createExecutionLedger } from "../execution-ledger.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import type { ProviderStrategy } from "../provider-strategy.js";
 import { resolveTurnIntent } from "../turn-intent.js";
 import { MODEL_OUTPUT_INVALID_MESSAGE } from "../parsing.js";
 import {
@@ -1662,7 +1663,6 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         };
       }),
     };
-
     vi.doMock("../provider-registry.js", async () => {
       const actual = await vi.importActual<typeof import("../provider-registry.js")>(
         "../provider-registry.js",
@@ -1765,7 +1765,8 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(outputHashes.filter((hash) => hash === "none")).toHaveLength(1);
       expect(outputHashes.filter((hash) => /^[a-f0-9]{64}$/.test(hash))).toHaveLength(1);
       expect(synthesisAttemptDetails.some((details) =>
-        details.includes("failureKind=INVALID_TOOL_CALL")
+        details.includes("failureClass=MODEL_LOCAL")
+          && details.includes("recoveryAction=repair")
           && details.includes("outputHash=none"),
       )).toBe(true);
       const responseBindingDetails = steps.find(
@@ -1805,7 +1806,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }
   });
 
-  it("retries empty project-query no-tools synthesis with all attempted models excluded", async () => {
+  it("moves a shared-pool-limited synthesis attempt to the next authorized provider", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-empty-recovery-"));
     const sourcePath = "src/pipeline.ts";
     const claimText = "The project pipeline reads source evidence before synthesis.";
@@ -1833,6 +1834,13 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         quality?: string;
       };
     }> = [];
+    const fallbackCalls: Array<{
+      messages: Parameters<ProviderStrategy["call"]>[0];
+      options: Parameters<ProviderStrategy["call"]>[1];
+    }> = [];
+    const budgetEvents: string[] = [];
+    const acceptedProviders: Array<{ provider: string; providerIndex: number; model?: string }> = [];
+    let reconciledUsage: unknown;
     const fakeStrategy = {
       providerId: "openrouter",
       ownsModelFallback: true,
@@ -1862,11 +1870,12 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           };
         }
         if (recoveryCallCount === 1) {
-          throw new GroqClientError("EMPTY_RESPONSE", "provider returned no content", {
+          throw new GroqClientError("RATE_LIMITED", "provider returned a shared-pool limit", {
             context: {
               providerName: "OpenRouter",
               providerModel: "second-bad-model",
               providerAttemptedModels: ["first-bad-model", "second-bad-model"],
+              rateLimitScope: "upstream_shared_pool",
             },
           });
         }
@@ -1875,6 +1884,23 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           toolCalls: [],
           model: "good-model",
           usage: {},
+        };
+      }),
+    };
+    const fallbackStrategy = {
+      providerId: "gemini",
+      ownsModelFallback: false,
+      call: vi.fn(async (
+        messages: Parameters<ProviderStrategy["call"]>[0],
+        options: Parameters<ProviderStrategy["call"]>[1],
+      ) => {
+        budgetEvents.push("call");
+        fallbackCalls.push({ messages, options });
+        return {
+          content: validResponse,
+          toolCalls: [],
+          model: "gemini-good-model",
+          usage: { promptTokens: 13, completionTokens: 27 },
         };
       }),
     };
@@ -1901,6 +1927,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     try {
       const { chat } = await import("../agents/chat-agent.js");
       const executionLedger = createExecutionLedger();
+      const steps: AgentStep[] = [];
       const result = await chat({
         message: "Explain how the project pipeline works and analyze its behavior.",
         history: [],
@@ -1922,40 +1949,89 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
           requiredEvidenceEdges: [],
         },
         executionLedger,
+        onStep: (step) => steps.push(step),
+        onSynthesisProviderAccepted: (params) => {
+          acceptedProviders.push(params);
+        },
+        synthesisFallbackProviders: [{
+          provider: "gemini",
+          apiKey: "test-gemini-key",
+          strategy: fallbackStrategy,
+          providerIndex: 1,
+          admitProjectBudget: async () => {
+            budgetEvents.push("admit");
+            return true;
+          },
+          reconcileProjectBudget: async (usage) => {
+            budgetEvents.push("reconcile");
+            reconciledUsage = usage;
+          },
+        }],
       });
 
       const recoveryCalls = calls.filter(
         (call) => call.options.operation === "project_query_no_tools_synthesis",
       );
-      expect(recoveryCalls).toHaveLength(2);
+      expect(recoveryCalls).toHaveLength(1);
       expect(recoveryCalls[0]?.options).toMatchObject({
         operation: "project_query_no_tools_synthesis",
         toolChoice: "none",
         maxFallbackModels: 3,
       });
-      expect(recoveryCalls[1]?.options).toMatchObject({
+      expect(fallbackCalls).toHaveLength(1);
+      expect(fallbackCalls[0]?.options).toMatchObject({
         operation: "project_query_no_tools_synthesis",
-        excludeModels: ["first-bad-model", "second-bad-model"],
         toolChoice: "none",
       });
-      expect(recoveryCalls[1]?.messages[1]).toEqual(recoveryCalls[0]?.messages[1]);
-      expect(recoveryCalls[1]?.messages[0]?.content).toContain("plain prose only");
+      expect(fallbackCalls[0]?.messages[1]).toEqual(recoveryCalls[0]?.messages[1]);
+      expect(fallbackCalls[0]?.messages[0]?.content ?? "").toContain("Return ONLY a JSON object");
       expect(result.response).toBe(validResponse);
       expect(result.projectQueryResponseSource).toBe("provider_synthesis");
       expect(result.projectQueryResponseFallbackReason).toBeUndefined();
+      expect(result.resolvedModel).toEqual({
+        id: "gemini-good-model",
+        provider: "gemini",
+        free: false,
+      });
+      expect(acceptedProviders).toEqual([{
+        provider: "gemini",
+        providerIndex: 1,
+        model: "gemini-good-model",
+      }]);
+      expect(budgetEvents).toEqual(["admit", "call", "reconcile"]);
+      expect(reconciledUsage).toMatchObject({
+        promptTokens: 13,
+        completionTokens: 27,
+        usageStatus: "known",
+      });
       expect(executionLedger.snapshot().counts.synthesis).toBe(3);
       expect(executionLedger.snapshot().events).toEqual(expect.arrayContaining([
         expect.objectContaining({
           kind: "synthesis",
           operation: "project_query_no_tools_synthesis",
           status: "failed",
-          reason: "EMPTY_RESPONSE",
+          reason: "RATE_LIMITED",
         }),
         expect.objectContaining({
           kind: "synthesis",
           operation: "project_query_no_tools_synthesis",
           status: "completed",
         }),
+      ]));
+      const synthesisDiagnostics = steps.filter(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+      ) as Array<Extract<AgentStep, { kind: "diagnostic" }>>;
+      expect(synthesisDiagnostics).toHaveLength(2);
+      expect(synthesisDiagnostics[0]?.details).toEqual(expect.arrayContaining([
+        "provider=openrouter",
+        "providerIndex=0",
+        "failureScope=upstream_shared_pool",
+        "recoveryAction=next_provider",
+      ]));
+      expect(synthesisDiagnostics[1]?.details).toEqual(expect.arrayContaining([
+        "provider=gemini",
+        "providerIndex=1",
+        "recoveryAction=accepted",
       ]));
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
@@ -2014,6 +2090,17 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         };
       }),
     };
+    const fallbackStrategy = {
+      providerId: "gemini",
+      ownsModelFallback: false,
+      call: vi.fn(async () => ({
+        content: "unexpected fallback provider response",
+        toolCalls: [],
+        model: "unexpected-fallback-model",
+        usage: { promptTokens: 0, completionTokens: 0 },
+      })),
+    };
+    const fallbackBudgetAdmission = vi.fn(async () => true);
 
     vi.doMock("../provider-registry.js", async () => {
       const actual = await vi.importActual<typeof import("../provider-registry.js")>(
@@ -2037,7 +2124,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     try {
       const { chat } = await import("../agents/chat-agent.js");
       const steps: AgentStep[] = [];
-      const executionLedger = createExecutionLedger();
+      const executionLedger = createExecutionLedger({
+        budget: { providerChanges: 0 },
+      });
       const result = await chat({
         message: "Explain how the project pipeline works and analyze its behavior.",
         history: [],
@@ -2060,6 +2149,13 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         },
         executionLedger,
         onStep: (step) => steps.push(step),
+        synthesisFallbackProviders: [{
+          provider: "gemini",
+          apiKey: "test-gemini-key",
+          strategy: fallbackStrategy,
+          providerIndex: 1,
+          admitProjectBudget: fallbackBudgetAdmission,
+        }],
       });
 
       const recoveryCalls = calls.filter(
@@ -2078,6 +2174,8 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(result.projectQueryResponseSource).toBe("deterministic_fallback");
       expect(result.projectQueryResponseFallbackReason).toBe("provider_candidate_incomplete");
       expect(executionLedger.snapshot().counts.synthesis).toBe(3);
+      expect(fallbackStrategy.call).not.toHaveBeenCalled();
+      expect(fallbackBudgetAdmission).not.toHaveBeenCalled();
 
       const synthesisDiagnostics = steps.filter(
         (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
@@ -2085,16 +2183,161 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       expect(synthesisDiagnostics).toHaveLength(2);
       expect(synthesisDiagnostics[0]?.details).toEqual(
         expect.arrayContaining([
-          "provider candidate rejected",
-          "failureChain=candidate:provider_candidate_incomplete",
+          "contractOutcome=rejected",
+          "failureClass=CONTRACT",
+          "recoveryAction=repair",
+          "failureChain=CONTRACT:provider_candidate_incomplete",
         ]),
       );
       expect(synthesisDiagnostics[1]?.details).toEqual(
         expect.arrayContaining([
-          "provider candidate rejected",
-          "failureChain=candidate:provider_candidate_incomplete -> repair:provider_candidate_incomplete",
+          "contractOutcome=rejected",
+          "failureClass=CONTRACT",
+          "recoveryAction=next_provider",
+          "failureChain=CONTRACT:provider_candidate_incomplete -> CONTRACT:provider_candidate_incomplete",
         ]),
       );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not accept a late synthesis result after caller cancellation", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "project-query-synthesis-cancelled-"));
+    const sourcePath = "src/pipeline.ts";
+    const controller = new AbortController();
+    const firstClaim = "The project pipeline reads source evidence before synthesis.";
+    const secondClaim = "The pipeline passes retained evidence into synthesis before returning an answer.";
+    const lateResponse = JSON.stringify({
+      response:
+        `${firstClaim} ${secondClaim} The source-read step finishes before the synthesis step begins, ` +
+        "and the accepted result then returns through the bounded project-query path.",
+      sources: [sourcePath],
+      claimRefs: ["pipeline-evidence", "pipeline-flow"],
+      flowRefs: ["pipeline-evidence", "pipeline-flow"],
+    });
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootPath, sourcePath),
+      "export function runPipeline() { return 'evidence'; }\n",
+      "utf8",
+    );
+
+    const primaryStrategy = {
+      providerId: "openrouter",
+      ownsModelFallback: true,
+      supportsNativeStream: false,
+      stream: vi.fn(),
+      call: vi.fn(async (
+        _messages: Parameters<ProviderStrategy["call"]>[0],
+        options: Parameters<ProviderStrategy["call"]>[1],
+      ) => {
+        if (options.operation === "project_query_no_tools_synthesis") {
+          controller.abort();
+          return {
+            content: lateResponse,
+            toolCalls: [],
+            model: "late-model",
+            usage: { promptTokens: 12, completionTokens: 24 },
+          };
+        }
+        return {
+          content: "The provider returned an incomplete project answer.",
+          toolCalls: [],
+          model: "initial-model",
+          usage: { promptTokens: 8, completionTokens: 10 },
+        };
+      }),
+    };
+    const fallbackStrategy = {
+      providerId: "gemini",
+      ownsModelFallback: false,
+      call: vi.fn(async () => ({
+        content: lateResponse,
+        toolCalls: [],
+        model: "fallback-model",
+        usage: { promptTokens: 12, completionTokens: 24 },
+      })),
+    };
+
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual<typeof import("../provider-registry.js")>(
+        "../provider-registry.js",
+      );
+      return { ...actual, getStrategy: vi.fn(() => primaryStrategy) };
+    });
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn(() => ({ taskProfile: { taskType: "tool_chat" } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "initial-model",
+        powerModel: "fallback-model",
+      })),
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: AgentStep[] = [];
+      const executionLedger = createExecutionLedger();
+      await expect(chat({
+        message: "Explain how the project pipeline works and analyze its behavior.",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-openrouter-key",
+        turnIntent: resolveTurnIntent("Explain how the project pipeline works and analyze its behavior."),
+        objective: {
+          objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+          goal: "Explain the project pipeline behavior.",
+          requiredEvidencePaths: [sourcePath],
+          requiredClaims: [
+            {
+              claimId: "pipeline-evidence",
+              text: firstClaim,
+              requiredEvidencePaths: [sourcePath],
+              evidenceNeedles: ["runPipeline"],
+            },
+            {
+              claimId: "pipeline-flow",
+              text: secondClaim,
+              requiredEvidencePaths: [sourcePath],
+              evidenceNeedles: ["runPipeline"],
+            },
+          ],
+          requiredEvidenceEdges: [],
+        },
+        executionLedger,
+        signal: controller.signal,
+        onStep: (step) => steps.push(step),
+        synthesisFallbackProviders: [{
+          provider: "gemini",
+          apiKey: "test-gemini-key",
+          strategy: fallbackStrategy,
+          providerIndex: 1,
+        }],
+      })).rejects.toMatchObject({ name: "AbortError" });
+
+      expect(fallbackStrategy.call).not.toHaveBeenCalled();
+      expect(executionLedger.snapshot().events).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "synthesis",
+          status: "failed",
+          reason: "cancelled",
+        }),
+      ]));
+      const cancelledAttempt = steps.find(
+        (step) => step.kind === "diagnostic" && step.code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+      );
+      expect(cancelledAttempt?.kind === "diagnostic" ? cancelledAttempt.details : [])
+        .toEqual(expect.arrayContaining([
+          "failureClass=CANCELLED",
+          "recoveryAction=stop",
+        ]));
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

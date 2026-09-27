@@ -141,7 +141,7 @@ import {
 } from "../capability-catalog.js";
 import { CapabilityRegistry } from "../capability-contract.js";
 import type { AnalysisCorrelation, AnalysisToolRunner } from "../tools/analysis-tools.js";
-import type { StrategyCallOptions } from "../provider-strategy.js";
+import type { ProviderStrategy, StrategyCallOptions } from "../provider-strategy.js";
 import {
   createExecutionLedger,
   type ExecutionLedger,
@@ -2861,6 +2861,24 @@ type CapabilityRecoveryProvider = {
   apiKey?: string;
 };
 
+type ProjectQuerySynthesisBudgetUsage = {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  usageStatus?: "known" | "partial" | "unknown";
+};
+
+type ProjectQuerySynthesisFallbackProvider = {
+  /** Selected and authorized by the API route; chat() does not discover providers. */
+  provider: ProviderId;
+  strategy: Pick<ProviderStrategy, "call" | "ownsModelFallback">;
+  apiKey?: string;
+  /** Index in the route's already-selected provider order. */
+  providerIndex: number;
+  /** Additional-provider project budget hooks; primary provider is already admitted. */
+  admitProjectBudget?: () => Promise<boolean>;
+  reconcileProjectBudget?: (usage: ProjectQuerySynthesisBudgetUsage) => Promise<void>;
+};
+
 type CapabilityRecoveryTelemetryAttempt = {
   provider: ProviderId;
   model?: string | null;
@@ -5559,6 +5577,7 @@ function objectiveClaimsAreMentioned(
 
 type ProjectQuerySynthesisCandidate = {
   text: string;
+  schemaValid?: boolean;
   claimRefs?: readonly string[];
   flowRefs?: readonly string[];
 };
@@ -5570,11 +5589,12 @@ function parseProjectQuerySynthesisCandidate(raw: string): ProjectQuerySynthesis
     fallbackChatOutput,
   );
   if (!parsed.ok) {
-    return { text: normalizeRecoveryAssistantText(raw) };
+    return { text: normalizeRecoveryAssistantText(raw), schemaValid: false };
   }
   const data: ProjectQuerySynthesis = parsed.data;
   return {
     text: data.response,
+    schemaValid: true,
     ...(data.claimRefs ? { claimRefs: data.claimRefs } : {}),
     ...(data.flowRefs ? { flowRefs: data.flowRefs } : {}),
   };
@@ -5675,19 +5695,58 @@ function isGapAnalysisObjective(objective: ObjectiveContract | undefined): boole
     );
 }
 
-/**
- * A no-tools project-query synthesis response can be repaired when the
- * provider emitted an invalid tool-call-shaped response or when a free model
- * times out or returned no content. All three failures are model-local here:
- * the evidence lane is already complete, so one bounded model change can
- * produce a real provider synthesis without changing the proof contract.
- */
-function isProjectQuerySynthesisRetryableFailure(code: string): boolean {
-  return (
-    code === "INVALID_TOOL_CALL" ||
+type ProjectQuerySynthesisFailureClass =
+  | "MODEL_LOCAL"
+  | "PROVIDER_AVAILABILITY"
+  | "PROVIDER_TRANSPORT"
+  | "CONTRACT"
+  | "SEMANTIC"
+  | "CONFIGURATION"
+  | "UNKNOWN"
+  | "BUDGET"
+  | "CANCELLED";
+
+type ProjectQuerySynthesisRateLimitScope =
+  | "upstream_shared_pool"
+  | "provider_credential"
+  | "account_quota"
+  | "unknown";
+
+function projectQuerySynthesisFailureClass(code: string): ProjectQuerySynthesisFailureClass {
+  if (code === "INVALID_TOOL_CALL") return "MODEL_LOCAL";
+  if (
+    code === "RATE_LIMITED" ||
+    code === "QUOTA" ||
+    code === "AUTH_ERROR" ||
+    code === "PLAN_RESTRICTED" ||
+    code === "MODEL_NOT_FOUND" ||
+    code === "MODEL_UNAVAILABLE"
+  ) return "PROVIDER_AVAILABILITY";
+  if (
     code === "TIMEOUT" ||
-    code === "EMPTY_RESPONSE"
-  );
+    code === "NETWORK_ERROR" ||
+    code === "SERVER_ERROR" ||
+    code === "NON_200" ||
+    code === "EMPTY_RESPONSE" ||
+    code === "INVALID_PROVIDER_RESPONSE"
+  ) return "PROVIDER_TRANSPORT";
+  if (code === "INVALID_CONFIG") return "CONFIGURATION";
+  return "UNKNOWN";
+}
+
+function projectQuerySynthesisRateLimitScope(
+  error: unknown,
+): ProjectQuerySynthesisRateLimitScope | undefined {
+  if (!error || typeof error !== "object" || !("rateLimitScope" in error)) {
+    return undefined;
+  }
+  const scope = (error as { rateLimitScope?: unknown }).rateLimitScope;
+  return scope === "upstream_shared_pool" ||
+    scope === "provider_credential" ||
+    scope === "account_quota" ||
+    scope === "unknown"
+    ? scope
+    : undefined;
 }
 
 function projectQuerySynthesisErrorCode(error: unknown): string {
@@ -6455,6 +6514,24 @@ export async function chat(opts: {
     * credential, lifecycle, capability, and circuit checks at the API boundary.
     */
    capabilityRecoveryProviders?: readonly CapabilityRecoveryProvider[];
+    /**
+     * Server-authorized providers for bounded PROJECT_QUERY synthesis only.
+     * These candidates reuse the already-materialized evidence packet.
+     */
+    synthesisFallbackProviders?: readonly ProjectQuerySynthesisFallbackProvider[];
+    /** Position of the active provider in the API route's selected order. */
+    synthesisProviderIndex?: number;
+    /** Best-effort lifecycle reporting for typed provider failures in synthesis. */
+    onSynthesisProviderFailure?: (params: {
+      provider: ProviderId;
+      code: string;
+    }) => void | Promise<void>;
+    /** Record the provider that supplied the accepted synthesis response. */
+    onSynthesisProviderAccepted?: (params: {
+      provider: ProviderId;
+      providerIndex: number;
+      model?: string;
+    }) => void | Promise<void>;
 }): Promise<ChatResult> {
   const {
     message,
@@ -9373,6 +9450,8 @@ export async function chat(opts: {
     | "deterministic_fallback"
     | undefined;
   let projectQueryAcceptedSynthesisAttemptId: string | undefined;
+  let projectQueryAcceptedSynthesisProvider: ProviderId | undefined;
+  let projectQueryAcceptedSynthesisModel: string | undefined;
   let projectQueryEvidenceManifestId: string | undefined;
   let projectQueryFallbackReason:
     | "synthesis_failed"
@@ -9732,30 +9811,73 @@ export async function chat(opts: {
       const evidenceContext = (projectQueryEvidencePacket?.claims ?? [])
         .map((item) => `Claim ${item.claimId} (${item.source}):\n${item.excerpt}`)
         .join("\n\n");
-      // Recovery is deliberately bounded, but a malformed no-tools response
-      // should not make the first model the final authority. Exclude the
-      // failed model for the next OpenRouter attempt and ask for a
-      // content-only response using an explicit protocol-repair instruction.
-      const recoveryMaxAttempts = providerId === "openrouter" ? 2 : 1;
-      const recoveryExcludedModels = new Set<string>();
+      const recoveryProviders: ProjectQuerySynthesisFallbackProvider[] = [
+        {
+          provider: providerId,
+          strategy,
+          apiKey,
+          providerIndex: opts.synthesisProviderIndex ?? 0,
+        },
+        ...(opts.synthesisFallbackProviders ?? []).filter(
+          (candidate) => candidate.provider !== providerId,
+        ),
+      ];
       let recoveryAccepted = false;
       let recoveryFailureReason:
         | "synthesis_failed"
         | "provider_candidate_incomplete"
         | undefined;
+      let stopRecovery = false;
+      let cancelled = false;
+      let synthesisAttemptSequence = 0;
 
-      for (let recoveryAttempt = 0; recoveryAttempt < recoveryMaxAttempts; recoveryAttempt += 1) {
-        const attemptNumber = recoveryAttempt + 1;
-        const attemptId = sha256(
-          `${executionLedger.id}\n${projectQueryEvidencePacket?.manifestId ?? "no-manifest"}\n${attemptNumber}`,
-        ).slice(0, 40);
-        const synthesisStartedAt = Date.now();
-        const admitted = executionLedger.admit("synthesis", {
-          provider,
-          operation: "project_query_no_tools_synthesis",
+      const reportSynthesisAttempt = (params: {
+        attemptNumber: number;
+        attemptId: string;
+        candidate: ProjectQuerySynthesisFallbackProvider;
+        startedAt: number;
+        contractOutcome: "accepted" | "rejected" | "not_evaluated";
+        outputHash: string;
+        failureClass?: ProjectQuerySynthesisFailureClass;
+        failureScope?: ProjectQuerySynthesisRateLimitScope;
+        recoveryAction: "accepted" | "repair" | "next_provider" | "stop" | "deterministic_fallback";
+        model?: string;
+        extraDetails?: string[];
+      }) => {
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
+          details: [
+            `attempt=${params.attemptNumber}`,
+            `attemptId=${params.attemptId}`,
+            ...(projectQueryEvidencePacket
+              ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
+              : []),
+            `provider=${params.candidate.provider}`,
+            `providerIndex=${params.candidate.providerIndex}`,
+            `model=${safeSynthesisIdentifier(params.model)}`,
+            `durationMs=${Math.max(0, Date.now() - params.startedAt)}`,
+            `contractOutcome=${params.contractOutcome}`,
+            `outputHash=${params.outputHash}`,
+            ...(params.failureClass ? [`failureClass=${params.failureClass}`] : []),
+            ...(params.failureScope ? [`failureScope=${params.failureScope}`] : []),
+            `recoveryAction=${params.recoveryAction}`,
+            ...(params.extraDetails ?? []),
+            failureChainDetail(),
+          ],
         });
-        if (!admitted) {
-          recoveryFailureReason ??= "synthesis_failed";
+      };
+
+      for (const [candidateOffset, recoveryProvider] of recoveryProviders.entries()) {
+        if (recoveryAccepted || stopRecovery) break;
+        if (candidateOffset > 0 && !executionLedger.admit("provider_change", {
+          provider: recoveryProvider.provider,
+          operation: "project_query_no_tools_synthesis",
+        })) {
+          const attemptNumber = synthesisAttemptSequence + 1;
+          const attemptId = sha256(
+            `${executionLedger.id}\n${projectQueryEvidencePacket?.manifestId ?? "no-manifest"}\n${recoveryProvider.provider}\n${recoveryProvider.providerIndex}\nbudget`,
+          ).slice(0, 40);
           relayAgentStep({
             kind: "diagnostic",
             code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS_BUDGET_EXHAUSTED",
@@ -9765,220 +9887,449 @@ export async function chat(opts: {
               ...(projectQueryEvidencePacket
                 ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
                 : []),
-              "outcome=budget_exhausted",
-              "request execution ledger rejected the bounded no-tools synthesis attempt",
-            ],
-          });
-          break;
-        }
-        const repairAttempt = recoveryAttempt > 0;
-        const recoveryMessages = [
-          {
-            role: "system" as const,
-            content:
-              "Synthesize a scoped project answer from the retained evidence below. " +
-              "Do not call tools or request more files. Return ONLY a JSON object with " +
-              'response, sources, claimRefs, and flowRefs. claimRefs must contain every ' +
-              "server-owned claimId exactly once; flowRefs must contain at least two " +
-              "ordered claimIds that the response explains as a behavioral sequence. " +
-              "Write natural prose in the requested language; do not repeat the canonical " +
-              "claim wording merely to satisfy the protocol. Do not replace a behavioral " +
-              "explanation with a symbol inventory." +
-              (repairAttempt
-                ? " The previous model output violated the synthesis response contract. " +
-                  "Do not return plain prose only; repair the JSON envelope and keep the prose natural; do not emit XML, " +
-                  "tool markers, function calls, or executable-looking calls such as executeToolLoop(...)."
-                : ""),
-          },
-          {
-            role: "user" as const,
-            content: `${message}\n\nServer-owned retained evidence:\n${evidenceContext}`,
-          },
-        ];
-        const promptMetrics = buildProjectQuerySynthesisPromptMetrics(
-          recoveryMessages,
-          materializedProjectQueryEvidence,
-        );
-        console.info(JSON.stringify({
-          scope: "project-query-synthesis",
-          action: "prompt_metrics",
-          provider: providerId,
-          attempt: recoveryAttempt + 1,
-          ...promptMetrics,
-        }));
-
-        try {
-          const recovery = await strategy.call(
-            recoveryMessages,
-            {
-              model: providerId === "openrouter" ? undefined : (modelDecision.model || model),
-              // This phase needs a concise claim-and-flow answer, not a full
-              // report. Keeping the output bounded also avoids spending the
-              // entire per-model timeout on an overloaded free-tier candidate.
-              maxTokens: 1600,
-              timeoutMs: 30_000,
-              retryTransient: false,
-              // Let OpenRouter try two additional free candidates in the same
-              // bounded synthesis attempt. A model that emits a tool call or
-              // times out must not make the next healthy candidates unreachable.
-              maxFallbackModels: providerId === "openrouter"
-                ? PROJECT_QUERY_SYNTHESIS_MAX_PROVIDER_MODELS
-                : 1,
-              ...(providerId === "openrouter"
-                ? { capability: "chat" as const, quality: "fast" as const }
-                : {}),
-              toolChoice: "none",
-              ...(providerId === "openrouter" && recoveryExcludedModels.size > 0
-                ? { excludeModels: [...recoveryExcludedModels] }
-                : {}),
-              operation: "project_query_no_tools_synthesis",
-              circuitFailurePolicy: "suppress",
-              apiKey,
-              signal,
-              executionLedger,
-            },
-          );
-          const rawSynthesisOutput = recovery.content ?? "";
-          const outputHash = sha256(rawSynthesisOutput);
-          if (providerId === "openrouter" && recovery.model) {
-            recoveryExcludedModels.add(recovery.model);
-          }
-          recoveredCandidate = parseProjectQuerySynthesisCandidate(rawSynthesisOutput);
-          recoveredText = recoveredCandidate.text;
-          const candidateAccepted = isValidProjectQueryCandidate(recoveredText, recoveredCandidate);
-          if (candidateAccepted) {
-            projectQueryAssertedClaimIds = recoveredCandidate.claimRefs;
-            projectQueryFlowRefs = recoveredCandidate.flowRefs;
-            projectQueryAcceptedSynthesisAttemptId = attemptId;
-          }
-          const candidateClaimsComplete = projectQueryCandidateClaimsAreAsserted(
-            objective,
-            recoveredCandidate,
-          );
-          const candidateLanguageValid =
-            validateResponseLanguage(recoveredText, responseLanguage).valid;
-          const candidateFlowValid = projectQueryAnswerHasBehavioralFlow(
-            objective,
-            recoveredText,
-            recoveredCandidate.flowRefs,
-          );
-          if (!candidateAccepted) {
-            synthesisFailureChain.push(
-              `${repairAttempt ? "repair" : "candidate"}:provider_candidate_incomplete`,
-            );
-          }
-          relayAgentStep({
-            kind: "diagnostic",
-            code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
-            details: [
-              `attempt=${attemptNumber}`,
-              repairAttempt ? "protocol repair attempt" : "initial provider synthesis attempt",
-              `attemptId=${attemptId}`,
-              ...(projectQueryEvidencePacket
-                ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
-                : []),
-              `provider=${providerId}`,
-              `model=${safeSynthesisIdentifier(recovery.model)}`,
-              `durationMs=${Math.max(0, Date.now() - synthesisStartedAt)}`,
-              `contractOutcome=${candidateAccepted ? "accepted" : "rejected"}`,
-              `outputHash=${outputHash}`,
-              `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
-              `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
-              `languageValid=${candidateLanguageValid ? "true" : "false"}`,
-              `flowValid=${candidateFlowValid ? "true" : "false"}`,
-              `assertionMode=${recoveredCandidate.claimRefs ? "claim_refs" : "canonical_text"}`,
-              candidateAccepted ? "provider candidate accepted" : "provider candidate rejected",
-              failureChainDetail(),
-            ],
-          });
-          if (candidateAccepted) {
-            recoveryAccepted = true;
-            executionLedger.complete("synthesis", {
-              provider,
-              operation: "project_query_no_tools_synthesis",
-              startedAt: synthesisStartedAt,
-              status: "completed",
-            });
-            break;
-          }
-          recoveredText = "";
-          recoveredCandidate = { text: "" };
-          projectQueryAssertedClaimIds = undefined;
-          projectQueryFlowRefs = undefined;
-          recoveryFailureReason = "provider_candidate_incomplete";
-          executionLedger.complete("synthesis", {
-            provider,
-            operation: "project_query_no_tools_synthesis",
-            startedAt: synthesisStartedAt,
-            status: "failed",
-            reason: "provider_candidate_incomplete",
-          });
-        } catch (error) {
-          recoveredText = "";
-          recoveryFailureReason ??= "synthesis_failed";
-          const providerOutcome =
-            projectQuerySynthesisErrorCode(error);
-          const retryableFailure = isProjectQuerySynthesisRetryableFailure(providerOutcome);
-          synthesisFailureChain.push(
-            `${retryableFailure ? "repairable_provider" : "provider_failure"}:${providerOutcome}`,
-          );
-          if (providerId === "openrouter") {
-            const providerError =
-              error && typeof error === "object"
-                ? error as {
-                    providerAttemptedModels?: unknown;
-                    providerModel?: unknown;
-                  }
-                : undefined;
-            const attemptedModels = Array.isArray(providerError?.providerAttemptedModels)
-              ? providerError.providerAttemptedModels.filter(
-                  (value): value is string => typeof value === "string",
-                )
-              : [];
-            const providerModel =
-              typeof providerError?.providerModel === "string"
-                ? providerError.providerModel
-                : "";
-            for (const attemptedModel of [...attemptedModels, providerModel]) {
-              if (attemptedModel) recoveryExcludedModels.add(attemptedModel);
-            }
-          }
-          relayAgentStep({
-            kind: "diagnostic",
-            code: "PROJECT_QUERY_NO_TOOLS_SYNTHESIS",
-            details: [
-              `attempt=${attemptNumber}`,
-              repairAttempt ? "protocol repair attempt failed" : "provider synthesis failed",
-              `attemptId=${attemptId}`,
-              ...(projectQueryEvidencePacket
-                ? [`evidenceManifestId=${projectQueryEvidencePacket.manifestId}`]
-                : []),
-              `provider=${providerId}`,
-              `model=${safeSynthesisIdentifier(
-                error && typeof error === "object" && typeof (error as { providerModel?: unknown }).providerModel === "string"
-                  ? (error as { providerModel: string }).providerModel
-                  : undefined,
-              )}`,
-              `durationMs=${Math.max(0, Date.now() - synthesisStartedAt)}`,
+              `provider=${recoveryProvider.provider}`,
+              `providerIndex=${recoveryProvider.providerIndex}`,
               "contractOutcome=not_evaluated",
               "outputHash=none",
-              `failureKind=${providerOutcome}`,
-              `provider outcome:${providerOutcome.slice(0, 48)}`,
-              retryableFailure && recoveryAttempt + 1 < recoveryMaxAttempts
-                ? "retrying with an excluded model"
-                : "deterministic claim assembly will be used",
-              failureChainDetail(),
+              "durationMs=0",
+              "failureClass=BUDGET",
+              "recoveryAction=stop",
+              "outcome=provider_change_budget_exhausted",
             ],
           });
-          executionLedger.complete("synthesis", {
-            provider,
-            operation: "project_query_no_tools_synthesis",
-            startedAt: synthesisStartedAt,
-            status: "failed",
-            reason: providerOutcome,
-          });
-          if (!retryableFailure) break;
+          recoveryFailureReason ??= "synthesis_failed";
+          stopRecovery = true;
+          break;
         }
+
+        let projectBudgetAdmitted = false;
+        let projectBudgetChecked = false;
+        let hasUsage = false;
+        let usageComplete = true;
+        let promptTokens = 0;
+        let completionTokens = 0;
+        let repairAttemptUsed = false;
+        const recoveryExcludedModels = new Set<string>();
+
+        try {
+          for (let providerRecoveryAttempt = 0; providerRecoveryAttempt < 2; providerRecoveryAttempt += 1) {
+            if (signal?.aborted || executionLedger.signal.aborted) {
+              cancelled = true;
+              stopRecovery = true;
+              break;
+            }
+
+            const attemptNumber = ++synthesisAttemptSequence;
+            const attemptId = sha256(
+              `${executionLedger.id}\n${projectQueryEvidencePacket?.manifestId ?? "no-manifest"}\n${recoveryProvider.provider}\n${recoveryProvider.providerIndex}\n${attemptNumber}`,
+            ).slice(0, 40);
+            const synthesisStartedAt = Date.now();
+            const timeoutMs = executionLedger.timeoutMs(30_000);
+            if (timeoutMs < 1_000) {
+              executionLedger.setTerminal("deadline");
+              reportSynthesisAttempt({
+                attemptNumber,
+                attemptId,
+                candidate: recoveryProvider,
+                startedAt: synthesisStartedAt,
+                contractOutcome: "not_evaluated",
+                outputHash: "none",
+                failureClass: "BUDGET",
+                recoveryAction: "stop",
+              });
+              recoveryFailureReason ??= "synthesis_failed";
+              stopRecovery = true;
+              break;
+            }
+            if (!executionLedger.admit("synthesis", {
+              provider: recoveryProvider.provider,
+              operation: "project_query_no_tools_synthesis",
+            })) {
+              reportSynthesisAttempt({
+                attemptNumber,
+                attemptId,
+                candidate: recoveryProvider,
+                startedAt: synthesisStartedAt,
+                contractOutcome: "not_evaluated",
+                outputHash: "none",
+                failureClass: "BUDGET",
+                recoveryAction: "stop",
+              });
+              recoveryFailureReason ??= "synthesis_failed";
+              stopRecovery = true;
+              break;
+            }
+
+            if (candidateOffset > 0 && !projectBudgetChecked) {
+              projectBudgetChecked = true;
+              if (recoveryProvider.admitProjectBudget) {
+                let allowed: boolean;
+                try {
+                  allowed = await recoveryProvider.admitProjectBudget();
+                } catch (error) {
+                  executionLedger.complete("synthesis", {
+                    provider: recoveryProvider.provider,
+                    operation: "project_query_no_tools_synthesis",
+                    startedAt: synthesisStartedAt,
+                    status: "failed",
+                    reason: "project_budget_admission_failed",
+                  });
+                  throw error;
+                }
+                if (!allowed) {
+                  executionLedger.complete("synthesis", {
+                    provider: recoveryProvider.provider,
+                    operation: "project_query_no_tools_synthesis",
+                    startedAt: synthesisStartedAt,
+                    status: "failed",
+                    reason: "project_ai_budget_exhausted",
+                  });
+                  reportSynthesisAttempt({
+                    attemptNumber,
+                    attemptId,
+                    candidate: recoveryProvider,
+                    startedAt: synthesisStartedAt,
+                    contractOutcome: "not_evaluated",
+                    outputHash: "none",
+                    failureClass: "BUDGET",
+                    recoveryAction: "stop",
+                  });
+                  recoveryFailureReason ??= "synthesis_failed";
+                  stopRecovery = true;
+                  break;
+                }
+                projectBudgetAdmitted = true;
+              }
+            }
+
+            const repairAttempt = repairAttemptUsed;
+            const recoveryMessages = [
+              {
+                role: "system" as const,
+                content:
+                  "Synthesize a scoped project answer from the retained evidence below. " +
+                  "Do not call tools or request more files. Return ONLY a JSON object with " +
+                  'response, sources, claimRefs, and flowRefs. claimRefs must contain every ' +
+                  "server-owned claimId exactly once; flowRefs must contain at least two " +
+                  "ordered claimIds that the response explains as a behavioral sequence. " +
+                  "Write natural prose in the requested language; do not repeat the canonical " +
+                  "claim wording merely to satisfy the protocol. Do not replace a behavioral " +
+                  "explanation with a symbol inventory." +
+                  (repairAttempt
+                    ? " The previous model output violated the synthesis response contract. " +
+                      "Do not return plain prose only; repair the JSON envelope and keep the prose natural; do not emit XML, " +
+                      "tool markers, function calls, or executable-looking calls such as executeToolLoop(...)."
+                    : ""),
+              },
+              {
+                role: "user" as const,
+                content: `${message}\n\nServer-owned retained evidence:\n${evidenceContext}`,
+              },
+            ];
+            const promptMetrics = buildProjectQuerySynthesisPromptMetrics(
+              recoveryMessages,
+              materializedProjectQueryEvidence,
+            );
+            console.info(JSON.stringify({
+              scope: "project-query-synthesis",
+              action: "prompt_metrics",
+              provider: recoveryProvider.provider,
+              attempt: attemptNumber,
+              ...promptMetrics,
+            }));
+
+            const synthesisModel = recoveryProvider.provider === "openrouter"
+              ? undefined
+              : recoveryProvider.provider === providerId
+                ? (modelDecision.model || model)
+                : resolveExecutionModel(recoveryProvider.provider, executionPlan).model;
+            let recovery: Awaited<ReturnType<typeof recoveryProvider.strategy.call>>;
+            try {
+              recovery = await recoveryProvider.strategy.call(
+                recoveryMessages,
+                {
+                  model: synthesisModel,
+                  maxTokens: 1600,
+                  timeoutMs,
+                  retryTransient: false,
+                  maxFallbackModels: recoveryProvider.provider === "openrouter"
+                    ? PROJECT_QUERY_SYNTHESIS_MAX_PROVIDER_MODELS
+                    : 1,
+                  ...(recoveryProvider.provider === "openrouter"
+                    ? { capability: "chat" as const, quality: "fast" as const }
+                    : {}),
+                  toolChoice: "none",
+                  ...(recoveryProvider.provider === "openrouter" && recoveryExcludedModels.size > 0
+                    ? { excludeModels: [...recoveryExcludedModels] }
+                    : {}),
+                  operation: "project_query_no_tools_synthesis",
+                  circuitFailurePolicy: "suppress",
+                  apiKey: recoveryProvider.apiKey,
+                  signal,
+                  executionLedger,
+                },
+              );
+              if (signal?.aborted || executionLedger.signal.aborted) {
+                throw Object.assign(new Error("Execution cancelled"), {
+                  name: "AbortError",
+                  code: "CANCELLED",
+                });
+              }
+            } catch (error) {
+              recoveredText = "";
+              const providerOutcome = projectQuerySynthesisErrorCode(error);
+              const failureClass = signal?.aborted || executionLedger.signal.aborted
+                ? "CANCELLED"
+                : projectQuerySynthesisFailureClass(providerOutcome);
+              if (failureClass === "CANCELLED") {
+                cancelled = true;
+                stopRecovery = true;
+                reportSynthesisAttempt({
+                  attemptNumber,
+                  attemptId,
+                  candidate: recoveryProvider,
+                  startedAt: synthesisStartedAt,
+                  contractOutcome: "not_evaluated",
+                  outputHash: "none",
+                  failureClass: "CANCELLED",
+                  recoveryAction: "stop",
+                });
+                executionLedger.complete("synthesis", {
+                  provider: recoveryProvider.provider,
+                  operation: "project_query_no_tools_synthesis",
+                  startedAt: synthesisStartedAt,
+                  status: "failed",
+                  reason: "cancelled",
+                });
+                break;
+              }
+
+              usageComplete = false;
+              synthesisFailureChain.push(`${failureClass}:${providerOutcome}`);
+              if (
+                failureClass === "PROVIDER_AVAILABILITY" ||
+                failureClass === "PROVIDER_TRANSPORT"
+              ) {
+                try {
+                  await opts.onSynthesisProviderFailure?.({
+                    provider: recoveryProvider.provider,
+                    code: providerOutcome,
+                  });
+                } catch (callbackError) {
+                  console.warn("Project-query synthesis lifecycle callback failed", callbackError);
+                }
+              }
+              if (recoveryProvider.provider === "openrouter") {
+                const providerError = error && typeof error === "object"
+                  ? error as { providerAttemptedModels?: unknown; providerModel?: unknown }
+                  : undefined;
+                const attemptedModels = Array.isArray(providerError?.providerAttemptedModels)
+                  ? providerError.providerAttemptedModels.filter(
+                      (value): value is string => typeof value === "string",
+                    )
+                  : [];
+                const providerModel = typeof providerError?.providerModel === "string"
+                  ? providerError.providerModel
+                  : "";
+                for (const attemptedModel of [...attemptedModels, providerModel]) {
+                  if (attemptedModel) recoveryExcludedModels.add(attemptedModel);
+                }
+              }
+
+              const hasNextProvider = candidateOffset + 1 < recoveryProviders.length;
+              const shouldRepair = failureClass === "MODEL_LOCAL" && !repairAttemptUsed;
+              const canMoveProvider =
+                failureClass === "PROVIDER_AVAILABILITY" ||
+                failureClass === "PROVIDER_TRANSPORT" ||
+                (failureClass === "MODEL_LOCAL" && repairAttemptUsed);
+              const recoveryAction = shouldRepair
+                ? "repair"
+                : canMoveProvider && hasNextProvider
+                  ? "next_provider"
+                  : canMoveProvider
+                    ? "deterministic_fallback"
+                    : "stop";
+              reportSynthesisAttempt({
+                attemptNumber,
+                attemptId,
+                candidate: recoveryProvider,
+                startedAt: synthesisStartedAt,
+                contractOutcome: "not_evaluated",
+                outputHash: "none",
+                failureClass,
+                failureScope: projectQuerySynthesisRateLimitScope(error),
+                recoveryAction,
+                model: error && typeof error === "object" &&
+                    typeof (error as { providerModel?: unknown }).providerModel === "string"
+                  ? (error as { providerModel: string }).providerModel
+                  : undefined,
+              });
+              executionLedger.complete("synthesis", {
+                provider: recoveryProvider.provider,
+                operation: "project_query_no_tools_synthesis",
+                startedAt: synthesisStartedAt,
+                status: "failed",
+                reason: providerOutcome,
+              });
+              recoveryFailureReason = "synthesis_failed";
+              if (shouldRepair) {
+                repairAttemptUsed = true;
+                continue;
+              }
+              if (canMoveProvider && hasNextProvider) break;
+              if (!canMoveProvider) stopRecovery = true;
+              break;
+            }
+
+            const usage = recovery.usage;
+            if (
+              Number.isSafeInteger(usage?.promptTokens) &&
+              Number.isSafeInteger(usage?.completionTokens)
+            ) {
+              hasUsage = true;
+              promptTokens += usage.promptTokens;
+              completionTokens += usage.completionTokens;
+            } else {
+              usageComplete = false;
+            }
+            const rawSynthesisOutput = recovery.content ?? "";
+            const outputHash = sha256(rawSynthesisOutput);
+            if (recoveryProvider.provider === "openrouter" && recovery.model) {
+              recoveryExcludedModels.add(recovery.model);
+            }
+            recoveredCandidate = parseProjectQuerySynthesisCandidate(rawSynthesisOutput);
+            recoveredText = recoveredCandidate.text;
+            const candidateAccepted = isValidProjectQueryCandidate(recoveredText, recoveredCandidate);
+            const candidateClaimsComplete = projectQueryCandidateClaimsAreAsserted(
+              objective,
+              recoveredCandidate,
+            );
+            const candidateLanguageValid =
+              validateResponseLanguage(recoveredText, responseLanguage).valid;
+            const candidateFlowValid = projectQueryAnswerHasBehavioralFlow(
+              objective,
+              recoveredText,
+              recoveredCandidate.flowRefs,
+            );
+
+            if (candidateAccepted) {
+              projectQueryAssertedClaimIds = recoveredCandidate.claimRefs;
+              projectQueryFlowRefs = recoveredCandidate.flowRefs;
+              projectQueryAcceptedSynthesisAttemptId = attemptId;
+              projectQueryAcceptedSynthesisProvider = recoveryProvider.provider;
+              projectQueryAcceptedSynthesisModel = recovery.model;
+              try {
+                await opts.onSynthesisProviderAccepted?.({
+                  provider: recoveryProvider.provider,
+                  providerIndex: recoveryProvider.providerIndex,
+                  ...(recovery.model ? { model: recovery.model } : {}),
+                });
+              } catch (callbackError) {
+                console.warn("Project-query synthesis acceptance callback failed", callbackError);
+              }
+              reportSynthesisAttempt({
+                attemptNumber,
+                attemptId,
+                candidate: recoveryProvider,
+                startedAt: synthesisStartedAt,
+                contractOutcome: "accepted",
+                outputHash,
+                recoveryAction: "accepted",
+                model: recovery.model,
+                extraDetails: [
+                  `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
+                  `languageValid=${candidateLanguageValid ? "true" : "false"}`,
+                  `flowValid=${candidateFlowValid ? "true" : "false"}`,
+                  `assertionMode=${recoveredCandidate.claimRefs ? "claim_refs" : "canonical_text"}`,
+                  `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
+                ],
+              });
+              recoveryAccepted = true;
+              executionLedger.complete("synthesis", {
+                provider: recoveryProvider.provider,
+                model: recovery.model,
+                operation: "project_query_no_tools_synthesis",
+                startedAt: synthesisStartedAt,
+                status: "completed",
+              });
+              break;
+            }
+
+            const failureClass = recoveredCandidate.schemaValid ? "SEMANTIC" : "CONTRACT";
+            synthesisFailureChain.push(`${failureClass}:provider_candidate_incomplete`);
+            const hasNextProvider = candidateOffset + 1 < recoveryProviders.length;
+            const recoveryAction = !repairAttemptUsed
+              ? "repair"
+              : hasNextProvider
+                ? "next_provider"
+                : "deterministic_fallback";
+            reportSynthesisAttempt({
+              attemptNumber,
+              attemptId,
+              candidate: recoveryProvider,
+              startedAt: synthesisStartedAt,
+              contractOutcome: "rejected",
+              outputHash,
+              failureClass,
+              recoveryAction,
+              model: recovery.model,
+              extraDetails: [
+                `claimsComplete=${candidateClaimsComplete ? "true" : "false"}`,
+                `languageValid=${candidateLanguageValid ? "true" : "false"}`,
+                `flowValid=${candidateFlowValid ? "true" : "false"}`,
+                `assertionMode=${recoveredCandidate.claimRefs ? "claim_refs" : "canonical_text"}`,
+                `retained ${materializedProjectQueryEvidence.length} server-owned claim evidence windows`,
+              ],
+            });
+            projectQueryAssertedClaimIds = undefined;
+            projectQueryFlowRefs = undefined;
+            recoveryFailureReason = "provider_candidate_incomplete";
+            executionLedger.complete("synthesis", {
+              provider: recoveryProvider.provider,
+              model: recovery.model,
+              operation: "project_query_no_tools_synthesis",
+              startedAt: synthesisStartedAt,
+              status: "failed",
+              reason: "provider_candidate_incomplete",
+            });
+            recoveredText = "";
+            recoveredCandidate = { text: "", schemaValid: false };
+            if (!repairAttemptUsed) {
+              repairAttemptUsed = true;
+              continue;
+            }
+            break;
+          }
+        } finally {
+          if (projectBudgetAdmitted && recoveryProvider.reconcileProjectBudget) {
+            const usageStatus = !hasUsage || !usageComplete
+              ? "unknown"
+              : recoveryProvider.strategy.ownsModelFallback
+                ? "partial"
+                : "known";
+            await recoveryProvider.reconcileProjectBudget({
+              promptTokens: hasUsage ? promptTokens : null,
+              completionTokens: hasUsage ? completionTokens : null,
+              usageStatus,
+            }).catch((error) => {
+              console.warn("Project-query synthesis budget reconciliation failed", error);
+            });
+          }
+        }
+
+        if (cancelled) break;
+        if (recoveryAccepted) break;
+        recoveredText = "";
+        recoveredCandidate = { text: "", schemaValid: false };
+        projectQueryAssertedClaimIds = undefined;
+        projectQueryFlowRefs = undefined;
+      }
+
+      if (cancelled) {
+        if (signal?.aborted) {
+          throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+        }
+        throw new GroqClientError("TIMEOUT", "The request deadline elapsed during project-query synthesis");
       }
       if (!recoveryAccepted) {
         projectQueryFallbackReason ??= recoveryFailureReason ?? "synthesis_failed";
@@ -10590,8 +10941,18 @@ export async function chat(opts: {
 
   // STORY-04: capture actual model used — may differ from initial selection if
   // the fallback engine advanced to a different model mid-request.
-  const resolvedModelInfo: ResolvedModelInfo | undefined = result.model
-    ? { id: result.model, provider: providerId, free: providerId === "openrouter" }
+  const resolvedModelProvider = projectQueryAcceptedSynthesisProvider ?? providerId;
+  const resolvedModelId = projectQueryAcceptedSynthesisProvider &&
+      projectQueryAcceptedSynthesisProvider !== providerId &&
+      !projectQueryAcceptedSynthesisModel
+    ? undefined
+    : projectQueryAcceptedSynthesisModel ?? result.model;
+  const resolvedModelInfo: ResolvedModelInfo | undefined = resolvedModelId
+    ? {
+        id: resolvedModelId,
+        provider: resolvedModelProvider,
+        free: resolvedModelProvider === "openrouter",
+      }
     : undefined;
 
   /**

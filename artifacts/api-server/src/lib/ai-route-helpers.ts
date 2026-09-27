@@ -61,7 +61,11 @@ import {
   recordAiUsageAttempt,
 } from "./ai-telemetry.js";
 import type { AiTelemetryContext, AiContractTelemetry } from "./ai-telemetry.js";
-import { admitAiProviderAttempt, reconcileAiBudgetReservation } from "./ai-budget.js";
+import {
+  AiBudgetAdmissionError,
+  admitAiProviderAttempt,
+  reconcileAiBudgetReservation,
+} from "./ai-budget.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { classifyProviderFailure } from "./provider-failure-diagnostics.js";
 
@@ -1104,6 +1108,8 @@ export async function chatWithFallback(
       // The API package can briefly consume an older workspace declaration
       // while the orchestrator adds this request-scoped additive option.
       // Keep the compatibility cast at this package boundary only.
+      let acceptedSynthesisProvider: ProviderId | undefined;
+      let acceptedSynthesisProviderIndex: number | undefined;
       const result = await chat({
         ...baseParams,
         apiKey: providerEntry.apiKey,
@@ -1159,6 +1165,76 @@ export async function chatWithFallback(
                 strategy: getStrategy(candidate.provider),
               }))
           : undefined,
+        synthesisProviderIndex: providerIndex,
+        synthesisFallbackProviders: orderedProviders
+          .slice(providerIndex + 1)
+          .filter((candidate) => candidate.provider !== providerEntry.provider)
+          .map((candidate, fallbackOffset) => {
+            const synthesisReservationId = attemptId
+              ? `${attemptId}:project-query-synthesis:${candidate.provider}`
+              : undefined;
+            const projectId = baseParams.telemetryContext?.projectId;
+            return {
+              provider: candidate.provider,
+              apiKey: candidate.apiKey,
+              strategy: getStrategy(candidate.provider),
+              providerIndex: providerIndex + fallbackOffset + 1,
+              ...(projectId && synthesisReservationId
+                ? {
+                    admitProjectBudget: async () => {
+                      await admitAiProviderAttempt({
+                        ownerId: userId,
+                        projectId,
+                        attemptId: synthesisReservationId,
+                      });
+                      return true;
+                    },
+                    reconcileProjectBudget: async (usage: {
+                      promptTokens?: number | null;
+                      completionTokens?: number | null;
+                      usageStatus?: "known" | "partial" | "unknown";
+                    }) => {
+                      await reconcileAiBudgetReservation(synthesisReservationId, usage).catch((error) => {
+                        logger.warn(
+                          { error, attemptId: synthesisReservationId },
+                          "project-query synthesis budget reconciliation failed",
+                        );
+                      });
+                    },
+                  }
+                : {}),
+            };
+          }),
+        onSynthesisProviderFailure: async ({
+          provider,
+          code,
+        }: { provider: ProviderId; code: string }) => {
+          const failedProvider = orderedProviders.find(
+            (candidate) => candidate.provider === provider,
+          );
+          if (!failedProvider) return;
+          if (
+            code === "MODEL_NOT_FOUND" ||
+            code === "AUTH_ERROR" ||
+            code === "TIMEOUT" ||
+            code === "SERVER_ERROR" ||
+            code === "RATE_LIMITED"
+          ) {
+            await recordProviderLifecycleOutcome({
+              provider,
+              source: failedProvider.source,
+              apiKey: failedProvider.apiKey,
+              code: code as "MODEL_NOT_FOUND" | "AUTH_ERROR" | "TIMEOUT" | "SERVER_ERROR" | "RATE_LIMITED",
+            });
+          }
+        },
+        onSynthesisProviderAccepted: ({
+          provider,
+          providerIndex: acceptedIndex,
+        }: { provider: ProviderId; providerIndex: number; model?: string }) => {
+          acceptedSynthesisProvider = provider;
+          acceptedSynthesisProviderIndex = acceptedIndex;
+        },
         onProviderAttempt: capabilityProbeTurn
           ? async (attempt) => {
               capabilityRecoveryAttemptSerial += 1;
@@ -1209,22 +1285,35 @@ export async function chatWithFallback(
               ...contractTelemetry,
             },
           );
+      const resolvedProvider = acceptedSynthesisProvider ?? PROVIDER_PRIORITY.find(
+        (candidate) => candidate === result.resolvedModel?.provider,
+      );
+      const matchedProviderIndex = resolvedProvider
+        ? orderedProviders.findIndex((candidate) => candidate.provider === resolvedProvider)
+        : -1;
+      const effectiveProviderIndex = acceptedSynthesisProviderIndex ??
+        (matchedProviderIndex >= 0 ? matchedProviderIndex : providerIndex);
       if (capabilityProbeTurn || projectedAttempts.emitted === 0) {
         await baseParams.onProviderAttempt?.({
-        provider: providerEntry.provider,
-        model: result.resolvedModel?.id ?? null,
-        outcome: "success",
-        latencyMs: Date.now() - providerStartedAt,
-        attemptNumber: providerIndex + 1,
-        fallbackCount: providerIndex,
-        promptTokens: result.usage?.promptTokens,
-        completionTokens: result.usage?.completionTokens,
-        usageStatus: result.usage ? "known" : "unknown",
-        ...contractTelemetry,
+          provider: resolvedProvider ?? providerEntry.provider,
+          model: result.resolvedModel?.id ?? null,
+          outcome: "success",
+          latencyMs: Date.now() - providerStartedAt,
+          attemptNumber: effectiveProviderIndex + 1,
+          fallbackCount: effectiveProviderIndex,
+          promptTokens: result.usage?.promptTokens,
+          completionTokens: result.usage?.completionTokens,
+          usageStatus: result.usage ? "known" : "unknown",
+          ...contractTelemetry,
         });
       }
-      return { result, effectiveProvider: providerEntry.provider, executionLedger };
+      return {
+        result,
+        effectiveProvider: resolvedProvider ?? providerEntry.provider,
+        executionLedger,
+      };
     } catch (err) {
+      const projectBudgetAdmissionFailed = err instanceof AiBudgetAdmissionError;
       const providerError = normalizeProviderFailure(err);
       if (attemptId) {
         await reconcileAiBudgetReservation(attemptId).catch((error) => {
@@ -1240,7 +1329,8 @@ export async function chatWithFallback(
             providerAttemptProjectionState,
             baseParams.onProviderAttempt,
           );
-      if (capabilityProbeTurn || projectedAttempts.emitted === 0 || projectedAttempts.failed === 0) {
+      if (!projectBudgetAdmissionFailed &&
+        (capabilityProbeTurn || projectedAttempts.emitted === 0 || projectedAttempts.failed === 0)) {
         // A completed transport event can still lead to a contract-level
         // failure (for example an unrecoverable malformed response). Keep the
         // outer failure row for that semantic outcome, but advance the ledger
@@ -1263,6 +1353,8 @@ export async function chatWithFallback(
         providerFailureKind: providerError.code,
         });
       }
+      if (projectBudgetAdmissionFailed) throw err;
+      if (baseParams.signal?.aborted) throw err;
       recordProviderLifecycleOutcome({
         provider: providerEntry.provider,
         source: providerEntry.source,

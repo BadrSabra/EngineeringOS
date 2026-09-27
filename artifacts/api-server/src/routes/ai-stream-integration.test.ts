@@ -7152,9 +7152,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           "attempt=1",
           `attemptId=${"b".repeat(40)}`,
           `evidenceManifestId=${"a".repeat(64)}`,
+          "provider=gemini",
+          "providerIndex=1",
           "contractOutcome=accepted",
           `outputHash=${"c".repeat(64)}`,
           "durationMs=23",
+          "recoveryAction=accepted",
         ],
       });
       args[6]?.({
@@ -7221,8 +7224,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           sources,
           pendingChanges: [],
           projectQueryResponseSource: "provider_synthesis",
+          resolvedModel: {
+            id: "gemini-good-model",
+            provider: "gemini",
+            free: false,
+          },
         },
-        effectiveProvider: "groq" as const,
+        effectiveProvider: "gemini" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
@@ -7354,8 +7362,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         details: expect.arrayContaining([
           `attemptId=${"b".repeat(40)}`,
           `evidenceManifestId=${"a".repeat(64)}`,
+          "provider=gemini",
+          "providerIndex=1",
           "contractOutcome=accepted",
           `outputHash=${"c".repeat(64)}`,
+          "recoveryAction=accepted",
         ]),
       }),
       expect.objectContaining({

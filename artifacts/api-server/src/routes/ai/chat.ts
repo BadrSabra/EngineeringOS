@@ -1262,14 +1262,22 @@ function safeProjectQueryTraceDetails(
         : [];
     }),
   );
-  const fields: Array<[string, RegExp]> = code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS"
+  const synthesisDiagnostic =
+    code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS" ||
+    code === "PROJECT_QUERY_NO_TOOLS_SYNTHESIS_BUDGET_EXHAUSTED";
+  const fields: Array<[string, RegExp]> = synthesisDiagnostic
     ? [
         ["attempt", /^\d{1,2}$/],
         ["attemptId", /^[a-f0-9]{40}$/],
         ["evidenceManifestId", /^[a-f0-9]{64}$/],
+        ["provider", /^(?:groq|deepseek|openrouter|gemini)$/],
+        ["providerIndex", /^[0-3]$/],
         ["contractOutcome", /^(?:accepted|rejected|not_evaluated)$/],
         ["outputHash", /^(?:none|[a-f0-9]{64})$/],
         ["durationMs", /^\d{1,6}$/],
+        ["failureClass", /^(?:MODEL_LOCAL|PROVIDER_AVAILABILITY|PROVIDER_TRANSPORT|CONTRACT|SEMANTIC|CONFIGURATION|UNKNOWN|BUDGET|CANCELLED)$/],
+        ["failureScope", /^(?:upstream_shared_pool|provider_credential|account_quota|unknown)$/],
+        ["recoveryAction", /^(?:accepted|repair|next_provider|stop|deterministic_fallback)$/],
       ]
     : code === "PROJECT_QUERY_RESPONSE_BINDING"
       ? [

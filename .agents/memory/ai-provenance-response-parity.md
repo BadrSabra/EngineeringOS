@@ -14,3 +14,9 @@ At the SSE boundary, keep the bounded `PROJECT_QUERY_RESPONSE_SOURCE` diagnostic
 **Why:** A route fixture that populated only the typed result fields still omitted fallback provenance from the SSE done message, while the same route correctly projected it once the server-owned trace diagnostic was present.
 
 **How to apply:** When adding or testing a new response-source value, emit the allowlisted source diagnostic before terminal serialization and assert the nested message, envelope, and history projections.
+
+For cross-provider PROJECT_QUERY synthesis, the accepted synthesis provider—not the provider that performed the tool loop—owns the final response identity. Keep route outcome and `resolvedModel` aligned; if the accepted model is unknown, do not pair the fallback provider with the earlier provider's model ID.
+
+**Why:** A provider may acquire evidence successfully and fail only at synthesis, after which another authorized provider supplies the answer. Reporting the first provider as the answer source misstates provenance.
+
+**How to apply:** Capture accepted synthesis identity in server-owned state and use it for effective-provider telemetry and response projections; use only the model ID reported by the accepted synthesis call.
