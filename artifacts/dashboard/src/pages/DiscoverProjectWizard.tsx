@@ -302,6 +302,36 @@ function extractApiError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function extractArchiveUploadError(err: unknown): string {
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    const response = e['response'] as Record<string, unknown> | undefined;
+    const data = response?.['data'] as Record<string, unknown> | undefined;
+    const status =
+      typeof response?.['status'] === 'number'
+        ? response['status']
+        : typeof e['status'] === 'number'
+          ? e['status']
+          : undefined;
+    const code = typeof data?.['code'] === 'string' ? data['code'] : undefined;
+
+    if (status === 413 || code === 'UPLOAD_TOO_LARGE') {
+      return 'This archive exceeds the 50 MiB limit. Choose a smaller archive and try again.';
+    }
+    if (status === 422) {
+      return "We couldn't verify this archive. Make sure it is a valid .zip, .tar.gz, or .tgz with no unsafe paths or links, then try again.";
+    }
+    if (status === 400) {
+      return "This file isn't a supported archive. Choose a .zip, .tar.gz, or .tgz file and try again.";
+    }
+  }
+
+  return extractApiError(
+    err,
+    'Archive upload failed. Check your connection and try again.',
+  );
+}
+
 // ─── Step icon ─────────────────────────────────────────────────────────────────
 
 function StepIcon({ status }: { status: DiscoveryStep['status'] }) {
@@ -506,7 +536,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           upload = await archiveUpload.mutateAsync({ data: { archive: file } });
           setUploadedArchive(upload);
         } catch (err: unknown) {
-          setStartError(extractApiError(err, 'Failed to upload archive. Please try again.'));
+          setStartError(extractArchiveUploadError(err));
           return;
         }
       }
@@ -812,7 +842,11 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       </div>
 
       {startError && (
-        <div className="flex items-start gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+        <div
+          role="alert"
+          data-testid="discovery-start-error"
+          className="flex items-start gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3"
+        >
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{startError}</span>
         </div>
