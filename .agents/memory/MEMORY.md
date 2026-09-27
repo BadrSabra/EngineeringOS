@@ -114,6 +114,7 @@
 - [Dashboard stream reconnect](dashboard-stream-reconnect.md) — transient SSE loss retries the same durable execution with bounded backoff; terminal and manual resume remain authoritative.
 - [Checkpoint sequence coherence](checkpoint-sequence-coherence.md) — resume writes must advance past both the JSON checkpoint sequence and the durable checkpoint version.
 - [Mission recovery checkpoint parsing](mission-recovery-checkpoint-parsing.md) — parse the full persisted tool-loop envelope; generic checkpoint projections truncate nested recovery manifests.
+- [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.

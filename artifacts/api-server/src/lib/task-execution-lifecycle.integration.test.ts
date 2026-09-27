@@ -3,7 +3,12 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MISSION_REPAIR_TOOL_CAPABILITY_ID } from "./agent-state/mission-repair-effect.js";
+import {
+  buildMissionRepairEffectContract,
+  MISSION_REPAIR_TOOL_CAPABILITY_ID,
+} from "./agent-state/mission-repair-effect.js";
+import { verifyAndPersistEffect } from "./agent-state/effect-observer.js";
+import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { assertMissionRepairToolActionRequested } from "./agent-state/mission-repair-tool-action-ledger.js";
 import type { AgentAction } from "@workspace/ai-orchestrator";
 import {
@@ -82,6 +87,9 @@ import {
   executeTaskLifecycle,
   parseMissionToolLoopCheckpoint,
 } from "./task-execution-service.js";
+import { checkpointAiExecution } from "./ai-execution-state.js";
+import { appendEpisodeEvent } from "./agent-state/agent-episode-ledger.js";
+import { createValidationWorkspace } from "./ai-repair-validation.js";
 
 async function waitForEpisode(executionId: string) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -211,6 +219,27 @@ async function createMissionToolLoopFixture(input: {
 describe("real durable task execution lifecycle", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    runAgentWithFallback.mockReset().mockImplementation(async () => ({
+      result: {
+        summary: "Fixture execution completed.",
+        confidence: "high" as const,
+        needsHumanReview: false,
+        steps: ["Server-owned fixture output accepted."],
+      },
+      effectiveProvider: "groq" as const,
+    }));
+    chatWithFallback.mockReset().mockImplementation(async () => ({
+      result: {
+        response: "Mission tool-loop fixture completed.",
+        pendingChanges: [] as Array<{ path: string; newContent: string }>,
+        sources: [],
+      },
+      effectiveProvider: "groq" as const,
+    }));
+    runRepairValidation.mockReset().mockImplementation(async () => ({
+      status: "passed" as const,
+      evidence: { artifactRef: "fixture-validation-receipt" },
+    }));
   });
 
   it("persists execution, checkpoint, task completion, and terminal acceptance", async () => {
@@ -455,6 +484,21 @@ describe("real durable task execution lifecycle", () => {
         updatedAt: new Date().toISOString(),
       });
       expect(parsedCheckpoint?.recoveryBlockedReason).toBeUndefined();
+      const committedCheckpoint = parseMissionToolLoopCheckpoint({
+        stage: "tool_loop",
+        sequence: checkpoint.sequence,
+        detail: JSON.stringify({
+          ...detail,
+          missionRepairRecovery: {
+            ...detail.missionRepairRecovery,
+            phase: "committed",
+            validatorStatus: "passed",
+            validatorEvidenceId: "mission-repair-validator-evidence",
+          },
+        }),
+        updatedAt: new Date().toISOString(),
+      });
+      expect(committedCheckpoint?.recoveryBlockedReason).toBeUndefined();
       const postCommitCheckpoint = parseMissionToolLoopCheckpoint({
         stage: "tool_loop",
         sequence: checkpoint.sequence,
@@ -466,12 +510,13 @@ describe("real durable task execution lifecycle", () => {
             validatorStatus: "passed",
             validatorEvidenceId: "mission-repair-validator-evidence",
             afterObservationId: "mission-repair-after-observation",
+            effectBundleId: "mission-repair-effect-bundle",
             effectObserved: true,
           },
         }),
         updatedAt: new Date().toISOString(),
       });
-      expect(postCommitCheckpoint?.recoveryBlockedReason).toBe("reconciliation_not_enabled");
+      expect(postCommitCheckpoint?.recoveryBlockedReason).toBeUndefined();
       const missingManifestCheckpoint = parseMissionToolLoopCheckpoint({
         stage: "tool_loop",
         sequence: checkpoint.sequence + 1,
@@ -744,7 +789,7 @@ describe("real durable task execution lifecycle", () => {
       });
 
     try {
-      await executeTaskLifecycle({
+      const initialOutcome = await executeTaskLifecycle({
         taskId: fixture.taskId,
         userId: "mission-effect-test-user",
         provider: { provider: "groq", apiKey: "fixture-provider" },
@@ -753,6 +798,9 @@ describe("real durable task execution lifecycle", () => {
         workspaceRevision: fixture.now.toISOString(),
       });
 
+      if (!recoveredOutcome) {
+        throw new Error(`Candidate-ready recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
+      }
       expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
       expect(chatWithFallback).toHaveBeenCalledTimes(1);
       expect(runRepairValidation).toHaveBeenCalledTimes(2);
@@ -790,6 +838,544 @@ describe("real durable task execution lifecycle", () => {
         && String((event.payload as { actionId?: unknown } | null)?.actionId ?? "")
           .startsWith("mission-repair:")
       )).toHaveLength(1);
+    } finally {
+      runRepairValidation.mockReset().mockImplementation(async (..._args: unknown[]) => ({
+        status: "passed" as const,
+        evidence: { artifactRef: "fixture-validation-receipt" },
+      }));
+      await fixture.cleanup();
+    }
+  });
+
+  it("reconciles a committed Mission repair after lease handoff without another provider call", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: false,
+    });
+    const candidateContent = "export const value = 'committed-recovery';\n";
+    let recoveredOutcome: Awaited<ReturnType<typeof executeTaskLifecycle>> | undefined;
+    let firstBeforeObservationId: string | undefined;
+    let recoveredBeforeObservationId: string | undefined;
+    let validationCalls = 0;
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-call-mission-committed-recovery",
+        toolName: "write_file" as const,
+        path: "src/target.ts",
+        inputHash: "c".repeat(64),
+      };
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
+      return {
+        result: {
+          response: "Prepared the approved candidate.",
+          pendingChanges: [{ path: "src/target.ts", newContent: candidateContent }],
+          sources: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+    runRepairValidation
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        validationCalls += 1;
+        const evidenceContext = args[5] as { operationId: string };
+        const [execution] = await db
+          .select({
+            checkpoint: aiExecutionsTable.checkpoint,
+            workerId: aiExecutionsTable.workerId,
+            attempt: aiExecutionsTable.attempt,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+          .limit(1);
+        expect(execution?.workerId).toEqual(expect.any(String));
+        if (!execution?.workerId) throw new Error("Mission repair worker missing at simulated commit.");
+        const checkpoint = JSON.parse(execution.checkpoint) as { sequence: number; detail: string };
+        const detail = JSON.parse(checkpoint.detail) as {
+          missionRepairRecovery: {
+            phase: string;
+            checkpointSequence: number;
+            episodeId: string;
+            actionId: string;
+            projectId: string;
+            attempt: number;
+            candidateIdentity: string;
+            baseTreeHash: string;
+            candidateTreeHash: string;
+            beforeObservationId: string;
+          };
+        };
+        const candidateReady = detail.missionRepairRecovery;
+        expect(candidateReady.phase).toBe("candidate_ready");
+        firstBeforeObservationId = candidateReady.beforeObservationId;
+
+        const validatedSequence = checkpoint.sequence + 1;
+        const validatedManifest = {
+          ...candidateReady,
+          phase: "validated",
+          checkpointSequence: validatedSequence,
+          validatorStatus: "passed",
+          validatorEvidenceId: "mission-repair-validator-before-commit",
+          validatorProfile: String(args[1]),
+          validatorEnvironmentRevision: null,
+        };
+        const validated = await checkpointAiExecution({
+          executionId: evidenceContext.operationId,
+          expectedAttempt: execution.attempt,
+          workerId: execution.workerId,
+          checkpoint: {
+            stage: "tool_loop",
+            sequence: validatedSequence,
+            detail: JSON.stringify({ ...detail, missionRepairRecovery: validatedManifest }),
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        expect(validated).toBe(true);
+
+        await appendEpisodeEvent({
+          episodeId: candidateReady.episodeId,
+          projectId: candidateReady.projectId,
+          executionId: evidenceContext.operationId,
+          attempt: candidateReady.attempt,
+          workerId: execution.workerId,
+          eventType: "ACTION_COMMITTED",
+          payload: {
+            actionId: candidateReady.actionId,
+            candidateIdentity: candidateReady.candidateIdentity,
+            baseTreeHash: candidateReady.baseTreeHash,
+            candidateTreeHash: candidateReady.candidateTreeHash,
+            validationStatus: "passed",
+            liveTreeUnchanged: true,
+          },
+          actorType: "worker",
+          actorId: execution.workerId,
+          correlationId: evidenceContext.operationId,
+        });
+
+        const committedSequence = validatedSequence + 1;
+        const committed = await checkpointAiExecution({
+          executionId: evidenceContext.operationId,
+          expectedAttempt: execution.attempt,
+          workerId: execution.workerId,
+          checkpoint: {
+            stage: "tool_loop",
+            sequence: committedSequence,
+            detail: JSON.stringify({
+              ...detail,
+              missionRepairRecovery: {
+                ...validatedManifest,
+                phase: "committed",
+                checkpointSequence: committedSequence,
+              },
+            }),
+            updatedAt: new Date().toISOString(),
+          },
+        });
+        expect(committed).toBe(true);
+
+        await db.update(aiExecutionsTable)
+          .set({
+            status: "paused",
+            workerId: null,
+            leaseUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiExecutionsTable.id, evidenceContext.operationId));
+        await db.update(tasksTable)
+          .set({
+            status: "verifying",
+            workerId: null,
+            leaseUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasksTable.id, fixture.taskId));
+        recoveredOutcome = await executeTaskLifecycle({
+          taskId: fixture.taskId,
+          userId: "mission-effect-test-user",
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          workspaceRevision: fixture.now.toISOString(),
+        });
+        throw new Error("simulated_worker_exit_after_committed_checkpoint");
+      })
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        validationCalls += 1;
+        const evidenceContext = args[5] as { operationId: string };
+        const [execution] = await db
+          .select({ checkpoint: aiExecutionsTable.checkpoint })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+          .limit(1);
+        if (!execution) throw new Error("Committed Mission recovery checkpoint missing.");
+        const checkpoint = JSON.parse(execution.checkpoint) as { detail: string };
+        const detail = JSON.parse(checkpoint.detail) as {
+          missionRepairRecovery: { phase: string; beforeObservationId: string };
+        };
+        expect(detail.missionRepairRecovery.phase).toBe("committed");
+        recoveredBeforeObservationId = detail.missionRepairRecovery.beforeObservationId;
+        expect(recoveredBeforeObservationId).not.toBe(firstBeforeObservationId);
+        return {
+          status: "passed" as const,
+          evidence: {
+            evidenceId: "mission-repair-validator-after-commit-recovery",
+            artifactRef: "mission-repair-validator-pass-after-commit-recovery",
+            validatorProfile: String(args[1]),
+          },
+        };
+      });
+
+    try {
+      const initialOutcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+
+      if (!recoveredOutcome) {
+        throw new Error(`Committed recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
+      }
+      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+      expect(validationCalls).toBe(2);
+      expect(chatWithFallback).toHaveBeenCalledTimes(1);
+      expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+        .toBe("export const value = 'base';\n");
+
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, recoveredOutcome!.executionId!))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        effectBundleId: expect.any(String),
+      });
+
+      const aggregateCommits = await db
+        .select({
+          eventType: aiAgentEpisodeEventsTable.eventType,
+          payload: aiAgentEpisodeEventsTable.payload,
+        })
+        .from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, recoveredOutcome!.executionId!))
+        .then((events) => events.filter((event) =>
+          event.eventType === "ACTION_COMMITTED"
+          && (event.payload as { actionId?: unknown } | null)?.actionId
+            === `mission-repair:${recoveredOutcome!.executionId}:0`
+        ));
+      expect(aggregateCommits).toHaveLength(1);
+    } finally {
+      runRepairValidation.mockReset().mockImplementation(async (..._args: unknown[]) => ({
+        status: "passed" as const,
+        evidence: { artifactRef: "fixture-validation-receipt" },
+      }));
+      await fixture.cleanup();
+    }
+  });
+
+  it("reuses effect-classified Mission evidence after lease handoff", async () => {
+    const fixture = await createMissionToolLoopFixture({
+      phase: "execute",
+      approvalRequired: false,
+    });
+    const candidateContent = "export const value = 'effect-classified-recovery';\n";
+    let recoveredOutcome: Awaited<ReturnType<typeof executeTaskLifecycle>> | undefined;
+    let originalBeforeObservationId: string | undefined;
+    let originalAfterObservationId: string | undefined;
+    let originalEffectBundleId: string | undefined;
+    let validationCalls = 0;
+    chatWithFallback.mockImplementationOnce(async (...args: unknown[]) => {
+      const baseParams = args[1] as {
+        onMutationInvocation?: import("@workspace/ai-orchestrator").MutationToolInvocationCallback;
+      };
+      const invocation = {
+        toolCallId: "provider-call-mission-effect-classified-recovery",
+        toolName: "write_file" as const,
+        path: "src/target.ts",
+        inputHash: "d".repeat(64),
+      };
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "requested" });
+      await baseParams.onMutationInvocation?.({ ...invocation, phase: "committed" });
+      return {
+        result: {
+          response: "Prepared the approved candidate.",
+          pendingChanges: [{ path: "src/target.ts", newContent: candidateContent }],
+          sources: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+    runRepairValidation
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        validationCalls += 1;
+        const evidenceContext = args[5] as { operationId: string };
+        const [execution] = await db
+          .select({
+            checkpoint: aiExecutionsTable.checkpoint,
+            workerId: aiExecutionsTable.workerId,
+            attempt: aiExecutionsTable.attempt,
+          })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+          .limit(1);
+        if (!execution?.workerId) throw new Error("Mission repair worker missing at simulated effect classification.");
+        const checkpoint = JSON.parse(execution.checkpoint) as { sequence: number; detail: string };
+        const detail = JSON.parse(checkpoint.detail) as Record<string, unknown>;
+        const candidateReady = detail.missionRepairRecovery as {
+          phase: string;
+          episodeId: string;
+          actionId: string;
+          projectId: string;
+          attempt: number;
+          taskId: string;
+          sourceRevision: string;
+          candidateIdentity: string;
+          baseTreeHash: string;
+          candidateTreeHash: string;
+          beforeObservationId: string;
+        };
+        expect(candidateReady.phase).toBe("candidate_ready");
+        originalBeforeObservationId = candidateReady.beforeObservationId;
+
+        let sequence = checkpoint.sequence;
+        let recoveryManifest: Record<string, unknown> = { ...candidateReady };
+        const persistManifest = async (patch: Record<string, unknown>) => {
+          sequence += 1;
+          recoveryManifest = {
+            ...recoveryManifest,
+            ...patch,
+            checkpointSequence: sequence,
+          };
+          const persisted = await checkpointAiExecution({
+            executionId: evidenceContext.operationId,
+            expectedAttempt: execution.attempt,
+            workerId: execution.workerId!,
+            checkpoint: {
+              stage: "tool_loop",
+              sequence,
+              detail: JSON.stringify({ ...detail, missionRepairRecovery: recoveryManifest }),
+              updatedAt: new Date().toISOString(),
+            },
+          });
+          expect(persisted).toBe(true);
+        };
+
+        await persistManifest({
+          phase: "validated",
+          validatorStatus: "passed",
+          validatorEvidenceId: "mission-repair-validator-before-effect-classification",
+          validatorProfile: String(args[1]),
+          validatorEnvironmentRevision: null,
+        });
+        await appendEpisodeEvent({
+          episodeId: candidateReady.episodeId,
+          projectId: candidateReady.projectId,
+          executionId: evidenceContext.operationId,
+          attempt: candidateReady.attempt,
+          workerId: execution.workerId,
+          eventType: "ACTION_COMMITTED",
+          payload: {
+            actionId: candidateReady.actionId,
+            candidateIdentity: candidateReady.candidateIdentity,
+            baseTreeHash: candidateReady.baseTreeHash,
+            candidateTreeHash: candidateReady.candidateTreeHash,
+            validationStatus: "passed",
+            liveTreeUnchanged: true,
+          },
+          actorType: "worker",
+          actorId: execution.workerId,
+          correlationId: evidenceContext.operationId,
+        });
+        await persistManifest({ phase: "committed" });
+
+        const episodeEvents = await db
+          .select({
+            eventType: aiAgentEpisodeEventsTable.eventType,
+            payload: aiAgentEpisodeEventsTable.payload,
+          })
+          .from(aiAgentEpisodeEventsTable)
+          .where(eq(aiAgentEpisodeEventsTable.episodeId, candidateReady.episodeId));
+        const requestedActionEvent = episodeEvents.find((event) =>
+          event.eventType === "ACTION_REQUESTED"
+          && (event.payload as { action?: { actionId?: unknown } } | null)?.action?.actionId
+            === candidateReady.actionId
+        );
+        const action = (requestedActionEvent?.payload as { action?: AgentAction } | null)?.action;
+        if (!action) throw new Error("Mission repair action request missing in test fixture.");
+
+        const candidateWorkspace = await createValidationWorkspace(
+          fixture.rootPath,
+          [{ path: "src/target.ts", newContent: candidateContent }],
+        );
+        try {
+          const after = await materializeServerOwnedObservations({
+            projectId: fixture.projectId,
+            executionId: evidenceContext.operationId,
+            attempt: execution.attempt,
+            episodeId: candidateReady.episodeId,
+            environmentRootPath: candidateWorkspace.rootPath,
+            projectRevision: candidateReady.sourceRevision,
+            materializeWorldState: false,
+            sources: [{
+              kind: "direct_observation",
+              sourceId: `mission-repair:${evidenceContext.operationId}:${execution.attempt}:after:recovery-fixture`,
+              subject: `project:${fixture.projectId}:task:${candidateReady.taskId}:candidate:${candidateReady.candidateIdentity}`,
+              predicate: "workspace.tree_hash",
+              value: candidateReady.candidateTreeHash,
+              sourceRevision: candidateReady.sourceRevision,
+              observedAt: new Date(),
+            }],
+          });
+          originalAfterObservationId = after.observationIds[0];
+          if (!originalAfterObservationId || after.stale > 0) {
+            throw new Error("Mission repair recovery after-observation fixture was unavailable.");
+          }
+          await persistManifest({ afterObservationId: originalAfterObservationId });
+
+          const verification = await verifyAndPersistEffect({
+            projectId: fixture.projectId,
+            executionId: evidenceContext.operationId,
+            attempt: execution.attempt,
+            workerId: execution.workerId!,
+            episodeId: candidateReady.episodeId,
+            action,
+            effectContract: buildMissionRepairEffectContract({
+              projectId: fixture.projectId,
+              taskId: candidateReady.taskId,
+              candidateIdentity: candidateReady.candidateIdentity,
+              candidateTreeHash: candidateReady.candidateTreeHash,
+              beforeEvidenceRef: candidateReady.beforeObservationId,
+              afterEvidenceRef: originalAfterObservationId,
+            }),
+            beforeObservationIds: [candidateReady.beforeObservationId],
+            afterObservationIds: [originalAfterObservationId],
+          });
+          expect(verification.status).toBe("observed");
+          originalEffectBundleId = verification.effectBundleId;
+          await persistManifest({
+            phase: "effect_classified",
+            effectBundleId: originalEffectBundleId,
+            effectObserved: true,
+          });
+        } finally {
+          await candidateWorkspace.cleanup();
+        }
+
+        await db.update(aiExecutionsTable)
+          .set({
+            status: "paused",
+            workerId: null,
+            leaseUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiExecutionsTable.id, evidenceContext.operationId));
+        await db.update(tasksTable)
+          .set({
+            status: "verifying",
+            workerId: null,
+            leaseUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasksTable.id, fixture.taskId));
+        recoveredOutcome = await executeTaskLifecycle({
+          taskId: fixture.taskId,
+          userId: "mission-effect-test-user",
+          provider: { provider: "groq", apiKey: "fixture-provider" },
+          trigger: "reconciliation",
+          expectedStatuses: ["verifying"],
+          workspaceRevision: fixture.now.toISOString(),
+        });
+        throw new Error("simulated_worker_exit_after_effect_classification");
+      })
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        validationCalls += 1;
+        const evidenceContext = args[5] as { operationId: string };
+        const [execution] = await db
+          .select({ checkpoint: aiExecutionsTable.checkpoint })
+          .from(aiExecutionsTable)
+          .where(eq(aiExecutionsTable.id, evidenceContext.operationId))
+          .limit(1);
+        if (!execution) throw new Error("Effect-classified Mission recovery checkpoint missing.");
+        const checkpoint = JSON.parse(execution.checkpoint) as { detail: string };
+        const detail = JSON.parse(checkpoint.detail) as {
+          missionRepairRecovery: {
+            phase: string;
+            beforeObservationId: string;
+            afterObservationId: string;
+            effectBundleId: string;
+            effectObserved: boolean;
+          };
+        };
+        expect(detail.missionRepairRecovery).toMatchObject({
+          phase: "effect_classified",
+          beforeObservationId: originalBeforeObservationId,
+          afterObservationId: originalAfterObservationId,
+          effectBundleId: originalEffectBundleId,
+          effectObserved: true,
+        });
+        return {
+          status: "passed" as const,
+          evidence: {
+            evidenceId: "mission-repair-validator-after-effect-classification",
+            artifactRef: "mission-repair-validator-pass-after-effect-classification",
+            validatorProfile: String(args[1]),
+          },
+        };
+      });
+
+    try {
+      const initialOutcome = await executeTaskLifecycle({
+        taskId: fixture.taskId,
+        userId: "mission-effect-test-user",
+        provider: { provider: "groq", apiKey: "fixture-provider" },
+        trigger: "reconciliation",
+        expectedStatuses: ["verifying"],
+        workspaceRevision: fixture.now.toISOString(),
+      });
+
+      if (!recoveredOutcome) {
+        throw new Error(`Effect-classified recovery did not reach lease handoff: ${JSON.stringify(initialOutcome)}`);
+      }
+      expect(recoveredOutcome).toMatchObject({ ok: true, status: "completed" });
+      expect(validationCalls).toBe(2);
+      expect(chatWithFallback).toHaveBeenCalledTimes(1);
+      expect(await readFile(join(fixture.rootPath, "src", "target.ts"), "utf8"))
+        .toBe("export const value = 'base';\n");
+      const effects = await db
+        .select({
+          status: aiAgentEffectsTable.status,
+          beforeObservationIds: aiAgentEffectsTable.beforeObservationIds,
+          afterObservationIds: aiAgentEffectsTable.afterObservationIds,
+        })
+        .from(aiAgentEffectsTable)
+        .where(eq(aiAgentEffectsTable.executionId, recoveredOutcome!.executionId!));
+      expect(effects).toHaveLength(1);
+      expect(effects[0]).toMatchObject({
+        status: "observed",
+        beforeObservationIds: [originalBeforeObservationId],
+        afterObservationIds: [originalAfterObservationId],
+      });
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, recoveredOutcome!.executionId!))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        effectBundleId: originalEffectBundleId,
+      });
     } finally {
       runRepairValidation.mockReset().mockImplementation(async (..._args: unknown[]) => ({
         status: "passed" as const,
@@ -914,8 +1500,12 @@ describe("real durable task execution lifecycle", () => {
       expect(events.map((event) => event.eventType)).toEqual(
         expect.arrayContaining(["OBSERVATION_REQUESTED", "OBSERVATION_RECORDED"]),
       );
-      const observationRequest = events.find((event) => event.eventType === "OBSERVATION_REQUESTED");
+      const observationRequest = events.find((event) =>
+        event.eventType === "OBSERVATION_REQUESTED"
+        && (event.payload as { toolCallId?: unknown } | undefined)?.toolCallId === "provider-read-mission-1"
+      );
       const gitScopeHash = (observationRequest?.payload as { scopeHash?: string } | undefined)?.scopeHash;
+      const observationId = (observationRequest?.payload as { observationId?: string } | undefined)?.observationId;
       expect(observationRequest?.payload).toMatchObject({
         observationId: expect.any(String),
         toolCallId: "provider-read-mission-1",
@@ -927,7 +1517,10 @@ describe("real durable task execution lifecycle", () => {
         projectRevision: fixture.now.toISOString(),
         authorization: "server_owned",
       });
-      const observationRecorded = events.find((event) => event.eventType === "OBSERVATION_RECORDED");
+      const observationRecorded = events.find((event) =>
+        event.eventType === "OBSERVATION_RECORDED"
+        && (event.payload as { observationId?: unknown } | undefined)?.observationId === observationId
+      );
       expect(observationRecorded?.payload).toMatchObject({
         observationId: (observationRequest?.payload as { observationId: string }).observationId,
         scopeHash: gitScopeHash,

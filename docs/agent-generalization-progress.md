@@ -2390,6 +2390,31 @@ G9 Revocation Safety
 - **next step:** أكمل مصالحة proof للحالات بعد commit واختبارات crash windows
   قبل فتح أي استعادة من تلك المراحل.
 
+### 42.65 — P3.5 — Mission repair post-commit recovery (2026-09-27)
+
+- **phase/step:** P3.5 — استعادة Mission repair من `committed` و
+  `effect_classified` بعد lease handoff.
+- **status:** `partial; this recovery slice is complete, broader P3.5 remains partial`.
+- **what changed:** يسمح parser ومسار الاستعادة الآن بالمراحل الأربع حتى
+  `effect_classified`. عند وجود `ACTION_COMMITTED` يتحقق الاسترداد من action و
+  candidate/base/tree identities وحالة validator وكون live tree بقي دون تغيير؛
+  لا يعيد كتابة الحدث ولا يقبل اختلاف معناه. يستخدم checkpoint ملاحظات
+  before/after المحفوظة كما هي عند اكتمال الزوج، كي يعيد EffectObserver النتيجة
+  نفسها idempotently؛ وإذا توقفت الحالة بعد commit وقبل after observation،
+  ينشئ زوجًا جديدًا بعد إعادة التحقق. تقدم المرحلة لا يتراجع، ويعاد validator
+  لإنتاج receipt جديدة قبل قبول التنفيذ.
+- **files/schema/contracts touched:** task execution service واختبارات lifecycle؛
+  لا schema أو migration.
+- **validation:** API typecheck و10 اختبارات lifecycle و4 اختبارات effect observer
+  نجحت؛ `git diff --check` نظيف؛ أُعيد تشغيل API وتأكد بدء الخدمة بلا أخطاء.
+- **authority/safety impact:** lease وattempt والهوية ومراجعة المصدر والمرشح
+  تظل ملزمة؛ تعارض commit أو أثر محفوظ يفشل مغلقًا. لا live-root writes، ولا
+  إعادة استعمال validator receipt قديم، ولا تكرار Effect rows في recovery
+  المطابق.
+- **remaining/blocker:** هذه الشريحة تغلق crash recovery بعد commit فقط؛ بقية
+  DoD لـP3.5 ما زالت جزئية، وP4–P14 لم تبدأ ضمن هذه الخطوة.
+- **next step:** راجع بقية P3.5 مقابل DoD في §42.2 قبل الانتقال إلى P4.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

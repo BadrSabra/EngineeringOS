@@ -5896,19 +5896,22 @@ base/candidate hashes. يعاد validation فقط إذا ثبت أن profile ا�
 `effect_classified`، ويضم validation evidence جديدة ومراجع الملاحظات وEffectBundle.
 الكتابة fenced بمالك العامل والـattempt والـlease وتسلسل checkpoint.
 
-أُتيح same-attempt recovery فقط من مرحلتي `candidate_ready` و`validated` بعد
-مطابقة project/task/execution/attempt وEpisode/action والمراجعة والمسارات
-المعتمدة وpending-change hash وbase/candidate tree hashes. يعيد العامل بناء
-candidate داخل validation workspace مؤقت، ينشئ before observation جديدة، ويعيد
-تشغيل validator خادميًا للحصول على دليل جديد قبل استكمال commit وتصنيف الأثر.
-قراءة manifest تستخدم نص checkpoint المحفوظ كاملًا؛ projection العامة تقص
+في التطبيق الأولي، اقتصر same-attempt recovery على `candidate_ready` و`validated`
+بعد مطابقة project/task/execution/attempt وEpisode/action والمراجعة والمسارات
+المعتمدة وpending-change hash وbase/candidate tree hashes. يعاد بناء candidate
+داخل validation workspace مؤقت، ويعاد تشغيل validator خادميًا للحصول على دليل
+جديد. قراءة manifest تستخدم نص checkpoint المحفوظ كاملًا؛ projection العامة تقص
 `detail` ولا تصلح لقراءة عقد recovery.
 
-تبقى `committed` و`effect_classified` محجوبتين حتى تكتمل مصالحة crash windows
-بعد commit مع الملاحظات وEffectBundle والقبول. أي manifest مفقود أو مشوه أو
-متعارض، أو تغير في المصدر/المرشح، يفشل مغلقًا؛ ووجود `ACTION_REQUESTED` بلا
-manifest يمنع إعادة التخطيط على أنها استعادة. لا schema أو migration أو
-live-root writes أو per-tool EffectBundle أو World Delta في هذه الشريحة.
+**تحديث 2026-09-27:** فُتحت الاستعادة أيضًا من `committed` و`effect_classified`.
+تتحقق من `ACTION_COMMITTED` المحفوظ دون إعادة كتابته بمعنى مختلف. إذا كان زوج
+before/after موجودًا، يعاد استعمال الملاحظتين نفسيهما كي يعيد EffectObserver
+النتيجة idempotently؛ وإذا لم تُسجل after observation بعد، ينشئ العامل زوجًا
+جديدًا بعد إعادة validator. تبقى phase monotonic، والـacceptance خاضعًا للأدلة
+المقبولة المعتادة. أي manifest أو حدث أو أثر مفقود/متعارض، أو تغير في المصدر/
+المرشح، يفشل مغلقًا؛ ووجود `ACTION_REQUESTED` بلا manifest يمنع إعادة التخطيط
+على أنها استعادة. لا schema أو migration أو live-root writes أو per-tool
+EffectBundle أو World Delta في هذه الشريحة.
 
 ### 42.25 P5.5 — Server-classified read-only recipe invocation (2026-09-25)
 

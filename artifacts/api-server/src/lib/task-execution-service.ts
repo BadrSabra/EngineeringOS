@@ -547,7 +547,7 @@ type MissionToolLoopCheckpoint = {
   pendingChanges: PendingChange[];
   stateProjection?: MissionStateProjection;
   missionRepairRecovery?: MissionRepairRecoveryManifest;
-  recoveryBlockedReason?: "manifest_missing" | "manifest_invalid" | "reconciliation_not_enabled";
+  recoveryBlockedReason?: "manifest_missing" | "manifest_invalid";
 };
 
 type MissionRepairRecoveryPhase =
@@ -600,6 +600,16 @@ const MISSION_REPAIR_RECOVERY_PHASE_RANK: Record<MissionRepairRecoveryPhase, num
   committed: 2,
   effect_classified: 3,
 };
+
+function atLeastMissionRepairRecoveryPhase(
+  current: MissionRepairRecoveryPhase | undefined,
+  requested: MissionRepairRecoveryPhase,
+): MissionRepairRecoveryPhase {
+  return current
+    && MISSION_REPAIR_RECOVERY_PHASE_RANK[current] >= MISSION_REPAIR_RECOVERY_PHASE_RANK[requested]
+    ? current
+    : requested;
+}
 
 function hashMissionRepairPendingChanges(
   changes: readonly Pick<PendingChange, "path" | "newContent">[],
@@ -717,6 +727,9 @@ function parseMissionRepairRecoveryManifest(
     return undefined;
   }
   if (candidate.effectObserved !== undefined && typeof candidate.effectObserved !== "boolean") {
+    return undefined;
+  }
+  if (candidate.effectObserved === true && typeof candidate.effectBundleId !== "string") {
     return undefined;
   }
 
@@ -922,9 +935,7 @@ export function parseMissionToolLoopCheckpoint(
       : undefined;
     const recoveryBlockedReason = hasRecoveryManifest
       ? missionRepairRecovery
-        ? missionRepairRecovery.phase === "candidate_ready" || missionRepairRecovery.phase === "validated"
-          ? undefined
-          : "reconciliation_not_enabled" as const
+        ? undefined
         : "manifest_invalid" as const
       : value.executionProfile === "mission_repair"
         ? "manifest_missing" as const
@@ -1167,6 +1178,7 @@ async function beginMissionRepairCandidateEffect(params: {
   changes: readonly CanonicalMissionChange[];
   approvedPaths: readonly string[];
   observationGeneration?: string;
+  reuseBeforeObservationId?: string;
   expectedBaseTreeHash?: string;
   expectedCandidateIdentity?: string;
   expectedCandidateTreeHash?: string;
@@ -1227,30 +1239,33 @@ async function beginMissionRepairCandidateEffect(params: {
     correlationId: params.correlationId,
   });
 
-  const before = await materializeServerOwnedObservations({
-    projectId: params.task.projectId,
-    executionId: params.executionId,
-    attempt: params.attempt,
-    episodeId: episode.episodeId,
-    environmentRootPath: params.rootPath,
-    projectRevision: params.sourceRevision,
-    materializeWorldState: false,
-    sources: [{
-      kind: "direct_observation",
-      sourceId: [
-        `mission-repair:${params.executionId}:${params.attempt}:before`,
-        ...(params.observationGeneration ? [params.observationGeneration] : []),
-      ].join(":"),
-      subject: `project:${params.task.projectId}:task:${params.task.id}:candidate:${candidateIdentity}`,
-      predicate: "workspace.tree_hash",
-      value: baseTreeHash,
-      sourceRevision: params.sourceRevision,
-      observedAt: new Date(),
-    }],
-  });
-  const beforeObservationId = before.observationIds[0];
-  if (!beforeObservationId || before.stale > 0) {
-    throw new Error("mission_repair_before_observation_unavailable");
+  let beforeObservationId = params.reuseBeforeObservationId;
+  if (!beforeObservationId) {
+    const before = await materializeServerOwnedObservations({
+      projectId: params.task.projectId,
+      executionId: params.executionId,
+      attempt: params.attempt,
+      episodeId: episode.episodeId,
+      environmentRootPath: params.rootPath,
+      projectRevision: params.sourceRevision,
+      materializeWorldState: false,
+      sources: [{
+        kind: "direct_observation",
+        sourceId: [
+          `mission-repair:${params.executionId}:${params.attempt}:before`,
+          ...(params.observationGeneration ? [params.observationGeneration] : []),
+        ].join(":"),
+        subject: `project:${params.task.projectId}:task:${params.task.id}:candidate:${candidateIdentity}`,
+        predicate: "workspace.tree_hash",
+        value: baseTreeHash,
+        sourceRevision: params.sourceRevision,
+        observedAt: new Date(),
+      }],
+    });
+    beforeObservationId = before.observationIds[0];
+    if (!beforeObservationId || before.stale > 0) {
+      throw new Error("mission_repair_before_observation_unavailable");
+    }
   }
 
   const workspace = await createValidationWorkspace(params.rootPath, params.changes);
@@ -1274,22 +1289,71 @@ async function beginMissionRepairCandidateEffect(params: {
   }
 }
 
-async function finishMissionRepairCandidateEffect(params: {
+async function reconcileMissionRepairAggregateCommit(params: {
   task: typeof tasksTable.$inferSelect;
   executionId: string;
   correlationId: string;
   attempt: number;
   workerId: string;
-  sourceRevision: string;
-  rootPath: string;
   context: MissionRepairCandidateEffectContext;
-  validationStatus: "passed" | "failed" | "blocked" | "unavailable" | "skipped" | "not-run";
-  observationGeneration?: string;
-  onCommitted?: () => Promise<void>;
-  onAfterObserved?: (observationId: string) => Promise<void>;
-}): Promise<{ effectBundleId?: string; observed: boolean; afterObservationId: string }> {
-  const candidateTreeHash = await hashDeliveryTree(params.context.workspace.rootPath);
-  const liveTreeHash = await hashDeliveryTree(params.rootPath);
+  validationStatus: MissionRepairValidationStatus;
+  liveTreeUnchanged: boolean;
+  recoveryManifest?: MissionRepairRecoveryManifest;
+}): Promise<void> {
+  const rows = await db
+    .select()
+    .from(aiAgentEpisodeEventsTable)
+    .where(and(
+      eq(aiAgentEpisodeEventsTable.projectId, params.task.projectId),
+      eq(aiAgentEpisodeEventsTable.executionId, params.executionId),
+      eq(aiAgentEpisodeEventsTable.attempt, params.attempt),
+      eq(aiAgentEpisodeEventsTable.episodeId, params.context.episodeId),
+      eq(aiAgentEpisodeEventsTable.eventType, "ACTION_COMMITTED"),
+    ));
+  const matching = rows.filter((row) =>
+    jsonRecord(row.payload).actionId === params.context.action.actionId
+  );
+  if (matching.length > 1) {
+    throw new Error("mission_repair_aggregate_commit_duplicate");
+  }
+
+  const existing = matching[0];
+  if (existing) {
+    const payload = jsonRecord(existing.payload);
+    const validationStatuses: MissionRepairValidationStatus[] = [
+      "passed",
+      "failed",
+      "blocked",
+      "unavailable",
+      "skipped",
+      "not-run",
+    ];
+    if (
+      !params.recoveryManifest
+      || MISSION_REPAIR_RECOVERY_PHASE_RANK[params.recoveryManifest.phase]
+        < MISSION_REPAIR_RECOVERY_PHASE_RANK.validated
+      || payload.actionId !== params.context.action.actionId
+      || payload.candidateIdentity !== params.context.candidateIdentity
+      || payload.baseTreeHash !== params.context.baseTreeHash
+      || payload.candidateTreeHash !== params.context.candidateTreeHash
+      || payload.liveTreeUnchanged !== true
+      || !params.liveTreeUnchanged
+      || !validationStatuses.includes(payload.validationStatus as MissionRepairValidationStatus)
+      || payload.validationStatus !== params.recoveryManifest.validatorStatus
+    ) {
+      throw new Error("mission_repair_recovery_commit_event_conflict");
+    }
+    return;
+  }
+
+  if (
+    params.recoveryManifest
+    && MISSION_REPAIR_RECOVERY_PHASE_RANK[params.recoveryManifest.phase]
+      >= MISSION_REPAIR_RECOVERY_PHASE_RANK.committed
+  ) {
+    throw new Error("mission_repair_recovery_commit_event_missing");
+  }
+
   await appendEpisodeEvent({
     episodeId: params.context.episodeId,
     projectId: params.task.projectId,
@@ -1301,40 +1365,74 @@ async function finishMissionRepairCandidateEffect(params: {
       actionId: params.context.action.actionId,
       candidateIdentity: params.context.candidateIdentity,
       baseTreeHash: params.context.baseTreeHash,
-      candidateTreeHash,
+      candidateTreeHash: params.context.candidateTreeHash,
       validationStatus: params.validationStatus,
-      liveTreeUnchanged: liveTreeHash === params.context.baseTreeHash,
+      liveTreeUnchanged: params.liveTreeUnchanged,
     },
     actorType: "worker",
     actorId: params.workerId,
     correlationId: params.correlationId,
   });
+}
+
+async function finishMissionRepairCandidateEffect(params: {
+  task: typeof tasksTable.$inferSelect;
+  executionId: string;
+  correlationId: string;
+  attempt: number;
+  workerId: string;
+  sourceRevision: string;
+  rootPath: string;
+  context: MissionRepairCandidateEffectContext;
+  validationStatus: "passed" | "failed" | "blocked" | "unavailable" | "skipped" | "not-run";
+  observationGeneration?: string;
+  existingAfterObservationId?: string;
+  recoveryManifest?: MissionRepairRecoveryManifest;
+  onCommitted?: () => Promise<void>;
+  onAfterObserved?: (observationId: string) => Promise<void>;
+}): Promise<{ effectBundleId?: string; observed: boolean; afterObservationId: string }> {
+  const candidateTreeHash = await hashDeliveryTree(params.context.workspace.rootPath);
+  const liveTreeHash = await hashDeliveryTree(params.rootPath);
+  await reconcileMissionRepairAggregateCommit({
+    task: params.task,
+    executionId: params.executionId,
+    correlationId: params.correlationId,
+    attempt: params.attempt,
+    workerId: params.workerId,
+    context: params.context,
+    validationStatus: params.validationStatus,
+    liveTreeUnchanged: liveTreeHash === params.context.baseTreeHash,
+    recoveryManifest: params.recoveryManifest,
+  });
   await params.onCommitted?.();
 
-  const after = await materializeServerOwnedObservations({
-    projectId: params.task.projectId,
-    executionId: params.executionId,
-    attempt: params.attempt,
-    episodeId: params.context.episodeId,
-    environmentRootPath: params.context.workspace.rootPath,
-    projectRevision: params.sourceRevision,
-    materializeWorldState: false,
-    sources: [{
-      kind: "direct_observation",
-      sourceId: [
-        `mission-repair:${params.executionId}:${params.attempt}:after`,
-        ...(params.observationGeneration ? [params.observationGeneration] : []),
-      ].join(":"),
-      subject: `project:${params.task.projectId}:task:${params.task.id}:candidate:${params.context.candidateIdentity}`,
-      predicate: "workspace.tree_hash",
-      value: candidateTreeHash,
-      sourceRevision: params.sourceRevision,
-      observedAt: new Date(),
-    }],
-  });
-  const afterObservationId = after.observationIds[0];
-  if (!afterObservationId || after.stale > 0) {
-    throw new Error("mission_repair_after_observation_unavailable");
+  let afterObservationId = params.existingAfterObservationId;
+  if (!afterObservationId) {
+    const after = await materializeServerOwnedObservations({
+      projectId: params.task.projectId,
+      executionId: params.executionId,
+      attempt: params.attempt,
+      episodeId: params.context.episodeId,
+      environmentRootPath: params.context.workspace.rootPath,
+      projectRevision: params.sourceRevision,
+      materializeWorldState: false,
+      sources: [{
+        kind: "direct_observation",
+        sourceId: [
+          `mission-repair:${params.executionId}:${params.attempt}:after`,
+          ...(params.observationGeneration ? [params.observationGeneration] : []),
+        ].join(":"),
+        subject: `project:${params.task.projectId}:task:${params.task.id}:candidate:${params.context.candidateIdentity}`,
+        predicate: "workspace.tree_hash",
+        value: candidateTreeHash,
+        sourceRevision: params.sourceRevision,
+        observedAt: new Date(),
+      }],
+    });
+    afterObservationId = after.observationIds[0];
+    if (!afterObservationId || after.stale > 0) {
+      throw new Error("mission_repair_after_observation_unavailable");
+    }
   }
   await params.onAfterObserved?.(afterObservationId);
 
@@ -1356,8 +1454,19 @@ async function finishMissionRepairCandidateEffect(params: {
     beforeObservationIds: [params.context.beforeObservationId],
     afterObservationIds: [afterObservationId],
   });
+  if (
+    params.recoveryManifest?.phase === "effect_classified"
+    && (
+      (params.recoveryManifest.effectBundleId !== undefined
+        && verification.effectBundleId !== params.recoveryManifest.effectBundleId)
+      || (verification.status === "observed") !== params.recoveryManifest.effectObserved
+    )
+  ) {
+    throw new Error("mission_repair_recovery_effect_classification_conflict");
+  }
   const stableCandidate = candidateTreeHash === params.context.candidateTreeHash;
-  const sourceStillCurrent = liveTreeHash === params.context.baseTreeHash;
+  const sourceStillCurrent = await hashDeliveryTree(params.rootPath)
+    === params.context.baseTreeHash;
   return {
     ...(verification.status === "observed" ? { effectBundleId: verification.effectBundleId } : {}),
     observed: verification.status === "observed" && stableCandidate && sourceStillCurrent,
@@ -2056,6 +2165,12 @@ async function executeMissionToolLoop(params: {
   try {
     if (effectRequired) {
       try {
+        const reusingCommittedObservationPair = Boolean(
+          recoveryManifest
+          && MISSION_REPAIR_RECOVERY_PHASE_RANK[recoveryManifest.phase]
+            >= MISSION_REPAIR_RECOVERY_PHASE_RANK.committed
+          && recoveryManifest.afterObservationId,
+        );
         const candidateContext = await beginMissionRepairCandidateEffect({
           task: params.task,
           goal: params.goal,
@@ -2068,6 +2183,9 @@ async function executeMissionToolLoop(params: {
           changes: outputPendingChanges,
           approvedPaths: policy.targetPaths,
           observationGeneration: recoveryObservationGeneration,
+          ...(reusingCommittedObservationPair && recoveryManifest
+            ? { reuseBeforeObservationId: recoveryManifest.beforeObservationId }
+            : {}),
           ...(recoveryManifest ? {
             expectedBaseTreeHash: recoveryManifest.baseTreeHash,
             expectedCandidateIdentity: recoveryManifest.candidateIdentity,
@@ -2076,6 +2194,7 @@ async function executeMissionToolLoop(params: {
         });
         if (
           recoveryManifest
+          && !reusingCommittedObservationPair
           && candidateContext.beforeObservationId === recoveryManifest.beforeObservationId
         ) {
           await candidateContext.workspace.cleanup();
@@ -2221,7 +2340,7 @@ async function executeMissionToolLoop(params: {
       }
       await persistMissionRepairRecoveryCheckpoint({
         ...missionRepairRecoveryDraft,
-        phase: "validated",
+        phase: atLeastMissionRepairRecoveryPhase(missionRepairRecoveryDraft.phase, "validated"),
         validatorStatus,
         ...(validationEvidenceId ? { validatorEvidenceId: validationEvidenceId } : {}),
         ...(validatorProfile ? { validatorProfile } : {}),
@@ -2266,18 +2385,25 @@ async function executeMissionToolLoop(params: {
           context: candidateEffectContext,
           validationStatus: validationResult?.status ?? "not-run",
           observationGeneration: recoveryObservationGeneration,
+          ...(recoveryManifest ? { recoveryManifest } : {}),
+          ...(recoveryManifest
+            && MISSION_REPAIR_RECOVERY_PHASE_RANK[recoveryManifest.phase]
+              >= MISSION_REPAIR_RECOVERY_PHASE_RANK.committed
+            && recoveryManifest.afterObservationId
+            ? { existingAfterObservationId: recoveryManifest.afterObservationId }
+            : {}),
           onCommitted: async () => {
             if (!missionRepairRecoveryDraft) return;
             await persistMissionRepairRecoveryCheckpoint({
               ...missionRepairRecoveryDraft,
-              phase: "committed",
+              phase: atLeastMissionRepairRecoveryPhase(missionRepairRecoveryDraft.phase, "committed"),
             });
           },
           onAfterObserved: async (observationId) => {
             if (!missionRepairRecoveryDraft) return;
             await persistMissionRepairRecoveryCheckpoint({
               ...missionRepairRecoveryDraft,
-              phase: "committed",
+              phase: atLeastMissionRepairRecoveryPhase(missionRepairRecoveryDraft.phase, "committed"),
               afterObservationId: observationId,
             });
           },
