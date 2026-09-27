@@ -2,7 +2,7 @@ import { isValidElement, useState, useRef, useEffect, type ReactNode } from 'rea
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
-import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3, Download, AlertCircle } from 'lucide-react';
+import { Activity, AlertCircle, ArrowUpRight, Bot, Check, CheckCircle2, ChevronDown, ChevronRight, Clock3, Code2, Download, ExternalLink, Eye, FileCode2, FileSearch, GitMerge, Key, Loader2, Menu, Pause, Play, Plus, RotateCcw, Search, Send, ShieldAlert, ShieldCheck, SkipBack, Square, StepForward, Trash2, User, X, Zap } from 'lucide-react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -6903,14 +6903,14 @@ function structuredFailurePresentation(
 }
 
 const AI_ACTIONS = [
-  { id: 'analyze', label: 'Analyze Scan', icon: Search, prompt: 'Analyze the latest scan results and suggest the top 3 improvements.' },
-  { id: 'review', label: 'Code Review', icon: Code2, prompt: 'Review the codebase and identify the most critical quality issues.' },
-  { id: 'tasks', label: 'Task Status', icon: Zap, prompt: 'Summarize the current task backlog and what I should focus on next.' },
-  { id: 'workflow', label: 'Workflow Health', icon: GitMerge, prompt: 'How are my workflows progressing? Any blockers or risks?' },
+  { id: 'analyze', label: 'Analyze Scan', description: 'Turn the latest scan into three practical improvements.', icon: Search, prompt: 'Analyze the latest scan results and suggest the top 3 improvements.' },
+  { id: 'review', label: 'Code Review', description: 'Find the most important quality issues in this project.', icon: Code2, prompt: 'Review the codebase and identify the most critical quality issues.' },
+  { id: 'tasks', label: 'Task Status', description: 'See what needs attention next.', icon: Zap, prompt: 'Summarize the current task backlog and what I should focus on next.' },
+  { id: 'workflow', label: 'Workflow Health', description: 'Check progress, blockers, and risks.', icon: GitMerge, prompt: 'How are my workflows progressing? Any blockers or risks?' },
   // #80: one-click model capability probe. Sends the canonical probe body
   // (C1–C7) straight to the chat agent; all SSE diagnostics / forensic_status
   // panels surface per-sub-question in the existing live-activity UI.
-  { id: 'probe', label: 'Capability Probe', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
+  { id: 'probe', label: 'Capability Probe', description: 'Run a structured capability check.', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
 ];
 const COMMON_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id === 'analyze' || action.id === 'review');
 const ADDITIONAL_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id !== 'analyze' && action.id !== 'review');
@@ -12715,60 +12715,89 @@ export default function AiChat() {
             </div>
           )}
           {isEmpty && !showExecutionProofInEmptyState ? (
-            <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6">
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                  <Bot className="w-6 h-6 text-primary" />
+            <div className="flex h-full min-h-[300px] items-center justify-center px-3 py-8">
+              <div className="w-full max-w-2xl space-y-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 shadow-sm">
+                    <Bot className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0 pt-0.5">
+                    <p className="font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-primary">
+                      EngineeringOS · {projects.find((project) => project.id === selectedProjectId)?.name ?? 'Project assistant'}
+                    </p>
+                    <h2 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">
+                      What should we work on?
+                    </h2>
+                    <p className={`mt-1.5 max-w-lg text-sm leading-6 ${projectLoadFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {getStatusSubtitle()}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm font-medium">How can I help with your project?</p>
-                <p className={`text-xs text-center max-w-xs ${projectLoadFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
-                  {getStatusSubtitle()}
-                </p>
-              </div>
-               <div className="w-full max-w-sm">
-                 <div className="mb-2 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                   Common starting points
-                 </div>
-                 <div className="grid grid-cols-2 gap-2">
-                   {COMMON_AI_ACTIONS.map((action) => (
-                     <button
-                       key={action.id}
-                       onClick={() => handleQuickAction(action)}
-                       disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
-                       className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-2 text-left text-xs transition-colors hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-secondary"
-                     >
-                       <action.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                       {action.label}
-                     </button>
-                   ))}
-                 </div>
-                  {ADDITIONAL_AI_ACTIONS.length > 0 && (
-                   <div className="mt-2">
-                     <button
-                       type="button"
-                       aria-expanded={moreActionsExpanded}
-                       aria-controls="ai-additional-actions"
-                       onClick={() => setMoreActionsExpanded((expanded) => !expanded)}
-                       className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
-                     >
-                       <span>More actions</span>
-                       <ChevronRight className={`h-3 w-3 transition-transform ${moreActionsExpanded ? 'rotate-90' : ''}`} />
-                     </button>
-                     <div id="ai-additional-actions" hidden={!moreActionsExpanded} className="mt-1 grid grid-cols-2 gap-2">
-                        {ADDITIONAL_AI_ACTIONS.map((action) => (
-                         <button
-                           key={action.id}
-                           onClick={() => handleQuickAction(action)}
-                           disabled={!isLoaded || projectsLoading || !selectedProjectId}
-                           className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-3 py-2 text-left text-xs transition-colors hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-secondary"
-                         >
-                           <action.icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                           {action.label}
-                         </button>
-                       ))}
-                     </div>
-                   </div>
-                 )}
+
+                <div aria-label="Common starting points" className="grid gap-3 sm:grid-cols-2">
+                  {COMMON_AI_ACTIONS.map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      aria-label={action.label}
+                      aria-describedby={`ai-chat-action-${action.id}-description`}
+                      onClick={() => handleQuickAction(action)}
+                      disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
+                      className="group relative flex min-h-28 w-full min-w-0 items-start gap-3 rounded-xl border border-border/80 bg-card/70 p-4 text-left text-xs shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-border/80"
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                        <action.icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1 pt-0.5">
+                        <span className="block text-sm font-medium text-foreground">{action.label}</span>
+                        <span id={`ai-chat-action-${action.id}-description`} className="mt-1 block text-xs leading-5 text-muted-foreground">
+                          {action.description}
+                        </span>
+                      </span>
+                      <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/60 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </button>
+                  ))}
+                </div>
+
+                {ADDITIONAL_AI_ACTIONS.length > 0 && (
+                  <div className="border-t border-border/70 pt-3">
+                    <button
+                      type="button"
+                      aria-label="More actions"
+                      aria-expanded={moreActionsExpanded}
+                      aria-controls="ai-additional-actions"
+                      onClick={() => setMoreActionsExpanded((expanded) => !expanded)}
+                      className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="flex-1 font-medium">More actions</span>
+                      <span aria-hidden="true" className="rounded-full border border-border px-1.5 py-0.5 font-mono text-[10px]">
+                        {ADDITIONAL_AI_ACTIONS.length}
+                      </span>
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${moreActionsExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    <div id="ai-additional-actions" hidden={!moreActionsExpanded} className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {ADDITIONAL_AI_ACTIONS.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          aria-label={action.label}
+                          aria-describedby={`ai-chat-action-${action.id}-description`}
+                          onClick={() => handleQuickAction(action)}
+                          disabled={!isLoaded || projectsLoading || !selectedProjectId}
+                          className="flex min-w-0 items-start gap-2 rounded-lg border border-border/70 bg-secondary/35 px-3 py-2.5 text-left text-xs text-muted-foreground transition-colors hover:border-primary/35 hover:bg-secondary/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <action.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="min-w-0">
+                            <span className="block font-medium text-foreground">{action.label}</span>
+                            <span id={`ai-chat-action-${action.id}-description`} className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                              {action.description}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -13006,7 +13035,7 @@ export default function AiChat() {
         </ScrollArea>
 
         {/* Input */}
-         <div className="chat-input-bar min-w-0 shrink-0 border-t border-border p-3 sm:p-4">
+         <div className="chat-input-bar min-w-0 shrink-0 border-t border-border bg-background/90 p-3 backdrop-blur sm:p-4">
           {activeExecution && activeExecutionIsProofBearing && !isAgentBusy && (
             <div className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
               <div className="min-w-0">
@@ -13064,14 +13093,14 @@ export default function AiChat() {
               activeProvider={activeProvider}
               metric={activeProviderMetric}
             />
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 rounded-2xl border border-border/80 bg-card/70 p-2 shadow-sm transition-colors focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/15">
             <Textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
-              className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"
+              className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
               rows={1}
               disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || applyMutation.isPending || isAgentBusy}
             />
@@ -13079,7 +13108,7 @@ export default function AiChat() {
               size="icon"
               onClick={handleSend}
                disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || activeProviderSendBlocked || isAgentBusy || applyMutation.isPending}
-              className="h-11 w-11 shrink-0"
+               className="h-11 w-11 shrink-0 rounded-xl shadow-sm"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
             >
               {isSending ? (
