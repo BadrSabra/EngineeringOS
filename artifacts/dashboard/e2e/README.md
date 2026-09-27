@@ -106,6 +106,9 @@ development project, verifies the scan reaches `completed`, and deletes the
 project. The discovery session remains until the existing 24-hour cleanup
 because there is no discovery-session delete route. API rejection cases are
 covered by `discovery.test.ts`; this browser journey does not call an AI provider.
+The provider-free wizard browser test also checks visible format/size errors,
+handles simulated 413/422 upload rejections, confirms discovery does not start
+after a rejection, and verifies that choosing a valid archive lets the user retry.
 
 ## Bounded live-provider correlation run
 

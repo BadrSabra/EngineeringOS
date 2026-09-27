@@ -661,6 +661,7 @@ async function installApiFixtures(
       uploadId: string;
       originalName: string;
       requests?: string[];
+      failures?: Array<{ status: number; body: Record<string, unknown> }>;
     };
     discoveryStart?: {
       session: Record<string, unknown>;
@@ -1227,15 +1228,25 @@ async function installApiFixtures(
     if (overrides?.archiveUpload && path === "/api/upload/archive") {
       overrides.archiveUpload.requests?.push(route.request().url());
       const contentType = route.request().headers()["content-type"] ?? "";
+      const corsHeaders = {
+        "access-control-allow-origin": new URL(page.url()).origin,
+        "access-control-allow-credentials": "true",
+      };
       if (!contentType.startsWith("multipart/form-data;")) {
         return route.fulfill(
           jsonResponse({ error: "Expected multipart archive upload." }, 400),
         );
       }
       const body = route.request().postDataBuffer();
-      if (!body?.includes(Buffer.from("dashboard-journey.zip"))) {
+      if (!body?.includes(Buffer.from(overrides.archiveUpload.originalName))) {
         return route.fulfill(
           jsonResponse({ error: "Expected the journey archive payload." }, 400),
+        );
+      }
+      const failure = overrides.archiveUpload.failures?.shift();
+      if (failure) {
+        return route.fulfill(
+          jsonResponse(failure.body, failure.status, corsHeaders),
         );
       }
       return route.fulfill(
@@ -1245,10 +1256,7 @@ async function installApiFixtures(
             originalName: overrides.archiveUpload.originalName,
           },
           201,
-          {
-            "access-control-allow-origin": new URL(page.url()).origin,
-            "access-control-allow-credentials": "true",
-          },
+          corsHeaders,
         ),
       );
     }
@@ -6575,6 +6583,128 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(discoveryRequests[0]).toMatchObject({
       sourceType: "ARCHIVE_UPLOAD",
       sourceConfig: { uploadId: "e2e-upload" },
+    });
+  });
+
+  test("Archive Upload validation errors are clear and allow a successful retry", async ({
+    page,
+  }) => {
+    const uploadRequests: string[] = [];
+    const discoveryRequests: Array<Record<string, unknown>> = [];
+    const discoverySession = {
+      id: "e2e-archive-retry",
+      status: "discovering",
+      progress: 0,
+      currentStep: "Initializing",
+      steps: [{ name: "Initialize", status: "running" }],
+      startedAt: "2026-01-01T00:00:00.000Z",
+    };
+    await installApiFixtures(page, {
+      archiveUpload: {
+        uploadId: "e2e-upload-retry",
+        originalName: "retry.zip",
+        requests: uploadRequests,
+        failures: [
+          {
+            status: 413,
+            body: {
+              error: "Archive exceeds the 50 MB upload limit",
+              code: "UPLOAD_TOO_LARGE",
+            },
+          },
+          {
+            status: 422,
+            body: {
+              error:
+                "Archive extraction failed: archive is malformed or could not be extracted",
+            },
+          },
+        ],
+      },
+      discoveryStart: {
+        session: discoverySession,
+        requests: discoveryRequests,
+      },
+    });
+    await programmaticSignIn(page);
+    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+    await page.getByRole("button", { name: "Discover Project" }).first().click();
+    await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
+
+    const archiveInput = page.getByTestId("archive-file-input");
+    const startButton = page.getByTestId("start-discovery");
+    const error = page.getByTestId("discovery-start-error");
+
+    await archiveInput.setInputFiles({
+      name: "unsupported.rar",
+      mimeType: "application/vnd.rar",
+      buffer: Buffer.from("not a supported archive"),
+    });
+    await expect(error).toHaveText(
+      "Choose a .zip, .tar.gz, or .tgz archive.",
+    );
+    await startButton.click();
+    expect(uploadRequests).toHaveLength(0);
+    expect(discoveryRequests).toHaveLength(0);
+
+    await archiveInput.evaluate((element) => {
+      const oversizedFile = new File(["x"], "oversized.zip", {
+        type: "application/zip",
+      });
+      Object.defineProperty(oversizedFile, "size", {
+        configurable: true,
+        value: 50 * 1024 * 1024 + 1,
+      });
+      const transfer = new DataTransfer();
+      transfer.items.add(oversizedFile);
+      const input = element as HTMLInputElement;
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await expect(error).toHaveText("Archive must be 50 MiB or smaller.");
+    await startButton.click();
+    expect(uploadRequests).toHaveLength(0);
+    expect(discoveryRequests).toHaveLength(0);
+
+    await archiveInput.setInputFiles({
+      name: "retry.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("small file rejected by server limit"),
+    });
+    await startButton.click();
+    await expect(error).toContainText(
+      "This archive exceeds the 50 MiB limit. Choose a smaller archive and try again.",
+    );
+    expect(uploadRequests).toHaveLength(1);
+    expect(discoveryRequests).toHaveLength(0);
+
+    await archiveInput.setInputFiles({
+      name: "retry.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("malformed ZIP payload"),
+    });
+    await startButton.click();
+    await expect(error).toContainText(
+      "We couldn't verify this archive.",
+    );
+    expect(uploadRequests).toHaveLength(2);
+    expect(discoveryRequests).toHaveLength(0);
+
+    await archiveInput.setInputFiles({
+      name: "retry.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==", "base64"),
+    });
+    await expect(error).toHaveCount(0);
+    await startButton.click();
+    await expect(
+      page.getByRole("heading", { name: "Analyzing Repository…" }),
+    ).toBeVisible();
+    expect(uploadRequests).toHaveLength(3);
+    expect(discoveryRequests).toHaveLength(1);
+    expect(discoveryRequests[0]).toMatchObject({
+      sourceType: "ARCHIVE_UPLOAD",
+      sourceConfig: { uploadId: "e2e-upload-retry" },
     });
   });
 
