@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import {
   aiAgentEffectBundlesTable,
@@ -32,6 +32,12 @@ import {
   type AiExecutionNodeCheckpoint,
 } from "./ai-execution-state.js";
 import * as aiExecutionState from "./ai-execution-state.js";
+import {
+  appendEpisodeEvent,
+  startEpisode,
+} from "./agent-state/agent-episode-ledger.js";
+import { buildRuntimeStartHypothesisExperimentRegistration } from "./agent-state/runtime-start-hypothesis-experiment.js";
+import { runRuntimeStartHypothesisMeasurementContinuation } from "./agent-state/runtime-start-hypothesis-measurement-continuation-runner.js";
 import { HOST_DISPOSABLE_TEMP_ROOT } from "./disposable-temp.js";
 import {
   createRuntimeStartRunner,
@@ -853,6 +859,272 @@ describe("recipe operation preparation", () => {
         measurementValidity: "complete_fresh",
       });
     } finally {
+      await fixture.cleanup(executionId);
+    }
+  });
+
+  it("reclaims a durable P7.5 result after a worker crash without rereading runtime.status", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify");
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const params = {
+      ...fixture.params,
+      recipeId: "runtime.start" as const,
+      missionId,
+      goalId,
+      planRevision: "runtime-start-p75-crash-recovery-plan",
+    };
+    const environmentRevision = `env-v1:${"a".repeat(64)}`;
+    const runtimeStartRunner = vi.fn(async () => {
+      throw new Error("runtime.start must not run during measurement recovery");
+    });
+    const observedAt = "2026-09-28T10:01:05.000Z";
+    const observeRuntime = vi.fn(async () => ({
+      status: "passed",
+      projectId: params.projectId,
+      sessionId: "server-owned-runtime-session",
+      revision: params.sourceRevision,
+      processAlive: true,
+      portReady: true,
+      servingRevision: params.sourceRevision,
+      markerMatched: true,
+      observedAt,
+    } as never));
+    const continuationDependencies = {
+      loadPriorEvents: async (context: { projectId: string; executionId: string; attempt: number }) =>
+        db.select({
+          episodeId: aiAgentEpisodeEventsTable.episodeId,
+          projectId: aiAgentEpisodeEventsTable.projectId,
+          executionId: aiAgentEpisodeEventsTable.executionId,
+          attempt: aiAgentEpisodeEventsTable.attempt,
+          eventType: aiAgentEpisodeEventsTable.eventType,
+          payload: aiAgentEpisodeEventsTable.payload,
+          sequence: aiAgentEpisodeEventsTable.sequence,
+        }).from(aiAgentEpisodeEventsTable).where(and(
+          eq(aiAgentEpisodeEventsTable.projectId, context.projectId),
+          eq(aiAgentEpisodeEventsTable.executionId, context.executionId),
+          lt(aiAgentEpisodeEventsTable.attempt, context.attempt),
+          inArray(aiAgentEpisodeEventsTable.eventType, [
+            "OBSERVATION_REQUESTED",
+            "OBSERVATION_RECORDED",
+          ]),
+        )).orderBy(
+          asc(aiAgentEpisodeEventsTable.attempt),
+          asc(aiAgentEpisodeEventsTable.sequence),
+        ),
+      captureEnvironmentRevision: async () => environmentRevision,
+      observeRuntime,
+      materializeObservation: async () => ({
+        observationIds: ["observation-p75-crash-recovery"],
+        stale: 0,
+        environmentStale: 0,
+      } as never),
+      appendEvent: appendEpisodeEvent,
+      now: () => observedAt,
+    };
+    let executionId: string | undefined;
+    try {
+      await db.insert(aiMissionsTable).values({
+        id: missionId,
+        projectId: params.projectId,
+        userId: params.userId,
+        title: "P7.5 worker recovery",
+        intent: "Recover a durable runtime observation",
+        status: "active",
+        scope: { kind: "project", projectId: params.projectId },
+      });
+      await db.insert(aiGoalsTable).values({
+        id: goalId,
+        missionId,
+        projectId: params.projectId,
+        title: "Replan from the recorded runtime state",
+        status: "running",
+      });
+
+      const prepared = prepareRecipeOperation({
+        ...params,
+        runtimeStartRunner,
+      });
+      const created = await createAiExecution({
+        userId: params.userId,
+        request: {
+          projectId: params.projectId,
+          operationId: params.operationId,
+          sessionId: params.sessionId,
+          message: `recipe:${params.operationId}`,
+          modelMessage: `recipe:${params.operationId}`,
+          workspaceRevision: params.sourceRevision,
+          validationTargetPaths: [...params.approvedPaths],
+        },
+        idempotencyKey: params.idempotencyKey,
+        projectId: params.projectId,
+        goalId,
+        sessionId: params.sessionId,
+        recipeBinding: prepared.binding,
+      });
+      executionId = created.execution.id;
+      const initialWorkerId = `p75-source-worker:${executionId}`;
+      const initialClaim = await claimAiExecution({
+        executionId,
+        userId: params.userId,
+        workerId: initialWorkerId,
+        recipeBinding: prepared.binding,
+      });
+      if (!initialClaim) throw new Error("Could not claim the initial P7.5 source attempt.");
+
+      const sourceEpisode = await startEpisode({
+        projectId: params.projectId,
+        executionId,
+        attempt: initialClaim.attempt,
+        workerId: initialWorkerId,
+        idempotencyKey: `${params.operationId}:episode:${initialClaim.attempt}`,
+        projectRevision: params.sourceRevision,
+        intentKind: "RUNTIME_START",
+        scope: {
+          kind: "recipe",
+          operationId: params.operationId,
+          recipeId: "runtime.start",
+          candidateIdentity: null,
+        },
+        missionId,
+        goalId,
+        planRevision: params.planRevision,
+      });
+      const registration = buildRuntimeStartHypothesisExperimentRegistration({
+        projectId: params.projectId,
+        missionId,
+        goalId,
+        executionId,
+        attempt: initialClaim.attempt,
+        episodeId: sourceEpisode.episodeId,
+        actionId: "runtime-start-p75-source-action",
+        planRevision: params.planRevision,
+        projectRevision: params.sourceRevision,
+        environmentRevision,
+        parentWorldRevision: "b".repeat(64),
+        beforeObservationIds: ["observation-p75-before"],
+        predictionRegisteredAt: "2026-09-28T10:00:00.000Z",
+      });
+      await appendEpisodeEvent({
+        episodeId: sourceEpisode.episodeId,
+        projectId: params.projectId,
+        executionId,
+        attempt: initialClaim.attempt,
+        workerId: initialWorkerId,
+        eventType: "OBSERVATION_REQUESTED",
+        payload: registration as never,
+        actorType: "server",
+        actorId: initialWorkerId,
+        correlationId: executionId,
+      });
+
+      await db.update(aiExecutionsTable).set({
+        leaseUntil: new Date(Date.now() - 1_000),
+      }).where(eq(aiExecutionsTable.id, executionId));
+      expect(await reconcileAiExecutions({ expiredOnly: true })).toBeGreaterThanOrEqual(1);
+
+      const runAndLoseWorker = vi.fn(async (context: Parameters<
+        typeof runRuntimeStartHypothesisMeasurementContinuation
+      >[0]) => {
+        const result = await runRuntimeStartHypothesisMeasurementContinuation(
+          context,
+          continuationDependencies,
+        );
+        expect(result?.reasonCode).toBe("P75_MEASUREMENT_CONTINUATION_RECORDED");
+        throw new Error("simulated worker crash after durable P7.5 result");
+      });
+      await expect(runRecipeOperation({
+        ...params,
+        runtimeStartMeasurementContinuationRunner: runAndLoseWorker,
+        runtimeStartRunner,
+      })).rejects.toThrow(/simulated worker crash/);
+      expect(runAndLoseWorker).toHaveBeenCalledWith(expect.objectContaining({ attempt: 1 }));
+
+      const afterCrashEvents = await db.select({
+        attempt: aiAgentEpisodeEventsTable.attempt,
+        eventType: aiAgentEpisodeEventsTable.eventType,
+        payload: aiAgentEpisodeEventsTable.payload,
+      }).from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+      const firstResultEvent = afterCrashEvents.find((event) => (
+        (event.payload as Record<string, unknown>)?.recordKind
+          === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT"
+      ));
+      expect(firstResultEvent).toMatchObject({
+        attempt: 1,
+        eventType: "OBSERVATION_RECORDED",
+      });
+      const firstResult = firstResultEvent?.payload as { resultId?: string };
+      expect(firstResult.resultId).toEqual(expect.any(String));
+      expect(afterCrashEvents.filter((event) => (
+        (event.payload as Record<string, unknown>)?.recordKind
+          === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_REQUESTED"
+      ))).toHaveLength(1);
+
+      await db.update(aiExecutionsTable).set({
+        leaseUntil: new Date(Date.now() - 1_000),
+      }).where(eq(aiExecutionsTable.id, executionId));
+      expect(await reconcileAiExecutions({ expiredOnly: true })).toBeGreaterThanOrEqual(1);
+
+      const recovered = await runRecipeOperation({
+        ...params,
+        runtimeStartMeasurementContinuationRunner: (context) =>
+          runRuntimeStartHypothesisMeasurementContinuation(context, continuationDependencies),
+        runtimeStartRunner,
+      });
+      expect(recovered).toMatchObject({
+        status: "blocked",
+        measurementContinuation: {
+          reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
+          resultId: firstResult.resultId,
+          measurementValidity: "complete_fresh",
+        },
+      });
+      expect(observeRuntime).toHaveBeenCalledTimes(1);
+      expect(runtimeStartRunner).not.toHaveBeenCalled();
+
+      const finalEvents = await db.select({
+        attempt: aiAgentEpisodeEventsTable.attempt,
+        eventType: aiAgentEpisodeEventsTable.eventType,
+        payload: aiAgentEpisodeEventsTable.payload,
+      }).from(aiAgentEpisodeEventsTable)
+        .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+      expect(finalEvents.filter((event) => (
+        (event.payload as Record<string, unknown>)?.recordKind
+          === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT"
+      ))).toHaveLength(1);
+      const terminalEvents = finalEvents.filter((event) => event.eventType === "EPISODE_TERMINAL");
+      expect(terminalEvents).toHaveLength(1);
+      expect(terminalEvents[0]).toMatchObject({
+        attempt: 2,
+        payload: {
+          verdict: "replan_required",
+          resultId: firstResult.resultId,
+        },
+      });
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+        eq(aiExecutionAcceptancesTable.attempt, 2),
+      ))).toHaveLength(0);
+      const [execution] = await db.select({
+        attempt: aiExecutionsTable.attempt,
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toMatchObject({
+        attempt: 2,
+        status: "completed",
+        workerId: null,
+      });
+    } finally {
+      if (executionId) {
+        await db.delete(aiAgentEpisodeEventsTable)
+          .where(eq(aiAgentEpisodeEventsTable.executionId, executionId));
+        await db.delete(aiAgentObservationsTable)
+          .where(eq(aiAgentObservationsTable.executionId, executionId));
+        await db.delete(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.executionId, executionId));
+      }
       await fixture.cleanup(executionId);
     }
   });
