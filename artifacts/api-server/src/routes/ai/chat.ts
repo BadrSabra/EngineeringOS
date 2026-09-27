@@ -20,7 +20,11 @@ import {
   aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
+  aiAgentEpisodesTable,
+  aiAgentEffectBundlesTable,
+  aiAgentObservationsTable,
   aiShadowReplaysTable,
+  aiWorldTransitionsTable,
   aiApplyJournalTable,
   auditLogsTable,
   eventsTable,
@@ -221,6 +225,11 @@ import {
   type AiTerminalOutcome,
 } from "../../lib/ai-terminal-outcome.js";
 import { serializeAiSseEvent } from "@workspace/api-zod";
+import {
+  linkedWorldTransitionObservationIds,
+  MAX_WORLD_TRANSITIONS_PER_ATTEMPT,
+  projectRuntimeWorldTransition,
+} from "../../lib/agent-state/world-transition-read-projection.js";
 import {
   isProviderFailureCategory,
   type ProviderFailureCategory,
@@ -12179,6 +12188,76 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     ))
     .limit(1);
   const currentAcceptance = projectExecutionAcceptance(acceptanceRow);
+  const recipeReceipt = execution.recipeReceipt
+    ? toPublicRecipeReceipt(execution.recipeReceipt)
+    : null;
+  const worldTransitions = recipeReceipt?.recipeId === "runtime.start"
+    ? await (async () => {
+        const transitionRows = await db
+          .select()
+          .from(aiWorldTransitionsTable)
+          .where(and(
+            eq(aiWorldTransitionsTable.projectId, execution.projectId),
+            eq(aiWorldTransitionsTable.executionId, execution.id),
+            eq(aiWorldTransitionsTable.attempt, execution.attempt),
+          ))
+          .orderBy(desc(aiWorldTransitionsTable.createdAt))
+          .limit(MAX_WORLD_TRANSITIONS_PER_ATTEMPT);
+        const transitionEpisodeIds = Array.from(new Set(
+          transitionRows.map((transition) => transition.episodeId),
+        ));
+        const matchingEpisodes = transitionEpisodeIds.length > 0
+          ? await db
+            .select({ id: aiAgentEpisodesTable.id })
+            .from(aiAgentEpisodesTable)
+            .where(and(
+              eq(aiAgentEpisodesTable.projectId, execution.projectId),
+              eq(aiAgentEpisodesTable.executionId, execution.id),
+              eq(aiAgentEpisodesTable.attempt, execution.attempt),
+              inArray(aiAgentEpisodesTable.id, transitionEpisodeIds),
+            ))
+          : [];
+        const matchingEpisodeIds = new Set(matchingEpisodes.map((episode) => episode.id));
+        const boundTransitionRows = transitionRows.filter((transition) => (
+          matchingEpisodeIds.has(transition.episodeId)
+        ));
+        const observationIds = Array.from(new Set(
+          boundTransitionRows.flatMap(linkedWorldTransitionObservationIds),
+        ));
+        const observations = observationIds.length > 0
+          ? await db
+            .select()
+            .from(aiAgentObservationsTable)
+            .where(and(
+              eq(aiAgentObservationsTable.projectId, execution.projectId),
+              eq(aiAgentObservationsTable.executionId, execution.id),
+              inArray(aiAgentObservationsTable.id, observationIds),
+            ))
+          : [];
+        const effectBundleIds = Array.from(new Set(
+          boundTransitionRows
+            .map((transition) => transition.effectBundleId)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        ));
+        const effectBundles = effectBundleIds.length > 0
+          ? await db
+            .select()
+            .from(aiAgentEffectBundlesTable)
+            .where(and(
+              eq(aiAgentEffectBundlesTable.projectId, execution.projectId),
+              eq(aiAgentEffectBundlesTable.executionId, execution.id),
+              eq(aiAgentEffectBundlesTable.attempt, execution.attempt),
+              inArray(aiAgentEffectBundlesTable.id, effectBundleIds),
+            ))
+          : [];
+        const effectBundleById = new Map(effectBundles.map((bundle) => [bundle.id, bundle]));
+        return boundTransitionRows.map((transition) => projectRuntimeWorldTransition(
+          transition,
+          observations,
+          transition.effectBundleId ? effectBundleById.get(transition.effectBundleId) ?? null : null,
+        ));
+      })()
+    : [];
   const terminalProjection = execution.sessionId
     ? await loadTerminalProjection({
         executionId: execution.id,
@@ -12286,7 +12365,8 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     // provider, model, and workspace diagnostics never cross this boundary.
     operationEvidence: redactOperationEvidence(operationEvidence),
     executionDiagnostics,
-      ...(execution.recipeReceipt ? { recipeReceipt: toPublicRecipeReceipt(execution.recipeReceipt) } : {}),
+    recipeReceipt,
+    worldTransitions,
   });
 });
 

@@ -119,6 +119,7 @@ const historicalRecoveryFixture = vi.hoisted(() => ({
 }));
 
 let currentMissionControl = missionControlFixture;
+let currentExecutionDetail: any = undefined;
 const refetchMissionControl = vi.hoisted(() => vi.fn());
 
 vi.mock('@workspace/api-client-react', () => ({
@@ -131,7 +132,7 @@ vi.mock('@workspace/api-client-react', () => ({
     refetch: refetchMissionControl,
   }),
   useGetAiExecution: () => ({
-    data: undefined,
+    data: currentExecutionDetail,
     error: null,
     isError: false,
     isLoading: false,
@@ -149,6 +150,63 @@ function renderPage() {
       return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
     },
   });
+}
+
+function runtimeStartDetail(overrides: Record<string, unknown> = {}) {
+  const now = '2026-09-27T10:00:00.000Z';
+  return {
+    id: 'execution-1',
+    attempt: 2,
+    recipeReceipt: { recipeId: 'runtime.start' },
+    worldTransitions: [{
+      id: 'transition-1',
+      executionId: 'execution-1',
+      attempt: 2,
+      episodeId: 'episode-1',
+      actionId: 'action-1',
+      status: 'materialized',
+      parentWorldRevision: 'world-before',
+      resultingWorldRevision: 'world-after',
+      environmentRevision: 'environment-revision-1',
+      freshness: 'fresh',
+      beforeObservations: [{
+        id: 'observation-before',
+        predicate: 'runtime.before_state',
+        provenance: 'DIRECT_OBSERVATION',
+        completeness: 'complete',
+        freshness: 'fresh',
+        environmentFreshness: 'fresh',
+        runtimeStatus: 'stopped',
+        observedAt: now,
+      }],
+      afterObservations: [{
+        id: 'observation-after',
+        predicate: 'runtime.after_state',
+        provenance: 'DIRECT_OBSERVATION',
+        completeness: 'complete',
+        freshness: 'fresh',
+        environmentFreshness: 'fresh',
+        runtimeStatus: 'running',
+        observedAt: now,
+      }],
+      effectBundle: { id: 'effect-1', verdict: 'OBSERVED' },
+      failureCode: null,
+      createdAt: now,
+      materializedAt: now,
+    }],
+    acceptance: {
+      attempt: 2,
+      terminalStatus: 'completed',
+      outcome: 'SUCCEEDED',
+      reasonCode: 'ACCEPTED',
+      nextActionCode: 'NONE',
+      evidenceComplete: true,
+      evidenceRequired: true,
+      resumable: false,
+    },
+    operationEvidence: { proof: { verdict: 'PROVEN' } },
+    ...overrides,
+  };
 }
 
 function parseCsv(csv: string): string[][] {
@@ -198,6 +256,7 @@ function parseCsv(csv: string): string[][] {
 describe('Mission Control', () => {
   beforeEach(() => {
     currentMissionControl = missionControlFixture;
+    currentExecutionDetail = undefined;
     refetchMissionControl.mockReset();
   });
 
@@ -225,6 +284,54 @@ describe('Mission Control', () => {
       'href',
       '/flight-deck?executionId=execution-1',
     );
+  });
+
+  it('shows the runtime.start observation, effect, acceptance, and materialization as distinct records', async () => {
+    currentExecutionDetail = runtimeStartDetail();
+    renderPage();
+
+    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
+    expect(within(timeline).getByText('stopped')).toBeInTheDocument();
+    expect(within(timeline).getByText('running')).toBeInTheDocument();
+    expect(within(timeline).getByText('observation-before')).toBeInTheDocument();
+    expect(within(timeline).getByText('observation-after')).toBeInTheDocument();
+    expect(within(timeline).getByText('effect-1')).toBeInTheDocument();
+    expect(within(timeline).getByText('world-after')).toBeInTheDocument();
+    expect(within(timeline).getByText('PROVEN')).toBeInTheDocument();
+    expect(timeline).toHaveTextContent('Observation, effect, acceptance, and World materialization are separate records');
+  });
+
+  it('does not infer World materialization from a PROVEN acceptance when the transition is absent', async () => {
+    currentExecutionDetail = runtimeStartDetail({ worldTransitions: [] });
+    renderPage();
+
+    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
+    expect(within(timeline).getByText('PROVEN')).toBeInTheDocument();
+    expect(within(timeline).getByText('No World Transition record is available for this runtime.start attempt.')).toBeInTheDocument();
+    expect(within(timeline).queryByText('MATERIALIZED')).not.toBeInTheDocument();
+  });
+
+  it('keeps a terminal World materialization failure visible without promoting it to success', async () => {
+    const fixture = runtimeStartDetail();
+    currentExecutionDetail = runtimeStartDetail({
+      worldTransitions: fixture.worldTransitions.map((transition) => ({
+        ...transition,
+        status: 'terminal_failed',
+        resultingWorldRevision: null,
+        failureCode: 'WORLD_REVISION_CONFLICT',
+        effectBundle: { id: 'effect-1', verdict: 'CONTRADICTED' },
+      })),
+      acceptance: { ...fixture.acceptance, outcome: 'FAILED', evidenceComplete: false },
+      operationEvidence: { proof: { verdict: 'BLOCKED' } },
+    });
+    renderPage();
+
+    const timeline = await screen.findByRole('region', { name: 'World Transition timeline' });
+    expect(within(timeline).getByText('terminal_failed')).toBeInTheDocument();
+    expect(within(timeline).getByText('WORLD_REVISION_CONFLICT')).toBeInTheDocument();
+    expect(within(timeline).getByText('CONTRADICTED')).toBeInTheDocument();
+    expect(within(timeline).queryByText('PROVEN')).not.toBeInTheDocument();
+    expect(within(timeline).queryByText('MATERIALIZED')).not.toBeInTheDocument();
   });
 
   it('shows operator next steps while retaining acceptance diagnostic codes', async () => {

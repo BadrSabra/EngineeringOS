@@ -17,6 +17,7 @@ import type { GetAiExecution200Recovery } from './getAiExecution200Recovery';
 import type { GetAiExecution200Status } from './getAiExecution200Status';
 import type { OperationEvidenceProjection } from './operationEvidenceProjection';
 import type { RecipeReceipt } from './recipeReceipt';
+import type { RuntimeWorldTransitionProjection } from './runtimeWorldTransitionProjection';
 
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
@@ -59,6 +60,8 @@ export type GetAiExecution200 = {
   operationEvidence: OperationEvidenceProjection;
   executionDiagnostics: AiExecutionDiagnostics;
   projection: AiExecutionProjection;
+  /** Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence. */
+  worldTransitions: RuntimeWorldTransitionProjection[];
   createdAt?: Date;
   updatedAt?: Date;
   startedAt?: Date | null;

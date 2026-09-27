@@ -2594,6 +2594,32 @@ G9 Revocation Safety
   اختباريين، ثم أبقِ حدود عدم وجود objective والميزانية والإلغاء ضمن بوابات
   القبول؛ لا توسع fallback العام أو dependency graph.
 
+### 42.72 — عرض World Transition في Mission Control (2026-09-27)
+
+- **phase/step:** تسليم Dashboard مستقل؛ إسقاط `runtime.start` الحالي في Mission
+  Control، دون إضافة مرحلة أو تغيير ترتيب §31.
+- **status:** `done — bounded product surface`.
+- **what changed:** أضيف إسقاط قراءة فقط يعرض انتقالات المحاولة الحالية لوصفة
+  `runtime.start` بعد ربط المشروع والتنفيذ وEpisode والمحاولة، ويعيد قائمة فارغة
+  للوصفات الأخرى. تعرض Mission Control مراحل Observation وEffect وAcceptance
+  وWorld منفصلة، وتحدث حالة الانتقال ما دام materialization قيد التنفيذ.
+- **files/schema/contracts touched:** OpenAPI والأنواع المولدة، route قراءة
+  التنفيذ، إسقاط World Transition، ومكوّن/اختبارات Mission Control؛ لا جداول أو
+  migrations جديدة.
+- **validation:** نجح API typecheck واختبار route المركز (1 ناجح، 186 متجاوزًا)
+  واختبارات projection (4 ناجحة). نجح dashboard typecheck واختبار Mission
+  Control (19 ناجحًا). أعيد تشغيل API وDashboard؛ كلاهما يعمل. عاينت المسار
+  المحمي لكن جلسة المعاينة غير موثقة الهوية، فظهرت شاشة الدخول بدل صفحة Mission
+  Control.
+- **authority/safety impact:** القبول وCanonical Proof مستقلان عن materialization؛
+  لا تستنتج الواجهة انتقالًا من قبول PROVEN، ولا تكشف أجسام الملاحظات أو الأدلة
+  الخام. لم تتغير صلاحيات الوكيل أو نطاق `runtime.start`، ولم يبدأ `restart`,
+  `stop` أو جمع بيانات P7.5.
+- **remaining/blocker:** رحلة متصفح موثقة الهوية مع إعادة تحميل صفحة التنفيذ لم
+  تُثبت بعد؛ لا يغيّر ذلك نتائج اختبارات API والمكوّن.
+- **next step:** تحقق من رحلة Mission Control المحمية وإعادة التحميل في جلسة
+  متصفح موثقة الهوية؛ أبقِ بقية الوصفات وP7.5 خارج هذا النطاق.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -30,6 +30,7 @@ import {
 } from '@workspace/api-client-react';
 import type { AiMissionControl, AiUsageSummary } from '@workspace/api-client-react';
 import { MissionCapsule } from '@/components/MissionCapsule';
+import WorldTransitionTimeline from '@/components/WorldTransitionTimeline';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1217,7 +1218,12 @@ export default function MissionControl() {
       enabled: Boolean(selectedExecution?.id),
       refetchInterval: (query) => {
         const status = query.state.data?.status;
-        return status === 'queued' || status === 'running' || status === 'cancelling' ? 5_000 : false;
+        const transitionPending = query.state.data?.worldTransitions?.some((transition) => (
+          transition.status === 'pending' || transition.status === 'retrying'
+        )) ?? false;
+        return status === 'queued' || status === 'running' || status === 'cancelling' || transitionPending
+          ? 5_000
+          : false;
       },
     },
   });
@@ -1703,6 +1709,15 @@ export default function MissionControl() {
               )}
             </section>
           )}
+
+          <WorldTransitionTimeline
+            recipeId={selectedExecutionDetail?.recipeReceipt?.recipeId}
+            executionId={selectedExecutionDetail?.id}
+            attempt={selectedExecutionDetail?.attempt}
+            transitions={selectedExecutionDetail?.worldTransitions}
+            acceptance={selectedExecutionDetail?.acceptance}
+            proofVerdict={selectedExecutionDetail?.operationEvidence?.proof?.verdict}
+          />
 
            {asRecord(selectedExecution?.recovery)?.uncertain === true && selectedExecution && (
              <section className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-4" aria-label="Uncertain execution recovery">

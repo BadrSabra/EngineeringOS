@@ -4141,6 +4141,7 @@ export const getAiExecutionResponseProjectionTimelineMax = 8;
 
 export const getAiExecutionResponseProjectionAllowedActionsMax = 7;
 
+export const getAiExecutionResponseWorldTransitionsItemFailureCodeRegExp = new RegExp('^[A-Z][A-Z0-9_]{0,79}$');
 
 
 export const GetAiExecutionResponse = zod.object({
@@ -4348,6 +4349,45 @@ export const GetAiExecutionResponse = zod.object({
 })).max(getAiExecutionResponseProjectionTimelineMax),
   "allowedActions": zod.array(zod.enum(['CANCEL', 'RESUME_CHECKPOINT', 'RETRY_CHECKPOINT', 'START_NEW_RUN', 'REVIEW_PROOF', 'REVIEW_DIFF', 'APPROVE_CHANGES'])).max(getAiExecutionResponseProjectionAllowedActionsMax)
 }),
+  "worldTransitions": zod.array(zod.object({
+  "id": zod.string(),
+  "executionId": zod.string(),
+  "attempt": zod.number().int(),
+  "episodeId": zod.string(),
+  "actionId": zod.string(),
+  "status": zod.enum(['pending', 'materialized', 'retrying', 'terminal_failed']),
+  "parentWorldRevision": zod.string().nullable(),
+  "resultingWorldRevision": zod.string().nullable(),
+  "environmentRevision": zod.string().nullable(),
+  "freshness": zod.enum(['fresh', 'stale', 'unknown']),
+  "beforeObservations": zod.array(zod.object({
+  "id": zod.string().describe('Server-owned reference to an observation linked to this transition.'),
+  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status']),
+  "provenance": zod.enum(['DIRECT_OBSERVATION', 'SERVER_DERIVED', 'MODEL_INFERRED']),
+  "completeness": zod.enum(['complete', 'partial', 'failed']),
+  "freshness": zod.enum(['fresh', 'stale', 'unknown']),
+  "environmentFreshness": zod.enum(['fresh', 'stale', 'unknown']),
+  "runtimeStatus": zod.union([zod.literal('stopped'),zod.literal('running'),zod.literal(null)]).nullable().describe('Exposed only for a complete, fresh direct observation bound to this execution, episode, and environment.'),
+  "observedAt": zod.coerce.date()
+})),
+  "afterObservations": zod.array(zod.object({
+  "id": zod.string().describe('Server-owned reference to an observation linked to this transition.'),
+  "predicate": zod.enum(['runtime.before_state', 'runtime.after_state', 'runtime.status']),
+  "provenance": zod.enum(['DIRECT_OBSERVATION', 'SERVER_DERIVED', 'MODEL_INFERRED']),
+  "completeness": zod.enum(['complete', 'partial', 'failed']),
+  "freshness": zod.enum(['fresh', 'stale', 'unknown']),
+  "environmentFreshness": zod.enum(['fresh', 'stale', 'unknown']),
+  "runtimeStatus": zod.union([zod.literal('stopped'),zod.literal('running'),zod.literal(null)]).nullable().describe('Exposed only for a complete, fresh direct observation bound to this execution, episode, and environment.'),
+  "observedAt": zod.coerce.date()
+})),
+  "effectBundle": zod.union([zod.object({
+  "id": zod.string(),
+  "verdict": zod.enum(['OBSERVED', 'PARTIAL', 'NOT_OBSERVED', 'CONTRADICTED', 'UNKNOWN'])
+}),zod.null()]),
+  "failureCode": zod.string().regex(getAiExecutionResponseWorldTransitionsItemFailureCodeRegExp).nullable(),
+  "createdAt": zod.coerce.date(),
+  "materializedAt": zod.coerce.date().nullable()
+})).describe('Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence.'),
   "createdAt": zod.coerce.date().optional(),
   "updatedAt": zod.coerce.date().optional(),
   "startedAt": zod.coerce.date().nullish(),

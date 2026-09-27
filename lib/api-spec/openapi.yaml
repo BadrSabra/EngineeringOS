@@ -1557,7 +1557,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection]
+                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence, executionDiagnostics, projection, worldTransitions]
                 properties:
                   id: { type: string, description: UUID of the AI execution }
                   projectId: { type: string }
@@ -1630,6 +1630,11 @@ paths:
                     $ref: "#/components/schemas/AiExecutionDiagnostics"
                   projection:
                     $ref: "#/components/schemas/AiExecutionProjection"
+                  worldTransitions:
+                    type: array
+                    description: Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence.
+                    items:
+                      $ref: "#/components/schemas/RuntimeWorldTransitionProjection"
                   createdAt: { type: string, format: date-time }
                   updatedAt: { type: string, format: date-time }
                   startedAt: { type: string, format: date-time, nullable: true }
@@ -4748,6 +4753,95 @@ components:
           type: string
         detail:
           type: string
+
+    RuntimeWorldTransitionObservation:
+      type: object
+      additionalProperties: false
+      required: [id, predicate, provenance, completeness, freshness, environmentFreshness, runtimeStatus, observedAt]
+      properties:
+        id:
+          type: string
+          description: Server-owned reference to an observation linked to this transition.
+        predicate:
+          type: string
+          enum: [runtime.before_state, runtime.after_state, runtime.status]
+        provenance:
+          type: string
+          enum: [DIRECT_OBSERVATION, SERVER_DERIVED, MODEL_INFERRED]
+        completeness:
+          type: string
+          enum: [complete, partial, failed]
+        freshness:
+          type: string
+          enum: [fresh, stale, unknown]
+        environmentFreshness:
+          type: string
+          enum: [fresh, stale, unknown]
+        runtimeStatus:
+          type: ["string", "null"]
+          enum: [stopped, running, null]
+          description: Exposed only for a complete, fresh direct observation bound to this execution, episode, and environment.
+        observedAt:
+          type: string
+          format: date-time
+
+    RuntimeWorldTransitionEffect:
+      type: object
+      additionalProperties: false
+      required: [id, verdict]
+      properties:
+        id:
+          type: string
+        verdict:
+          type: string
+          enum: [OBSERVED, PARTIAL, NOT_OBSERVED, CONTRADICTED, UNKNOWN]
+
+    RuntimeWorldTransitionProjection:
+      type: object
+      additionalProperties: false
+      required:
+        [id, executionId, attempt, episodeId, actionId, status, parentWorldRevision,
+         resultingWorldRevision, environmentRevision, freshness, beforeObservations,
+         afterObservations, effectBundle, failureCode, createdAt, materializedAt]
+      properties:
+        id: { type: string }
+        executionId: { type: string }
+        attempt: { type: integer }
+        episodeId: { type: string }
+        actionId: { type: string }
+        status:
+          type: string
+          enum: [pending, materialized, retrying, terminal_failed]
+        parentWorldRevision:
+          type: ["string", "null"]
+        resultingWorldRevision:
+          type: ["string", "null"]
+        environmentRevision:
+          type: ["string", "null"]
+        freshness:
+          type: string
+          enum: [fresh, stale, unknown]
+        beforeObservations:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeWorldTransitionObservation"
+        afterObservations:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeWorldTransitionObservation"
+        effectBundle:
+          oneOf:
+            - $ref: "#/components/schemas/RuntimeWorldTransitionEffect"
+            - type: "null"
+        failureCode:
+          type: ["string", "null"]
+          pattern: "^[A-Z][A-Z0-9_]{0,79}$"
+        createdAt:
+          type: string
+          format: date-time
+        materializedAt:
+          type: ["string", "null"]
+          format: date-time
 
     AiMissionControlExecution:
       type: object

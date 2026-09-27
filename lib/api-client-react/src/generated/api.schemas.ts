@@ -846,6 +846,141 @@ export interface AiMissionControlRecorderEvent {
   detail?: string;
 }
 
+export type RuntimeWorldTransitionObservationPredicate = typeof RuntimeWorldTransitionObservationPredicate[keyof typeof RuntimeWorldTransitionObservationPredicate];
+
+
+export const RuntimeWorldTransitionObservationPredicate = {
+  runtimebefore_state: 'runtime.before_state',
+  runtimeafter_state: 'runtime.after_state',
+  runtimestatus: 'runtime.status',
+} as const;
+
+export type RuntimeWorldTransitionObservationProvenance = typeof RuntimeWorldTransitionObservationProvenance[keyof typeof RuntimeWorldTransitionObservationProvenance];
+
+
+export const RuntimeWorldTransitionObservationProvenance = {
+  DIRECT_OBSERVATION: 'DIRECT_OBSERVATION',
+  SERVER_DERIVED: 'SERVER_DERIVED',
+  MODEL_INFERRED: 'MODEL_INFERRED',
+} as const;
+
+export type RuntimeWorldTransitionObservationCompleteness = typeof RuntimeWorldTransitionObservationCompleteness[keyof typeof RuntimeWorldTransitionObservationCompleteness];
+
+
+export const RuntimeWorldTransitionObservationCompleteness = {
+  complete: 'complete',
+  partial: 'partial',
+  failed: 'failed',
+} as const;
+
+export type RuntimeWorldTransitionObservationFreshness = typeof RuntimeWorldTransitionObservationFreshness[keyof typeof RuntimeWorldTransitionObservationFreshness];
+
+
+export const RuntimeWorldTransitionObservationFreshness = {
+  fresh: 'fresh',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+export type RuntimeWorldTransitionObservationEnvironmentFreshness = typeof RuntimeWorldTransitionObservationEnvironmentFreshness[keyof typeof RuntimeWorldTransitionObservationEnvironmentFreshness];
+
+
+export const RuntimeWorldTransitionObservationEnvironmentFreshness = {
+  fresh: 'fresh',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+/**
+ * Exposed only for a complete, fresh direct observation bound to this execution, episode, and environment.
+ * @nullable
+ */
+export type RuntimeWorldTransitionObservationRuntimeStatus = typeof RuntimeWorldTransitionObservationRuntimeStatus[keyof typeof RuntimeWorldTransitionObservationRuntimeStatus] | null;
+
+
+export const RuntimeWorldTransitionObservationRuntimeStatus = {
+  stopped: 'stopped',
+  running: 'running',
+} as const;
+
+export interface RuntimeWorldTransitionObservation {
+  /** Server-owned reference to an observation linked to this transition. */
+  id: string;
+  predicate: RuntimeWorldTransitionObservationPredicate;
+  provenance: RuntimeWorldTransitionObservationProvenance;
+  completeness: RuntimeWorldTransitionObservationCompleteness;
+  freshness: RuntimeWorldTransitionObservationFreshness;
+  environmentFreshness: RuntimeWorldTransitionObservationEnvironmentFreshness;
+  /**
+     * Exposed only for a complete, fresh direct observation bound to this execution, episode, and environment.
+     * @nullable
+     */
+  runtimeStatus: RuntimeWorldTransitionObservationRuntimeStatus;
+  observedAt: string;
+}
+
+export type RuntimeWorldTransitionEffectVerdict = typeof RuntimeWorldTransitionEffectVerdict[keyof typeof RuntimeWorldTransitionEffectVerdict];
+
+
+export const RuntimeWorldTransitionEffectVerdict = {
+  OBSERVED: 'OBSERVED',
+  PARTIAL: 'PARTIAL',
+  NOT_OBSERVED: 'NOT_OBSERVED',
+  CONTRADICTED: 'CONTRADICTED',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+
+export interface RuntimeWorldTransitionEffect {
+  id: string;
+  verdict: RuntimeWorldTransitionEffectVerdict;
+}
+
+export type RuntimeWorldTransitionProjectionStatus = typeof RuntimeWorldTransitionProjectionStatus[keyof typeof RuntimeWorldTransitionProjectionStatus];
+
+
+export const RuntimeWorldTransitionProjectionStatus = {
+  pending: 'pending',
+  materialized: 'materialized',
+  retrying: 'retrying',
+  terminal_failed: 'terminal_failed',
+} as const;
+
+export type RuntimeWorldTransitionProjectionFreshness = typeof RuntimeWorldTransitionProjectionFreshness[keyof typeof RuntimeWorldTransitionProjectionFreshness];
+
+
+export const RuntimeWorldTransitionProjectionFreshness = {
+  fresh: 'fresh',
+  stale: 'stale',
+  unknown: 'unknown',
+} as const;
+
+export interface RuntimeWorldTransitionProjection {
+  id: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  status: RuntimeWorldTransitionProjectionStatus;
+  /** @nullable */
+  parentWorldRevision: string | null;
+  /** @nullable */
+  resultingWorldRevision: string | null;
+  /** @nullable */
+  environmentRevision: string | null;
+  freshness: RuntimeWorldTransitionProjectionFreshness;
+  beforeObservations: RuntimeWorldTransitionObservation[];
+  afterObservations: RuntimeWorldTransitionObservation[];
+  effectBundle: RuntimeWorldTransitionEffect | null;
+  /**
+     * @nullable
+     * @pattern ^[A-Z][A-Z0-9_]{0,79}$
+     */
+  failureCode: string | null;
+  createdAt: string;
+  /** @nullable */
+  materializedAt: string | null;
+}
+
 export type OperationEvidenceProjectionVersion = typeof OperationEvidenceProjectionVersion[keyof typeof OperationEvidenceProjectionVersion];
 
 
@@ -5716,6 +5851,8 @@ export type GetAiExecution200 = {
   operationEvidence: OperationEvidenceProjection;
   executionDiagnostics: AiExecutionDiagnostics;
   projection: AiExecutionProjection;
+  /** Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence. */
+  worldTransitions: RuntimeWorldTransitionProjection[];
   createdAt?: string;
   updatedAt?: string;
   startedAt?: string | null;

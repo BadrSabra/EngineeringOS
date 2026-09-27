@@ -38,6 +38,7 @@ import {
   aiAgentObservationsTable,
   aiAgentEffectBundlesTable,
   aiAgentEffectsTable,
+  aiWorldTransitionsTable,
 } from "@workspace/db";
 import {
   buildProjectContext,
@@ -3314,6 +3315,150 @@ describe("GET /api/ai/executions/history", () => {
     expect(JSON.stringify(response.body)).not.toContain("provider=secret");
     expect(JSON.stringify(response.body)).not.toContain("raw model output");
     expect(JSON.stringify(response.body)).not.toContain("internal provider diagnostic");
+  });
+});
+
+describe("GET /api/ai/executions/:executionId World Transitions", () => {
+  it("returns only current-attempt transitions for runtime.start receipts", async () => {
+    const projectId = await insertProject();
+    const otherProjectId = await insertProject();
+    projectIds.push(projectId, otherProjectId);
+
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        message: "Start the runtime",
+        modelMessage: "Start the runtime",
+        validationTargetPaths: [],
+      },
+    });
+    const executionId = created.execution.id;
+    const attempt = 1;
+    const episodeId = randomUUID();
+    const mismatchedEpisodeId = randomUUID();
+    const operationId = `world-transition-test-${randomUUID()}`;
+    const now = new Date();
+    const runtimeReceipt = {
+      contractVersion: 1,
+      executionId,
+      operationId,
+      attempt,
+      recipeId: "runtime.start",
+      recipeVersion: 1,
+      status: "completed",
+      completedNodeIds: [],
+      nodes: [],
+      evidenceRefs: [],
+      createdAt: now.toISOString(),
+      completedAt: now.toISOString(),
+    };
+    await db.update(aiExecutionsTable).set({
+      attempt,
+      recipeReceipt: runtimeReceipt,
+      updatedAt: now,
+    }).where(eq(aiExecutionsTable.id, executionId));
+    await db.insert(aiAgentEpisodesTable).values([
+      {
+        id: episodeId,
+        projectId,
+        executionId,
+        attempt,
+        projectRevision: "project-revision-1",
+        intentKind: "runtime.start",
+        scope: { kind: "project" },
+        workerId: `world-transition-test-${randomUUID()}`,
+        leaseUntil: new Date(now.getTime() + 60_000),
+        idempotencyKey: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: mismatchedEpisodeId,
+        projectId,
+        executionId,
+        attempt: 0,
+        projectRevision: "project-revision-0",
+        intentKind: "runtime.start",
+        scope: { kind: "project" },
+        workerId: `world-transition-test-${randomUUID()}`,
+        leaseUntil: new Date(now.getTime() + 60_000),
+        idempotencyKey: randomUUID(),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const transitionRow = ({
+      id,
+      projectId: transitionProjectId,
+      transitionAttempt,
+    }: {
+      id: string;
+      projectId: string;
+      transitionAttempt: number;
+    }) => ({
+      id,
+      projectId: transitionProjectId,
+      executionId,
+      attempt: transitionAttempt,
+      episodeId,
+      actionId: `action-${id}`,
+      parentWorldRevision: "world-before",
+      taskScope: "runtime",
+      environmentRevisionKey: "environment-1",
+      environmentRevision: "environment-revision-1",
+      freshness: "fresh" as const,
+      beforeObservationIds: [],
+      afterObservationIds: [],
+      materializedObservationIds: [],
+      parentFactRefs: [],
+      changedFactRefs: [],
+      evidenceRefs: [],
+      status: "pending" as const,
+      idempotencyKey: `idempotency-${id}`,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiWorldTransitionsTable).values([
+      transitionRow({ id: "included-transition", projectId, transitionAttempt: attempt }),
+      transitionRow({ id: "wrong-attempt-transition", projectId, transitionAttempt: 0 }),
+      transitionRow({ id: "wrong-project-transition", projectId: otherProjectId, transitionAttempt: attempt }),
+      {
+        ...transitionRow({ id: "wrong-episode-transition", projectId, transitionAttempt: attempt }),
+        episodeId: mismatchedEpisodeId,
+      },
+    ]);
+
+    const response = await request(app).get(`/api/ai/executions/${executionId}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.worldTransitions).toHaveLength(1);
+    expect(response.body.worldTransitions[0]).toMatchObject({
+      id: "included-transition",
+      executionId,
+      attempt,
+      episodeId,
+      status: "pending",
+      beforeObservations: [],
+      afterObservations: [],
+      effectBundle: null,
+    });
+    expect(JSON.stringify(response.body.worldTransitions)).not.toContain("wrong-attempt-transition");
+    expect(JSON.stringify(response.body.worldTransitions)).not.toContain("wrong-project-transition");
+    expect(JSON.stringify(response.body.worldTransitions)).not.toContain("wrong-episode-transition");
+
+    await db.update(aiExecutionsTable).set({
+      recipeReceipt: { ...runtimeReceipt, recipeId: "candidate.verify" },
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, executionId));
+    const nonRuntimeRecipeResponse = await request(app).get(`/api/ai/executions/${executionId}`);
+
+    expect(nonRuntimeRecipeResponse.status).toBe(200);
+    expect(nonRuntimeRecipeResponse.body.worldTransitions).toEqual([]);
   });
 });
 
