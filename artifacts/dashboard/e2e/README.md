@@ -89,23 +89,26 @@ noise is the documented provider-free fixture's `428` response for an
 
 ## Real Clerk Archive Upload journey
 
-Run only the real upload → discovery → import → scan journey in the controlled
-release runner:
+Run only the real upload → discovery → import → scan → project scan-hook
+activation journey in the controlled release runner:
 
 ```sh
 APP_ORIGINS="https://${REPLIT_DEV_DOMAIN}" \
 RELEASE_VALIDATION_WAIT_FOR_LOCK=1 \
 DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)" \
 DASHBOARD_E2E_SKIP_API_CONTRACTS=1 \
-DASHBOARD_E2E_GREP="REAL CLERK Archive Upload reaches discovery, import, and scan" \
+DASHBOARD_E2E_GREP="REAL CLERK Archive Upload reaches scan and persists project scan-hook activation" \
 pnpm run validate:dashboard-journey
 ```
 
 It uses the isolated Clerk user and real API routes, creates a temporary
-development project, verifies the scan reaches `completed`, and deletes the
-project. The discovery session remains until the existing 24-hour cleanup
-because there is no discovery-session delete route. API rejection cases are
-covered by `discovery.test.ts`; this browser journey does not call an AI provider.
+development project, verifies the scan reaches `completed`, enables the
+React/TypeScript scan hook for that project, reloads, and confirms the
+server-returned binding remains enabled and effective for project scans before
+deleting the project. The discovery session remains until the existing 24-hour
+cleanup because there is no discovery-session delete route. API rejection cases
+are covered by `discovery.test.ts`; this browser journey does not call an AI
+provider.
 The provider-free wizard browser test also checks visible format/size errors,
 handles simulated 413/422 upload rejections, confirms discovery does not start
 after a rejection, and verifies that choosing a valid archive lets the user retry.

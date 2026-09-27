@@ -6918,7 +6918,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toHaveCount(1);
   });
 
-  test("REAL CLERK Archive Upload reaches discovery, import, and scan", async ({
+  test("REAL CLERK Archive Upload reaches scan and persists project scan-hook activation", async ({
     page,
   }) => {
     test.setTimeout(180_000);
@@ -7018,6 +7018,70 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         await page.waitForTimeout(1_000);
       }
       expect(terminalStatus).toBe("completed");
+
+      // Use the real authenticated API and the temporary project created
+      // above. This verifies persistence in PostgreSQL across a full browser
+      // reload rather than only preserving client-side query state.
+      await page.goto(`${DASHBOARD_PATH}projects/${projectId}`);
+      const pluginsPanel = page.getByTestId("panel-project-plugins");
+      const reactPlugin = pluginsPanel.getByTestId(
+        "project-plugin-plugin-react",
+      );
+      const activationSwitch = reactPlugin.getByRole("switch", {
+        name: "Enable for project scans: React/TypeScript Analyzer",
+      });
+      await expect(activationSwitch).toBeVisible();
+      await expect(activationSwitch).toBeEnabled();
+      await expect(activationSwitch).toHaveAttribute("aria-checked", "false");
+
+      const activationResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(
+            `/api/projects/${projectId}/plugins/plugin-react`,
+          ) &&
+          response.request().method() === "PUT",
+      );
+      await activationSwitch.click();
+      const activationResponse = await activationResponsePromise;
+      expect(activationResponse.status()).toBe(200);
+      await expect(reactPlugin.getByRole("switch")).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await expect(
+        reactPlugin.getByTestId("status-project-plugin-plugin-react"),
+      ).toHaveText("Active for project scans");
+
+      await page.reload();
+      const reloadedPanel = page.getByTestId("panel-project-plugins");
+      const reloadedReactPlugin = reloadedPanel.getByTestId(
+        "project-plugin-plugin-react",
+      );
+      await expect(
+        reloadedReactPlugin.getByRole("switch"),
+      ).toHaveAttribute("aria-checked", "true");
+      await expect(
+        reloadedReactPlugin.getByTestId("status-project-plugin-plugin-react"),
+      ).toHaveText("Active for project scans");
+
+      const persistedBinding = await page.evaluate(async (path) => {
+        const response = await fetch(path, { credentials: "include" });
+        return {
+          status: response.status,
+          plugins: (await response.json()) as Array<{
+            id: string;
+            projectEnabled: boolean;
+            effectiveForProjectScan: boolean;
+          }>,
+        };
+      }, `/api/projects/${projectId}/plugins`);
+      expect(persistedBinding.status).toBe(200);
+      expect(
+        persistedBinding.plugins.find((plugin) => plugin.id === "plugin-react"),
+      ).toMatchObject({
+        projectEnabled: true,
+        effectiveForProjectScan: true,
+      });
     } finally {
       if (projectId) {
         try {
