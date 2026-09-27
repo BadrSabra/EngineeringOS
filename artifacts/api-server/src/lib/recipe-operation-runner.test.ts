@@ -763,6 +763,82 @@ describe("recipe operation preparation", () => {
     }
   });
 
+  it("blocks runtime.start when measurement continuation returns a disposition", async () => {
+    const fixture = await createGateCRecipeFixture("browser.verify");
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    await db.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId: fixture.params.projectId,
+      userId: fixture.params.userId,
+      title: "Runtime start experiment",
+      intent: "Verify the runtime start outcome",
+      status: "active",
+      scope: { kind: "project", projectId: fixture.params.projectId },
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId,
+      missionId,
+      projectId: fixture.params.projectId,
+      title: "Start the workspace runtime",
+      status: "running",
+    });
+    const continuationRunner = vi.fn(async () => ({
+      reasonCode: "measurement_continuation_required",
+      sourceExperimentId: "source-experiment",
+    }));
+    const runtimeStartRunner = vi.fn(async () => ({
+      status: "passed" as const,
+      evidence: { evidenceId: "runtime-start-not-called" },
+    }));
+    let executionId: string | undefined;
+    try {
+      const result = await runRecipeOperation({
+        ...fixture.params,
+        recipeId: "runtime.start",
+        missionId,
+        goalId,
+        planRevision: "runtime-start-p75-test-plan",
+        runtimeStartMeasurementContinuationRunner: continuationRunner,
+        runtimeStartRunner,
+      });
+      executionId = result.executionId;
+      expect(result).toMatchObject({
+        status: "blocked",
+        measurementContinuation: {
+          reasonCode: "measurement_continuation_required",
+          sourceExperimentId: "source-experiment",
+        },
+      });
+      expect(continuationRunner).toHaveBeenCalledTimes(1);
+      expect(runtimeStartRunner).not.toHaveBeenCalled();
+
+      const [execution] = await db.select({
+        status: aiExecutionsTable.status,
+        workerId: aiExecutionsTable.workerId,
+        leaseUntil: aiExecutionsTable.leaseUntil,
+        checkpoint: aiExecutionsTable.checkpoint,
+      }).from(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
+      expect(execution).toMatchObject({
+        status: "completed",
+        workerId: null,
+        leaseUntil: null,
+      });
+      const checkpoint = JSON.parse(execution!.checkpoint) as Record<string, unknown>;
+      expect(checkpoint).toMatchObject({
+        observationOnlyTerminalization: {
+          kind: "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION",
+          createsAcceptance: false,
+        },
+      });
+      expect(await db.select().from(aiExecutionAcceptancesTable).where(
+        eq(aiExecutionAcceptancesTable.executionId, executionId),
+      )).toHaveLength(0);
+    } finally {
+      await fixture.cleanup(executionId);
+    }
+  });
+
   it("bounds runtime.start when server-owned runtime.status conflicts with an independent stopped pre-state", async () => {
     const fixture = await createGateCRecipeFixture("browser.verify");
     await db.insert(aiWorldFactsTable).values({

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import {
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
@@ -708,6 +708,147 @@ export async function closeEpisode(input: CloseEpisodeInput): Promise<AgentEpiso
       updatedAt: now,
     }).where(eq(aiAgentEpisodesTable.id, input.episodeId));
     const [closed] = await tx.select().from(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.id, input.episodeId));
+    return episodeToContract(closed!);
+  });
+}
+
+/**
+ * Atomically close an advisory P7.5 continuation Episode and complete the
+ * execution's control-plane lease. Keeping both writes under the execution-row
+ * lock lets cancellation or lease rotation win cleanly instead of leaving a
+ * replan Episode attached to an execution that was cancelled in between writes.
+ */
+export async function terminalizeP75MeasurementContinuationEpisode(input: {
+  episodeId: string;
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  workerId: string;
+  userId: string;
+  operationId: string;
+  missionId: string;
+  goalId: string;
+  planRevision: string;
+  projectRevision: string;
+  sourceExperimentId: string;
+  continuationId?: string;
+  resultId?: string;
+  measurementValidity?: string;
+  reasonCode: string;
+}): Promise<AgentEpisode> {
+  return db.transaction(async (tx) => {
+    const execution = await lockExecution(tx, input);
+    if (
+      execution.status !== "running"
+      || execution.cancelRequestedAt
+      || execution.userId !== input.userId
+      || execution.operationId !== input.operationId
+      || execution.goalId !== input.goalId
+      || execution.recipeReceipt !== null
+    ) {
+      ledgerError("stale_worker", "P7.5 continuation no longer owns an uncancelled Mission execution");
+    }
+    const episode = await lockEpisode(tx, input.episodeId);
+    const episodeMismatchFields = [
+      ...(episode.projectId !== input.projectId ? ["project"] : []),
+      ...(episode.executionId !== input.executionId ? ["execution"] : []),
+      ...(episode.attempt !== input.attempt ? ["attempt"] : []),
+      ...(episode.missionId !== input.missionId ? ["mission"] : []),
+      ...(episode.goalId !== input.goalId ? ["goal"] : []),
+      ...(episode.planRevision !== input.planRevision ? ["plan_revision"] : []),
+      ...(episode.projectRevision !== input.projectRevision ? ["project_revision"] : []),
+    ];
+    if (episodeMismatchFields.length > 0) {
+      ledgerError(
+        "ownership_mismatch",
+        `P7.5 continuation Episode identity or scope changed: ${episodeMismatchFields.join(",")}`,
+      );
+    }
+    if (episode.closedAt || TERMINAL_STATES.has(episode.state)) {
+      ledgerError("terminal_immutable", "P7.5 continuation Episode is already terminal");
+    }
+
+    const payload: JsonValue = {
+      verdict: "replan_required",
+      reasonCode: input.reasonCode,
+      sourceExperimentId: input.sourceExperimentId,
+      continuationId: input.continuationId ?? null,
+      resultId: input.resultId ?? null,
+      measurementValidity: input.measurementValidity ?? null,
+    };
+    await appendLocked(tx, {
+      episodeId: input.episodeId,
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      workerId: input.workerId,
+      eventType: "EPISODE_TERMINAL",
+      payload,
+      actorType: "worker",
+      actorId: input.workerId,
+      correlationId: input.executionId,
+    }, execution, episode);
+
+    const now = new Date();
+    await tx.update(aiAgentEpisodesTable).set({
+      state: "completed",
+      verdict: "replan_required",
+      reasonCode: input.reasonCode,
+      nextActionCode: "MISSION_REPLAN",
+      closedAt: now,
+      updatedAt: now,
+    }).where(eq(aiAgentEpisodesTable.id, input.episodeId));
+
+    const observationOnlyTerminalization = JSON.stringify({
+      kind: "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION",
+      episodeId: input.episodeId,
+      sourceExperimentId: input.sourceExperimentId,
+      continuationId: input.continuationId ?? null,
+      resultId: input.resultId ?? null,
+      reasonCode: input.reasonCode,
+      createsAcceptance: false,
+    });
+    const [updatedExecution] = await tx.update(aiExecutionsTable).set({
+      status: "completed",
+      workerId: null,
+      leaseUntil: null,
+      updatedAt: now,
+      completedAt: now,
+      finalMessageId: null,
+      error: null,
+      checkpoint: sql`
+        jsonb_set(
+          jsonb_set(
+            ${aiExecutionsTable.checkpoint}::jsonb,
+            '{stage}',
+            to_jsonb('completed'::text),
+            true
+          ),
+          '{observationOnlyTerminalization}',
+          ${observationOnlyTerminalization}::jsonb,
+          true
+        )::text
+      `,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+    }).where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.userId, input.userId),
+      eq(aiExecutionsTable.operationId, input.operationId),
+      eq(aiExecutionsTable.goalId, input.goalId),
+      eq(aiExecutionsTable.attempt, input.attempt),
+      eq(aiExecutionsTable.status, "running"),
+      eq(aiExecutionsTable.workerId, input.workerId),
+      gt(aiExecutionsTable.leaseUntil, now),
+      isNull(aiExecutionsTable.cancelRequestedAt),
+      isNull(aiExecutionsTable.recipeReceipt),
+    )).returning({ id: aiExecutionsTable.id });
+    if (!updatedExecution) {
+      ledgerError("stale_worker", "P7.5 continuation lost its execution ownership fence");
+    }
+
+    const [closed] = await tx.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, input.episodeId));
     return episodeToContract(closed!);
   });
 }

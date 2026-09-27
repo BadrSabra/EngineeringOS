@@ -222,7 +222,7 @@ export function buildRuntimeStartHypothesisMeasurementContinuationResult(input: 
     environmentRevision: string | null;
     freshness: "fresh" | "stale";
     environmentFreshness: "fresh" | "stale";
-    outcomeKey: RuntimeStartOutcomeKey;
+    outcomeKey?: RuntimeStartOutcomeKey;
     observedAt: string;
   };
   unavailableAs?: "partial" | "failed" | "unknown";
@@ -251,7 +251,7 @@ export function buildRuntimeStartHypothesisMeasurementContinuationResult(input: 
       || observation.freshness === "stale"
       || observation.environmentFreshness === "stale"
       ? "stale"
-      : environmentStatus === "same_scope"
+      : environmentStatus === "same_scope" && observation.outcomeKey
         ? "complete_fresh"
         : "partial";
   const actualOutcomeKey = measurementValidity === "complete_fresh"

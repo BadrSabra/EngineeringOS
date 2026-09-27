@@ -5416,7 +5416,7 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ لا scope مؤهل بعد (2026-09-26)`
+**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ observe-only recovery wired؛ لا scope مؤهل بعد (2026-09-28)`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
@@ -5491,26 +5491,29 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
    Acceptance ولا يغير `selectionMode`. لا يصبح `calibrated_decision_value`
    صالحًا آليًا إلا بعد تنفيذ عقد القيمة الخادمي المستقل واستيفاء بقية DoD.
 
-**نتيجة مراجعة التعافي الحالية:** انتهاء lease ثم resume يدوّر attempt في
-`claimAiExecution` وينشئ Episode جديدًا؛ وهوية P7.5 الأصلية مربوطة بالـattempt
-والـEpisode القديمين. `runtime.start` على محاولة الاستئناف يتعامل مع الحالة
-المثبتة كـensure-running ولا يعيد spawn عند تعرف المدير على runtime قائم، لكن
-النتيجة الجديدة لا تكمل registration القديم أو ترث مراجع دليله. إذا كان runtime
-قد بدأ بالفعل، لا ينتج الانتقال الجديد عينة مؤهلة؛ وإذا ثبت أنه ما زال `stopped`
-يمكن أن يسجل التنفيذ الجديد تجربة مستقلة، فيما تظل القديمة unresolved. الإلغاء
-نهائي وغير قابل للاستئناف. لذلك لا يثبت المسار الحالي استعادة نفس تجربة P7.5؛
-تبقى بوابة الجمع مغلقة إلى أن يثبت مسار observe-only مربوط بالتجربة الأصلية، أو
-تُعتمد مراجعة صريحة لإبقاء scope القديم غير مؤهل وبدء scope ذي policy version
-جديدة مع cohort held-out مستقبلية. لا يجوز وصل دليل المحاولة الجديدة بالتسجيل
-القديم أو إسقاط التسجيل غير المحسوم.
+**مراجعة التعافي في 2026-09-28:** كان انتهاء lease ثم resume يدوّر attempt في
+`claimAiExecution` وينشئ Episode جديدًا، بينما يظل تسجيل P7.5 الأصلي مربوطًا
+بالمحاولة والـEpisode القديمين. أُوصل الآن continuation خادمي bounded: لا يعمل
+إلا عند العثور على registration غير محسوم في execution نفسه، ويتحقق من hash
+التسجيل وربط Mission/Goal/planRevision ومراجعات المشروع والبيئة. ينشئ request
+وresult مستقلين تحت attempt وEpisode والعامل الحالي، ويستخدم
+`observeExistingRuntimeAfterState` لقراءة `runtime.status` فقط؛ لا يعيد
+`runtime.start` ولا يحتفظ بهوية process/listener في ملاحظة P7.5. تُحفظ الملاحظة
+مع `materializeWorldState: false`.
 
-أضيف في 2026-09-28 عقد typed أولي لـobserve-only measurement continuation:
-يربط hash التسجيل الأصلي بهوية القياس في attempt لاحق وEpisode جديد، مع ثبات
-Mission/Goal والخطة ومراجع المشروع والبيئة، ويحصر profile في `runtime.status`.
-هذا العقد غير موصول بمسار runtime أو event writer، ولا يجعل النتيجة مؤهلة
-لـcalibration scope v1؛ فهو لا يفتح الجمع ولا يصلح التسجيلات القديمة. يلزم قبل
-الاستعمال إثبات ownership/idempotency والقراءة المباشرة fresh عبر crash/cancel/
-worker-recovery، ثم اعتماد policy/scope version قبل أي cohort جديدة.
+إذا وُجد result continuation سابق وصالح، يعاد ربطه بحدث الإنهاء الحالي دون قراءة
+جديدة؛ أما النتائج المتعددة/المتعارضة أو تغيّر النطاق فتوقف التعافي مغلقًا. إغلاق
+Episode وإنهاء execution lease ذريان تحت قفل صف التنفيذ، لتظل cancellation أو
+ملكية العامل هي الحاسمة إذا تزامنت مع الإنهاء. يعاد Goal إلى `needs_replan`؛
+النتيجة لا تثبت Goal أو Effect أو Gate C أو acceptance، ولا تحتوي
+`calibrationScopeRef` ولا تدخل evaluator v1. يظل registration الأصلي بلا
+`P7_HYPOTHESIS_EXPERIMENT_RESULT` صالحًا، ولذلك يبقى scope غير مؤهل ولا تُفتح
+حملة جمع.
+
+ما زالت بوابة الجاهزية مغلقة: يلزم اختبار انقطاع بين request/result، وإلغاء
+متزامن مع الإنهاء، واستعادة العامل الفعلية، وإثبات observer المباشر في بيئة
+التشغيل. أي استخدام مستقبلي لنتائج continuation يتطلب policy/scope version
+ومراجعة evaluator مستقلتين وheld-out cohort جديدة؛ لا تُعدّل معايرة v1 بأثر رجعي.
 
 يجوز لاحقًا إضافة projection تشغيلية للقراءة فقط لعرض عدد العينات والنتائج
 والحالات غير المحسومة لكل scope، باستخدام Episode events الحالية. هذه observability

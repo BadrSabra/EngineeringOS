@@ -1090,13 +1090,20 @@ async function executeMissionRecipe(dispatch: RecipeDispatch): Promise<void> {
       && typeof goalAfterExecution.outcomeContract === "object"
       && !Array.isArray(goalAfterExecution.outcomeContract)
       && (goalAfterExecution.outcomeContract as { deliveryRequired?: unknown }).deliveryRequired === true;
+    const measurementContinuationRequiresReplan = Boolean(result.measurementContinuation);
     await syncRecipeObjectiveState({
       ...dispatch,
       executionId: result.executionId,
       sourceRevision,
       candidateIdentity: dispatch.action.candidateIdentity ?? null,
-      status: result.status === "completed" && receiptIsComplete ? "completed" : "blocked",
-      reason: result.status === "completed" && !receiptIsComplete
+      status: measurementContinuationRequiresReplan
+        ? "needs_replan"
+        : result.status === "completed" && receiptIsComplete
+          ? "completed"
+          : "blocked",
+      reason: measurementContinuationRequiresReplan
+        ? result.measurementContinuation?.reasonCode
+        : result.status === "completed" && !receiptIsComplete
         ? "recipe_receipt_invalid"
         : result.status === "completed"
           ? undefined

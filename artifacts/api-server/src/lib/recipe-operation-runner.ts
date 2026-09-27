@@ -72,6 +72,7 @@ import type { ExecutionDelegationBudget } from "./execution-lineage.js";
 import {
   appendEpisodeEvent,
   closeEpisode,
+  terminalizeP75MeasurementContinuationEpisode,
   startEpisode,
   startEpisodeShadow,
 } from "./agent-state/agent-episode-ledger.js";
@@ -110,6 +111,11 @@ import {
   RuntimeStartHypothesisCalibrationAssessmentSchema,
   type RuntimeStartCalibrationExperiment,
 } from "./agent-state/runtime-start-hypothesis-calibration.js";
+import {
+  runRuntimeStartHypothesisMeasurementContinuation,
+  type RuntimeStartMeasurementContinuationContext,
+  type RuntimeStartMeasurementContinuationDisposition,
+} from "./agent-state/runtime-start-hypothesis-measurement-continuation-runner.js";
 import {
   buildCandidateValidationAction,
   buildCandidateValidationEffectContract,
@@ -951,6 +957,10 @@ export type RunRecipeOperationParams = PrepareRecipeOperationParams & {
   idempotencyKey: string;
   executionProfile?: string;
   planRevision?: string;
+  /** Test seam for the bounded, read-only P7.5 resume continuation. */
+  runtimeStartMeasurementContinuationRunner?: (
+    context: RuntimeStartMeasurementContinuationContext,
+  ) => Promise<RuntimeStartMeasurementContinuationDisposition | undefined>;
   proofRequired?: boolean;
   parentExecutionId?: string | null;
   delegationBudget?: Partial<ExecutionDelegationBudget>;
@@ -1194,6 +1204,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   status: "completed" | "blocked";
   completedNodeIds: string[];
   receipt: RecipeReceipt;
+  measurementContinuation?: RuntimeStartMeasurementContinuationDisposition;
 }> {
   let runtimeStartParentWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
   let runtimeStartBeforeObservationIds: string[] = [];
@@ -1685,6 +1696,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               }
             : {}),
         },
+        ...(params.missionId ? { missionId: params.missionId } : {}),
         ...(params.goalId ? { goalId: params.goalId } : {}),
          ...(params.recipeId === "runtime.start" && params.goalId && params.planRevision
            ? {
@@ -2039,6 +2051,64 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let checkpointSequence = claimed.checkpointVersion;
   let latestNodes = resumedNodes;
   try {
+    if (episode && params.recipeId === "runtime.start") {
+      const continuationRunner = params.runtimeStartMeasurementContinuationRunner
+        ?? runRuntimeStartHypothesisMeasurementContinuation;
+      const measurementContinuation = await continuationRunner({
+        projectId: params.projectId,
+        userId: params.userId,
+        operationId: params.operationId,
+        executionId: claimed.id,
+        attempt: claimed.attempt,
+        episodeId: episode.episodeId,
+        workerId,
+        missionId: params.missionId,
+        goalId: params.goalId,
+        planRevision: params.planRevision,
+        projectRevision: params.sourceRevision,
+        rootPath: executionRoot,
+        signal: overallController.signal,
+      });
+      if (measurementContinuation) {
+        if (overallController.signal.aborted) {
+          throw new Error("P7.5 measurement continuation was cancelled before terminalization.");
+        }
+        await terminalizeP75MeasurementContinuationEpisode({
+          episodeId: episode.episodeId,
+          projectId: params.projectId,
+          executionId: claimed.id,
+          attempt: claimed.attempt,
+          workerId,
+          userId: params.userId,
+          operationId: params.operationId,
+          missionId: params.missionId!,
+          goalId: params.goalId!,
+          planRevision: params.planRevision!,
+          projectRevision: params.sourceRevision,
+          sourceExperimentId: measurementContinuation.sourceExperimentId,
+          continuationId: measurementContinuation.continuationId,
+          resultId: measurementContinuation.resultId,
+          measurementValidity: measurementContinuation.measurementValidity,
+          reasonCode: measurementContinuation.reasonCode,
+        });
+        const continuationReceipt = buildRecipeReceipt(
+          params,
+          claimed.id,
+          claimed.attempt,
+          "blocked",
+          [],
+          new Map(),
+          [],
+        );
+        return {
+          executionId: claimed.id,
+          status: "blocked",
+          completedNodeIds: [],
+          receipt: continuationReceipt,
+          measurementContinuation,
+        };
+      }
+    }
     const result = await executeExecutionNodePlan({
       nodes: resumedNodes,
       maxParallelNodes: prepared.binding.concurrencyBudget.maxInFlightNodes,

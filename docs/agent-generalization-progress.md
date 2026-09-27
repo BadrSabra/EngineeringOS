@@ -6,8 +6,8 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-09-27
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل؛ اختبارات القياس المرجعية أضيفت، لكن جاهزية الجمع ما زالت محجوبة لأن resume يدوّر attempt وEpisode ولا يكمل registration السابق، والإلغاء نهائي. يلزم مسار observe-only مربوط بالتجربة الأصلية أو قرار موثق بإنشاء scope ذي policy version جديدة مع held-out cohort مستقل. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ تبقى فجوة قبول route-level لمسار A→B وتكافؤ JSON/SSE/history. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
+**آخر تحديث:** 2026-09-28
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، لكنه لا يفتح جمع held-out outcomes: يلزم إثبات إضافي لمسارات crash/cancel وإعادة العامل ومراجعة policy/scope version مستقلة قبل أي cohort. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ تبقى فجوة قبول route-level لمسار A→B وتكافؤ JSON/SSE/history. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
 تغيّر هذه الشريحة حالة P0–P14 أو dependency graph، ولا تمنح Mission أو planner
@@ -26,7 +26,7 @@
 | P5.5 — Unified Action Semantics | `complete` | لكل invocation مخول عقد server-owned يربط execution/attempt وscope/revision والنتيجة أو الفشل ومراجع evidence. قراءتا recipe `database.read_project` و`project.read_file` تسجلان Observation على Episode canonical واحد مع scopeHash. قراءات Mission المسموح بها تحمل الآن scopeHash مستقلًا مشتقًا من السياسة والنطاق المحسومين على الخادم؛ request/result يشتركان في hash واحد وتُحجب النتيجة عند mismatch. مسارا `/api/ai/chat` و`/api/ai/chat/stream` يسجلان قراءات provider المؤهلة، كما يسجلان `query_knowledge_graph` و`discover_project_apis` مع hashes للمدخلات والـmanifest والـscope والنتيجة. لا تتغير allowlists أو صلاحيات Mission، ولا تنشئ الملاحظات `AgentAction` أو `EffectBundle` أو acceptance. تبقى أدوات Mission غير المدرجة في manifest و`refresh_project_scan` stateful وأدوات validation/effect خارج نطاق جرد القراءة. mutations المعتمدة تستخدم `AgentAction` الكامل؛ `mission_repair` يسجل `write_file`/`replace_text` داخل candidate overlay من دون per-tool EffectBundle. |
 | P6 — World Delta and Revision Closure | `pilot closed (scoped; retry-order guard implemented and tested)` | اكتمل pilot `runtime.start` الحقيقي `stopped → running`: D1 يمنع الأثر عند غياب/تعارض الدليل؛ materialization يثبت هوية التنفيذ والمحاولة وEpisode والجلسة ومراجع المشروع والبيئة؛ D2 يربط dispatch بالانتقال الحدثي ومراجعاته وملاحظاته وخطتيه. لا يمنع تغير World State غير متعلق هذا dispatch. `running → running` لا ينتج انتقالًا، و`restart/stop` خارج النطاق. عولج خطر السباق قبل القبول داخل المسار القائم؛ تغطي الاختبارات الانتظار دون استهلاك retry، ومراجع idempotency، وفشل القبول غير المرتبط بـEffectBundle. لا يوسع هذا P6 خارج pilot. |
 | P7 — World-State Failure Diagnosis | `pilot done — runtime.start only` | أُغلق تشخيص bounded للانتقال `runtime.start` وفق إدخال 42.47 في هذا السجل؛ التشخيص العام وربط بقية World State والـfacts والـobservations ما زال غير مكتمل. |
-| P7.5 — Belief and Information Gain | `partial — runtime.start fixed-safe bootstrap; recovery gate blocks collection` | التسجيل مؤهل فقط عبر Mission runtime المربوط بـMission/Goal/planRevision وعند transition من stopped؛ endpoint العام لا ينتج عينة P7.5. الـforecast bootstrap ثابت، لا selector. اختبارات ECE المرجعية وmission-cluster bootstrap مضافة. resume يدوّر attempt وEpisode، فلا يكمل registration القديم؛ الإلغاء نهائي. لا يوجد scope مؤهل. اجمع فقط بعد إثبات observe-only recovery للتجربة الأصلية أو اعتماد scope جديد ذي policy version جديدة وheld-out cohort مستقبلية؛ يظل `fixed_safe_probe`. |
+| P7.5 — Belief and Information Gain | `partial — observe-only recovery wired; readiness gate still blocks collection` | التسجيل مؤهل فقط عبر Mission runtime المربوط بـMission/Goal/planRevision وعند transition من stopped؛ endpoint العام لا ينتج عينة P7.5. الـforecast bootstrap ثابت، لا selector. اختبارات ECE المرجعية وmission-cluster bootstrap مضافة. تعافي Mission يعثر على التسجيل غير المحسوم داخل execution نفسه، ويقرأ `runtime.status` فقط في attempt/Episode جديدين؛ لا يعيد `runtime.start`. الطلب/النتيجة advisory، والنتيجة السابقة تُعاد دون قراءة مكررة، بينما اختلاف scope أو التعارض يفشل مغلقًا. تُنهى Episode والتنفيذ ذريًا وتُعاد Goal إلى `needs_replan` بلا acceptance. لا يوجد scope مؤهل؛ اختبارات crash/cancel وإعادة العامل الفعلية ومراجعة policy/scope version ما زالت مطلوبة قبل cohort مستقبلية، ويظل `fixed_safe_probe`. |
 | P8 — Diagnosis-aware Replanning | `partial` | توجد bounded objective recovery وMission replan primitives، لكن لا تضمن دائمًا أن التشخيص هو مدخل إعادة التخطيط، ولا تستهلك World Delta/Belief revision. فصل world-belief وforecast-calibration وcausal-attribution وتشخيص mismatch بعد فحص الرصد والتنفيذ والبيئة، مع pilot ضيق، ما زال غير منفذ. |
 | P9 — Causal Credit Assignment Safety Layer | `partial / advisory` | effect coverage sidecar موجود؛ causal attribution وcontrolled counterfactual ومساهمة action/information/failure/redundancy غير مثبتة. |
 | P10 — Portable Strategy Extraction | `partial; not portable learning` | توجد candidate discovery وregistered replay محدود بـ`runtime.start`؛ لا توجد بعد abstraction قابلة للنقل أو held-out/transfer evaluation مكتملة. |
@@ -2730,6 +2730,30 @@ G9 Revocation Safety
 - **next step:** أوصل request/result بمسار خادمي observe-only تحت lease المحاولة
   الحالية، مع إبقاء التسجيل والنتيجة الجديدين منفصلين عن Episode الأصلي؛ ثم
   راجع scope/policy version واختبر مسار التعافي قبل بدء cohort مستقبلية.
+
+### 42.77 — توصيل P7.5 observe-only بتعافي Mission (2026-09-28)
+
+- **phase/step:** P7.5 — استعادة القياس بعد تدوير attempt دون إعادة الأثر.
+- **status:** `partial`
+- **what changed:** عند resume، يبحث المسار في Episodes السابقة للتنفيذ نفسه عن
+  registration غير محسوم، ويتحقق من hash التسجيل وهوية Mission/Goal والخطة
+  ومراجعة المشروع والبيئة. ينشئ request/result منفصلين في Episode والمحاولة
+  الحاليين، ويقرأ runtime الحالي عبر `runtime.status` فقط؛ لا يستدعي
+  `runtime.start`. تُحفظ ملاحظة مباشرة محدودة مع `materializeWorldState: false`.
+  النتيجة السابقة الصالحة يعاد استخدامها دون رصد جديد؛ التعارض أو الانحراف عن
+  النطاق يفشل مغلقًا. تُغلق Episode والتنفيذ ذريًا تحت قفل التنفيذ وتنتقل Mission
+  إلى `needs_replan`.
+- **files/schema/contracts touched:** continuation runner، `recipe-operation-runner`,
+  `agent-episode-ledger`, `mission-runtime` واختباراتها؛ لا migration أو جدول جديد.
+- **validation:** اختبارات العقد والـrunner والـrecipe: 33/33؛ API typecheck؛
+  `git diff --check`؛ وأُعيد تشغيل API workflow بنجاح واستمع على المنفذ 8080.
+- **authority/safety impact:** القياس advisory فقط؛ لا يثبت Goal أو Effect أو Gate C
+  أو acceptance ولا يدخل calibration v1. تبقى `fixed_safe_probe` كما هي.
+- **remaining/blocker:** بوابة الجمع تظل مغلقة حتى اختبارات crash بين request/result،
+  وإلغاء متزامن مع الإنهاء، واستعادة عامل فعلية تثبت reuse والـobserver المباشر؛
+  policy/scope version لم تُراجع لاحتساب continuation مستقبلًا.
+- **next step:** أكمل اختبارات التعافي التشغيلي ثم راجع عقد evaluator وسياسة
+  versioned مستقلة قبل أي cohort؛ لا تُضمّن النتائج الحالية في معايرة v1.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
