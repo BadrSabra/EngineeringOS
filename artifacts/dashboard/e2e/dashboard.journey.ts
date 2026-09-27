@@ -6048,7 +6048,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
 
     const readyRow = page.getByRole("button", {
-      name: /task Execute SQL input sanitization remediation/,
+      name: /^(?:Expand|Collapse) task Execute SQL input sanitization remediation$/,
     });
     await expect(readyRow).toBeVisible();
     await expect(page.getByTitle("Execute")).toBeVisible();
@@ -6084,7 +6084,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTitle("Execute")).toHaveCount(0);
 
     const reviewRow = page.getByRole("button", {
-      name: /task Review incomplete SQL remediation evidence/,
+      name: /^(?:Expand|Collapse) task Review incomplete SQL remediation evidence$/,
     });
     await reviewRow.click();
     const reviewDetails = page.locator(`#task-details-${reviewTaskId}`);
@@ -6110,7 +6110,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByTitle("Retry")).toHaveCount(0);
 
     const verificationRow = page.getByRole("button", {
-      name: /task Verify parameterized SQL remediation/,
+      name: /^(?:Expand|Collapse) task Verify parameterized SQL remediation$/,
     });
     await verificationRow.click();
     const verificationDetails = page.locator(
@@ -6190,7 +6190,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.reload();
     const reloadedVerificationRow = page.getByRole("button", {
-      name: /task Verify parameterized SQL remediation/,
+      name: /^(?:Expand|Collapse) task Verify parameterized SQL remediation$/,
     });
     await expect(reloadedVerificationRow).toContainText("completed");
     await reloadedVerificationRow.click();
