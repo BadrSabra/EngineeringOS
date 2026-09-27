@@ -22,9 +22,9 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSafeProjectConfiguration(value: unknown): value is Record<string, unknown> {
-  // No built-in plugin currently declares a project configuration schema.
-  // Until it does, accept only the empty object rather than storing arbitrary
-  // values (which could include credentials under unexpected field names).
+  // No built-in scan hook currently consumes project configuration. Keep the
+  // contract empty until a hook declares and reads a typed schema; in
+  // particular, never persist arbitrary values that could contain credentials.
   return isPlainRecord(value) && Object.keys(value).length === 0;
 }
 

@@ -9511,9 +9511,9 @@ components:
           description: Project-specific activation; cannot override global unavailability.
         configuration:
           type: object
-          description: No built-in plugin currently declares a project configuration schema; only an empty object is accepted. Credentials must not be stored here.
+          description: No built-in scan hook currently consumes project configuration; only an empty object is accepted. Credentials must not be stored here.
           maxProperties: 0
-          additionalProperties: true
+          additionalProperties: false
 
     EvaluateRuleRequest:
       type: object
