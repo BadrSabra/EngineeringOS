@@ -931,6 +931,11 @@ describe("chat agent — ChatOutputSchema validation", () => {
       expect(sourceReadCalls.map((step) => step.args)).toEqual(
         expect.arrayContaining(Object.keys(sourceFiles).map((file) => ({ path: file }))),
       );
+      const sourceReadPaths = sourceReadCalls.flatMap((step) => {
+        const args = step.args as { path?: unknown };
+        return typeof args.path === "string" ? [args.path] : [];
+      });
+      expect(sourceReadPaths.every((file) => Object.hasOwn(sourceFiles, file))).toBe(true);
       expect(sourceReadCalls.map((step) => step.args)).not.toEqual(
         expect.arrayContaining([
           { path: "missing-purpose.md" },

@@ -15,6 +15,12 @@ Orientation explanations also need a bounded, role-based source manifest coverin
 
 **How to apply:** Keep role selection in the existing query-planner/prefetch path, derive completion from server-owned read statuses, and carry the bounded coverage record through the trace, history, and execution projection. 
 
+The orientation read allow-list and first-evidence target must come from the role manifest after filesystem reconciliation, not from the generic turn-intent project target. An empty verified role manifest stays empty.
+
+**Why:** Generic project targets can point at unrelated implementation files; reusing them can block valid orientation reads or admit a file outside the declared role scope through the first-evidence gate.
+
+**How to apply:** After preflight against the managed project root, use the same bounded role paths for `allowedReadPaths` and the eager first read, while preserving any stricter mission-scope intersection.
+
 Provider failure after partial orientation reads is still an incomplete orientation
 result on every transport. The route must derive source-evidence-required from the
 server-owned orientation decision separately from `TurnIntent.requiresEvidence`,

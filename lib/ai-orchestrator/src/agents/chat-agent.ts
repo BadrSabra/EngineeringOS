@@ -7555,11 +7555,12 @@ export async function chat(opts: {
   // will surface a missing-file error to the model.
   const firstEvidenceTargetPath = capabilityProbeRequest
     ? singleFilePaths[0] ?? null
-    : firstEvidence.allowedFirstAction === "DIRECT_READ" &&
+    : projectOrientationMode
+      ? orientationEvidencePaths[0] ?? null
+      : firstEvidence.allowedFirstAction === "DIRECT_READ" &&
         firstEvidence.primaryEvidenceTarget?.kind === "FILE"
       ? canonicalRelativePath(firstEvidence.primaryEvidenceTarget.path)
       : turnIntent.projectTarget?.firstEvidencePath
-        ?? orientationEvidencePaths[0]
         ?? null;
   // Union the single-file forensic manifest with the FEG primary target so the
   // runtime's first read covers both an isolated audit and a general explicit
@@ -9351,9 +9352,11 @@ export async function chat(opts: {
       const contextualReadPaths =
         singleFileForensicMode && singleFilePaths.length > 0
           ? singleFilePaths
-          : turnIntent.projectTarget
-            ? [...turnIntent.projectTarget.primaryPaths]
-            : undefined;
+          : projectOrientationMode
+            ? [...orientationEvidencePaths]
+            : turnIntent.projectTarget
+              ? [...turnIntent.projectTarget.primaryPaths]
+              : undefined;
       if (opts.missionReadPathScope === undefined) return contextualReadPaths;
       if (contextualReadPaths === undefined) return [...opts.missionReadPathScope];
       const normalizeMissionScopePath = (value: string): string | undefined => {
