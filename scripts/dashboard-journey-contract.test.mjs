@@ -670,7 +670,7 @@ test("release journey gates browser work on one bounded readiness handshake", ()
   );
   assert.match(
     journeySource,
-    /async function completeReadinessHandshake\(page: Page\)/,
+    /async function completeReadinessHandshake\(\s*page: Page(?:,\s*options: \{ allowEmptyProjectList\?: boolean \} = \{\},?)?\s*\)/,
     "The browser must complete the authenticated half of the handshake.",
   );
   assert.match(

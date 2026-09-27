@@ -3698,6 +3698,7 @@ async function navigateBrowserHistory(
 async function programmaticSignIn(
   page: Page,
   user: ClerkTestUser = TEST_USER,
+  options: { allowEmptyProjectList?: boolean } = {},
 ) {
   const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
   let signInLoaded = false;
@@ -3726,7 +3727,7 @@ async function programmaticSignIn(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
       { timeout: clerkHandoffTimeoutMs() },
     );
-    await completeReadinessHandshake(page);
+    await completeReadinessHandshake(page, options);
     return;
   }
   const signInUrl = await helper({
@@ -3739,10 +3740,13 @@ async function programmaticSignIn(
     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
     { timeout: clerkHandoffTimeoutMs() },
   );
-  await completeReadinessHandshake(page);
+  await completeReadinessHandshake(page, options);
 }
 
-async function completeReadinessHandshake(page: Page): Promise<void> {
+async function completeReadinessHandshake(
+  page: Page,
+  options: { allowEmptyProjectList?: boolean } = {},
+): Promise<void> {
   const mode = dashboardTestMode();
   if (!TEST_MODES.has(mode)) {
     await writeReadinessReceipt("blocked", {
@@ -3829,9 +3833,13 @@ async function completeReadinessHandshake(page: Page): Promise<void> {
           mode === "live-provider"
             ? process.env.DASHBOARD_E2E_LIVE_PROJECT_ID
             : undefined;
+        const projectListValid =
+          Array.isArray(projects) &&
+          projects.every((project) => Boolean(project.id));
         const fixtureProjectReady =
           mode === "fixture"
-            ? projects.length > 0 && projects.every((project) => Boolean(project.id))
+            ? (options.allowEmptyProjectList || projects.length > 0) &&
+              projectListValid
             : projects.some((project) => project.id === expectedProject);
         if (
           projectsResult.ok &&
@@ -3839,10 +3847,17 @@ async function completeReadinessHandshake(page: Page): Promise<void> {
           fixtureProjectReady
         ) {
           checks.auth = { status: "ready" };
-          checks.fixtureProject = {
-            status: "ready",
-            project: expectedProject ?? projects[0]?.id,
-          };
+          if (options.allowEmptyProjectList && mode === "fixture") {
+            checks.projectAccess = {
+              status: "ready",
+              projectCount: projects.length,
+            };
+          } else {
+            checks.fixtureProject = {
+              status: "ready",
+              project: expectedProject ?? projects[0]?.id,
+            };
+          }
           await writeReadinessReceipt("ready", checks);
           return;
         }
@@ -6645,6 +6660,158 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       activity.locator("summary").filter({ hasText: liveLog.message }),
     ).toHaveCount(1);
+  });
+
+  test("REAL CLERK Archive Upload reaches discovery, import, and scan", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    test.skip(
+      process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1",
+      "The real Archive Upload journey only runs in the managed release runner.",
+    );
+
+    const archive = Buffer.from(
+      "UEsDBAoAAAAAABYZO106eL0gMQAAADEAAAAMABwAcGFja2FnZS5qc29uVVQJAAO7iLhqu4i4anV4CwABBOgDAAAE6AMAAHsibmFtZSI6ImUyZS1hcmNoaXZlLXByb2plY3QiLCJ2ZXJzaW9uIjoiMS4wLjAifQpQSwMECgAAAAAAFhk7XaOQS5IaAAAAGgAAAAwAHABzcmMvaW5kZXgudHNVVAkAA7uIuGq7iLhqdXgLAAEE6AMAAAToAwAAZXhwb3J0IGNvbnN0IGFuc3dlciA9IDQyOwpQSwECHgMKAAAAAAAWGTtdOni9IDEAAAAxAAAADAAYAAAAAAABAAAApIEAAAAAcGFja2FnZS5qc29uVVQFAAO7iLhqdXgLAAEE6AMAAAToAwAAUEsBAh4DCgAAAAAAFhk7XaOQS5IaAAAAGgAAAAwAGAAAAAAAAQAAAKSBdwAAAHNyYy9pbmRleC50c1VUBQADu4i4anV4CwABBOgDAAAE6AMAAFBLBQYAAAAAAgACAKQAAADXAAAAAAA=",
+      "base64",
+    );
+    let projectId: string | undefined;
+    let scanJobId: string | undefined;
+    try {
+      await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+      await page.getByRole("button", { name: "Discover Project" }).first().click();
+      await expect(page.getByRole("heading", { name: "Discover Project" })).toBeVisible();
+      await page.getByTestId("source-card-ARCHIVE_UPLOAD").click();
+      await page.getByTestId("archive-file-input").setInputFiles({
+        name: "e2e-real-archive.zip",
+        mimeType: "application/zip",
+        buffer: archive,
+      });
+
+      const uploadResponsePromise = page.waitForResponse((response) =>
+        response.url().includes("/api/upload/archive") &&
+        response.request().method() === "POST",
+      );
+      const discoveryResponsePromise = page.waitForResponse((response) =>
+        response.url().includes("/api/projects/discover") &&
+        response.request().method() === "POST",
+      );
+      await page.getByTestId("start-discovery").click();
+      const uploadResponse = await uploadResponsePromise;
+      expect(uploadResponse.status()).toBe(201);
+      const uploadBody = (await uploadResponse.json()) as { uploadId?: string };
+      expect(uploadBody.uploadId).toEqual(expect.any(String));
+      const discoveryResponse = await discoveryResponsePromise;
+      const discoveryBody = (await discoveryResponse.json()) as {
+        id?: string;
+        reason?: string;
+      };
+      expect(
+        discoveryResponse.status(),
+        `Archive discovery failed (${discoveryBody.reason ?? "unknown_reason"}).`,
+      ).toBe(202);
+      expect(discoveryBody.id).toEqual(expect.any(String));
+      expect(discoveryResponse.request().postDataJSON()).toMatchObject({
+        sourceType: "ARCHIVE_UPLOAD",
+        sourceConfig: { uploadId: uploadBody.uploadId },
+      });
+
+      await expect(page.getByRole("heading", { name: "Discovery Report" }))
+        .toBeVisible({ timeout: 120_000 });
+      const importResponsePromise = page.waitForResponse((response) =>
+        response.url().endsWith("/api/projects/import") &&
+        response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Confirm & Import Project" }).click();
+      const importResponse = await importResponsePromise;
+      expect(importResponse.status()).toBe(201);
+      projectId = ((await importResponse.json()) as { id?: string }).id;
+      expect(projectId).toEqual(expect.any(String));
+      await expect(page.getByRole("heading", { name: "Project Imported" })).toBeVisible();
+
+      const scanResponsePromise = page.waitForResponse((response) =>
+        response.url().endsWith(`/api/projects/${projectId}/scan`) &&
+        response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Scan Now" }).click();
+      const scanResponse = await scanResponsePromise;
+      expect(scanResponse.status()).toBe(202);
+      const scanBody = (await scanResponse.json()) as { jobId?: string; id?: string };
+      const receivedScanJobId = scanBody.jobId ?? scanBody.id;
+      if (!receivedScanJobId) {
+        throw new Error("Archive Upload scan response did not include a job id.");
+      }
+      scanJobId = receivedScanJobId;
+
+      let terminalStatus = "";
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const statusResponse = await page.evaluate(
+          async (path) => {
+            const response = await fetch(path, { credentials: "include" });
+            return { status: response.status, body: await response.text() };
+          },
+          `/api/projects/${projectId}/scan-jobs/${scanJobId}`,
+        );
+        expect(statusResponse.status).toBe(200);
+        terminalStatus = String(
+          (JSON.parse(statusResponse.body) as { status?: string }).status,
+        );
+        if (terminalStatus === "completed" || terminalStatus === "failed") break;
+        await page.waitForTimeout(1_000);
+      }
+      expect(terminalStatus).toBe("completed");
+    } finally {
+      if (projectId) {
+        try {
+          const dashboardFetch = async (path: string, method = "GET") =>
+            page.evaluate(
+              async ({ path, method }) => {
+                const response = await fetch(path, {
+                  method,
+                  credentials: "include",
+                });
+                return { status: response.status, body: await response.text() };
+              },
+              { path, method },
+            );
+          let deleteResponse = await dashboardFetch(
+            `/api/projects/${projectId}`,
+            "DELETE",
+          );
+          if (deleteResponse.status === 409 && scanJobId) {
+            const cleanupDeadline = Date.now() + 20_000;
+            while (Date.now() < cleanupDeadline) {
+              const statusResponse = await dashboardFetch(
+                `/api/projects/${projectId}/scan-jobs/${scanJobId}`,
+              );
+              if (statusResponse.status === 200) {
+                const status = (
+                  JSON.parse(statusResponse.body) as { status?: string }
+                ).status;
+                if (status === "completed" || status === "failed") break;
+              }
+              await page.waitForTimeout(500);
+            }
+            deleteResponse = await dashboardFetch(
+              `/api/projects/${projectId}`,
+              "DELETE",
+            );
+          }
+          // Cleanup must not replace the primary journey result.
+          if (deleteResponse.status !== 204) {
+            console.warn(
+              `Archive Upload cleanup returned ${deleteResponse.status}: ${deleteResponse.body.slice(0, 200)}`,
+            );
+          }
+        } catch {
+          console.warn(
+            "Archive Upload cleanup could not reach the dashboard API.",
+          );
+        }
+      }
+    }
   });
 
   test("shows an actionable terminal state when live task reconnects are exhausted", async ({

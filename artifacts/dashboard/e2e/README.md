@@ -1,8 +1,11 @@
 # Dashboard browser journey
 
 This is a release-only real-browser smoke test, separate from the dashboard
-Vitest suite. It never calls an AI provider or mutates projects, Git, or
-production data.
+Vitest suite. It never calls an AI provider or mutates production data. The
+real Clerk Archive Upload journey temporarily creates and scans an isolated
+development project, then deletes it; its discovery session is retained for
+the existing 24-hour garbage collection window because no discovery-session
+delete route exists.
 
 ## Run
 
@@ -33,8 +36,10 @@ helper to obtain a short-lived session URL and never fills Clerk forms. When
 the release job runs outside that browser runner, it uses `CLERK_SECRET_KEY`
 to create the same short-lived Clerk sign-in token through the Backend API.
 
-The API routes used by the journey are intercepted in the browser with
-read-only fixtures. This keeps dashboard/project/event success states stable,
+Most API routes used by the journey are intercepted in the browser with
+read-only fixtures. The real Clerk Archive Upload journey deliberately uses
+the actual upload, discovery, import, and scan routes. This keeps other
+dashboard/project/event success states stable,
 uses a controlled execution id for Flight Deck, and returns a deliberate
 provider-unavailable response for AI. Routing, Clerk session handoff, and
 rendering remain real browser behavior.
@@ -81,6 +86,26 @@ events fail the smoke; diagnostics retain only a bounded message and path,
 with Clerk tickets and sensitive fields redacted. The only allowed console
 noise is the documented provider-free fixture's `428` response for an
 `/api/ai/` resource; all other console errors remain failures.
+
+## Real Clerk Archive Upload journey
+
+Run only the real upload → discovery → import → scan journey in the controlled
+release runner:
+
+```sh
+APP_ORIGINS="https://${REPLIT_DEV_DOMAIN}" \
+RELEASE_VALIDATION_WAIT_FOR_LOCK=1 \
+DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)" \
+DASHBOARD_E2E_SKIP_API_CONTRACTS=1 \
+DASHBOARD_E2E_GREP="REAL CLERK Archive Upload reaches discovery, import, and scan" \
+pnpm run validate:dashboard-journey
+```
+
+It uses the isolated Clerk user and real API routes, creates a temporary
+development project, verifies the scan reaches `completed`, and deletes the
+project. The discovery session remains until the existing 24-hour cleanup
+because there is no discovery-session delete route. API rejection cases are
+covered by `discovery.test.ts`; this browser journey does not call an AI provider.
 
 ## Bounded live-provider correlation run
 

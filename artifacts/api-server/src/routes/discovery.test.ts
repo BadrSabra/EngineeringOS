@@ -14,10 +14,11 @@ import {
   eventsTable,
   tasksTable,
   graphEntitiesTable,
+  uploadsTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { mkdirSync, rmSync } from "node:fs";
-import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, rm, truncate, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -407,6 +408,15 @@ describe("POST /projects/discover — path validation and session creation", () 
 describe("POST /api/upload/archive → POST /api/projects/discover", () => {
   let uploadId: string | null = null;
   let managedRootPath: string | null = null;
+  const temporaryFiles: string[] = [];
+
+  async function registeredUploads(originalName: string): Promise<string[]> {
+    const rows = await db
+      .select({ id: uploadsTable.id })
+      .from(uploadsTable)
+      .where(eq(uploadsTable.originalName, originalName));
+    return rows.map((row) => row.id);
+  }
 
   afterEach(async () => {
     // The archive adapter normally consumes the upload when the job settles;
@@ -423,6 +433,7 @@ describe("POST /api/upload/archive → POST /api/projects/discover", () => {
         await removeManagedProjectRoot(managedRootPath).catch(() => undefined);
         managedRootPath = null;
       }
+      await Promise.all(temporaryFiles.splice(0).map((path) => rm(path, { force: true }).catch(() => undefined)));
       uploadId = null;
     }
     if (settleError) throw settleError;
@@ -441,6 +452,12 @@ describe("POST /api/upload/archive → POST /api/projects/discover", () => {
     uploadId = upload.body.uploadId;
 
     const sourceConfig = { uploadId: upload.body.uploadId };
+    const foreignDiscover = await request(foreignOwnerApp)
+      .post("/projects/discover")
+      .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig });
+    expect(foreignDiscover.status).toBe(404);
+    expect(foreignDiscover.body.reason).toBe("not_found");
+
     const discover = await request(app)
       .post("/api/projects/discover")
       .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig });
@@ -466,6 +483,75 @@ describe("POST /api/upload/archive → POST /api/projects/discover", () => {
     managedRootPath = sessionRows[0]?.rootPath ?? null;
 
     await waitForDiscoveryToSettle(createdSessionId);
+  });
+
+  it("rejects a multipart request with no archive file", async () => {
+    const res = await request(app)
+      .post("/api/upload/archive")
+      .field("description", "missing archive");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/no file uploaded/i);
+  });
+
+  it("rejects unsupported archive extensions without registering an upload", async () => {
+    const originalName = `unsupported-${randomUUID()}.rar`;
+    const before = await registeredUploads(originalName);
+    const res = await request(app)
+      .post("/api/upload/archive")
+      .attach("archive", Buffer.from("not an archive"), originalName);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unsupported archive format/i);
+    expect(await registeredUploads(originalName)).toEqual(before);
+  });
+
+  it("rejects a malformed archive without registering an upload", async () => {
+    const originalName = `malformed-${randomUUID()}.zip`;
+    const before = await registeredUploads(originalName);
+    const res = await request(app)
+      .post("/api/upload/archive")
+      .attach("archive", Buffer.from("definitely not a zip archive"), originalName);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/archive extraction failed/i);
+    expect(await registeredUploads(originalName)).toEqual(before);
+  });
+
+  it("rejects a ZIP symlink archive without registering an upload", async () => {
+    const originalName = `unsafe-${randomUUID()}.zip`;
+    const archive = new AdmZip();
+    // Unix symlink mode in external attributes; the payload is its link target.
+    archive.addFile("escape", Buffer.from("../../etc/passwd"));
+    const entry = archive.getEntries()[0];
+    entry.header.made = 0x0300;
+    entry.header.attr = (0o120777 << 16) >>> 0;
+
+    const before = await registeredUploads(originalName);
+    const res = await request(app)
+      .post("/api/upload/archive")
+      .attach("archive", archive.toBuffer(), originalName);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/archive extraction failed/i);
+    expect(await registeredUploads(originalName)).toEqual(before);
+  });
+
+  it("rejects an archive over 50 MiB with UPLOAD_TOO_LARGE without registering an upload", async () => {
+    const originalName = `too-large-${randomUUID()}.zip`;
+    const sparsePath = join("/tmp", `eos-discovery-test-${randomUUID()}.zip`);
+    temporaryFiles.push(sparsePath);
+    await writeFile(sparsePath, Buffer.alloc(0));
+    await truncate(sparsePath, 50 * 1024 * 1024 + 1);
+
+    const before = await registeredUploads(originalName);
+    const res = await request(app)
+      .post("/api/upload/archive")
+      .attach("archive", sparsePath, originalName);
+
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe("UPLOAD_TOO_LARGE");
+    expect(await registeredUploads(originalName)).toEqual(before);
   });
 });
 

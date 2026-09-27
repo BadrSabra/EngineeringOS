@@ -543,8 +543,8 @@ capability is absent or that the route must become user-facing.
 
 | Feature | Verified current boundary | Priority / correction |
 |---|---|---|
-| **Archive Upload** | Authenticated backend upload accepts `.zip`, `.tar.gz`/`.tgz` up to 50 MiB and returns an `uploadId`; DiscoverProjectWizard now offers these formats, uploads through the generated hook, and starts discovery with that ID. The OpenAPI/generated contract is aligned. | **P0 reachability gap resolved.** A real upload → discovery integration test verifies owner-bound session creation and cleanup. A complete Clerk-authenticated browser → real API → scan → import journey remains unproven. |
-| **Archive Upload browser/API coverage** | The focused browser journey selects an archive in Discover and asserts that the returned `uploadId` is sent to discovery; its upload/start responses are fixture-backed, and the focused test passed (1/1). A separate API integration test uses the actual multipart route and starts discovery with its returned ID. The broader 50-test browser journey stopped at 21/50. | **Improved, with remaining test gaps.** Do not describe the fixture-backed browser journey as live API proof. Follow up with a Clerk-authenticated browser journey through both real routes and explicit rejection tests for size, format, unsafe archives, and authorization. |
+| **Archive Upload** | Authenticated backend upload accepts `.zip`, `.tar.gz`/`.tgz` up to 50 MiB and returns an `uploadId`; DiscoverProjectWizard uploads through the generated hook and starts discovery with that ID. The OpenAPI/generated contract is aligned. A focused Clerk browser journey now uses the real upload, discovery, import, and scan routes and reaches a completed scan; it deletes the temporary project afterward. | **P0 reachability and proof closed.** The API suite verifies owner-bound upload use and rejects missing files, unsupported extensions, malformed archives, ZIP symlinks, and files over 50 MiB. |
+| **Archive Upload browser/API coverage** | The focused Clerk-authenticated browser journey passed 1/1 through actual upload, discovery, import, and completed scan responses. API route coverage also checks that rejected uploads do not create upload rows and that another owner cannot use an upload ID. The earlier broader 50-test browser journey stopped at 21/50; its cause remains undetermined. | **Core journey proven.** Keep the earlier broad-suite failure separate; do not attribute it to Archive Upload without evidence. A browser-visible error-state check for rejected archives would be an additional test, not a blocker for the verified route behavior. |
 | **Advanced Knowledge Graph** | Backend, OpenAPI, and generated client support path, subgraph, semantic neighborhood, evidence, and runtime-subgraph operations. The Graph page exposes only basic entities/relationships/neighbors/impact. Runtime Disagreements exists in the backend but has no OpenAPI/generated-client operation. | **P0 only if committed product scope.** Decide which graph modes are user-facing; expose those with page tests. Classify Runtime Disagreements separately as backend-only contract drift until its API contract is published or it is explicitly marked internal. |
 | **World State** | An owner-scoped, read-only project projection and filters are tested in the backend. No OpenAPI operation, generated client, or Dashboard consumer was found. “Backend complete” would overstate the evidence. | **Contract-governance decision, not a confirmed UI defect.** Decide whether this is internal state or an operator-facing feature before adding a public contract/client/UI. |
 | **Runtime Observations** | A backend ingestion route exists and requires an active runtime session/revision. No OpenAPI, generated-client, or Dashboard surface was found. | **Contract-governance decision.** It may be machine/agent ingestion. Do not promise an operator UI until that intent is established. |
@@ -576,9 +576,11 @@ pages under `artifacts/dashboard/src/pages/` (`Rules.tsx`, `Missions.tsx`,
 `Workflows.tsx`, `Tasks.tsx`, `ProjectDetail.tsx`, `AiChat.tsx`, `Projects.tsx`,
 `Sidebar.tsx`, and `Dashboard.tsx`).
 
-The Archive Upload reachability gap is closed. Its remaining proof is narrower:
-a Clerk-authenticated browser journey through the real routes and explicit
-rejection cases. Other rows distinguish confirmed missing UI actions from
-backend-only routes whose operator-facing intent is not established. Keep
+The Archive Upload reachability gap and its focused end-to-end proof are closed:
+the Clerk-authenticated browser journey reaches a completed scan through real
+routes, while API tests cover rejected file cases and upload ownership. The
+earlier broad browser run stopping at 21/50 remains unexplained and is not
+attributed to this feature. Other rows distinguish confirmed missing UI actions
+from backend-only routes whose operator-facing intent is not established. Keep
 “implemented,” “exposed in the UI,” and “proven by the intended user journey” as
 separate claims.
