@@ -39,7 +39,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <span className="font-semibold text-foreground" data-testid="text-current-page">
                 {pageLabel}
               </span>
-            </div>
+            </nav>
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background p-3 sm:p-6">

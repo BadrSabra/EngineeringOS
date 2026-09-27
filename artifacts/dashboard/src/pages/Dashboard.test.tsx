@@ -124,12 +124,12 @@ describe("Dashboard operator alerts", () => {
     const diagnostics = screen.getByTestId("details-ai-diagnostics");
     expect(diagnostics).not.toHaveAttribute("open");
     expect(screen.getByTestId("status-ai-diagnostics")).toHaveTextContent("Healthy");
-    expect(screen.queryByText(/Last completed/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Last completed/)).not.toBeVisible();
 
     fireEvent.click(screen.getByTestId("summary-ai-diagnostics"));
 
     expect(diagnostics).toHaveAttribute("open");
-    expect(screen.getByText(/Last completed/)).toBeInTheDocument();
+    expect(screen.getByText(/Last completed/)).toBeVisible();
   });
 
   it("distinguishes a temporary catalog outage from retired-model drift", () => {
