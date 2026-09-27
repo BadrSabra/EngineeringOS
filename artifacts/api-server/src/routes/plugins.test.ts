@@ -176,7 +176,7 @@ describe("Plugin registry", () => {
       .where(eq(aiMissionsTable.projectId, projectId))).toEqual(beforeMissions);
   });
 
-  it("rejects untyped configuration and never returns persisted legacy values", async () => {
+  it("rejects new configuration, hides legacy values, and preserves them during activation", async () => {
     const projectId = await insertProject();
     const empty = await request(app)
       .put(`/api/projects/${projectId}/plugins/plugin-react`)
@@ -195,12 +195,15 @@ describe("Plugin registry", () => {
     expect(unsafe.status).toBe(400);
     expect(unsafe.body.code).toBe("PLUGIN_CONFIGURATION_SCHEMA_UNAVAILABLE");
 
+    const legacyConfiguration = {
+      apiToken: "legacy-secret-must-not-leak",
+    };
     await db.insert(projectPluginBindingsTable).values({
       id: randomUUID(),
       projectId,
       pluginId: "plugin-react",
       enabled: false,
-      configuration: { apiToken: "legacy-secret-must-not-leak" },
+      configuration: legacyConfiguration,
     });
     const listed = await request(app).get(
       `/api/projects/${projectId}/plugins`,
@@ -213,6 +216,28 @@ describe("Plugin registry", () => {
     expect(JSON.stringify(listed.body)).not.toContain(
       "legacy-secret-must-not-leak",
     );
+
+    const activated = await request(app)
+      .put(`/api/projects/${projectId}/plugins/plugin-react`)
+      .send({ enabled: true });
+    expect(activated.status).toBe(200);
+    expect(JSON.stringify(activated.body)).not.toContain(
+      "legacy-secret-must-not-leak",
+    );
+
+    const deactivated = await request(app)
+      .put(`/api/projects/${projectId}/plugins/plugin-react`)
+      .send({ enabled: false });
+    expect(deactivated.status).toBe(200);
+    expect(JSON.stringify(deactivated.body)).not.toContain(
+      "legacy-secret-must-not-leak",
+    );
+
+    const [persistedBinding] = await db
+      .select({ configuration: projectPluginBindingsTable.configuration })
+      .from(projectPluginBindingsTable)
+      .where(eq(projectPluginBindingsTable.projectId, projectId));
+    expect(persistedBinding?.configuration).toEqual(legacyConfiguration);
   });
 
   it("does not allow activating a globally unavailable plugin", async () => {

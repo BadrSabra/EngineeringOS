@@ -271,8 +271,9 @@ router.put(
       });
     }
 
+    // Keep legacy configuration opaque; only inspect the activation bit.
     const existing = await db
-      .select()
+      .select({ enabled: projectPluginBindingsTable.enabled })
       .from(projectPluginBindingsTable)
       .where(
         and(
@@ -306,7 +307,7 @@ router.put(
         ],
         set: conflictUpdate,
       })
-      .returning();
+      .returning({ enabled: projectPluginBindingsTable.enabled });
 
     await recordAudit({
       entityType: "plugin",
