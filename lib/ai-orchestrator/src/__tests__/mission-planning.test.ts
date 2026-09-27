@@ -52,6 +52,19 @@ describe("buildMissionPlanPreview", () => {
         affectedClaims: ["claim:auth-flow"],
         evidenceRefs: ["validation:run-1"],
         hypothesisImpact: "The previous candidate did not satisfy the auth check.",
+        runtimeStartHypothesisEvidence: {
+          experimentId: "p75-runtime-start:experiment",
+          planRevision: "plan-old",
+          calibrationScopeRef: "p75-runtime-start-calibration:scope",
+          calibrationAssessmentRef: "p75-runtime-start-calibration:assessment",
+          resultId: "p75-runtime-start-result:result",
+          actualOutcomeKey: "runtime_running",
+          verdict: "matched",
+          observationRefs: ["observation:runtime-status"],
+          supportingHypothesisIds: ["runtime-start:hypothesis-a"],
+          contradictingHypothesisIds: [],
+          beliefUpdateStatus: "unresolved_unvalidated_forecast",
+        },
         nextActions: ["Change the candidate before rerunning validation."],
         priorPlanRevision: "plan-old",
       },
@@ -72,9 +85,60 @@ describe("buildMissionPlanPreview", () => {
       affectedClaims: ["claim:auth-flow"],
       evidenceRefs: ["validation:run-1"],
       hypothesisImpact: "The previous candidate did not satisfy the auth check.",
+      runtimeStartHypothesisEvidence: {
+        experimentId: "p75-runtime-start:experiment",
+        planRevision: "plan-old",
+        calibrationScopeRef: "p75-runtime-start-calibration:scope",
+        calibrationAssessmentRef: "p75-runtime-start-calibration:assessment",
+        resultId: "p75-runtime-start-result:result",
+        actualOutcomeKey: "runtime_running",
+        verdict: "matched",
+        observationRefs: ["observation:runtime-status"],
+        supportingHypothesisIds: ["runtime-start:hypothesis-a"],
+        contradictingHypothesisIds: [],
+        beliefUpdateStatus: "unresolved_unvalidated_forecast",
+      },
       nextActions: ["Change the candidate before rerunning validation."],
       priorPlanRevision: "plan-old",
     });
+  });
+
+  it("bounds runtime-start identifiers and hypothesis references", () => {
+    const preview = buildMissionPlanPreview({
+      message: "Inspect the source, then fix the blocking issue.",
+      replanContext: {
+        affectedPaths: [],
+        affectedClaims: [],
+        evidenceRefs: [],
+        nextActions: [],
+        runtimeStartHypothesisEvidence: {
+          experimentId: "e".repeat(300),
+          planRevision: "p".repeat(300),
+          calibrationScopeRef: "s".repeat(300),
+          calibrationAssessmentRef: "a".repeat(300),
+          resultId: "r".repeat(300),
+          actualOutcomeKey: "runtime_running",
+          verdict: "inconclusive",
+          observationRefs: Array.from({ length: 20 }, () => "o".repeat(300)),
+          supportingHypothesisIds: Array.from({ length: 5 }, () => "h".repeat(100)),
+          contradictingHypothesisIds: Array.from({ length: 5 }, () => "c".repeat(100)),
+          beliefUpdateStatus: "unresolved_unvalidated_forecast",
+        },
+      },
+    });
+    const evidence = preview.replanContext?.runtimeStartHypothesisEvidence;
+
+    expect(evidence?.experimentId).toHaveLength(120);
+    expect(evidence?.planRevision).toHaveLength(200);
+    expect(evidence?.calibrationScopeRef).toHaveLength(120);
+    expect(evidence?.calibrationAssessmentRef).toHaveLength(120);
+    expect(evidence?.resultId).toHaveLength(120);
+    expect(evidence?.observationRefs).toHaveLength(16);
+    expect(evidence?.observationRefs[0]).toHaveLength(256);
+    expect(evidence?.supportingHypothesisIds).toHaveLength(3);
+    expect(evidence?.supportingHypothesisIds[0]).toHaveLength(80);
+    expect(evidence?.contradictingHypothesisIds).toHaveLength(3);
+    expect(evidence?.contradictingHypothesisIds[0]).toHaveLength(80);
   });
 
   it("drops invalid or provider-extended diagnosis from replan context", () => {

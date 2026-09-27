@@ -18,6 +18,26 @@ export type MissionAdmissionReason =
   | "evidence_or_project_context"
   | "multi_step_or_mutating_objective";
 
+export type RuntimeStartOutcomeKey =
+  | "runtime_running"
+  | "runtime_not_running"
+  | "runtime_other"
+  | "runtime_unexpected";
+
+export type RuntimeStartHypothesisReplanEvidence = {
+  experimentId: string;
+  planRevision: string;
+  calibrationScopeRef: string;
+  calibrationAssessmentRef: string;
+  resultId: string;
+  actualOutcomeKey: RuntimeStartOutcomeKey;
+  verdict: "matched" | "contradicted" | "inconclusive";
+  observationRefs: string[];
+  supportingHypothesisIds: string[];
+  contradictingHypothesisIds: string[];
+  beliefUpdateStatus: "unresolved_unvalidated_forecast";
+};
+
 /**
  * Server-derived recovery context carried into a fresh Mission plan revision.
  * This is deliberately bounded metadata: it is not provider reasoning and it
@@ -33,6 +53,7 @@ export type MissionReplanContext = {
   affectedClaims: string[];
   evidenceRefs: string[];
   hypothesisImpact?: string;
+  runtimeStartHypothesisEvidence?: RuntimeStartHypothesisReplanEvidence;
   nextActions: string[];
   priorPlanRevision?: string;
 };
@@ -140,6 +161,29 @@ export function buildMissionPlanPreview(input: {
         evidenceRefs: input.replanContext.evidenceRefs.slice(0, 16).map((ref) => ref.slice(0, 500)),
         ...(input.replanContext.hypothesisImpact
           ? { hypothesisImpact: input.replanContext.hypothesisImpact.slice(0, 500) }
+          : {}),
+        ...(input.replanContext.runtimeStartHypothesisEvidence
+          ? {
+              runtimeStartHypothesisEvidence: {
+                experimentId: input.replanContext.runtimeStartHypothesisEvidence.experimentId.slice(0, 120),
+                planRevision: input.replanContext.runtimeStartHypothesisEvidence.planRevision.slice(0, 200),
+                calibrationScopeRef: input.replanContext.runtimeStartHypothesisEvidence.calibrationScopeRef.slice(0, 120),
+                calibrationAssessmentRef: input.replanContext.runtimeStartHypothesisEvidence.calibrationAssessmentRef.slice(0, 120),
+                resultId: input.replanContext.runtimeStartHypothesisEvidence.resultId.slice(0, 120),
+                actualOutcomeKey: input.replanContext.runtimeStartHypothesisEvidence.actualOutcomeKey,
+                verdict: input.replanContext.runtimeStartHypothesisEvidence.verdict,
+                observationRefs: input.replanContext.runtimeStartHypothesisEvidence.observationRefs
+                  .slice(0, 16)
+                  .map((ref) => ref.slice(0, 256)),
+                supportingHypothesisIds: input.replanContext.runtimeStartHypothesisEvidence.supportingHypothesisIds
+                  .slice(0, 3)
+                  .map((id) => id.slice(0, 80)),
+                contradictingHypothesisIds: input.replanContext.runtimeStartHypothesisEvidence.contradictingHypothesisIds
+                  .slice(0, 3)
+                  .map((id) => id.slice(0, 80)),
+                beliefUpdateStatus: "unresolved_unvalidated_forecast" as const,
+              },
+            }
           : {}),
         nextActions: input.replanContext.nextActions.slice(0, 8).map((action) => action.slice(0, 240)),
         ...(input.replanContext.priorPlanRevision

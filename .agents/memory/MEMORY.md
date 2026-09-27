@@ -152,3 +152,4 @@
 - [Non-stream chat terminal and acceptance barriers](chat-terminal-response-barrier.md) — Settle lifecycle before JSON and fail closed when an evidence-required project query has no canonical objective.
 - [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
+- [P7.5 Mission context boundary](p75-mission-context-boundary.md) — calibrated runtime observations stay advisory until a server-owned observation path and existing acceptance edge bind them.

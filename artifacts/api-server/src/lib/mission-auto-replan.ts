@@ -1,5 +1,5 @@
 import { and, asc, eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   aiGoalsTable,
   aiMissionsTable,
@@ -20,6 +20,10 @@ import {
   WorldStateFailureDiagnosisSchema,
   type WorldStateFailureDiagnosis,
 } from "./world-state-failure-diagnosis.js";
+import {
+  loadRuntimeStartHypothesisReplanEvidence,
+  type RuntimeStartHypothesisReplanEvidence,
+} from "./agent-state/runtime-start-hypothesis-replan-context.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
 
 type AutoReplanResult =
@@ -91,7 +95,7 @@ export function buildReplanContext(goal: {
   nextAction: unknown;
   outcomeContract: unknown;
   successCriteria: unknown;
-}) {
+}, runtimeStartHypothesisEvidence?: RuntimeStartHypothesisReplanEvidence) {
   const outcome = jsonRecord(goal.outcomeContract);
   const acceptance = jsonRecord(outcome.acceptance);
   const receipt = jsonRecord(acceptance.receipt);
@@ -150,6 +154,9 @@ export function buildReplanContext(goal: {
         }
       : typeof outcome.hypothesisImpact === "string"
       ? { hypothesisImpact: outcome.hypothesisImpact.slice(0, 500) }
+      : {}),
+    ...(runtimeStartHypothesisEvidence
+      ? { runtimeStartHypothesisEvidence }
       : {}),
     nextActions: [
       ...(failureDiagnosis ? [failureDiagnosis.nextActionCode] : []),
@@ -302,16 +309,38 @@ export async function autoReplanMission(
         reason: "failure_not_automatically_retryable",
       };
     }
+    const priorPlanRevision = failedGoal
+      ? jsonRecord(jsonRecord(failedGoal.outcomeContract).planRevision).hash
+        ?? jsonRecord(jsonRecord(failedGoal.successCriteria).planRevision).hash
+      : undefined;
+    const runtimeStartHypothesisEvidence = failedGoal && typeof priorPlanRevision === "string"
+      ? await loadRuntimeStartHypothesisReplanEvidence(tx, {
+          projectId: mission.projectId,
+          missionId: mission.id,
+          goalId: failedGoal.id,
+          planRevision: priorPlanRevision,
+        })
+      : undefined;
     const preview = buildMissionPlanPreview({
       message: mission.intent,
       objective: mission.intent,
-      ...(failedGoal ? { replanContext: buildReplanContext(failedGoal) } : {}),
+      ...(failedGoal
+        ? { replanContext: buildReplanContext(failedGoal, runtimeStartHypothesisEvidence) }
+        : {}),
     });
     if (preview.admission !== "mission") {
       return { status: "skipped" as const, missionId, reason: "objective_no_longer_mission_eligible" };
     }
 
-    const revision = `auto:${failedGoal?.id ?? mission.id}:${preview.plan.planHash}`;
+    const planHash = runtimeStartHypothesisEvidence
+      ? createHash("sha256")
+        .update(JSON.stringify({
+          sourcePlanHash: preview.plan.planHash,
+          runtimeStartHypothesisEvidence,
+        }))
+        .digest("hex")
+      : preview.plan.planHash;
+    const revision = `auto:${failedGoal?.id ?? mission.id}:${planHash}`;
     const policy = mission.autonomyPolicy ?? {};
     const automaticReplanCount = typeof policy.automaticReplanCount === "number"
       && Number.isFinite(policy.automaticReplanCount)

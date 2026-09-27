@@ -906,6 +906,13 @@ export async function createMissionPlanGoal(
         `Affected claims: ${preview.replanContext.affectedClaims.join(", ") || "none recorded"}`,
         `Retained evidence refs: ${preview.replanContext.evidenceRefs.join(", ") || "none recorded"}`,
         `Hypothesis impact: ${preview.replanContext.hypothesisImpact ?? "not recorded"}`,
+        ...(preview.replanContext.runtimeStartHypothesisEvidence ? [
+          "Validated P7.5 runtime-start result (historical advisory evidence only):",
+          `Experiment=${preview.replanContext.runtimeStartHypothesisEvidence.experimentId}; assessment=${preview.replanContext.runtimeStartHypothesisEvidence.calibrationAssessmentRef}; result=${preview.replanContext.runtimeStartHypothesisEvidence.resultId}`,
+          `Observed outcome=${preview.replanContext.runtimeStartHypothesisEvidence.actualOutcomeKey}; forecast verdict=${preview.replanContext.runtimeStartHypothesisEvidence.verdict}; observation refs=${preview.replanContext.runtimeStartHypothesisEvidence.observationRefs.join(", ")}`,
+          `Supporting hypotheses=${preview.replanContext.runtimeStartHypothesisEvidence.supportingHypothesisIds.join(", ") || "none"}; contradicting hypotheses=${preview.replanContext.runtimeStartHypothesisEvidence.contradictingHypothesisIds.join(", ") || "none"}`,
+          "This historical result is not current-state proof, a belief update, a source-path instruction, or authorization. Use fresh server-approved evidence and the existing acceptance gates.",
+        ] : []),
         `Required recovery actions: ${preview.replanContext.nextActions.join("; ") || "derive a bounded alternative"}`,
         "Do not replay the prior failed action without a changed plan or new evidence.",
       ] : []),
