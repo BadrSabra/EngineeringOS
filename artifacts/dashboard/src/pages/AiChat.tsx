@@ -6912,6 +6912,8 @@ const AI_ACTIONS = [
   // panels surface per-sub-question in the existing live-activity UI.
   { id: 'probe', label: 'Capability Probe', icon: Activity, prompt: CAPABILITY_PROBE_MESSAGE },
 ];
+const COMMON_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id !== 'probe');
+const ADVANCED_AI_ACTIONS = AI_ACTIONS.filter((action) => action.id === 'probe');
 
 type LiveAgentToolStep = {
   activityId?: number;
@@ -9062,6 +9064,8 @@ export default function AiChat() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [providerSettingsOpen, setProviderSettingsOpen] = useState(false);
   const [deliveryPolicyExpanded, setDeliveryPolicyExpanded] = useState(false);
+  const [historicalAuditsExpanded, setHistoricalAuditsExpanded] = useState(false);
+  const [moreActionsExpanded, setMoreActionsExpanded] = useState(false);
   const [metricsProvider, setMetricsProvider] = useState<MetricsProviderFilter>('all');
   const [metricsWindowDays, setMetricsWindowDays] = useState<number>(30);
   const [qualityExportPending, setQualityExportPending] = useState(false);
@@ -12071,7 +12075,7 @@ export default function AiChat() {
     if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
     if (projectLoadFailure) return projectLoadFailure.message;
     if (!selectedProjectId) return 'Create or select a project first to start chatting.';
-    return 'Ask about your codebase, tasks, metrics, or workflows. I have full context.';
+    return 'Ask a question about this project, or choose a starting point below.';
   }
 
   // Textarea placeholder follows the same classification.
