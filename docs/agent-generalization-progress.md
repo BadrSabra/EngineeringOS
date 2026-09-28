@@ -3123,6 +3123,26 @@ G9 Revocation Safety
   والصلاحية والإبطال والتعارض.
 - **next step:** جمع قرار صريح لكل claim؛ لا كتابة verifier قبل ذلك.
 
+### 42.96 — تسجيل قرارات المالك المقترحة لـP7.5 (2026-09-28)
+
+- **phase/step:** تسجيل خيارات الحوكمة السبعة بعد اعتماد التوصية.
+- **status:** `done — governance decisions recorded; evidence remains unverified`
+- **what changed:** سُجل Clerk كمصدر لهوية الحساب/الجلسة فقط؛ و`HUMAN_AUTHORITY_REQUIRED`
+  لسلطة المراجع والموافقة، وإعادة ضبط البيئة، وتجميد البروتوكول، ومراجعة المقيم؛
+  و`NO_QUALIFIED_SOURCE` لاستقلال العينة ومنشأ held-out. لا تُعامل هذه القيم
+  كحالات runtime أو إثبات للدليل.
+- **files/schema/contracts touched:** سجل قرار P7.5 والخطة وسجل التقدم؛ لا runtime
+  أو schema أو قاعدة بيانات أو صلاحيات.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** بقيت شروط runtime السبعة `MISSING` ومراجعها فارغة؛
+  الحزمة `BLOCKED` و`collectionAuthorized=false` والاختيار `fixed_safe_probe`.
+  لم يُنفذ verifier أو IAM أو endpoint أو cohort أو selector.
+- **remaining/blocker:** ربط هوية Clerk بسجل P7.5 الفعلي، وتوفير آليات موثوقة
+  للمراجعة البشرية وreset وsampling وheld-out وprotocol freeze وevaluator؛
+  كل ذلك خارج نطاق هذه الخطوة.
+- **next step:** لا تنفيذ أو جمع حتى يوجد تفويض ونطاق منفصلان للتحقق من المصادر
+  وبوابة مراجعة بشرية مستقلة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
