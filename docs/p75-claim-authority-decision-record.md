@@ -41,6 +41,49 @@ claim and scope, protocol revision, validity window, invalidation conditions,
 and conflict-resolution rule. Existing source presence or a recorded decision
 must not be hard-coded as `SERVER_VERIFIED`.
 
+## Identity-binding feasibility (read-only audit, 2026-09-28)
+
+**Outcome: no existing trusted binding was found.** Current durable records do
+not establish that a Clerk account/session performed this exact P7.5 review for
+the exact evidence pack, protocol revision, scope, and validity window.
+
+The audit found:
+
+- Clerk authentication exposes an authenticated user and session to request
+  handlers, but no P7.5 review action currently persists their binding to a
+  review, evidence-pack hash, or protocol revision.
+- The Episode ledger durably records execution events and P7.5 experiment
+  registration/result payloads. Those are execution provenance, not a reviewer
+  action. Their current P7.5 payload contract has no review identity or review
+  binding.
+- Generic task verification retains an authenticated actor, submitted text
+  evidence, and task/check history. It is task-scoped and caller-attested; it
+  does not bind a P7.5 review, pack hash, protocol revision, scope, or validity.
+  The generic audit log likewise records actor/entity/action snapshots, not
+  those review-specific semantics.
+- Protocol and payload hashes identify content; they do not bind the Clerk
+  identity to a review of that exact content.
+- A read-only query of the development Episode-event table found no records
+  whose payload `recordKind` starts with `P75`. This is a point-in-time
+  development observation, not a claim about other environments.
+
+**Required invariant:** the same authenticated Clerk user/session is not the
+same review. Any future trusted binding must relate the identity to an exact
+`reviewId`, evidence-pack hash, protocol revision, scope, and validity window,
+with explicit invalidation and conflict handling. Identity alone must never
+select a different review implicitly.
+
+For this identity-binding claim, `MISSING`, `EXPIRED`, `REVOKED`, `CONFLICTING`,
+and `OUT_OF_SCOPE` all block. Missing or invalid identity binding must not fall
+back to `HUMAN_REVIEW_REQUIRED`; that runtime state would require a separate,
+bound, independently verifiable human-review record. These semantics are
+documented only and do not add runtime states or change current evidence.
+
+The result is the insufficient-source branch: P7.5 identity binding remains
+blocked until a separate scope authorizes an adequate binding mechanism. No
+storage, IAM, endpoint, Dashboard control, verifier, or collection authority
+is added here.
+
 ## Guardrails
 
 - Do not infer additional authority or evidence from source presence, caller claims, hashes, or examples.

@@ -14,3 +14,9 @@ Keep P7.5 readiness reports and evidence packs diagnostic only. A clean machine 
 **Why:** These decisions separate authenticated identity from reviewer authority and acknowledge that current partition and Mission identifiers do not establish sampling lineage or an unused holdout. The choices remain governance records, not proof or collection approval.
 
 **How to apply:** Preserve this matrix unless the owner explicitly revises it. Do not convert these values into runtime evidence; runtime claims remain `MISSING` until independently verified. Keep collection blocked, keep `fixed_safe_probe`, and do not add a verifier or authority mechanism outside a separately authorized scope.
+
+**Identity-binding rule:** The same authenticated Clerk identity is not proof of the same review. A trusted binding must identify the exact review ID, evidence-pack hash, protocol revision, scope, and validity window, with explicit invalidation and conflict handling. Missing, expired, revoked, conflicting, or out-of-scope bindings all block; missing identity binding must not fall back to `HUMAN_REVIEW_REQUIRED`.
+
+**Why:** Authentication establishes the account/session, not which specific review was performed or which pack and protocol it covered. Treating a valid Clerk session as a review would silently broaden identity into authority.
+
+**How to apply:** Keep the identity claim separate from reviewer approval and collection authority. Use the binding tuple and fail-closed outcomes when assessing future P7.5 sources; do not create storage, a verifier, or collection permission without separate authorization.

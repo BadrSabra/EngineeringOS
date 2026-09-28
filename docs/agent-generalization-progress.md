@@ -3143,6 +3143,28 @@ G9 Revocation Safety
 - **next step:** لا تنفيذ أو جمع حتى يوجد تفويض ونطاق منفصلان للتحقق من المصادر
   وبوابة مراجعة بشرية مستقلة.
 
+### 42.97 — فحص ربط هوية Clerk بمراجعة P7.5 (2026-09-28)
+
+- **phase/step:** فحص read-only لمصدر claim هوية المراجع فقط.
+- **status:** `done — no existing trusted binding; identity claim remains blocked`
+- **what changed:** لم يُعثر على سجل P7.5 دائم يربط هوية Clerk بمراجعة محددة
+  وhash حزمة الأدلة وإصدار البروتوكول والنطاق والصلاحية. سجل Episode يثبت
+  provenance للتنفيذ ونتائج التجارب، والتحقق العام للمهمة يثبت actor ونتيجة
+  caller-submitted على task؛ لا يثبت أي منهما مراجعة P7.5. أظهر استعلام تطوير
+  read-only عدم وجود أحداث ذات `recordKind` يبدأ بـ`P75`. سُجل invariant:
+  هوية Clerk نفسها لا تعني المراجعة نفسها؛ غياب أو انتهاء أو إلغاء أو تعارض أو
+  خروج عن النطاق يحجب الربط.
+- **files/schema/contracts touched:** سجل قرار P7.5 والخطة وسجل التقدم وذاكرة
+  حدود P7.5؛ لا runtime أو schema أو قاعدة بيانات أو صلاحيات.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** بقيت claims runtime السبعة `MISSING`؛
+  `reviewerAuthority` لم يتغير، و`collectionAuthorized=false`،
+  والاختيار `fixed_safe_probe`. لم يُضف تخزين أو IAM أو endpoint أو verifier.
+- **remaining/blocker:** لا يوجد binding موثوق قائم. أي آلية جديدة تتطلب نطاقًا
+  وتفويضًا منفصلين؛ لا fallback إلى `HUMAN_REVIEW_REQUIRED` بسبب غياب الربط.
+- **next step:** لا تغيير runtime أو جمع. إذا فُوّض تنفيذ لاحق، ابدأ بتحديد
+  مصدر durable يربط identity وreview ID وحزمة الأدلة والبروتوكول والنطاق والصلاحية.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
