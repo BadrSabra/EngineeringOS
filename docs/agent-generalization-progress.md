@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-28
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، لكنه لا يفتح جمع held-out outcomes: يلزم إثبات إضافي لمسارات crash/cancel وإعادة العامل ومراجعة policy/scope version مستقلة قبل أي cohort. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ تبقى فجوة قبول route-level لمسار A→B وتكافؤ JSON/SSE/history. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح.
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، لكنه لا يفتح جمع held-out outcomes: يلزم إثبات إضافي لمسارات crash/cancel وإعادة العامل ومراجعة policy/scope version مستقلة قبل أي cohort. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80 انتقال route-level من فشل provider A إلى نجاح B وتكافؤ JSON/SSE/history لهدف embedded-AI ذي objective canonical. لم يشمل ذلك استنفاد المرشحين أو حدود الميزانية/المهلة أو جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. تعذر smoke إعادة تشغيل API الحالية بسبب نقص schema في قاعدة التطوير؛ التفاصيل في §42.80.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
 تغيّر هذه الشريحة حالة P0–P14 أو dependency graph، ولا تمنح Mission أو planner
@@ -139,12 +139,12 @@ cohort أو تعلم لاحق، لا شرطًا يمنع أعمال الواجه
    و§42.8؛ اجتياز هذا القياس لا يفعّل ranking ولا يثبت صلاحية selector.
 4. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
    parity عند غياب objective canonical. نُفذ في §42.71 failover synthesis محدود
-   بعد اكتمال الأدلة، بمزودين مختارين من API وبالحزمة نفسها ومن دون إعادة قراءة؛
-   يبقى المسار بلا objective canonical fail-closed ولا يفتح fallback عامًا.
-   المتبقي هو قبول route-level لمسار provider A failure → B success، وتكافؤ
-   JSON/SSE/history مع التنفيذ الحقيقي، إضافة إلى حدود استنفاد الميزانية والمهلة.
-   هذا عمل تحقق عابر للمراحل ولا يضيف عقدة أو يعيد ترتيب §31، ولا يسبق بوابة
-   جاهزية P7.5.
+   بعد اكتمال الأدلة، بمزودين مختارين من API وبالحزمة نفسها ومن دون إعادة قراءة.
+   يثبت §42.80 رحلة route-level من فشل provider A إلى نجاح B وتكافؤ
+   JSON/SSE/history لهدف `PROJECT_QUERY_EMBEDDED-AI`. يبقى المسار بلا objective
+   canonical fail-closed ولا يفتح fallback عامًا. المتبقي اختبار استنفاد
+   المرشحين وحدود الميزانية/المهلة؛ لم يُثبت هذا العمل جودة مزود حي. هذا تحقق
+   عابر للمراحل ولا يضيف عقدة أو يعيد ترتيب §31، ولا يسبق بوابة جاهزية P7.5.
 5. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
    تثبيت عقد الجمع والاستعادة؛ ليست الخطوة الأولى ولا مصدر قبول أو معايرة.
 6. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
@@ -2799,6 +2799,36 @@ G9 Revocation Safety
   لا يغلق P3/P4/P8 ولا يثبت World Delta عامًّا أو Belief أو اختيار الملاحظات.
 - **next step:** أبقِ P3/P4/P8 جزئية وP7.5 محكومة ببوابتها؛ لا توسّع القراءة
   إلى اختيار آلي أو `runtime.start`، ولا تدّع إغلاق P8 بهذا التكامل.
+
+### 42.80 — إثبات route-level لـPROJECT_QUERY embedded-AI failover (2026-09-28)
+
+- **phase/step:** تحقق عابر للمراحل لإغلاق فجوة §42.71؛ الهدف المحدد
+  `PROJECT_QUERY_EMBEDDED-AI`.
+- **status:** `route proof done — API runtime smoke blocked by development schema gate`.
+- **what changed:** يرسل الاختبار الطلب العربي الفعلي عبر مساري JSON وSSE،
+  ويستخدم `chatWithFallback` و`chat()` الإنتاجيين مع فشل provider A في synthesis
+  فقط ونجاح provider B بعد اكتمال الأدلة. يتحقق من ثبات رسالة synthesis بين
+  المحاولتين، ومن الرد المنظم وclaimRefs وflowRefs، ومن تطابق النتيجة مع
+  التاريخ. يثبت قبول `PROVEN` ووجود كل المسارات المقروءة المطلوبة في snapshot.
+  كشف الاختبار أيضًا أن locator قد يفضل ذكرًا لاحقًا داخل نص مقتبس على موضع
+  التنفيذ؛ رُجّح السياق التنفيذي المتقارب الذي يجمع needles من دون تغيير
+  objective أو بوابة القبول.
+- **files/schema/contracts touched:** اختبار route-level واختبار locator
+  واختيار نافذة القراءة؛ هذا السجل وذاكرة المشروع. لا تغيير schema أو public
+  contract أو صلاحية.
+- **validation:** الاختبار المركز لرحلة route-level (1/1)، واختبار نافذة locator
+  (1/1)، و`pnpm run typecheck` لكل من API و`ai-orchestrator`. فشلت إعادة تشغيل
+  API عند بوابة schema بسبب غياب جدول `project_plugin_bindings` وفهارسه ومفاتيحه
+  الخارجية المطلوبة.
+- **authority/safety impact:** لا proof أو acceptance أو permissions جديدة؛
+  يظل النجاح مشروطًا بالـcanonical objective ودليل المصدر المحتفظ به. لا
+  تُستخدم claims المزود لإغلاق الحواف، ولا يُكشف تشخيص provider A، ولا يُفتح
+  fallback بلا objective.
+- **remaining/blocker:** لم يختبر هذا المسار استنفاد قائمة المزودين أو انتهاء
+  الميزانية/المهلة، ولم يستخدم مزودًا حيًا. يلزم أيضًا تسوية schema قاعدة
+  التطوير قبل استعادة API workflow؛ لم تُطبق أي تغييرات على قاعدة البيانات.
+- **next step:** أبقِ حدود §42.71 fail-closed؛ لا توسع fallback العام. إذا لزم
+  تشغيل API، سوِّ schema قاعدة التطوير أولًا ثم أعد التحقق من workflow.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

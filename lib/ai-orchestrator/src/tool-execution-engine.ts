@@ -2519,6 +2519,34 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const lineNumberAt = (index: number): number =>
       (sourceBody.slice(0, index).match(/\n/g)?.length ?? 0) + 1;
     type LocatorCandidate = { line: number; score: number };
+    const occurrenceIsQuotedOrCommented = (
+      lineText: string,
+      occurrenceOffset: number,
+    ): boolean => {
+      let quote: "'" | "\"" | "`" | null = null;
+      let escaped = false;
+      for (let index = 0; index < occurrenceOffset; index += 1) {
+        const character = lineText[index];
+        const nextCharacter = lineText[index + 1];
+        if (quote) {
+          if (escaped) {
+            escaped = false;
+          } else if (character === "\\") {
+            escaped = true;
+          } else if (character === quote) {
+            quote = null;
+          }
+          continue;
+        }
+        if (character === "/" && (nextCharacter === "/" || nextCharacter === "*")) {
+          return true;
+        }
+        if (character === "'" || character === "\"" || character === "`") {
+          quote = character;
+        }
+      }
+      return quote !== null;
+    };
     const candidatesForNeedle = (needle: string): LocatorCandidate[] => {
       const candidates: Array<{ line: number; score: number }> = [];
       let searchFrom = 0;
@@ -2534,8 +2562,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         // Imports are useful locators, but they do not explain runtime
         // behavior. Prefer a later executable occurrence when one exists.
         if (/^\s*import\b|^\s*export\s+type\b/.test(lineText)) score -= 100;
+        const lineStart = sourceBody.lastIndexOf("\n", index - 1) + 1;
+        if (occurrenceIsQuotedOrCommented(lineText, index - lineStart)) score -= 100;
         if (/\b(?:function|const|let|var|if|else|return|await|throw|switch)\b/.test(context)) {
           score += 10;
+        }
+        if (needles.every((requiredNeedle) => context.includes(requiredNeedle))) {
+          // A compact source context that contains every claim locator is a
+          // stronger behavioral anchor than separate later uses near another
+          // function or prompt string.
+          score += 25;
         }
         if (lineText.includes(needle)) score += 5;
         score += Math.min(line, 10_000) / 10_000;

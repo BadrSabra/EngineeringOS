@@ -22,6 +22,7 @@ import request from "supertest";
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import * as ts from "typescript";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { and, eq } from "drizzle-orm";
@@ -111,6 +112,9 @@ type RecoveryTeardownFixture = {
   childPids: number[];
 };
 const recoveryTeardownFixtures: RecoveryTeardownFixture[] = [];
+const projectQueryFailoverStrategies = vi.hoisted(() => ({
+  current: {} as Record<string, unknown>,
+}));
 type LiveRecoveryEvidence = {
   provider: {
     id: string;
@@ -142,6 +146,16 @@ let liveRecoveryEvidence: LiveRecoveryEvidence | undefined;
 // ─── Orchestrator mock ────────────────────────────────────────────────────────
 // Mirrors the module-level mock in ai.test.ts so all imports from
 // @workspace/ai-orchestrator resolve to stubs rather than live clients.
+
+vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const actualGetStrategy = actual.getStrategy as (provider: string) => unknown;
+  return {
+    ...actual,
+    getStrategy: vi.fn((provider: string) =>
+      projectQueryFailoverStrategies.current[provider] ?? actualGetStrategy(provider)),
+  };
+});
 
 vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -707,6 +721,7 @@ afterEach(async () => {
   // next integration test or leave subsequent request promises unresolvable.
   vi.useRealTimers();
   validationFixtures.length = 0;
+  projectQueryFailoverStrategies.current = {};
   vi.restoreAllMocks();
   // classifyRequest is a module-level vi.fn rather than a spy, so
   // restoreAllMocks() does not clear mockReturnValueOnce/mockReturnValue
@@ -7668,6 +7683,494 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         projectQueryResponseFallbackReason: "synthesis_failed",
       }),
     ]));
+  });
+
+  it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const [project] = await db
+      .select({ rootPath: projectsTable.rootPath })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const rootPath = project!.rootPath;
+    const sourceBodies = new Map<string, string>();
+    const message = "اشرح كيف يعمل الذكاء الاصطناعي المدمج داخل المشروع";
+    const chatAgentPath = "lib/ai-orchestrator/src/agents/chat-agent.ts";
+    const productionChatAgent = await fs.readFile(
+      path.resolve(process.cwd(), "../../", chatAgentPath),
+      "utf8",
+    );
+    const chatAgentSourceFile = ts.createSourceFile(
+      chatAgentPath,
+      productionChatAgent,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const chatDeclaration = chatAgentSourceFile.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) &&
+        statement.name?.text === "chat" &&
+        statement.body !== undefined,
+    );
+    if (!chatDeclaration) throw new Error("Production chat() declaration was not found");
+    // Embedded-AI has required runtime edges. Retain the actual production
+    // caller body so the real evidence gate can prove them; the whole module is
+    // larger than read_file's complete-read bound.
+    const embeddedChatAgentWitness = chatDeclaration.getText(chatAgentSourceFile);
+    expect(Buffer.byteLength(embeddedChatAgentWitness, "utf8")).toBeLessThan(512 * 1024);
+    type CanonicalObjectiveFixture = {
+      objectiveType?: string;
+      requiredEvidenceEdges?: unknown[];
+      requiredEvidencePaths?: string[];
+      requiredClaims?: Array<{
+        claimId?: string;
+        text?: string;
+        requiredEvidencePaths?: string[];
+        evidenceNeedles?: string[];
+        evidenceNeedlesByPath?: Record<string, string[]>;
+      }>;
+    };
+    const routedObjectives: CanonicalObjectiveFixture[] = [];
+    let activeObjective: CanonicalObjectiveFixture | undefined;
+    let pendingReadPaths: string[] = [];
+    let responseText = "";
+    const calls: Array<{
+      provider: "openrouter" | "deepseek";
+      operation: string;
+      messages: string;
+    }> = [];
+    const primaryStrategy = {
+      providerId: "openrouter",
+      ownsModelFallback: true,
+      supportsNativeStream: false,
+      stream: vi.fn(async () => []),
+      call: vi.fn(async (
+        messages: unknown,
+        options: { operation?: string; maxTokens?: number; toolChoice?: unknown },
+      ) => {
+        const operation = options.operation ?? "tool_chat";
+        if (operation === "project_query_no_tools_synthesis") {
+          calls.push({ provider: "openrouter", operation, messages: JSON.stringify(messages) });
+          throw new GroqClientError(
+            "SERVER_ERROR",
+            "fixture provider A synthesis diagnostic must stay server-side",
+            { context: { providerStatus: 503 } },
+          );
+        }
+        if (options.maxTokens === 512 && options.toolChoice === undefined) {
+          const requiredPaths = activeObjective?.requiredEvidencePaths ?? [];
+          return {
+            content: JSON.stringify({
+              originalIntent: message,
+              // The oversized caller is retained as the objective locator and
+              // read through its server-selected bounded range below; keeping
+              // it out of the planner's lossy snippet prefetch avoids
+              // replacing that full locator with an unrelated excerpt.
+              targetFiles: requiredPaths.filter((source) => source !== chatAgentPath).slice(0, 10),
+              targetEntities: [],
+              targetConfidence: 1,
+              scopeEstimate: "medium",
+              suggestedIterations: 18,
+              requiresToolUse: true,
+              subQueries: [],
+              compoundParts: [],
+            }),
+            toolCalls: [],
+            model: "openrouter-query-plan-fixture",
+            usage: { promptTokens: 8, completionTokens: 28 },
+          };
+        }
+        if (pendingReadPaths.length > 0) {
+          const paths = pendingReadPaths.splice(0);
+          const toolCalls = paths.flatMap((source) => {
+            if (source !== chatAgentPath) {
+              return [{
+                name: "read_file",
+                args: { path: source, complete: true },
+              }];
+            }
+            const sourceLines = embeddedChatAgentWitness.split("\n");
+            const sourceClaims = (activeObjective?.requiredClaims ?? [])
+              .filter((claim) => claim.requiredEvidencePaths?.includes(source));
+            const needles = [...new Set(sourceClaims.flatMap((claim) => [
+              ...(claim.evidenceNeedles ?? []),
+              ...(claim.evidenceNeedlesByPath?.[source] ?? []),
+            ]))];
+            const loopCallIndex = sourceLines.findIndex((line) =>
+              /\bloopResult\s*=\s*await\s+executeToolLoop\s*\(/.test(line));
+            if (loopCallIndex < 0) {
+              throw new Error("Production chat() loopResult call was not found");
+            }
+            const startLine = Math.max(1, loopCallIndex + 1 - 18);
+            const endLine = Math.min(sourceLines.length, loopCallIndex + 1 + 24);
+            const rangeBody = sourceLines.slice(startLine - 1, endLine).join("\n");
+            if (
+              endLine - startLine + 1 > 4_000 ||
+              Buffer.byteLength(rangeBody, "utf8") > 128_000
+            ) {
+              throw new Error("Embedded-AI evidence range exceeds read_file_range bounds");
+            }
+            for (const needle of needles) {
+              if (!rangeBody.includes(needle)) {
+                throw new Error(
+                  `Production loop evidence range does not contain objective needle: ${needle}`,
+                );
+              }
+            }
+            return [
+              { name: "read_file", args: { path: source, complete: true } },
+              {
+                name: "read_file_range",
+                args: { path: source, startLine, endLine },
+              },
+            ];
+          });
+          return {
+            content: "",
+            toolCalls: toolCalls.map(({ name, args }, index) => ({
+              id: `read-${index + 1}`,
+              type: "function",
+              function: {
+                name,
+                arguments: JSON.stringify(args),
+              },
+            })),
+            model: "openrouter-tool-fixture",
+            usage: { promptTokens: 12, completionTokens: 8 },
+          };
+        }
+        return {
+          content: "The project evidence is available for synthesis.",
+          toolCalls: [],
+          model: "openrouter-fixture-model",
+          usage: { promptTokens: 12, completionTokens: 8 },
+        };
+      }),
+    };
+    const fallbackStrategy = {
+      providerId: "deepseek",
+      ownsModelFallback: false,
+      supportsNativeStream: false,
+      stream: vi.fn(async () => []),
+      call: vi.fn(async (
+        messages: unknown,
+        options: { operation?: string },
+      ) => {
+        const operation = options.operation ?? "tool_chat";
+        if (operation !== "project_query_no_tools_synthesis") {
+          throw new Error(`Unexpected fallback operation: ${operation}`);
+        }
+        calls.push({ provider: "deepseek", operation, messages: JSON.stringify(messages) });
+        const requiredPaths = activeObjective?.requiredEvidencePaths ?? [];
+        const claims = activeObjective?.requiredClaims ?? [];
+        const claimRefs = claims
+          .map(({ claimId }) => claimId)
+          .filter((claimId): claimId is string => Boolean(claimId));
+        responseText = [
+          "تم تتبع التدفق الكامل من التوجيه إلى حلقة الأدوات ثم إرسال الطلب إلى provider والتحقق النهائي.",
+          ...claims.map(({ text }) => text).filter((text): text is string => Boolean(text)),
+        ].join("\n\n");
+        return {
+          content: JSON.stringify({
+            response: responseText,
+            sources: requiredPaths,
+            claimRefs,
+            flowRefs: claimRefs.slice(0, 2),
+          }),
+          toolCalls: [],
+          model: "deepseek-fixture-model",
+          usage: { promptTokens: 18, completionTokens: 26 },
+        };
+      }),
+    };
+    projectQueryFailoverStrategies.current = {
+      openrouter: primaryStrategy,
+      deepseek: fallbackStrategy,
+    };
+    const expectRetainedSynthesisPrompt = (
+      messages: string,
+      objective: CanonicalObjectiveFixture,
+    ) => {
+      for (const claim of objective.requiredClaims ?? []) {
+        for (const source of claim.requiredEvidencePaths ?? []) {
+          const needles = claim.evidenceNeedlesByPath
+            ? claim.evidenceNeedlesByPath[source] ?? []
+            : claim.evidenceNeedles ?? [];
+          for (const needle of needles) expect(messages).toContain(needle);
+        }
+      }
+    };
+
+    const providerEnvKeys = [
+      "OPENROUTER_API_KEY",
+      "GEMINI_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "GROQ_API_KEY",
+    ] as const;
+    const originalProviderEnv = new Map(
+      providerEnvKeys.map((key) => [key, process.env[key]] as const),
+    );
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.OPENROUTER_API_KEY = "route-fixture-openrouter-key";
+    process.env.DEEPSEEK_API_KEY = "route-fixture-deepseek-key";
+
+    try {
+      const actualHelpers = await vi.importActual<typeof import("../lib/ai-route-helpers.js")>(
+        "../lib/ai-route-helpers.js",
+      );
+      const actualOrchestrator = await vi.importActual<typeof import("@workspace/ai-orchestrator")>(
+        "@workspace/ai-orchestrator",
+      );
+      const mockedOrchestrator = await import("@workspace/ai-orchestrator");
+      vi.mocked(mockedOrchestrator.chat).mockImplementation(async (input) => {
+        const objective = input.objective as CanonicalObjectiveFixture | undefined;
+        expect(objective).toMatchObject({
+          objectiveType: "PROJECT_QUERY_EMBEDDED-AI",
+        });
+        expect(objective?.requiredEvidenceEdges).toHaveLength(6);
+        expect(objective?.requiredEvidencePaths?.length).toBeGreaterThan(0);
+        expect(objective?.requiredEvidencePaths).toContain(chatAgentPath);
+        expect(objective?.requiredClaims?.length).toBeGreaterThan(0);
+        activeObjective = JSON.parse(JSON.stringify(objective)) as CanonicalObjectiveFixture;
+        routedObjectives.push(activeObjective);
+        pendingReadPaths = [...(activeObjective.requiredEvidencePaths ?? [])];
+        for (const source of pendingReadPaths) {
+          const relatedClaims = (activeObjective.requiredClaims ?? [])
+            .filter((claim) => claim.requiredEvidencePaths?.includes(source));
+          const body = source === chatAgentPath
+            ? embeddedChatAgentWitness
+            : [
+                `export const sourceFixture = ${JSON.stringify(source)};`,
+                ...relatedClaims.flatMap((claim) => [
+                  ...(claim.text ? [claim.text] : []),
+                  ...(claim.evidenceNeedles ?? []),
+                  ...(claim.evidenceNeedlesByPath?.[source] ?? []),
+                ]),
+              ].join("\n");
+          sourceBodies.set(source, body);
+          const absolutePath = path.join(rootPath, source);
+          await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+          await fs.writeFile(absolutePath, body, "utf8");
+        }
+        return actualOrchestrator.chat(input);
+      });
+      vi.mocked(chatWithFallback).mockImplementation((...args) =>
+        actualHelpers.chatWithFallback(...args),
+      );
+      vi.mocked(requireProvider).mockResolvedValue({
+        provider: "openrouter",
+        apiKey: "route-fixture-openrouter-key",
+        source: "server",
+      });
+      vi.spyOn(mockedOrchestrator, "getProviderLifecycleSnapshot")
+        .mockImplementation(async ({ provider }) => ({
+          provider,
+          source: "server",
+          keyIdentity: "route-fixture",
+          revision: 1,
+          generation: 1,
+          checkedAt: null,
+          expiresAt: null,
+          lastKnownGoodAt: null,
+          lastKnownGoodExpiresAt: null,
+          credentialStatus: "credentials_valid",
+          modelStatus: "model_healthy",
+          capabilityStatus: "capability_healthy",
+          overallStatus: "ready",
+          selectable: true,
+          roles: [],
+          capabilities: [],
+          reasonCodes: ["model_healthy"],
+        }));
+
+      const requestBody = { projectId, message };
+      const jsonCallStart = calls.length;
+      vi.mocked(mockedOrchestrator.recordSuccess).mockClear();
+      const json = await request(app)
+        .post("/api/ai/chat")
+        .set("Content-Type", "application/json")
+        .send(requestBody);
+      expect(json.status).toBe(200);
+      expect(json.body).toMatchObject({
+        projectQueryResponseSource: "provider_synthesis",
+        message: {
+          role: "assistant",
+          content: responseText,
+          outcome: "SUCCEEDED",
+          projectQueryResponseSource: "provider_synthesis",
+        },
+      });
+      const jsonObjective = routedObjectives.at(-1)!;
+      const jsonResponseText = responseText;
+      const jsonMessage = json.body.message as Record<string, unknown> & { id: string };
+      const jsonSynthesisCalls = calls.slice(jsonCallStart).filter(
+        (call) => call.operation === "project_query_no_tools_synthesis",
+      );
+      expect(jsonSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter", "deepseek"]);
+      expect(jsonSynthesisCalls[0]!.messages).toBe(jsonSynthesisCalls[1]!.messages);
+      expectRetainedSynthesisPrompt(jsonSynthesisCalls[1]!.messages, jsonObjective);
+
+      const jsonHistory = await request(app)
+        .get(`/api/ai/chat/${String(json.body.sessionId)}/messages`)
+        .expect(200);
+      const jsonHistoryMessage = (jsonHistory.body as Array<Record<string, unknown>>)
+        .find((entry) => entry.id === jsonMessage.id);
+      expect(jsonHistoryMessage).toBeDefined();
+      expect(jsonHistoryMessage).toMatchObject({
+        content: responseText,
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "provider_synthesis",
+      });
+
+      const streamCallStart = calls.length;
+      vi.mocked(mockedOrchestrator.recordSuccess).mockClear();
+      const stream = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send(requestBody);
+      expect(stream.status).toBe(200);
+      const events = parseSseEvents(stream.text);
+      expect(events.find((event) => event.type === "error")).toBeUndefined();
+      const done = events.find((event) => event.type === "done") as
+        | (Record<string, unknown> & { message: Record<string, unknown> & { id: string } })
+        | undefined;
+      expect(done).toMatchObject({
+        projectQueryResponseSource: "provider_synthesis",
+        message: {
+          content: responseText,
+          outcome: "SUCCEEDED",
+          projectQueryResponseSource: "provider_synthesis",
+        },
+      });
+      const streamObjective = routedObjectives.at(-1)!;
+      const streamResponseText = responseText;
+      expect(streamObjective).toMatchObject({
+        objectiveType: jsonObjective.objectiveType,
+        requiredEvidencePaths: jsonObjective.requiredEvidencePaths,
+        requiredClaims: jsonObjective.requiredClaims,
+      });
+      const streamMessage = done!.message;
+      const streamSynthesisCalls = calls.slice(streamCallStart).filter(
+        (call) => call.operation === "project_query_no_tools_synthesis",
+      );
+      expect(streamSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter", "deepseek"]);
+      expect(streamSynthesisCalls[0]!.messages).toBe(streamSynthesisCalls[1]!.messages);
+      expectRetainedSynthesisPrompt(streamSynthesisCalls[1]!.messages, streamObjective);
+      expect(vi.mocked(mockedOrchestrator.recordSuccess).mock.calls.at(-1)?.[0]).toBe("deepseek");
+
+      const executions = await db
+        .select({
+          id: aiExecutionsTable.id,
+          sessionId: aiExecutionsTable.sessionId,
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      const execution = executions.find(({ finalMessageId }) => finalMessageId === streamMessage.id);
+      expect(execution).toMatchObject({
+        status: "completed",
+        finalMessageId: streamMessage.id,
+      });
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+          evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+          evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+          messageId: aiExecutionAcceptancesTable.messageId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, execution!.id))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+        messageId: streamMessage.id,
+      });
+      const [snapshot] = await db
+        .select({
+          verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+          complete: aiExecutionEvidenceSnapshotsTable.complete,
+          readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+        })
+        .from(aiExecutionEvidenceSnapshotsTable)
+        .where(eq(aiExecutionEvidenceSnapshotsTable.id, acceptance!.evidenceSnapshotId!))
+        .limit(1);
+      expect(snapshot).toMatchObject({
+        verdict: "PROVEN",
+        complete: 1,
+        readCount: streamObjective.requiredEvidencePaths?.length,
+      });
+      const evidenceReads = await db
+        .select({
+          path: aiExecutionEvidenceReadsTable.path,
+          complete: aiExecutionEvidenceReadsTable.complete,
+          truncated: aiExecutionEvidenceReadsTable.truncated,
+          body: aiExecutionEvidenceReadsTable.body,
+        })
+        .from(aiExecutionEvidenceReadsTable)
+        .where(eq(aiExecutionEvidenceReadsTable.snapshotId, acceptance!.evidenceSnapshotId!));
+      expect(evidenceReads).toHaveLength(streamObjective.requiredEvidencePaths!.length);
+      expect(evidenceReads.map(({ path }) => path).sort()).toEqual(
+        [...(streamObjective.requiredEvidencePaths ?? [])].sort(),
+      );
+      for (const read of evidenceReads) {
+        expect(read).toMatchObject({ complete: 1, truncated: 0 });
+        if (read.path === chatAgentPath) {
+          const chatClaims = (streamObjective.requiredClaims ?? [])
+            .filter((claim) => claim.requiredEvidencePaths?.includes(chatAgentPath));
+          for (const claim of chatClaims) {
+            const needles = claim.evidenceNeedlesByPath
+              ? claim.evidenceNeedlesByPath[chatAgentPath] ?? []
+              : claim.evidenceNeedles ?? [];
+            for (const needle of needles) {
+              expect(read.body).toContain(needle);
+            }
+          }
+        } else {
+          expect(read.body).toContain(sourceBodies.get(read.path)!);
+        }
+      }
+
+      const streamHistory = await request(app)
+        .get(`/api/ai/chat/${execution!.sessionId}/messages`)
+        .expect(200);
+      const streamHistoryMessage = (streamHistory.body as Array<Record<string, unknown>>)
+        .find((entry) => entry.id === streamMessage.id);
+      expect(streamHistoryMessage).toMatchObject({
+        content: responseText,
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "provider_synthesis",
+      });
+      const parityProjection = (value: Record<string, unknown>) => ({
+        content: value.content,
+        outcome: value.outcome,
+        projectQueryResponseSource: value.projectQueryResponseSource,
+        projectQueryResponseFallbackReason: value.projectQueryResponseFallbackReason ?? null,
+      });
+      expect(streamResponseText).toBe(jsonResponseText);
+      expect(parityProjection(streamMessage)).toEqual(parityProjection(jsonMessage));
+      expect(parityProjection(jsonHistoryMessage!)).toEqual(parityProjection(jsonMessage));
+      expect(parityProjection(streamHistoryMessage!)).toEqual(parityProjection(streamMessage));
+
+      const publicPayload = JSON.stringify({
+        json: json.body,
+        stream: events,
+        jsonHistory: jsonHistory.body,
+        streamHistory: streamHistory.body,
+      });
+      expect(publicPayload).not.toContain("fixture provider A synthesis diagnostic");
+    } finally {
+      for (const [key, value] of originalProviderEnv) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 
   it("keeps an unresolved PROJECT_QUERY without a canonical objective incomplete across JSON, SSE, and history", async () => {

@@ -1907,6 +1907,7 @@ describe("executeToolLoop", () => {
     const sourceLines = Array.from({ length: 5_000 }, (_, index) => `const line${index + 1} = ${index + 1};`);
     sourceLines[399] = "const loopResult = await executeToolLoop(context);";
     sourceLines[430] = "return synthesize(loopResult);";
+    sourceLines[480] = 'const prompt = "Do not call executeToolLoop(...);";';
     const retainedSource = sourceLines.join("\n");
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("provider-read", "read_file", { path: requiredPath })]),
@@ -1971,6 +1972,9 @@ describe("executeToolLoop", () => {
       { path: requiredPath, startLine: "380", endLine: "459" },
       "/project",
       [],
+    );
+    expect(result.evidenceWindows?.[0]?.content).not.toContain(
+      "Do not call executeToolLoop",
     );
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalledWith(
       "read_file_range",
