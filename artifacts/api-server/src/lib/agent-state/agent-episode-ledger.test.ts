@@ -23,6 +23,7 @@ import {
   startEpisode,
   terminalizeP75MeasurementContinuationEpisode,
 } from "./agent-episode-ledger.js";
+import { requestAiExecutionCancel } from "../ai-execution-state.js";
 import {
   loadLatestAgentEpisodeShadowCampaignScorecard,
   persistAgentEpisodeShadowAttempt,
@@ -414,6 +415,56 @@ describe("agent episode ledger", () => {
     expect(execution?.cancelRequestedAt).toBeInstanceOf(Date);
     expect(await db.select().from(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.executionId, executionId))).toHaveLength(0);
+  });
+
+  it("serializes P7.5 terminalization against a concurrent cancellation request", async () => {
+    const input = await p75TerminalizationInput();
+    const [cancelResult, terminalResult] = await Promise.allSettled([
+      requestAiExecutionCancel({ executionId, userId }),
+      terminalizeP75MeasurementContinuationEpisode(input),
+    ]);
+
+    const [execution] = await db.select().from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, executionId));
+    const [episode] = await db.select().from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.id, input.episodeId));
+    const terminalEvents = await db.select().from(aiAgentEpisodeEventsTable).where(and(
+      eq(aiAgentEpisodeEventsTable.executionId, executionId),
+      eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+    ));
+    const acceptances = await db.select().from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
+
+    expect(cancelResult.status).toBe("fulfilled");
+    expect(acceptances).toHaveLength(0);
+
+    if (execution?.cancelRequestedAt) {
+      expect(execution.status).toBe("cancelling");
+      expect(episode).toMatchObject({ state: "running", verdict: null, closedAt: null });
+      expect(terminalEvents).toHaveLength(0);
+      expect(terminalResult).toMatchObject({
+        status: "rejected",
+        reason: expect.objectContaining({ code: "stale_worker" }),
+      });
+      if (cancelResult.status === "fulfilled") {
+        expect(cancelResult.value?.status).toBe("cancelling");
+      }
+    } else {
+      expect(execution).toMatchObject({ status: "completed", cancelRequestedAt: null });
+      expect(episode).toMatchObject({
+        state: "completed",
+        verdict: "replan_required",
+        closedAt: expect.any(Date),
+      });
+      expect(terminalEvents).toHaveLength(1);
+      expect(terminalResult.status).toBe("fulfilled");
+      if (terminalResult.status === "fulfilled") {
+        expect(terminalResult.value.state).toBe("completed");
+      }
+      if (cancelResult.status === "fulfilled") {
+        expect(cancelResult.value).toBeUndefined();
+      }
+    }
   });
 
   it("rejects P7.5 terminalization from a worker after the execution lease rotates", async () => {

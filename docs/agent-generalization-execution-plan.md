@@ -5523,10 +5523,18 @@ Brier/ECE أو عدد Missions المستقلة. لذلك يظل التسجيل 
 هذا النوع تتطلب policy/scope وevaluator جديدين بإصدار مستقل، ومراجعة قبل
 التسجيل وheld-out outcomes مستقبلية؛ لا يفتح هذا القرار cohort أو selector.
 
-ما زالت بوابة الجاهزية مغلقة: يلزم اختبار انقطاع بين request/result، وإلغاء
-متزامن مع الإنهاء، واستعادة العامل الفعلية، وإثبات observer المباشر في بيئة
-التشغيل. أي استخدام مستقبلي لنتائج continuation يتطلب policy/scope version
-ومراجعة evaluator مستقلتين وheld-out cohort جديدة؛ لا تُعدّل معايرة v1 بأثر رجعي.
+**التحقق المحلي (2026-09-28):** اجتازت اختبارات continuation والعقد والـledger
+والـrecipe المحلية 54/54، بما فيها الانقطاع بعد request وبعد materialization،
+وفقدان تأكيد append، والإلغاء، ودوران lease واستعادة recipe، وسباق DB بين
+`requestAiExecutionCancel` وterminalization مع التحقق من فائز واحد وحالة نهائية
+متسقة. واجتاز اختبار `workspace-runtime.test.ts` المحدد (1/1) رصد runtime process
+محلي قائم عبر `observeExistingRuntimeAfterState` دون إعادة `start`.
+
+ما زالت بوابة الجاهزية مغلقة: هذه الاختبارات لا تثبت استبدال عامل API بعملية
+مستقلة ولا ربط continuation بالـsupervisor observer الإنتاجي end-to-end. لم يُعد
+تشغيل API workflow في هذه الخطوة، ولا يُعالج schema قاعدة التطوير دون تفويض
+صريح. أي استخدام مستقبلي لنتائج continuation يتطلب policy/scope version ومراجعة
+evaluator مستقلتين وheld-out cohort جديدة؛ لا تُعدّل معايرة v1 بأثر رجعي.
 
 يجوز لاحقًا إضافة projection تشغيلية للقراءة فقط لعرض عدد العينات والنتائج
 والحالات غير المحسومة لكل scope، باستخدام Episode events الحالية. هذه observability
