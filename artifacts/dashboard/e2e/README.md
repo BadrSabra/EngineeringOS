@@ -90,14 +90,24 @@ noise is the documented provider-free fixture's `428` response for an
 ## Real Clerk Archive Upload journey
 
 Run only the real upload → discovery → import → scan → project scan-hook
-activation journey in the controlled release runner:
+activation journey in the controlled release runner. In this environment, use
+Firefox for reload assertions because Chromium can disconnect during reload.
+Install the browser once:
+
+```sh
+pnpm --filter @workspace/dashboard exec playwright install firefox
+```
 
 ```sh
 APP_ORIGINS="https://${REPLIT_DEV_DOMAIN}" \
+DASHBOARD_E2E_BASE_URL="https://${REPLIT_DEV_DOMAIN}/dashboard/" \
+DASHBOARD_E2E_API_BASE_URL="https://${REPLIT_DEV_DOMAIN}/" \
+DASHBOARD_E2E_API_HEALTH_URL="https://${REPLIT_DEV_DOMAIN}/api/healthz" \
+DASHBOARD_E2E_API_READINESS_URL="https://${REPLIT_DEV_DOMAIN}/api/readiness" \
 RELEASE_VALIDATION_WAIT_FOR_LOCK=1 \
-DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)" \
+DASHBOARD_E2E_BROWSER=firefox \
 DASHBOARD_E2E_SKIP_API_CONTRACTS=1 \
-DASHBOARD_E2E_GREP="REAL CLERK Archive Upload reaches scan and persists project scan-hook activation" \
+DASHBOARD_E2E_GREP="REAL CLERK Archive Upload reaches scan" \
 pnpm run validate:dashboard-journey
 ```
 
@@ -112,6 +122,12 @@ provider.
 The provider-free wizard browser test also checks visible format/size errors,
 handles simulated 413/422 upload rejections, confirms discovery does not start
 after a rejection, and verifies that choosing a valid archive lets the user retry.
+
+On systems where Chromium is stable, set
+`DASHBOARD_E2E_BROWSER=chromium` and
+`DASHBOARD_E2E_EXECUTABLE_PATH="$(command -v chromium)"` instead. Keep the
+dashboard and API base URLs on the same external origin as the Clerk session so
+the authenticated cleanup request is accepted.
 
 ## Bounded live-provider correlation run
 

@@ -1,5 +1,12 @@
 import { defineConfig } from "@playwright/test";
 
+const browserName = process.env.DASHBOARD_E2E_BROWSER ?? "chromium";
+if (browserName !== "chromium" && browserName !== "firefox") {
+  throw new Error(
+    `Unsupported DASHBOARD_E2E_BROWSER "${browserName}"; use chromium or firefox.`,
+  );
+}
+
 /**
  * This suite is intentionally separate from Vitest. The release runner starts
  * the dashboard and API workflows and performs their health checks before
@@ -19,11 +26,14 @@ export default defineConfig({
     retries: 0,
   reporter: process.env.CI ? "line" : "list",
   use: {
+    browserName,
     launchOptions: {
       ...(process.env.DASHBOARD_E2E_EXECUTABLE_PATH
         ? { executablePath: process.env.DASHBOARD_E2E_EXECUTABLE_PATH }
         : {}),
-      args: ["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+      ...(browserName === "chromium"
+        ? { args: ["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"] }
+        : {}),
     },
     baseURL:
       process.env.DASHBOARD_E2E_BASE_URL ?? "http://127.0.0.1:5173/dashboard/",

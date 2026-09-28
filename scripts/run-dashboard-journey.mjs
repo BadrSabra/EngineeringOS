@@ -38,6 +38,7 @@ const apiReadinessUrl =
 const apiBaseUrl =
   process.env.DASHBOARD_E2E_API_BASE_URL ??
   `http://127.0.0.1:${apiPort}/`;
+const browserName = process.env.DASHBOARD_E2E_BROWSER ?? "chromium";
 const testEmail =
   process.env.DASHBOARD_E2E_EMAIL ??
   "engineeringos-dashboard-release@example.com";
@@ -705,10 +706,17 @@ async function startReleaseServices() {
     await waitForPortOpen(apiPort);
     return;
   }
-  const chromium = process.env.DASHBOARD_E2E_EXECUTABLE_PATH;
-  if (!chromium) {
+  if (browserName !== "chromium" && browserName !== "firefox") {
     throw new Error(
-      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+      `release-dashboard-journey does not support browser "${browserName}"; use chromium or firefox.`,
+    );
+  }
+  if (
+    browserName === "chromium" &&
+    !process.env.DASHBOARD_E2E_EXECUTABLE_PATH
+  ) {
+    throw new Error(
+      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH for Chromium; Firefox uses Playwright's installed browser.",
     );
   }
   await ensureReleasePortsFree();
@@ -1074,6 +1082,7 @@ try {
           DASHBOARD_E2E_GROQ_CATALOG_ARTIFACT_PATH: groqCatalogEvidencePath,
           DASHBOARD_E2E_EXECUTABLE_PATH:
             process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
+          DASHBOARD_E2E_BROWSER: browserName,
           PLAYWRIGHT_OUTPUT_DIR: outputDir,
           DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
             workspaceRoot,

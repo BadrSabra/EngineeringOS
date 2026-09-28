@@ -22,13 +22,16 @@ when tied to the external origin that issued the Clerk session.
 
 **Why:** Repeatedly increasing Playwright timeouts or changing reload semantics
 can mask a browser-runtime failure rather than fix an application defect. A
-different browser engine can still provide valid persistence evidence.
+different browser engine can still provide valid persistence evidence. Playwright
+selects the engine from `browserName`; setting only an executable path does not
+switch a Chromium project to Firefox.
 
 **How to apply:** Capture browser-process stderr plus page/browser lifecycle
 events before changing navigation assertions. If Chromium and its bundled
-headless shell fail, try Playwright Firefox against the external Replit
-development origin and keep every reload assertion. Keep any independent
-APIRequestContext on the same origin as the Clerk session; verify its auth before
-depending on it for cleanup. If the browser is gone, verify the exact project ID
-and owner, then use the normal owner-scoped API delete so server safeguards
-remove the row and root. Avoid broad SQL or filesystem deletion.
+headless shell fail, install Playwright Firefox and select it explicitly with
+`DASHBOARD_E2E_BROWSER=firefox`; use the external Replit development origin for
+both dashboard and API requests, and keep every reload assertion. Keep any
+independent APIRequestContext on the same origin as the Clerk session; verify
+its auth before depending on it for cleanup. If the browser is gone, verify the
+exact project ID and owner, then use the normal owner-scoped API delete so server
+safeguards remove the row and root. Avoid broad SQL or filesystem deletion.
