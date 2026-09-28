@@ -2998,6 +2998,15 @@ G9 Revocation Safety
 - **validation:** اختبارات P7.5 المستهدفة (16/16)، فحص TypeScript لـAPI، `git diff --check`، وإعادة تشغيل API والتحقق من الاستماع.
 - **authority/safety impact:** القراءة لا تعدّل الـledger. فشل الهوية أو hash أو التسلسل أو overflow يحجب الحزمة؛ scope الفارغ يظل `REVIEW_REQUIRED`. التطابق مع قاعدة البيانات الحالية ليس توقيعًا مستقلًا على عدم قابلية تعديلها، ولا يثبت المراجعات البشرية. تبقى `collectionAuthorized=false` و`fixed_safe_probe`، بلا ECE/bootstrap أو cohort.
 - **remaining/blocker:** مصدر موثوق لهوية operator/reviewer، وreset، والاستقلال، وheld-out provenance وتجميد policy/evaluator ما زال مطلوبًا؛ لا scope مؤهل أو إذن جمع.
+
+### 42.90 — إعادة تحديد نطاق Trust Boundary لـP7.5 (2026-09-28)
+
+- **phase/step:** تخطيط الجرد والربط لمصادر الثقة؛ لم يبدأ تنفيذ source verifiers.
+- **status:** `planned — document scope only; no code or authority changes`
+- **scope decision:** الخطوة ليست بناء مصدر ثقة أو IAM جديدًا، بل تحديد المصادر الموجودة وتقييمها، مع قبول تعدد المصادر حسب نوع الإثبات: هوية/صلاحية المراجع، سجل المشغّل وreset، تاريخ اختيار العينة واستقلالها، lineage للـheld-out، وتجميد البروتوكول.
+- **contract to plan:** لكل شرط يحدد المصدر ومرجعه وإصداره ونطاقه وحداثته وطريقة التحقق. تبقى حالات `SERVER_VERIFIED` و`HUMAN_REVIEW_REQUIRED` و`MISSING` و`CONFLICTING` و`OUT_OF_SCOPE` منفصلة؛ الغياب ليس `false` لكنه يحجب المرور، والتعارض أو غموض الاستقلال يحجبان كذلك. source verifiers منفصلة عن evidence-pack orchestrator.
+- **authority/safety impact:** مصدر موثوق لا يساوي إذن الجمع؛ لا حالة `READY` أو موافقة تلقائية. caller assertions لا تُقبل كدليل، وتظل `collectionAuthorized=false` حتى بعد التحقق الآلي، مع موافقة بشرية مستقلة.
+- **scope boundary:** توثيق وخطة فقط في هذه الخطوة؛ لا تعديل كود أو schema أو DB أو Dashboard، ولا cohort أو selector أو فتح collection. لا تُفترض مصادر موثوقة قبل جردها فعليًا.
 - **next step:** إبقاء الحزمة داخلية وتشخيصية؛ لا إضافة API أو واجهة أو اعتماد آلي دون عقد مراجعة منفصل.
 
 ## قالب إلزامي لكل خطوة لاحقة
