@@ -559,4 +559,52 @@ describe("agent episode ledger", () => {
     expect(observations.every((observation) => observation.executionId === executionId)).toBe(true);
     expect(JSON.stringify(observations)).not.toContain("provider");
   });
+
+  it.each([
+    {
+      cause: "a cancellation request",
+      invalidate: () => db.update(aiExecutionsTable)
+        .set({ cancelRequestedAt: new Date() })
+        .where(eq(aiExecutionsTable.id, executionId)),
+    },
+    {
+      cause: "an expired worker lease",
+      invalidate: () => db.update(aiExecutionsTable)
+        .set({ leaseUntil: new Date(Date.now() - 1_000) })
+        .where(eq(aiExecutionsTable.id, executionId)),
+    },
+    {
+      cause: "worker lease rotation",
+      invalidate: () => db.update(aiExecutionsTable)
+        .set({
+          workerId: `replacement-worker:${randomUUID()}`,
+          leaseUntil: new Date(Date.now() + 300_000),
+        })
+        .where(eq(aiExecutionsTable.id, executionId)),
+    },
+  ])("rejects P7.5 observation writes after $cause", async ({ invalidate }) => {
+    const episode = await startEpisode(startInput());
+    await invalidate();
+
+    await expect(materializeServerOwnedObservations({
+      projectId,
+      executionId,
+      attempt: 0,
+      projectRevision: "revision-1",
+      episodeId: episode.episodeId,
+      workerLease: { workerId },
+      sources: [{
+        kind: "direct_observation",
+        sourceId: `p75-lease-fence:${randomUUID()}`,
+        subject: "runtime",
+        predicate: "runtime.status",
+        value: { status: "passed" },
+        sourceRevision: "revision-1",
+        observedAt: new Date(),
+      }],
+    })).rejects.toThrow("observation_materialization_stale_worker");
+
+    expect(await db.select().from(aiAgentObservationsTable)
+      .where(eq(aiAgentObservationsTable.episodeId, episode.episodeId))).toHaveLength(0);
+  });
 });

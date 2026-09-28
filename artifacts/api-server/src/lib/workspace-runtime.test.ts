@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceRuntimeManager } from "./workspace-runtime.js";
 import { createInMemoryWorkspaceRuntimeStore } from "./workspace-runtime-store.js";
 
@@ -41,6 +41,7 @@ describe("WorkspaceRuntimeManager", () => {
       episodeId: "episode-runtime-test",
       revision: "revision-1",
     };
+    const startRuntime = vi.spyOn(manager, "start");
     const started = await manager.start({
       projectId: "project-runtime-test",
       projectRoot: root,
@@ -93,6 +94,26 @@ describe("WorkspaceRuntimeManager", () => {
     expect(afterState.listener.processAttestation.bindingDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(afterState.listener.processAttestation.attestationDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(afterState.listener.processAttestation.processEnvironmentDigest).toMatch(/^[a-f0-9]{64}$/);
+
+    const existingRuntimeObservation = await manager.observeExistingRuntimeAfterState({
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId!,
+      revision: "revision-1",
+      signal: new AbortController().signal,
+    });
+    expect(existingRuntimeObservation).toMatchObject({
+      status: "passed",
+      projectId: "project-runtime-test",
+      sessionId: started.sessionId,
+      revision: "revision-1",
+      processAlive: true,
+      portReady: true,
+      servingRevision: "revision-1",
+      markerMatched: null,
+    });
+    // The runtime is started once as test setup; the continuation observer
+    // only samples the existing server-owned session.
+    expect(startRuntime).toHaveBeenCalledTimes(1);
 
     const beforeStop = await manager.observeRunningBeforeStop({
       projectId: "project-runtime-test",

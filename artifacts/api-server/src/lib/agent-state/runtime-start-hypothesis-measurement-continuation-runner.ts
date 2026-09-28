@@ -1,5 +1,6 @@
-import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import {
+  aiAgentObservationsTable,
   aiAgentEpisodeEventsTable,
   db,
 } from "@workspace/db";
@@ -68,6 +69,19 @@ export type RuntimeStartMeasurementContinuationDisposition = {
 type AppendEpisodeEventInput = Parameters<typeof appendEpisodeEvent>[0];
 type MaterializeObservationInput = Parameters<typeof materializeServerOwnedObservations>[0];
 type MaterializedObservation = Awaited<ReturnType<typeof materializeServerOwnedObservations>>;
+type PersistedRuntimeStatusObservation = {
+  id: string;
+  projectId: string;
+  executionId: string;
+  episodeId: string;
+  sourceId: string;
+  predicate: string;
+  value: unknown;
+  observedAt: Date | string;
+  environmentRevision: string | null;
+  freshness: string;
+  environmentFreshness: string;
+};
 
 export type RuntimeStartMeasurementContinuationDependencies = {
   loadPriorEvents(
@@ -80,6 +94,10 @@ export type RuntimeStartMeasurementContinuationDependencies = {
     signal: AbortSignal;
   }): Promise<RuntimeStatusEvidence>;
   materializeObservation(input: MaterializeObservationInput): Promise<MaterializedObservation>;
+  loadPriorObservations(input: {
+    projectId: string;
+    sourceIds: string[];
+  }): Promise<PersistedRuntimeStatusObservation[]>;
   appendEvent(input: AppendEpisodeEventInput): Promise<unknown>;
   now(): string;
 };
@@ -112,11 +130,14 @@ function sourceResultExists(events: PriorEpisodeEvent[], experimentId: string): 
   });
 }
 
-function readPriorContinuationResult(
+function readPriorContinuationRequests(
   events: PriorEpisodeEvent[],
   sourceExperimentId: string,
   sourceRegistrationHash: string,
-): RuntimeStartMeasurementContinuationDisposition | undefined {
+): {
+  requests: Map<string, RuntimeStartHypothesisMeasurementContinuationRequest>;
+  disposition?: RuntimeStartMeasurementContinuationDisposition;
+} {
   const requests = new Map<string, RuntimeStartHypothesisMeasurementContinuationRequest>();
   for (const event of events) {
     const payload = recordPayload(event.payload);
@@ -124,12 +145,18 @@ function readPriorContinuationResult(
     const rawSource = recordPayload(payload.source);
     if (rawSource?.experimentId !== sourceExperimentId) continue;
     if (event.eventType !== "OBSERVATION_REQUESTED") {
-      return disposition("P75_CONTINUATION_REQUEST_EVENT_TYPE_MISMATCH", sourceExperimentId);
+      return {
+        requests,
+        disposition: disposition("P75_CONTINUATION_REQUEST_EVENT_TYPE_MISMATCH", sourceExperimentId),
+      };
     }
     try {
       const request = parseRuntimeStartHypothesisMeasurementContinuationRequest(payload);
       if (request.source.registrationHash !== sourceRegistrationHash) {
-        return disposition("P75_CONTINUATION_SOURCE_HASH_CONFLICT", sourceExperimentId);
+        return {
+          requests,
+          disposition: disposition("P75_CONTINUATION_SOURCE_HASH_CONFLICT", sourceExperimentId),
+        };
       }
       if (
         event.projectId !== request.measurement.projectId
@@ -137,14 +164,35 @@ function readPriorContinuationResult(
         || event.attempt !== request.measurement.attempt
         || event.episodeId !== request.measurement.episodeId
       ) {
-        return disposition("P75_CONTINUATION_REQUEST_EVENT_IDENTITY_MISMATCH", sourceExperimentId);
+        return {
+          requests,
+          disposition: disposition("P75_CONTINUATION_REQUEST_EVENT_IDENTITY_MISMATCH", sourceExperimentId),
+        };
+      }
+      const existing = requests.get(request.continuationId);
+      if (existing && canonicalJsonHash(existing) !== canonicalJsonHash(request)) {
+        return {
+          requests,
+          disposition: disposition("P75_CONTINUATION_REQUEST_ID_CONFLICT", sourceExperimentId),
+        };
       }
       requests.set(request.continuationId, request);
     } catch {
-      return disposition("P75_CONTINUATION_REQUEST_INVALID", sourceExperimentId);
+      return {
+        requests,
+        disposition: disposition("P75_CONTINUATION_REQUEST_INVALID", sourceExperimentId),
+      };
     }
   }
 
+  return { requests };
+}
+
+function readPriorContinuationResult(
+  events: PriorEpisodeEvent[],
+  requests: Map<string, RuntimeStartHypothesisMeasurementContinuationRequest>,
+  sourceExperimentId: string,
+): RuntimeStartMeasurementContinuationDisposition | undefined {
   const existingResults = new Map<string, {
     continuationId: string;
     resultId: string;
@@ -194,6 +242,63 @@ function readPriorContinuationResult(
   return undefined;
 }
 
+function outcomeFromPersistedRuntimeStatus(value: unknown) {
+  const status = recordPayload(value);
+  if (!status) return undefined;
+  if (
+    status.status === "passed"
+    && status.processAlive === true
+    && status.portReady === true
+    && status.servingRevisionMatches === true
+  ) {
+    return "runtime_running" as const;
+  }
+  if (status.status === "failed" && status.processAlive === false) {
+    return "runtime_not_running" as const;
+  }
+  if (status.status === "failed") return "runtime_unexpected" as const;
+  return undefined;
+}
+
+function toRuntimeStatusEvidence(
+  row: PersistedRuntimeStatusObservation,
+  request: RuntimeStartHypothesisMeasurementContinuationRequest,
+) {
+  const value = recordPayload(row.value);
+  const observedProjectRevision = typeof value?.observedProjectRevision === "string"
+    ? value.observedProjectRevision
+    : null;
+  const observedAt = row.observedAt instanceof Date
+    ? Number.isFinite(row.observedAt.getTime())
+      ? row.observedAt.toISOString()
+      : ""
+    : row.observedAt;
+  if (
+    !Number.isFinite(Date.parse(observedAt))
+    || Date.parse(observedAt) < Date.parse(request.requestedAt)
+  ) {
+    return undefined;
+  }
+  const outcomeKey = outcomeFromPersistedRuntimeStatus(row.value);
+
+  return {
+    id: row.id,
+    predicate: "runtime.status" as const,
+    projectRevision: observedProjectRevision,
+    environmentRevision: row.environmentRevision,
+    freshness: row.freshness === "fresh"
+      && observedProjectRevision === request.measurement.projectRevision
+      ? "fresh" as const
+      : "stale" as const,
+    environmentFreshness: row.environmentFreshness === "fresh"
+      && row.environmentRevision === request.measurement.environmentRevision
+      ? "fresh" as const
+      : "stale" as const,
+    ...(outcomeKey ? { outcomeKey } : {}),
+    observedAt,
+  };
+}
+
 function productionDependencies(): RuntimeStartMeasurementContinuationDependencies {
   return {
     loadPriorEvents: async (context) => db.select({
@@ -209,13 +314,36 @@ function productionDependencies(): RuntimeStartMeasurementContinuationDependenci
       .where(and(
         eq(aiAgentEpisodeEventsTable.projectId, context.projectId),
         eq(aiAgentEpisodeEventsTable.executionId, context.executionId),
-        lt(aiAgentEpisodeEventsTable.attempt, context.attempt),
+        lte(aiAgentEpisodeEventsTable.attempt, context.attempt),
         inArray(aiAgentEpisodeEventsTable.eventType, [
           "OBSERVATION_REQUESTED",
           "OBSERVATION_RECORDED",
         ]),
       ))
       .orderBy(asc(aiAgentEpisodeEventsTable.attempt), asc(aiAgentEpisodeEventsTable.sequence)),
+    loadPriorObservations: async ({ projectId, sourceIds }) => {
+      if (sourceIds.length === 0) return [];
+      return db.select({
+        id: aiAgentObservationsTable.id,
+        projectId: aiAgentObservationsTable.projectId,
+        executionId: aiAgentObservationsTable.executionId,
+        episodeId: aiAgentObservationsTable.episodeId,
+        sourceId: aiAgentObservationsTable.sourceId,
+        predicate: aiAgentObservationsTable.predicate,
+        value: aiAgentObservationsTable.value,
+        observedAt: aiAgentObservationsTable.observedAt,
+        environmentRevision: aiAgentObservationsTable.environmentRevision,
+        freshness: aiAgentObservationsTable.freshness,
+        environmentFreshness: aiAgentObservationsTable.environmentFreshness,
+      })
+        .from(aiAgentObservationsTable)
+        .where(and(
+          eq(aiAgentObservationsTable.projectId, projectId),
+          eq(aiAgentObservationsTable.predicate, "runtime.status"),
+          inArray(aiAgentObservationsTable.sourceId, sourceIds),
+        ))
+        .orderBy(asc(aiAgentObservationsTable.observedAt));
+    },
     captureEnvironmentRevision: async (rootPath) => {
       try {
         const attestation = await captureEnvironmentAttestation({
@@ -324,10 +452,16 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
   }
 
   const sourceRegistrationHash = canonicalJsonHash(registration);
-  const previousContinuation = readPriorContinuationResult(
+  const priorRequestState = readPriorContinuationRequests(
     priorEvents,
     registration.experimentId,
     sourceRegistrationHash,
+  );
+  if (priorRequestState.disposition) return priorRequestState.disposition;
+  const previousContinuation = readPriorContinuationResult(
+    priorEvents,
+    priorRequestState.requests,
+    registration.experimentId,
   );
   if (previousContinuation) return previousContinuation;
 
@@ -341,6 +475,10 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
     return disposition("P75_CONTINUATION_SCOPE_CHANGED", registration.experimentId);
   }
 
+  const priorRequests = [...priorRequestState.requests.values()];
+  const requestedAt = priorRequests
+    .map((priorRequest) => priorRequest.requestedAt)
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? dependencies.now();
   const request = buildRuntimeStartHypothesisMeasurementContinuationRequest({
     registration,
     measurement: {
@@ -354,7 +492,7 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
       projectRevision: context.projectRevision,
       environmentRevision: currentEnvironmentRevision,
     },
-    requestedAt: dependencies.now(),
+    requestedAt,
   });
   await dependencies.appendEvent({
     episodeId: context.episodeId,
@@ -372,76 +510,121 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
   if (context.signal.aborted) throw new Error("P75 measurement continuation was cancelled.");
   let result: RuntimeStartHypothesisMeasurementContinuationResult;
   let observationRef: string | undefined;
+  const sourceIdToRequest = new Map(priorRequests.map((priorRequest) => [
+    `${priorRequest.continuationId}:runtime.status`,
+    priorRequest,
+  ]));
+  const priorObservations = await dependencies.loadPriorObservations({
+    projectId: context.projectId,
+    sourceIds: [...sourceIdToRequest.keys()],
+  });
+  if (context.signal.aborted) throw new Error("P75 measurement continuation was cancelled.");
+  if (priorObservations.length > 1) {
+    return disposition("P75_CONTINUATION_MULTIPLE_PRIOR_OBSERVATIONS", registration.experimentId);
+  }
+
+  const priorObservation = priorObservations[0];
+  let recoveredObservation: ReturnType<typeof toRuntimeStatusEvidence> | undefined;
+  if (priorObservation) {
+    const sourceRequest = sourceIdToRequest.get(priorObservation.sourceId);
+    if (
+      !sourceRequest
+      || priorObservation.projectId !== context.projectId
+      || priorObservation.executionId !== context.executionId
+      || priorObservation.episodeId !== sourceRequest.measurement.episodeId
+      || priorObservation.predicate !== "runtime.status"
+    ) {
+      return disposition("P75_CONTINUATION_PRIOR_OBSERVATION_IDENTITY_MISMATCH", registration.experimentId);
+    }
+    recoveredObservation = toRuntimeStatusEvidence(priorObservation, request);
+    if (!recoveredObservation) {
+      return disposition("P75_CONTINUATION_PRIOR_OBSERVATION_INVALID", registration.experimentId);
+    }
+    observationRef = priorObservation.id;
+  }
+
   try {
-    const runtimeStatus = await dependencies.observeRuntime({
-      projectId: context.projectId,
-      revision: context.projectRevision,
-      signal: context.signal,
-    });
-    if (context.signal.aborted) throw new Error("P75 measurement continuation was cancelled.");
-    const observedEnvironmentRevision =
-      await dependencies.captureEnvironmentRevision(context.rootPath);
-    const materialized = await dependencies.materializeObservation({
-      projectId: context.projectId,
-      executionId: context.executionId,
-      attempt: context.attempt,
-      episodeId: context.episodeId,
-      environmentRootPath: context.rootPath,
-      projectRevision: context.projectRevision,
-      materializeWorldState: false,
-      sources: [{
-        kind: "direct_observation",
-        sourceId: `${request.continuationId}:runtime.status`,
-        subject: "runtime",
-        predicate: "runtime.status",
-        value: {
-          status: runtimeStatus.status,
-          processAlive: runtimeStatus.processAlive,
-          portReady: runtimeStatus.portReady,
-          servingRevisionMatches: runtimeStatus.servingRevision === context.projectRevision,
-          markerMatched: runtimeStatus.markerMatched,
-        },
-        sourceRevision: runtimeStatus.revision,
-        environmentRevision: observedEnvironmentRevision,
-        observedAt: runtimeStatus.observedAt,
-      }],
-    });
-    const observationId = materialized.observationIds[0];
-    if (observationId) observationRef = observationId;
-    const outcomeKey = runtimeStatus.status === "passed"
-      && runtimeStatus.processAlive
-      && runtimeStatus.portReady
-      && runtimeStatus.servingRevision === context.projectRevision
-      ? "runtime_running" as const
-      : runtimeStatus.status === "failed" && runtimeStatus.processAlive === false
-        ? "runtime_not_running" as const
-        : runtimeStatus.status === "failed"
-          ? "runtime_unexpected" as const
-          : undefined;
-    const freshness = hasSignal(materialized.stale)
-      || runtimeStatus.revision !== context.projectRevision
-      ? "stale" as const
-      : "fresh" as const;
-    const environmentFreshness = hasSignal(materialized.environmentStale)
-      || observedEnvironmentRevision !== registration.environmentRevision
-      ? "stale" as const
-      : "fresh" as const;
-    result = buildRuntimeStartHypothesisMeasurementContinuationResult({
-      request,
-      ...(observationId ? {
-        observation: {
-          id: observationId,
-          predicate: "runtime.status" as const,
-          projectRevision: runtimeStatus.revision,
+    if (recoveredObservation) {
+      result = buildRuntimeStartHypothesisMeasurementContinuationResult({
+        request,
+        observation: recoveredObservation,
+        resolvedAt: dependencies.now(),
+      });
+    } else {
+      const runtimeStatus = await dependencies.observeRuntime({
+        projectId: context.projectId,
+        revision: context.projectRevision,
+        signal: context.signal,
+      });
+      if (context.signal.aborted) throw new Error("P75 measurement continuation was cancelled.");
+      const observedEnvironmentRevision =
+        await dependencies.captureEnvironmentRevision(context.rootPath);
+      if (context.signal.aborted) throw new Error("P75 measurement continuation was cancelled.");
+      const materialized = await dependencies.materializeObservation({
+        projectId: context.projectId,
+        executionId: context.executionId,
+        attempt: context.attempt,
+        episodeId: context.episodeId,
+        workerLease: { workerId: context.workerId },
+        environmentRootPath: context.rootPath,
+        projectRevision: context.projectRevision,
+        materializeWorldState: false,
+        sources: [{
+          kind: "direct_observation",
+          sourceId: `${request.continuationId}:runtime.status`,
+          subject: "runtime",
+          predicate: "runtime.status",
+          value: {
+            status: runtimeStatus.status,
+            processAlive: runtimeStatus.processAlive,
+            portReady: runtimeStatus.portReady,
+            servingRevisionMatches: runtimeStatus.servingRevision === context.projectRevision,
+            observedProjectRevision: runtimeStatus.revision,
+            markerMatched: runtimeStatus.markerMatched,
+          },
+          sourceRevision: runtimeStatus.revision,
           environmentRevision: observedEnvironmentRevision,
-          freshness,
-          environmentFreshness,
-          ...(outcomeKey ? { outcomeKey } : {}),
           observedAt: runtimeStatus.observedAt,
-        },
-      } : { unavailableAs: "unknown" as const }),
-      resolvedAt: dependencies.now(),
-    });
+        }],
+      });
+      if (context.signal.aborted) throw new Error("P75 measurement continuation was cancelled.");
+      const observationId = materialized.observationIds[0];
+      if (observationId) observationRef = observationId;
+      const outcomeKey = runtimeStatus.status === "passed"
+        && runtimeStatus.processAlive
+        && runtimeStatus.portReady
+        && runtimeStatus.servingRevision === context.projectRevision
+        ? "runtime_running" as const
+        : runtimeStatus.status === "failed" && runtimeStatus.processAlive === false
+          ? "runtime_not_running" as const
+          : runtimeStatus.status === "failed"
+            ? "runtime_unexpected" as const
+            : undefined;
+      const freshness = hasSignal(materialized.stale)
+        || runtimeStatus.revision !== context.projectRevision
+        ? "stale" as const
+        : "fresh" as const;
+      const environmentFreshness = hasSignal(materialized.environmentStale)
+        || observedEnvironmentRevision !== registration.environmentRevision
+        ? "stale" as const
+        : "fresh" as const;
+      result = buildRuntimeStartHypothesisMeasurementContinuationResult({
+        request,
+        ...(observationId ? {
+          observation: {
+            id: observationId,
+            predicate: "runtime.status" as const,
+            projectRevision: runtimeStatus.revision,
+            environmentRevision: observedEnvironmentRevision,
+            freshness,
+            environmentFreshness,
+            ...(outcomeKey ? { outcomeKey } : {}),
+            observedAt: runtimeStatus.observedAt,
+          },
+        } : { unavailableAs: "unknown" as const }),
+        resolvedAt: dependencies.now(),
+      });
+    }
   } catch (error) {
     if (context.signal.aborted) throw error;
     result = buildRuntimeStartHypothesisMeasurementContinuationResult({

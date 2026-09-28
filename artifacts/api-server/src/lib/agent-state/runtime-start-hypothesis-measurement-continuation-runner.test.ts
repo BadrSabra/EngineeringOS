@@ -76,7 +76,14 @@ function dependencies(
   } = {},
 ) {
   const trace: string[] = [];
-  const appended: Array<{ eventType: string; payload: unknown; episodeId: string; attempt: number; workerId: string }> = [];
+  const appended: Array<{
+    eventType: string;
+    payload: unknown;
+    episodeId: string;
+    attempt: number;
+    workerId: string;
+    observationRefs?: string[];
+  }> = [];
   const runtimeStatus = {
     status: "passed",
     projectId: registration.projectId,
@@ -105,9 +112,11 @@ function dependencies(
         ReturnType<RuntimeStartMeasurementContinuationDependencies["observeRuntime"]>
       >;
     }),
+    loadPriorObservations: vi.fn(async () => []),
     materializeObservation: vi.fn(async (input) => {
       trace.push("materialize");
       expect(input.materializeWorldState).toBe(false);
+      expect(input.workerLease).toEqual({ workerId: "worker-current" });
       expect(input.sources).toHaveLength(1);
       expect(input.sources[0]).toMatchObject({
         predicate: "runtime.status",
@@ -463,6 +472,211 @@ describe("P7.5 runtime-start measurement continuation runner", () => {
     expect(fixture.appended.filter(
       (event) => event.eventType === "OBSERVATION_RECORDED",
     )).toHaveLength(1);
+  });
+
+  it("recovers from a crash after the continuation request was stored but before observation", async () => {
+    const fixture = dependencies([sourceEvent()]);
+    vi.mocked(fixture.deps.appendEvent).mockImplementation(async (event) => {
+      fixture.trace.push(event.eventType);
+      fixture.appended.push(event);
+      if (event.eventType === "OBSERVATION_REQUESTED" && event.attempt === 3) {
+        throw new Error("simulated worker loss after durable request");
+      }
+    });
+
+    await expect(runRuntimeStartHypothesisMeasurementContinuation(
+      context(),
+      fixture.deps,
+    )).rejects.toThrow(/durable request/);
+    expect(fixture.deps.observeRuntime).not.toHaveBeenCalled();
+
+    const previousRequest = fixture.appended[0]!.payload as {
+      requestedAt: string;
+      continuationId: string;
+    };
+    vi.mocked(fixture.deps.loadPriorEvents).mockResolvedValue([
+      sourceEvent(),
+      ...fixture.appended.map((event, index) => ({
+        episodeId: event.episodeId,
+        projectId: registration.projectId,
+        executionId: registration.executionId,
+        attempt: event.attempt,
+        eventType: event.eventType,
+        payload: event.payload,
+        sequence: index + 2,
+      })),
+    ] as never);
+    vi.mocked(fixture.deps.appendEvent).mockImplementation(async (event) => {
+      fixture.trace.push(event.eventType);
+      fixture.appended.push(event);
+    });
+
+    const recovered = await runRuntimeStartHypothesisMeasurementContinuation(
+      context({ attempt: 4, episodeId: "episode-after-request-crash" }),
+      fixture.deps,
+    );
+
+    expect(recovered).toMatchObject({
+      reasonCode: "P75_MEASUREMENT_CONTINUATION_RECORDED",
+      measurementValidity: "complete_fresh",
+    });
+    expect(fixture.deps.observeRuntime).toHaveBeenCalledTimes(1);
+    const recoveryRequest = fixture.appended.find(
+      (event) => event.eventType === "OBSERVATION_REQUESTED" && event.attempt === 4,
+    )?.payload as { requestedAt?: string };
+    expect(recoveryRequest.requestedAt).toBe(previousRequest.requestedAt);
+    expect(fixture.appended.filter(
+      (event) => event.eventType === "OBSERVATION_RECORDED",
+    )).toHaveLength(1);
+  });
+
+  it("reuses a materialized runtime.status observation after a crash before result persistence", async () => {
+    const fixture = dependencies([sourceEvent()]);
+    const persistedObservations: Array<{
+      id: string;
+      projectId: string;
+      executionId: string;
+      episodeId: string;
+      sourceId: string;
+      predicate: string;
+      value: unknown;
+      observedAt: string;
+      environmentRevision: string;
+      freshness: string;
+      environmentFreshness: string;
+    }> = [];
+    vi.mocked(fixture.deps.loadPriorEvents).mockImplementation(async (current) => [
+      sourceEvent(),
+      ...fixture.appended
+        .filter((event) => event.attempt < current.attempt)
+        .map((event, index) => ({
+          episodeId: event.episodeId,
+          projectId: registration.projectId,
+          executionId: registration.executionId,
+          attempt: event.attempt,
+          eventType: event.eventType,
+          payload: event.payload,
+          sequence: index + 2,
+        })),
+    ] as never);
+    vi.mocked(fixture.deps.loadPriorObservations).mockImplementation(async ({ sourceIds }) =>
+      persistedObservations.filter((observation) => sourceIds.includes(observation.sourceId)) as never);
+    vi.mocked(fixture.deps.materializeObservation).mockImplementation(async (input) => {
+      fixture.trace.push("materialize");
+      const request = fixture.appended.find(
+        (event) => event.eventType === "OBSERVATION_REQUESTED",
+      )!.payload as { continuationId: string };
+      const source = input.sources[0] as {
+        sourceId: string;
+        value: unknown;
+        observedAt: string;
+        environmentRevision?: string;
+      };
+      expect(source.sourceId).toBe(`${request.continuationId}:runtime.status`);
+      persistedObservations.push({
+        id: "observation-materialized-before-crash",
+        projectId: registration.projectId,
+        executionId: registration.executionId,
+        episodeId: "episode-recovery",
+        sourceId: source.sourceId,
+        predicate: "runtime.status",
+        value: source.value,
+        observedAt: source.observedAt,
+        environmentRevision: source.environmentRevision!,
+        freshness: "fresh",
+        environmentFreshness: "fresh",
+      });
+      return {
+        observationIds: ["observation-materialized-before-crash"],
+        stale: 0,
+        environmentStale: 0,
+      } as never;
+    });
+    vi.mocked(fixture.deps.appendEvent).mockImplementation(async (event) => {
+      fixture.trace.push(event.eventType);
+      if (event.eventType === "OBSERVATION_RECORDED" && event.attempt === 3) {
+        throw new Error("simulated worker loss before result persistence");
+      }
+      fixture.appended.push(event);
+    });
+
+    await expect(runRuntimeStartHypothesisMeasurementContinuation(
+      context(),
+      fixture.deps,
+    )).rejects.toThrow(/before result persistence/);
+    expect(fixture.deps.observeRuntime).toHaveBeenCalledTimes(1);
+    expect(persistedObservations).toHaveLength(1);
+    expect(fixture.appended.filter(
+      (event) => event.eventType === "OBSERVATION_RECORDED",
+    )).toHaveLength(0);
+
+    vi.mocked(fixture.deps.appendEvent).mockImplementation(async (event) => {
+      fixture.trace.push(event.eventType);
+      fixture.appended.push(event);
+    });
+    const recovered = await runRuntimeStartHypothesisMeasurementContinuation(
+      context({ attempt: 4, episodeId: "episode-after-observation-crash" }),
+      fixture.deps,
+    );
+
+    expect(recovered).toMatchObject({
+      reasonCode: "P75_MEASUREMENT_CONTINUATION_RECORDED",
+      measurementValidity: "complete_fresh",
+    });
+    expect(fixture.deps.observeRuntime).toHaveBeenCalledTimes(1);
+    expect(fixture.deps.materializeObservation).toHaveBeenCalledTimes(1);
+    const recoveredResult = fixture.appended.find(
+      (event) => event.eventType === "OBSERVATION_RECORDED",
+    );
+    expect(recoveredResult?.payload).toMatchObject({
+      observationId: "observation-materialized-before-crash",
+      actualOutcomeKey: "runtime_running",
+      calibrationEligibility: "not_eligible_without_versioned_policy_review",
+    });
+    expect(recoveredResult?.observationRefs).toEqual([
+      "observation-materialized-before-crash",
+    ]);
+  });
+
+  it("does not record a late P7.5 result when cancellation wins during materialization", async () => {
+    const abortController = new AbortController();
+    const fixture = dependencies([sourceEvent()]);
+    vi.mocked(fixture.deps.materializeObservation).mockImplementation(async () => {
+      abortController.abort();
+      return {
+        observationIds: ["observation-cancel-race"],
+        stale: 0,
+        environmentStale: 0,
+      } as never;
+    });
+
+    await expect(runRuntimeStartHypothesisMeasurementContinuation(
+      context({ signal: abortController.signal }),
+      fixture.deps,
+    )).rejects.toThrow(/cancelled/i);
+
+    expect(fixture.deps.observeRuntime).toHaveBeenCalledTimes(1);
+    expect(fixture.deps.materializeObservation).toHaveBeenCalledTimes(1);
+    expect(fixture.appended.map((event) => event.eventType)).toEqual([
+      "OBSERVATION_REQUESTED",
+    ]);
+  });
+
+  it("does not turn a failed observation-store read into a runtime measurement result", async () => {
+    const fixture = dependencies([sourceEvent()]);
+    vi.mocked(fixture.deps.loadPriorObservations).mockRejectedValue(
+      new Error("prior observation store unavailable"),
+    );
+
+    await expect(runRuntimeStartHypothesisMeasurementContinuation(
+      context(),
+      fixture.deps,
+    )).rejects.toThrow(/prior observation store unavailable/);
+
+    expect(fixture.deps.observeRuntime).not.toHaveBeenCalled();
+    expect(fixture.appended.map((event) => event.eventType)).toEqual([
+      "OBSERVATION_REQUESTED",
+    ]);
   });
 
   it("fails before writing a request or reading runtime when already cancelled", async () => {

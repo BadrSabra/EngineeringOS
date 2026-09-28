@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import {
+  aiExecutionsTable,
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   db,
@@ -151,6 +152,8 @@ export type MaterializeServerOwnedObservationsInput = {
   attempt: number;
   projectRevision?: string | null;
   episodeId?: string;
+  /** Optional durable execution fence for observations written by a leased worker. */
+  workerLease?: { workerId: string };
   /** Server-resolved root used for a receipt-time environment observation. */
   environmentRootPath?: string;
   /** Effect verification can defer the read-only world projection to P6. */
@@ -677,6 +680,33 @@ export async function materializeServerOwnedObservations(
     }
   }
   const result = await db.transaction(async (tx) => {
+    if (input.workerLease) {
+      // Match terminalization's lock order: execution first, then Episode.
+      const [execution] = await tx
+        .select({
+          projectId: aiExecutionsTable.projectId,
+          attempt: aiExecutionsTable.attempt,
+          status: aiExecutionsTable.status,
+          workerId: aiExecutionsTable.workerId,
+          leaseUntil: aiExecutionsTable.leaseUntil,
+          cancelRequestedAt: aiExecutionsTable.cancelRequestedAt,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, input.executionId))
+        .for("update");
+      if (
+        !execution
+        || execution.projectId !== input.projectId
+        || execution.attempt !== input.attempt
+        || execution.status !== "running"
+        || execution.workerId !== input.workerLease.workerId
+        || !execution.leaseUntil
+        || execution.leaseUntil.getTime() <= Date.now()
+        || execution.cancelRequestedAt
+      ) {
+        throw new Error("observation_materialization_stale_worker");
+      }
+    }
     const episodeFilters = [
       eq(aiAgentEpisodesTable.projectId, input.projectId),
       eq(aiAgentEpisodesTable.executionId, input.executionId),

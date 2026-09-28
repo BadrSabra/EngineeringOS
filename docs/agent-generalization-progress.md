@@ -2755,6 +2755,26 @@ G9 Revocation Safety
 - **next step:** أكمل اختبارات التعافي التشغيلي ثم راجع عقد evaluator وسياسة
   versioned مستقلة قبل أي cohort؛ لا تُضمّن النتائج الحالية في معايرة v1.
 
+### 42.78 — اختبارات تعافي continuation في P7.5 (2026-09-28)
+
+- **phase/step:** P7.5 — إعادة استخدام نتيجة القياس المحفوظة ومنع الكتابة المتأخرة.
+- **status:** `partial`
+- **what changed:** أضيفت تغطية للتعافي بعد حفظ ملاحظة runtime وقبل كتابة النتيجة،
+  ولحالات الإلغاء واستبدال العامل وانتهاء lease. تثبت الاختبارات إعادة استخدام
+  النتيجة الصالحة ورفض استمرار العامل القديم دون إعادة الأثر.
+- **files/schema/contracts touched:** اختبارات continuation runner و
+  `recipe-operation-runner` و`agent-episode-ledger`؛ لا migration أو جدول جديد.
+- **validation:** الاختبارات المركزة ذات الصلة (52/52)، API typecheck، وإعادة
+  تشغيل API workflow بنجاح على المنفذ 8080؛ نجح `git diff --check` بعد تحديث
+  هذا السجل.
+- **authority/safety impact:** القياس advisory فقط؛ لا `runtime.start` أو
+  acceptance أو Gate C أو معايرة v1. يبقى الاختيار `fixed_safe_probe` وتظل
+  cohort collection وautomatic selection مغلقتين.
+- **remaining/blocker:** يلزم التحقق من إغلاق Episode الأصلي عند إعادة استخدام
+  نتيجة محفوظة، ثم مراجعة policy/scope version مستقلة قبل النظر في أي cohort.
+- **next step:** عالج حد إغلاق Episode الأصلي أولًا، ثم راجع السياسة ذات الإصدار؛
+  لا تفتح الجمع أو الاختيار الآلي.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

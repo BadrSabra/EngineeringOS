@@ -1,4 +1,10 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -6918,13 +6924,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toHaveCount(1);
   });
 
-  test("REAL CLERK Archive Upload reaches scan and persists project scan-hook activation", async ({
+  test("REAL CLERK Archive Upload reaches scan and persists project controls and browser validation profiles", async ({
     page,
+    playwright,
   }) => {
     test.setTimeout(180_000);
     test.skip(
       process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1",
       "The real Archive Upload journey only runs in the managed release runner.",
+    );
+
+    const browser = page.context().browser();
+    const browserLifecycleEvents: string[] = [];
+    page.on("crash", () => browserLifecycleEvents.push("page-crash"));
+    page.on("close", () => browserLifecycleEvents.push("page-close"));
+    browser?.on("disconnected", () =>
+      browserLifecycleEvents.push("browser-disconnected"),
     );
 
     const archive = Buffer.from(
@@ -6933,8 +6948,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     let projectId: string | undefined;
     let scanJobId: string | undefined;
+    const profileName = `e2e-browser-profile-${Date.now()}`;
+    let profileCreated = false;
+    let cleanupRequestContext: APIRequestContext | undefined;
     try {
       await programmaticSignIn(page, TEST_USER, { allowEmptyProjectList: true });
+      const dashboardOrigin = new URL(page.url()).origin;
+      cleanupRequestContext = await playwright.request.newContext({
+        baseURL: dashboardOrigin,
+        extraHTTPHeaders: { Origin: dashboardOrigin },
+        storageState: await page.context().storageState(),
+      });
       await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
       await page.getByRole("button", { name: "Discover Project" }).first().click();
       await expect(page.getByRole("heading", { name: "Discover Project" })).toBeVisible();
@@ -7082,20 +7106,136 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         projectEnabled: true,
         effectiveForProjectScan: true,
       });
+
+      const profilesPanel = page.getByRole("region", {
+        name: "Browser validation profiles",
+      });
+      await expect(profilesPanel).toBeVisible();
+      await expect(
+        profilesPanel.getByText("No registered browser checks."),
+      ).toBeVisible();
+
+      await profilesPanel.getByTestId("button-add-browser-profile").click();
+      await expect(
+        page.getByRole("dialog", { name: "Add browser profile" }),
+      ).toBeVisible();
+      await page.getByTestId("input-browser-profile-name").fill(profileName);
+      await page.getByTestId("input-browser-profile-timeout").fill("5000");
+
+      const createProfileResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(
+            `/api/projects/${projectId}/browser-validation-profiles/${profileName}`,
+          ) &&
+          response.request().method() === "PUT",
+      );
+      await page.getByTestId("button-save-browser-profile").click();
+      const createProfileResponse = await createProfileResponsePromise;
+      expect(createProfileResponse.status()).toBe(200);
+      profileCreated = true;
+      await expect(profilesPanel.getByText(profileName, { exact: true })).toBeVisible();
+
+      await page.reload();
+      const reloadedProfilesPanel = page.getByRole("region", {
+        name: "Browser validation profiles",
+      });
+      await expect(
+        reloadedProfilesPanel.getByText(profileName, { exact: true }),
+      ).toBeVisible();
+      const profileCard = reloadedProfilesPanel.locator("article").filter({
+        hasText: profileName,
+      });
+      await expect(profileCard).toContainText("Open /");
+      await expect(profileCard).toContainText("5,000 ms timeout");
+
+      await profileCard.getByRole("button", {
+        name: `Edit browser profile ${profileName}`,
+      }).click();
+      await expect(
+        page.getByRole("dialog", { name: "Edit browser profile" }),
+      ).toBeVisible();
+      await page.getByTestId("input-browser-profile-timeout").fill("7000");
+      const editProfileResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(
+            `/api/projects/${projectId}/browser-validation-profiles/${profileName}`,
+          ) &&
+          response.request().method() === "PUT",
+      );
+      await page.getByTestId("button-save-browser-profile").click();
+      const editProfileResponse = await editProfileResponsePromise;
+      expect(editProfileResponse.status()).toBe(200);
+      await expect(profileCard).toContainText("7,000 ms timeout");
+
+      try {
+        await page.reload();
+      } catch (error) {
+        throw new Error(
+          `Reload after editing browser profile failed; lifecycle=${browserLifecycleEvents.join(",") || "no close/crash event"}; browserConnected=${browser?.isConnected() ?? "unknown"}.`,
+          { cause: error },
+        );
+      }
+      const persistedEditedProfile = page
+        .getByRole("region", { name: "Browser validation profiles" })
+        .locator("article")
+        .filter({ hasText: profileName });
+      await expect(persistedEditedProfile).toContainText("7,000 ms timeout");
+
+      await persistedEditedProfile.getByRole("button", {
+        name: `Delete browser profile ${profileName}`,
+      }).click();
+      const deleteDialog = page.getByRole("alertdialog", {
+        name: "Delete browser profile?",
+      });
+      await expect(deleteDialog).toContainText("This cannot be undone.");
+      const deleteProfileResponsePromise = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(
+            `/api/projects/${projectId}/browser-validation-profiles/${profileName}`,
+          ) &&
+          response.request().method() === "DELETE",
+      );
+      await deleteDialog.getByTestId("button-confirm-delete-browser-profile").click();
+      const deleteProfileResponse = await deleteProfileResponsePromise;
+      expect(deleteProfileResponse.status()).toBe(204);
+      profileCreated = false;
+
+      await page.reload();
+      await expect(
+        page
+          .getByRole("region", { name: "Browser validation profiles" })
+          .getByText(profileName, { exact: true }),
+      ).toHaveCount(0);
     } finally {
       if (projectId) {
         try {
           const dashboardFetch = async (path: string, method = "GET") =>
-            page.evaluate(
-              async ({ path, method }) => {
-                const response = await fetch(path, {
-                  method,
-                  credentials: "include",
-                });
-                return { status: response.status, body: await response.text() };
-              },
-              { path, method },
+            cleanupRequestContext
+              ? await cleanupRequestContext
+                  .fetch(path, { method })
+                  .then(async (response) => ({
+                    status: response.status(),
+                    body: await response.text(),
+                  }))
+              : await page.evaluate(
+                  async ({ path, method }) => {
+                    const response = await fetch(path, {
+                      method,
+                      credentials: "include",
+                    });
+                    return {
+                      status: response.status,
+                      body: await response.text(),
+                    };
+                  },
+                  { path, method },
+                );
+          if (profileCreated) {
+            await dashboardFetch(
+              `/api/projects/${projectId}/browser-validation-profiles/${profileName}`,
+              "DELETE",
             );
+          }
           let deleteResponse = await dashboardFetch(
             `/api/projects/${projectId}`,
             "DELETE",
@@ -7112,7 +7252,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
                 ).status;
                 if (status === "completed" || status === "failed") break;
               }
-              await page.waitForTimeout(500);
+              await new Promise((resolve) => setTimeout(resolve, 500));
             }
             deleteResponse = await dashboardFetch(
               `/api/projects/${projectId}`,
@@ -7130,6 +7270,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
             "Archive Upload cleanup could not reach the dashboard API.",
           );
         }
+      }
+      if (cleanupRequestContext) {
+        await cleanupRequestContext.dispose().catch(() => {});
       }
     }
   });
