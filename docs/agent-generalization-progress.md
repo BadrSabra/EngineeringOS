@@ -7,11 +7,19 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-28
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80 انتقال route-level من فشل provider A إلى نجاح B وتكافؤ JSON/SSE/history لهدف embedded-AI ذي objective canonical. لم يشمل ذلك استنفاد المرشحين أو حدود الميزانية/المهلة أو جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80–§42.81 انتقال route-level من فشل provider A إلى نجاح B، وثبات evidence packet، وتكافؤ JSON/SSE/history، وحدود استنفاد المرشحين والميزانية والمهلة والإلغاء لهدف embedded-AI ذي objective canonical. لم يثبت ذلك جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
 تغيّر هذه الشريحة حالة P0–P14 أو dependency graph، ولا تمنح Mission أو planner
 أو tool صلاحية.
+**إثبات رحلة Archive Upload (2026-09-28):** نجحت رحلة Clerk الحقيقية عبر upload
+وdiscovery وimport وscan حتى `completed`، ثم أثبتت إعادة التحميل بقاء تفعيل
+scan hook الخاص بالمشروع وفعاليته. نجحت كذلك رحلة رفض الأرشيف وإعادة المحاولة
+واختبارات API للسلامة. يغلق هذا فجوة الوصول والإثبات المحددة في جرد Dashboard؛
+ولا يُعد دليلًا على تعميم الوكيل أو تعلمه.
+**بوابة AI الحتمية (2026-09-28):** التشغيل التشخيصي مع تعطيل Preview انتهى
+محجوبًا بفشلين؛ التشغيل الافتراضي الكامل تجاوز مهلة shell البالغة 300 ثانية
+دون تقرير. لذلك لم يبدأ أي اختبار مزود حي.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -113,18 +121,17 @@ Episode → Action → Before → Execute → After → Effect → Acceptance
 دون تغيير ترتيب المراحل أو فتح جمع البيانات. تبقى جاهزية P7.5 شرطًا مانعًا لأي
 cohort أو تعلم لاحق، لا شرطًا يمنع أعمال الواجهة المستقلة:
 
-1. **Dashboard — الوصول إلى الميزات الحالية:** أُوصل Archive Upload في Discover
-   وربط `uploadId` عبر الخطاف المولّد. نجح اختبار المتصفح المركّز للـwizard (1/1)
-   باستخدام fixtures، واختبار API منفصل يثبت الرفع الفعلي ثم إنشاء الجلسة
-   والتنظيف. لم تكتمل مجموعة الرحلة الأوسع ذات 50 اختبارًا (توقفت عند 21/50).
-   وما يزال مسار Clerk browser عبر endpoints الحقيقية حتى scan/import، وتغطية
-   رفض الحجم/الصيغة/الأرشيف غير الآمن غير مثبتين. احسم نطاق Graph المتقدم قبل
-   اعتباره P0، وقرّر صراحةً هل World State وRuntime Observations وRuntime
-   Disagreements أسطح داخلية أم عملياتية. عالج بعد ذلك فجوات P1 وقرارات P2 من
-   دون توسيع صلاحيات الوكيل. اكتملت أيضًا شريحة تفعيل scan hooks للإضافات
-   من صفحة Project Detail؛ اختبارات API والمكوّن مركّزة، لكن رحلة متصفح
-   موثقة الهوية وإعادة التحميل لم تثبت بعد. الإعدادات typed، وربط credentials
-   الآمن، وسياق Mission/CER تبقى عقودًا مستقلة مؤجلة.
+1. **Dashboard — الوصول إلى الميزات الحالية:** أُغلقت فجوة Archive Upload P0:
+   رحلة Clerk الحقيقية وصلت عبر upload وdiscovery وimport إلى scan مكتمل؛
+   وفُعّل project scan hook وأثبتت إعادة التحميل بقاءه وفعاليته. اختبر مسار
+   الرفض الصيغ والأحجام، و413/422، وعدم بدء discovery بعد الرفض، ثم نجاح
+   إعادة المحاولة؛ واختبرت API رفض الأرشيف غير الآمن وملكية الرفع. استخدم
+   التحقق Firefox لأن Chromium يفصل أثناء reload في هذه البيئة. هذا إثبات
+   reachability/persistence للمنتج لا generalization. ما زال نطاق Graph
+   المتقدم وقرار كون World State وRuntime Observations وRuntime Disagreements
+   داخلية أو عملياتية بحاجة إلى حسم. تبقى إعدادات Plugins typed، وربط
+   credentials الآمن، وسياق Mission/CER عقودًا منفصلة مؤجلة؛ لا توسع صلاحيات
+   الوكيل.
 2. **P7.5 — بوابة الجاهزية قبل البيانات:** اختبارات ECE وmission-cluster
    bootstrap ذات الإجابة المعروفة أضيفت؛ أثبت تتبع التعافي أن resume يدوّر
    attempt/Episode ولا يكمل registration القديم، وأن الإلغاء نهائي. لذلك لا تجمع
@@ -138,13 +145,15 @@ cohort أو تعلم لاحق، لا شرطًا يمنع أعمال الواجه
    تستبعد القياسات الناقصة. أبقِ `fixed_safe_probe` حتى تحقق جميع عتبات §25.4
    و§42.8؛ اجتياز هذا القياس لا يفعّل ranking ولا يثبت صلاحية selector.
 4. **PROJECT_QUERY:** §42.51 أغلق claims/handoff المحدود، و§42.56 أغلق terminal
-   parity عند غياب objective canonical. نُفذ في §42.71 failover synthesis محدود
-   بعد اكتمال الأدلة، بمزودين مختارين من API وبالحزمة نفسها ومن دون إعادة قراءة.
-   يثبت §42.80 رحلة route-level من فشل provider A إلى نجاح B وتكافؤ
-   JSON/SSE/history لهدف `PROJECT_QUERY_EMBEDDED-AI`. يبقى المسار بلا objective
-   canonical fail-closed ولا يفتح fallback عامًا. المتبقي اختبار استنفاد
-   المرشحين وحدود الميزانية/المهلة؛ لم يُثبت هذا العمل جودة مزود حي. هذا تحقق
-   عابر للمراحل ولا يضيف عقدة أو يعيد ترتيب §31، ولا يسبق بوابة جاهزية P7.5.
+   parity عند غياب objective canonical. أُثبت في §42.80–§42.81 مسار route-level
+   من فشل provider A إلى نجاح B، وثبات evidence packet بلا إعادة قراءة،
+   وتكافؤ JSON/SSE/history وحدود المهلة والميزانية والإلغاء لهدف
+   `PROJECT_QUERY_EMBEDDED-AI`. ما زالت جودة provider حي غير مثبتة؛ آخر نتيجة
+   مكتملة موثقة لـ`validate:ai-release` تعثرت في اختبارات أخرى، وأُصلح لاحقًا
+   حاجز schema الخاص بتشغيل API. نتيجة إعادة القياس التشخيصية وحدودها في §43.02؛
+   لا live run قبل اجتياز البوابة الكاملة.
+   المسار بلا objective canonical يظل fail-closed ولا يفتح fallback عامًا؛
+   لا يضيف هذا تحققًا عابرًا للمراحل إلى dependency graph أو يتجاوز جاهزية P7.5.
 5. **المراقبة التشغيلية:** يجوز إضافة projection قراءة فقط لتقدم cohort بعد
    تثبيت عقد الجمع والاستعادة؛ ليست الخطوة الأولى ولا مصدر قبول أو معايرة.
 6. بعد استيفاء شروط P7.5، تابع P8 ثم P9 ثم P10/P10.5/P11 وفق الاعتماديات
@@ -3231,6 +3240,62 @@ G9 Revocation Safety
   verifier جديد.
 - **next step:** قرار مالك مستقل: تقديم مصدر قائم بعينه لفحصه، أو إبقاء الحجب،
   أو تفويض تصميم آلية؛ لا جمع أو تغيير runtime قبل ذلك.
+
+### 43.01 — إثبات رحلة Archive Upload الحقيقية وإعادة تحميل scan hook (2026-09-28)
+
+- **phase/step:** تكامل منتجي لإغلاق reachability P0؛ خارج dependency graph
+  المعرفي P0–P14.
+- **status:** `done — authenticated archive journey and scan-hook persistence proven`
+- **what changed:** مرّت رحلة Clerk الحقيقية عبر upload وdiscovery وimport وscan
+  حتى `completed`، ثم فعّلت scan hook للمشروع وأثبتت بقاءه وفعاليته بعد reload.
+  اجتازت رحلة متصفح منفصلة رفض الصيغة والحجم واستجابات 413/422، ومنع discovery
+  بعد الرفض، ثم retry ناجح. اختير Firefox صراحةً لأن Chromium ينفصل في reload
+  بهذه البيئة؛ لا يضيف هذا إثباتًا إلى schema أو acceptance.
+- **files/schema/contracts touched:** إعداد Playwright والـcontrolled runner
+  وتوثيق E2E؛ لا تغيير في schema أو authority أو acceptance.
+- **validation:** الرحلة الحقيقية (1/1)، رحلة رفض الأرشيف وإعادة المحاولة (1/1)،
+  واختبارات API archive-safety/upload-store/discovery (82/82) نجحت. حُذف
+  المشروع المؤقت بعد الرحلة.
+- **authority/safety impact:** لم يُستدعَ AI provider أو يُنشأ أثر في الإنتاج.
+  لا يثبت هذا generalization أو transfer، ولا يغير أي حد من P7.5؛ بقيت
+  `collectionAuthorized=false` و`fixed_safe_probe`.
+- **remaining/blocker:** Archive Upload وproject scan-hook reload proof مغلقان
+  ضمن هذا النطاق فقط. هذه الرحلة لا تثبت صلاحية بقية Dashboard journey أو
+  جودة provider حي.
+- **next step:** أعد قياس AI release gate الحتمية أولًا، ثم لا تجرّب مزودًا حيًا
+  إلا عبر harness يثبت PROJECT_QUERY والقراءة فقط وCanonical Proof المقبول.
+
+### 43.02 — إعادة قياس بوابة AI وتقييم صلاحية اختبار مزود حي (2026-09-28)
+
+- **phase/step:** بوابة تحقق حتمية قبل أي اختبار مزود حي لـPROJECT_QUERY.
+- **status:** `blocked — two blocking checks; no live-provider run`
+- **what changed:** أعيد تشغيل `validate:ai-release` تشخيصيًا مع
+  `AI_RELEASE_ENABLE_PREVIEW=false` كي تنتهي الفحوص الأخرى دون Chromium. اجتازت
+  12 checks، وفشل checkان، وبقي Preview واحد متجاوزًا. محاولة التشغيل الافتراضي
+  الكامل انتهت بمهلة shell مقدارها 300 ثانية من دون تقرير قرار.
+- **files/schema/contracts touched:** هذا السجل وملخص الخطة فقط؛ لا تغيير في
+  runtime أو schema أو acceptance.
+- **validation:** نجحت typechecks وOpenAPI parity وtruth-flow وJSON contracts
+  وrelease stream smoke وlong-run ownership والـbenchmarks وruntime-oracle
+  preflight. أعاد الفحص المركب لاختباري SSE النجاح (104 passed/1 skipped و48/48)،
+  لذا لم تتكرر نتيجة `AI_SSE_AND_REDACTION_FAILED_1` خارج gate؛ يبقى ذلك سبب
+  فشل harness في تشغيل البوابة لا نجاحًا بديلًا لها. تكرر إخفاق
+  `AI_OPERATIONAL_SAFETY_FAILED_1` في اختبار
+  `routes inspect-then-fix through evidence first and keeps the proposed edit pending`:
+  غاب حدث `done` المتوقع. Preview لم يعمل في التقرير التشخيصي.
+- **live-harness assessment:** `validate:live-provider-review` يشغّل
+  `reviewCode` على fixture مؤقت ضمن `code_review` ويتطلب finding لملف محدد؛
+  ليس route أو contract لـPROJECT_QUERY، ولا يثبت قراءة فقط مع Canonical Proof.
+  لم يُعثر على harness حي صالح لهذا الهدف.
+- **authority/safety impact:** `liveProviderChecks=disabled`؛ لم يُقرأ secret أو
+  يُتصل بمزوّد أو يُنشأ أثر. لا تغيير في P7.5 أو `collectionAuthorized` أو
+  `fixed_safe_probe` أو بوابة جمع البيانات.
+- **remaining/blocker:** قرار AI Release ما زال blocked، والتشغيل الكامل الافتراضي
+  لم يكتمل. لا live test حتى تجتاز البوابة الكاملة ويتوفر harness مخصص يربط
+  PROJECT_QUERY بمشروع Git تجريبي للقراءة فقط وقبول proof.
+- **next step:** عالج إخفاق مسار inspect-then-fix ومشكلة harness في فحص SSE،
+  ثم أعد البوابة كاملة بما فيها Preview. بعد النجاح فقط، أنشئ أو اختر harness
+  PROJECT_QUERY المقيّد بالقراءة، وأثبت Canonical Proof قبل تقييم جودة provider.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

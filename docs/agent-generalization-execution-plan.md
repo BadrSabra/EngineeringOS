@@ -4,11 +4,18 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية (2026-09-27):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل؛ تسبق جمع النتائج بوابة جاهزية للتحقق من قناة Mission، وقابلية التكرار والاستعادة، وصحة القياس. يبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. اكتملت شرائح Evidence-Preserved Synthesis Gateway وclaims المحدودة لـPROJECT_QUERY المقبول وterminal parity عند غياب objective؛ لا يزال fallback الحتمي العام بلا عقد مقبول محظورًا. أولوية التسليم الحالية هي معالجة فجوات الوصول للميزات الموجودة في Dashboard وفق `docs/replit-platform-gap-inventory.md` §11؛ لا يغيّر ذلك dependency graph أو بوابات P7.5 قبل أي cohort. سجل التفاصيل في `docs/agent-generalization-progress.md`.
-> **ملاحظة متابعة PROJECT_QUERY (2026-09-27):** نُفذ failover synthesis محدود
-> بعد اكتمال الأدلة للمرشحين المصرح بهم ضمن objective canonical. يبقى اختبار
-> route-level لمسار A→B وتكافؤ JSON/SSE/history فجوة قبول؛ لا يفتح هذا fallback
-> عامًا بلا objective.
+> **آخر حالة تنفيذية (2026-09-28):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل؛ تسبق جمع النتائج بوابة جاهزية للتحقق من قناة Mission، وقابلية التكرار والاستعادة، وصحة القياس. يبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. أُثبت route-level failover محدود لـPROJECT_QUERY في §42.80–§42.81، لكن جودة provider حي لم تثبت؛ fallback العام بلا objective مقبول يظل محظورًا. اكتملت رحلة Clerk الحقيقية لـArchive Upload حتى scan وتفعيل scan hook بعد reload؛ هذه reachability لا تغلق أي مرحلة معرفية. أولوية التسليم المتبقية هي قرارات النطاق للميزات غير المحسومة في Dashboard، بالتوازي مع إعادة قياس بوابة AI الحتمية؛ لا يغيّر ذلك dependency graph أو بوابات P7.5. سجل التفاصيل في `docs/agent-generalization-progress.md`.
+> **متابعة PROJECT_QUERY (2026-09-28):** يغلق §42.80–§42.81 إثبات المسار
+> route-level من فشل provider A إلى نجاح B وتكافؤ JSON/SSE/history وحدود
+> الاستنفاد والمهلة والإلغاء. هذا اختبار حتمي بواجهات مزودين مختبرية، وليس
+> قبولًا حيًا أو قياسًا لجودة provider.
+> **تحقق Archive Upload (2026-09-28):** الرحلة الموثقة بالهوية الفعلية وصلت عبر
+> upload وdiscovery وimport وscan المكتمل، ثم أثبتت بقاء project scan hook
+> وفعاليته بعد reload. اجتازت أيضًا تغطية الرفض وإعادة المحاولة؛ لا يثبت ذلك
+> تعميم الوكيل أو transfer.
+> **بوابة AI (2026-09-28):** التشغيل التشخيصي دون Preview بقي محجوبًا بفشلين؛
+> التشغيل الافتراضي الكامل تجاوز مهلة shell دون تقرير. لم يُشغّل مزود حي؛
+> راجع §43.02 قبل إعادة التحقق.
 > **تكامل المنتج (2026-09-27):** أضيف تفعيل project-scoped لـscan hooks مع
 > بقاء plugin definitions والتوافر العام عالميين. هذه شريحة platform integration
 > مستقلة؛ لا تغيّر P0–P14 أو dependency graph، ولا تغلق أي capability phase أو
@@ -3618,23 +3625,30 @@ P8/P9/P10 قبل إغلاق الاعتماديات ومعايير P7.5 المح�
 
 للتنفيذ القريب ثلاثة مسارات يجب عدم الخلط بينها:
 
-1. **مسار الوصول المنتجّي:** أُغلقت فجوة الوصول إلى Archive Upload في Dashboard
-   وربط `uploadId` بالـwizard. نجح اختبار المتصفح المركّز (1/1) باستخدام fixtures،
-   واختبار تكامل API فعلي للرفع والاكتشاف، وفق التدقيق في
-   `docs/replit-platform-gap-inventory.md` §11. لم تكتمل مجموعة الرحلة ذات 50
-   اختبارًا (توقفت عند 21/50). يبقى اختبار Clerk browser عبر المسارين الحقيقيين،
-   وامتداد التحقق حتى scan/import، وتغطية رفض الحجم/الصيغة/الأرشيف غير الآمن.
-   قرر نطاق Graph المتقدم وصنف World State وRuntime Observations وRuntime
-   Disagreements كواجهات داخلية أو عملياتية قبل وعد المستخدم بها. هذا المسار
-   يعرض capabilities قائمة ولا يضيف عقدة إلى dependency graph أو صلاحية جديدة.
+1. **مسار الوصول المنتجّي:** أُغلقت فجوة Archive Upload P0 وفق
+   `docs/replit-platform-gap-inventory.md` §11 وسجل التحقق في
+   `docs/agent-generalization-progress.md` §43.01. أثبتت رحلة Clerk الحقيقية
+   upload وdiscovery وimport وscan حتى `completed`، وتفعيل scan hook للمشروع
+   مع بقاء الأثر وفعاليته بعد reload. اجتازت تغطية متصفح منفصلة رفض الصيغة
+   والحجم و413/422 وإعادة المحاولة، واختبارات API ترفض الأرشيف غير الآمن
+   وتتحقق من ملكية الرفع. اختبار Firefox يحافظ على assertions نفسها لأن
+   Chromium ينفصل أثناء reload في هذه البيئة. لا تعني هذه الرحلة إغلاق بقية
+   Dashboard؛ احسم نطاق Graph المتقدم وصنف World State وRuntime Observations
+   وRuntime Disagreements كواجهات داخلية أو عملياتية قبل وعد المستخدم بها.
+   هذا المسار يعرض capabilities قائمة ولا يضيف عقدة أو صلاحية إلى dependency
+   graph.
 2. **المسار المعرفي:** تظل بوابة جاهزية جمع P7.5 في §42.8 شرطًا قبل أي cohort؛
    لا تجمع النتائج قبل إغلاقها. يمكن تنفيذ أعمال Dashboard المستقلة قبلها دون
    تجاوزها.
 3. **PROJECT_QUERY:** أُنجز العقد المحدود للـclaims والـhandoff في §42.51،
-   وأُغلق terminal parity عند غياب objective في §42.56. يبقى المسار العام بلا
-   objective canonical غير مكتمل عمدًا. نُفذ failover محدود بعد اكتمال evidence
-   وفق سجل التنفيذ اللاحق؛ يلزم اختبار route-level لمسار A→B وتكافؤ
-   JSON/SSE/history. لا يفتح ذلك fallback عامًا ولا يغيّر سلطة evidence وacceptance.
+   وأُغلق terminal parity عند غياب objective في §42.56. أُثبت في §42.80–§42.81
+   مسار route-level حتمي لفشل provider A ثم نجاح B، وثبات evidence packet بلا
+   إعادة قراءة، وتكافؤ JSON/SSE/history، وحدود الاستنفاد والميزانية والمهلة
+   والإلغاء. يبقى المسار العام بلا objective canonical غير مكتمل عمدًا؛ كما
+   لم تثبت جودة provider حي. نتيجة البوابة التشخيصية الحالية محجوبة بفشلين،
+   والتشغيل الكامل الافتراضي لم يكتمل (§43.02). لا تشغّل live provider قبل
+   اجتياز البوابة الكاملة وتوفر harness صالح؛ لا تغيّر سلطة evidence أو
+   acceptance ولا توسع fallback العام.
 
 بعد اجتياز بوابة P7.5 فقط، اجمع outcomes حقيقية ومأذونة ضمن scope واحد، مع إبقاء
 `fixed_safe_probe` حتى تحقق عتبات §25.4 و§42.8. لا تُنشأ Missions أو نتائج
