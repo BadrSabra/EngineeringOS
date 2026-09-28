@@ -5420,7 +5420,7 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ observe-only recovery wired؛ لا scope مؤهل بعد (2026-09-28)`
+**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ local cross-process observe-only recovery verified؛ no eligible scope (2026-09-28)`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
@@ -5523,18 +5523,24 @@ Brier/ECE أو عدد Missions المستقلة. لذلك يظل التسجيل 
 هذا النوع تتطلب policy/scope وevaluator جديدين بإصدار مستقل، ومراجعة قبل
 التسجيل وheld-out outcomes مستقبلية؛ لا يفتح هذا القرار cohort أو selector.
 
-**التحقق المحلي (2026-09-28):** اجتازت اختبارات continuation والعقد والـledger
-والـrecipe المحلية 54/54، بما فيها الانقطاع بعد request وبعد materialization،
-وفقدان تأكيد append، والإلغاء، ودوران lease واستعادة recipe، وسباق DB بين
-`requestAiExecutionCancel` وterminalization مع التحقق من فائز واحد وحالة نهائية
-متسقة. واجتاز اختبار `workspace-runtime.test.ts` المحدد (1/1) رصد runtime process
-محلي قائم عبر `observeExistingRuntimeAfterState` دون إعادة `start`.
+**التحقق المحلي (2026-09-28):** اجتازت مجموعة الاختبارات المحلية السابقة
+continuation والعقد والـledger والـrecipe (54/54)، كما اجتاز
+`workspace-runtime.test.ts` المحدد (1/1) رصد runtime process محلي عبر
+`observeExistingRuntimeAfterState` دون إعادة `start`. أضاف هذا التحديث شاهد
+`p75-process-recovery.integration.test.ts` (1/1): عمليتا API worker منفصلتان
+تستخدمان مسار `runRecipeOperation` الحقيقي. يتعطل العامل الأول برمز 73 بعد حفظ
+observation وقبل result event؛ يستعيد العامل الثاني النتيجة من observation نفسها
+دون رصد ثانٍ أو إعادة `runtime.start`. يغلق الإنهاء Episode التسجيل وEpisode
+الملاحظة وEpisode التعافي، ويضع Goal في `needs_replan`، وينهي execution بلا
+acceptance ناجح. اجتاز كذلك `agent-episode-ledger.test.ts` (15/15)،
+`pnpm --filter @workspace/api-server run typecheck`، و`git diff --check`.
 
-ما زالت بوابة الجاهزية مغلقة: هذه الاختبارات لا تثبت استبدال عامل API بعملية
-مستقلة ولا ربط continuation بالـsupervisor observer الإنتاجي end-to-end. لم يُعد
-تشغيل API workflow في هذه الخطوة، ولا يُعالج schema قاعدة التطوير دون تفويض
-صريح. أي استخدام مستقبلي لنتائج continuation يتطلب policy/scope version ومراجعة
-evaluator مستقلتين وheld-out cohort جديدة؛ لا تُعدّل معايرة v1 بأثر رجعي.
+بوابة الجاهزية ما زالت مغلقة: هذا الشاهد يستخدم runtime fixture محليًا مع
+`WorkspaceRuntimeManager` والـobserver الفعليين؛ لا يثبت listener الذي يديره
+supervisor الخارجي أو تكامله end-to-end. ولا يوجد scope مؤهل حتى الآن. لا cohort
+أو provider حي أو selector؛ نتائج continuation تظل خارج calibration v1. أي
+استخدام مستقبلي لها يتطلب policy/scope version ومراجعة evaluator مستقلتين وheld-out
+cohort جديدة؛ لا تُعدّل معايرة v1 بأثر رجعي.
 
 **تحديث تشغيل التطوير (2026-09-28):** بعد تفويض قاعدة التطوير فقط، نجح
 `pnpm --filter @workspace/db run schema:apply` وأكد فحص العقد جاهزية المخطط.

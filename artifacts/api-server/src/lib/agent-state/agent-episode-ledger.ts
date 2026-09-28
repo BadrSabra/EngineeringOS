@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import {
+  aiAgentObservationsTable,
   aiAgentEpisodeEventsTable,
   aiAgentEpisodesTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   db,
   eventsTable,
 } from "@workspace/db";
@@ -569,6 +572,72 @@ async function appendHistoricalP75TerminalEventLocked(
   });
 }
 
+type P75TerminalizationContext = {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  workerId: string;
+  missionId: string;
+  goalId: string;
+  planRevision: string;
+  projectRevision: string;
+  sourceExperimentId: string;
+  continuationId?: string;
+  resultId?: string;
+  measurementValidity?: string;
+  resultOwnerEpisodeId?: string;
+  resultOwnerAttempt?: number;
+  reasonCode: string;
+};
+
+async function terminalizeRelatedP75Episode(
+  tx: LedgerTransaction,
+  episode: typeof aiAgentEpisodesTable.$inferSelect,
+  input: P75TerminalizationContext,
+  recoveredByEpisodeId: string,
+  relation: "source_registration" | "prior_observation",
+  now: Date,
+): Promise<void> {
+  const mismatches = [
+    ...(episode.projectId !== input.projectId ? ["project"] : []),
+    ...(episode.executionId !== input.executionId ? ["execution"] : []),
+    ...(episode.missionId !== input.missionId ? ["mission"] : []),
+    ...(episode.goalId !== input.goalId ? ["goal"] : []),
+    ...(episode.planRevision !== input.planRevision ? ["plan_revision"] : []),
+    ...(episode.projectRevision !== input.projectRevision ? ["project_revision"] : []),
+  ];
+  if (mismatches.length > 0) {
+    ledgerError(
+      "ownership_mismatch",
+      `P7.5 related Episode identity or scope changed: ${mismatches.join(",")}`,
+    );
+  }
+  if (episode.closedAt || TERMINAL_STATES.has(episode.state)) return;
+
+  const payload: JsonValue = {
+    verdict: "replan_required",
+    reasonCode: input.reasonCode,
+    sourceExperimentId: input.sourceExperimentId,
+    continuationId: input.continuationId ?? null,
+    resultId: input.resultId ?? null,
+    measurementValidity: input.measurementValidity ?? null,
+    resultOwnerEpisodeId: input.resultOwnerEpisodeId ?? null,
+    resultOwnerAttempt: input.resultOwnerAttempt ?? null,
+    recoveredByEpisodeId,
+    recoveredByAttempt: input.attempt,
+    relatedEpisodeRole: relation,
+  };
+  await appendHistoricalP75TerminalEventLocked(tx, episode, input, payload, now);
+  await tx.update(aiAgentEpisodesTable).set({
+    state: "completed",
+    verdict: "replan_required",
+    reasonCode: input.reasonCode,
+    nextActionCode: "MISSION_REPLAN",
+    closedAt: now,
+    updatedAt: now,
+  }).where(eq(aiAgentEpisodesTable.id, episode.id));
+}
+
 export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpisode> {
   let environmentRevision: string | undefined;
   if (input.environmentRootPath) {
@@ -769,27 +838,30 @@ export async function closeEpisode(input: CloseEpisodeInput): Promise<AgentEpiso
  * lock lets cancellation or lease rotation win cleanly instead of leaving a
  * replan Episode attached to an execution that was cancelled in between writes.
  */
-export async function terminalizeP75MeasurementContinuationEpisode(input: {
+export async function terminalizeP75MeasurementContinuationEpisode(input: P75TerminalizationContext & {
   episodeId: string;
-  projectId: string;
-  executionId: string;
-  attempt: number;
-  workerId: string;
   userId: string;
   operationId: string;
-  missionId: string;
-  goalId: string;
-  planRevision: string;
-  projectRevision: string;
-  sourceExperimentId: string;
-  continuationId?: string;
-  resultId?: string;
-  measurementValidity?: string;
-  resultOwnerEpisodeId?: string;
-  resultOwnerAttempt?: number;
-  reasonCode: string;
+  sourceEpisodeId?: string;
+  sourceAttempt?: number;
+  observationOwnerEpisodeId?: string;
+  observationOwnerAttempt?: number;
+  observationContinuationId?: string;
+  observationId?: string;
 }): Promise<AgentEpisode> {
   return db.transaction(async (tx) => {
+    const [mission] = await tx.select().from(aiMissionsTable).where(and(
+      eq(aiMissionsTable.id, input.missionId),
+      eq(aiMissionsTable.projectId, input.projectId),
+    )).for("update");
+    const [goal] = await tx.select().from(aiGoalsTable).where(and(
+      eq(aiGoalsTable.id, input.goalId),
+      eq(aiGoalsTable.missionId, input.missionId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    )).for("update");
+    if (!mission || !goal) {
+      ledgerError("ownership_mismatch", "P7.5 continuation Mission or Goal identity changed");
+    }
     const execution = await lockExecution(tx, input);
     if (
       execution.status !== "running"
@@ -819,6 +891,127 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
     }
     if (episode.closedAt || TERMINAL_STATES.has(episode.state)) {
       ledgerError("terminal_immutable", "P7.5 continuation Episode is already terminal");
+    }
+
+    const hasSourceEpisodeId = input.sourceEpisodeId !== undefined;
+    const hasSourceAttempt = input.sourceAttempt !== undefined;
+    if (hasSourceEpisodeId !== hasSourceAttempt) {
+      ledgerError("invalid_contract", "P7.5 source Episode identity must include both Episode and attempt.");
+    }
+    let sourceEpisode: typeof aiAgentEpisodesTable.$inferSelect | undefined;
+    if (hasSourceEpisodeId && input.sourceEpisodeId && input.sourceAttempt !== undefined) {
+      if (input.sourceAttempt >= input.attempt) {
+        ledgerError("ownership_mismatch", "P7.5 source registration must belong to an earlier execution attempt.");
+      }
+      sourceEpisode = await lockEpisode(tx, input.sourceEpisodeId);
+      if (
+        sourceEpisode.attempt !== input.sourceAttempt
+        || sourceEpisode.projectId !== input.projectId
+        || sourceEpisode.executionId !== input.executionId
+        || sourceEpisode.missionId !== input.missionId
+        || sourceEpisode.goalId !== input.goalId
+        || sourceEpisode.planRevision !== input.planRevision
+        || sourceEpisode.projectRevision !== input.projectRevision
+      ) {
+        ledgerError("ownership_mismatch", "P7.5 source registration Episode identity or scope changed.");
+      }
+      const registrationEvents = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, sourceEpisode.id),
+        eq(aiAgentEpisodeEventsTable.projectId, input.projectId),
+        eq(aiAgentEpisodeEventsTable.executionId, input.executionId),
+        eq(aiAgentEpisodeEventsTable.attempt, input.sourceAttempt),
+        eq(aiAgentEpisodeEventsTable.eventType, "OBSERVATION_REQUESTED"),
+      ));
+      const matchingRegistrations = registrationEvents.filter((event) => {
+        const registration = asRecord(event.payload);
+        return registration?.recordKind === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED"
+          && registration.experimentId === input.sourceExperimentId
+          && registration.projectId === input.projectId
+          && registration.executionId === input.executionId
+          && registration.attempt === input.sourceAttempt
+          && registration.episodeId === sourceEpisode!.id
+          && registration.missionId === input.missionId
+          && registration.goalId === input.goalId
+          && registration.planRevision === input.planRevision
+          && registration.projectRevision === input.projectRevision;
+      });
+      if (matchingRegistrations.length !== 1) {
+        ledgerError("invalid_contract", "P7.5 source Episode does not contain one exact experiment registration.");
+      }
+    }
+
+    const hasObservationEpisodeId = input.observationOwnerEpisodeId !== undefined;
+    const hasObservationAttempt = input.observationOwnerAttempt !== undefined;
+    const hasObservationContinuationId = input.observationContinuationId !== undefined;
+    const hasObservationId = input.observationId !== undefined;
+    if (
+      hasObservationEpisodeId !== hasObservationAttempt
+      || hasObservationEpisodeId !== hasObservationContinuationId
+      || hasObservationEpisodeId !== hasObservationId
+    ) {
+      ledgerError(
+        "invalid_contract",
+        "P7.5 recovered observation owner requires an Episode, attempt, and observation identity.",
+      );
+    }
+    let observationEpisode: typeof aiAgentEpisodesTable.$inferSelect | undefined;
+    if (
+      hasObservationEpisodeId
+      && input.observationOwnerEpisodeId
+      && input.observationOwnerAttempt !== undefined
+      && input.observationContinuationId
+      && input.observationId
+    ) {
+      if (input.observationOwnerAttempt >= input.attempt) {
+        ledgerError("ownership_mismatch", "P7.5 recovered observation must belong to an earlier continuation attempt.");
+      }
+      observationEpisode = await lockEpisode(tx, input.observationOwnerEpisodeId);
+      if (
+        observationEpisode.attempt !== input.observationOwnerAttempt
+        || observationEpisode.projectId !== input.projectId
+        || observationEpisode.executionId !== input.executionId
+        || observationEpisode.missionId !== input.missionId
+        || observationEpisode.goalId !== input.goalId
+        || observationEpisode.planRevision !== input.planRevision
+        || observationEpisode.projectRevision !== input.projectRevision
+      ) {
+        ledgerError("ownership_mismatch", "P7.5 recovered observation Episode identity or scope changed.");
+      }
+      const requestEvents = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, observationEpisode.id),
+        eq(aiAgentEpisodeEventsTable.projectId, input.projectId),
+        eq(aiAgentEpisodeEventsTable.executionId, input.executionId),
+        eq(aiAgentEpisodeEventsTable.attempt, input.observationOwnerAttempt),
+        eq(aiAgentEpisodeEventsTable.eventType, "OBSERVATION_REQUESTED"),
+      ));
+      const matchingRequests = requestEvents.filter((event) => {
+        const request = asRecord(event.payload);
+        const measurement = asRecord(request?.measurement);
+        return request?.recordKind === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_REQUESTED"
+          && request.continuationId === input.observationContinuationId
+          && measurement?.projectId === input.projectId
+          && measurement.executionId === input.executionId
+          && measurement.episodeId === observationEpisode!.id
+          && measurement.attempt === input.observationOwnerAttempt
+          && measurement.missionId === input.missionId
+          && measurement.goalId === input.goalId
+          && measurement.planRevision === input.planRevision
+          && measurement.projectRevision === input.projectRevision;
+      });
+      const [retainedObservation] = await tx.select().from(aiAgentObservationsTable).where(and(
+        eq(aiAgentObservationsTable.id, input.observationId),
+        eq(aiAgentObservationsTable.projectId, input.projectId),
+        eq(aiAgentObservationsTable.executionId, input.executionId),
+        eq(aiAgentObservationsTable.episodeId, observationEpisode.id),
+        eq(aiAgentObservationsTable.sourceId, `${input.observationContinuationId}:runtime.status`),
+        eq(aiAgentObservationsTable.predicate, "runtime.status"),
+      ));
+      if (matchingRequests.length !== 1 || !retainedObservation) {
+        ledgerError(
+          "invalid_contract",
+          `P7.5 recovered observation owner lacks its exact request or retained observation (requests=${matchingRequests.length}, observation=${Boolean(retainedObservation)}, episode=${observationEpisode.id}, continuation=${input.observationContinuationId}, observationId=${input.observationId}).`,
+        );
+      }
     }
 
     const hasResultOwnerEpisodeId = input.resultOwnerEpisodeId !== undefined;
@@ -891,6 +1084,10 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
           && measurement.goalId === input.goalId
           && measurement.planRevision === input.planRevision
           && measurement.projectRevision === input.projectRevision
+          && (
+            !input.observationId
+            || result.observationId === input.observationId
+          )
           && typeof result.continuationRequestHash === "string";
       });
       const sourceResults = resultRows.filter((row) => {
@@ -1000,6 +1197,35 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
       }
     }
 
+    const terminalizedRelatedEpisodeIds = new Set([
+      episode.id,
+      resultOwnerEpisode.id,
+    ]);
+    if (sourceEpisode && !terminalizedRelatedEpisodeIds.has(sourceEpisode.id)) {
+      await terminalizeRelatedP75Episode(
+        tx,
+        sourceEpisode,
+        input,
+        episode.id,
+        "source_registration",
+        now,
+      );
+      terminalizedRelatedEpisodeIds.add(sourceEpisode.id);
+    }
+    if (
+      observationEpisode
+      && !terminalizedRelatedEpisodeIds.has(observationEpisode.id)
+    ) {
+      await terminalizeRelatedP75Episode(
+        tx,
+        observationEpisode,
+        input,
+        episode.id,
+        "prior_observation",
+        now,
+      );
+    }
+
     const payload: JsonValue = {
       verdict: "replan_required",
       reasonCode: input.reasonCode,
@@ -1031,6 +1257,18 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
       closedAt: now,
       updatedAt: now,
     }).where(eq(aiAgentEpisodesTable.id, input.episodeId));
+
+    await tx.update(aiGoalsTable).set({
+      status: "needs_replan",
+      blockedReason: input.reasonCode,
+      completedAt: null,
+      nextWakeAt: null,
+      updatedAt: now,
+    }).where(and(
+      eq(aiGoalsTable.id, goal.id),
+      eq(aiGoalsTable.missionId, input.missionId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    ));
 
     const observationOnlyTerminalization = JSON.stringify({
       kind: "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION",

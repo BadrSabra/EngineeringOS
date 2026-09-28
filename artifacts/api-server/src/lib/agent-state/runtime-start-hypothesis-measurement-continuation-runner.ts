@@ -61,11 +61,17 @@ export type RuntimeStartMeasurementContinuationContext = {
 export type RuntimeStartMeasurementContinuationDisposition = {
   reasonCode: string;
   sourceExperimentId: string;
+  sourceEpisodeId?: string;
+  sourceAttempt?: number;
   continuationId?: string;
   resultId?: string;
   measurementValidity?: "complete_fresh" | "partial" | "stale" | "failed" | "unknown";
   resultOwnerEpisodeId?: string;
   resultOwnerAttempt?: number;
+  observationOwnerEpisodeId?: string;
+  observationOwnerAttempt?: number;
+  observationContinuationId?: string;
+  observationId?: string;
 };
 
 type AppendEpisodeEventInput = Parameters<typeof appendEpisodeEvent>[0];
@@ -474,7 +480,13 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
     priorRequestState.requests,
     registration.experimentId,
   );
-  if (previousContinuation) return previousContinuation;
+  if (previousContinuation) {
+    return disposition(previousContinuation.reasonCode, registration.experimentId, {
+      ...previousContinuation,
+      sourceEpisodeId: registration.episodeId,
+      sourceAttempt: registration.attempt,
+    });
+  }
 
   const currentEnvironmentRevision = await dependencies.captureEnvironmentRevision(context.rootPath);
   if (
@@ -536,6 +548,13 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
 
   const priorObservation = priorObservations[0];
   let recoveredObservation: ReturnType<typeof toRuntimeStatusEvidence> | undefined;
+  let priorObservationOwner: Pick<
+    RuntimeStartMeasurementContinuationDisposition,
+    | "observationOwnerEpisodeId"
+    | "observationOwnerAttempt"
+    | "observationContinuationId"
+    | "observationId"
+  > | undefined;
   if (priorObservation) {
     const sourceRequest = sourceIdToRequest.get(priorObservation.sourceId);
     if (
@@ -552,6 +571,12 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
       return disposition("P75_CONTINUATION_PRIOR_OBSERVATION_INVALID", registration.experimentId);
     }
     observationRef = priorObservation.id;
+    priorObservationOwner = {
+      observationOwnerEpisodeId: sourceRequest.measurement.episodeId,
+      observationOwnerAttempt: sourceRequest.measurement.attempt,
+      observationContinuationId: sourceRequest.continuationId,
+      observationId: priorObservation.id,
+    };
   }
 
   try {
@@ -659,10 +684,13 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
     ...(observationRef ? { observationRefs: [observationRef] } : {}),
   });
   return disposition("P75_MEASUREMENT_CONTINUATION_RECORDED", registration.experimentId, {
+    sourceEpisodeId: registration.episodeId,
+    sourceAttempt: registration.attempt,
     continuationId: result.continuationId,
     resultId: result.resultId,
     measurementValidity: result.measurementValidity,
     resultOwnerEpisodeId: context.episodeId,
     resultOwnerAttempt: context.attempt,
+    ...priorObservationOwner,
   });
 }

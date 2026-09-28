@@ -2932,23 +2932,30 @@ G9 Revocation Safety
 ### 42.85 — استعادة جاهزية API التطوير بعد إصلاح schema (2026-09-28)
 
 - **phase/step:** P7.5 — إزالة حاجز بدء API في بيئة التطوير.
-- **status:** `done — development schema applied; API listening; P7.5 worker recovery still unverified`
+- **status:** `done — development schema ready; cross-process P7.5 observation recovery verified locally; collection gate remains closed`
 - **what changed:** بعد تفويض التطوير، طُبق schema المشروع عبر
   `pnpm --filter @workspace/db run schema:apply`. أُنشئ جدول
   `project_plugin_bindings` وفهرساه ومفتاحاه الخارجيان، واجتاز
-  application-schema contract check. أُعيد تشغيل API workflow وأصبح يستمع؛
-  لا يثبت ذلك وحده تعافي P7.5 بعد استبدال عامل.
-- **files/schema/contracts touched:** قاعدة التطوير فقط وفق مخطط Drizzle الموجود؛
-  لا تعديل في schema source أو قاعدة الإنتاج. هذا السجل يحدّث الحالة.
-- **validation:** أمر `schema:apply` نجح؛ استعلام development أكد وجود الجدول
-  والفهرسين ومفتاحي FK؛ API سجل `Server listening` بعد إعادة التشغيل.
-- **authority/safety impact:** لا تغييرات في production، ولا cohort أو selector
-  أو provider call أو تعديل calibration v1.
-- **remaining/blocker:** يلزم شاهد recovery عبر عامل API مستقل وربط continuation
-  بالـsupervisor observer الإنتاجي end-to-end. سجّلت عملية البدء رفض استعادة
-  محادثتين قديمتين بسبب project roots غير متاحة؛ لم تُحسبا دليلًا على P7.5.
-- **next step:** بناء اختبار عاملين حتمي لمراحل request/observation/result،
-  مع إبقاء الجمع مغلقًا و`fixed_safe_probe` ثابتًا.
+  application-schema contract check. أضاف الاختبار عاملين مستقلين: الأول يستدعي
+  مسار recipe والـruntime observer الفعلي ثم يتعطل برمز 73 بعد حفظ observation
+  وقبل حفظ result؛ الثاني يستعيد observation نفسها من DB دون قراءة runtime ثانية.
+  تُغلق Episodes التسجيل والملاحظة والتعافي، ينتقل Goal إلى `needs_replan`،
+  وينتهي execution دون acceptance ناجح.
+- **files/schema/contracts touched:** runner واختبار integration وعامل الاختبار
+  وسجل التقدم والخطة؛ schema قاعدة التطوير بقيت كما هي في هذه الخطوة، ولا تعديل
+  في schema source أو قاعدة الإنتاج.
+- **validation:** اختبار `p75-process-recovery.integration.test.ts` (1/1)،
+  واختبار `agent-episode-ledger.test.ts` (15/15)،
+  `pnpm --filter @workspace/api-server run typecheck`، و`git diff --check`.
+- **authority/safety impact:** شاهد محلي بقاعدة التطوير وruntime fixture؛ لا
+  provider حي أو cohort أو selector أو acceptance ناجح، ونتيجة continuation
+  باقية خارج calibration v1. لم يُختبر API listener الذي يديره supervisor
+  الخارجي end-to-end.
+- **remaining/blocker:** بوابة الجمع لا تزال مغلقة لعدم وجود scope مؤهل، ولأن
+  تكامل observer مع listener المُدار خارجيًا لم يُثبت بهذا الشاهد. محادثتان
+  قديمتان رُفضت استعادتهما سابقًا بسبب project roots غير متاحة؛ لا تُحسبان دليلًا.
+- **next step:** أثبت listener/observer المُدار من supervisor في شاهد مستقل قبل
+  أي cohort؛ أبقِ `fixed_safe_probe` ثابتًا ولا تدخل نتائج continuation في v1.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
