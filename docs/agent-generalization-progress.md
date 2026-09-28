@@ -7,7 +7,7 @@
 ## الحالة الحالية
 
 **آخر تحديث:** 2026-09-28
-**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استبعاده من calibration v1 حتى عند اكتمال القياس. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبارًا على runtime process محلي (1/1)؛ لا يثبت ذلك تعافي API بعامل مستقل أو مسار observer الإنتاجي end-to-end، ولذلك تبقى جاهزية الجمع مغلقة. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80 انتقال route-level من فشل provider A إلى نجاح B وتكافؤ JSON/SSE/history لهدف embedded-AI ذي objective canonical. لم يشمل ذلك استنفاد المرشحين أو حدود الميزانية/المهلة أو جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. تعذر smoke إعادة تشغيل API الحالية بسبب نقص schema في قاعدة التطوير؛ التفاصيل في §42.80.
+**الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استبعاده من calibration v1 حتى عند اكتمال القياس. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبارًا على runtime process محلي (1/1)؛ لا يثبت ذلك تعافي API بعامل مستقل أو مسار observer الإنتاجي end-to-end، ولذلك تبقى جاهزية الجمع مغلقة. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80 انتقال route-level من فشل provider A إلى نجاح B وتكافؤ JSON/SSE/history لهدف embedded-AI ذي objective canonical. لم يشمل ذلك استنفاد المرشحين أو حدود الميزانية/المهلة أو جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ لا يثبت ذلك استعادة P7.5 بعامل مستقل. التفاصيل في §42.85.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
 تغيّر هذه الشريحة حالة P0–P14 أو dependency graph، ولا تمنح Mission أو planner
@@ -2928,6 +2928,27 @@ G9 Revocation Safety
   لبدء API workflow.
 - **next step:** لا توسع الكود أو تفتح الجمع قبل إثبات هذه الحدود في workflow
   قابل للتشغيل؛ لا تغيّر schema دون تفويض صريح.
+
+### 42.85 — استعادة جاهزية API التطوير بعد إصلاح schema (2026-09-28)
+
+- **phase/step:** P7.5 — إزالة حاجز بدء API في بيئة التطوير.
+- **status:** `done — development schema applied; API listening; P7.5 worker recovery still unverified`
+- **what changed:** بعد تفويض التطوير، طُبق schema المشروع عبر
+  `pnpm --filter @workspace/db run schema:apply`. أُنشئ جدول
+  `project_plugin_bindings` وفهرساه ومفتاحاه الخارجيان، واجتاز
+  application-schema contract check. أُعيد تشغيل API workflow وأصبح يستمع؛
+  لا يثبت ذلك وحده تعافي P7.5 بعد استبدال عامل.
+- **files/schema/contracts touched:** قاعدة التطوير فقط وفق مخطط Drizzle الموجود؛
+  لا تعديل في schema source أو قاعدة الإنتاج. هذا السجل يحدّث الحالة.
+- **validation:** أمر `schema:apply` نجح؛ استعلام development أكد وجود الجدول
+  والفهرسين ومفتاحي FK؛ API سجل `Server listening` بعد إعادة التشغيل.
+- **authority/safety impact:** لا تغييرات في production، ولا cohort أو selector
+  أو provider call أو تعديل calibration v1.
+- **remaining/blocker:** يلزم شاهد recovery عبر عامل API مستقل وربط continuation
+  بالـsupervisor observer الإنتاجي end-to-end. سجّلت عملية البدء رفض استعادة
+  محادثتين قديمتين بسبب project roots غير متاحة؛ لم تُحسبا دليلًا على P7.5.
+- **next step:** بناء اختبار عاملين حتمي لمراحل request/observation/result،
+  مع إبقاء الجمع مغلقًا و`fixed_safe_probe` ثابتًا.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
