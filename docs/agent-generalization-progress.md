@@ -3105,6 +3105,24 @@ G9 Revocation Safety
   والادعاء والنطاق وإصدار البروتوكول والصلاحية وقواعد الإبطال والتعارض؛ لا تبدأ
   verifiers قبل اعتماد القرار.
 
+### 42.95 — إعداد سجل قرارات المالك لادعاءات P7.5 (2026-09-28)
+
+- **phase/step:** تجهيز قرار الحوكمة لكل claim دون اختيار مصادر.
+- **status:** `ready for owner input — no decisions recorded`
+- **what changed:** أُنشئ سجل بسبعة claims مع حقائق الجرد الحالية كمرجع فقط.
+  حقول قرار المالك غير مسجلة؛ ولا تُعامل `not recorded` كحالة قرار خامسة.
+  فُصلت حالات قرار الحوكمة عن حالات دليل runtime، وأُكد أن اختيار المصدر لا
+  يثبت evidence ولا يفتح collection.
+- **files/schema/contracts touched:** `docs/p75-claim-authority-decision-record.md`
+  ورابطه في خطة التنفيذ وسجل التقدم؛ لا runtime أو schema أو قاعدة بيانات.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** لم يُختر مصدر ولم يُسجل `QUALIFIED_SOURCE` أو أي
+  قرار آخر بالنيابة عن المالك؛ P7.5 تبقى `BLOCKED` و
+  `collectionAuthorized=false` مع `fixed_safe_probe`.
+- **remaining/blocker:** قرارات المالك السبعة وتفاصيل المصدر والسلطة والنطاق
+  والصلاحية والإبطال والتعارض.
+- **next step:** جمع قرار صريح لكل claim؛ لا كتابة verifier قبل ذلك.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

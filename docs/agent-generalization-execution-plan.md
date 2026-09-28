@@ -5663,6 +5663,9 @@ claims من caller إلى إثبات، ولا تجعل المصادر الموث
 حوكمي، لا بتثبيت مصدر أو قرار بشري داخل
 `runtime-start-hypothesis-trust-boundary.ts`. لا ينتقل القرار إلى حالة دليل إلا
 عبر verifier منفصل بعد اعتماد المصدر.
+نموذج السجل ذي claims السبعة وحقول القرار موجود في
+`docs/p75-claim-authority-decision-record.md`؛ كل الحقائق المصدرية فيه سياق
+للقرار وليست تأهيلًا لأي مصدر.
 
 يجب أن تتطابق حالات الوثائق مع enum وblocker classification في runtime، وبالأخص
 أن تمثل `UNVERIFIABLE` وتحجبه عن الجاهزية. تم توحيد هذا التصنيف دون تغيير
