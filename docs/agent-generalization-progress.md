@@ -3086,6 +3086,25 @@ G9 Revocation Safety
 - **next step:** حسم مصدر مؤهل أو التصريح بعدم وجوده لكل claim؛ بعد ذلك فقط
   تخطيط verifiers منفصلة.
 
+### 42.94 — فصل قرار الحوكمة عن حالة دليل runtime في P7.5 (2026-09-28)
+
+- **phase/step:** توضيح عقد قرار المالك قبل اختيار مصادر P7.5.
+- **status:** `planned — no owner source decision selected`
+- **what changed:** فصلت الخطة حالات قرار المالك
+  (`QUALIFIED_SOURCE`، `NO_QUALIFIED_SOURCE`، `HUMAN_AUTHORITY_REQUIRED`،
+  `DEFERRED`) عن حالات دليل runtime. اختيار مصدر مؤهل لا يثبت صحة دليل فعلي؛
+  القرار يبقى في الخطة/سجل حوكمي ولا يُثبّت كمصدر موثوق داخل runtime. لا ينشئ
+  `NO_QUALIFIED_SOURCE` مصدرًا بديلًا، وتبقى `DEFERRED` محجوبة.
+- **files/schema/contracts touched:** الخطة وسجل التقدم وذاكرة حدود P7.5؛ لا
+  تعديل runtime أو schema أو قاعدة بيانات أو صلاحيات.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** لم يُتخذ أي قرار مصدر ولم تتغير حالات runtime
+  الحالية أو `collectionAuthorized=false` أو `fixed_safe_probe`.
+- **remaining/blocker:** قرار المالك حول كل claim ومصدره أو عدم وجود مصدر مؤهل.
+- **next step:** ملء سجل قرار ذي سبعة claims بالجهة المصدرة وأساس السلطة
+  والادعاء والنطاق وإصدار البروتوكول والصلاحية وقواعد الإبطال والتعارض؛ لا تبدأ
+  verifiers قبل اعتماد القرار.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
