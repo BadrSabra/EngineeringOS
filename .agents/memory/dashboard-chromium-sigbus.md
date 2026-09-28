@@ -13,14 +13,22 @@ Memory and `/tmp` capacity were available; kernel logs were not readable.
 `--disable-gpu` and `--disable-dev-shm-usage` were already set, and an added
 SwiftShader flag did not resolve the crash.
 
+Playwright-managed Chromium and its headless shell also reproduced `BUS_ADRERR`
+in this environment. The same authenticated profile CRUD journey passed under
+Playwright Firefox when run through the external Replit development origin, with
+the full create, edit, and delete reload assertions intact. A saved-state
+APIRequestContext returned 401 when tied to a localhost origin, but succeeded
+when tied to the external origin that issued the Clerk session.
+
 **Why:** Repeatedly increasing Playwright timeouts or changing reload semantics
-can mask a browser-runtime failure rather than fix an application defect.
+can mask a browser-runtime failure rather than fix an application defect. A
+different browser engine can still provide valid persistence evidence.
 
 **How to apply:** Capture browser-process stderr plus page/browser lifecycle
-events before changing navigation assertions. Test cleanup that depends only on
-`page.evaluate` cannot reach the API after Chromium exits. For failed-run cleanup,
-verify the exact project ID, owner, name, and managed root, then use the normal
-owner-scoped API delete so server safeguards remove the row and root. Avoid broad
-SQL or filesystem deletion. An independent API request context with saved auth
-state may improve cleanup, but verify it under the failing runner before relying
-on it.
+events before changing navigation assertions. If Chromium and its bundled
+headless shell fail, try Playwright Firefox against the external Replit
+development origin and keep every reload assertion. Keep any independent
+APIRequestContext on the same origin as the Clerk session; verify its auth before
+depending on it for cleanup. If the browser is gone, verify the exact project ID
+and owner, then use the normal owner-scoped API delete so server safeguards
+remove the row and root. Avoid broad SQL or filesystem deletion.
