@@ -1771,6 +1771,9 @@ paths:
                     description: Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence.
                     items:
                       $ref: "#/components/schemas/RuntimeWorldTransitionProjection"
+                  evidenceBraid:
+                    $ref: "#/components/schemas/AiExecutionEvidenceBraid"
+                    description: Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values.
                   createdAt: { type: string, format: date-time }
                   updatedAt: { type: string, format: date-time }
                   startedAt: { type: string, format: date-time, nullable: true }
@@ -7059,6 +7062,112 @@ components:
         resumable: { type: boolean }
         disposition:
           $ref: "#/components/schemas/ExecutionAcceptanceDisposition"
+
+    AiExecutionEvidenceBraid:
+      type: object
+      additionalProperties: false
+      required: [executionId, projectId, attempt, truncated, episodes]
+      description: Read-only metadata projection for one execution attempt; acceptance remains a separate authority.
+      properties:
+        executionId: { type: string }
+        projectId: { type: string }
+        attempt: { type: integer, minimum: 0 }
+        truncated: { type: boolean }
+        episodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiExecutionEvidenceBraidEpisode"
+
+    AiExecutionEvidenceBraidEpisode:
+      type: object
+      additionalProperties: false
+      required: [id, attempt, state, createdAt, closedAt, events, observations, effects, effectBundles]
+      properties:
+        id: { type: string }
+        attempt: { type: integer, minimum: 0 }
+        missionId: { type: string, nullable: true }
+        goalId: { type: string, nullable: true }
+        state: { type: string }
+        verdict: { type: string, nullable: true }
+        projectRevision: { type: string, nullable: true }
+        environmentRevision: { type: string, nullable: true }
+        worldRevision: { type: string, nullable: true }
+        planRevision: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        closedAt: { type: string, format: date-time, nullable: true }
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiExecutionEvidenceBraidEvent"
+        observations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiExecutionEvidenceBraidObservation"
+        effects:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiExecutionEvidenceBraidEffect"
+        effectBundles:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiExecutionEvidenceBraidEffectBundle"
+
+    AiExecutionEvidenceBraidEvent:
+      type: object
+      additionalProperties: false
+      required: [id, sequence, eventType, createdAt]
+      properties:
+        id: { type: string }
+        sequence: { type: integer, minimum: 0 }
+        eventType: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    AiExecutionEvidenceBraidObservation:
+      type: object
+      additionalProperties: false
+      required: [id, observationRole, kind, provenance, completeness, freshness, environmentFreshness, projectRevision, environmentRevision, observedAt]
+      properties:
+        id: { type: string }
+        observationRole: { type: string, nullable: true }
+        kind: { type: string }
+        provenance: { type: string }
+        completeness: { type: string }
+        freshness: { type: string }
+        environmentFreshness: { type: string, nullable: true }
+        projectRevision: { type: string, nullable: true }
+        environmentRevision: { type: string, nullable: true }
+        observedAt: { type: string, format: date-time, nullable: true }
+
+    AiExecutionEvidenceBraidEffect:
+      type: object
+      additionalProperties: false
+      required: [id, actionId, capabilityId, status, beforeObservationIds, afterObservationIds, missingEffectCount, contradictionCount]
+      properties:
+        id: { type: string }
+        actionId: { type: string }
+        capabilityId: { type: string }
+        status: { type: string }
+        beforeObservationIds:
+          type: array
+          items: { type: string }
+        afterObservationIds:
+          type: array
+          items: { type: string }
+        missingEffectCount: { type: integer, minimum: 0 }
+        contradictionCount: { type: integer, minimum: 0 }
+
+    AiExecutionEvidenceBraidEffectBundle:
+      type: object
+      additionalProperties: false
+      required: [id, verdict, worldRevision, effectIds, createdAt]
+      properties:
+        id: { type: string }
+        verdict: { type: string }
+        worldRevision: { type: string, nullable: true }
+        effectIds:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
 
     ExecutionLedgerSnapshot:
       type: object

@@ -301,6 +301,85 @@ describe('Mission Control', () => {
     expect(timeline).toHaveTextContent('Observation, effect, acceptance, and World materialization are separate records');
   });
 
+  it('shows a redacted current-attempt Evidence Braid without promoting it to acceptance', async () => {
+    const now = '2026-09-27T10:00:00.000Z';
+    currentExecutionDetail = runtimeStartDetail({
+      evidenceBraid: {
+        executionId: 'execution-1',
+        projectId: 'project-1',
+        attempt: 2,
+        truncated: false,
+        episodes: [{
+          id: 'episode-braid-1',
+          attempt: 2,
+          missionId: null,
+          goalId: null,
+          state: 'completed',
+          verdict: 'achieved',
+          projectRevision: 'project-revision-1',
+          environmentRevision: 'environment-revision-1',
+          worldRevision: 'world-revision-1',
+          planRevision: 'plan-revision-1',
+          createdAt: now,
+          closedAt: now,
+          events: [{
+            id: 'event-braid-1',
+            sequence: 1,
+            eventType: 'ACTION_REQUESTED',
+            createdAt: now,
+            payload: 'private-event-payload',
+          }],
+          observations: [{
+            id: 'observation-braid-1',
+            observationRole: 'after_state',
+            kind: 'runtime_state',
+            provenance: 'DIRECT_OBSERVATION',
+            completeness: 'complete',
+            freshness: 'fresh',
+            environmentFreshness: 'fresh',
+            projectRevision: 'project-revision-1',
+            environmentRevision: 'environment-revision-1',
+            observedAt: now,
+            value: 'private-observation-value',
+          }],
+          effects: [{
+            id: 'effect-braid-1',
+            actionId: 'action-braid-1',
+            capabilityId: 'runtime.start',
+            status: 'observed',
+            beforeObservationIds: [],
+            afterObservationIds: ['observation-braid-1'],
+            missingEffectCount: 0,
+            contradictionCount: 0,
+          }],
+          effectBundles: [{
+            id: 'bundle-braid-1',
+            verdict: 'OBSERVED',
+            worldRevision: 'world-revision-2',
+            effectIds: ['effect-braid-1'],
+            createdAt: now,
+          }],
+          scope: 'private-episode-scope',
+          workerId: 'private-worker-id',
+        }],
+      },
+    });
+    renderPage();
+
+    const braid = await screen.findByRole('region', { name: 'Evidence Braid' });
+    expect(braid).toHaveTextContent('ACTION_REQUESTED');
+    expect(braid).toHaveTextContent('DIRECT_OBSERVATION');
+    expect(braid).toHaveTextContent('observed');
+    expect(braid).toHaveTextContent('OBSERVED');
+    expect(braid).toHaveTextContent('World revision · world-revision-2');
+    expect(braid).toHaveTextContent('Acceptance · current attempt');
+    expect(braid).toHaveTextContent('1 bound World Transition record(s)');
+    expect(braid).not.toHaveTextContent('private-event-payload');
+    expect(braid).not.toHaveTextContent('private-observation-value');
+    expect(braid).not.toHaveTextContent('private-episode-scope');
+    expect(braid).not.toHaveTextContent('private-worker-id');
+  });
+
   it('does not infer World materialization from a PROVEN acceptance when the transition is absent', async () => {
     currentExecutionDetail = runtimeStartDetail({ worldTransitions: [] });
     renderPage();

@@ -135,6 +135,7 @@ import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
 import type { TurnIntentKind } from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
+import { loadEpisodeEvidenceBraid } from "../../lib/agent-state/episode-evidence-braid";
 import { startInternalRestartServicesWorkflow } from "../../lib/server-action-workflows.js";
 import {
   RepairPlanMetadataSchema,
@@ -12258,6 +12259,11 @@ router.get("/ai/executions/:executionId", async (req, res) => {
         ));
       })()
     : [];
+  const evidenceBraid = await loadEpisodeEvidenceBraid({
+    executionId: execution.id,
+    projectId: execution.projectId,
+    attempt: execution.attempt,
+  });
   const terminalProjection = execution.sessionId
     ? await loadTerminalProjection({
         executionId: execution.id,
@@ -12367,6 +12373,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     executionDiagnostics,
     recipeReceipt,
     worldTransitions,
+    evidenceBraid,
   });
 });
 

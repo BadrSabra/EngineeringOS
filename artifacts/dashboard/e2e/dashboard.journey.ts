@@ -7135,13 +7135,21 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       profileCreated = true;
       await expect(profilesPanel.getByText(profileName, { exact: true })).toBeVisible();
 
-      await page.reload();
-      const reloadedProfilesPanel = page.getByRole("region", {
-        name: "Browser validation profiles",
-      });
-      await expect(
-        reloadedProfilesPanel.getByText(profileName, { exact: true }),
-      ).toBeVisible();
+      let reloadedProfilesPanel: Locator;
+      try {
+        await page.reload();
+        reloadedProfilesPanel = page.getByRole("region", {
+          name: "Browser validation profiles",
+        });
+        await expect(
+          reloadedProfilesPanel.getByText(profileName, { exact: true }),
+        ).toBeVisible();
+      } catch (error) {
+        throw new Error(
+          `Profile create did not survive reload; lifecycle=${browserLifecycleEvents.join(",") || "no close/crash event"}; pageClosed=${page.isClosed()}; browserConnected=${browser?.isConnected() ?? "unknown"}.`,
+          { cause: error },
+        );
+      }
       const profileCard = reloadedProfilesPanel.locator("article").filter({
         hasText: profileName,
       });

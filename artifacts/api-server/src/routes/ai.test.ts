@@ -3447,6 +3447,21 @@ describe("GET /api/ai/executions/:executionId World Transitions", () => {
       afterObservations: [],
       effectBundle: null,
     });
+    expect(response.body.evidenceBraid).toMatchObject({
+      executionId,
+      projectId,
+      attempt,
+    });
+    expect(response.body.evidenceBraid.episodes).toHaveLength(1);
+    expect(response.body.evidenceBraid.episodes[0]).toMatchObject({
+      id: episodeId,
+      attempt,
+      events: [],
+      observations: [],
+      effects: [],
+      effectBundles: [],
+    });
+    expect(JSON.stringify(response.body.evidenceBraid)).not.toContain(mismatchedEpisodeId);
     expect(JSON.stringify(response.body.worldTransitions)).not.toContain("wrong-attempt-transition");
     expect(JSON.stringify(response.body.worldTransitions)).not.toContain("wrong-project-transition");
     expect(JSON.stringify(response.body.worldTransitions)).not.toContain("wrong-episode-transition");
@@ -6809,6 +6824,51 @@ describe("POST /api/ai/chat/apply-changes", () => {
         .where(eq(aiAgentEffectsTable.executionId, execution!.id));
       expect(effects).toHaveLength(1);
       expect(effects[0].status).toBe("observed");
+      const privateBraidMarker = `braid-private-${randomUUID()}`;
+      await db.insert(aiAgentEpisodeEventsTable).values({
+        id: randomUUID(),
+        episodeId: episode!.id,
+        projectId: id,
+        executionId: execution!.id,
+        attempt: execution!.attempt,
+        sequence: Math.max(0, ...episodeEvents.map((event) => event.sequence)) + 100,
+        eventType: "EPISODE_PAUSED",
+        payload: { private: privateBraidMarker },
+        payloadHash: `braid-test-${randomUUID()}`,
+        actorType: "system",
+        actorId: privateBraidMarker,
+        correlationId: privateBraidMarker,
+        createdAt: new Date(),
+      });
+      const detailResponse = await request(app)
+        .get(`/api/ai/executions/${execution!.id}`);
+      expect(detailResponse.status).toBe(200);
+      expect(detailResponse.body.evidenceBraid).toMatchObject({
+        executionId: execution!.id,
+        projectId: id,
+        attempt: execution!.attempt,
+        truncated: false,
+      });
+      const braidEpisode = detailResponse.body.evidenceBraid.episodes.find(
+        (item: { id: string }) => item.id === episode!.id,
+      );
+      expect(detailResponse.body.evidenceBraid.episodes).toHaveLength(1);
+      expect(braidEpisode.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ eventType: "EPISODE_PAUSED" }),
+      ]));
+      expect(braidEpisode.events[0]).not.toHaveProperty("payload");
+      expect(braidEpisode.events[0]).not.toHaveProperty("actorId");
+      expect(braidEpisode.observations).toHaveLength(observations.length);
+      expect(braidEpisode.observations[0]).not.toHaveProperty("value");
+      expect(braidEpisode.effects).toHaveLength(effects.length);
+      expect(braidEpisode.effectBundles).toEqual([
+        expect.objectContaining({
+          id: bundle!.id,
+          verdict: "OBSERVED",
+          effectIds: [effects[0]!.id],
+        }),
+      ]);
+      expect(JSON.stringify(detailResponse.body.evidenceBraid)).not.toContain(privateBraidMarker);
       const [acceptance] = await db.select({
         outcome: aiExecutionAcceptancesTable.outcome,
         effectBundleId: aiExecutionAcceptancesTable.effectBundleId,

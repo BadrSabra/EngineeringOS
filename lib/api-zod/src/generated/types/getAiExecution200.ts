@@ -7,6 +7,7 @@
  */
 import type { AiExecutionAcceptance } from './aiExecutionAcceptance';
 import type { AiExecutionDiagnostics } from './aiExecutionDiagnostics';
+import type { AiExecutionEvidenceBraid } from './aiExecutionEvidenceBraid';
 import type { AiExecutionProjection } from './aiExecutionProjection';
 import type { AiTerminalProjection } from './aiTerminalProjection';
 import type { GetAiExecution200Checkpoint } from './getAiExecution200Checkpoint';
@@ -62,6 +63,8 @@ export type GetAiExecution200 = {
   projection: AiExecutionProjection;
   /** Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence. */
   worldTransitions: RuntimeWorldTransitionProjection[];
+  /** Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values. */
+  evidenceBraid?: AiExecutionEvidenceBraid;
   createdAt?: Date;
   updatedAt?: Date;
   startedAt?: Date | null;

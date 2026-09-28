@@ -1710,6 +1710,140 @@ export default function MissionControl() {
             </section>
           )}
 
+          {selectedExecutionDetail && (
+            <section className="overflow-hidden rounded-xl border border-border bg-card" aria-label="Evidence Braid">
+              <div className="border-b border-border/70 px-4 py-3.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-semibold">Evidence Braid</h2>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                    attempt {selectedExecutionDetail.attempt} · read only
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                  Current-attempt Episode metadata links events, observations, effects, and bundles. Payloads and observation values stay hidden; acceptance and World State remain separate records.
+                </p>
+              </div>
+              <div className="space-y-3 p-4">
+                {selectedExecutionDetail.evidenceBraid?.truncated && (
+                  <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-100" role="status">
+                    This is a bounded projection; some current-attempt records are omitted.
+                  </p>
+                )}
+                {(selectedExecutionDetail.evidenceBraid?.episodes ?? []).length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-4 text-center text-xs text-muted-foreground">
+                    No current-attempt Episode records are available.
+                  </div>
+                ) : (
+                  selectedExecutionDetail.evidenceBraid!.episodes.map((episode) => (
+                    <article key={episode.id} className="rounded-lg border border-border/70 bg-background/20 p-3">
+                      <div className="flex flex-wrap items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Episode</div>
+                          <div className="mt-1 break-all font-mono text-[11px]">{episode.id}</div>
+                        </div>
+                        <div className="flex gap-1.5 text-[10px]">
+                          <span className="rounded border border-border px-1.5 py-0.5">{episode.state}</span>
+                          {episode.verdict && <span className="rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-primary">{episode.verdict}</span>}
+                        </div>
+                      </div>
+                      <div className="mt-2 grid gap-2 text-[10px] sm:grid-cols-2">
+                        <div><span className="text-muted-foreground">Project revision · </span><code className="break-all">{episode.projectRevision ?? 'not recorded'}</code></div>
+                        <div><span className="text-muted-foreground">World revision · </span><code className="break-all">{episode.worldRevision ?? 'not recorded'}</code></div>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode events ${episode.id}`}>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Events · {episode.events.length}</h3>
+                          {episode.events.length === 0 ? (
+                            <p className="mt-1 text-[10px] text-muted-foreground">No event metadata.</p>
+                          ) : (
+                            <ul className="mt-1 space-y-1">
+                              {episode.events.map((event) => (
+                                <li key={event.id} className="flex justify-between gap-2 text-[10px]">
+                                  <span className="break-all">{event.eventType}</span>
+                                  <span className="shrink-0 font-mono text-muted-foreground">#{event.sequence}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </section>
+                        <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode observations ${episode.id}`}>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Observations · {episode.observations.length}</h3>
+                          {episode.observations.length === 0 ? (
+                            <p className="mt-1 text-[10px] text-muted-foreground">No observation metadata.</p>
+                          ) : (
+                            <ul className="mt-1 space-y-1.5">
+                              {episode.observations.map((observation) => (
+                                <li key={observation.id} className="break-words text-[10px]">
+                                  <span className="font-medium">{observation.observationRole ?? observation.kind}</span>
+                                  <span className="text-muted-foreground"> · {observation.provenance} · {observation.completeness} · {observation.freshness}</span>
+                                  <div className="break-all font-mono text-muted-foreground">{observation.id}</div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </section>
+                        <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode effects ${episode.id}`}>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Effects · {episode.effects.length}</h3>
+                          {episode.effects.length === 0 ? (
+                            <p className="mt-1 text-[10px] text-muted-foreground">No effect records.</p>
+                          ) : (
+                            <ul className="mt-1 space-y-1.5">
+                              {episode.effects.map((effect) => (
+                                <li key={effect.id} className="text-[10px]">
+                                  <span className="font-medium">{effect.status}</span>
+                                  <span className="text-muted-foreground"> · action {effect.actionId} · {effect.capabilityId}</span>
+                                  <div className="text-muted-foreground">
+                                    Before/after observations {effect.beforeObservationIds.length}/{effect.afterObservationIds.length}
+                                    {' · '}missing {effect.missingEffectCount} · contradictions {effect.contradictionCount}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </section>
+                        <section className="rounded-md border border-border/60 bg-card/50 p-2" aria-label={`Episode effect bundles ${episode.id}`}>
+                          <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Effect bundles · {episode.effectBundles.length}</h3>
+                          {episode.effectBundles.length === 0 ? (
+                            <p className="mt-1 text-[10px] text-muted-foreground">No effect bundle records.</p>
+                          ) : (
+                            <ul className="mt-1 space-y-1.5">
+                              {episode.effectBundles.map((bundle) => (
+                                <li key={bundle.id} className="text-[10px]">
+                                  <span className="font-medium">{bundle.verdict}</span>
+                                  <span className="text-muted-foreground"> · {bundle.effectIds.length} linked effects</span>
+                                  <div className="break-all font-mono text-muted-foreground">{bundle.id}</div>
+                                  <div className="break-all text-muted-foreground">World revision · {bundle.worldRevision ?? 'not recorded'}</div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </section>
+                      </div>
+                    </article>
+                  ))
+                )}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[10px]">
+                    <div className="font-semibold uppercase tracking-wide text-muted-foreground">Acceptance · current attempt</div>
+                    <div className="mt-1">
+                      {selectedExecutionDetail.acceptance
+                        ? `${selectedExecutionDetail.acceptance.outcome} · ${selectedExecutionDetail.acceptance.terminalStatus}`
+                        : 'No acceptance snapshot recorded'}
+                    </div>
+                    <div className="mt-1 text-muted-foreground">The server-owned acceptance record remains authoritative.</div>
+                  </div>
+                  <div className="rounded-md border border-border/70 bg-background/20 px-3 py-2 text-[10px]">
+                    <div className="font-semibold uppercase tracking-wide text-muted-foreground">World State · separate records</div>
+                    <div className="mt-1">
+                      {(selectedExecutionDetail.worldTransitions ?? []).length} bound World Transition record(s)
+                    </div>
+                    <div className="mt-1 text-muted-foreground">Review transition details in the timeline below.</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           <WorldTransitionTimeline
             recipeId={selectedExecutionDetail?.recipeReceipt?.recipeId}
             executionId={selectedExecutionDetail?.id}

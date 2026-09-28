@@ -3559,6 +3559,80 @@ export interface AiExecutionDiagnostics {
   failureCategories: AiExecutionDiagnosticsFailureCategories;
 }
 
+export interface AiExecutionEvidenceBraidEvent {
+  id: string;
+  /** @minimum 0 */
+  sequence: number;
+  eventType: string;
+  createdAt: string;
+}
+
+export interface AiExecutionEvidenceBraidObservation {
+  id: string;
+  observationRole: string | null;
+  kind: string;
+  provenance: string;
+  completeness: string;
+  freshness: string;
+  environmentFreshness: string | null;
+  projectRevision: string | null;
+  environmentRevision: string | null;
+  observedAt: string | null;
+}
+
+export interface AiExecutionEvidenceBraidEffect {
+  id: string;
+  actionId: string;
+  capabilityId: string;
+  status: string;
+  beforeObservationIds: string[];
+  afterObservationIds: string[];
+  /** @minimum 0 */
+  missingEffectCount: number;
+  /** @minimum 0 */
+  contradictionCount: number;
+}
+
+export interface AiExecutionEvidenceBraidEffectBundle {
+  id: string;
+  verdict: string;
+  worldRevision: string | null;
+  effectIds: string[];
+  createdAt: string;
+}
+
+export interface AiExecutionEvidenceBraidEpisode {
+  id: string;
+  /** @minimum 0 */
+  attempt: number;
+  missionId?: string | null;
+  goalId?: string | null;
+  state: string;
+  verdict?: string | null;
+  projectRevision?: string | null;
+  environmentRevision?: string | null;
+  worldRevision?: string | null;
+  planRevision?: string | null;
+  createdAt: string;
+  closedAt: string | null;
+  events: AiExecutionEvidenceBraidEvent[];
+  observations: AiExecutionEvidenceBraidObservation[];
+  effects: AiExecutionEvidenceBraidEffect[];
+  effectBundles: AiExecutionEvidenceBraidEffectBundle[];
+}
+
+/**
+ * Read-only metadata projection for one execution attempt; acceptance remains a separate authority.
+ */
+export interface AiExecutionEvidenceBraid {
+  executionId: string;
+  projectId: string;
+  /** @minimum 0 */
+  attempt: number;
+  truncated: boolean;
+  episodes: AiExecutionEvidenceBraidEpisode[];
+}
+
 export type AiImplementationPlanResultKind = typeof AiImplementationPlanResultKind[keyof typeof AiImplementationPlanResultKind];
 
 
@@ -6026,6 +6100,8 @@ export type GetAiExecution200 = {
   projection: AiExecutionProjection;
   /** Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence. */
   worldTransitions: RuntimeWorldTransitionProjection[];
+  /** Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values. */
+  evidenceBraid?: AiExecutionEvidenceBraid;
   createdAt?: string;
   updatedAt?: string;
   startedAt?: string | null;

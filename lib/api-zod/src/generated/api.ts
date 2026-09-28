@@ -4363,6 +4363,16 @@ export const getAiExecutionResponseProjectionTimelineMax = 8;
 export const getAiExecutionResponseProjectionAllowedActionsMax = 7;
 
 export const getAiExecutionResponseWorldTransitionsItemFailureCodeRegExp = new RegExp('^[A-Z][A-Z0-9_]{0,79}$');
+export const getAiExecutionResponseEvidenceBraidAttemptMin = 0;
+
+export const getAiExecutionResponseEvidenceBraidEpisodesItemAttemptMin = 0;
+
+export const getAiExecutionResponseEvidenceBraidEpisodesItemEventsItemSequenceMin = 0;
+
+export const getAiExecutionResponseEvidenceBraidEpisodesItemEffectsItemMissingEffectCountMin = 0;
+
+export const getAiExecutionResponseEvidenceBraidEpisodesItemEffectsItemContradictionCountMin = 0;
+
 
 
 export const GetAiExecutionResponse = zod.object({
@@ -4609,6 +4619,61 @@ export const GetAiExecutionResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "materializedAt": zod.coerce.date().nullable()
 })).describe('Bounded server-owned World Transition projections for the current runtime.start attempt; excludes observation bodies and raw evidence.'),
+  "evidenceBraid": zod.object({
+  "executionId": zod.string(),
+  "projectId": zod.string(),
+  "attempt": zod.number().int().min(getAiExecutionResponseEvidenceBraidAttemptMin),
+  "truncated": zod.boolean(),
+  "episodes": zod.array(zod.object({
+  "id": zod.string(),
+  "attempt": zod.number().int().min(getAiExecutionResponseEvidenceBraidEpisodesItemAttemptMin),
+  "missionId": zod.string().nullish(),
+  "goalId": zod.string().nullish(),
+  "state": zod.string(),
+  "verdict": zod.string().nullish(),
+  "projectRevision": zod.string().nullish(),
+  "environmentRevision": zod.string().nullish(),
+  "worldRevision": zod.string().nullish(),
+  "planRevision": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "closedAt": zod.coerce.date().nullable(),
+  "events": zod.array(zod.object({
+  "id": zod.string(),
+  "sequence": zod.number().int().min(getAiExecutionResponseEvidenceBraidEpisodesItemEventsItemSequenceMin),
+  "eventType": zod.string(),
+  "createdAt": zod.coerce.date()
+})),
+  "observations": zod.array(zod.object({
+  "id": zod.string(),
+  "observationRole": zod.string().nullable(),
+  "kind": zod.string(),
+  "provenance": zod.string(),
+  "completeness": zod.string(),
+  "freshness": zod.string(),
+  "environmentFreshness": zod.string().nullable(),
+  "projectRevision": zod.string().nullable(),
+  "environmentRevision": zod.string().nullable(),
+  "observedAt": zod.coerce.date().nullable()
+})),
+  "effects": zod.array(zod.object({
+  "id": zod.string(),
+  "actionId": zod.string(),
+  "capabilityId": zod.string(),
+  "status": zod.string(),
+  "beforeObservationIds": zod.array(zod.string()),
+  "afterObservationIds": zod.array(zod.string()),
+  "missingEffectCount": zod.number().int().min(getAiExecutionResponseEvidenceBraidEpisodesItemEffectsItemMissingEffectCountMin),
+  "contradictionCount": zod.number().int().min(getAiExecutionResponseEvidenceBraidEpisodesItemEffectsItemContradictionCountMin)
+})),
+  "effectBundles": zod.array(zod.object({
+  "id": zod.string(),
+  "verdict": zod.string(),
+  "worldRevision": zod.string().nullable(),
+  "effectIds": zod.array(zod.string()),
+  "createdAt": zod.coerce.date()
+}))
+}))
+}).optional().describe('Bounded, read-only metadata linking current-attempt Episodes, events, observations, effects, and effect bundles. Excludes event payloads and observation values.'),
   "createdAt": zod.coerce.date().optional(),
   "updatedAt": zod.coerce.date().optional(),
   "startedAt": zod.coerce.date().nullish(),
