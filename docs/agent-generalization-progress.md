@@ -3188,6 +3188,28 @@ G9 Revocation Safety
 - **next step:** قرار منفصل من المالك: تحديد مصدر موثوق قائم لكل claim، أو
   الإبقاء على الحجب، أو تفويض تصميم آلية جديدة؛ لا تنفيذ أو جمع قبل ذلك.
 
+### 42.99 — صياغة متطلبات الإثبات واختبار حدودها الحالية (2026-09-28)
+
+- **phase/step:** مواصفة design-only لعقد proof obligations، مع اختبار حارس دون تغيير runtime.
+- **status:** `done — design documented; source-based promotion remains blocked`
+- **what changed:** وُثقت المتطلبات المشتركة وحقول الإثبات الخاصة بكل claim من
+  السبعة، مع فصل الهوية عن السلطة، والـhash عن التوقيت والاعتماد، والقياس عن
+  مراجعة المقيم. يُسمح للنموذج باقتراح سجلات مرشحة فقط؛ تصنيف السلطة والأدلة
+  يظل مسؤولية verifier يملكه الخادم إذا فُوّض لاحقًا. عُزز اختبار inventory
+  ليثبت أن وجود operator allowlist وtask attestation وpartition label، مع
+  مصادر جزئية أخرى، لا يرفع أي claim من `MISSING` ولا يضيف evidence refs.
+- **files/schema/contracts touched:** سجل قرار P7.5 والخطة وسجل التقدم واختبار
+  trust-boundary وذاكرة حدود P7.5؛ لا runtime أو schema أو writer.
+- **validation:** 3 ملفات Vitest، 20 اختبارًا ناجحًا؛
+  `git diff --check`.
+- **authority/safety impact:** لا حالات runtime أو صلاحيات جديدة؛ تبقى الحزمة
+  `BLOCKED` و`collectionAuthorized=false` و`fixed_safe_probe`. `EXPIRED` و
+  `REVOKED` موثقتان كأسباب حجب لا كحالات runtime جديدة.
+- **remaining/blocker:** لا مصدر مؤهل ولا تفويض لتنفيذ verifier أو إضافة تخزين.
+  يلزم قرار مستقل لاختيار مصدر قائم أو إبقاء الحجب أو تفويض آلية جديدة.
+- **next step:** لا تنفيذ أو جمع حتى يصدر هذا القرار؛ أي تنفيذ لاحق يستخدم
+  طبقات التخطيط والأدلة والقبول الموجودة، لا مخططًا أو منفذًا موازيًا.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

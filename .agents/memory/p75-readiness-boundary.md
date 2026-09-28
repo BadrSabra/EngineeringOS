@@ -26,3 +26,9 @@ Keep P7.5 readiness reports and evidence packs diagnostic only. A clean machine 
 **Why:** Conflating these layers can make a possible field look like evidence, or a local empty database look like proof of global absence.
 
 **How to apply:** For each P7.5 claim, document the contract, writer, and environment-specific observation separately before assigning any evidence state. Keep missing or unobserved sources blocked.
+
+**AI/verifier boundary:** The model may locate and organize candidate records, but only a separately authorized server-owned verifier may classify their authority or evidence state. Design obligations do not create runtime fields, trust, or collection permission.
+
+**Why:** Provider reasoning is not an independent source of authority, and a new planning or evidence layer could disagree with the existing acceptance spine.
+
+**How to apply:** Reuse the existing intent, revision-bound planning, retained evidence, and acceptance/proof layers for any authorized future work. Keep source selection and human authority outside the model's decision.
