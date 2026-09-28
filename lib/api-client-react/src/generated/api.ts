@@ -113,6 +113,7 @@ import type {
   ListAiExecutionHistoryParams,
   ListAiMissionsParams,
   ListAiProjectBudgetAlertsParams,
+  ListAiSkillRegistryParams,
   ListEvents200,
   ListEventsParams,
   ListGraphEntitiesParams,
@@ -8598,6 +8599,547 @@ export const useAiReviewCodeStream = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAiReviewCodeStreamMutationOptions(options));
+    }
+
+export const getBindAiSkillCandidateUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/ai/proposals/${proposalId}/skill-candidate`
+}
+
+/**
+ * Send an empty JSON object; proof and candidate identity are resolved from server-owned records.
+ * @summary Bind an accepted proposal as a proof-carrying skill candidate
+ */
+export const bindAiSkillCandidate = async (proposalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getBindAiSkillCandidateUrl(proposalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getBindAiSkillCandidateMutationKey = () => ['bindAiSkillCandidate'] as const;
+
+export const getBindAiSkillCandidateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bindAiSkillCandidate>>, TError,BindAiSkillCandidateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof bindAiSkillCandidate>>, TError,BindAiSkillCandidateMutationVariables, TContext> => {
+
+const mutationKey = getBindAiSkillCandidateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof bindAiSkillCandidate>>, BindAiSkillCandidateMutationVariables> = (props) => {
+          const {proposalId} = props ?? {};
+
+          return  bindAiSkillCandidate(proposalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BindAiSkillCandidateMutationResult = NonNullable<Awaited<ReturnType<typeof bindAiSkillCandidate>>>
+
+    export type BindAiSkillCandidateMutationError = ErrorType<void>
+    export type BindAiSkillCandidateMutationVariables = {proposalId: string}
+
+    /**
+ * @summary Bind an accepted proposal as a proof-carrying skill candidate
+ */
+export const useBindAiSkillCandidate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof bindAiSkillCandidate>>, TError,BindAiSkillCandidateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof bindAiSkillCandidate>>,
+        TError,
+        BindAiSkillCandidateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getBindAiSkillCandidateMutationOptions(options));
+    }
+
+export const getStartAiSkillCandidateShadowReplayUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay`
+}
+
+/**
+ * Send an empty JSON object; the server selects and verifies the bound candidate.
+ * @summary Verify a skill candidate in an isolated shadow workspace
+ */
+export const startAiSkillCandidateShadowReplay = async (proposalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getStartAiSkillCandidateShadowReplayUrl(proposalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getStartAiSkillCandidateShadowReplayMutationKey = () => ['startAiSkillCandidateShadowReplay'] as const;
+
+export const getStartAiSkillCandidateShadowReplayMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startAiSkillCandidateShadowReplay>>, TError,StartAiSkillCandidateShadowReplayMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startAiSkillCandidateShadowReplay>>, TError,StartAiSkillCandidateShadowReplayMutationVariables, TContext> => {
+
+const mutationKey = getStartAiSkillCandidateShadowReplayMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startAiSkillCandidateShadowReplay>>, StartAiSkillCandidateShadowReplayMutationVariables> = (props) => {
+          const {proposalId} = props ?? {};
+
+          return  startAiSkillCandidateShadowReplay(proposalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartAiSkillCandidateShadowReplayMutationResult = NonNullable<Awaited<ReturnType<typeof startAiSkillCandidateShadowReplay>>>
+
+    export type StartAiSkillCandidateShadowReplayMutationError = ErrorType<void>
+    export type StartAiSkillCandidateShadowReplayMutationVariables = {proposalId: string}
+
+    /**
+ * @summary Verify a skill candidate in an isolated shadow workspace
+ */
+export const useStartAiSkillCandidateShadowReplay = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startAiSkillCandidateShadowReplay>>, TError,StartAiSkillCandidateShadowReplayMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startAiSkillCandidateShadowReplay>>,
+        TError,
+        StartAiSkillCandidateShadowReplayMutationVariables,
+        TContext
+      > => {
+      return useMutation(getStartAiSkillCandidateShadowReplayMutationOptions(options));
+    }
+
+export const getGetAiSkillCandidateShadowReplayUrl = (proposalId: string,
+    replayId: string,) => {
+
+
+
+
+  return `/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replayId}`
+}
+
+/**
+ * @summary Get a shadow replay and its bounded receipt
+ */
+export const getAiSkillCandidateShadowReplay = async (proposalId: string,
+    replayId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getGetAiSkillCandidateShadowReplayUrl(proposalId,replayId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiSkillCandidateShadowReplayQueryKey = (proposalId: string,
+    replayId: string,) => {
+    return [
+    `/api/ai/proposals/${proposalId}/skill-candidate/shadow-replay/${replayId}`
+    ] as const;
+    }
+
+
+export const getGetAiSkillCandidateShadowReplayQueryOptions = <TData = Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>, TError = ErrorType<void>>(proposalId: string,
+    replayId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiSkillCandidateShadowReplayQueryKey(proposalId,replayId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>> = ({ signal }) => getAiSkillCandidateShadowReplay(proposalId,replayId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: proposalId !== null && proposalId !== undefined && replayId !== null && replayId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiSkillCandidateShadowReplayQueryResult = NonNullable<Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>>
+export type GetAiSkillCandidateShadowReplayQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a shadow replay and its bounded receipt
+ */
+
+export function useGetAiSkillCandidateShadowReplay<TData = Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>, TError = ErrorType<void>>(
+ proposalId: string,
+    replayId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSkillCandidateShadowReplay>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiSkillCandidateShadowReplayQueryOptions(proposalId,replayId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRegisterAiSkillCandidateUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/ai/proposals/${proposalId}/skill-registry`
+}
+
+/**
+ * Provide skillId and skillVersion in the JSON body; proof, replay, and score fields remain server-owned.
+ * @summary Register a skill after replay and paired-baseline acceptance
+ */
+export const registerAiSkillCandidate = async (proposalId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getRegisterAiSkillCandidateUrl(proposalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRegisterAiSkillCandidateMutationKey = () => ['registerAiSkillCandidate'] as const;
+
+export const getRegisterAiSkillCandidateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerAiSkillCandidate>>, TError,RegisterAiSkillCandidateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerAiSkillCandidate>>, TError,RegisterAiSkillCandidateMutationVariables, TContext> => {
+
+const mutationKey = getRegisterAiSkillCandidateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerAiSkillCandidate>>, RegisterAiSkillCandidateMutationVariables> = (props) => {
+          const {proposalId} = props ?? {};
+
+          return  registerAiSkillCandidate(proposalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterAiSkillCandidateMutationResult = NonNullable<Awaited<ReturnType<typeof registerAiSkillCandidate>>>
+
+    export type RegisterAiSkillCandidateMutationError = ErrorType<void>
+    export type RegisterAiSkillCandidateMutationVariables = {proposalId: string}
+
+    /**
+ * @summary Register a skill after replay and paired-baseline acceptance
+ */
+export const useRegisterAiSkillCandidate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerAiSkillCandidate>>, TError,RegisterAiSkillCandidateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof registerAiSkillCandidate>>,
+        TError,
+        RegisterAiSkillCandidateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRegisterAiSkillCandidateMutationOptions(options));
+    }
+
+export const getListAiSkillRegistryUrl = (params: ListAiSkillRegistryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/skill-registry?${stringifiedParams}` : `/api/ai/skill-registry`
+}
+
+/**
+ * @summary List skill registry entries for a project
+ */
+export const listAiSkillRegistry = async (params: ListAiSkillRegistryParams, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getListAiSkillRegistryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiSkillRegistryQueryKey = (params?: ListAiSkillRegistryParams,) => {
+    return [
+    `/api/ai/skill-registry`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAiSkillRegistryQueryOptions = <TData = Awaited<ReturnType<typeof listAiSkillRegistry>>, TError = ErrorType<void>>(params: ListAiSkillRegistryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiSkillRegistry>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiSkillRegistryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiSkillRegistry>>> = ({ signal }) => listAiSkillRegistry(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiSkillRegistry>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiSkillRegistryQueryResult = NonNullable<Awaited<ReturnType<typeof listAiSkillRegistry>>>
+export type ListAiSkillRegistryQueryError = ErrorType<void>
+
+
+/**
+ * @summary List skill registry entries for a project
+ */
+
+export function useListAiSkillRegistry<TData = Awaited<ReturnType<typeof listAiSkillRegistry>>, TError = ErrorType<void>>(
+ params: ListAiSkillRegistryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiSkillRegistry>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiSkillRegistryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getApproveAiSkillRegistryEntryUrl = (registryId: string,) => {
+
+
+
+
+  return `/api/ai/skill-registry/${registryId}/approve`
+}
+
+/**
+ * Send an empty JSON object; approval is limited to an eligible pending entry.
+ * @summary Approve a pending skill registry entry
+ */
+export const approveAiSkillRegistryEntry = async (registryId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getApproveAiSkillRegistryEntryUrl(registryId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveAiSkillRegistryEntryMutationKey = () => ['approveAiSkillRegistryEntry'] as const;
+
+export const getApproveAiSkillRegistryEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiSkillRegistryEntry>>, TError,ApproveAiSkillRegistryEntryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveAiSkillRegistryEntry>>, TError,ApproveAiSkillRegistryEntryMutationVariables, TContext> => {
+
+const mutationKey = getApproveAiSkillRegistryEntryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveAiSkillRegistryEntry>>, ApproveAiSkillRegistryEntryMutationVariables> = (props) => {
+          const {registryId} = props ?? {};
+
+          return  approveAiSkillRegistryEntry(registryId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveAiSkillRegistryEntryMutationResult = NonNullable<Awaited<ReturnType<typeof approveAiSkillRegistryEntry>>>
+
+    export type ApproveAiSkillRegistryEntryMutationError = ErrorType<void>
+    export type ApproveAiSkillRegistryEntryMutationVariables = {registryId: string}
+
+    /**
+ * @summary Approve a pending skill registry entry
+ */
+export const useApproveAiSkillRegistryEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveAiSkillRegistryEntry>>, TError,ApproveAiSkillRegistryEntryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveAiSkillRegistryEntry>>,
+        TError,
+        ApproveAiSkillRegistryEntryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getApproveAiSkillRegistryEntryMutationOptions(options));
+    }
+
+export const getRevokeAiSkillRegistryEntryUrl = (registryId: string,) => {
+
+
+
+
+  return `/api/ai/skill-registry/${registryId}/revoke`
+}
+
+/**
+ * Send an empty JSON object; the server records the revocation actor and timestamp.
+ * @summary Revoke an active skill registry entry
+ */
+export const revokeAiSkillRegistryEntry = async (registryId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getRevokeAiSkillRegistryEntryUrl(registryId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevokeAiSkillRegistryEntryMutationKey = () => ['revokeAiSkillRegistryEntry'] as const;
+
+export const getRevokeAiSkillRegistryEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeAiSkillRegistryEntry>>, TError,RevokeAiSkillRegistryEntryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeAiSkillRegistryEntry>>, TError,RevokeAiSkillRegistryEntryMutationVariables, TContext> => {
+
+const mutationKey = getRevokeAiSkillRegistryEntryMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeAiSkillRegistryEntry>>, RevokeAiSkillRegistryEntryMutationVariables> = (props) => {
+          const {registryId} = props ?? {};
+
+          return  revokeAiSkillRegistryEntry(registryId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeAiSkillRegistryEntryMutationResult = NonNullable<Awaited<ReturnType<typeof revokeAiSkillRegistryEntry>>>
+
+    export type RevokeAiSkillRegistryEntryMutationError = ErrorType<void>
+    export type RevokeAiSkillRegistryEntryMutationVariables = {registryId: string}
+
+    /**
+ * @summary Revoke an active skill registry entry
+ */
+export const useRevokeAiSkillRegistryEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeAiSkillRegistryEntry>>, TError,RevokeAiSkillRegistryEntryMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeAiSkillRegistryEntry>>,
+        TError,
+        RevokeAiSkillRegistryEntryMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRevokeAiSkillRegistryEntryMutationOptions(options));
     }
 
 export const getListAiMissionsUrl = (params: ListAiMissionsParams,) => {

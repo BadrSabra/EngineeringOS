@@ -7638,6 +7638,82 @@ export const AiReviewCodeStreamResponse = zod.unknown()
 
 
 /**
+ * Send an empty JSON object; proof and candidate identity are resolved from server-owned records.
+ * @summary Bind an accepted proposal as a proof-carrying skill candidate
+ */
+export const BindAiSkillCandidateParams = zod.object({
+  "proposalId": zod.coerce.string()
+})
+
+export const BindAiSkillCandidateResponse = zod.unknown()
+
+
+/**
+ * Send an empty JSON object; the server selects and verifies the bound candidate.
+ * @summary Verify a skill candidate in an isolated shadow workspace
+ */
+export const StartAiSkillCandidateShadowReplayParams = zod.object({
+  "proposalId": zod.coerce.string()
+})
+
+export const StartAiSkillCandidateShadowReplayResponse = zod.unknown()
+
+
+/**
+ * @summary Get a shadow replay and its bounded receipt
+ */
+export const GetAiSkillCandidateShadowReplayParams = zod.object({
+  "proposalId": zod.coerce.string(),
+  "replayId": zod.coerce.string()
+})
+
+export const GetAiSkillCandidateShadowReplayResponse = zod.unknown()
+
+
+/**
+ * Provide skillId and skillVersion in the JSON body; proof, replay, and score fields remain server-owned.
+ * @summary Register a skill after replay and paired-baseline acceptance
+ */
+export const RegisterAiSkillCandidateParams = zod.object({
+  "proposalId": zod.coerce.string()
+})
+
+export const RegisterAiSkillCandidateResponse = zod.unknown()
+
+
+/**
+ * @summary List skill registry entries for a project
+ */
+export const ListAiSkillRegistryQueryParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const ListAiSkillRegistryResponse = zod.unknown()
+
+
+/**
+ * Send an empty JSON object; approval is limited to an eligible pending entry.
+ * @summary Approve a pending skill registry entry
+ */
+export const ApproveAiSkillRegistryEntryParams = zod.object({
+  "registryId": zod.coerce.string()
+})
+
+export const ApproveAiSkillRegistryEntryResponse = zod.unknown()
+
+
+/**
+ * Send an empty JSON object; the server records the revocation actor and timestamp.
+ * @summary Revoke an active skill registry entry
+ */
+export const RevokeAiSkillRegistryEntryParams = zod.object({
+  "registryId": zod.coerce.string()
+})
+
+export const RevokeAiSkillRegistryEntryResponse = zod.unknown()
+
+
+/**
  * @summary List project-owned AI missions
  */
 export const ListAiMissionsQueryParams = zod.object({

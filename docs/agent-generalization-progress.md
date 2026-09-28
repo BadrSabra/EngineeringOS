@@ -2859,6 +2859,27 @@ G9 Revocation Safety
 - **next step:** حافظ على بوابة objective والأدلة الحالية. يمكن متابعة بوابة
   قياس P7.5 بصورة منفصلة؛ عالج schema التطوير فقط بعد تفويض واضح.
 
+### 42.82 — تحقق إغلاق Episodes في تعافي قياس P7.5 (2026-09-28)
+
+- **phase/step:** P7.5 — التحقق من إعادة استخدام نتيجة continuation المحفوظة.
+- **status:** `partial — result-owner and recovery Episodes close correctly`
+- **what changed:** تأكدت الاختبارات الموجودة من أن النتيجة المعاد استخدامها
+  تُغلق Episode المالكة لها والمحاولة الحالية معًا، مع هوية النتيجة نفسها
+  ومن دون إعادة استدعاء `runtime.start` أو إعادة الرصد.
+- **files/schema/contracts touched:** سجل التقدم فقط؛ لا تغيير في التنفيذ أو
+  schema أو عقد القبول.
+- **validation:** من `artifacts/api-server` شغّل
+  `pnpm exec vitest run src/lib/recipe-operation-runner.test.ts src/lib/agent-state/agent-episode-ledger.test.ts --maxWorkers=1`
+  (34/34)، ثم `pnpm run typecheck` من جذر المستودع (نجح عبر مكتبات
+  workspace وAPI وDashboard وmockup-sandbox وscripts)، و`git diff --check`.
+- **authority/safety impact:** تحقق محلي مجاني فقط؛ لا provider حي أو تعديل
+  قاعدة بيانات. يظل القياس advisory و`fixed_safe_probe`، ولا يتغير Gate C أو
+  acceptance أو أهلية calibration v1.
+- **remaining/blocker:** لم تُراجع بعد policy/scope version وevaluator مستقل
+  لنتائج continuation؛ لا cohort أو automatic selection.
+- **next step:** راجع عقد السياسة والتقييم بإصدار مستقل، مع إبقاء جمع النتائج
+  والاختيار الآلي مغلقين حتى اكتمال المراجعة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -6123,6 +6123,25 @@ describe("delivery recovery routes", () => {
 });
 
 describe("POST /api/ai/chat/apply-changes", () => {
+  async function createApplyProject(): Promise<{ id: string; rootPath: string }> {
+    const id = randomUUID();
+    const rootPath = `/tmp/ai-test-${id}`;
+    const now = new Date();
+    await fs.mkdir(rootPath, { recursive: true });
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `ai-apply-test-${id.slice(0, 8)}`,
+      rootPath,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+    return { id, rootPath };
+  }
+
   it("returns 400 when changes array is missing", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -6172,21 +6191,8 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("emits a warning AiChangesApplied event when no file can be written", async () => {
-    // Use /tmp as the project rootPath but point the change outside the root so
-    // the handler records a no-op apply with an event/audit trail.
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-test-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    // Keep the candidate workspace small while the change remains outside it.
+    const { id } = await createApplyProject();
     const proposalChanges = [{
       path: "escape.txt",
       absolutePath: "/etc/escape.txt",
@@ -6219,24 +6225,11 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("does not promote a candidate when behavioral verification is unavailable", async () => {
-    // Use /tmp as the project rootPath. The registered validation profile is
-    // intentionally unavailable there, so the candidate must not be promoted.
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-test-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    // The isolated fixture has no registered validation setup.
+    const { id, rootPath } = await createApplyProject();
 
     const fileName = `lib/ai-orchestrator/apply-test-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${rootPath}/${fileName}`;
     const proposalChanges = [{
       path: fileName,
       absolutePath,
@@ -6283,22 +6276,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("fails closed before promotion when behavioral verification is unavailable", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-rollback-failure-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const fileName = `lib/ai-orchestrator/apply-rollback-failure-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${rootPath}/${fileName}`;
     const proposalChanges = [{
       path: fileName,
       absolutePath,
@@ -6368,22 +6349,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("blocks a destructive source-file replacement and leaves the original intact", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-guard-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const fileName = `apply-guard-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${rootPath}/${fileName}`;
     const original = [
       "export function completeRaw() { return 'raw'; }",
       "export function completeStream() { return 'stream'; }",
@@ -6420,24 +6389,12 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("does not partially apply a safe sibling when another change is destructive", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-atomic-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const dangerousName = `apply-atomic-dangerous-${randomUUID().slice(0, 8)}.ts`;
     const safeName = `apply-atomic-safe-${randomUUID().slice(0, 8)}.ts`;
-    const dangerousPath = `/tmp/${dangerousName}`;
-    const safePath = `/tmp/${safeName}`;
+    const dangerousPath = `${rootPath}/${dangerousName}`;
+    const safePath = `${rootPath}/${safeName}`;
     const original = [
       "export function completeRaw() { return 'raw'; }",
       "const padding = " + JSON.stringify("x".repeat(700)) + ";",
@@ -6485,22 +6442,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("rejects applying a pending change when the file changed after proposal", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-stale-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const fileName = `apply-stale-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${rootPath}/${fileName}`;
     await fs.writeFile(absolutePath, "export const current = true;\n", "utf-8");
     const proposalChanges = [{
       path: fileName,
@@ -6531,22 +6476,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("returns a base-hash conflict and never writes a stale patch", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-hash-conflict-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const fileName = `apply-hash-conflict-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${rootPath}/${fileName}`;
     const original = "export const before = true;\n";
     const replacement = "export const after = true;\n";
     await fs.writeFile(absolutePath, original, "utf-8");
@@ -6581,24 +6514,12 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("aborts the whole batch when one accepted change has a stale base", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-mixed-stale-base-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const staleName = `apply-mixed-stale-${randomUUID().slice(0, 8)}.ts`;
     const validName = `apply-mixed-valid-${randomUUID().slice(0, 8)}.ts`;
-    const stalePath = `/tmp/${staleName}`;
-    const validPath = `/tmp/${validName}`;
+    const stalePath = `${rootPath}/${staleName}`;
+    const validPath = `${rootPath}/${validName}`;
     const staleOriginal = "export const stale = false;\n";
     const validOriginal = "export const valid = false;\n";
     await fs.writeFile(stalePath, staleOriginal, "utf-8");
@@ -6657,22 +6578,10 @@ describe("POST /api/ai/chat/apply-changes", () => {
   });
 
   it("returns a hunk conflict even when the submitted base hash is current", async () => {
-    const id = randomUUID();
-    const now = new Date();
-    await db.insert(projectsTable).values({
-      id,
-      ownerId: "test-user",
-      name: `apply-hunk-conflict-${id.slice(0, 8)}`,
-      rootPath: "/tmp",
-      language: "typescript",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    projectIds.push(id);
+    const { id, rootPath } = await createApplyProject();
 
     const fileName = `apply-hunk-conflict-${randomUUID().slice(0, 8)}.ts`;
-    const absolutePath = `/tmp/${fileName}`;
+    const absolutePath = `${rootPath}/${fileName}`;
     const current = "export const current = true;\n";
     await fs.writeFile(absolutePath, current, "utf-8");
     const proposalChanges = [{

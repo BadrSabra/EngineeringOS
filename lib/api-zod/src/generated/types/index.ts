@@ -415,6 +415,7 @@ export * from './listAiExecutionHistory200ItemRecommendedAction';
 export * from './listAiExecutionHistory200ItemStatus';
 export * from './listAiExecutionHistoryParams';
 export * from './listAiMissionsParams';
+export * from './listAiSkillRegistryParams';
 export * from './listEvents200';
 export * from './listEventsParams';
 export * from './listEventsSeverity';

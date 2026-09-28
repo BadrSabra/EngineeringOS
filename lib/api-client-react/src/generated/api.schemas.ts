@@ -6346,6 +6346,10 @@ startLine?: number;
 endLine?: number;
 };
 
+export type ListAiSkillRegistryParams = {
+projectId: string;
+};
+
 export type ListAiMissionsParams = {
 projectId: string;
 };

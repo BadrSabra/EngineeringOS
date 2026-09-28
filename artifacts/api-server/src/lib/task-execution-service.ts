@@ -3287,7 +3287,9 @@ export async function executeTaskLifecycle(params: {
       logLevel: "error",
       logMessage: cancelled
         ? "AI task execution was cancelled"
-        : "AI task execution failed",
+        : stage === "context"
+          ? "AI execution failed while building project context"
+          : "AI task execution failed",
       logMetadata: {
         stage,
         code: classification.code,
@@ -3307,7 +3309,10 @@ export async function executeTaskLifecycle(params: {
       status: "failed",
       executionId,
       errorCode: classification.code,
-      error: message,
+      // Keep the original error in memory for route-level typed provider
+      // mapping. The durable receipt, acceptance, and task log use only the
+      // bounded classification code and redacted message above.
+      error,
     };
   } finally {
     clearInterval(heartbeat);

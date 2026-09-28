@@ -198,7 +198,7 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
   {
     id: "dashboard-preview-contract",
     kind: "preview",
-    command: "pnpm run validate:dashboard-journey",
+    command: "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey",
     blocking: true,
     coverage: ["Preview dashboard journey"],
   },

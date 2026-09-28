@@ -8,3 +8,9 @@ Chat SSE fixtures must model the durable execution lifecycle at the controller b
 **Why:** If the fixture hides a running row from controller registration, the route aborts every new stream; if a cancellation marker survives one test, later tests report cancelled outcomes and obscure their actual assertions.
 
 **How to apply:** When changing chat stream lifecycle code or its tests, keep the mock DB's status-only execution lookup faithful to the real query and reset `cancelRequestedAt`, `error`, `checkpoint`, status, and final-message state in `beforeEach`.
+
+Heartbeat cleanup assertions must match the execution-heartbeat timer handle; counting any `clearInterval` call can be satisfied by the independent SSE keepalive timer.
+
+**Why:** The stream route owns separate client-keepalive and durable-execution timers, so a global clear-call count can report cleanup before the lease-renewal timer is actually stopped.
+
+**How to apply:** Capture the interval handle created at `AI_EXECUTION_HEARTBEAT_INTERVAL_MS` and wait for that exact handle to be cleared before advancing fake time or asserting persisted lease cleanup.

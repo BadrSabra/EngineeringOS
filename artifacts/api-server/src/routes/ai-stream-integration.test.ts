@@ -34,6 +34,7 @@ import {
   aiChatMessagesTable,
   aiChangeProposalsTable,
   aiExecutionsTable,
+  aiAgentEpisodesTable,
   aiExecutionAcceptancesTable,
   aiExecutionEvidenceSnapshotsTable,
   aiExecutionEvidenceReadsTable,
@@ -661,6 +662,43 @@ async function waitForProjectScanJobsToSettle(projectId: string): Promise<void> 
   );
 }
 
+async function waitForProjectAgentEpisodesToSettle(projectId: string): Promise<void> {
+  const activeStates = new Set(["created", "running", "effect_pending", "verifying", "cancelling"]);
+  const deadline = Date.now() + 10_000;
+  let activeEpisodeIds: string[] = [];
+
+  do {
+    const episodes = await db
+      .select({ id: aiAgentEpisodesTable.id, state: aiAgentEpisodesTable.state })
+      .from(aiAgentEpisodesTable)
+      .where(eq(aiAgentEpisodesTable.projectId, projectId));
+    activeEpisodeIds = episodes
+      .filter((episode) => activeStates.has(episode.state))
+      .map((episode) => episode.id);
+
+    if (activeEpisodeIds.length === 0) {
+      // Execution completion and episode/event writes can be separate async
+      // continuations. Confirm the terminal state remains stable before the
+      // fixture removes execution rows and their foreign-key children.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const confirmation = await db
+        .select({ id: aiAgentEpisodesTable.id, state: aiAgentEpisodesTable.state })
+        .from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.projectId, projectId));
+      activeEpisodeIds = confirmation
+        .filter((episode) => activeStates.has(episode.state))
+        .map((episode) => episode.id);
+      if (activeEpisodeIds.length === 0) return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } while (Date.now() < deadline);
+
+  throw new Error(
+    `Timed out waiting for fixture agent episodes to settle: ${activeEpisodeIds.join(", ")}`,
+  );
+}
+
 async function cleanupProjectFixture(projectId: string): Promise<void> {
   const sessions = await db
     .select({ id: aiChatSessionsTable.id })
@@ -685,6 +723,10 @@ async function cleanupProjectFixture(projectId: string): Promise<void> {
   // cascades whose behavior may differ after a schema change.
   await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, projectId));
   await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, projectId));
+  // Remove episodes as one project-scoped batch before deleting executions.
+  // Per-execution FK cascades can otherwise interleave with terminal episode
+  // writes and deadlock when a fixture owns multiple linked episodes.
+  await db.delete(aiAgentEpisodesTable).where(eq(aiAgentEpisodesTable.projectId, projectId));
   await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.projectId, projectId));
   await db.delete(aiSessionMemoriesTable).where(eq(aiSessionMemoriesTable.projectId, projectId));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, projectId));
@@ -4482,6 +4524,7 @@ exec "$ENGINEERINGOS_TEST_REAL_GIT" "$@"
           .map((event) => event.type),
       );
       expect(traceTypes).toEqual(new Set([
+        "AiAgentEpisodeEvent",
         "AiPlanCreated",
         "AiPlanApproved",
         "AiBuildStarted",
@@ -4628,13 +4671,17 @@ describe("AI execution heartbeat ownership", () => {
         calls: unknown[][];
       };
     },
+    executionHeartbeatTimer?: unknown,
   ): Promise<void> {
     expect(lastHeartbeatAt).toBeInstanceOf(Date);
+    const heartbeatTimerCleared = () => executionHeartbeatTimer === undefined
+      ? clearIntervalSpy.mock.calls.length > clearIntervalCallCount
+      : clearIntervalSpy.mock.calls.some(([timer]) => timer === executionHeartbeatTimer);
     for (let attempt = 0; attempt < 200; attempt += 1) {
-      if (clearIntervalSpy.mock.calls.length > clearIntervalCallCount) break;
+      if (heartbeatTimerCleared()) break;
       await loadExecutionLease(executionId);
     }
-    expect(clearIntervalSpy.mock.calls.length).toBeGreaterThan(clearIntervalCallCount);
+    expect(heartbeatTimerCleared()).toBe(true);
     vi.advanceTimersByTime(AI_EXECUTION_HEARTBEAT_INTERVAL_MS * 2);
     const afterCleanup = await loadExecutionLease(executionId);
     expect(afterCleanup.lastHeartbeatAt).toBeNull();
@@ -4844,6 +4891,8 @@ describe("AI execution heartbeat ownership", () => {
     vi.useFakeTimers();
     const heartbeatSpy = vi.spyOn(aiExecutionState, "heartbeatAiExecution");
     const completeSpy = vi.spyOn(aiExecutionState, "completeAiExecution");
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+    const setIntervalCallCount = setIntervalSpy.mock.calls.length;
     const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
     const clearIntervalCallCount = clearIntervalSpy.mock.calls.length;
     let phaseStarted!: () => void;
@@ -4872,6 +4921,13 @@ describe("AI execution heartbeat ownership", () => {
 
     try {
       await started;
+      let executionHeartbeatTimer: unknown;
+      for (let index = setIntervalCallCount; index < setIntervalSpy.mock.calls.length; index += 1) {
+        if (setIntervalSpy.mock.calls[index]?.[1] === AI_EXECUTION_HEARTBEAT_INTERVAL_MS) {
+          executionHeartbeatTimer = setIntervalSpy.mock.results[index]?.value;
+        }
+      }
+      expect(executionHeartbeatTimer).toBeDefined();
       const executionId = await waitForExecutionId(projectId);
       const beforeHeartbeat = await loadExecutionLease(executionId);
       await runHeartbeatInterval(executionId, beforeHeartbeat.lastHeartbeatAt, heartbeatSpy);
@@ -4895,13 +4951,29 @@ describe("AI execution heartbeat ownership", () => {
         heartbeatSpy.mock.calls.length,
         clearIntervalCallCount,
         clearIntervalSpy,
+        executionHeartbeatTimer,
       );
       const completed = await loadExecutionLease(executionId);
       expect(completed.status).toBe("completed");
+      let completedEpisode = false;
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const [episode] = await db
+          .select({ state: aiAgentEpisodesTable.state })
+          .from(aiAgentEpisodesTable)
+          .where(eq(aiAgentEpisodesTable.executionId, executionId))
+          .limit(1);
+        if (episode?.state === "completed") {
+          completedEpisode = true;
+          break;
+        }
+        await loadExecutionLease(executionId);
+      }
+      expect(completedEpisode).toBe(true);
     } finally {
       releasePhase();
       vi.useRealTimers();
     }
+    await waitForProjectAgentEpisodesToSettle(projectId);
   });
 });
 
@@ -5569,6 +5641,7 @@ describe("Concurrent chat ordering and ownership", () => {
       expect(done?.operationId).toEqual(expect.any(String));
       expect(events.filter((event) => event.type === "done")).toHaveLength(1);
     }
+    await waitForProjectAgentEpisodesToSettle(projectId);
   });
 });
 
@@ -5695,14 +5768,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(res.text).not.toMatch(/at\s+\w+\s+\(/); // stack trace pattern
   });
 
-  it("preserves bounded no-tools synthesis accounting and provenance in the terminal SSE event", async () => {
+  it("rejects unbound no-tools synthesis output before terminal SSE success", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
 
     vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
-      const onDelta = args[3] as ((delta: string) => void) | undefined;
       const onStep = args[6] as ((step: unknown) => void) | undefined;
-      onDelta?.("The verified project answer.");
       onStep?.({
         kind: "model_call",
         model: "first-empty-model",
@@ -5712,22 +5783,6 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         kind: "model_call",
         model: "second-valid-model",
         provider: "openrouter",
-      });
-      onStep?.({
-        kind: "done",
-        iterations: 3,
-        maxIterations: 24,
-        toolCalls: 1,
-        prefetchToolCalls: 1,
-        loopToolCalls: 0,
-        stopReason: "response",
-        synthesisStarted: true,
-        synthesisAttempts: 2,
-        synthesisMaxAttempts: 2,
-        synthesisTimeoutMs: 30_000,
-        synthesisElapsedMs: 125,
-        synthesisTimedOut: false,
-        diagnosticCodes: [],
       });
       return {
         result: {
@@ -5750,22 +5805,17 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     expect(res.status).toBe(200);
     const events = parseSseEvents(res.text);
-    const doneEvent = events.find((event) => event.type === "done");
-    expect(doneEvent).toBeDefined();
-    expect((doneEvent?.message as Record<string, unknown>)?.content)
-      .toBe("The verified project answer.");
-    expect(doneEvent).toMatchObject({
-      projectQueryResponseSource: "provider_synthesis",
-      execution: {
-        synthesisStarted: true,
-        synthesisAttempts: 2,
-        synthesisMaxAttempts: 2,
-        synthesisTimedOut: false,
-      },
+    expect(events.find((event) => event.type === "done")).toBeUndefined();
+    const errorEvents = events.filter((event) => event.type === "error");
+    expect(errorEvents).toHaveLength(1);
+    expect(errorEvents[0]).toMatchObject({
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
     });
+    expect(res.text).not.toContain("The verified project answer.");
     expect(res.text).not.toContain("first-empty-model");
     expect(res.text).not.toContain("second-valid-model");
-    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
   });
 
   it("preserves Arabic provider synthesis through SSE reset, terminal reconnect, and history reload", async () => {

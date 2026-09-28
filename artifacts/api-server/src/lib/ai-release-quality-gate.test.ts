@@ -241,6 +241,10 @@ describe("AI release quality gate", () => {
   it("reports skipped preview cases while preserving a deterministic decision", () => {
     const checks = getAiReleaseChecks();
     const preview = checks.find((check) => check.id === "dashboard-preview-contract")!;
+    expect(preview.command).toContain('APP_ORIGINS="https://${REPLIT_DEV_DOMAIN}"');
+    expect(preview.command).toContain("RELEASE_VALIDATION_WAIT_FOR_LOCK=1");
+    expect(preview.command).toContain("DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium)");
+    expect(preview.command).toContain("DASHBOARD_E2E_SKIP_API_CONTRACTS=1");
     const decision = evaluateAiReleaseQuality([
       result({ ...preview, status: "skipped" }),
     ]);
