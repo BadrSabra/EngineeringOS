@@ -2,6 +2,7 @@ export type RuntimeStartHypothesisTrustStatus =
   | "SERVER_VERIFIED"
   | "HUMAN_REVIEW_REQUIRED"
   | "MISSING"
+  | "UNVERIFIABLE"
   | "CONFLICTING"
   | "OUT_OF_SCOPE";
 
@@ -176,6 +177,7 @@ export function runtimeStartHypothesisTrustBoundaryBlockers(
   const blockers = boundary.checks.flatMap((check) => {
     if (
       check.status === "MISSING"
+      || check.status === "UNVERIFIABLE"
       || check.status === "CONFLICTING"
       || check.status === "OUT_OF_SCOPE"
     ) {

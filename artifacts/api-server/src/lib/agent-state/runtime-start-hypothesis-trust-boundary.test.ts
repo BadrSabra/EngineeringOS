@@ -105,6 +105,23 @@ describe("P7.5 trust-boundary source inventory", () => {
     );
   });
 
+  it("keeps UNVERIFIABLE distinct from review and blocking even with bound evidence", () => {
+    const boundary = fullyVerifiedBoundary(buildRuntimeStartHypothesisTrustBoundary());
+    const unverifiable: RuntimeStartHypothesisTrustBoundary = {
+      ...boundary,
+      checks: boundary.checks.map((check) => ({
+        ...check,
+        status: "UNVERIFIABLE",
+      })),
+    };
+
+    expect(runtimeStartHypothesisTrustBoundaryBlockers(unverifiable)).toEqual(
+      unverifiable.checks.map((check) => `trust-boundary:${check.id}:unverifiable`).sort(),
+    );
+    expect(runtimeStartHypothesisTrustBoundaryStatus(unverifiable)).toBe("blocked");
+    expect(runtimeStartHypothesisTrustBoundaryStatus(unverifiable)).not.toBe("review_required");
+  });
+
   it("keeps human review distinct from missing proof and does not imply collection approval", () => {
     const boundary = buildRuntimeStartHypothesisTrustBoundary();
     const verified = fullyVerifiedBoundary(boundary);

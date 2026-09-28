@@ -3063,6 +3063,29 @@ G9 Revocation Safety
 - **next step:** اعتماد أو رفض المصادر المقترحة لكل شرط، مع توثيق authority
   semantics؛ لا تبدأ تنفيذ verifier قبل ذلك.
 
+### 42.93 — توحيد تصنيف UNVERIFIABLE في runtime لـP7.5 (2026-09-28)
+
+- **phase/step:** مواءمة taxonomy الثقة الموثق مع runtime قبل قرار المصادر أو
+  تنفيذ verifiers.
+- **status:** `done — UNVERIFIABLE is represented and remains fail-closed`
+- **what changed:** أضيفت `UNVERIFIABLE` إلى حالات trust-boundary runtime؛ ويُنتج
+  blocker مميزًا لهذه الحالة. يؤكد الاختبار أن وجود evidence refs صحيحة لا يحول
+  `UNVERIFIABLE` إلى مراجعة بشرية أو تحقق. بقيت الحالات السبع الحالية `MISSING`
+  ومراجعها فارغة.
+- **files/schema/contracts touched:** trust-boundary runtime واختباراته، فقرة
+  عقد الثقة في الخطة، وسجل التقدم؛ لا schema أو migration أو DB write.
+- **validation:** اختبار trust-boundary وcalibration-readiness (15/15)،
+  `pnpm exec tsc -p tsconfig.json --noEmit` و`pnpm run build` من
+  `artifacts/api-server`، و`git diff --check`؛ أعيد تشغيل API workflow وعاد
+  `RUNNING` مع `Server listening` على المنفذ. ظهرت تحذيرات recovery سابقة عن
+  temporary project roots غير متاحة، ولم تمنع بدء الخدمة.
+- **authority/safety impact:** taxonomy فقط؛ لا مصدر authority مختار أو verifier
+  أو صلاحية جديدة. الحزمة تبقى `BLOCKED` و`collectionAuthorized=false`،
+  والاختيار `fixed_safe_probe` دون تغيير.
+- **remaining/blocker:** قرار المالك حول مصدر كل claim وأساس سلطته ما زال مطلوبًا.
+- **next step:** حسم مصدر مؤهل أو التصريح بعدم وجوده لكل claim؛ بعد ذلك فقط
+  تخطيط verifiers منفصلة.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
