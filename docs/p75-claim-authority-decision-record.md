@@ -128,6 +128,29 @@ The current runtime trust boundary still reports all seven checks as
 `selectionMode=fixed_safe_probe`. No runtime, schema, writer, verifier, IAM,
 endpoint, Dashboard control, or collection permission is added by this audit.
 
+## Development-data shadow check (read-only, 2026-09-28)
+
+This separate check queried aggregate counts and exact key/text-marker
+presence in the development database only. It returned no record IDs, actors,
+or evidence text, and performed no writes.
+
+- `ai_agent_episode_events`: 404 rows; 0 payloads had a `P75*` `recordKind`,
+  `P75`/`reviewId` text markers, `evidencePackHash`/`protocolRevision`
+  markers, or `validUntil`/`validityWindow` markers.
+- `tasks`: 11 rows, 1 non-null `verification_result`; 0 such results mentioned
+  `P75`, `reviewId`, `evidencePackHash`, or `protocolRevision`.
+- `audit_logs`: 1,033 rows; 0 selected JSON snapshots contained those P7.5
+  markers or the exact review/pack/protocol keys.
+- No public table name matched `p75`, `calibration`, `review`, `approval`,
+  `reset`, `cohort`, `holdout`, or `sampling`.
+
+This point-in-time development result adds no candidate P7.5 binding to the
+source inventory. The checks were limited to known tables, exact canonical key
+names, and the listed text markers; they do not establish absence in another
+environment or in an unrelated store/encoding. All seven runtime checks
+remain `MISSING`; the pack remains `BLOCKED`,
+`collectionAuthorized=false`, and `fixed_safe_probe`.
+
 ## Future proof obligations (design only)
 
 This is a requirements outline for a separately authorized design or

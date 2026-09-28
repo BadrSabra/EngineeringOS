@@ -3210,6 +3210,28 @@ G9 Revocation Safety
 - **next step:** لا تنفيذ أو جمع حتى يصدر هذا القرار؛ أي تنفيذ لاحق يستخدم
   طبقات التخطيط والأدلة والقبول الموجودة، لا مخططًا أو منفذًا موازيًا.
 
+### 43.00 — فحص ظلّ للسجلات الدائمة في قاعدة التطوير (2026-09-28)
+
+- **phase/step:** مطابقة مجمّعة، read-only، لمتطلبات الإثبات مع مخازن التطوير المعروفة.
+- **status:** `done — no matching P7.5 binding rows observed in checked development sources`
+- **what changed:** فُحصت مفاتيح وإشارات P7.5 في `ai_agent_episode_events`
+  و`tasks.verification_result` ولقطات `audit_logs`، مع فحص أسماء الجداول ذات
+  الصلة. كانت النتائج: 404 أحداث Episode دون `P75` أو مفاتيح review/pack/protocol/
+  validity؛ 11 task بينها نتيجة تحقق واحدة دون هذه الإشارات؛ 1,033 سجل audit
+  دونها؛ ولم يظهر جدول عام باسم يطابق P7.5 أو calibration/review/approval/reset/
+  cohort/holdout/sampling. أُرجعت أعداد فقط، بلا IDs أو actors أو نصوص أدلة.
+- **files/schema/contracts touched:** سجل قرار P7.5 والخطة وسجل التقدم؛ لا runtime
+  أو schema أو قاعدة بيانات أو صلاحيات. الاستعلامات للقراءة فقط على development.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** لا binding مرصود في الجداول المحددة؛ تبقى claims
+  runtime السبعة `MISSING`، والحزمة `BLOCKED` و`collectionAuthorized=false`،
+  والاختيار `fixed_safe_probe`.
+- **remaining/blocker:** هذه لقطة تطوير لحظية ومحدودة بالجداول والمفاتيح النصية
+  المفحوصة؛ لا تنفي وجود بيانات في بيئة أو مخزن آخر. لا يوجد تفويض بمصدر أو
+  verifier جديد.
+- **next step:** قرار مالك مستقل: تقديم مصدر قائم بعينه لفحصه، أو إبقاء الحجب،
+  أو تفويض تصميم آلية؛ لا جمع أو تغيير runtime قبل ذلك.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
