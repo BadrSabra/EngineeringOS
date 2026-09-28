@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canonicalJsonHash } from "@workspace/ai-orchestrator";
 import {
   buildRuntimeStartHypothesisExperimentRegistration,
   buildRuntimeStartHypothesisExperimentResult,
@@ -14,6 +15,9 @@ import {
   RUNTIME_START_CALIBRATION_READINESS_MAX_EXPERIMENTS,
   type RuntimeStartCalibrationReadinessInput,
 } from "./runtime-start-hypothesis-calibration-readiness.js";
+import {
+  buildRuntimeStartHypothesisReadinessEvidencePack,
+} from "./runtime-start-hypothesis-readiness-evidence-pack.js";
 
 const baseScope = {
   projectId: "p75-readiness-project",
@@ -254,5 +258,119 @@ describe("runtime-start calibration readiness preflight", () => {
     );
 
     expect(second).toEqual(first);
+  });
+
+  it("builds a deterministic, version-hashed pack while human review remains missing", () => {
+    const report = evaluateRuntimeStartHypothesisCalibrationReadiness(
+      readinessInput([experiment(7), experiment(8)]),
+    );
+    const pack = buildRuntimeStartHypothesisReadinessEvidencePack(report);
+    const repeated = buildRuntimeStartHypothesisReadinessEvidencePack(report);
+
+    expect(pack).toEqual(repeated);
+    expect(pack).toMatchObject({
+      kind: "p75-runtime-start-readiness-evidence-pack",
+      status: "REVIEW_REQUIRED",
+      collectionAuthorized: false,
+      aggregateCalibrationAssessmentComputed: false,
+      writesPerformed: false,
+      selectionMode: "fixed_safe_probe",
+      readinessRef: report.readinessRef,
+      sourceManifestHash: report.sourceManifestHash,
+      calibrationScopeRef: report.calibrationScopeRef,
+      protocolManifest: {
+        protocolId: "p75-runtime-start-calibration-readiness",
+        calibrationVersion: "runtime-start-calibration-v1",
+        evaluatorVersion: report.methodVersion,
+        policyVersion: report.calibrationPolicyVersion,
+        evaluationPartition: report.evaluationPartition,
+      },
+    });
+    expect(pack.protocolManifestHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(pack.protocolManifestHash).toBe(canonicalJsonHash(pack.protocolManifest));
+    expect(pack.readinessReportHash).toBe(canonicalJsonHash(report));
+    expect(pack.protocolManifest.hashes).toEqual({
+      calibrationVersionHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      evaluatorVersionHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      policyVersionHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      scopeDefinitionHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(pack.machineEvidence.find((item) => item.id === "episode-ledger-ownership"))
+      .toMatchObject({ status: "unverified" });
+    expect(pack.machineEvidence.find((item) => item.id === "conflict-scan"))
+      .toMatchObject({ status: "verified" });
+    expect(pack.humanReviewItems).toHaveLength(6);
+    expect(pack.humanReviewItems.every((item) => (
+      item.status === "missing"
+      && item.trustedSource === "not_configured"
+      && item.evidenceRefs.length === 0
+    ))).toBe(true);
+    expect(pack.reviewRequired).toEqual(expect.arrayContaining([
+      "controlled-environment-reset",
+      "independent-sampling-definition",
+      "held-out-provenance",
+      "forecast-and-policy-freeze",
+      "evaluator-applicability",
+      "reviewer-identity-and-approval",
+      "episode-ledger-ownership",
+    ]));
+  });
+
+  it("does not accept an arbitrary resetConfirmed boolean as operator evidence", () => {
+    const report = evaluateRuntimeStartHypothesisCalibrationReadiness(readinessInput());
+    const forgedReport = {
+      ...report,
+      resetConfirmed: true,
+    } as typeof report;
+    const pack = buildRuntimeStartHypothesisReadinessEvidencePack(forgedReport);
+
+    expect(pack.status).toBe("BLOCKED");
+    expect(pack.collectionAuthorized).toBe(false);
+    expect(pack.machineEvidence.find((item) => item.id === "source-report-integrity"))
+      .toMatchObject({ status: "blocked" });
+    expect(pack.humanReviewItems.find((item) => item.id === "controlled-environment-reset"))
+      .toMatchObject({
+        status: "missing",
+        trustedSource: "not_configured",
+        evidenceRefs: [],
+      });
+    expect(pack).not.toHaveProperty("resetConfirmed");
+  });
+
+  it("keeps overflow and conflicting snapshots blocked in the evidence pack", () => {
+    const source = experiment(9);
+    const conflictReport = evaluateRuntimeStartHypothesisCalibrationReadiness(
+      readinessInput([
+        source,
+        {
+          ...source,
+          result: buildRuntimeStartHypothesisExperimentResult({
+            registration: source.registration,
+            observationRefs: ["different-observation"],
+            measurementValidity: "complete_fresh",
+            environmentStatus: "same_scope",
+            actualOutcomeKey: "runtime_not_running",
+            resolvedAt: "2026-09-28T10:04:00.000Z",
+          }),
+        },
+      ]),
+    );
+    const overflowReport = evaluateRuntimeStartHypothesisCalibrationReadiness(
+      readinessInput(Array.from({
+        length: RUNTIME_START_CALIBRATION_READINESS_MAX_EXPERIMENTS + 1,
+      }, () => null)),
+    );
+
+    const conflictPack = buildRuntimeStartHypothesisReadinessEvidencePack(conflictReport);
+    const overflowPack = buildRuntimeStartHypothesisReadinessEvidencePack(overflowReport);
+    expect(conflictReport.conflictingRecordCount).toBe(1);
+    expect(conflictPack.status).toBe("BLOCKED");
+    expect(conflictPack.blockers).toContain("conflict-scan");
+    expect(overflowPack.status).toBe("BLOCKED");
+    expect(overflowPack.blockers).toContain("bounded-input");
+    expect(overflowPack.machineEvidence.find((item) => item.id === "overflow-status"))
+      .toMatchObject({ status: "blocked" });
+    expect(conflictPack.collectionAuthorized).toBe(false);
+    expect(overflowPack.collectionAuthorized).toBe(false);
   });
 });

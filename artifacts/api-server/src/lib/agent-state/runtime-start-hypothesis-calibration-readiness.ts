@@ -60,6 +60,7 @@ export type RuntimeStartCalibrationReadinessReport = {
   unresolvedExperimentCount: number;
   excludedContinuationResultCount: number;
   duplicateRecordCount: number;
+  conflictingRecordCount: number;
   distinctMissionIdCount: number;
   missionCountIsIndependenceProof: false;
   invalidRecordCount: number;
@@ -423,6 +424,7 @@ export function evaluateRuntimeStartHypothesisCalibrationReadiness(
     unresolvedExperimentCount,
     excludedContinuationResultCount,
     duplicateRecordCount,
+    conflictingRecordCount,
     distinctMissionIdCount: missionIds.size,
     invalidRecordCount,
     invalidRegistrationCount,

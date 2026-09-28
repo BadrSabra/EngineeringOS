@@ -5593,6 +5593,17 @@ outcome. اختلاف Mission IDs يبقى وصفًا لا دليل استقلا
 scope/policy/selector. يقتصر الفحص على 5,000 سجل؛ أي سجل زائد ينتج blocker ولا
 يُفحص. لذلك لا يفتح هذا التنفيذ collection gate ولا يغير v1.
 
+**حزمة أدلة الجاهزية (2026-09-28):** أضيف builder داخلي حتمي يربط التقرير
+بـprotocol manifest مُجزّأ الإصدار، وhash التقرير وsource manifest، وإشارات
+للـmachine checks. يعرض Episode-ledger ownership كغير متحقق لأن preflight لا
+يستعلم عن ملكية أحداث Episode الدائمة. تبقى reset والاستقلال وheld-out provenance
+وتجميد policy/evaluator وصلاحية المراجع وعناصر الموافقة البشرية مفقودة؛ لا يوجد
+مصدر سلطة موثوق للـoperator أو reviewer، ولا تقبل الحزمة حقولًا مثل
+`resetConfirmed: true`. أي تعديل في التقرير لا يطابق readiness reference يمنع
+المراجعة ويجعل الحزمة `BLOCKED`. الحزمة لا تكتب أو تحسب المعايرة ولا تُخوّل الجمع؛
+الناتج إما `BLOCKED` أو `REVIEW_REQUIRED` دائمًا، مع
+`collectionAuthorized=false` و`fixed_safe_probe`.
+
 #### Definition of Done لـP7.5
 
 1. لكل objective و`hypothesisSetId`، يثبت الخادم أن الفرضيات بدائل متنافية

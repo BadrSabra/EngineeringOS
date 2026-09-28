@@ -2979,6 +2979,17 @@ G9 Revocation Safety
 - **remaining/blocker:** reset والاستقلال الحقيقي وheld-out provenance وتجميد forecast/policy ما زالت مراجعات حاجبة؛ لا يوجد scope مؤهل أو cohort.
 - **next step:** أبقِ بوابة الجمع مغلقة إلى أن توثق هذه المراجعات وتُراجع منفصلًا؛ لا تستخدم تقريرًا نظيفًا وحده لبدء الجمع.
 
+### 42.88 — حزمة أدلة جاهزية P7.5 الداخلية (2026-09-28)
+
+- **phase/step:** ربط preflight read-only ببروتوكول مُجزّأ ومراجعات بشرية غير مُثبتة.
+- **status:** `done — diagnostic evidence pack; no trusted attestation source; collection remains unauthorized`
+- **what changed:** أضيف builder حتمي للحزمة يثبت protocol/calibration/evaluator/policy/scope versions hashes، ويربط readiness report وsource manifest وفحوص الآلة. تعرض الحزمة machine evidence للـscope والتسجيلات والنتائج والتعارض والـoverflow. توضح أن Episode identity fields لا تثبت ملكية ledger الدائمة. تبقى مراجعات reset والاستقلال وheld-out وfreeze وملاءمة evaluator وهوية reviewer بحالة missing، لأن مصدر السلطة لم يُحدد.
+- **files/schema/contracts touched:** وحدة builder واختبارات readiness، وإظهار عدد مجموعات التعارض في تقرير preflight؛ لا API أو Dashboard أو schema أو migrations أو DB writes.
+- **validation:** اجتازت اختبارات readiness المستهدفة (11/11)، وفحص TypeScript المباشر لـAPI، و`git diff --check`.
+- **authority/safety impact:** لا يقبل builder attestation من caller؛ إضافة `resetConfirmed: true` تفشل سلامة مرجع التقرير ولا تغير حالة المراجعة. الحزمة دائمًا `BLOCKED` أو `REVIEW_REQUIRED`، و`collectionAuthorized=false`، ولا تحسب ECE/bootstrap أو تكتب بيانات أو تغير `fixed_safe_probe`.
+- **remaining/blocker:** تحديد مصدر موثوق لهوية operator/reviewer والتحقق من reset وheld-out provenance يتطلب قرارًا مستقلًا؛ لا scope مؤهل أو cohort.
+- **next step:** إبقاء الحزمة داخلية وتشخيصية؛ لا إضافة API أو واجهة أو اعتماد آلي دون عقد مراجعة منفصل.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
