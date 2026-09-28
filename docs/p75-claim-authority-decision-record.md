@@ -128,6 +128,42 @@ The current runtime trust boundary still reports all seven checks as
 `selectionMode=fixed_safe_probe`. No runtime, schema, writer, verifier, IAM,
 endpoint, Dashboard control, or collection permission is added by this audit.
 
+## Future proof obligations (design only)
+
+This is a requirements outline for a separately authorized design or
+implementation task. It does not define runtime fields, add states, select a
+source, or authorize collection. The listed attributes are conceptual
+obligations, not proposed database column names.
+
+Any future claim evidence must bind a stable source record reference and content
+hash to the exact claim and scope, protocol revision where applicable, issuer,
+and authority basis. It must also carry the observation time, validity window,
+invalidation/revocation conditions, and conflict-resolution rule. A hash proves
+content identity only; it does not prove issuer authority, review identity, or
+that a freeze preceded outcomes.
+
+| Claim | Claim-specific proof obligations |
+|---|---|
+| `reviewer-identity` | Authenticated Clerk subject/session bound to an exact `reviewId`, evidence-pack hash, protocol revision, scope, and validity window. The same account/session alone is not the review. |
+| `reviewer-authority-and-approval` | Designated P7.5 authority basis and explicit review decision bound to that same review/pack/protocol/scope; include decision time, validity, revocation, and conflict handling. Account identity or a general operator allowlist is insufficient. |
+| `controlled-environment-reset` | Versioned reset procedure; controlled environment/project scope; verified pre-reset and post-reset state; authorized operator; repeatability evidence; and validity/invalidation conditions. Execution or environment revision alone is insufficient. |
+| `independent-sampling-definition` | Defined target population and sampling frame; selection method/version and auditable draw lineage; eligibility/exclusion and reuse handling; and an independent source/issuer. Distinct Mission IDs or aggregate counts are insufficient. |
+| `heldout-provenance` | Dataset identity/version and partition membership; split/acquisition lineage; access and tuning history for forecast, policy, probe, and evaluator; and evidence outcomes were not used before registration. A partition label/hash is insufficient. |
+| `forecast-and-policy-freeze` | Exact hashes/versions for forecast, hypotheses, decision mapping, probe, evaluator, policy, and scope; trusted freeze time demonstrably before outcomes; authorized owner/approver; and tamper, invalidation, and conflict semantics. |
+| `evaluator-applicability` | Evaluator/method version; target population, objective, and scope; independent assessment of sample sufficiency and limitations; reviewer authority; and review validity. Mechanical calibration thresholds alone are insufficient. |
+
+`EXPIRED` and `REVOKED` describe blocking reasons, not new runtime states in
+this design. Missing, expired, revoked, conflicting, and out-of-scope evidence
+must block. `HUMAN_REVIEW_REQUIRED` is permitted only when a separate, bound,
+independently verifiable human-review record exists; absence of a source is not
+a fallback to human review.
+
+If a future task is authorized, use the existing intent/planning, server-owned
+read tools, retained-evidence, and acceptance/proof layers. The model may help
+locate candidate records, but only a server-owned verifier may classify their
+authority and evidence state. Do not add a second planner/executor or infer
+trust from provider prose. Collection approval remains a separate gate.
+
 ## Guardrails
 
 - Do not infer additional authority or evidence from source presence, caller claims, hashes, or examples.

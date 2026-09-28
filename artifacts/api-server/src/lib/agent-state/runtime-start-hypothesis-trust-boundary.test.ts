@@ -41,7 +41,7 @@ function fullyVerifiedBoundary(
 }
 
 describe("P7.5 trust-boundary source inventory", () => {
-  it("records partial existing sources without treating them as P7.5 approval evidence", () => {
+  it("records partial sources without promoting P7.5 claims", () => {
     const first = buildRuntimeStartHypothesisTrustBoundary();
     const second = buildRuntimeStartHypothesisTrustBoundary();
     const reviewerIdentity = first.checks.find((check) => check.id === "reviewer-identity");
@@ -54,6 +54,18 @@ describe("P7.5 trust-boundary source inventory", () => {
       }),
       expect.objectContaining({
         id: "episode-ledger",
+        availability: "present",
+      }),
+      expect.objectContaining({
+        id: "server-operator-allowlist",
+        availability: "present",
+      }),
+      expect.objectContaining({
+        id: "generic-task-operator-attestation",
+        availability: "present",
+      }),
+      expect.objectContaining({
+        id: "fixed-heldout-partition",
         availability: "present",
       }),
       expect.objectContaining({
@@ -74,7 +86,9 @@ describe("P7.5 trust-boundary source inventory", () => {
       sourceIds: ["clerk-session-identity", "p75-review-approval-record"],
       evidenceRefs: [],
     });
-    expect(first.checks.every((check) => check.status === "MISSING")).toBe(true);
+    expect(first.checks.every((check) => (
+      check.status === "MISSING" && check.evidenceRefs.length === 0
+    ))).toBe(true);
     expect(runtimeStartHypothesisTrustBoundaryBlockers(first)).toHaveLength(
       first.checks.length,
     );
