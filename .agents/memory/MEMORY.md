@@ -155,4 +155,5 @@
 - [Generated query-key tests](generated-query-key-tests.md) — mocks for generated React Query keys should match their exact URL/parameter shape, especially when asserting invalidation.
 - [Bodyless JSON requests](api-bodyless-json-post.md) — generated POSTs with no request body can leave Express's `req.body` undefined; normalize optional JSON before validation.
 - [P7.5 Mission context boundary](p75-mission-context-boundary.md) — calibrated runtime observations stay advisory until a server-owned observation path and existing acceptance edge bind them.
+- [P7.5 readiness boundary](p75-readiness-boundary.md) — pre-collection reports stay diagnostic; reset, independence, and held-out freeze need auditable human review.
 - [Objective locator ranking](objective-locator-ranking.md) — prefer compact executable needle clusters over later quoted mentions; keep range selection separate from acceptance.

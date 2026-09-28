@@ -2968,6 +2968,17 @@ G9 Revocation Safety
 - **remaining/blocker:** لم يتأهل scope للجمع. تظل شروط §42.8 للاستقلال وheld-out وثبات scope والتحقق من evaluator مطلوبة.
 - **next step:** أبقِ `fixed_safe_probe` وبوابة الجمع كما هما؛ لا تبدأ cohort ولا تدخل continuation في v1 قبل استيفاء ومراجعة جميع الشروط.
 
+### 42.87 — تقرير جاهزية P7.5 للقراءة فقط قبل الجمع (2026-09-28)
+
+- **phase/step:** إضافة preflight حتمي يراجع scope وسلامة سجلات P7.5 الموجودة قبل أي حملة held-out.
+- **status:** `done — read-only assessment implemented; collection remains blocked pending human review`
+- **what changed:** أضيف تقييم يثبت scope المقترح، ويفحص registration/result identities، تطابق الـforecast والـBrier المسجل، اكتمال القياس، والتكرار المتعارض. يستبعد continuation receipts من outcomes الخاصة بـcalibration v1، ويصدر manifest hash وتعدادات وفحوصًا ذات أسباب واضحة. لا يقدّر ECE أو bootstrap ولا ينشئ assessment. حتى مع سجلات متسقة، تبقى المراجعة البشرية مطلوبة لإجراء reset آمن، وتعريف الاستقلال بما يتجاوز اختلاف `missionId`، وإثبات held-out غير المستخدم، وتجميد policy، ومراجعة كفاية العينة وحدود ECE التجميعي قبل أول outcome.
+- **files/schema/contracts touched:** وحدة واختبارات `runtime-start-hypothesis-calibration-readiness`، وخطة التنفيذ وسجل التقدم؛ لا schema أو migrations أو كتابة قاعدة بيانات أو endpoint.
+- **validation:** اختبارات readiness وcalibration المستهدفة (17/17)، وفحص TypeScript المباشر لـAPI، و`git diff --check`، ثم إعادة تشغيل API والتأكد من وصوله إلى حالة الاستماع. أطلق بدء API تحديث فهرس OpenRouter الموجود مسبقًا؛ لم يصدر preflight طلب استدلال أو يجمع بيانات.
+- **authority/safety impact:** التقرير لا يملك حالة ready، ويعيد دائمًا `collectionAuthorized=false` و`fixed_safe_probe`؛ لا يغير forecast أو policy أو selector أو cohort، ولا يجمع outcomes أو يكتب بيانات. نتائج continuation تظل خارج calibration v1.
+- **remaining/blocker:** reset والاستقلال الحقيقي وheld-out provenance وتجميد forecast/policy ما زالت مراجعات حاجبة؛ لا يوجد scope مؤهل أو cohort.
+- **next step:** أبقِ بوابة الجمع مغلقة إلى أن توثق هذه المراجعات وتُراجع منفصلًا؛ لا تستخدم تقريرًا نظيفًا وحده لبدء الجمع.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

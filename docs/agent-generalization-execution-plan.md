@@ -5420,7 +5420,7 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ observe-only recovery عبر listener supervisor المُدار verified؛ no eligible scope (2026-09-28)`
+**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ observe-only recovery عبر listener supervisor المُدار verified؛ read-only pre-collection preflight added؛ no eligible scope (2026-09-28)`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
@@ -5580,6 +5580,18 @@ time
 
 الهدف ليس تنفيذ المزيد من الأفعال، بل اختيار الملاحظة الأرخص والأكثر أمانًا
 التي تميز بين hypotheses الحالية.
+
+**تنفيذ preflight قبل الجمع (2026-09-28):** أضيف تقييم read-only حتمي يراجع
+هوية scope المقترح وسلامة registration/result الحالية، ويكشف التسجيلات غير
+المكتملة والتعارضات ونتائج continuation المستبعدة. يتحقق من تطابق forecast
+والـBrier المخزن مع registration لأغراض سلامة السجل فقط؛ لا يشغل evaluator
+التجميعي أو ECE/bootstrap، ولا يحفظ assessment. التقرير يربط manifest hash
+وتعدادات السجلات بالمراجعة، ويعرض blockers ومراجعات بشرية مطلوبة للاستقلال
+والـreset وheld-out provenance وتجميد policy وصلاحية حدود evaluator قبل أول
+outcome. اختلاف Mission IDs يبقى وصفًا لا دليل استقلال. لا توجد حالة `ready` في العقد، و
+`collectionAuthorized=false` دائمًا؛ لا route أو DB write أو إنشاء عينة أو تغيير
+scope/policy/selector. يقتصر الفحص على 5,000 سجل؛ أي سجل زائد ينتج blocker ولا
+يُفحص. لذلك لا يفتح هذا التنفيذ collection gate ولا يغير v1.
 
 #### Definition of Done لـP7.5
 
