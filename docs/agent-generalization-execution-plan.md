@@ -5604,6 +5604,18 @@ scope/policy/selector. يقتصر الفحص على 5,000 سجل؛ أي سجل �
 الناتج إما `BLOCKED` أو `REVIEW_REQUIRED` دائمًا، مع
 `collectionAuthorized=false` و`fixed_safe_probe`.
 
+**إغلاق مصدر أدلة Episode (2026-09-28):** أضيف builder داخلي يقرأ للقراءة فقط
+ضمن معاملة `REPEATABLE READ` موحدة أحداث تسجيل ونتائج التجارب ذات النطاق المحدد،
+وصفوف Episode وتدفق أحداثها، ثم يعيد بناء تقرير الجاهزية من السجلات الدائمة. لا
+يكتفي بـEpisode ID داخل payload:
+يتحقق من payload hashes وهوية الحدث وactor/correlation ونوع الحدث، وتطابق Episode
+مع Mission/Goal/plan/project/environment revisions وAction، واتصال تسلسل
+الأحداث. تربط الحزمة مراجع event IDs وhashes وmanifest hash. أي فقد أو تعارض أو
+تجاوز للحدود يحجب الحزمة؛ غياب العينات لا يثبت الملكية. هذا يثبت مطابقة snapshot
+مع السجلات المقروءة، لا توقيعًا مستقلًا على immutability ولا اعتمادًا بشريًا.
+لا توجد API أو كتابة DB أو حساب ECE/bootstrap؛ تظل `collectionAuthorized=false`
+و`fixed_safe_probe` وجميع مراجعات السلطة البشرية مفقودة.
+
 #### Definition of Done لـP7.5
 
 1. لكل objective و`hypothesisSetId`، يثبت الخادم أن الفرضيات بدائل متنافية

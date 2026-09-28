@@ -13,11 +13,14 @@ import {
 export const RUNTIME_START_CALIBRATION_READINESS_VERSION = 1 as const;
 export const RUNTIME_START_CALIBRATION_READINESS_MAX_EXPERIMENTS = 5_000;
 
-const CandidateScopeSchema = z.object({
+export const RuntimeStartCalibrationCandidateScopeSchema = z.object({
   projectId: z.string().min(1).max(200),
   projectRevision: z.string().min(1).max(200),
   environmentRevision: z.string().regex(/^env-v1:[a-f0-9]{64}$/),
 }).strict();
+export type RuntimeStartCalibrationCandidateScope = z.infer<
+  typeof RuntimeStartCalibrationCandidateScopeSchema
+>;
 
 const ReadinessExperimentSchema = z.object({
   experimentId: z.string().min(1).max(200),
@@ -149,7 +152,9 @@ function resultMatchesRegistration(
 export function evaluateRuntimeStartHypothesisCalibrationReadiness(
   input: RuntimeStartCalibrationReadinessInput,
 ): RuntimeStartCalibrationReadinessReport {
-  const scopeResult = CandidateScopeSchema.safeParse(input.candidateScope);
+  const scopeResult = RuntimeStartCalibrationCandidateScopeSchema.safeParse(
+    input.candidateScope,
+  );
   const candidateScope = scopeResult.success ? scopeResult.data : undefined;
   const calibrationScopeRef = candidateScope
     ? runtimeStartHypothesisCalibrationScopeRef(candidateScope)

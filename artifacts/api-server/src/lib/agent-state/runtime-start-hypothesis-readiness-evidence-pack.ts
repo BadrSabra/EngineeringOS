@@ -14,14 +14,22 @@ import {
 import {
   RUNTIME_START_CALIBRATION_READINESS_VERSION,
   RUNTIME_START_CALIBRATION_READINESS_MAX_EXPERIMENTS,
+  RuntimeStartCalibrationCandidateScopeSchema,
   type RuntimeStartCalibrationReadinessCheck,
   type RuntimeStartCalibrationReadinessReport,
 } from "./runtime-start-hypothesis-calibration-readiness.js";
+import {
+  loadRuntimeStartHypothesisLedgerSnapshot,
+  reconstructRuntimeStartReadinessReport,
+  verifyRuntimeStartHypothesisLedgerEvidence,
+  type RuntimeStartHypothesisLedgerSnapshot,
+  type RuntimeStartHypothesisLedgerVerification,
+} from "./runtime-start-hypothesis-ledger-evidence.js";
 
-export const RUNTIME_START_READINESS_EVIDENCE_PACK_VERSION = 1 as const;
+export const RUNTIME_START_READINESS_EVIDENCE_PACK_VERSION = 2 as const;
 export const RUNTIME_START_READINESS_PROTOCOL_ID =
   "p75-runtime-start-calibration-readiness";
-export const RUNTIME_START_READINESS_PROTOCOL_VERSION = 1 as const;
+export const RUNTIME_START_READINESS_PROTOCOL_VERSION = 2 as const;
 export const RUNTIME_START_CALIBRATION_VERSION = "runtime-start-calibration-v1";
 export const RUNTIME_START_SCOPE_DEFINITION_VERSION =
   "runtime-start-calibration-scope-v1";
@@ -70,7 +78,12 @@ export type RuntimeStartReadinessProtocolManifest = {
 };
 
 export type RuntimeStartReadinessEvidenceRef = {
-  kind: "readiness-report" | "source-manifest" | "preflight-check";
+  kind:
+    | "readiness-report"
+    | "source-manifest"
+    | "preflight-check"
+    | "episode-ledger-event"
+    | "episode-ledger-manifest";
   ref: string;
   hash: string;
   checkId?: string;
@@ -81,6 +94,7 @@ export type RuntimeStartReadinessMachineEvidence = {
   status: "verified" | "unverified" | "blocked" | "review_required";
   detail: string;
   evidenceRefs: RuntimeStartReadinessEvidenceRef[];
+  diagnostics?: string[];
 };
 
 export type RuntimeStartReadinessHumanReviewItem = {
@@ -103,6 +117,7 @@ export type RuntimeStartHypothesisReadinessEvidencePack = {
   readinessRef: string;
   readinessReportHash: string;
   sourceManifestHash: string;
+  episodeLedgerManifestHash: string | null;
   calibrationScopeRef: string | null;
   protocolManifest: RuntimeStartReadinessProtocolManifest;
   protocolManifestHash: string;
@@ -281,8 +296,9 @@ function buildHumanReviewItems(): RuntimeStartReadinessHumanReviewItem[] {
  * been configured, so review items always remain missing and collection is
  * never authorized.
  */
-export function buildRuntimeStartHypothesisReadinessEvidencePack(
+function buildEvidencePack(
   report: RuntimeStartCalibrationReadinessReport,
+  ledgerVerification?: RuntimeStartHypothesisLedgerVerification,
 ): RuntimeStartHypothesisReadinessEvidencePack {
   const readinessReportHash = canonicalHash(report);
   const protocolManifest = buildProtocolManifest();
@@ -347,14 +363,29 @@ export function buildRuntimeStartHypothesisReadinessEvidencePack(
     },
     {
       id: "episode-ledger-ownership",
-      status: "unverified",
-      detail: "The preflight checks Episode identity fields but does not query the durable Episode ledger to prove event ownership.",
+      status: ledgerVerification?.status ?? "unverified",
+      detail: ledgerVerification?.detail
+        ?? "The report-only builder has no durable Episode snapshot, so it cannot prove event ownership.",
       evidenceRefs: checkRefs(
         report.readinessRef,
         readinessReportHash,
         report.sourceManifestHash,
         ["mission-registration-channel"],
       ),
+      ...(ledgerVerification
+        ? {
+            diagnostics: ledgerVerification.blockers,
+            evidenceRefs: [
+              ...checkRefs(
+                report.readinessRef,
+                readinessReportHash,
+                report.sourceManifestHash,
+                ["mission-registration-channel"],
+              ),
+              ...ledgerVerification.evidenceRefs,
+            ],
+          }
+        : {}),
     },
     {
       id: "result-integrity",
@@ -450,6 +481,7 @@ export function buildRuntimeStartHypothesisReadinessEvidencePack(
     readinessRef: report.readinessRef,
     readinessReportHash,
     sourceManifestHash: report.sourceManifestHash,
+    episodeLedgerManifestHash: ledgerVerification?.ledgerManifestHash ?? null,
     calibrationScopeRef: report.calibrationScopeRef,
     protocolManifest,
     protocolManifestHash,
@@ -463,4 +495,59 @@ export function buildRuntimeStartHypothesisReadinessEvidencePack(
     ...packIdentity,
     packRef: `p75-runtime-start-readiness-pack:${canonicalHash(packIdentity)}`,
   };
+}
+
+/**
+ * Builds the report-only diagnostic pack. This intentionally leaves durable
+ * Episode ownership unverified because no ledger snapshot was supplied.
+ */
+export function buildRuntimeStartHypothesisReadinessEvidencePack(
+  report: RuntimeStartCalibrationReadinessReport,
+): RuntimeStartHypothesisReadinessEvidencePack {
+  return buildEvidencePack(report);
+}
+
+/**
+ * Rebuilds the readiness report from persisted P7.5 Episode events, verifies
+ * each event against its Episode row and stream, and packages only metadata
+ * references. It never creates an assessment or changes collection authority.
+ */
+export function buildRuntimeStartHypothesisReadinessEvidencePackFromLedgerSnapshot(
+  input: {
+    candidateScope: unknown;
+    snapshot: RuntimeStartHypothesisLedgerSnapshot;
+  },
+): {
+  readinessReport: RuntimeStartCalibrationReadinessReport;
+  evidencePack: RuntimeStartHypothesisReadinessEvidencePack;
+} {
+  const { experiments, report } = reconstructRuntimeStartReadinessReport(input);
+  const ledgerVerification = verifyRuntimeStartHypothesisLedgerEvidence({
+    candidateScope: input.candidateScope,
+    experiments,
+    report,
+    snapshot: input.snapshot,
+  });
+  return {
+    readinessReport: report,
+    evidencePack: buildEvidencePack(report, ledgerVerification),
+  };
+}
+
+/**
+ * Read-only database-backed entry point for the internal readiness evidence
+ * pack. Candidate scope must be supplied by the trusted server caller.
+ */
+export async function buildRuntimeStartHypothesisReadinessEvidencePackFromLedger(
+  candidateScope: unknown,
+): Promise<{
+  readinessReport: RuntimeStartCalibrationReadinessReport;
+  evidencePack: RuntimeStartHypothesisReadinessEvidencePack;
+}> {
+  const parsedScope = RuntimeStartCalibrationCandidateScopeSchema.parse(candidateScope);
+  const snapshot = await loadRuntimeStartHypothesisLedgerSnapshot(parsedScope);
+  return buildRuntimeStartHypothesisReadinessEvidencePackFromLedgerSnapshot({
+    candidateScope: parsedScope,
+    snapshot,
+  });
 }

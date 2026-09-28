@@ -2988,6 +2988,16 @@ G9 Revocation Safety
 - **validation:** اجتازت اختبارات readiness المستهدفة (11/11)، وفحص TypeScript المباشر لـAPI، و`git diff --check`.
 - **authority/safety impact:** لا يقبل builder attestation من caller؛ إضافة `resetConfirmed: true` تفشل سلامة مرجع التقرير ولا تغير حالة المراجعة. الحزمة دائمًا `BLOCKED` أو `REVIEW_REQUIRED`، و`collectionAuthorized=false`، ولا تحسب ECE/bootstrap أو تكتب بيانات أو تغير `fixed_safe_probe`.
 - **remaining/blocker:** تحديد مصدر موثوق لهوية operator/reviewer والتحقق من reset وheld-out provenance يتطلب قرارًا مستقلًا؛ لا scope مؤهل أو cohort.
+
+### 42.89 — إغلاق مصدر أدلة Episode لـP7.5 (2026-09-28)
+
+- **phase/step:** ربط حزمة الجاهزية بأحداث P7.5 الدائمة بدل الاكتفاء بهوية Episode الموجودة داخل payload.
+- **status:** `done — read-only ledger provenance verified; human review and collection remain blocked`
+- **what changed:** أضيف مسار داخلي يقرأ أحداث التسجيل والنتيجة وسجل Episode المرتبط داخل معاملة PostgreSQL واحدة `REPEATABLE READ READ ONLY`، ويعيد بناء تقرير الجاهزية من payloads المخزنة. يتحقق من payload hashes، ومالك الحدث ونوعه وactor/correlation، وتطابق Episode مع Mission/Goal والخطة ومراجعة المشروع/البيئة وAction، ووجود الحدث في stream متصل. تضيف الحزمة مراجع event IDs وhashes وledger manifest hash؛ لا تعرض أجسام الأحداث.
+- **files/schema/contracts touched:** وحدة التحقق والقراءة الداخلية واختبارات adversarial؛ إصدار حزمة الجاهزية وprotocol manifest أصبح 2. لا API أو Dashboard أو schema أو migration أو DB write.
+- **validation:** اختبارات P7.5 المستهدفة (16/16)، فحص TypeScript لـAPI، `git diff --check`، وإعادة تشغيل API والتحقق من الاستماع.
+- **authority/safety impact:** القراءة لا تعدّل الـledger. فشل الهوية أو hash أو التسلسل أو overflow يحجب الحزمة؛ scope الفارغ يظل `REVIEW_REQUIRED`. التطابق مع قاعدة البيانات الحالية ليس توقيعًا مستقلًا على عدم قابلية تعديلها، ولا يثبت المراجعات البشرية. تبقى `collectionAuthorized=false` و`fixed_safe_probe`، بلا ECE/bootstrap أو cohort.
+- **remaining/blocker:** مصدر موثوق لهوية operator/reviewer، وreset، والاستقلال، وheld-out provenance وتجميد policy/evaluator ما زال مطلوبًا؛ لا scope مؤهل أو إذن جمع.
 - **next step:** إبقاء الحزمة داخلية وتشخيصية؛ لا إضافة API أو واجهة أو اعتماد آلي دون عقد مراجعة منفصل.
 
 ## قالب إلزامي لكل خطوة لاحقة
