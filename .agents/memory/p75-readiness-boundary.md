@@ -20,3 +20,9 @@ Keep P7.5 readiness reports and evidence packs diagnostic only. A clean machine 
 **Why:** Authentication establishes the account/session, not which specific review was performed or which pack and protocol it covered. Treating a valid Clerk session as a review would silently broaden identity into authority.
 
 **How to apply:** Keep the identity claim separate from reviewer approval and collection authority. Use the binding tuple and fail-closed outcomes when assessing future P7.5 sources; do not create storage, a verifier, or collection permission without separate authorization.
+
+**Source-audit rule:** Separate schema or payload capacity, an actual durable writer, and rows observed in a named environment. Generated readiness/manifest/calibration artifacts are not durable records unless a writer persists them; an empty development query is only a point-in-time observation.
+
+**Why:** Conflating these layers can make a possible field look like evidence, or a local empty database look like proof of global absence.
+
+**How to apply:** For each P7.5 claim, document the contract, writer, and environment-specific observation separately before assigning any evidence state. Keep missing or unobserved sources blocked.

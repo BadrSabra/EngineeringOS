@@ -3165,6 +3165,29 @@ G9 Revocation Safety
 - **next step:** لا تغيير runtime أو جمع. إذا فُوّض تنفيذ لاحق، ابدأ بتحديد
   مصدر durable يربط identity وreview ID وحزمة الأدلة والبروتوكول والنطاق والصلاحية.
 
+### 42.98 — تدقيق تغطية مصادر claims السبعة في P7.5 (2026-09-28)
+
+- **phase/step:** تدقيق read-only للمصادر والعقود والكتّاب الحاليين، دون استعلام قاعدة بيانات.
+- **status:** `done — no complete trusted source found; all P7.5 claims remain blocked`
+- **what changed:** أُعدّت مصفوفة لكل claim تميّز بين قدرة schema/payload، والكاتب
+  الذي يحفظ سجلًا فعليًا، وملاحظة صفوف قاعدة بيانات في بيئة محددة. Clerk وEpisode
+  وtask/audit العام وحقول P7.5 للـmanifest/calibration تغطي أجزاءً من الهوية أو
+  التنفيذ أو القياس فقط؛ لا يوجد في الشيفرة مصدر P7.5 مكتمل للموافقة، reset،
+  استقلال العينة، منشأ held-out، تجميد ما قبل النتائج، أو مراجعة صلاحية المقيم.
+  وجود actor أو hash أو label أو metric لا يثبت السلطة أو lineage.
+- **files/schema/contracts touched:** سجل قرار P7.5، الخطة، سجل التقدم وذاكرة
+  حدود P7.5؛ لا runtime أو schema أو كاتب أو قاعدة بيانات.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** بقيت شروط runtime السبعة `MISSING` ومراجعها فارغة؛
+  الحزمة تشخيصية فقط، `collectionAuthorized=false` و`writesPerformed=false`،
+  والاختيار `fixed_safe_probe`. لم يُضف verifier أو IAM أو endpoint أو UI أو
+  collection permission.
+- **remaining/blocker:** لا يوجد مصدر موثوق يغطي العقود كاملة. نتائج audit للشيفرة
+  لا تثبت وجود أو عدم وجود سجلات في بيئات أخرى؛ أي آلية جديدة أو اعتماد بشري
+  يتطلب تفويضًا مستقلًا.
+- **next step:** قرار منفصل من المالك: تحديد مصدر موثوق قائم لكل claim، أو
+  الإبقاء على الحجب، أو تفويض تصميم آلية جديدة؛ لا تنفيذ أو جمع قبل ذلك.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

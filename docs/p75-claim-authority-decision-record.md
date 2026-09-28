@@ -84,6 +84,50 @@ blocked until a separate scope authorizes an adequate binding mechanism. No
 storage, IAM, endpoint, Dashboard control, verifier, or collection authority
 is added here.
 
+## Seven-claim source coverage (read-only audit, 2026-09-28)
+
+**Outcome: no inspected source covers the complete evidence contract for any
+of the seven claims.** This is a source/code inventory, not acceptance of
+evidence or a claim that no relevant record could exist in another environment.
+No database was queried in this audit.
+
+The audit distinguishes three things: a schema or payload contract that could
+hold data, a writer that actually persists a record, and observed rows in a
+specific database. Episode and generic task/audit records have durable writers;
+the P7.5 readiness, manifest, and calibration objects are generated artifacts
+unless separately persisted. The earlier development-database observation in
+the identity audit remains point-in-time only.
+
+| Claim | Existing source/capability | Missing proof |
+|---|---|---|
+| `reviewer-identity` | Clerk middleware exposes `userId`, `sessionId`, and `orgId` to request handlers. Episode events persist actor, payload/hash, sequence, and time; generic task verification retains actor and submitted check evidence. | No writer binds Clerk identity to an exact `reviewId`, evidence-pack hash, protocol revision, scope, and validity window. Actor IDs and payload hashes are provenance/content identifiers, not review identity. |
+| `reviewer-authority-and-approval` | The server operator gate checks the general `ADMIN_USER_IDS` list. Generic audit records retain actor/entity/action snapshots and timestamps; task verification records caller-submitted results. | No P7.5 reviewer designation or approval writer binds authorized authority, explicit approval, exact pack/protocol, approval validity, and revocation/conflict rules. The general operator gate and audit action labels do not establish P7.5 authority. |
+| `controlled-environment-reset` | Episode records and events retain execution, scope, revision, actor, and ordered-event provenance. P7.5 registration includes environment/project revisions and pre-state observation references. | No reset procedure/version, before/after environment inventory, operator review, repeatability evidence, or controlled-scope attestation is persisted. Execution actor and environment revision do not prove a controlled reset. |
+| `independent-sampling-definition` | P7.5 readiness and calibration objects report counts, including distinct/independent Mission counts; the readiness contract explicitly says Mission count is not proof of independence. | No sampling frame, cohort/selector/seed, eligibility/exclusion history, draw lineage, reuse detection, or independent issuer is persisted. Distinct Mission IDs and counts cannot establish independent selection. |
+| `heldout-provenance` | Registration/result contracts identify the literal evaluation partition and calibration scope/policy; calibration objects include partition and source-manifest hash. | No dataset membership/version lineage, split/acquisition history, prior exposure, tuning inputs/jobs, or pre-outcome non-use attestation is bound to the outcomes. A partition label or hash is not held-out provenance. |
+| `forecast-and-policy-freeze` | The manifest identifies protocol, calibration, evaluator, policy, scope, partition, and content hashes. Registration records forecast/hypothesis/decision-map versions, `fixed_safe_probe`, and prediction time. | No durable immutable pre-outcome freeze event, proof of ordering before outcomes, authorized approver, append-only lock, or invalidation/conflict rule binds the full forecast/policy/scope set. Hashes identify content, not when or by whom it was frozen. |
+| `evaluator-applicability` | Calibration objects report method/version, partition, counts, Brier/ECE metrics, and manifest hash. The calibration logic applies mechanical count/error thresholds. | No independent authorized assessment binds sample sufficiency, target/population applicability, evaluator limitations, scope, and review validity. Passing mechanical thresholds does not prove independent applicability review. |
+
+**Source references:** Clerk context is assembled in
+`artifacts/api-server/src/middlewares/requireAuth.ts`; general operator identity
+is checked there, not through a P7.5 reviewer policy. Episode fields and event
+writer are defined in `lib/db/src/schema/ai_agent_episodes.ts` and the P7.5
+ledger writer/reader in
+`artifacts/api-server/src/lib/agent-state/runtime-start-hypothesis-experiment.ts`.
+Generic task verification and audit records are written by
+`artifacts/api-server/src/routes/tasks.ts` and described by
+`lib/db/src/schema/tasks.ts` and `lib/db/src/schema/audit_logs.ts`. P7.5
+readiness/calibration fields and thresholds are defined in
+`artifacts/api-server/src/lib/agent-state/runtime-start-hypothesis-calibration-readiness.ts`
+and `runtime-start-hypothesis-calibration.ts`; the manifest/evidence-pack
+contract is in `runtime-start-hypothesis-readiness-evidence-pack.ts`.
+
+The current runtime trust boundary still reports all seven checks as
+`MISSING` with empty `evidenceRefs`. The pack remains diagnostic:
+`collectionAuthorized=false`, `writesPerformed=false`, and
+`selectionMode=fixed_safe_probe`. No runtime, schema, writer, verifier, IAM,
+endpoint, Dashboard control, or collection permission is added by this audit.
+
 ## Guardrails
 
 - Do not infer additional authority or evidence from source presence, caller claims, hashes, or examples.
