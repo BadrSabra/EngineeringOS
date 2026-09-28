@@ -13,6 +13,10 @@
 > بقاء plugin definitions والتوافر العام عالميين. هذه شريحة platform integration
 > مستقلة؛ لا تغيّر P0–P14 أو dependency graph، ولا تغلق أي capability phase أو
 > تمنح Mission/tool authority.
+> **تحديث Mission (2026-09-28):** أصبح للـautomatic Mission replan مستهلك واحد
+> محدود لقراءة World State الاستشارية، مربوط بقبول فشل واحد ومحاولة وEpisode
+> متطابقين وملاحظات حديثة scoped. أثبت اختبار DB-backed وصوله إلى plan revision؛
+> لا يغلق P3/P4/P8 أو يفتح Belief/P7.5 أو اختيارًا آليًا، و`runtime.start` مستبعد.
 > **سجل التقدم الإلزامي:** `docs/agent-generalization-progress.md`
 
 تستخدم هذه الوثيقة الكلمات **MUST / يجب** و **MUST NOT / يجب ألا** و
@@ -5590,6 +5594,16 @@ candidate rankings والاختيار تحفظ قبل dispatch بحيث يمكن
 server-owned. هذا لا يحقق P8 كاملًا: لا يوجد Belief State مربوط بالخطة، ولا
 ترتيب مرشحين بحسب information/risk/cost، ولا hypothesis-aware observation
 selection. يبقى P7.5 شرطًا سابقًا لهذا الإغلاق.
+
+**تحديث تكامل World State → Mission (2026-09-28):** يحمّل automatic replan الآن
+قراءة واحدة ضيقة من World State عندما تتطابق هوية قبول الفشل والتنفيذ والمحاولة
+والـEpisode، وتكون الحقائق مرتبطة بملاحظات كاملة وحديثة من project/environment
+revision والنطاق نفسيهما. تحفظ القراءة الاستشارية داخل `replanContext` في
+مراجعة الخطة، وتدخل `planningReadRevision` في hash المراجعة. يثبت اختبار DB-backed
+المسار الموجب من سجلات القبول والتنفيذ والـEpisode والملاحظة والـWorld Fact إلى
+الخطة المحفوظة. لا تمثل القراءة لقطة تاريخية للـEpisode، ولا تنشئ Belief أو
+World Delta أو proof أو صلاحية، ولا تشمل `runtime.start`. لذلك يظل P8 جزئيًا
+وتظل بوابة P7.5 السابقة قائمة.
 
 مدخلات replanning هي:
 

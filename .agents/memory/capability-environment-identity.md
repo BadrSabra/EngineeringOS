@@ -9,6 +9,8 @@ New recipe-operation bindings may carry the versioned identity. Legacy bindings 
 
 Compare persisted identities structurally or with canonical serialization. PostgreSQL JSONB may reorder object keys, so raw `JSON.stringify` equality can reject the same identity after a database round-trip.
 
+For DB-backed task-scope fixtures, derive the scope identity from the reloaded Episode row rather than its pre-insert JavaScript object; JSONB normalization can change the serialized key order used by legacy scope hashes.
+
 **Why:** Environment identity helps detect compatibility changes without changing the server-owned authorization gates. Historical operations cannot prove which environment they used, and object-key order is not durable across JSONB reads.
 
-**How to apply:** When changing the server registry or its contract, keep the descriptor projection narrow and update its version/digest tests. Keep approval, scope, and tool policy as the only permission sources; preserve the legacy path without fabricating evidence.
+**How to apply:** When changing the server registry or its contract, keep the descriptor projection narrow and update its version/digest tests. For persisted identity fixtures, use the representation production reads back from the database. Keep approval, scope, and tool policy as the only permission sources; preserve the legacy path without fabricating evidence.
