@@ -11,9 +11,8 @@ import {
   runRuntimeStartHypothesisMeasurementContinuation,
 } from "../src/lib/agent-state/runtime-start-hypothesis-measurement-continuation-runner.js";
 import {
-  createInMemoryWorkspaceRuntimeStore,
-} from "../src/lib/workspace-runtime-store.js";
-import { WorkspaceRuntimeManager } from "../src/lib/workspace-runtime.js";
+  workspaceRuntime,
+} from "../src/lib/workspace-runtime.js";
 import { runRecipeOperation } from "../src/lib/recipe-operation-runner.js";
 
 type WorkerInput = {
@@ -46,11 +45,7 @@ function emit(label: string, value: unknown): void {
 async function observeAndCrash(input: WorkerInput): Promise<never> {
   const { params } = input;
   emit("P75_PHASE", "worker-a-begin");
-  const runtimeManager = new WorkspaceRuntimeManager({
-    store: createInMemoryWorkspaceRuntimeStore(),
-    workerId: `p75-process-worker-a-runtime:${input.executionId}`,
-    heartbeatIntervalMs: 60_000,
-  });
+  const runtimeManager = workspaceRuntime;
   await runRecipeOperation({
     ...params,
     runtimeStartRunner: async () => {
@@ -137,6 +132,17 @@ async function recover(input: WorkerInput): Promise<void> {
     ...input.params,
     runtimeStartRunner: async () => {
       throw new Error("P75 recovery must not replay runtime.start.");
+    },
+    runtimeStartMeasurementContinuationRunner: async (context) => {
+      let observerCalls = 0;
+      const disposition = await runRuntimeStartHypothesisMeasurementContinuation(context, {
+        observeRuntime: async () => {
+          observerCalls += 1;
+          throw new Error("Worker B must recover the retained observation without a second runtime read.");
+        },
+      });
+      emit("P75_WORKER_B_OBSERVER_CALLS", observerCalls);
+      return disposition;
     },
   });
   emit("P75_RECOVERY_RESULT", {

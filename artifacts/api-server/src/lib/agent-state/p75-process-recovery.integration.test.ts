@@ -15,6 +15,7 @@ import {
   aiMissionsTable,
   db,
   projectsTable,
+  workspaceRuntimeTable,
 } from "@workspace/db";
 import {
   claimAiExecution,
@@ -31,6 +32,7 @@ import {
 } from "./environment-attestation.js";
 import { buildRuntimeStartHypothesisExperimentRegistration } from "./runtime-start-hypothesis-experiment.js";
 import { prepareRecipeOperation } from "../recipe-operation-runner.js";
+import { WorkspaceRuntimeSupervisorClient } from "../workspace-runtime-supervisor-client.js";
 
 const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../");
 const workspaceRoot = path.resolve(apiRoot, "../..");
@@ -153,9 +155,19 @@ describe("P7.5 process recovery", () => {
     const projectName = `p75-process-${projectId.slice(0, 8)}`;
     let executionId: string | undefined;
     let runtimePid: number | undefined;
+    let runtimeSessionId: string | undefined;
     let fixturePath: string | undefined;
+    const supervisor = new WorkspaceRuntimeSupervisorClient();
 
     try {
+      let supervisorHealth: Response;
+      try {
+        supervisorHealth = await fetch("http://127.0.0.1:8099/healthz");
+      } catch {
+        throw new Error("Managed workspace runtime supervisor is not reachable at 127.0.0.1:8099.");
+      }
+      expect(supervisorHealth.status, "managed workspace runtime supervisor must be reachable").toBe(200);
+      expect(await supervisorHealth.json()).toEqual({ status: "ok" });
       await writeFile(
         path.join(rootPath, "package.json"),
         JSON.stringify({ private: true, scripts: { dev: "node runtime-server.cjs" } }),
@@ -332,7 +344,12 @@ describe("P7.5 process recovery", () => {
         const runtimeLine = chunk.split(/\r?\n/)
           .find((entry) => entry.startsWith("P75_RUNTIME_STARTED "));
         if (runtimeLine) {
-          runtimePid = (JSON.parse(runtimeLine.slice("P75_RUNTIME_STARTED ".length)) as { pid?: number }).pid;
+          const runtime = JSON.parse(runtimeLine.slice("P75_RUNTIME_STARTED ".length)) as {
+            pid?: number;
+            sessionId?: string;
+          };
+          runtimePid = runtime.pid;
+          runtimeSessionId = runtime.sessionId;
         }
       });
       const runtimeLine = firstWorker.stdout.split(/\r?\n/)
@@ -347,8 +364,18 @@ describe("P7.5 process recovery", () => {
         "P75_RUNTIME_STARTED",
       );
       runtimePid = runtime.pid;
+      runtimeSessionId = runtime.sessionId;
       expect(runtime.port).toBeGreaterThan(0);
       expect(runtime.sessionId).toBeTruthy();
+      const afterWorkerA = await supervisor.observeStartState(projectId);
+      expect(afterWorkerA.status).toBe("running");
+      expect(afterWorkerA.session).toMatchObject({
+        projectId,
+        sessionId: runtime.sessionId,
+        pid: runtime.pid,
+        port: runtime.port,
+        status: "running",
+      });
       const retained = parseWorkerRecord<{
         id: string;
         value: Record<string, unknown>;
@@ -389,6 +416,10 @@ describe("P7.5 process recovery", () => {
 
       const secondWorker = await runWorker("recover", fixturePath);
       expect(secondWorker.code, secondWorker.stderr).toBe(0);
+      expect(parseWorkerRecord<number>(
+        secondWorker.stdout,
+        "P75_WORKER_B_OBSERVER_CALLS",
+      )).toBe(0);
       const recovery = parseWorkerRecord<{
         status: string;
         measurementContinuation?: {
@@ -413,6 +444,15 @@ describe("P7.5 process recovery", () => {
         ));
       expect(finalObservations).toHaveLength(1);
       expect(finalObservations[0]?.id).toBe(retained.id);
+      const afterWorkerB = await supervisor.observeStartState(projectId);
+      expect(afterWorkerB.status).toBe("running");
+      expect(afterWorkerB.session).toMatchObject({
+        projectId,
+        sessionId: runtime.sessionId,
+        pid: runtime.pid,
+        port: runtime.port,
+        status: "running",
+      });
 
       const finalEvents = await db.select({
         episodeId: aiAgentEpisodeEventsTable.episodeId,
@@ -465,12 +505,22 @@ describe("P7.5 process recovery", () => {
       expect(closedEpisodes).toHaveLength(3);
       expect(closedEpisodes.every((episode) => episode.state === "completed")).toBe(true);
     } finally {
-      await terminateRuntimeGroup(runtimePid);
+      if (runtimeSessionId) {
+        await supervisor.stop({
+          projectId,
+          sessionId: runtimeSessionId,
+          pid: runtimePid ?? null,
+        }).catch(async () => terminateRuntimeGroup(runtimePid));
+      } else {
+        await terminateRuntimeGroup(runtimePid);
+      }
       if (executionId) {
         await db.delete(aiExecutionAcceptancesTable)
           .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
         await db.delete(aiExecutionsTable).where(eq(aiExecutionsTable.id, executionId));
       }
+      await db.delete(workspaceRuntimeTable)
+        .where(eq(workspaceRuntimeTable.projectId, projectId));
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.id, sessionId));
       await db.delete(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));

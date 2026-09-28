@@ -5420,7 +5420,7 @@ Gate C أو `PROVEN`. حالات التناقض وربط المصدر تتطلب
 
 ### 42.8 P7.5 — Belief and Information Gain
 
-**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ local cross-process observe-only recovery verified؛ no eligible scope (2026-09-28)`
+**الحالة:** `PARTIAL — fixed-safe bootstrap وscoped calibration evaluator؛ observe-only recovery عبر listener supervisor المُدار verified؛ no eligible scope (2026-09-28)`
 
 هذه gate معرفية ذات أولوية قبل توسيع P8–P11 أو زيادة replay/strategy work؛
 وجود World State وحده لا يوفر belief أو observation selection.
@@ -5526,27 +5526,30 @@ Brier/ECE أو عدد Missions المستقلة. لذلك يظل التسجيل 
 **التحقق المحلي (2026-09-28):** اجتازت مجموعة الاختبارات المحلية السابقة
 continuation والعقد والـledger والـrecipe (54/54)، كما اجتاز
 `workspace-runtime.test.ts` المحدد (1/1) رصد runtime process محلي عبر
-`observeExistingRuntimeAfterState` دون إعادة `start`. أضاف هذا التحديث شاهد
-`p75-process-recovery.integration.test.ts` (1/1): عمليتا API worker منفصلتان
-تستخدمان مسار `runRecipeOperation` الحقيقي. يتعطل العامل الأول برمز 73 بعد حفظ
-observation وقبل result event؛ يستعيد العامل الثاني النتيجة من observation نفسها
-دون رصد ثانٍ أو إعادة `runtime.start`. يغلق الإنهاء Episode التسجيل وEpisode
-الملاحظة وEpisode التعافي، ويضع Goal في `needs_replan`، وينهي execution بلا
-acceptance ناجح. اجتاز كذلك `agent-episode-ledger.test.ts` (15/15)،
-`pnpm --filter @workspace/api-server run typecheck`، و`git diff --check`.
+`observeExistingRuntimeAfterState` دون إعادة `start`. أضاف شاهد
+`p75-process-recovery.integration.test.ts` (1/1) استخدامًا فعليًا للـsingleton
+`workspaceRuntime` ذي التخزين DB-backed والـsupervisor client المتصل بالـlistener
+المُدار على `127.0.0.1:8099`. يبدأ العامل A runtime fixture عبر supervisor، يحفظ
+الـobserver `runtime.status`، ثم يخرج بالرمز 73 قبل result event. يؤكد جرد
+supervisor بقاء session نفسها حيّة بعد موت العامل؛ يستعيد العامل B observation
+المحفوظة مع صفر استدعاءات observer ودون إعادة `runtime.start`. يغلق الإنهاء
+Episode التسجيل وEpisode الملاحظة وEpisode التعافي، ويضع Goal في `needs_replan`،
+وينهي execution بلا acceptance ناجح. اجتاز كذلك فحص TypeScript المباشر
+`pnpm --filter @workspace/api-server exec tsc -p tsconfig.json --noEmit`
+و`git diff --check`.
 
-بوابة الجاهزية ما زالت مغلقة: هذا الشاهد يستخدم runtime fixture محليًا مع
-`WorkspaceRuntimeManager` والـobserver الفعليين؛ لا يثبت listener الذي يديره
-supervisor الخارجي أو تكامله end-to-end. ولا يوجد scope مؤهل حتى الآن. لا cohort
-أو provider حي أو selector؛ نتائج continuation تظل خارج calibration v1. أي
-استخدام مستقبلي لها يتطلب policy/scope version ومراجعة evaluator مستقلتين وheld-out
-cohort جديدة؛ لا تُعدّل معايرة v1 بأثر رجعي.
+تثبت هذه النتيجة حدّ listener/observer/worker-recovery لهذا الشاهد، لا جاهزية
+الجمع. لا يوجد scope مؤهل حتى الآن؛ الاستقلال وheld-out وثبات scope والتحقق
+المسبق من evaluator ما زالت شروطًا حاجبة وفق القائمة أعلاه. لا cohort أو provider
+حي أو selector؛ نتائج continuation تظل خارج calibration v1. أي استخدام مستقبلي
+لها يتطلب policy/scope version ومراجعة evaluator مستقلتين وheld-out outcomes
+مستقبلية؛ لا تُعدّل معايرة v1 بأثر رجعي.
 
 **تحديث تشغيل التطوير (2026-09-28):** بعد تفويض قاعدة التطوير فقط، نجح
 `pnpm --filter @workspace/db run schema:apply` وأكد فحص العقد جاهزية المخطط.
-أُعيد تشغيل API workflow وأصبح يستمع. هذا يزيل حاجز بدء الخدمة، لكنه لا يثبت
-استعادة P7.5 عبر عامل API مستقل أو استخدام continuation للـsupervisor observer
-الإنتاجي end-to-end؛ لا cohort أو selector.
+أُعيد تشغيل API workflow وأصبح يستمع. كان ذلك تحديثًا لتشغيل التطوير فقط؛ أثبت
+شاهد §42.86 لاحقًا recovery عبر عامل API مستقل والـsupervisor listener المُدار.
+لا يفتح ذلك cohort أو selector.
 
 يجوز لاحقًا إضافة projection تشغيلية للقراءة فقط لعرض عدد العينات والنتائج
 والحالات غير المحسومة لكل scope، باستخدام Episode events الحالية. هذه observability
