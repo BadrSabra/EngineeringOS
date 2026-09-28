@@ -197,7 +197,7 @@ function boundedText(value: string, max = MAX_TEXT): string {
   return value.trim().slice(0, max);
 }
 
-function taskScopeIdentity(episode: {
+export function taskScopeIdentity(episode: {
   id: string;
   projectId: string;
   missionId: string | null;

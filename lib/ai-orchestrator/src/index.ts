@@ -240,11 +240,15 @@ export type {
 } from "./task-planner.js";
 export {
   buildMissionPlanPreview,
+  sanitizeMissionWorldStatePlanningRead,
 } from "./mission-planning.js";
 export type {
+  BoundedWorldStateValue,
   MissionAdmissionKind,
   MissionAdmissionReason,
   MissionPlanPreview,
+  MissionWorldStatePlanningFact,
+  MissionWorldStatePlanningRead,
 } from "./mission-planning.js";
 export {
   MISSION_CONTRACT_VERSION,

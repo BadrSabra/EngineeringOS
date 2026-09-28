@@ -121,6 +121,9 @@ describe("automatic Mission replanning", () => {
         },
       },
     });
+    expect(replannedGoal?.successCriteria).not.toHaveProperty(
+      "planRevision.replanContext.worldStatePlanningRead",
+    );
 
     const [mission] = await db
       .select({ status: aiMissionsTable.status })

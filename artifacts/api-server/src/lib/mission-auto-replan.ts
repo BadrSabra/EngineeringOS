@@ -6,7 +6,10 @@ import {
   db,
   eventsTable,
 } from "@workspace/db";
-import { buildMissionPlanPreview } from "@workspace/ai-orchestrator";
+import {
+  buildMissionPlanPreview,
+  type MissionWorldStatePlanningRead,
+} from "@workspace/ai-orchestrator";
 import {
   FailureDiagnosisSummarySchema,
   toFailureDiagnosisSummary,
@@ -24,6 +27,7 @@ import {
   loadRuntimeStartHypothesisReplanEvidence,
   type RuntimeStartHypothesisReplanEvidence,
 } from "./agent-state/runtime-start-hypothesis-replan-context.js";
+import { loadMissionWorldStatePlanningRead } from "./mission-world-state-planning-read.js";
 import { runMissionGoal, type MissionGoalRunResult } from "./mission-runtime.js";
 
 type AutoReplanResult =
@@ -95,7 +99,8 @@ export function buildReplanContext(goal: {
   nextAction: unknown;
   outcomeContract: unknown;
   successCriteria: unknown;
-}, runtimeStartHypothesisEvidence?: RuntimeStartHypothesisReplanEvidence) {
+}, runtimeStartHypothesisEvidence?: RuntimeStartHypothesisReplanEvidence,
+worldStatePlanningRead?: MissionWorldStatePlanningRead) {
   const outcome = jsonRecord(goal.outcomeContract);
   const acceptance = jsonRecord(outcome.acceptance);
   const receipt = jsonRecord(acceptance.receipt);
@@ -158,6 +163,7 @@ export function buildReplanContext(goal: {
     ...(runtimeStartHypothesisEvidence
       ? { runtimeStartHypothesisEvidence }
       : {}),
+    ...(worldStatePlanningRead ? { worldStatePlanningRead } : {}),
     nextActions: [
       ...(failureDiagnosis ? [failureDiagnosis.nextActionCode] : []),
       ...(worldStateDiagnosis
@@ -321,18 +327,45 @@ export async function autoReplanMission(
           planRevision: priorPlanRevision,
         })
       : undefined;
+    const worldStatePlanningRead = failedGoal
+      ? await loadMissionWorldStatePlanningRead(tx, {
+          missionId: mission.id,
+          projectId: mission.projectId,
+          goalId: failedGoal.id,
+          outcomeContract: failedGoal.outcomeContract,
+          nextAction: failedGoal.nextAction,
+          successCriteria: failedGoal.successCriteria,
+        })
+      : undefined;
     const preview = buildMissionPlanPreview({
       message: mission.intent,
       objective: mission.intent,
       ...(failedGoal
-        ? { replanContext: buildReplanContext(failedGoal, runtimeStartHypothesisEvidence) }
+        ? {
+            replanContext: buildReplanContext(
+              failedGoal,
+              runtimeStartHypothesisEvidence,
+              worldStatePlanningRead,
+            ),
+          }
         : {}),
     });
     if (preview.admission !== "mission") {
       return { status: "skipped" as const, missionId, reason: "objective_no_longer_mission_eligible" };
     }
 
-    const planHash = runtimeStartHypothesisEvidence
+    const persistedWorldStatePlanningRead = preview.replanContext?.worldStatePlanningRead;
+    const planHash = persistedWorldStatePlanningRead
+      ? createHash("sha256")
+        .update(JSON.stringify({
+          sourcePlanHash: preview.plan.planHash,
+          ...(runtimeStartHypothesisEvidence
+            ? { runtimeStartHypothesisEvidence }
+            : {}),
+          worldStatePlanningReadRevision: persistedWorldStatePlanningRead.planningReadRevision,
+        }))
+        .digest("hex")
+      : runtimeStartHypothesisEvidence
       ? createHash("sha256")
         .update(JSON.stringify({
           sourcePlanHash: preview.plan.planHash,

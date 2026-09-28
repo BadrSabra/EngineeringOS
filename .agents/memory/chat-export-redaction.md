@@ -9,6 +9,12 @@ Provider-derived data must be recursively redacted before it is persisted or ret
 
 **How to apply:** When adding a new AI response or persisted event field, classify it as provider-derived and pass it through the shared user-facing redaction helper. Keep operational correlation IDs separate from provider payloads when clients need them, and never expose parser raw output. User-facing failure events should contain only stable codes/context; keep the full provider error in server logs. Legacy persisted trace entries also need schema validation and a fresh public projection when read back. Live benchmark health results must likewise project model/reason fields before callbacks or airlock persistence, and catalog failures should retain stable status codes rather than transport text. Mission Control exports are another public boundary: project both live and imported snapshots before JSON/CSV serialization instead of trusting the API shape.
 
+Server-owned provenance does not make World State values safe to disclose. Before those values reach a Mission prompt, omit credential-labeled facts and redact sensitive nested keys, bearer/token patterns, private-key blocks, and credential-bearing connection strings.
+
+**Why:** A direct server observation can still contain environment or configuration data that was not intended for an external model.
+
+**How to apply:** Treat provenance and disclosure safety as separate checks whenever persisted observations or facts cross an AI boundary; keep hashes and source references where useful, but never assume a trusted collector has sanitized the observed value.
+
 Ordinary `CHAT` history is a separate redaction class: retain general activity and terminal state, but expose forensic verdicts and forensic-only trace entries only when the stored turn intent is explicitly `PROJECT_QUERY` or `FORENSIC_AUDIT`.
 
 **Why:** A persisted trace can contain forensic-shaped entries even when a message is classified as ordinary chat; deriving the verdict during history reads would otherwise leak analysis metadata through the historical API.

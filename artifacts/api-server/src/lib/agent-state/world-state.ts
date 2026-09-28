@@ -436,7 +436,9 @@ export async function getProjectWorldState(
     environmentRevision?: string | null;
     excludeEpisodeIds?: readonly string[];
   },
+  transaction?: WorldStateTransaction,
 ): Promise<ProjectWorldStateProjection> {
+  const client: WorldStateTransaction | typeof db = transaction ?? db;
   const conditions = [
     eq(aiWorldFactsTable.projectId, projectId),
     ...(filter?.taskScope ? [eq(aiWorldFactsTable.taskScope, filter.taskScope)] : []),
@@ -446,7 +448,7 @@ export async function getProjectWorldState(
           ? isNull(aiWorldFactsTable.environmentRevision)
           : eq(aiWorldFactsTable.environmentRevision, filter.environmentRevision)]),
   ];
-  const rows = await db
+  const rows = await client
     .select()
     .from(aiWorldFactsTable)
     .where(and(...conditions))
@@ -460,7 +462,7 @@ export async function getProjectWorldState(
     )
     .limit(MAX_FACTS);
   const facts = rows.map(projectFact);
-  const observations = await db
+  const observations = await client
     .select()
     .from(aiAgentObservationsTable)
     .where(and(
