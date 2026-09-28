@@ -3042,6 +3042,27 @@ G9 Revocation Safety
 - **next step:** لا ترفع أي blocker ولا تضف مصدر سلطة جديدًا دون تحديد المصدر
   المسموح وآلية التحقق والمراجعة البشرية؛ أبقِ الجمع مغلقًا.
 
+### 42.92 — توضيح عقد القرار المعماري لمصادر P7.5 (2026-09-28)
+
+- **phase/step:** تنقيح Definition of Done لقرار اختيار مصادر الثقة؛ لا تنفيذ
+  verifiers.
+- **status:** `planned — decision-only; no source authority selected`
+- **what changed:** أضيفت دلالات السلطة إلى الخطة: فصل `SOURCE` عن `AUTHORITY`
+  وعن `EVIDENCE`، وطلب تحديد issuer وأساس سلطته والادعاء والنطاق وإصدار
+  البروتوكول ووقت الصلاحية وشروط الإبطال/التعارض. أضيفت `UNVERIFIABLE` لحالة
+  وجود المصدر دون إثبات سلطته، مع فصلها عن `MISSING` و`OUT_OF_SCOPE` و
+  `CONFLICTING`. لا يُقبل غياب الدليل على أنه مراجعة بشرية.
+- **files/schema/contracts touched:** خطة التنفيذ، سجل التقدم، وذاكرة حدود P7.5؛
+  لا تعديل كود أو schema أو قاعدة بيانات أو صلاحيات.
+- **validation:** `git diff --check`.
+- **authority/safety impact:** ما زالت كل شروط المصدر الحالية `MISSING`، ولا
+  يُختار مصدر أو يمنح authority ضمن هذه الخطوة. لا IAM أو approval table أو
+  endpoint أو Dashboard أو cohort أو selector؛ collection تبقى مغلقة.
+- **remaining/blocker:** يلزم قرار مالك النظام حول مصدر كل ادعاء وأساس سلطته؛
+  بعده فقط يمكن تخطيط verifiers منفصلة.
+- **next step:** اعتماد أو رفض المصادر المقترحة لكل شرط، مع توثيق authority
+  semantics؛ لا تبدأ تنفيذ verifier قبل ذلك.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
