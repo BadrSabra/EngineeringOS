@@ -286,6 +286,8 @@ describe("P7.5 runtime-start measurement continuation runner", () => {
       continuationId: priorResult.continuationId,
       resultId: priorResult.resultId,
       measurementValidity: "complete_fresh",
+      resultOwnerEpisodeId: request.measurement.episodeId,
+      resultOwnerAttempt: request.measurement.attempt,
     });
     expect(fixture.deps.observeRuntime).not.toHaveBeenCalled();
     expect(fixture.appended).toHaveLength(0);

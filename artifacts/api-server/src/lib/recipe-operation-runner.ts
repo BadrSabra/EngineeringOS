@@ -2089,6 +2089,8 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           continuationId: measurementContinuation.continuationId,
           resultId: measurementContinuation.resultId,
           measurementValidity: measurementContinuation.measurementValidity,
+          resultOwnerEpisodeId: measurementContinuation.resultOwnerEpisodeId,
+          resultOwnerAttempt: measurementContinuation.resultOwnerAttempt,
           reasonCode: measurementContinuation.reasonCode,
         });
         const continuationReceipt = buildRecipeReceipt(

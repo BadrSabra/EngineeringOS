@@ -1104,7 +1104,9 @@ describe("recipe operation preparation", () => {
       expect(materializeObservation).toHaveBeenCalledTimes(1);
 
       const afterResultCrashEvents = await db.select({
+        episodeId: aiAgentEpisodeEventsTable.episodeId,
         attempt: aiAgentEpisodeEventsTable.attempt,
+        sequence: aiAgentEpisodeEventsTable.sequence,
         eventType: aiAgentEpisodeEventsTable.eventType,
         payload: aiAgentEpisodeEventsTable.payload,
       }).from(aiAgentEpisodeEventsTable)
@@ -1122,12 +1124,14 @@ describe("recipe operation preparation", () => {
         observationId?: string;
         measurementValidity?: string;
       };
+      const resultOwnerEpisodeId = recoveredResultEvent?.episodeId;
       expect(firstResult).toMatchObject({
         resultId: expect.any(String),
         observationId: materializedObservation.id,
         measurementValidity: "complete_fresh",
         calibrationEligibility: "not_eligible_without_versioned_policy_review",
       });
+      expect(resultOwnerEpisodeId).toEqual(expect.any(String));
       expect(recoveredResultEvent?.payload).toHaveProperty(
         "observationId",
         materializedObservation.id,
@@ -1157,7 +1161,9 @@ describe("recipe operation preparation", () => {
       expect(runtimeStartRunner).not.toHaveBeenCalled();
 
       const finalEvents = await db.select({
+        episodeId: aiAgentEpisodeEventsTable.episodeId,
         attempt: aiAgentEpisodeEventsTable.attempt,
+        sequence: aiAgentEpisodeEventsTable.sequence,
         eventType: aiAgentEpisodeEventsTable.eventType,
         payload: aiAgentEpisodeEventsTable.payload,
       }).from(aiAgentEpisodeEventsTable)
@@ -1167,14 +1173,56 @@ describe("recipe operation preparation", () => {
           === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT"
       ))).toHaveLength(1);
       const terminalEvents = finalEvents.filter((event) => event.eventType === "EPISODE_TERMINAL");
-      expect(terminalEvents).toHaveLength(1);
-      expect(terminalEvents[0]).toMatchObject({
+      expect(terminalEvents).toHaveLength(2);
+      const recoveredResultTerminal = terminalEvents.find(
+        (event) => event.episodeId === resultOwnerEpisodeId,
+      );
+      const currentAttemptTerminal = terminalEvents.find((event) => event.attempt === 3);
+      expect(recoveredResultTerminal).toMatchObject({
+        attempt: 2,
+        payload: {
+          verdict: "replan_required",
+          resultId: firstResult.resultId,
+          resultOwnerEpisodeId,
+          recoveredByEpisodeId: currentAttemptTerminal?.episodeId,
+          recoveredByAttempt: 3,
+        },
+      });
+      expect(recoveredResultTerminal?.sequence).toBe(recoveredResultEvent!.sequence + 1);
+      expect(currentAttemptTerminal).toMatchObject({
         attempt: 3,
         payload: {
           verdict: "replan_required",
           resultId: firstResult.resultId,
+          resultOwnerEpisodeId,
+          resultOwnerAttempt: 2,
         },
       });
+      const closedEpisodes = await db.select({
+        id: aiAgentEpisodesTable.id,
+        state: aiAgentEpisodesTable.state,
+        verdict: aiAgentEpisodesTable.verdict,
+        reasonCode: aiAgentEpisodesTable.reasonCode,
+        closedAt: aiAgentEpisodesTable.closedAt,
+      }).from(aiAgentEpisodesTable).where(inArray(aiAgentEpisodesTable.id, [
+        resultOwnerEpisodeId!,
+        currentAttemptTerminal!.episodeId,
+      ]));
+      expect(closedEpisodes).toHaveLength(2);
+      expect(closedEpisodes).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: resultOwnerEpisodeId,
+          state: "completed",
+          verdict: "replan_required",
+          closedAt: expect.any(Date),
+        }),
+        expect.objectContaining({
+          id: currentAttemptTerminal!.episodeId,
+          state: "completed",
+          verdict: "replan_required",
+          closedAt: expect.any(Date),
+        }),
+      ]));
       const terminalAcceptances = await db.select({
         attempt: aiExecutionAcceptancesTable.attempt,
         outcome: aiExecutionAcceptancesTable.outcome,

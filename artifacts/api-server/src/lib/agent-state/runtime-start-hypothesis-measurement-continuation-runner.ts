@@ -64,6 +64,8 @@ export type RuntimeStartMeasurementContinuationDisposition = {
   continuationId?: string;
   resultId?: string;
   measurementValidity?: "complete_fresh" | "partial" | "stale" | "failed" | "unknown";
+  resultOwnerEpisodeId?: string;
+  resultOwnerAttempt?: number;
 };
 
 type AppendEpisodeEventInput = Parameters<typeof appendEpisodeEvent>[0];
@@ -197,7 +199,10 @@ function readPriorContinuationResult(
     continuationId: string;
     resultId: string;
     measurementValidity: "complete_fresh" | "partial" | "stale" | "failed" | "unknown";
+    resultOwnerEpisodeId: string;
+    resultOwnerAttempt: number;
   }>();
+  let resultEventCount = 0;
   for (const event of events) {
     const payload = recordPayload(event.payload);
     if (payload?.recordKind !== "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT") continue;
@@ -221,16 +226,22 @@ function readPriorContinuationResult(
     }
     try {
       const result = parseRuntimeStartHypothesisMeasurementContinuationResult(payload, request);
+      resultEventCount += 1;
       existingResults.set(result.resultId, {
         continuationId: result.continuationId,
         resultId: result.resultId,
         measurementValidity: result.measurementValidity,
+        resultOwnerEpisodeId: request.measurement.episodeId,
+        resultOwnerAttempt: request.measurement.attempt,
       });
     } catch {
       return disposition("P75_CONTINUATION_RESULT_INVALID", sourceExperimentId);
     }
   }
   if (existingResults.size > 1) {
+    return disposition("P75_CONTINUATION_MULTIPLE_RESULTS", sourceExperimentId);
+  }
+  if (resultEventCount > 1) {
     return disposition("P75_CONTINUATION_MULTIPLE_RESULTS", sourceExperimentId);
   }
   const existingResult = [...existingResults.values()][0];
@@ -651,5 +662,7 @@ export async function runRuntimeStartHypothesisMeasurementContinuation(
     continuationId: result.continuationId,
     resultId: result.resultId,
     measurementValidity: result.measurementValidity,
+    resultOwnerEpisodeId: context.episodeId,
+    resultOwnerAttempt: context.attempt,
   });
 }

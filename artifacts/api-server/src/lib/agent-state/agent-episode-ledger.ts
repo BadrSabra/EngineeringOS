@@ -518,6 +518,57 @@ async function appendLocked(
   return eventToContract(inserted!);
 }
 
+async function appendHistoricalP75TerminalEventLocked(
+  tx: LedgerTransaction,
+  episode: typeof aiAgentEpisodesTable.$inferSelect,
+  input: Pick<AppendEpisodeEventInput, "projectId" | "executionId" | "workerId">,
+  payloadValue: JsonValue,
+  now: Date,
+): Promise<void> {
+  const payload = parseBoundedJson(payloadValue, 32 * 1024);
+  const payloadHash = canonicalJsonHash(payload);
+  const [last] = await tx
+    .select({ sequence: aiAgentEpisodeEventsTable.sequence })
+    .from(aiAgentEpisodeEventsTable)
+    .where(eq(aiAgentEpisodeEventsTable.episodeId, episode.id))
+    .orderBy(desc(aiAgentEpisodeEventsTable.sequence))
+    .limit(1);
+  const sequence = last ? last.sequence + 1 : 0;
+
+  await tx.insert(aiAgentEpisodeEventsTable).values({
+    id: randomUUID(),
+    episodeId: episode.id,
+    projectId: input.projectId,
+    executionId: input.executionId,
+    attempt: episode.attempt,
+    sequence,
+    eventType: "EPISODE_TERMINAL",
+    payload,
+    payloadHash,
+    actorType: "worker",
+    actorId: input.workerId,
+    correlationId: input.executionId,
+    createdAt: now,
+  });
+  await tx.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "AiAgentEpisodeEvent",
+    projectId: input.projectId,
+    ...(episode.goalId ? { goalId: episode.goalId } : {}),
+    payload: {
+      episodeId: episode.id,
+      executionId: input.executionId,
+      attempt: episode.attempt,
+      sequence,
+      eventType: "EPISODE_TERMINAL",
+    },
+    severity: "info",
+    message: "AI agent episode event recorded.",
+    correlationId: input.executionId,
+    timestamp: now,
+  });
+}
+
 export async function startEpisode(input: StartEpisodeInput): Promise<AgentEpisode> {
   let environmentRevision: string | undefined;
   if (input.environmentRootPath) {
@@ -734,6 +785,8 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
   continuationId?: string;
   resultId?: string;
   measurementValidity?: string;
+  resultOwnerEpisodeId?: string;
+  resultOwnerAttempt?: number;
   reasonCode: string;
 }): Promise<AgentEpisode> {
   return db.transaction(async (tx) => {
@@ -768,6 +821,185 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
       ledgerError("terminal_immutable", "P7.5 continuation Episode is already terminal");
     }
 
+    const hasResultOwnerEpisodeId = input.resultOwnerEpisodeId !== undefined;
+    const hasResultOwnerAttempt = input.resultOwnerAttempt !== undefined;
+    const resultOwnerEpisodeIdInput = input.resultOwnerEpisodeId;
+    const resultOwnerAttemptInput = input.resultOwnerAttempt;
+    if (hasResultOwnerEpisodeId !== hasResultOwnerAttempt) {
+      ledgerError("invalid_contract", "P7.5 continuation result owner identity must include both Episode and attempt.");
+    }
+
+    let resultOwnerEpisode = episode;
+    if (resultOwnerEpisodeIdInput !== undefined && resultOwnerAttemptInput !== undefined) {
+      if (
+        !input.continuationId
+        || !input.resultId
+        || !input.measurementValidity
+      ) {
+        ledgerError("invalid_contract", "P7.5 continuation result owner requires a complete stored result identity.");
+      }
+      if (resultOwnerEpisodeIdInput === episode.id) {
+        if (resultOwnerAttemptInput !== episode.attempt) {
+          ledgerError("ownership_mismatch", "P7.5 result owner attempt does not match its Episode.");
+        }
+      } else {
+        if (input.reasonCode !== "P75_CONTINUATION_RESULT_ALREADY_RECORDED") {
+          ledgerError("invalid_contract", "Only a recovered stored P7.5 result can close a prior Episode.");
+        }
+        if (resultOwnerAttemptInput >= input.attempt) {
+          ledgerError("ownership_mismatch", "P7.5 result owner must be from an earlier execution attempt.");
+        }
+        resultOwnerEpisode = await lockEpisode(tx, resultOwnerEpisodeIdInput);
+        const resultOwnerMismatchFields = [
+          ...(resultOwnerEpisode.projectId !== input.projectId ? ["project"] : []),
+          ...(resultOwnerEpisode.executionId !== input.executionId ? ["execution"] : []),
+          ...(resultOwnerEpisode.attempt !== input.resultOwnerAttempt ? ["attempt"] : []),
+          ...(resultOwnerEpisode.missionId !== input.missionId ? ["mission"] : []),
+          ...(resultOwnerEpisode.goalId !== input.goalId ? ["goal"] : []),
+          ...(resultOwnerEpisode.planRevision !== input.planRevision ? ["plan_revision"] : []),
+          ...(resultOwnerEpisode.projectRevision !== input.projectRevision ? ["project_revision"] : []),
+        ];
+        if (resultOwnerMismatchFields.length > 0) {
+          ledgerError(
+            "ownership_mismatch",
+            `P7.5 result-owning Episode identity or scope changed: ${resultOwnerMismatchFields.join(",")}`,
+          );
+        }
+      }
+
+      const resultRows = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, resultOwnerEpisode.id),
+        eq(aiAgentEpisodeEventsTable.projectId, input.projectId),
+        eq(aiAgentEpisodeEventsTable.executionId, input.executionId),
+        eq(aiAgentEpisodeEventsTable.attempt, resultOwnerEpisode.attempt),
+        eq(aiAgentEpisodeEventsTable.eventType, "OBSERVATION_RECORDED"),
+      ));
+      const matchingResults = resultRows.filter((row) => {
+        const result = asRecord(row.payload);
+        const measurement = asRecord(result?.measurement);
+        return result?.recordKind === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT"
+          && result.sourceExperimentId === input.sourceExperimentId
+          && result.continuationId === input.continuationId
+          && result.resultId === input.resultId
+          && result.measurementValidity === input.measurementValidity
+          && result.calibrationEligibility === "not_eligible_without_versioned_policy_review"
+          && measurement?.projectId === input.projectId
+          && measurement.executionId === input.executionId
+          && measurement.episodeId === resultOwnerEpisode.id
+          && measurement.attempt === resultOwnerEpisode.attempt
+          && measurement.missionId === input.missionId
+          && measurement.goalId === input.goalId
+          && measurement.planRevision === input.planRevision
+          && measurement.projectRevision === input.projectRevision
+          && typeof result.continuationRequestHash === "string";
+      });
+      const sourceResults = resultRows.filter((row) => {
+        const result = asRecord(row.payload);
+        return result?.recordKind === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT"
+          && result.sourceExperimentId === input.sourceExperimentId;
+      });
+      if (sourceResults.length !== 1 || matchingResults.length !== 1) {
+        ledgerError("invalid_contract", "P7.5 result owner does not contain one exact persisted continuation result.");
+      }
+      const resultPayload = asRecord(matchingResults[0]!.payload)!;
+      const continuationRequests = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+        eq(aiAgentEpisodeEventsTable.episodeId, resultOwnerEpisode.id),
+        eq(aiAgentEpisodeEventsTable.projectId, input.projectId),
+        eq(aiAgentEpisodeEventsTable.executionId, input.executionId),
+        eq(aiAgentEpisodeEventsTable.attempt, resultOwnerEpisode.attempt),
+        eq(aiAgentEpisodeEventsTable.eventType, "OBSERVATION_REQUESTED"),
+      ));
+      const matchingRequests = continuationRequests.filter((row) => {
+        const request = asRecord(row.payload);
+        const measurement = asRecord(request?.measurement);
+        const source = asRecord(request?.source);
+        let requestHashMatches = false;
+        try {
+          requestHashMatches = canonicalJsonHash(
+            parseBoundedJson(row.payload, 32 * 1024),
+          ) === resultPayload.continuationRequestHash;
+        } catch {
+          requestHashMatches = false;
+        }
+        return request?.recordKind === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_REQUESTED"
+          && request.continuationId === input.continuationId
+          && source?.experimentId === input.sourceExperimentId
+          && requestHashMatches
+          && measurement?.projectId === input.projectId
+          && measurement.executionId === input.executionId
+          && measurement.episodeId === resultOwnerEpisode.id
+          && measurement.attempt === resultOwnerEpisode.attempt
+          && measurement.missionId === input.missionId
+          && measurement.goalId === input.goalId
+          && measurement.planRevision === input.planRevision
+          && measurement.projectRevision === input.projectRevision;
+      });
+      const sameContinuationRequests = continuationRequests.filter((row) => {
+        const request = asRecord(row.payload);
+        return request?.recordKind === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_REQUESTED"
+          && request.continuationId === input.continuationId;
+      });
+      if (sameContinuationRequests.length !== 1 || matchingRequests.length !== 1) {
+        ledgerError("invalid_contract", "P7.5 result owner has no unique matching persisted continuation request.");
+      }
+    }
+
+    const resultOwnerEpisodeId = resultOwnerEpisode.id;
+    const resultOwnerAttempt = resultOwnerEpisode.attempt;
+    const now = new Date();
+    if (resultOwnerEpisode.id !== episode.id) {
+      const resultOwnerTerminalPayload: JsonValue = {
+        verdict: "replan_required",
+        reasonCode: input.reasonCode,
+        sourceExperimentId: input.sourceExperimentId,
+        continuationId: input.continuationId ?? null,
+        resultId: input.resultId ?? null,
+        measurementValidity: input.measurementValidity ?? null,
+        resultOwnerEpisodeId,
+        resultOwnerAttempt,
+        recoveredByEpisodeId: episode.id,
+        recoveredByAttempt: input.attempt,
+      };
+      if (resultOwnerEpisode.closedAt || TERMINAL_STATES.has(resultOwnerEpisode.state)) {
+        const terminalEvents = await tx.select().from(aiAgentEpisodeEventsTable).where(and(
+          eq(aiAgentEpisodeEventsTable.episodeId, resultOwnerEpisode.id),
+          eq(aiAgentEpisodeEventsTable.eventType, "EPISODE_TERMINAL"),
+        ));
+        const matchingTerminalEvents = terminalEvents.filter((event) => (
+          event.projectId === input.projectId
+          && event.executionId === input.executionId
+          && event.attempt === resultOwnerEpisode.attempt
+          && event.payloadHash === canonicalJsonHash(resultOwnerTerminalPayload)
+        ));
+        if (
+          resultOwnerEpisode.state !== "completed"
+          || resultOwnerEpisode.verdict !== "replan_required"
+          || resultOwnerEpisode.reasonCode !== input.reasonCode
+          || !resultOwnerEpisode.closedAt
+          || terminalEvents.length !== 1
+          || matchingTerminalEvents.length !== 1
+        ) {
+          ledgerError("terminal_immutable", "P7.5 result-owning Episode is terminal with conflicting recovery semantics.");
+        }
+      } else {
+        await appendHistoricalP75TerminalEventLocked(
+          tx,
+          resultOwnerEpisode,
+          input,
+          resultOwnerTerminalPayload,
+          now,
+        );
+        await tx.update(aiAgentEpisodesTable).set({
+          state: "completed",
+          verdict: "replan_required",
+          reasonCode: input.reasonCode,
+          nextActionCode: "MISSION_REPLAN",
+          closedAt: now,
+          updatedAt: now,
+        }).where(eq(aiAgentEpisodesTable.id, resultOwnerEpisode.id));
+      }
+    }
+
     const payload: JsonValue = {
       verdict: "replan_required",
       reasonCode: input.reasonCode,
@@ -775,6 +1007,8 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
       continuationId: input.continuationId ?? null,
       resultId: input.resultId ?? null,
       measurementValidity: input.measurementValidity ?? null,
+      resultOwnerEpisodeId,
+      resultOwnerAttempt,
     };
     await appendLocked(tx, {
       episodeId: input.episodeId,
@@ -789,7 +1023,6 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
       correlationId: input.executionId,
     }, execution, episode);
 
-    const now = new Date();
     await tx.update(aiAgentEpisodesTable).set({
       state: "completed",
       verdict: "replan_required",
@@ -802,6 +1035,8 @@ export async function terminalizeP75MeasurementContinuationEpisode(input: {
     const observationOnlyTerminalization = JSON.stringify({
       kind: "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION",
       episodeId: input.episodeId,
+      resultOwnerEpisodeId,
+      resultOwnerAttempt,
       sourceExperimentId: input.sourceExperimentId,
       continuationId: input.continuationId ?? null,
       resultId: input.resultId ?? null,
