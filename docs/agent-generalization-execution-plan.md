@@ -5514,6 +5514,15 @@ Episode وإنهاء execution lease ذريان تحت قفل صف التنفي�
 `P7_HYPOTHESIS_EXPERIMENT_RESULT` صالحًا، ولذلك يبقى scope غير مؤهل ولا تُفتح
 حملة جمع.
 
+**قرار أهلية continuation (2026-09-28):** تستبعد calibration v1 نتائج
+`P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT` صراحةً، حتى إذا كانت
+`complete_fresh` وتحمل `actualOutcomeKey`. لا تستبدل هذه النتيجة نتيجة التجربة
+المسجلة مسبقًا، ولا تغلق registration الأصلي، ولا تدخل في usable outcomes أو
+Brier/ECE أو عدد Missions المستقلة. لذلك يظل التسجيل الأصلي بلا نتيجة تجريبية
+صالحة `incomplete_measurements` بدل ترقيته بأثر رجعي. أي مراجعة مستقبلية لإدخال
+هذا النوع تتطلب policy/scope وevaluator جديدين بإصدار مستقل، ومراجعة قبل
+التسجيل وheld-out outcomes مستقبلية؛ لا يفتح هذا القرار cohort أو selector.
+
 ما زالت بوابة الجاهزية مغلقة: يلزم اختبار انقطاع بين request/result، وإلغاء
 متزامن مع الإنهاء، واستعادة العامل الفعلية، وإثبات observer المباشر في بيئة
 التشغيل. أي استخدام مستقبلي لنتائج continuation يتطلب policy/scope version
