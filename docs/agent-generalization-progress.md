@@ -2830,6 +2830,35 @@ G9 Revocation Safety
 - **next step:** أبقِ حدود §42.71 fail-closed؛ لا توسع fallback العام. إذا لزم
   تشغيل API، سوِّ schema قاعدة التطوير أولًا ثم أعد التحقق من workflow.
 
+### 42.81 — إغلاق حالات استنفاد synthesis في PROJECT_QUERY (2026-09-28)
+
+- **phase/step:** تحقق عابر للمراحل بعد §42.80؛ الهدف
+  `PROJECT_QUERY_EMBEDDED-AI`.
+- **status:** `route and orchestrator failure-boundary tests done — API runtime smoke remains blocked`.
+- **what changed:** وسّع اختبار المسار الحقيقي ليغطي فشل provider A ثم provider B،
+  مع الرجوع الحتمي المبني على الأدلة، وتكافؤ JSON/SSE/history، وثبات رسالة
+  synthesis، وعدم إعادة قراءة المسارات المطلوبة، وقبول snapshot بحكم `PROVEN`.
+  أضيف أيضًا حدّ مهلة نهائي يمنع إرسال محاولة إلى provider B. تغطي اختبارات
+  `chat-agent` الموجودة حد ميزانية تغيّر المزود وعدم قبول نتيجة تصل بعد الإلغاء.
+- **files/schema/contracts touched:** اختبار `ai-stream-integration` وسجل التقدم؛
+  لا تغيير في الإنتاج أو schema أو public contract أو صلاحيات acceptance.
+- **validation:** اختبار route المركز (1/1)؛ اختبارات `chat-agent` المركزة
+  لحد الميزانية والإصلاح والإلغاء (3/3)؛ `pnpm run typecheck` في
+  `artifacts/api-server`؛ الاختبار الجديد مرّ أيضًا ضمن 102 اختبارًا ناجحًا في
+  ملف `ai-stream-integration` الكامل. اكتملت `pnpm run validate:ai-release`
+  لكنها فشلت بثلاثة blockers؛ لا تغيير في قاعدة البيانات.
+- **authority/safety impact:** لا يسمح الاستنفاد إلا بالـfallback الحتمي للمسار
+  ذي canonical objective والأدلة المكتملة؛ تبقى تشخيصات المزود داخل الخادم.
+  مسارات الأدلة نفسها هي التي تربط محاولات synthesis والـsnapshot.
+- **remaining/blocker:** لم يُختبر مزود حي. بوابة AI للإصدار ليست خضراء:
+  فشل OpenAPI route-parity، وظهر فشلان سابقان في ملف SSE الكامل (حدث
+  `AiAgentEpisodeEvent` إضافي وغياب `done` في اختبار no-tools)، كما فشل
+  dashboard preview harness. نجح اختبار failover المضاف نفسه. لا يبدأ API
+  workflow لأن schema قاعدة التطوير تفتقد `project_plugin_bindings` ومتطلباته؛
+  لم تُطبق أي تغييرات على القاعدة.
+- **next step:** حافظ على بوابة objective والأدلة الحالية. يمكن متابعة بوابة
+  قياس P7.5 بصورة منفصلة؛ عالج schema التطوير فقط بعد تفويض واضح.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

@@ -7736,6 +7736,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     let activeObjective: CanonicalObjectiveFixture | undefined;
     let pendingReadPaths: string[] = [];
     let responseText = "";
+    let failoverScenario:
+      | "provider_b_succeeds"
+      | "all_providers_fail"
+      | "deadline_before_provider_b" = "provider_b_succeeds";
     const calls: Array<{
       provider: "openrouter" | "deepseek";
       operation: string;
@@ -7748,11 +7752,19 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       stream: vi.fn(async () => []),
       call: vi.fn(async (
         messages: unknown,
-        options: { operation?: string; maxTokens?: number; toolChoice?: unknown },
+        options: {
+          operation?: string;
+          maxTokens?: number;
+          toolChoice?: unknown;
+          executionLedger?: { setTerminal: (reason: "deadline") => void };
+        },
       ) => {
         const operation = options.operation ?? "tool_chat";
         if (operation === "project_query_no_tools_synthesis") {
           calls.push({ provider: "openrouter", operation, messages: JSON.stringify(messages) });
+          if (failoverScenario === "deadline_before_provider_b") {
+            options.executionLedger?.setTerminal("deadline");
+          }
           throw new GroqClientError(
             "SERVER_ERROR",
             "fixture provider A synthesis diagnostic must stay server-side",
@@ -7863,6 +7875,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           throw new Error(`Unexpected fallback operation: ${operation}`);
         }
         calls.push({ provider: "deepseek", operation, messages: JSON.stringify(messages) });
+        if (failoverScenario === "all_providers_fail") {
+          throw new GroqClientError(
+            "SERVER_ERROR",
+            "fixture provider B synthesis diagnostic must stay server-side",
+            { context: { providerStatus: 503 } },
+          );
+        }
         const requiredPaths = activeObjective?.requiredEvidencePaths ?? [];
         const claims = activeObjective?.requiredClaims ?? [];
         const claimRefs = claims
@@ -8165,6 +8184,177 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         streamHistory: streamHistory.body,
       });
       expect(publicPayload).not.toContain("fixture provider A synthesis diagnostic");
+
+      failoverScenario = "all_providers_fail";
+      const exhaustionCallStart = calls.length;
+      const exhaustedJson = await request(app)
+        .post("/api/ai/chat")
+        .set("Content-Type", "application/json")
+        .send(requestBody)
+        .expect(200);
+      expect(exhaustedJson.body).toMatchObject({
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+        message: {
+          outcome: "SUCCEEDED",
+          projectQueryResponseSource: "deterministic_fallback",
+          projectQueryResponseFallbackReason: "synthesis_failed",
+        },
+      });
+      const exhaustedObjective = routedObjectives.at(-1)!;
+      const exhaustedSynthesisCalls = calls.slice(exhaustionCallStart).filter(
+        (call) => call.operation === "project_query_no_tools_synthesis",
+      );
+      expect(exhaustedSynthesisCalls.map(({ provider }) => provider))
+        .toEqual(["openrouter", "deepseek"]);
+      expect(exhaustedSynthesisCalls[0]!.messages).toBe(exhaustedSynthesisCalls[1]!.messages);
+      expectRetainedSynthesisPrompt(exhaustedSynthesisCalls[1]!.messages, exhaustedObjective);
+      const exhaustedMessage = exhaustedJson.body.message as Record<string, unknown> & { id: string };
+      const exhaustedJsonHistory = await request(app)
+        .get(`/api/ai/chat/${String(exhaustedJson.body.sessionId)}/messages`)
+        .expect(200);
+      const exhaustedHistoryMessage = (exhaustedJsonHistory.body as Array<Record<string, unknown>>)
+        .find((entry) => entry.id === exhaustedMessage.id);
+      expect(exhaustedHistoryMessage).toMatchObject({
+        content: exhaustedMessage.content,
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      });
+      const exhaustionStreamCallStart = calls.length;
+      const exhaustedStream = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send(requestBody)
+        .expect(200);
+      const exhaustedEvents = parseSseEvents(exhaustedStream.text);
+      expect(exhaustedEvents.find((event) => event.type === "error")).toBeUndefined();
+      const exhaustedDone = exhaustedEvents.find((event) => event.type === "done") as
+        | (Record<string, unknown> & {
+            message: Record<string, unknown> & { id: string };
+          })
+        | undefined;
+      expect(exhaustedDone?.message).toMatchObject({
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      });
+      expect(exhaustedDone?.message.content).toBe(exhaustedMessage.content);
+      const exhaustedStreamSynthesisCalls = calls.slice(exhaustionStreamCallStart).filter(
+        (call) => call.operation === "project_query_no_tools_synthesis",
+      );
+      expect(exhaustedStreamSynthesisCalls.map(({ provider }) => provider))
+        .toEqual(["openrouter", "deepseek"]);
+      expect(exhaustedStreamSynthesisCalls[0]!.messages)
+        .toBe(exhaustedStreamSynthesisCalls[1]!.messages);
+      const exhaustedStreamExecutions = await db
+        .select({
+          id: aiExecutionsTable.id,
+          sessionId: aiExecutionsTable.sessionId,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      const exhaustedStreamExecution = exhaustedStreamExecutions.find(
+        ({ finalMessageId }) => finalMessageId === exhaustedDone?.message.id,
+      );
+      expect(exhaustedStreamExecution).toBeDefined();
+      const exhaustedStreamObjective = routedObjectives.at(-1)!;
+      expect(exhaustedStreamObjective).toMatchObject({
+        objectiveType: exhaustedObjective.objectiveType,
+        requiredEvidencePaths: exhaustedObjective.requiredEvidencePaths,
+        requiredClaims: exhaustedObjective.requiredClaims,
+      });
+      const [exhaustedStreamAcceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+          evidenceSnapshotId: aiExecutionAcceptancesTable.evidenceSnapshotId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, exhaustedStreamExecution!.id))
+        .limit(1);
+      expect(exhaustedStreamAcceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+      });
+      const [exhaustedStreamSnapshot] = await db
+        .select({
+          verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+          complete: aiExecutionEvidenceSnapshotsTable.complete,
+          readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+        })
+        .from(aiExecutionEvidenceSnapshotsTable)
+        .where(eq(
+          aiExecutionEvidenceSnapshotsTable.id,
+          exhaustedStreamAcceptance!.evidenceSnapshotId!,
+        ))
+        .limit(1);
+      expect(exhaustedStreamSnapshot).toMatchObject({
+        verdict: "PROVEN",
+        complete: 1,
+        readCount: exhaustedStreamObjective.requiredEvidencePaths!.length,
+      });
+      const exhaustedStreamReads = await db
+        .select({ path: aiExecutionEvidenceReadsTable.path })
+        .from(aiExecutionEvidenceReadsTable)
+        .where(eq(
+          aiExecutionEvidenceReadsTable.snapshotId,
+          exhaustedStreamAcceptance!.evidenceSnapshotId!,
+        ));
+      expect(exhaustedStreamReads.map(({ path }) => path).sort())
+        .toEqual([...exhaustedStreamObjective.requiredEvidencePaths!].sort());
+      const exhaustedStreamHistory = await request(app)
+        .get(`/api/ai/chat/${exhaustedStreamExecution!.sessionId}/messages`)
+        .expect(200);
+      const exhaustedStreamHistoryMessage =
+        (exhaustedStreamHistory.body as Array<Record<string, unknown>>)
+          .find((entry) => entry.id === exhaustedDone!.message.id);
+      expect(exhaustedStreamHistoryMessage).toMatchObject({
+        content: exhaustedMessage.content,
+        outcome: "SUCCEEDED",
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      });
+      const fallbackParityProjection = (value: Record<string, unknown>) => ({
+        content: value.content,
+        outcome: value.outcome,
+        projectQueryResponseSource: value.projectQueryResponseSource,
+        projectQueryResponseFallbackReason: value.projectQueryResponseFallbackReason ?? null,
+      });
+      expect(fallbackParityProjection(exhaustedHistoryMessage!))
+        .toEqual(fallbackParityProjection(exhaustedMessage));
+      expect(fallbackParityProjection(exhaustedDone!.message))
+        .toEqual(fallbackParityProjection(exhaustedMessage));
+      expect(fallbackParityProjection(exhaustedStreamHistoryMessage!))
+        .toEqual(fallbackParityProjection(exhaustedDone!.message));
+
+      failoverScenario = "deadline_before_provider_b";
+      const deadlineCallStart = calls.length;
+      const deadlineLimited = await request(app)
+        .post("/api/ai/chat")
+        .set("Content-Type", "application/json")
+        .send(requestBody)
+        .expect(200);
+      expect(deadlineLimited.body).toMatchObject({
+        projectQueryResponseSource: "deterministic_fallback",
+        projectQueryResponseFallbackReason: "synthesis_failed",
+      });
+      const deadlineSynthesisCalls = calls.slice(deadlineCallStart).filter(
+        (call) => call.operation === "project_query_no_tools_synthesis",
+      );
+      expect(deadlineSynthesisCalls.map(({ provider }) => provider)).toEqual(["openrouter"]);
+
+      const exhaustedPublicPayload = JSON.stringify({
+        json: exhaustedJson.body,
+        jsonHistory: exhaustedJsonHistory.body,
+        stream: exhaustedEvents,
+        streamHistory: exhaustedStreamHistory.body,
+        deadlineLimited: deadlineLimited.body,
+      });
+      expect(exhaustedPublicPayload).not.toContain("fixture provider A synthesis diagnostic");
+      expect(exhaustedPublicPayload).not.toContain("fixture provider B synthesis diagnostic");
     } finally {
       for (const [key, value] of originalProviderEnv) {
         if (value === undefined) delete process.env[key];
