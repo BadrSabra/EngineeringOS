@@ -1172,6 +1172,16 @@ describe("recipe operation preparation", () => {
         (event.payload as Record<string, unknown>)?.recordKind
           === "P75_HYPOTHESIS_MEASUREMENT_CONTINUATION_RESULT"
       ))).toHaveLength(1);
+      const sourceRegistrationEvent = finalEvents.find((event) => (
+        (event.payload as Record<string, unknown>)?.recordKind
+          === "P75_HYPOTHESIS_EXPERIMENT_REGISTERED"
+      ));
+      expect(sourceRegistrationEvent?.payload).toMatchObject({
+        calibrationStatus: "unvalidated",
+        selectionMode: "fixed_safe_probe",
+        selectedObservationRef: "workspace-runtime.status-after-start.v1",
+        selectionPolicyVersion: "runtime-start-fixed-safe-probe-v1",
+      });
       const terminalEvents = finalEvents.filter((event) => event.eventType === "EPISODE_TERMINAL");
       expect(terminalEvents).toHaveLength(2);
       const recoveredResultTerminal = terminalEvents.find(

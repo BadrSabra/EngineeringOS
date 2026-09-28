@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildRuntimeStartHypothesisExperimentRegistration,
   buildRuntimeStartHypothesisExperimentResult,
+  parseRuntimeStartHypothesisExperimentResult,
   type RuntimeStartHypothesisExperimentResult,
 } from "./runtime-start-hypothesis-experiment.js";
+import {
+  buildRuntimeStartHypothesisMeasurementContinuationRequest,
+  buildRuntimeStartHypothesisMeasurementContinuationResult,
+} from "./runtime-start-hypothesis-measurement-continuation.js";
 import {
   evaluateRuntimeStartHypothesisCalibration,
   RUNTIME_START_CALIBRATION_MINIMUM_MISSIONS,
@@ -61,6 +66,39 @@ function experiment(
     registration,
     result,
   };
+}
+
+function continuationResultFor(source: RuntimeStartCalibrationExperiment) {
+  const registration = source.registration!;
+  const request = buildRuntimeStartHypothesisMeasurementContinuationRequest({
+    registration,
+    measurement: {
+      projectId: registration.projectId,
+      missionId: registration.missionId,
+      goalId: registration.goalId,
+      executionId: registration.executionId,
+      attempt: registration.attempt + 1,
+      episodeId: `episode-continuation-${registration.episodeId}`,
+      planRevision: registration.planRevision,
+      projectRevision: registration.projectRevision,
+      environmentRevision: registration.environmentRevision,
+    },
+    requestedAt: "2026-09-26T10:02:00.000Z",
+  });
+  return buildRuntimeStartHypothesisMeasurementContinuationResult({
+    request,
+    observation: {
+      id: `observation-continuation-${registration.episodeId}`,
+      predicate: "runtime.status",
+      projectRevision: registration.projectRevision,
+      environmentRevision: registration.environmentRevision,
+      freshness: "fresh",
+      environmentFreshness: "fresh",
+      outcomeKey: "runtime_running",
+      observedAt: "2026-09-26T10:02:05.000Z",
+    },
+    resolvedAt: "2026-09-26T10:02:05.000Z",
+  });
 }
 
 describe("runtime-start hypothesis calibration", () => {
@@ -256,5 +294,31 @@ describe("runtime-start hypothesis calibration", () => {
 
     expect(evaluation.status).toBe("incomplete_measurements");
     expect(evaluation.unresolvedExperimentCount).toBe(1);
+  });
+
+  it("does not count a fresh P7.5 continuation result in the calibration cohort", () => {
+    const source = experiment(222);
+    const continuationResult = continuationResultFor(source);
+
+    expect(continuationResult).toMatchObject({
+      measurementValidity: "complete_fresh",
+      actualOutcomeKey: "runtime_running",
+      calibrationEligibility: "not_eligible_without_versioned_policy_review",
+    });
+    expect(() => parseRuntimeStartHypothesisExperimentResult(continuationResult)).toThrow();
+
+    const evaluation = evaluateRuntimeStartHypothesisCalibration({
+      calibrationScopeRef: source.calibrationScopeRef,
+      experiments: [{
+        ...source,
+        result: continuationResult as unknown as RuntimeStartHypothesisExperimentResult,
+      }],
+    });
+
+    expect(evaluation.status).toBe("incomplete_measurements");
+    expect(evaluation.registeredExperimentCount).toBe(1);
+    expect(evaluation.usableOutcomeCount).toBe(0);
+    expect(evaluation.unresolvedExperimentCount).toBe(1);
+    expect(evaluation.independentMissionCount).toBe(0);
   });
 });
