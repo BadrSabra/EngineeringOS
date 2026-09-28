@@ -25,8 +25,15 @@ import {
   type RuntimeStartHypothesisLedgerSnapshot,
   type RuntimeStartHypothesisLedgerVerification,
 } from "./runtime-start-hypothesis-ledger-evidence.js";
+import {
+  buildRuntimeStartHypothesisTrustBoundary,
+  runtimeStartHypothesisTrustBoundaryBlockers,
+  runtimeStartHypothesisTrustBoundaryReviewRequired,
+  runtimeStartHypothesisTrustBoundaryStatus,
+  type RuntimeStartHypothesisTrustBoundary,
+} from "./runtime-start-hypothesis-trust-boundary.js";
 
-export const RUNTIME_START_READINESS_EVIDENCE_PACK_VERSION = 2 as const;
+export const RUNTIME_START_READINESS_EVIDENCE_PACK_VERSION = 3 as const;
 export const RUNTIME_START_READINESS_PROTOCOL_ID =
   "p75-runtime-start-calibration-readiness";
 export const RUNTIME_START_READINESS_PROTOCOL_VERSION = 2 as const;
@@ -121,6 +128,7 @@ export type RuntimeStartHypothesisReadinessEvidencePack = {
   calibrationScopeRef: string | null;
   protocolManifest: RuntimeStartReadinessProtocolManifest;
   protocolManifestHash: string;
+  trustBoundary: RuntimeStartHypothesisTrustBoundary;
   machineEvidence: RuntimeStartReadinessMachineEvidence[];
   humanReviewItems: RuntimeStartReadinessHumanReviewItem[];
   blockers: string[];
@@ -303,6 +311,11 @@ function buildEvidencePack(
   const readinessReportHash = canonicalHash(report);
   const protocolManifest = buildProtocolManifest();
   const protocolManifestHash = canonicalHash(protocolManifest);
+  const trustBoundary = buildRuntimeStartHypothesisTrustBoundary();
+  const trustBoundaryBlockers =
+    runtimeStartHypothesisTrustBoundaryBlockers(trustBoundary);
+  const trustBoundaryReviewRequired =
+    runtimeStartHypothesisTrustBoundaryReviewRequired(trustBoundary);
   const sourceReportValid = readinessReportIntegrityIsValid(report);
   const reportCheckIds = [
     "candidate-scope",
@@ -449,11 +462,22 @@ function buildEvidencePack(
         ["scope-and-record-integrity"],
       ),
     },
+    {
+      id: "trusted-source-coverage",
+      status: runtimeStartHypothesisTrustBoundaryStatus(trustBoundary),
+      detail: "Existing source candidates are inventoried per trust requirement; none currently provides complete P7.5 authority evidence.",
+      evidenceRefs: [],
+      diagnostics: [
+        ...trustBoundaryBlockers,
+        ...trustBoundaryReviewRequired,
+      ],
+    },
   ];
   const humanReviewItems = buildHumanReviewItems();
   const blockers = [
     ...new Set([
       ...report.blockers,
+      ...trustBoundaryBlockers,
       ...machineEvidence
         .filter((item) => item.status === "blocked")
         .map((item) => item.id),
@@ -462,6 +486,7 @@ function buildEvidencePack(
   const reviewRequired = [
     ...new Set([
       ...report.reviewRequired,
+      ...trustBoundaryReviewRequired,
       ...machineEvidence
         .filter((item) => item.status === "unverified" || item.status === "review_required")
         .map((item) => item.id),
@@ -485,6 +510,7 @@ function buildEvidencePack(
     calibrationScopeRef: report.calibrationScopeRef,
     protocolManifest,
     protocolManifestHash,
+    trustBoundary,
     machineEvidence,
     humanReviewItems,
     blockers,

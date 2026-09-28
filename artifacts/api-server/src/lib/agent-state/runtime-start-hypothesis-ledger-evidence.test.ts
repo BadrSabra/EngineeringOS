@@ -160,7 +160,8 @@ describe("P7.5 durable Episode-ledger evidence", () => {
     expect(first.evidencePack.episodeLedgerManifestHash).toMatch(/^[a-f0-9]{64}$/);
     expect(first.evidencePack.packRef).toBe(second.evidencePack.packRef);
     expect(first.evidencePack).toMatchObject({
-      status: "REVIEW_REQUIRED",
+      version: 3,
+      status: "BLOCKED",
       collectionAuthorized: false,
       aggregateCalibrationAssessmentComputed: false,
       writesPerformed: false,
@@ -245,7 +246,10 @@ describe("P7.5 durable Episode-ledger evidence", () => {
     expect(overflow.evidencePack.machineEvidence.find(
       (item) => item.id === "episode-ledger-ownership",
     )?.diagnostics).toContain("episode-ledger-snapshot-overflow");
-    expect(empty.evidencePack.status).toBe("REVIEW_REQUIRED");
+    expect(empty.evidencePack.status).toBe("BLOCKED");
+    expect(empty.evidencePack.blockers).toContain(
+      "trust-boundary:reviewer-identity:missing",
+    );
     expect(empty.evidencePack.machineEvidence.find(
       (item) => item.id === "episode-ledger-ownership",
     )?.status).toBe("review_required");

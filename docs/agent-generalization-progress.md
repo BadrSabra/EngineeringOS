@@ -3009,6 +3009,39 @@ G9 Revocation Safety
 - **scope boundary:** توثيق وخطة فقط في هذه الخطوة؛ لا تعديل كود أو schema أو DB أو Dashboard، ولا cohort أو selector أو فتح collection. لا تُفترض مصادر موثوقة قبل جردها فعليًا.
 - **next step:** إبقاء الحزمة داخلية وتشخيصية؛ لا إضافة API أو واجهة أو اعتماد آلي دون عقد مراجعة منفصل.
 
+### 42.91 — جرد مصادر Trust Boundary وربطها بحزمة P7.5 (2026-09-28)
+
+- **phase/step:** جرد مصادر الثقة الحالية وربط كل شرط readiness بمصدره وحدوده.
+- **status:** `partial — source inventory implemented; all P7.5 trust conditions remain blocked`
+- **what changed:** أضيف جرد server-owned منفصل عن evidence-pack orchestrator. يغطي
+  Clerk session identity، و`ADMIN_USER_IDS`، وtask operator attestations،
+  وEpisode ledger، وfixed partition، وprotocol manifest، مع حدود ما يثبته كل
+  مصدر. يفصل شروط هوية المراجع عن صلاحياته وموافقته، ويضيف reset والاستقلال
+  وheld-out lineage وfreeze وملاءمة evaluator. لم يُعثر على سجل P7.5 دائم
+  للموافقة أو reset أو cohort/sample lineage أو held-out dataset lineage؛ وكل
+  الشروط السبعة تبقى `MISSING` ومراجع الأدلة فارغة. أصبح إصدار evidence pack 3؛
+  protocol/calibration manifest بقي v2.
+- **files/schema/contracts touched:** وحدة trust-boundary مستقلة، evidence-pack
+  builder واختبارات readiness/ledger، والخطة وسجل التقدم؛ لا schema أو migration
+  أو DB write أو endpoint.
+- **validation:** اختبارات P7.5 المركزة (19/19)،
+  `pnpm exec tsc -p tsconfig.json --noEmit` من `artifacts/api-server`،
+  `git diff --check`، وإعادة تشغيل workflow الـAPI؛ نجح build وعاد workflow
+  إلى `RUNNING`. أظهرت السجلات تحذيرات recovery موجودة عن project roots مؤقتة
+  غير متاحة وحدود المعدل؛ لم تعطل بدء API وليست من هذه التغييرات.
+- **authority/safety impact:** غياب أو تعارض أو خروج المصدر عن النطاق يحجب
+  الحزمة، كما لا تقبل `SERVER_VERIFIED` أو `HUMAN_REVIEW_REQUIRED` بلا مرجع مصدر
+  حاضر وhash دليل. كل الشروط الحالية missing، والحزمة `BLOCKED` مع
+  `collectionAuthorized=false` و`fixed_safe_probe`. لا IAM أو موافقات جديدة،
+  ولا cohort أو selector أو جمع أو ECE/bootstrap.
+- **remaining/blocker:** Clerk identity وoperator allowlist لا يثبتان اعتماد
+  مراجع P7.5؛ task attestation caller-supplied؛ Episode provenance لا يثبت
+  reset أو lineage؛ fixed partition لا يثبت held-out غير المستخدم؛ وprotocol
+  hash لا يثبت freeze سابقًا للنتائج. يلزم مصدر موثوق مناسب لكل شرط قبل أي
+  جاهزية أو جمع.
+- **next step:** لا ترفع أي blocker ولا تضف مصدر سلطة جديدًا دون تحديد المصدر
+  المسموح وآلية التحقق والمراجعة البشرية؛ أبقِ الجمع مغلقًا.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

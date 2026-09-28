@@ -270,7 +270,8 @@ describe("runtime-start calibration readiness preflight", () => {
     expect(pack).toEqual(repeated);
     expect(pack).toMatchObject({
       kind: "p75-runtime-start-readiness-evidence-pack",
-      status: "REVIEW_REQUIRED",
+      version: 3,
+      status: "BLOCKED",
       collectionAuthorized: false,
       aggregateCalibrationAssessmentComputed: false,
       writesPerformed: false,
@@ -297,8 +298,40 @@ describe("runtime-start calibration readiness preflight", () => {
     });
     expect(pack.machineEvidence.find((item) => item.id === "episode-ledger-ownership"))
       .toMatchObject({ status: "unverified" });
+    expect(pack.machineEvidence.find((item) => item.id === "trusted-source-coverage"))
+      .toMatchObject({ status: "blocked" });
     expect(pack.machineEvidence.find((item) => item.id === "conflict-scan"))
       .toMatchObject({ status: "verified" });
+    expect(pack.trustBoundary.sources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "clerk-session-identity",
+        availability: "present",
+      }),
+      expect.objectContaining({
+        id: "p75-review-approval-record",
+        availability: "not_found",
+      }),
+      expect.objectContaining({
+        id: "cohort-sampling-lineage",
+        availability: "not_found",
+      }),
+    ]));
+    expect(pack.trustBoundary.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "reviewer-identity",
+        status: "MISSING",
+        sourceIds: ["clerk-session-identity", "p75-review-approval-record"],
+        evidenceRefs: [],
+      }),
+      expect.objectContaining({
+        id: "held-out-provenance",
+        status: "MISSING",
+        sourceIds: ["fixed-heldout-partition", "heldout-dataset-lineage"],
+        evidenceRefs: [],
+      }),
+    ]));
+    expect(pack.blockers).toContain("trust-boundary:reviewer-identity:missing");
+    expect(pack.blockers).toContain("trust-boundary:independent-sampling-definition:missing");
     expect(pack.humanReviewItems).toHaveLength(6);
     expect(pack.humanReviewItems.every((item) => (
       item.status === "missing"
