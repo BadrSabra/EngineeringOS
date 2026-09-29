@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import {
   buildGeneralTaskPlan,
   type GeneralTaskPlan,
+  type ApplyChangesRequirement,
 } from "./task-planner.js";
 import {
   resolveTurnIntent,
@@ -273,6 +275,65 @@ export type MissionPlanPreview = {
   >;
   plan: GeneralTaskPlan;
 };
+
+export function buildApplyChangesMissionPlanPreview(input: {
+  objective: string;
+  requirement: ApplyChangesRequirement;
+}): MissionPlanPreview {
+  const planBody = {
+    version: 1 as const,
+    objective: input.objective,
+    missionMode: "apply_changes" as const,
+    applyRequirement: input.requirement,
+    steps: [
+      {
+        id: "apply-changes",
+        title: "Apply the approved change proposal",
+        kind: "execute" as const,
+        dependencies: [] as string[],
+        files: [] as string[],
+        readOnly: false,
+        approvalRequired: false,
+      },
+      {
+        id: "report-applied",
+        title: "Report the live applied result",
+        kind: "deliver" as const,
+        dependencies: ["apply-changes"],
+        files: [] as string[],
+        readOnly: true,
+        approvalRequired: false,
+      },
+    ],
+    conflicts: [] as string[],
+    decision: "CREATE" as const,
+    source: "new" as const,
+    profile: "default" as const,
+    turnKind: "DELIVERY" as const,
+    executionTaskType: "task_execution",
+    skipQueryPlanner: true,
+  };
+  const planHash = createHash("sha256")
+    .update(JSON.stringify(planBody))
+    .digest("hex");
+  return {
+    version: 1,
+    objective: input.objective,
+    admission: "mission",
+    admissionReason: "multi_step_or_mutating_objective",
+    turnIntent: {
+      kind: "DELIVERY",
+      executionTaskType: "task_execution",
+      requiresTools: true,
+      requiresEvidence: true,
+      allowsBuildHandoff: true,
+      compoundExecution: true,
+      compoundWrite: true,
+      phases: ["proposal", "execution", "validation"],
+    },
+    plan: { ...planBody, planHash },
+  };
+}
 
 function classifyAdmission(
   intent: TurnIntent,

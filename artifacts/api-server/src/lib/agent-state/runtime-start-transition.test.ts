@@ -5,8 +5,11 @@ import {
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiChatSessionsTable,
+  aiChatMessagesTable,
+  aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalDependenciesTable,
   aiGoalsTable,
   aiMissionsTable,
   aiWorldTransitionsTable,
@@ -18,16 +21,20 @@ import { createAiExecution, claimAiExecution } from "../ai-execution-state.js";
 import { startEpisode } from "./agent-episode-ledger.js";
 import {
   createPendingRuntimeStartTransition,
+  createPendingApplyChangesTransition,
+  finalizeApplyChangesTransition,
   finalizeRuntimeStartTransition,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
 import { wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
+import { evaluateApplyChangesD2 } from "./apply-changes-mission-gate.js";
 import { heavyJobQueue } from "../job-queue.js";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import {
   getProjectWorldState,
   materializeWorldStateForProject,
 } from "./world-state.js";
+import { GoalNextActionSchema } from "@workspace/ai-orchestrator";
 
 const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
@@ -402,6 +409,237 @@ async function insertValidRuntimeStartObservations(
 }
 
 describe("runtime.start transition retry scheduling", () => {
+  it("requires a Mission Goal and fences apply transition idempotency", async () => {
+    const fixture = await transitionFixture({ accepted: false });
+    const now = new Date();
+    const messageId = crypto.randomUUID();
+    const proposalId = crypto.randomUUID();
+    const missionId = crypto.randomUUID();
+    const goalId = crypto.randomUUID();
+    const reportGoalId = crypto.randomUUID();
+    const planRevision = "f".repeat(64);
+    const baseRevision = fixture.sourceRevision;
+    const baseTreeHash = "e".repeat(64);
+    const candidateTreeHash = "b".repeat(64);
+    const changeSetHash = "d".repeat(64);
+    const beforeObservationId = crypto.randomUUID();
+    const afterObservationId = crypto.randomUUID();
+    const requirement = {
+      kind: "apply.changes",
+      version: 1,
+      sourceStepId: "apply-changes",
+      proposalId,
+      baseRevision,
+      candidateTreeHash,
+      changeSetHash,
+      from: "candidate",
+      to: "applied",
+    };
+    const plan = {
+      hash: planRevision,
+      applyRequirement: requirement,
+      steps: [
+        { id: "apply-changes", dependencies: [] },
+        { id: "report-applied", dependencies: ["apply-changes"] },
+      ],
+    };
+    await db.insert(aiChatMessagesTable).values({
+      id: messageId, sessionId: (await db.select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, fixture.projectId)).limit(1))[0]!.id,
+      role: "user", content: "apply", createdAt: now,
+    });
+    await db.insert(aiChangeProposalsTable).values({
+      id: proposalId, projectId: fixture.projectId,
+      sessionId: (await db.select({ id: aiChatSessionsTable.id })
+        .from(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, fixture.projectId)).limit(1))[0]!.id,
+      messageId,
+      changes: "[]",
+      status: "applied",
+      lifecycle: "applied",
+      baseRevision,
+      baseTreeHash,
+      candidateTreeHash,
+      promotedTreeHash: candidateTreeHash,
+      changeSetHash,
+      createdAt: now,
+    });
+    await db.insert(aiMissionsTable).values({
+      id: missionId, projectId: fixture.projectId,
+      userId: `runtime-transition-test:${fixture.projectId}`,
+      title: "Apply transition", intent: "apply", status: "waiting",
+      scope: { kind: "project", projectId: fixture.projectId },
+      autonomyPolicy: {
+        activePlanRevision: planRevision,
+        applyMission: { proposalId, requirement },
+      },
+      createdAt: now, updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: goalId, missionId, projectId: fixture.projectId, title: "Apply",
+      status: "waiting_for_event", blockedReason: "apply_changes_pending",
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      successCriteria: {
+        stepId: "apply-changes",
+        applyRequirement: requirement,
+        planRevision: plan,
+      },
+      outcomeContract: {
+        stepId: "apply-changes",
+        applyRequirement: requirement,
+        candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+        planRevision: plan,
+      },
+      createdAt: now, updatedAt: now,
+    });
+    await db.insert(aiGoalsTable).values({
+      id: reportGoalId,
+      missionId,
+      projectId: fixture.projectId,
+      title: "Report applied changes",
+      status: "blocked",
+      nextAction: { kind: "wait", reason: "event", wakeAt: null },
+      successCriteria: { stepId: "report-applied", planRevision: { hash: planRevision } },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiGoalDependenciesTable).values({
+      id: crypto.randomUUID(),
+      missionId,
+      projectId: fixture.projectId,
+      goalId: reportGoalId,
+      dependsOnGoalId: goalId,
+      planRevision,
+      createdAt: now,
+    });
+    await db.update(aiExecutionsTable).set({ goalId, proposalId })
+      .where(eq(aiExecutionsTable.id, fixture.executionId));
+    await db.update(aiAgentEpisodesTable).set({ missionId, goalId, planRevision })
+      .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+    await db.insert(aiAgentObservationsTable).values({
+        id: beforeObservationId,
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        episodeId: fixture.episodeId,
+        kind: "direct_observation",
+        observationRole: "workspace.tree_hash",
+        sourceType: "direct_observation",
+        sourceId: beforeObservationId,
+        subject: `project:${fixture.projectId}`,
+        predicate: "workspace.tree_hash",
+        value: baseTreeHash,
+        valueHash: "1".repeat(64),
+        sequence: 0,
+        taskScope: "project",
+        environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+        provenance: "DIRECT_OBSERVATION",
+        sourceVersion: baseTreeHash,
+        sourceRefs: [],
+        observedAt: now,
+        projectRevision: baseTreeHash,
+        environmentRevision: fixture.environmentRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        environmentFreshness: "fresh",
+        evidenceRefs: ["apply-proof"],
+        createdAt: now,
+      });
+    await db.insert(aiAgentObservationsTable).values({
+        id: afterObservationId,
+        projectId: fixture.projectId,
+        executionId: fixture.executionId,
+        episodeId: fixture.episodeId,
+        kind: "direct_observation",
+        observationRole: "workspace.tree_hash",
+        sourceType: "direct_observation",
+        sourceId: afterObservationId,
+        subject: `project:${fixture.projectId}`,
+        predicate: "workspace.tree_hash",
+        value: candidateTreeHash,
+        valueHash: "2".repeat(64),
+        sequence: 1,
+        taskScope: "project",
+        environmentRevisionKey: `revision:${fixture.environmentRevision}`,
+        provenance: "DIRECT_OBSERVATION",
+        sourceVersion: candidateTreeHash,
+        sourceRefs: [],
+        observedAt: now,
+        projectRevision: candidateTreeHash,
+        environmentRevision: fixture.environmentRevision,
+        completeness: "complete",
+        freshness: "fresh",
+        environmentFreshness: "fresh",
+        evidenceRefs: ["apply-proof"],
+        createdAt: now,
+      });
+    const input = {
+      projectId: fixture.projectId, executionId: fixture.executionId, attempt: 0,
+      episodeId: fixture.episodeId, actionId: `apply:${fixture.transitionInput.actionId}`,
+      effectBundleId: fixture.effectBundleId, proposalId, goalId, planRevision,
+      workerId: fixture.workerId, parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+      parentFactRefs: [], beforeObservationIds: [beforeObservationId], afterObservationIds: [afterObservationId],
+      evidenceRefs: ["apply-proof"], environmentRevision: fixture.environmentRevision,
+      promotedTreeHash: candidateTreeHash,
+    };
+    const id = await createPendingApplyChangesTransition(input);
+    expect(await createPendingApplyChangesTransition(input)).toBe(id);
+    await expect(createPendingApplyChangesTransition({
+      ...input, parentFactRefs: ["different"],
+    })).rejects.toThrow("apply_transition_idempotency_conflict");
+    await expect(createPendingApplyChangesTransition({ ...input, goalId: "" }))
+      .rejects.toThrow("apply_transition_goal_required");
+
+    await acceptTransitionFixture({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      operationId: fixture.operationId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    const finalized = await finalizeApplyChangesTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: input.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(finalized.status).toBe("materialized");
+
+    const [mission] = await db.select().from(aiMissionsTable).where(eq(aiMissionsTable.id, missionId));
+    const [goal] = await db.select().from(aiGoalsTable).where(eq(aiGoalsTable.id, goalId));
+    const criteria = goal?.successCriteria as {
+      planRevision?: { steps?: Array<{ id?: string; dependencies?: string[] }> };
+    };
+    const outcome = goal?.outcomeContract as { candidateIdentity?: string };
+    expect(criteria.planRevision?.steps).toHaveLength(2);
+    expect(criteria.planRevision?.steps?.map((step) => step.id).sort())
+      .toEqual(["apply-changes", "report-applied"]);
+    expect(criteria.planRevision?.steps?.find((step) => step.id === "report-applied")?.dependencies)
+      .toContain("apply-changes");
+    expect(GoalNextActionSchema.safeParse(goal?.nextAction).success).toBe(true);
+    expect(outcome.candidateIdentity).toBe(`${proposalId}:${candidateTreeHash}`);
+    const evaluation = await db.transaction((tx) => evaluateApplyChangesD2(tx, {
+      goal: goal!,
+      mission: mission!,
+      activePlanRevision: planRevision,
+    }));
+    expect(evaluation, `D2 fixture: ${JSON.stringify({
+      evaluation,
+      successCriteria: goal?.successCriteria,
+      outcomeContract: goal?.outcomeContract,
+      nextAction: goal?.nextAction,
+      autonomyPolicy: mission?.autonomyPolicy,
+    })}`).toMatchObject({
+      state: "proven",
+      executionId: fixture.executionId,
+      transitionId: id,
+      effectBundleId: fixture.effectBundleId,
+      requirement,
+      planRevision,
+      candidateIdentity: `${proposalId}:${candidateTreeHash}`,
+    });
+  });
+
   it("leaves an active transition pending without consuming retries before acceptance", async () => {
     const fixture = await transitionFixture({ accepted: false });
 

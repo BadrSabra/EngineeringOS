@@ -3,8 +3,12 @@ import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   aiAgentEpisodesTable,
   aiAgentObservationsTable,
+  aiAgentEffectBundlesTable,
+  aiChangeProposalsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   aiWorldFactsTable,
   aiWorldTransitionsTable,
   db,
@@ -32,6 +36,26 @@ export type RuntimeStartTransitionIntent = {
   environmentRevision: string | null;
 };
 
+export type ApplyChangesTransitionIntent = {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+  proposalId: string;
+  goalId: string;
+  planRevision: string;
+  workerId: string;
+  parentWorldRevision: string;
+  parentFactRefs: readonly string[];
+  beforeObservationIds: readonly string[];
+  afterObservationIds: readonly string[];
+  evidenceRefs: readonly string[];
+  environmentRevision: string | null;
+  promotedTreeHash: string;
+};
+
 const ACTIVE_EXECUTION_STATUSES = new Set(["queued", "running", "paused", "cancelling"]);
 
 function unique(values: readonly string[]): string[] {
@@ -40,6 +64,74 @@ function unique(values: readonly string[]): string[] {
 
 function transitionIdempotencyKey(input: RuntimeStartTransitionIntent): string {
   return `runtime.start:${input.executionId}:${input.attempt}:${input.episodeId}:${input.actionId}`;
+}
+
+function applyTransitionIdempotencyKey(input: ApplyChangesTransitionIntent): string {
+  return `apply.changes:${input.executionId}:${input.attempt}:${input.episodeId}:${input.actionId}:${input.proposalId}:${input.planRevision}`;
+}
+
+export async function createPendingApplyChangesTransition(
+  input: ApplyChangesTransitionIntent,
+): Promise<string> {
+  const idempotencyKey = applyTransitionIdempotencyKey(input);
+  if (!input.goalId.trim()) throw new Error("apply_transition_goal_required");
+  const refs = unique([
+    ...input.evidenceRefs,
+    `apply-binding:v1:${JSON.stringify({
+      proposalId: input.proposalId,
+      goalId: input.goalId,
+      planRevision: input.planRevision,
+      promotedTreeHash: input.promotedTreeHash,
+    })}`,
+  ]);
+  return db.transaction(async (tx) => {
+    const [execution] = await tx.select().from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+      eq(aiExecutionsTable.attempt, input.attempt),
+    )).for("update").limit(1);
+    if (!execution || execution.status !== "running"
+      || execution.workerId !== input.workerId
+      || !execution.leaseUntil || execution.leaseUntil <= new Date()) {
+      throw new Error("apply_transition_owner_stale");
+    }
+    const [existing] = await tx.select().from(aiWorldTransitionsTable).where(and(
+      eq(aiWorldTransitionsTable.projectId, input.projectId),
+      eq(aiWorldTransitionsTable.idempotencyKey, idempotencyKey),
+    )).limit(1);
+    if (existing) {
+      const existingRefs = unique(existing.evidenceRefs as string[]);
+      if (
+        existing.executionId !== input.executionId
+        || existing.attempt !== input.attempt
+        || existing.episodeId !== input.episodeId
+        || existing.actionId !== input.actionId
+        || existing.effectBundleId !== input.effectBundleId
+        || existing.parentWorldRevision !== input.parentWorldRevision
+        || existing.environmentRevision !== input.environmentRevision
+        || JSON.stringify(existing.parentFactRefs) !== JSON.stringify(unique(input.parentFactRefs))
+        || JSON.stringify(existing.beforeObservationIds) !== JSON.stringify(unique(input.beforeObservationIds))
+        || JSON.stringify(existing.afterObservationIds) !== JSON.stringify(unique(input.afterObservationIds))
+        || JSON.stringify(existingRefs) !== JSON.stringify(refs)
+      ) throw new Error("apply_transition_idempotency_conflict");
+      return existing.id;
+    }
+    const id = randomUUID();
+    await tx.insert(aiWorldTransitionsTable).values({
+      id, projectId: input.projectId, executionId: input.executionId,
+      attempt: input.attempt, episodeId: input.episodeId, actionId: input.actionId,
+      effectBundleId: input.effectBundleId, parentWorldRevision: input.parentWorldRevision,
+      taskScope: "project",
+      environmentRevisionKey: input.environmentRevision ? `revision:${input.environmentRevision}` : "unknown",
+      environmentRevision: input.environmentRevision,
+      freshness: "unknown", beforeObservationIds: unique(input.beforeObservationIds),
+      afterObservationIds: unique(input.afterObservationIds), materializedObservationIds: [],
+      parentFactRefs: unique(input.parentFactRefs), changedFactRefs: [],
+      evidenceRefs: refs, status: "pending", idempotencyKey, retryCount: 0,
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    return id;
+  });
 }
 
 export async function createPendingRuntimeStartTransition(
@@ -577,6 +669,343 @@ export async function finalizeRuntimeStartTransition(input: {
   }
 }
 
+type ApplyBinding = {
+  proposalId: string;
+  goalId: string;
+  planRevision: string;
+  promotedTreeHash: string;
+};
+
+function applyBindingFromRefs(refs: unknown): ApplyBinding | undefined {
+  if (!Array.isArray(refs)) return undefined;
+  const bindingRefs = refs.filter((value): value is string =>
+    typeof value === "string" && value.startsWith("apply-binding:v1:"));
+  if (bindingRefs.length !== 1) return undefined;
+  const ref = bindingRefs[0];
+  try {
+    const parsed: unknown = JSON.parse(ref.slice("apply-binding:v1:".length));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const value = parsed as Record<string, unknown>;
+    return typeof value.proposalId === "string"
+      && typeof value.goalId === "string"
+      && typeof value.planRevision === "string"
+      && typeof value.promotedTreeHash === "string"
+      ? {
+          proposalId: value.proposalId,
+          goalId: value.goalId,
+          planRevision: value.planRevision,
+          promotedTreeHash: value.promotedTreeHash,
+        }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function applyRequirementMatches(value: unknown, expected: {
+  proposalId: string;
+  baseRevision: string;
+  candidateTreeHash: string;
+  changeSetHash: string;
+}): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const requirement = value as Record<string, unknown>;
+  const keys = Object.keys(requirement).sort();
+  if (keys.join(",") !== "baseRevision,candidateTreeHash,changeSetHash,from,kind,proposalId,sourceStepId,to,version") {
+    return false;
+  }
+  return requirement.kind === "apply.changes"
+    && requirement.version === 1
+    && requirement.sourceStepId === "apply-changes"
+    && requirement.proposalId === expected.proposalId
+    && requirement.baseRevision === expected.baseRevision
+    && requirement.candidateTreeHash === expected.candidateTreeHash
+    && requirement.changeSetHash === expected.changeSetHash
+    && requirement.from === "candidate"
+    && requirement.to === "applied";
+}
+
+type ApplyTransitionClaim =
+  | { kind: "claimed"; transition: typeof aiWorldTransitionsTable.$inferSelect; leaseUntil: Date; binding: ApplyBinding }
+  | { kind: "materialized"; worldRevision: string }
+  | { kind: "terminal_failed"; failureCode: string }
+  | { kind: "pending"; failureCode?: string };
+
+async function claimApplyChangesTransition(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+}): Promise<ApplyTransitionClaim> {
+  return db.transaction(async (tx) => {
+    const [transition] = await tx.select().from(aiWorldTransitionsTable)
+      .where(and(
+        eq(aiWorldTransitionsTable.projectId, input.projectId),
+        eq(aiWorldTransitionsTable.executionId, input.executionId),
+        eq(aiWorldTransitionsTable.attempt, input.attempt),
+        eq(aiWorldTransitionsTable.episodeId, input.episodeId),
+        eq(aiWorldTransitionsTable.actionId, input.actionId),
+      )).for("update").limit(1);
+    if (!transition || transition.effectBundleId !== input.effectBundleId) {
+      throw new Error("apply_transition_identity_missing");
+    }
+    if (transition.status === "materialized" && transition.resultingWorldRevision) {
+      return { kind: "materialized", worldRevision: transition.resultingWorldRevision };
+    }
+    if (transition.status === "terminal_failed") {
+      return { kind: "terminal_failed", failureCode: transition.failureCode ?? "apply_transition_terminal_failed" };
+    }
+    const binding = applyBindingFromRefs(transition.evidenceRefs);
+    if (!binding || !transition.environmentRevision
+      || !/^env-v1:[a-f0-9]{64}$/.test(transition.environmentRevision)) {
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode: "apply_transition_binding_invalid",
+        nextRetryAt: null,
+        updatedAt: new Date(),
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: "apply_transition_binding_invalid" };
+    }
+    const now = new Date();
+    const expectedKey = applyTransitionIdempotencyKey({
+      projectId: input.projectId,
+      executionId: input.executionId,
+      attempt: input.attempt,
+      episodeId: input.episodeId,
+      actionId: input.actionId,
+      effectBundleId: input.effectBundleId,
+      proposalId: binding.proposalId,
+      goalId: binding.goalId,
+      planRevision: binding.planRevision,
+      workerId: "",
+      parentWorldRevision: transition.parentWorldRevision,
+      parentFactRefs: [],
+      beforeObservationIds: [],
+      afterObservationIds: [],
+      evidenceRefs: [],
+      environmentRevision: transition.environmentRevision,
+      promotedTreeHash: binding.promotedTreeHash,
+    });
+    if (transition.idempotencyKey !== expectedKey) {
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode: "apply_transition_idempotency_key_mismatch",
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: "apply_transition_idempotency_key_mismatch" };
+    }
+    if (transition.nextRetryAt && transition.nextRetryAt > now) {
+      return { kind: "pending", failureCode: transition.failureCode ?? undefined };
+    }
+    const [execution] = await tx.select({
+      status: aiExecutionsTable.status,
+      attempt: aiExecutionsTable.attempt,
+      goalId: aiExecutionsTable.goalId,
+      proposalId: aiExecutionsTable.proposalId,
+      operationId: aiExecutionsTable.operationId,
+    }).from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.id, input.executionId),
+      eq(aiExecutionsTable.projectId, input.projectId),
+    )).limit(1);
+    const [acceptance] = await tx.select({
+      effectBundleId: aiExecutionAcceptancesTable.effectBundleId,
+      terminalStatus: aiExecutionAcceptancesTable.terminalStatus,
+      operationId: aiExecutionAcceptancesTable.operationId,
+    }).from(aiExecutionAcceptancesTable).where(and(
+      eq(aiExecutionAcceptancesTable.executionId, input.executionId),
+      eq(aiExecutionAcceptancesTable.attempt, input.attempt),
+      eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+    )).limit(1);
+    if (!acceptance) {
+      if (execution && execution.attempt === input.attempt && ACTIVE_EXECUTION_STATUSES.has(execution.status)) {
+        return { kind: "pending" };
+      }
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode: "apply_transition_acceptance_missing",
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: "apply_transition_acceptance_missing" };
+    }
+    if (acceptance.effectBundleId !== input.effectBundleId || acceptance.terminalStatus !== "completed") {
+      const code = "apply_transition_acceptance_mismatch";
+      await tx.update(aiWorldTransitionsTable).set({ status: "terminal_failed", failureCode: code, nextRetryAt: null, updatedAt: now })
+        .where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: code };
+    }
+    if (!execution || execution.goalId !== binding.goalId || execution.proposalId !== binding.proposalId
+      || typeof execution.operationId !== "string" || acceptance.operationId !== execution.operationId) {
+      const code = "apply_transition_execution_binding_mismatch";
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed", failureCode: code, nextRetryAt: null, updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: code };
+    }
+    if (!execution || execution.attempt !== input.attempt || execution.status !== "completed") {
+      const code = "apply_transition_execution_not_completed";
+      await tx.update(aiWorldTransitionsTable).set({
+        status: "terminal_failed",
+        failureCode: code,
+        nextRetryAt: null,
+        updatedAt: now,
+      }).where(eq(aiWorldTransitionsTable.id, transition.id));
+      return { kind: "terminal_failed", failureCode: code };
+    }
+    const claimed = await tx.update(aiWorldTransitionsTable).set({
+      status: "retrying",
+      nextRetryAt: new Date(now.getTime() + 60_000),
+      updatedAt: now,
+    }).where(and(
+      eq(aiWorldTransitionsTable.id, transition.id),
+      inArray(aiWorldTransitionsTable.status, ["pending", "retrying"]),
+    )).returning({ id: aiWorldTransitionsTable.id });
+    if (claimed.length === 0) return { kind: "pending" };
+    return { kind: "claimed", transition, leaseUntil: new Date(now.getTime() + 60_000), binding };
+  });
+}
+
+export async function finalizeApplyChangesTransition(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  actionId: string;
+  effectBundleId: string;
+}): Promise<{ status: "materialized" | "terminal_failed" | "pending"; worldRevision?: string; failureCode?: string }> {
+  const claim = await claimApplyChangesTransition(input);
+  if (claim.kind === "materialized") return { status: "materialized", worldRevision: claim.worldRevision };
+  if (claim.kind === "terminal_failed") return { status: "terminal_failed", failureCode: claim.failureCode };
+  if (claim.kind === "pending") return { status: "pending", ...(claim.failureCode ? { failureCode: claim.failureCode } : {}) };
+  const { transition, leaseUntil, binding } = claim;
+  try {
+    const [proposal] = await db.select().from(aiChangeProposalsTable).where(and(
+      eq(aiChangeProposalsTable.id, binding.proposalId),
+      eq(aiChangeProposalsTable.projectId, input.projectId),
+    )).limit(1);
+    const [goal] = await db.select().from(aiGoalsTable).where(and(
+      eq(aiGoalsTable.id, binding.goalId),
+      eq(aiGoalsTable.projectId, input.projectId),
+    )).limit(1);
+    const [mission] = goal ? await db.select().from(aiMissionsTable).where(and(
+      eq(aiMissionsTable.id, goal.missionId),
+      eq(aiMissionsTable.projectId, input.projectId),
+    )).limit(1) : [];
+    const criteria = goal?.successCriteria;
+    const requirement = criteria && typeof criteria === "object" && !Array.isArray(criteria)
+      ? (criteria as Record<string, unknown>).applyRequirement
+      : undefined;
+    const plan = criteria && typeof criteria === "object" && !Array.isArray(criteria)
+      ? (criteria as Record<string, unknown>).planRevision
+      : undefined;
+    const activeRevision = mission?.autonomyPolicy && typeof mission.autonomyPolicy === "object"
+      ? (mission.autonomyPolicy as Record<string, unknown>).activePlanRevision
+      : undefined;
+    if (!proposal || proposal.status !== "applied" || proposal.lifecycle !== "applied"
+      || proposal.candidateTreeHash !== binding.promotedTreeHash
+      || proposal.promotedTreeHash !== binding.promotedTreeHash
+      || !proposal.baseRevision || !proposal.changeSetHash
+      || !goal || goal.status !== "waiting_for_event"
+      || goal.blockedReason !== "apply_changes_pending"
+      || !mission || activeRevision !== binding.planRevision
+      || !plan || typeof plan !== "object" || (plan as Record<string, unknown>).hash !== binding.planRevision
+      || !applyRequirementMatches(requirement, {
+        proposalId: binding.proposalId,
+        baseRevision: proposal.baseRevision ?? "",
+        candidateTreeHash: proposal.candidateTreeHash ?? "",
+        changeSetHash: proposal.changeSetHash ?? "",
+      })) {
+      throw new Error("apply_transition_goal_or_proposal_mismatch");
+    }
+    const [bundle] = await db.select({ id: aiAgentEffectBundlesTable.id, verdict: aiAgentEffectBundlesTable.verdict })
+      .from(aiAgentEffectBundlesTable).where(and(
+        eq(aiAgentEffectBundlesTable.id, input.effectBundleId),
+        eq(aiAgentEffectBundlesTable.projectId, input.projectId),
+        eq(aiAgentEffectBundlesTable.executionId, input.executionId),
+        eq(aiAgentEffectBundlesTable.attempt, input.attempt),
+        eq(aiAgentEffectBundlesTable.episodeId, input.episodeId),
+      )).limit(1);
+    if (!bundle || bundle.verdict !== "OBSERVED") throw new Error("apply_transition_effect_unproven");
+    const beforeIds = unique(transition.beforeObservationIds as string[]);
+    const afterIds = unique(transition.afterObservationIds as string[]);
+    if (!transition.environmentRevision || beforeIds.length === 0 || afterIds.length === 0) {
+      throw new Error("apply_transition_observations_missing");
+    }
+    const observations = await db.select().from(aiAgentObservationsTable).where(and(
+      eq(aiAgentObservationsTable.projectId, input.projectId),
+      inArray(aiAgentObservationsTable.id, unique([...beforeIds, ...afterIds])),
+    ));
+    if (observations.length !== unique([...beforeIds, ...afterIds]).length || observations.some((row) =>
+      row.executionId !== input.executionId || row.episodeId !== input.episodeId
+      || row.provenance !== "DIRECT_OBSERVATION" || row.completeness !== "complete"
+      || row.freshness !== "fresh" || row.environmentFreshness !== "fresh"
+      || row.environmentRevision !== transition.environmentRevision
+      || row.subject !== `project:${input.projectId}`
+    )) throw new Error("apply_transition_observations_incomplete");
+    const treeValue = (row: typeof observations[number]): string | undefined => {
+      if (typeof row.value === "string") return row.value;
+      if (row.value && typeof row.value === "object" && !Array.isArray(row.value)
+        && typeof (row.value as Record<string, unknown>).treeHash === "string") {
+        return (row.value as Record<string, string>).treeHash;
+      }
+      return undefined;
+    };
+    const before = observations.find((row) => beforeIds.includes(row.id) && row.predicate === "workspace.tree_hash");
+    const after = observations.find((row) => afterIds.includes(row.id) && row.predicate === "workspace.tree_hash");
+    if (!before || !after
+      || before.projectRevision !== proposal.baseTreeHash
+      || before.sourceVersion !== proposal.baseTreeHash
+      || after.projectRevision !== binding.promotedTreeHash
+      || after.sourceVersion !== binding.promotedTreeHash
+      || treeValue(before) !== proposal.baseTreeHash
+      || treeValue(after) !== binding.promotedTreeHash) {
+      throw new Error("apply_transition_tree_observations_unproven");
+    }
+    const materialized = await materializeWorldStateForProject(input.projectId, {
+      observationIds: unique([...beforeIds, ...afterIds]),
+      expectedWorldRevision: transition.parentWorldRevision,
+      expectedRevisionExcludeEpisodeIds: [input.episodeId],
+    }, async (tx, result) => {
+      const changed = await tx.update(aiWorldTransitionsTable).set({
+        resultingWorldRevision: result.worldRevision,
+        materializedObservationIds: unique([...beforeIds, ...afterIds]),
+        changedFactRefs: [],
+        freshness: "fresh",
+        status: "materialized",
+        failureCode: null,
+        nextRetryAt: null,
+        materializedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(and(
+        eq(aiWorldTransitionsTable.id, transition.id),
+        eq(aiWorldTransitionsTable.status, "retrying"),
+        eq(aiWorldTransitionsTable.nextRetryAt, leaseUntil),
+      )).returning({ id: aiWorldTransitionsTable.id });
+      if (changed.length === 0) throw new Error("apply_transition_owner_stale");
+    });
+    try { invalidateContextSlice(input.projectId, "worldState"); } catch { /* projection remains authoritative */ }
+    return { status: "materialized", worldRevision: materialized.worldRevision };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const retryable = message.includes("parent_revision_mismatch")
+      || message.includes("world_state_materialization_failed")
+      || message.includes("owner_stale");
+    const code = message.startsWith("apply_transition_") ? message.slice(0, 100) : "world_state_materialization_failed";
+    if (retryable && transition.retryCount < 8) {
+      const scheduled = await markRetryableFailure(transition.id, code, leaseUntil, transition.retryCount);
+      if (scheduled) return { status: "pending", failureCode: code };
+    }
+    const terminalCode = retryable && transition.retryCount >= 8
+      ? "world_state_materialization_retry_exhausted"
+      : code;
+    await markTerminalFailure(transition.id, terminalCode, leaseUntil);
+    return { status: "terminal_failed", failureCode: terminalCode };
+  }
+}
+
 export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<number> {
   const now = new Date();
   const candidates = await db.select({
@@ -602,7 +1031,18 @@ export async function retryPendingRuntimeStartTransitions(limit = 32): Promise<n
   for (const candidate of candidates) {
     if (!candidate.effectBundleId) continue;
     try {
-      await finalizeRuntimeStartTransition({
+      const [transition] = await db.select({ idempotencyKey: aiWorldTransitionsTable.idempotencyKey })
+        .from(aiWorldTransitionsTable).where(and(
+          eq(aiWorldTransitionsTable.projectId, candidate.projectId),
+          eq(aiWorldTransitionsTable.executionId, candidate.executionId),
+          eq(aiWorldTransitionsTable.attempt, candidate.attempt),
+          eq(aiWorldTransitionsTable.episodeId, candidate.episodeId),
+          eq(aiWorldTransitionsTable.actionId, candidate.actionId),
+        )).limit(1);
+      const finalize = transition?.idempotencyKey.startsWith("apply.changes:")
+        ? finalizeApplyChangesTransition
+        : finalizeRuntimeStartTransition;
+      await finalize({
         ...candidate,
         effectBundleId: candidate.effectBundleId,
       });

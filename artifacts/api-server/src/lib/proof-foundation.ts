@@ -46,7 +46,8 @@ export type CanonicalProofFailureReason =
   | "acceptance_proof_not_bound"
   | "delivery_not_proven"
   | "delivery_identity_missing"
-  | "delivery_identity_mismatch";
+  | "delivery_identity_mismatch"
+  | "apply_changes_transition_unproven";
 
 export type CanonicalProofScope = {
   projectId: string;

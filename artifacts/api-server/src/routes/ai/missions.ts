@@ -27,6 +27,7 @@ import {
 import {
   GoalNextActionSchema,
   buildMissionPlanPreview,
+  buildApplyChangesMissionPlanPreview,
   extractGenericProjectQueryClaimIds,
   formatUntrustedContent,
   type MissionPlanPreview,
@@ -184,6 +185,13 @@ const MissionReplanBody = z.object({
   expectedPlanHash: z.string().trim().min(1).max(200).optional(),
   reason: z.string().trim().min(1).max(2_000).optional(),
   runtimeStartTargetStepId: z.string().max(80).regex(/^[a-z0-9][a-z0-9-]*$/).nullable().optional(),
+}).strict();
+
+const ApplyMissionFromProposalBody = z.object({
+  projectId: z.string().min(1).max(200),
+  proposalId: z.string().uuid(),
+  title: z.string().trim().min(1).max(200).optional(),
+  intent: z.string().trim().min(1).max(2_000).optional(),
 }).strict();
 
 type AcceptedChatFindingSource = {
@@ -683,7 +691,7 @@ function publicEvent(event: typeof eventsTable.$inferSelect) {
 type MissionPlanGoal = {
   stepId: string;
   goalId: string;
-  taskId: string;
+  taskId: string | null;
   dependencies: string[];
 };
 
@@ -739,6 +747,9 @@ export async function createMissionPlanGoal(
     ...(preview.replanContext ? { replanContext: preview.replanContext } : {}),
     ...(preview.plan.transitionRequirements
       ? { transitionRequirements: preview.plan.transitionRequirements }
+      : {}),
+    ...(preview.plan.applyRequirement
+      ? { applyRequirement: preview.plan.applyRequirement }
       : {}),
     steps: preview.plan.steps.map((step) => ({
       id: step.id,
@@ -800,8 +811,9 @@ export async function createMissionPlanGoal(
           && typeof (successCriteria as { stepId?: unknown }).stepId === "string"
           ? (successCriteria as { stepId: string }).stepId
           : undefined;
-        return task && stepId
-          ? [{ stepId, goalId: goal.id, taskId: task.id, dependencies }]
+        return (task || (successCriteria as { applyRequirement?: unknown }).applyRequirement)
+          && stepId
+          ? [{ stepId, goalId: goal.id, taskId: task?.id ?? null, dependencies }]
           : [];
       });
       if (goals.length === existingPlanGoals.length) {
@@ -841,6 +853,9 @@ export async function createMissionPlanGoal(
       stepId: step.id,
       objective: preview.objective,
       planRevision: planSnapshot,
+      ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
+        applyRequirement: preview.plan.applyRequirement,
+      } : {}),
       ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
         requirement.targetStepId === step.id,
       ) ? {
@@ -859,6 +874,10 @@ export async function createMissionPlanGoal(
       kind: "evidence_backed_progress_report",
       stepId: step.id,
       planRevision: planSnapshot,
+      ...((step.id === "apply-changes" && preview.plan.applyRequirement) ? {
+        applyRequirement: preview.plan.applyRequirement,
+        candidateIdentity: `${preview.plan.applyRequirement.proposalId}:${preview.plan.applyRequirement.candidateTreeHash}`,
+      } : {}),
       ...((preview.plan.transitionRequirements ?? []).find((requirement) =>
         requirement.targetStepId === step.id,
       ) ? {
@@ -872,11 +891,14 @@ export async function createMissionPlanGoal(
         Boolean(step.recipe),
       ),
     },
-    nextAction: planStepNextAction(step, taskId, purpose),
+    nextAction: step.id === "apply-changes"
+      ? { kind: "wait", reason: "event", wakeAt: null }
+      : planStepNextAction(step, taskId, purpose),
     createdAt: now,
     updatedAt: now,
   })));
-  await tx.insert(tasksTable).values(materialized.map(({ step, goalId, taskId, correlationId }) => ({
+  const taskfulMaterialized = materialized.filter(({ step }) => step.id !== "apply-changes");
+  await tx.insert(tasksTable).values(taskfulMaterialized.map(({ step, goalId, taskId, correlationId }) => ({
     id: taskId,
     projectId: mission.projectId,
     goalId,
@@ -944,29 +966,30 @@ export async function createMissionPlanGoal(
     createdAt: now,
     updatedAt: now,
   })));
-  await tx.insert(eventsTable).values(materialized.flatMap(({ step, goalId, taskId, correlationId }) => ([
-    {
-      id: randomUUID(),
-      type: "AiGoalCreated",
-      projectId: mission.projectId,
-      goalId,
-      severity: "info" as const,
-      message: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" created for AI mission "${mission.title}"`,
-      correlationId,
-      payload: { missionId: mission.id, stepId: step.id, activation: purpose === "activation", purpose },
-    },
-    {
-      id: randomUUID(),
-      type: "TaskCreated",
-      projectId: mission.projectId,
-      goalId,
-      taskId,
-      severity: "info" as const,
-      message: `${purpose === "activation" ? "Mission" : "Replan"} task queued for step "${step.id}"`,
-      correlationId,
-      payload: { missionId: mission.id, stepId: step.id, activation: purpose === "activation", purpose },
-    },
-  ])));
+  await tx.insert(eventsTable).values(materialized.flatMap(({ step, goalId, taskId, correlationId }) => (
+    step.id === "apply-changes"
+      ? []
+      : [{
+          id: randomUUID(),
+          type: "AiGoalCreated",
+          projectId: mission.projectId,
+          goalId,
+          severity: "info" as const,
+          message: `${purpose === "activation" ? "Mission plan" : "Replan"} step "${step.id}" created for AI mission "${mission.title}"`,
+          correlationId,
+          payload: { missionId: mission.id, stepId: step.id, activation: purpose === "activation", purpose },
+        }, {
+          id: randomUUID(),
+          type: "TaskCreated",
+          projectId: mission.projectId,
+          goalId,
+          taskId,
+          severity: "info" as const,
+          message: `${purpose === "activation" ? "Mission" : "Replan"} task queued for step "${step.id}"`,
+          correlationId,
+          payload: { missionId: mission.id, stepId: step.id, activation: purpose === "activation", purpose },
+        }]
+  )));
 
   const goalByStepId = new Map(materialized.map(({ step, goalId }) => [step.id, goalId]));
   for (const { step, goalId } of materialized) {
@@ -997,7 +1020,7 @@ export async function createMissionPlanGoal(
   const goals = materialized.map(({ step, goalId, taskId }) => ({
     stepId: step.id,
     goalId,
-    taskId,
+    taskId: step.id === "apply-changes" ? null : taskId,
     dependencies: [
       ...step.dependencies,
       ...((preview.plan.transitionRequirements ?? [])
@@ -1440,6 +1463,128 @@ router.post("/ai/missions/from-chat", async (req, res) => {
   return res.status(201).json({
     mission: result.mission,
     activation: result.activationPlan.primary,
+    planGoals: result.activationPlan.goals,
+    runs,
+    preview: result.preview,
+  });
+});
+
+/**
+ * Creates the bounded, server-owned Mission handoff for an existing prepared
+ * proposal. The client supplies only proposal identity and presentation text;
+ * all hashes in the immutable apply requirement come from the proposal row.
+ */
+router.post("/ai/missions/apply-from-proposal", async (req, res) => {
+  const body = ApplyMissionFromProposalBody.parse(req.body);
+  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+  if (!project) return;
+  const result = await db.transaction(async (tx) => {
+    const [proposal] = await tx.select()
+      .from(aiChangeProposalsTable)
+      .where(and(
+        eq(aiChangeProposalsTable.id, body.proposalId),
+        eq(aiChangeProposalsTable.projectId, project.id),
+      ))
+      .for("update")
+      .limit(1);
+    if (!proposal) return { kind: "not_found" as const };
+    if (proposal.status !== "pending" || !proposal.baseRevision
+        || !proposal.candidateTreeHash || !proposal.changeSetHash) {
+      return { kind: "not_prepared" as const };
+    }
+    const existingMissions = await tx.select()
+      .from(aiMissionsTable)
+      .where(and(
+        eq(aiMissionsTable.projectId, project.id),
+        eq(aiMissionsTable.userId, req.userId),
+      ))
+      .for("update");
+    const duplicate = existingMissions.find((candidate) => {
+      const policy = candidate.autonomyPolicy && typeof candidate.autonomyPolicy === "object"
+        ? candidate.autonomyPolicy as Record<string, unknown>
+        : {};
+      const applyMission = policy.applyMission && typeof policy.applyMission === "object"
+        ? policy.applyMission as Record<string, unknown>
+        : {};
+      return applyMission.proposalId === proposal.id
+        && candidate.status !== "completed"
+        && candidate.status !== "cancelled";
+    });
+    if (duplicate) return { kind: "already_exists" as const, missionId: duplicate.id };
+
+    const requirement = {
+      kind: "apply.changes" as const,
+      version: 1 as const,
+      sourceStepId: "apply-changes" as const,
+      proposalId: proposal.id,
+      baseRevision: proposal.baseRevision,
+      candidateTreeHash: proposal.candidateTreeHash,
+      changeSetHash: proposal.changeSetHash,
+      from: "candidate" as const,
+      to: "applied" as const,
+    };
+    const objective = body.intent ?? "Apply the approved change proposal and report the live result.";
+    const preview = buildApplyChangesMissionPlanPreview({ objective, requirement });
+    const now = new Date();
+    const missionId = randomUUID();
+    const [mission] = await tx.insert(aiMissionsTable).values({
+      id: missionId,
+      projectId: project.id,
+      userId: req.userId,
+      title: body.title ?? objective.slice(0, 200),
+      intent: objective,
+      status: "active",
+      scope: { kind: "project", projectId: project.id },
+      autonomyPolicy: {
+        applyMission: {
+          proposalId: proposal.id,
+          baseRevision: requirement.baseRevision,
+          candidateTreeHash: requirement.candidateTreeHash,
+          changeSetHash: requirement.changeSetHash,
+          requirement,
+        },
+      },
+      budget: {},
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
+    if (!mission) throw new Error("apply_mission_creation_failed");
+    const activationPlan = await ensureMissionActivationPlan(tx, mission, now, preview);
+    if (!activationPlan) throw new Error("apply_mission_plan_missing");
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiApplyMissionCreated",
+      projectId: project.id,
+      severity: "info",
+      message: `AI apply Mission "${mission.title}" created`,
+      correlationId: proposal.id,
+      payload: { missionId, proposalId: proposal.id, planRevision: activationPlan.revision },
+    });
+    return { kind: "created" as const, mission, activationPlan, preview };
+  });
+  if (result.kind === "not_found") {
+    res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+    return;
+  }
+  if (result.kind === "not_prepared") {
+    res.status(409).json({
+      error: "The proposal is not prepared for a Mission apply handoff.",
+      code: "PROPOSAL_NOT_PREPARED",
+    });
+    return;
+  }
+  if (result.kind === "already_exists") {
+    res.status(409).json({
+      error: "An active Mission is already linked to this proposal.",
+      code: "APPLY_MISSION_ALREADY_EXISTS",
+      missionId: result.missionId,
+    });
+    return;
+  }
+  const runs = await dispatchMissionPlan(result.activationPlan, req.userId, "activation");
+  res.status(201).json({
+    mission: result.mission,
+    applyGoal: result.activationPlan.primary,
     planGoals: result.activationPlan.goals,
     runs,
     preview: result.preview,

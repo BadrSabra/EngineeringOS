@@ -71,6 +71,25 @@ export type MissionChatHandoffInput = (unknown & ({
   runtimeStartTargetStepId?: string | null;
 }));
 
+export interface ApplyMissionFromProposalInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  projectId: string;
+  proposalId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  intent?: string;
+}
+
 export type MissionPlanPreviewVersion = typeof MissionPlanPreviewVersion[keyof typeof MissionPlanPreviewVersion];
 
 

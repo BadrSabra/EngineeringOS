@@ -17,6 +17,8 @@ import {
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   aiDeliveryPoliciesTable,
   aiExecutionsTable,
   aiExecutionAcceptancesTable,
@@ -174,11 +176,24 @@ import {
 } from "../../lib/agent-state/apply-change-effect.js";
 import { verifyAndPersistEffect } from "../../lib/agent-state/effect-observer.js";
 import {
+  captureEnvironmentAttestation,
+  serverEnvironmentProfile,
+} from "../../lib/agent-state/environment-attestation.js";
+import {
+  applyChangesMissionRequirement,
+} from "../../lib/agent-state/apply-changes-mission-gate.js";
+import {
+  createPendingApplyChangesTransition,
+  finalizeApplyChangesTransition,
+} from "../../lib/agent-state/runtime-start-transition.js";
+import {
   materializeServerOwnedObservations,
   type ServerOwnedObservationSource,
 } from "../../lib/agent-state/observation-materializer.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { establishProjectRoot } from "../../lib/project-root.js";
+import { getProjectWorldState } from "../../lib/agent-state/world-state.js";
+import { runMissionGoal } from "../../lib/mission-runtime.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
 import {
   getRepairValidationProfile,
@@ -15166,11 +15181,19 @@ async function applyChangesHandler(req: Request, res: Response) {
     action: ReturnType<typeof buildApplyChangeAction>;
     effectContract: ReturnType<typeof buildApplyChangeEffectContract>;
     beforeObservationIds: string[];
+    afterObservationIds?: string[];
     effectBundleId?: string;
     leaseLost: boolean;
     terminalFinalized: boolean;
     heartbeat?: NodeJS.Timeout;
   } | undefined;
+  let applyEnvironmentRevision: string | null = null;
+  let applyAfterEnvironmentRevision: string | null = null;
+  let applyWorldBeforeObservationIds: string[] = [];
+  let applyWorldAfterObservationIds: string[] = [];
+  let applyD2EvidenceFailure: string | null = null;
+  let applyD2TransitionId: string | null = null;
+  let missionGoalId: string | null = null;
   try {
     // Read and validate the proposal after acquiring the project lock. This
     // prevents two concurrent approvals from both observing "pending" and
@@ -15707,6 +15730,62 @@ async function applyChangesHandler(req: Request, res: Response) {
         liveRootHashBeforePromotion,
       });
     } else {
+      // A Mission-linked apply is discovered from the immutable server-owned
+      // requirement; the client cannot nominate a Goal. Legacy proposals have
+      // no matching requirement and continue through the route-only path.
+      const linkedGoals = await db.select({
+        goal: aiGoalsTable,
+        mission: aiMissionsTable,
+      }).from(aiGoalsTable)
+        .innerJoin(aiMissionsTable, eq(aiMissionsTable.id, aiGoalsTable.missionId))
+        .where(and(
+          eq(aiGoalsTable.projectId, projectId),
+          eq(aiMissionsTable.projectId, projectId),
+          eq(aiMissionsTable.userId, req.userId),
+        ));
+      const proposalBindings = linkedGoals.filter((linked) => {
+        const criteria = linked.goal.successCriteria && typeof linked.goal.successCriteria === "object"
+          ? linked.goal.successCriteria as Record<string, unknown>
+          : {};
+        const requirement = criteria.applyRequirement && typeof criteria.applyRequirement === "object"
+          ? criteria.applyRequirement as Record<string, unknown>
+          : {};
+        const policy = linked.mission.autonomyPolicy && typeof linked.mission.autonomyPolicy === "object"
+          ? linked.mission.autonomyPolicy as Record<string, unknown>
+          : {};
+        const applyMission = policy.applyMission && typeof policy.applyMission === "object"
+          ? policy.applyMission as Record<string, unknown>
+          : {};
+        return requirement.proposalId === proposalId || applyMission.proposalId === proposalId;
+      });
+      if (proposalBindings.length > 0) {
+        const validBindings = proposalBindings.filter((linked) => {
+          const policy = linked.mission.autonomyPolicy && typeof linked.mission.autonomyPolicy === "object"
+            ? linked.mission.autonomyPolicy as Record<string, unknown>
+            : {};
+          const activeRevision = typeof policy.activePlanRevision === "string"
+            ? policy.activePlanRevision
+            : undefined;
+          const binding = applyChangesMissionRequirement(linked.goal, linked.mission, activeRevision);
+          return binding.kind === "valid"
+            && binding.requirement.proposalId === proposalId
+            && binding.requirement.baseRevision === proposal.baseRevision
+            && binding.requirement.candidateTreeHash === candidateHash
+            && binding.requirement.changeSetHash === effectiveChangeSetHash
+            && linked.mission.status !== "blocked"
+            && linked.mission.status !== "needs_replan"
+            && linked.goal.status === "waiting_for_event"
+            && linked.goal.blockedReason === "apply_changes_pending";
+        });
+        if (proposalBindings.length !== 1 || validBindings.length !== 1) {
+          res.status(409).json({
+            error: "The proposal has an ambiguous or stale Mission apply binding.",
+            code: "APPLY_MISSION_BINDING_CONFLICT",
+          });
+          return;
+        }
+        missionGoalId = validBindings[0]!.goal.id;
+      }
       const workerId = `apply-worker:${randomUUID()}`;
       const durable = await createAiExecution({
         userId: req.userId,
@@ -15725,6 +15804,7 @@ async function applyChangesHandler(req: Request, res: Response) {
         idempotencyKey: `apply-changes:${applyAttemptId}`,
         correlationId: applyCorrelationId,
         projectId,
+        ...(missionGoalId ? { goalId: missionGoalId } : {}),
         proposalId,
         workspaceRoot: resolvedRoot,
       });
@@ -15814,6 +15894,43 @@ async function applyChangesHandler(req: Request, res: Response) {
           evidenceRefs: [beforeEvidenceRef],
         }],
       });
+      try {
+        const attestation = await captureEnvironmentAttestation({
+          rootPath: resolvedRoot,
+          profile: serverEnvironmentProfile("APPLY_CHANGES", { projectId }),
+        });
+        if (attestation.status !== "known") {
+          applyD2EvidenceFailure = "before_environment_attestation_unknown";
+        } else {
+          applyEnvironmentRevision = attestation.environmentRevision;
+          const liveBefore = await materializeServerOwnedObservations({
+            projectId,
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            episodeId: episode.episodeId,
+            environmentRootPath: resolvedRoot,
+            projectRevision: deliveryWorkspace.baseTreeHash,
+            materializeWorldState: false,
+            sources: [{
+              kind: "direct_observation",
+              sourceId: `${beforeEvidenceRef}:live-tree`,
+              sourceRevision: deliveryWorkspace.baseTreeHash,
+              environmentRevision: applyEnvironmentRevision,
+              subject: `project:${projectId}`,
+              predicate: "workspace.tree_hash",
+              value: liveRootHashBeforePromotion,
+              evidenceRefs: [beforeEvidenceRef],
+            }],
+          });
+          applyWorldBeforeObservationIds = liveBefore.observationIds;
+        }
+      } catch (error) {
+        applyD2EvidenceFailure = "before_world_observation_unavailable";
+        logger.warn(
+          { projectId, proposalId, error },
+          "apply Mission before-state observation failed; preserving independent apply acceptance",
+        );
+      }
       let leaseLost = false;
       const heartbeat = setInterval(() => {
         void heartbeatAiExecution({
@@ -16054,6 +16171,43 @@ async function applyChangesHandler(req: Request, res: Response) {
           evidenceRefs: [afterEvidenceRef],
         }],
       });
+      try {
+        const attestation = await captureEnvironmentAttestation({
+          rootPath: resolvedRoot,
+          profile: serverEnvironmentProfile("APPLY_CHANGES", { projectId }),
+        });
+        if (attestation.status !== "known") {
+          applyD2EvidenceFailure = applyD2EvidenceFailure ?? "after_environment_attestation_unknown";
+        } else {
+          applyAfterEnvironmentRevision = attestation.environmentRevision;
+          const liveAfter = await materializeServerOwnedObservations({
+            projectId,
+            executionId: applyProof.executionId,
+            attempt: applyProof.attempt,
+            episodeId: applyProof.episodeId,
+            environmentRootPath: resolvedRoot,
+            projectRevision: afterTreeHash,
+            materializeWorldState: false,
+            sources: [{
+              kind: "direct_observation",
+              sourceId: `${afterEvidenceRef}:live-tree`,
+              sourceRevision: afterTreeHash,
+              environmentRevision: applyAfterEnvironmentRevision,
+              subject: `project:${projectId}`,
+              predicate: "workspace.tree_hash",
+              value: afterTreeHash,
+              evidenceRefs: [afterEvidenceRef],
+            }],
+          });
+          applyWorldAfterObservationIds = liveAfter.observationIds;
+        }
+      } catch (error) {
+        applyD2EvidenceFailure = applyD2EvidenceFailure ?? "after_world_observation_unavailable";
+        logger.warn(
+          { projectId, proposalId, error },
+          "apply Mission after-state observation failed; preserving independent apply acceptance",
+        );
+      }
       await appendEpisodeEvent({
         episodeId: applyProof.episodeId,
         projectId,
@@ -16086,6 +16240,7 @@ async function applyChangesHandler(req: Request, res: Response) {
         afterObservationIds: after.observationIds,
       });
       applyProof.effectBundleId = effect.effectBundleId;
+      applyProof.afterObservationIds = after.observationIds;
       applyEffectStatus = effect.status;
       if (effect.status !== "observed") allOk = false;
       if (applyProof.leaseLost) allOk = false;
@@ -16268,6 +16423,51 @@ async function applyChangesHandler(req: Request, res: Response) {
         clearInterval(applyProof.heartbeat);
         applyProof.heartbeat = undefined;
       }
+      if (allOk && applyProof.effectBundleId && missionGoalId) {
+        const [binding] = await db.select({ goal: aiGoalsTable }).from(aiGoalsTable)
+          .where(and(eq(aiGoalsTable.id, missionGoalId), eq(aiGoalsTable.projectId, projectId))).limit(1);
+        const criteria = binding?.goal.successCriteria as Record<string, unknown> | undefined;
+        const revision = (criteria?.planRevision as Record<string, unknown> | undefined)?.hash;
+        const environmentRevision = applyEnvironmentRevision
+          && applyAfterEnvironmentRevision === applyEnvironmentRevision
+          ? applyEnvironmentRevision
+          : null;
+        if (!environmentRevision) {
+          applyD2EvidenceFailure = applyD2EvidenceFailure ?? "apply_environment_revision_mismatch";
+        }
+        if (applyD2EvidenceFailure || !applyWorldBeforeObservationIds.length
+          || !applyWorldAfterObservationIds.length
+          || typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision)) {
+          applyD2EvidenceFailure = applyD2EvidenceFailure ?? "apply_transition_evidence_incomplete";
+        } else {
+          try {
+          const world = await getProjectWorldState(projectId);
+          applyD2TransitionId = await createPendingApplyChangesTransition({
+            projectId, executionId: applyProof.executionId, attempt: applyProof.attempt,
+            episodeId: applyProof.episodeId, actionId: applyProof.action.actionId,
+            effectBundleId: applyProof.effectBundleId, proposalId, goalId: missionGoalId,
+            planRevision: revision, workerId: applyProof.workerId,
+            parentWorldRevision: world.worldRevision,
+            parentFactRefs: world.facts.map((fact) => fact.id),
+            beforeObservationIds: applyWorldBeforeObservationIds,
+            afterObservationIds: applyWorldAfterObservationIds,
+            evidenceRefs: [
+              `apply:${applyProof.executionId}:${applyProof.attempt}:before`,
+              `apply:${applyProof.executionId}:${applyProof.attempt}:after`,
+              ...applyWorldBeforeObservationIds,
+              ...applyWorldAfterObservationIds,
+            ],
+            environmentRevision, promotedTreeHash: candidateHash,
+          });
+          } catch (error) {
+            applyD2EvidenceFailure = "apply_transition_creation_failed";
+            logger.warn(
+              { projectId, proposalId, error },
+              "apply Mission transition could not be recorded; preserving independent apply acceptance",
+            );
+          }
+        }
+      }
       const finalized = await finalizeExecutionAcceptance({
         executionId: applyProof.executionId,
         expectedAttempt: applyProof.attempt,
@@ -16326,6 +16526,38 @@ async function applyChangesHandler(req: Request, res: Response) {
           } catch {
             // A stale warning projection is safer than a false success event.
           }
+        }
+      }
+      if (missionGoalId) {
+        try {
+          if (applyD2TransitionId && applyProof.effectBundleId) {
+            await finalizeApplyChangesTransition({
+              projectId,
+              executionId: applyProof.executionId,
+              attempt: applyProof.attempt,
+              episodeId: applyProof.episodeId,
+              actionId: applyProof.action.actionId,
+              effectBundleId: applyProof.effectBundleId,
+            });
+          }
+          await runMissionGoal({
+            goalId: missionGoalId,
+            userId: req.userId,
+            trigger: "wake",
+          });
+        } catch (error) {
+          logger.warn(
+            {
+              projectId,
+              proposalId,
+              goalId: missionGoalId,
+              transitionId: applyD2TransitionId,
+              acceptancePassed,
+              d2EvidenceFailure: applyD2EvidenceFailure,
+              error,
+            },
+            "apply Mission proof handoff deferred to durable reconciliation",
+          );
         }
       }
     }

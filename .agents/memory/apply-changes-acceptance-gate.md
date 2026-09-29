@@ -15,8 +15,8 @@ Keep operation identities in their own namespaces: the proposal `operationId` is
 
 **How to apply:** Match acceptance to execution and attempt, then separately match the journal/event to proposal correlation. Never use the stable proposal ID as the attempt fence.
 
-Do not project apply-change effect observations directly into live World State. A candidate/proposal-scoped observation can contain a hash read from the live root without becoming a live-project fact, and before/after values recorded under one base revision can create a false same-revision contradiction. A Mission-readable delta needs a distinct direct post-promotion observation with an explicit live-project subject, resulting project revision, and environment-freshness policy, plus a Mission read path that deliberately admits this successful-promotion transition.
+Never treat candidate/proposal-scoped observations as live-project facts. For an explicitly linked Apply Mission, only direct live-project before/after observations with subject `project:<projectId>`, their respective base/promoted tree revisions, and one fresh environment revision may materialize through the bound apply transition. D2 proof gates the Mission successor.
 
-**Why:** Candidate identity, accepted Effect, and filesystem promotion are separate from a durable live-world claim. The existing Mission planning reader is scoped to its own failed/blocked Episode contract and cannot safely infer that an accepted apply transition is eligible input.
+**Why:** Candidate verification, Gate-C acceptance, and filesystem promotion are separate from a durable live-world claim. Candidate-scoped hashes must not become live facts, and an accepted apply cannot satisfy Mission D2 without direct, revision-bound observations.
 
-**How to apply:** Preserve Gate C acceptance independently. Until live scope/revision/environment and the Mission consumer are explicit, keep apply observations out of World State. Any retry may repeat projection or read/replan work, never the filesystem promotion.
+**How to apply:** Require the active-plan binding, accepted execution attempt/effect bundle, materialized transition, before/after tree hashes, and fresh environment binding. D2 failure blocks the linked successor and requires replan, but never revokes independent Gate-C acceptance or repeats filesystem promotion.

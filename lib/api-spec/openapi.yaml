@@ -3399,6 +3399,26 @@ paths:
         "409":
           description: Source acceptance or preview hash is stale, or the request is not eligible for Mission execution.
 
+  /api/ai/missions/apply-from-proposal:
+    post:
+      operationId: createApplyMissionFromProposal
+      summary: Create a server-owned Mission waiting for an approved proposal apply
+      tags: [AI]
+      x-no-codegen: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyMissionFromProposalInput"
+      responses:
+        "201":
+          description: Created apply Mission
+        "404":
+          description: Proposal not found
+        "409":
+          description: Proposal is not prepared, has a stale apply binding, or already has an active Mission.
+
   /api/ai/missions/{missionId}:
     parameters:
       - in: path
@@ -4361,6 +4381,15 @@ components:
           nullable: true
           maxLength: 80
           pattern: "^[a-z0-9][a-z0-9-]*$"
+    ApplyMissionFromProposalInput:
+      type: object
+      additionalProperties: false
+      required: [projectId, proposalId]
+      properties:
+        projectId: { type: string, minLength: 1, maxLength: 200 }
+        proposalId: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        intent: { type: string, minLength: 1, maxLength: 2000 }
     MissionPlanPreview:
       type: object
       required: [version, objective, admission, admissionReason, plan]

@@ -38,6 +38,7 @@ import {
   GoalStatus,
   CreateGoalInput,
   bindMissionDelivery,
+  createApplyMissionFromProposal,
   CreateMissionInput,
   Mission,
   MissionStatus,
@@ -1054,6 +1055,10 @@ export default function Missions() {
   const [projectionError, setProjectionError] = useState<unknown>(null);
   const [projectionReload, setProjectionReload] = useState(0);
   const [editor, setEditor] = useState<EditorState>(null);
+  const [applyMissionOpen, setApplyMissionOpen] = useState(false);
+  const [applyProposalId, setApplyProposalId] = useState('');
+  const [applyTitle, setApplyTitle] = useState('');
+  const [applyIntent, setApplyIntent] = useState('');
   const [mutationSaving, setMutationSaving] = useState(false);
   const [mutationError, setMutationError] = useState<unknown>(null);
   const [mutationNotice, setMutationNotice] = useState<string | null>(null);
@@ -1173,6 +1178,33 @@ export default function Missions() {
     if (mutationSaving) return;
     setEditor(null);
     setMutationError(null);
+  };
+
+  const submitApplyMission = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!projectId || !applyProposalId.trim()) return;
+    setMutationSaving(true);
+    setMutationError(null);
+    try {
+      const result = await createApplyMissionFromProposal({
+        projectId,
+        proposalId: applyProposalId.trim(),
+        ...(applyTitle.trim() ? { title: applyTitle.trim() } : {}),
+        ...(applyIntent.trim() ? { intent: applyIntent.trim() } : {}),
+      });
+      setMissions((current) => [result.mission, ...current.filter((item) => item.id !== result.mission.id)]);
+      setSelectedMissionId(result.mission.id);
+      setApplyMissionOpen(false);
+      setApplyProposalId('');
+      setApplyTitle('');
+      setApplyIntent('');
+      setMutationNotice('Apply Mission created. The approved proposal is waiting for Apply Changes.');
+      setProjectionReload((value) => value + 1);
+    } catch (error: unknown) {
+      setMutationError(error);
+    } finally {
+      setMutationSaving(false);
+    }
   };
 
   const handleSave = async (data: CreateMissionInput | UpdateMissionInput | CreateGoalInput | UpdateGoalInput | ApiCreateTaskInput) => {
@@ -1401,6 +1433,10 @@ export default function Missions() {
                         <Plus className="h-3.5 w-3.5" />
                          Start a mission
                       </button>
+                       <button type="button" onClick={() => { setMutationError(null); setApplyMissionOpen(true); }} data-testid="button-create-apply-mission" className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 transition-colors hover:bg-amber-300/20">
+                         <ArrowUpRight className="h-3.5 w-3.5" />
+                         Apply Mission
+                       </button>
                     </div>
                   </div>
                 </div>
@@ -1676,6 +1712,23 @@ export default function Missions() {
           </>
         )}
       </div>
+      {applyMissionOpen ? (
+        <EditorModal title="Apply an existing proposal" eyebrow="Mission / apply handoff" error={mutationError} saving={mutationSaving} onClose={() => setApplyMissionOpen(false)} onSubmit={submitApplyMission} submitLabel="Create Apply Mission">
+          <div>
+            <FieldLabel htmlFor="apply-proposal-id">Proposal ID</FieldLabel>
+            <TextInput id="apply-proposal-id" value={applyProposalId} onChange={setApplyProposalId} placeholder="Approved proposal UUID" />
+            <p className="mt-1 text-[10px] text-slate-600">The server resolves the waiting Goal and all hashes. Goal IDs and requirement JSON are never submitted.</p>
+          </div>
+          <div>
+            <FieldLabel htmlFor="apply-mission-title" optional>Title</FieldLabel>
+            <TextInput id="apply-mission-title" value={applyTitle} onChange={setApplyTitle} placeholder="Apply this approved change" />
+          </div>
+          <div>
+            <FieldLabel htmlFor="apply-mission-intent" optional>Objective</FieldLabel>
+            <TextInput id="apply-mission-intent" value={applyIntent} onChange={setApplyIntent} multiline rows={2} placeholder="What should be true after the live tree is updated?" />
+          </div>
+        </EditorModal>
+      ) : null}
       {editor?.type === 'mission-create' ? (
         <MissionEditor projectId={projectId} saving={mutationSaving} error={mutationError} onClose={closeEditor} onSave={handleSave} />
       ) : null}

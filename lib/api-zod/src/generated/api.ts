@@ -7895,6 +7895,27 @@ export const HandoffChatToAiMissionResponse = zod.void()
 
 
 /**
+ * @summary Create a server-owned Mission waiting for an approved proposal apply
+ */
+export const createApplyMissionFromProposalBodyProjectIdMax = 200;
+
+export const createApplyMissionFromProposalBodyTitleMax = 200;
+
+export const createApplyMissionFromProposalBodyIntentMax = 2000;
+
+
+
+export const CreateApplyMissionFromProposalBody = zod.object({
+  "projectId": zod.string().min(1).max(createApplyMissionFromProposalBodyProjectIdMax),
+  "proposalId": zod.string().uuid(),
+  "title": zod.string().min(1).max(createApplyMissionFromProposalBodyTitleMax).optional(),
+  "intent": zod.string().min(1).max(createApplyMissionFromProposalBodyIntentMax).optional()
+})
+
+export const CreateApplyMissionFromProposalResponse = zod.void()
+
+
+/**
  * @summary Get an AI mission
  */
 export const GetAiMissionParams = zod.object({

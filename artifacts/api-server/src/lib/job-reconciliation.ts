@@ -82,6 +82,7 @@ import {
   wakeDueMissionGoals,
   wakeReadyMissionGoals,
   wakeRuntimeTransitionMissionGoals,
+  wakeApplyChangesMissionGoals,
 } from "./mission-runtime.js";
 import { reconcileAutomaticMissionReplans } from "./mission-auto-replan.js";
 import { dispatchPendingShadowReplays } from "./shadow-replay.js";
@@ -892,14 +893,26 @@ export function startDurableJobDispatcher(): NodeJS.Timeout {
   void wakeDueMissionGoals();
   void wakeReadyMissionGoals();
   void wakeRuntimeTransitionMissionGoals();
-  void retryPendingRuntimeStartTransitions();
+  void retryTransitionsAndReconcileApplyGoals();
   return setInterval(() => {
     void dispatchPersistedPendingJobs();
     void wakeDueMissionGoals();
     void wakeReadyMissionGoals();
     void wakeRuntimeTransitionMissionGoals();
-    void retryPendingRuntimeStartTransitions();
+    void retryTransitionsAndReconcileApplyGoals();
   }, DURABLE_JOB_DISPATCH_INTERVAL_MS);
+}
+
+async function retryTransitionsAndReconcileApplyGoals(): Promise<void> {
+  try {
+    await retryPendingRuntimeStartTransitions();
+    await wakeApplyChangesMissionGoals();
+  } catch (error) {
+    logger.warn(
+      { error },
+      "apply Mission transition reconciliation failed",
+    );
+  }
 }
 
 /**
@@ -919,7 +932,16 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     "stale-job sweep scheduled",
   );
   return setInterval(async () => {
-    const [failed, requeued, failedDiscoveries, recoveredTasks, reconciledAiExecutions, expiredUploads, wokenGoals, wokenDependencyGoals] = await Promise.all([
+    const [
+      failed,
+      requeued,
+      failedDiscoveries,
+      recoveredTasks,
+      reconciledAiExecutions,
+      expiredUploads,
+      wokenGoals,
+      wokenDependencyGoals,
+    ] = await Promise.all([
       failStaleRunningJobs(),
       requeueStalePendingJobs(),
       failStaleDiscoverySessions(),
@@ -929,7 +951,7 @@ export function startStaleJobSweep(): NodeJS.Timeout {
       wakeDueMissionGoals(),
       wakeReadyMissionGoals(),
       wakeRuntimeTransitionMissionGoals(),
-      retryPendingRuntimeStartTransitions(),
+      retryTransitionsAndReconcileApplyGoals(),
     ]);
     if (failed > 0) {
       logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");

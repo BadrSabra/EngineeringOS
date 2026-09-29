@@ -261,9 +261,11 @@ export type {
   GeneralTaskPlanSource,
   GeneralTaskPlanStep,
   GeneralTaskPlanStepKind,
+  ApplyChangesRequirement,
 } from "./task-planner.js";
 export {
   buildMissionPlanPreview,
+  buildApplyChangesMissionPlanPreview,
   sanitizeMissionWorldStatePlanningRead,
 } from "./mission-planning.js";
 export type {

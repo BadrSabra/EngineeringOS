@@ -31,6 +31,10 @@ import {
   selectActiveMissionGoals,
 } from "./ai-execution-acceptance.js";
 import { projectGoalAcceptance } from "./mission-acceptance-projection.js";
+import {
+  applyChangesMissionRequirement,
+  evaluateApplyChangesD2,
+} from "./agent-state/apply-changes-mission-gate.js";
 import { deliveryWorkspaceExists } from "./delivery-workspace.js";
 import { establishProjectRoot } from "./project-root.js";
 import {
@@ -1309,11 +1313,9 @@ export async function runMissionGoal(params: {
             updatedAt: now,
           })
           .where(eq(aiGoalsTable.id, goal.id));
-        if (mission.status !== "blocked") {
-          await tx.update(aiMissionsTable)
-            .set({ status: "needs_replan", updatedAt: now })
-            .where(eq(aiMissionsTable.id, mission.id));
-        }
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
         await tx.insert(eventsTable).values({
           id: randomUUID(),
           type: "AiGoalDependencyBlocked",
@@ -1435,6 +1437,230 @@ export async function runMissionGoal(params: {
         });
         return { status: "blocked" as const, goalId: goal.id, reason: "runtime_start_transition_unproven" };
       }
+    }
+
+    const applyRequirement = applyChangesMissionRequirement(
+      goal,
+      mission,
+      activePlanRevision,
+    );
+    if (applyRequirement.kind === "invalid") {
+      const now = new Date();
+      await tx.update(aiGoalsTable)
+        .set({
+          status: "needs_replan",
+          blockedReason: applyRequirement.reason,
+          nextWakeAt: null,
+          updatedAt: now,
+        })
+        .where(eq(aiGoalsTable.id, goal.id));
+      if (mission.status !== "blocked") {
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+      }
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalApplyChangesProofBlocked",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "warning",
+        message: `AI goal "${goal.title}" needs a replan because its apply requirement is invalid`,
+        payload: { missionId: mission.id, planRevision: goalRevision, reason: applyRequirement.reason },
+      });
+      return { status: "blocked" as const, goalId: goal.id, reason: applyRequirement.reason };
+    }
+    if (applyRequirement.kind === "valid") {
+      if (mission.status === "blocked" || mission.status === "needs_replan") {
+        return {
+          status: "blocked" as const,
+          goalId: goal.id,
+          reason: mission.status === "blocked" ? "mission_operator_owned" : "mission_needs_replan",
+        };
+      }
+      const d2 = await evaluateApplyChangesD2(tx, {
+        goal,
+        mission,
+        activePlanRevision,
+      });
+      if (d2.state === "pending") {
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "waiting_for_event",
+            blockedReason: "apply_changes_pending",
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        if (mission.status !== "waiting") {
+          await tx.update(aiMissionsTable)
+            .set({ status: "waiting", updatedAt: now })
+            .where(eq(aiMissionsTable.id, mission.id));
+        }
+        if (goal.status !== "waiting_for_event" || goal.blockedReason !== "apply_changes_pending") {
+          await tx.insert(eventsTable).values({
+            id: randomUUID(),
+            type: "AiGoalApplyChangesProofWaiting",
+            projectId: goal.projectId,
+            goalId: goal.id,
+            severity: "info",
+            message: `AI goal "${goal.title}" is waiting for live apply proof`,
+            payload: { missionId: mission.id, planRevision: applyRequirement.planRevision, reason: d2.reason },
+          });
+        }
+        return { status: "waiting" as const, goalId: goal.id, reason: "apply_changes_pending" };
+      }
+      if (d2.state !== "proven") {
+        const reason = d2.state === "failed" ? d2.reason : "apply_d2_not_applicable";
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "needs_replan",
+            blockedReason: reason,
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalApplyChangesProofBlocked",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "warning",
+          message: `AI goal "${goal.title}" needs a replan because live apply proof was not established`,
+          payload: { missionId: mission.id, planRevision: applyRequirement.planRevision, reason },
+        });
+        return { status: "blocked" as const, goalId: goal.id, reason };
+      }
+
+      const canonicalProof = await loadCanonicalProof({
+        tx,
+        executionId: d2.executionId,
+        scope: {
+          projectId: goal.projectId,
+          missionId: mission.id,
+          goalId: goal.id,
+          executionId: d2.executionId,
+          operationId: d2.operationId,
+          planRevision: d2.planRevision,
+          activePlanRevision,
+          sourceRevision: d2.requirement.baseRevision,
+          candidateIdentity: d2.candidateIdentity,
+        },
+        goalStatus: "completed",
+        deliveryRequired: false,
+      });
+      if (!canonicalProof.accepted) {
+        const reason = `canonical_proof_${canonicalProof.failureReasons[0] ?? "incomplete"}`;
+        const now = new Date();
+        await tx.update(aiGoalsTable)
+          .set({
+            status: "needs_replan",
+            blockedReason: reason,
+            nextWakeAt: null,
+            updatedAt: now,
+          })
+          .where(eq(aiGoalsTable.id, goal.id));
+        await tx.update(aiMissionsTable)
+          .set({ status: "needs_replan", updatedAt: now })
+          .where(eq(aiMissionsTable.id, mission.id));
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiGoalApplyChangesProofBlocked",
+          projectId: goal.projectId,
+          goalId: goal.id,
+          severity: "warning",
+          message: `AI goal "${goal.title}" needs a replan because canonical apply acceptance is incomplete`,
+          payload: { missionId: mission.id, planRevision: applyRequirement.planRevision, reason },
+        });
+        return { status: "blocked" as const, goalId: goal.id, reason };
+      }
+
+      const now = new Date();
+      const projected = await projectGoalAcceptance(tx, {
+        goalId: goal.id,
+        projectId: goal.projectId,
+        projection: {
+          acceptanceId: d2.acceptanceId,
+          executionId: d2.executionId,
+          outcome: "SUCCEEDED",
+          verdict: "PROVEN",
+          sourceRevision: d2.requirement.baseRevision,
+          candidateIdentity: d2.candidateIdentity,
+          scope: {
+            projectId: goal.projectId,
+            missionId: mission.id,
+            goalId: goal.id,
+            operationId: d2.operationId,
+            planRevision: d2.planRevision,
+            candidateIdentity: d2.candidateIdentity,
+          },
+          acceptedRefs: [
+            `execution:${d2.executionId}:${d2.attempt}`,
+            `effect-bundle:${d2.effectBundleId}`,
+            `world-transition:${d2.transitionId}`,
+            ...d2.beforeObservationIds,
+            ...d2.afterObservationIds,
+          ],
+          receipt: {
+            kind: "execution_acceptance",
+            id: d2.acceptanceId,
+            executionId: d2.executionId,
+            status: "SUCCEEDED",
+          },
+          stateProjection: {
+            transitionId: d2.transitionId,
+            worldRevision: d2.resultingWorldRevision,
+            environmentRevision: d2.environmentRevision,
+          },
+          reasonCode: "APPLY_CHANGES_D2_PROVEN",
+          updatedAt: now,
+        },
+      });
+      if (!projected) {
+        return { status: "conflict" as const, goalId: goal.id, reason: "goal_acceptance_projection_failed" };
+      }
+      await tx.update(aiGoalsTable)
+        .set({
+          status: "completed",
+          blockedReason: null,
+          completedAt: goal.completedAt ?? now,
+          nextWakeAt: null,
+          updatedAt: now,
+        })
+        .where(eq(aiGoalsTable.id, goal.id));
+      await tx.update(aiMissionsTable)
+        .set({ status: "active", updatedAt: now })
+        .where(and(
+          eq(aiMissionsTable.id, mission.id),
+          eq(aiMissionsTable.status, "waiting"),
+        ));
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiGoalApplyChangesProofAccepted",
+        projectId: goal.projectId,
+        goalId: goal.id,
+        severity: "success",
+        message: `AI goal "${goal.title}" completed with live apply proof`,
+        payload: {
+          missionId: mission.id,
+          planRevision: d2.planRevision,
+          executionId: d2.executionId,
+          attempt: d2.attempt,
+          transitionId: d2.transitionId,
+          worldRevision: d2.resultingWorldRevision,
+        },
+      });
+      return {
+        status: "completed" as const,
+        goalId: goal.id,
+        executionId: d2.executionId,
+        reason: "apply_changes_d2_proven",
+      };
     }
 
     const parsedAction = GoalNextActionSchema.safeParse(goal.nextAction);
@@ -1641,6 +1867,9 @@ export async function runMissionGoal(params: {
       parentExecutionId: decision.delegation?.parentExecutionId,
     });
   }
+  if (decision.status === "completed" && decision.reason === "apply_changes_d2_proven") {
+    await wakeReadyMissionGoals();
+  }
   return decision;
 }
 
@@ -1721,6 +1950,43 @@ export async function wakeReadyMissionGoals(limit = 32): Promise<number> {
     if (result.status === "scheduled" || result.status === "completed") woken += 1;
   }
   return woken;
+}
+
+/**
+ * Rechecks Mission-linked apply Goals after the durable transition retry worker
+ * has run. This never repeats the filesystem apply; it only evaluates stored
+ * acceptance, observation, and World State proof.
+ */
+export async function wakeApplyChangesMissionGoals(limit = 32): Promise<number> {
+  const candidates = await db.select({
+    goalId: aiGoalsTable.id,
+    userId: aiMissionsTable.userId,
+  }).from(aiGoalsTable)
+    .innerJoin(aiMissionsTable, and(
+      eq(aiMissionsTable.id, aiGoalsTable.missionId),
+      eq(aiMissionsTable.projectId, aiGoalsTable.projectId),
+    ))
+    .where(and(
+      eq(aiGoalsTable.status, "waiting_for_event"),
+      eq(aiGoalsTable.blockedReason, "apply_changes_pending"),
+    ))
+    .orderBy(aiGoalsTable.updatedAt, aiGoalsTable.id)
+    .limit(Math.max(1, Math.min(limit, 100)));
+
+  let reconciled = 0;
+  for (const candidate of candidates) {
+    const result = await runMissionGoal({
+      goalId: candidate.goalId,
+      userId: candidate.userId,
+      trigger: "wake",
+    });
+    if (
+      result.status === "completed"
+      || result.status === "scheduled"
+      || result.status === "blocked"
+    ) reconciled += 1;
+  }
+  return reconciled;
 }
 
 /**

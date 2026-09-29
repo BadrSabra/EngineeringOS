@@ -9,6 +9,7 @@ import {
   loadCanonicalProof,
   type CanonicalProof,
 } from "./proof-foundation.js";
+import { evaluateApplyChangesD2, applyChangesMissionRequirement } from "./agent-state/apply-changes-mission-gate.js";
 
 type MissionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -154,7 +155,32 @@ async function composeGoalProofs(
       deliveryRequired: record(goal.outcomeContract).deliveryRequired === true,
       deliveryReceipt: projected?.deliveryReceipt ?? null,
     });
-    proofs.push({ goalId: goal.id, ...proof });
+    const applyRequirement = applyChangesMissionRequirement(
+      goal,
+      mission,
+      activePlanRevision(mission) ?? undefined,
+    );
+    const applyD2 = applyRequirement.kind === "none"
+      ? { state: "not_applicable" as const }
+      : await evaluateApplyChangesD2(tx, {
+          goal,
+          mission,
+          activePlanRevision: activePlanRevision(mission) ?? undefined,
+        });
+    const applyD2Proven = applyRequirement.kind === "none"
+      || (applyRequirement.kind === "valid" && applyD2.state === "proven");
+    proofs.push({
+      goalId: goal.id,
+      ...proof,
+      ...(applyD2Proven ? {} : {
+        verdict: "INCOMPLETE" as const,
+        accepted: false,
+        failureReasons: [...new Set([
+          ...proof.failureReasons,
+          "apply_changes_transition_unproven" as const,
+        ])],
+      }),
+    });
   }
   return proofs;
 }

@@ -40,6 +40,18 @@ export type RuntimeStartTransitionRequirement = {
   to: "running";
 };
 
+export type ApplyChangesRequirement = {
+  kind: "apply.changes";
+  version: 1;
+  sourceStepId: "apply-changes";
+  proposalId: string;
+  baseRevision: string;
+  candidateTreeHash: string;
+  changeSetHash: string;
+  from: "candidate";
+  to: "applied";
+};
+
 export type ProjectOrientationCoverage = {
   purpose: "required";
   components: "required";
@@ -63,6 +75,7 @@ export type GeneralTaskPlan = {
   planHash: string;
   steps: GeneralTaskPlanStep[];
   transitionRequirements?: RuntimeStartTransitionRequirement[];
+  applyRequirement?: ApplyChangesRequirement;
   conflicts: string[];
   orientationCoverage?: ProjectOrientationCoverage;
   reusedPlanFingerprint?: string;

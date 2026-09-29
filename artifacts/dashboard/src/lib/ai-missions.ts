@@ -255,6 +255,27 @@ export function createMission(body: CreateMissionInput) {
   return requestJson<Mission>('/api/ai/missions', jsonRequest('POST', body));
 }
 
+export interface ApplyMissionFromProposalInput {
+  projectId: string;
+  proposalId: string;
+  title?: string;
+  intent?: string;
+}
+
+export interface ApplyMissionFromProposalResult {
+  mission: Mission;
+  applyGoal: { stepId: string; goalId: string; taskId: string | null; dependencies: string[] };
+  planGoals: Array<{ stepId: string; goalId: string; taskId: string | null; dependencies: string[] }>;
+  runs: Array<{ status: string; goalId: string; reason?: string }>;
+}
+
+export function createApplyMissionFromProposal(body: ApplyMissionFromProposalInput) {
+  return requestJson<ApplyMissionFromProposalResult>(
+    '/api/ai/missions/apply-from-proposal',
+    jsonRequest('POST', body),
+  );
+}
+
 export type MissionPlanPreviewInput =
   | {
       projectId: string;

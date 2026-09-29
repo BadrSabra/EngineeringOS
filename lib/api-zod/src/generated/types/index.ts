@@ -231,6 +231,7 @@ export * from './aiWorkspaceReviewResult';
 export * from './aiWorkspaceReviewResultEvidenceItem';
 export * from './aiWorkspaceReviewResultKind';
 export * from './apiError';
+export * from './applyMissionFromProposalInput';
 export * from './approveAiExecutionProposal200';
 export * from './archiveUploadInput';
 export * from './archiveUploadOutput';

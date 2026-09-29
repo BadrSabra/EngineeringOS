@@ -23,6 +23,10 @@ export type GoalAcceptanceProjection = {
   scope?: {
     projectId: string;
     candidateIdentity?: string | null;
+    missionId?: string | null;
+    goalId?: string | null;
+    operationId?: string | null;
+    planRevision?: string | null;
   };
   acceptedRefs?: string[];
   validatorIds?: string[];

@@ -49,6 +49,7 @@ import type {
   AiReviewRequest,
   AiScanAnalysis,
   ApiError,
+  ApplyMissionFromProposalInput,
   ApproveAiExecutionProposal200,
   ArchiveUploadInput,
   ArchiveUploadOutput,
@@ -9458,6 +9459,86 @@ export const useHandoffChatToAiMission = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getHandoffChatToAiMissionMutationOptions(options));
+    }
+
+export const getCreateApplyMissionFromProposalUrl = () => {
+
+
+
+
+  return `/api/ai/missions/apply-from-proposal`
+}
+
+/**
+ * @summary Create a server-owned Mission waiting for an approved proposal apply
+ */
+export const createApplyMissionFromProposal = async (applyMissionFromProposalInput: ApplyMissionFromProposalInput, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customFetch<void>(getCreateApplyMissionFromProposalUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(applyMissionFromProposalInput)
+  }
+);}
+
+
+
+
+
+export const getCreateApplyMissionFromProposalMutationKey = () => ['createApplyMissionFromProposal'] as const;
+
+export const getCreateApplyMissionFromProposalMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createApplyMissionFromProposal>>, TError,CreateApplyMissionFromProposalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createApplyMissionFromProposal>>, TError,CreateApplyMissionFromProposalMutationVariables, TContext> => {
+
+const mutationKey = getCreateApplyMissionFromProposalMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createApplyMissionFromProposal>>, CreateApplyMissionFromProposalMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createApplyMissionFromProposal(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateApplyMissionFromProposalMutationResult = NonNullable<Awaited<ReturnType<typeof createApplyMissionFromProposal>>>
+    export type CreateApplyMissionFromProposalMutationBody = BodyType<ApplyMissionFromProposalInput>
+    export type CreateApplyMissionFromProposalMutationError = ErrorType<void>
+    export type CreateApplyMissionFromProposalMutationVariables = {data: BodyType<ApplyMissionFromProposalInput>}
+
+    /**
+ * @summary Create a server-owned Mission waiting for an approved proposal apply
+ */
+export const useCreateApplyMissionFromProposal = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createApplyMissionFromProposal>>, TError,CreateApplyMissionFromProposalMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createApplyMissionFromProposal>>,
+        TError,
+        CreateApplyMissionFromProposalMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateApplyMissionFromProposalMutationOptions(options));
     }
 
 export const getGetAiMissionUrl = (missionId: string,) => {
