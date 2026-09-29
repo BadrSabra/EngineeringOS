@@ -198,7 +198,9 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
   {
     id: "dashboard-preview-contract",
     kind: "preview",
-    command: "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey",
+    // Pin the release journey to the browser that passed the same authenticated
+    // persistence assertions; Chromium has lost its Playwright target on reload.
+    command: "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_BROWSER=firefox DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey",
     blocking: true,
     coverage: ["Preview dashboard journey"],
   },
@@ -398,6 +400,12 @@ export function buildAiReleaseCheckEnvironment(
     childEnv.RELEASE_AI_STREAM_LOCK_HELD = "1";
   } else {
     delete childEnv.RELEASE_AI_STREAM_LOCK_HELD;
+  }
+  if (check.id === "ai-operational-safety") {
+    // The pending-workspace case runs a full workspace typecheck. Give that
+    // nested validator bounded headroom without changing application defaults.
+    childEnv.VALIDATION_PROCESS_TIMEOUT_MS = "120000";
+    childEnv.VALIDATION_OVERALL_TIMEOUT_MS = "150000";
   }
   return childEnv;
 }

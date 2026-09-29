@@ -33,7 +33,6 @@ task = "workflow.run"
 args = "workspace-runtime-supervisor"
 
 
-
 [[workflows.workflow]]
 name = "artifacts/api-server: API Server"
 author = "agent"
@@ -96,12 +95,12 @@ isValidation = true
 name = "release-dashboard-journey"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_BROWSER=firefox DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
 
 [[workflows.workflow]]
 name = "workspace-runtime-supervisor"

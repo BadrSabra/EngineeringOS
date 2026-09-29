@@ -118,6 +118,7 @@
 - [Mission recovery checkpoint parsing](mission-recovery-checkpoint-parsing.md) — parse the full persisted tool-loop envelope; generic checkpoint projections truncate nested recovery manifests.
 - [Mission repair post-commit recovery](mission-repair-postcommit-recovery.md) — validate immutable commit semantics and reuse recorded observation pairs to avoid duplicate effects during recovery.
 - [Orientation manifest admission](orientation-manifest-admission.md) — validate every required-role source against the managed root, and let server acceptance—not turn shape—govern resume versus fresh run.
+- [Validation workflow accumulation](validation-workflow-accumulation.md) — keep standalone validation workflows out of the app's Project startup tasks unless intended.
 - [Live provider validation boundary](live-provider-validation-boundary.md) — live acceptance needs proof-required intent and a Git-backed disposable project; provider success alone is not acceptance.
 - [Capability parity objectives](capability-parity-objectives.md) — parity gap audits reuse the existing gap objective and require observable evidence; do not create a second compiler or catalog.
 - [Chat SSE fixture lifecycle](chat-sse-fixture-lifecycle.md) — SSE fixtures must expose running executions to controller registration and reset cancellation state between tests.

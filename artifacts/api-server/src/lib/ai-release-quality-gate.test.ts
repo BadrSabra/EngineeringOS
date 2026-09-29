@@ -141,6 +141,16 @@ describe("AI release quality gate", () => {
     });
   });
 
+  it("gives pending-workspace safety validation bounded typecheck headroom", () => {
+    const check = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "ai-operational-safety",
+    )!;
+    expect(buildAiReleaseCheckEnvironment(check, {})).toMatchObject({
+      VALIDATION_PROCESS_TIMEOUT_MS: "120000",
+      VALIDATION_OVERALL_TIMEOUT_MS: "150000",
+    });
+  });
+
   it("clears fixture egress controls for non-preview and live-provider children", () => {
     const baseEnv = {
       AI_PROVIDER_EGRESS_DISABLED: "1",
@@ -270,7 +280,8 @@ describe("AI release quality gate", () => {
     const preview = checks.find((check) => check.id === "dashboard-preview-contract")!;
     expect(preview.command).toContain('APP_ORIGINS="https://${REPLIT_DEV_DOMAIN}"');
     expect(preview.command).toContain("RELEASE_VALIDATION_WAIT_FOR_LOCK=1");
-    expect(preview.command).toContain("DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium)");
+    expect(preview.command).toContain("DASHBOARD_E2E_BROWSER=firefox");
+    expect(preview.command).not.toContain("DASHBOARD_E2E_EXECUTABLE_PATH");
     expect(preview.command).toContain("DASHBOARD_E2E_SKIP_API_CONTRACTS=1");
     const decision = evaluateAiReleaseQuality([
       result({ ...preview, status: "skipped" }),

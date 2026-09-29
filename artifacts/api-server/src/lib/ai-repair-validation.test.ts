@@ -193,7 +193,7 @@ describe("AI repair validation registry", () => {
     expect(result.evidence.environmentRevision).toBeNull();
     expect(`${result.stdout}\n${result.stderr}\n${result.detail}`).toMatch(/invalid|expected|type/i);
     expect(await fs.readFile(path.join(rootPath, relativePath), "utf8")).toBe(originalContent);
-  }, 120_000);
+  }, 210_000);
 
   it("runs a fixture runtime oracle against pending content without mutating live files", async () => {
     const rootPath = path.resolve(process.cwd(), "../..");
