@@ -28,3 +28,17 @@ mtime_ms = 1788801347639
 storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:becefa87-6f09-4ffa-90fa-09c87093e7a0/02d85d67-04a9-4f1a-bf57-5acdc8d64d08/23197a2c-0c6f-4afb-acad-e0c568b4ada5"
 storage_version_token = "1788801356507832"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "kqtFSh8317OQpSmuIgQtE"
+uri = "file://attached_assets/ProjectQueryInvestigationPlan-revised.md"
+type = "text"
+title = "الخطة المنقّحة لتحقيق PROJECT_QUERY"
+description = "نسخة مركزة تفصل اكتمال الإجابة عن الإثبات، وتضيف تغطية خادمية للسؤال وحدودًا للأدلة والاستئناف، وتبدأ بشريحة FACT."
+logical_id = "ce1ca412-91d7-49a7-bc8a-5f6b8bec67c5"
+content_hash = "sha256:cbbe0a2f83ac65468d620e9895a714e1b2065f52c228e4e47399b5a57044fc3f"
+size = 16137
+mtime_ms = 1790680574385
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:d9ee80a9-1264-4087-bf84-742316b13035/ce1ca412-91d7-49a7-bc8a-5f6b8bec67c5/4581d5bf-e72d-4185-a16e-35b0f1824f41"
+storage_version_token = "1790680611786830"
+content_type = "text/markdown"
