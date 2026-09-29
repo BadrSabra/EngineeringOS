@@ -1,6 +1,7 @@
 import type { EvidenceReference } from "./task-contracts.js";
 import { distinctExplicitSourcePaths } from "./task-contracts.js";
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
+import { classifyObjectiveScopePath } from "./objective-scope.js";
 
 /**
  * FEG-011/012 — Required Claims closure.
@@ -71,6 +72,27 @@ export type MaterializedObjectiveClaimEvidence = {
     endLine: number;
   };
 };
+
+export type ClaimEvidenceAttachment = {
+  claimId: string;
+  observationId: string;
+  sourcePath: string;
+  relation: "supports" | "contradicts" | "context";
+};
+
+function normalizeSafeEvidencePath(value: string): string {
+  const slashPath = value.replaceAll("\\", "/").trim();
+  if (
+    !slashPath
+    || slashPath.includes("\0")
+    || slashPath.startsWith("/")
+    || /^[a-zA-Z]:/.test(slashPath)
+    || slashPath.split("/").includes("..")
+  ) {
+    return "";
+  }
+  return slashPath.split("/").filter((part) => part && part !== ".").join("/");
+}
 
 export type ObjectiveEvidenceWindow = {
   file: string;
@@ -235,6 +257,7 @@ export function materializeObjectiveClaimEvidence(input: {
   objective: ObjectiveContract;
   fileContents: ReadonlyMap<string, string>;
   sourceWindows?: readonly ObjectiveEvidenceWindow[];
+  claimEvidenceAttachments?: readonly ClaimEvidenceAttachment[];
 }): MaterializedObjectiveClaimEvidence[] {
   const normalizePath = (value: string): string =>
     value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
@@ -267,13 +290,42 @@ export function materializeObjectiveClaimEvidence(input: {
   for (const claim of input.objective.requiredClaims) {
     const claimNeedle = claim.text.trim();
     const preferredPaths = (claim.requiredEvidencePaths ?? []).map(normalizePath);
+    const attachedPaths = new Set(
+      (input.claimEvidenceAttachments ?? [])
+        .filter((attachment) => {
+          const sourcePath = normalizeSafeEvidencePath(attachment.sourcePath);
+          const hasExplicitNeedles = claim.evidenceNeedlesByPath
+            ? Object.entries(claim.evidenceNeedlesByPath)
+                .some(([candidatePath, needles]) =>
+                  normalizeSafeEvidencePath(candidatePath) === sourcePath
+                  && needles.some((needle) => needle.trim().length > 0),
+                )
+            : (claim.evidenceNeedles ?? []).some((needle) => needle.trim().length > 0);
+          return attachment.claimId === claim.claimId
+            && attachment.observationId.trim().length > 0
+            && attachment.relation === "supports"
+            && Boolean(sourcePath)
+            && Boolean(input.objective.scopePolicy)
+            && classifyObjectiveScopePath(sourcePath, input.objective.scopePolicy!)?.kind
+              === "JUSTIFIED_SCOPE_EXPANSION"
+            && hasExplicitNeedles;
+        })
+        .map((attachment) => normalizeSafeEvidencePath(attachment.sourcePath))
+        .filter(Boolean),
+    );
     // A claim with an explicit evidence manifest must be grounded in one of
     // those paths. Falling back to an unrelated retained body lets a matching
     // symbol close the claim without satisfying the server-owned objective
     // scope.
-    const candidates = preferredPaths.length > 0
-      ? bodyEntries.filter((entry) => preferredPaths.includes(entry.path))
-      : bodyEntries;
+    const candidates = bodyEntries.filter((entry) => {
+      if (preferredPaths.includes(entry.path)) return true;
+      if (attachedPaths.has(entry.path)) return true;
+      if (preferredPaths.length > 0) return false;
+      const scope = input.objective.scopePolicy
+        ? classifyObjectiveScopePath(entry.path, input.objective.scopePolicy)
+        : undefined;
+      return scope?.kind !== "JUSTIFIED_SCOPE_EXPANSION";
+    });
     const match = candidates
       .flatMap((entry) => {
         const evidenceNeedles = claim.evidenceNeedlesByPath
@@ -342,6 +394,7 @@ export function closeObjectiveClaimsFromEvidence(input: {
   assertedClaimIds?: readonly string[];
   evidence?: readonly EvidenceReference[];
   fileContents?: ReadonlyMap<string, string>;
+  claimEvidenceAttachments?: readonly ClaimEvidenceAttachment[];
   /**
    * Project-query objectives use a server-owned materialized evidence
    * projection. Other objective types retain their reachability closure
@@ -387,6 +440,32 @@ export function closeObjectiveClaimsFromEvidence(input: {
     const preferredPaths = (claimSpec?.requiredEvidencePaths ?? []).map((path: string) =>
       path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, ""),
     );
+    const attachedPaths = new Set(
+      (input.claimEvidenceAttachments ?? [])
+        .filter((attachment) => {
+          if (
+            attachment.claimId !== claimSpec?.claimId
+            || !attachment.observationId.trim()
+            || attachment.relation !== "supports"
+          ) {
+            return false;
+          }
+          const sourcePath = normalizeSafeEvidencePath(attachment.sourcePath);
+          if (!sourcePath || !objective.scopePolicy) return false;
+          const hasExplicitNeedles = claimSpec?.evidenceNeedlesByPath
+            ? Object.entries(claimSpec.evidenceNeedlesByPath)
+                .some(([candidatePath, needles]) =>
+                  normalizeSafeEvidencePath(candidatePath) === sourcePath
+                  && needles.some((needle) => needle.trim().length > 0),
+                )
+            : (claimSpec?.evidenceNeedles ?? []).some((needle) => needle.trim().length > 0);
+          return hasExplicitNeedles
+            && classifyObjectiveScopePath(sourcePath, objective.scopePolicy!)?.kind
+              === "JUSTIFIED_SCOPE_EXPANSION";
+        })
+        .map((attachment) => normalizeSafeEvidencePath(attachment.sourcePath))
+        .filter(Boolean),
+    );
     const responseAssertsClaim = explicitAssertions === undefined
       ? responseNorm.includes(responseNeedle)
       : explicitAssertions.has(
@@ -401,10 +480,21 @@ export function closeObjectiveClaimsFromEvidence(input: {
         const normalizedSourceNeedles = sourceNeedles
           .map((needle: string) => normalize(needle))
           .filter(Boolean);
+        const declaredPath = preferredPaths.includes(file);
+        const isUnattachedExpansion = !declaredPath
+          && objective.scopePolicy
+          && classifyObjectiveScopePath(file, objective.scopePolicy)?.kind
+            === "JUSTIFIED_SCOPE_EXPANSION"
+          && !attachedPaths.has(file);
         if (
           normalizedSourceNeedles.some((needle) => body.includes(needle)) &&
           (!requireCited || groundedSources.has(file)) &&
-          (preferredPaths.length === 0 || preferredPaths.includes(file))
+          !isUnattachedExpansion &&
+          (
+            preferredPaths.length === 0
+            || preferredPaths.includes(file)
+            || attachedPaths.has(file)
+          )
         ) {
           closed = true;
           path = file;

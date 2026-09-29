@@ -485,12 +485,25 @@ export type ReadOnlyToolInvocation = {
   manifestHash: string;
   status?: "completed" | "failed" | "cancelled";
   outputHash?: string;
+  readStatus?: ReadStatus;
+  /** Server-injected claim binding for the single approved PROJECT_QUERY expansion read. */
+  claimEvidenceBinding?: {
+    claimId: string;
+    sourcePath: string;
+    objectiveType: string;
+    projectRevision?: string;
+  };
   diagnosticCode?: string;
+};
+
+export type ReadOnlyInvocationReceipt = {
+  recordedEventId?: string;
+  observationId?: string;
 };
 
 export type ReadOnlyToolInvocationCallback = (
   invocation: ReadOnlyToolInvocation,
-) => void | Promise<void>;
+) => void | ReadOnlyInvocationReceipt | Promise<void | ReadOnlyInvocationReceipt>;
 
 const MISSION_READ_ONLY_TOOL_NAMES = new Set<ReadOnlyToolInvocation["toolName"]>([
   "read_file",
@@ -1192,6 +1205,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             phase: "recorded" as const,
             status: "completed" as const,
             outputHash: createHash("sha256").update(output, "utf8").digest("hex"),
+            ...(name === "read_file" || name === "read_file_range"
+              ? { readStatus: classifyReadStatus(name, output) }
+              : {}),
           };
       try {
         await readCallback({ ...readInvocationBase, ...recorded });

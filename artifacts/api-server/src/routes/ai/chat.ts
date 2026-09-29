@@ -6002,7 +6002,7 @@ router.post("/ai/chat", async (req, res) => {
                 manifestHash: invocation.manifestHash,
               }), "utf8")
               .digest("hex");
-            await appendEpisodeEvent({
+            const recordedEvent = await appendEpisodeEvent({
               episodeId: episode.episodeId,
               projectId,
               executionId: execution.id,
@@ -6018,9 +6018,13 @@ router.post("/ai/chat", async (req, res) => {
                 projectRevision: episode.projectRevision,
                 inputHash: invocation.inputHash,
                 manifestHash: invocation.manifestHash,
+                ...(invocation.claimEvidenceBinding
+                  ? { claimEvidenceBinding: invocation.claimEvidenceBinding }
+                  : {}),
                 ...(invocation.phase === "recorded" ? {
                   ...(invocation.status ? { status: invocation.status } : {}),
                   ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                  ...(invocation.readStatus ? { readStatus: invocation.readStatus } : {}),
                   ...(invocation.diagnosticCode
                     ? { diagnosticCode: invocation.diagnosticCode }
                     : {}),
@@ -6030,6 +6034,51 @@ router.post("/ai/chat", async (req, res) => {
               actorId: chatObservationWorkerId,
               correlationId: execution.operationId ?? execution.id,
             });
+            if (
+              invocation.phase === "recorded"
+              && invocation.claimEvidenceBinding
+              && invocation.status === "completed"
+              && invocation.readStatus === "READ_COMPLETE"
+              && invocation.toolName === "read_file"
+              && invocation.outputHash
+            ) {
+              const binding = invocation.claimEvidenceBinding;
+              const materialized = await materializeServerOwnedObservations({
+                projectId,
+                executionId: execution.id,
+                attempt: execution.attempt,
+                projectRevision: episode.projectRevision,
+                episodeId: episode.episodeId,
+                workerLease: { workerId: chatObservationWorkerId },
+                sources: [{
+                  kind: "direct_observation",
+                  sourceId: `project-query-claim-read:${invocationId}`,
+                  subject: `file:${binding.sourcePath}`,
+                  predicate: "project_query.claim_candidate_source_read",
+                  value: {
+                    claimId: binding.claimId,
+                    sourcePath: binding.sourcePath,
+                    objectiveType: binding.objectiveType,
+                    invocationId,
+                    outputHash: invocation.outputHash,
+                    readStatus: invocation.readStatus,
+                  },
+                  sourceRevision: episode.projectRevision,
+                  evidenceRefs: [recordedEvent.eventId, `claim:${binding.claimId}`],
+                }],
+              });
+              const observationId = materialized.observationIds[0];
+              if (!observationId) {
+                throw new Error("The completed project-query source read was not materialized.");
+              }
+              return {
+                recordedEventId: recordedEvent.eventId,
+                observationId,
+              };
+            }
+            return invocation.phase === "recorded"
+              ? { recordedEventId: recordedEvent.eventId }
+              : undefined;
           },
           executionLedger,
           projectOrientation: projectOrientationTurn,
@@ -9819,7 +9868,7 @@ export async function handleChatStream(req: Request, res: Response) {
                 manifestHash: invocation.manifestHash,
               }), "utf8")
               .digest("hex");
-            await appendEpisodeEvent({
+            const recordedEvent = await appendEpisodeEvent({
               episodeId: chatObservationEpisode.episodeId,
               projectId,
               executionId: aiExecution.id,
@@ -9835,9 +9884,13 @@ export async function handleChatStream(req: Request, res: Response) {
                 projectRevision: chatObservationEpisode.projectRevision,
                 inputHash: invocation.inputHash,
                 manifestHash: invocation.manifestHash,
+                ...(invocation.claimEvidenceBinding
+                  ? { claimEvidenceBinding: invocation.claimEvidenceBinding }
+                  : {}),
                 ...(invocation.phase === "recorded" ? {
                   ...(invocation.status ? { status: invocation.status } : {}),
                   ...(invocation.outputHash ? { outputHash: invocation.outputHash } : {}),
+                  ...(invocation.readStatus ? { readStatus: invocation.readStatus } : {}),
                   ...(invocation.diagnosticCode ? { diagnosticCode: invocation.diagnosticCode } : {}),
                 } : {}),
               },
@@ -9845,6 +9898,51 @@ export async function handleChatStream(req: Request, res: Response) {
               actorId: executionWorkerId,
               correlationId: aiExecution.operationId ?? aiExecution.id,
             });
+            if (
+              invocation.phase === "recorded"
+              && invocation.claimEvidenceBinding
+              && invocation.status === "completed"
+              && invocation.readStatus === "READ_COMPLETE"
+              && invocation.toolName === "read_file"
+              && invocation.outputHash
+            ) {
+              const binding = invocation.claimEvidenceBinding;
+              const materialized = await materializeServerOwnedObservations({
+                projectId,
+                executionId: aiExecution.id,
+                attempt: aiExecution.attempt,
+                projectRevision: chatObservationEpisode.projectRevision,
+                episodeId: chatObservationEpisode.episodeId,
+                workerLease: { workerId: executionWorkerId },
+                sources: [{
+                  kind: "direct_observation",
+                  sourceId: `project-query-claim-read:${invocationId}`,
+                  subject: `file:${binding.sourcePath}`,
+                  predicate: "project_query.claim_candidate_source_read",
+                  value: {
+                    claimId: binding.claimId,
+                    sourcePath: binding.sourcePath,
+                    objectiveType: binding.objectiveType,
+                    invocationId,
+                    outputHash: invocation.outputHash,
+                    readStatus: invocation.readStatus,
+                  },
+                  sourceRevision: chatObservationEpisode.projectRevision,
+                  evidenceRefs: [recordedEvent.eventId, `claim:${binding.claimId}`],
+                }],
+              });
+              const observationId = materialized.observationIds[0];
+              if (!observationId) {
+                throw new Error("The completed project-query source read was not materialized.");
+              }
+              return {
+                recordedEventId: recordedEvent.eventId,
+                observationId,
+              };
+            }
+            return invocation.phase === "recorded"
+              ? { recordedEventId: recordedEvent.eventId }
+              : undefined;
           },
            ...(aiExecution ? { capabilityRegistry: createServerCapabilityRegistry() } : {}),
           executionLedger,

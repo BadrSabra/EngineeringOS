@@ -1,5 +1,6 @@
 import type { ObjectiveContract } from "./schemas/chat.schema.js";
 import { buildObjectiveClaimPlan } from "./objective-claim-plan.js";
+import { classifyObjectiveScopePath } from "./objective-scope.js";
 import {
   FailureDiagnosisSummarySchema,
 } from "./agent-state/failure-contract.js";
@@ -18,7 +19,15 @@ export type ObjectiveReplanTarget = {
   reason:
     | "MISSING_REQUIRED_EVIDENCE_PATH"
     | "MISSING_CLAIM_EVIDENCE_PATH"
-    | "MISSING_EDGE_CALLER_PATH";
+    | "MISSING_EDGE_CALLER_PATH"
+    | "DISCOVERED_PROJECT_QUERY_SOURCE";
+};
+
+export type ProjectQueryDiscoveryTarget = {
+  path: string;
+  claimId: string;
+  evidenceNeedles: readonly string[];
+  reason: "DISCOVERED_PROJECT_QUERY_SOURCE";
 };
 
 export function isObjectiveEvidenceDiagnosisRetryable(value: unknown): boolean {
@@ -38,6 +47,119 @@ function normalizePath(value: string): string {
     .trim();
   if (!normalized || normalized.split("/").some((part) => part === "..")) return "";
   return normalized;
+}
+
+function normalizeSafeProjectPath(value: string): string {
+  const slashPath = value.replaceAll("\\", "/").trim();
+  if (
+    !slashPath
+    || slashPath.includes("\0")
+    || slashPath.startsWith("/")
+    || /^[a-zA-Z]:/.test(slashPath)
+  ) {
+    return "";
+  }
+  const parts = slashPath.split("/");
+  if (parts.some((part) => part === "..")) return "";
+  const normalized = parts.filter((part) => part && part !== ".").join("/");
+  return normalized;
+}
+
+function claimEvidenceNeedlesForPath(
+  claim: ObjectiveContract["requiredClaims"][number],
+  path: string,
+): string[] {
+  const needles = claim.evidenceNeedlesByPath
+    ? Object.entries(claim.evidenceNeedlesByPath)
+        .find(([candidatePath]) => normalizeSafeProjectPath(candidatePath) === path)?.[1] ?? []
+    : claim.evidenceNeedles ?? [];
+  return [...new Set(needles
+    .map((needle) => needle.trim())
+    .filter(Boolean))];
+}
+
+/**
+ * Select one model-suggested source only when the server-owned objective
+ * already binds that exact expansion path to an existing claim and the
+ * current project manifest confirms the file exists. The model supplies
+ * navigation hints only; this helper never creates claim or scope authority.
+ */
+export function deriveProjectQueryDiscoveryTarget(input: {
+  objective: ObjectiveContract;
+  candidatePaths: readonly string[];
+  manifestPaths: Iterable<string>;
+  retainedFileContents: ReadonlyMap<string, string>;
+  readStatuses?: ReadonlyMap<string, ObjectiveReplanReadStatus>;
+}): ProjectQueryDiscoveryTarget | undefined {
+  if (
+    !input.objective.objectiveType.startsWith("PROJECT_QUERY_")
+    || !input.objective.scopePolicy
+  ) {
+    return undefined;
+  }
+
+  const manifestPaths = new Set(
+    [...input.manifestPaths]
+      .map(normalizeSafeProjectPath)
+      .filter(Boolean),
+  );
+  const retainedFileContents = new Map(
+    [...input.retainedFileContents.entries()]
+      .map(([path, content]) => [normalizeSafeProjectPath(path), content] as const)
+      .filter(([path]) => Boolean(path)),
+  );
+  const readStatuses = new Map(
+    [...(input.readStatuses ?? new Map())]
+      .map(([path, status]) => [normalizeSafeProjectPath(path), status] as const)
+      .filter(([path]) => Boolean(path)),
+  );
+  const candidatePaths = [...new Set(
+    input.candidatePaths.map(normalizeSafeProjectPath).filter(Boolean),
+  )];
+  const requiredPaths = new Set(
+    [
+      ...(input.objective.requiredEvidencePaths ?? []),
+      ...input.objective.requiredClaims.flatMap((claim) => claim.requiredEvidencePaths ?? []),
+    ]
+      .map(normalizeSafeProjectPath)
+      .filter(Boolean),
+  );
+
+  for (const claim of input.objective.requiredClaims) {
+    const claimEvidencePaths = (claim.requiredEvidencePaths ?? []).length > 0
+      ? (claim.requiredEvidencePaths ?? [])
+      : [...retainedFileContents.keys()];
+    const alreadySupported = claimEvidencePaths.some((rawPath) => {
+      const path = normalizeSafeProjectPath(rawPath);
+      const body = retainedFileContents.get(path);
+      if (!body) return false;
+      return claimEvidenceNeedlesForPath(claim, path)
+        .some((needle) => body.includes(needle));
+    });
+    if (alreadySupported) continue;
+
+    for (const candidatePath of candidatePaths) {
+      if (
+        !manifestPaths.has(candidatePath)
+        || retainedFileContents.has(candidatePath)
+        || readStatuses.has(candidatePath)
+        || requiredPaths.has(candidatePath)
+        || classifyObjectiveScopePath(candidatePath, input.objective.scopePolicy)?.kind
+          !== "JUSTIFIED_SCOPE_EXPANSION"
+      ) {
+        continue;
+      }
+      const evidenceNeedles = claimEvidenceNeedlesForPath(claim, candidatePath);
+      if (evidenceNeedles.length === 0) continue;
+      return {
+        path: candidatePath,
+        claimId: claim.claimId,
+        evidenceNeedles,
+        reason: "DISCOVERED_PROJECT_QUERY_SOURCE",
+      };
+    }
+  }
+  return undefined;
 }
 
 function isCompletePath(

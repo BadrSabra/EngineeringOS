@@ -728,6 +728,10 @@ const GENERIC_PROJECT_TARGET: Omit<ProjectQueryTarget, "confidence"> = {
       evidenceNeedlesByPath: {
         "lib/ai-orchestrator/src/turn-intent.ts": ["project-read-only", "requiresTools"],
         "lib/ai-orchestrator/src/evidence-integrity.ts": ["requiredEvidencePaths"],
+        "lib/ai-orchestrator/src/tool-execution-engine.ts": [
+          "read_file",
+          "objectiveScopePolicy",
+        ],
       },
     },
   ],

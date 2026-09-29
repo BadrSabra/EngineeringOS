@@ -178,6 +178,7 @@ import {
   type AgentLoopToolCall,
   type MutationToolInvocationCallback,
   type ReadOnlyToolInvocationCallback,
+  type ReadOnlyInvocationReceipt,
   type ReadStatus,
   mergeReadStatus,
   EMPTY_SOURCE_RETRIEVAL_TELEMETRY,
@@ -185,8 +186,10 @@ import {
   type ToolLoopResult,
 } from "../tool-execution-engine.js";
 import {
+  deriveProjectQueryDiscoveryTarget,
   deriveObjectiveReplanTargets,
   isObjectiveEvidenceDiagnosisRetryable,
+  type ProjectQueryDiscoveryTarget,
 } from "../objective-replanning.js";
 import {
   diagnoseFailure,
@@ -234,6 +237,7 @@ import {
   closeObjectiveClaimsFromEdges,
   closeObjectiveClaimsFromEvidence,
   materializeObjectiveClaimEvidence,
+  type ClaimEvidenceAttachment,
   type MaterializedObjectiveClaimEvidence,
   type RequiredClaim,
   type RequiredClaimClosure,
@@ -6756,6 +6760,8 @@ export async function chat(opts: {
     (fixtureAuditMode && singleFileForensicMode);
   const includeTestSources =
     includeTestSourcesOverride ?? classifiedIncludeTestSources;
+  const isProjectQueryObjective =
+    objective?.objectiveType.startsWith("PROJECT_QUERY_") === true;
   // AI-OBJ-002: decompose a declared objective into its Required Claims BEFORE
   // the first source read, so the run knows the full claim/edge set it must
   // close — not only what evaluation happens to derive from a question later.
@@ -8112,6 +8118,7 @@ export async function chat(opts: {
   // speculative and memory-seeded prefetch paths for this request.
   if (
     graphGuidance &&
+    !isProjectQueryObjective &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     rootPath &&
@@ -8163,6 +8170,7 @@ export async function chat(opts: {
   // Skipped for lite turns (allowPrefetch=false) and when the profile is lite.
   if (
     turnIntent.requiresTools &&
+    !isProjectQueryObjective &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     rootPath &&
@@ -8215,6 +8223,7 @@ export async function chat(opts: {
   // File paths are embedded in projectContext.sessionMemories as bullet lines
   // of the form "  • <path>" by session-memory.ts#formatMemoriesForPrompt.
   if (
+    !isProjectQueryObjective &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     rootPath &&
@@ -8283,6 +8292,10 @@ export async function chat(opts: {
   let queryPlan: QueryPlan | null = null;
   const orientationFilesystemManifest =
     projectOrientationMode && rootPath
+      ? await buildProjectFileManifest(rootPath)
+      : undefined;
+  const projectQueryFilesystemManifest =
+    isProjectQueryObjective && rootPath
       ? await buildProjectFileManifest(rootPath)
       : undefined;
   if (projectOrientationMode && orientationSourcesOverride) {
@@ -8403,7 +8416,7 @@ export async function chat(opts: {
     // Pre-seed the cache with files identified by the planner.
     // These are read in parallel before the tool loop starts, so the model
     // gets their content on the very first iteration — no tool call needed.
-    if (!graphGuidance && queryPlan?.targetFiles.length) {
+    if (!isProjectQueryObjective && !graphGuidance && queryPlan?.targetFiles.length) {
       const planPrefetch = await prefetchFileList({
         files: queryPlan.targetFiles,
         rootPath,
@@ -9499,10 +9512,12 @@ export async function chat(opts: {
     startLine: number;
     endLine: number;
   }> = [];
+  const claimEvidenceAttachments: ClaimEvidenceAttachment[] = [];
   let accumulatedSourceRetrieval = loopResult.sourceRetrieval;
   const attemptedObjectiveReplanPaths = new Set<string>();
   const objectiveReplanMaxAttempts = 2;
   let objectiveReplanAttempts = 0;
+  let projectQueryDiscoveryAttempted = false;
   const objectiveReplanTools = (toolManifest ?? tools ?? []).filter((tool) =>
     tool.function.name === "read_file" || tool.function.name === "read_file_range",
   );
@@ -9523,22 +9538,52 @@ export async function chat(opts: {
         maxTargets: objectiveReplanMaxAttempts,
       };
       const initialTargets = deriveObjectiveReplanTargets(replanInput);
-      const nextUntargeted = initialTargets.find(
+      let target = initialTargets.find(
         (candidate) => !attemptedObjectiveReplanPaths.has(candidate.path),
       );
-      if (!nextUntargeted) break;
+      let discoveryTarget: ProjectQueryDiscoveryTarget | undefined;
+      if (
+        !target
+        && initialTargets.length === 0
+        && !projectQueryDiscoveryAttempted
+        && isProjectQueryObjective
+        && objective
+        && queryPlan
+        && projectQueryFilesystemManifest?.status === "VERIFIED"
+        && opts.onReadOnlyInvocation
+        && objectiveReplanTools.some((tool) => tool.function.name === "read_file")
+        && (!opts.allowedToolNames || opts.allowedToolNames.includes("read_file"))
+      ) {
+        discoveryTarget = deriveProjectQueryDiscoveryTarget({
+          objective,
+          candidatePaths: queryPlan.targetFiles,
+          manifestPaths: projectQueryFilesystemManifest.files,
+          retainedFileContents: forensicFileContents,
+          readStatuses: prefetchReadStatuses,
+        });
+        projectQueryDiscoveryAttempted = true;
+        if (discoveryTarget) {
+          target = {
+            path: discoveryTarget.path,
+            claimIds: [discoveryTarget.claimId],
+            edgeKeys: [],
+            reason: discoveryTarget.reason,
+          };
+        }
+      }
+      if (!target) break;
 
       const failureDiagnosis = toFailureDiagnosisSummary(diagnoseFailure({
         acceptanceProjection: {
           outcome: "INCOMPLETE",
-          reasonCode: prefetchReadStatuses.get(nextUntargeted.path) === "READ_TRUNCATED"
+          reasonCode: prefetchReadStatuses.get(target.path) === "READ_TRUNCATED"
             ? "EVIDENCE_INCOMPLETE"
             : "MISSING_REQUIRED_READ",
         },
       }));
       if (!isObjectiveEvidenceDiagnosisRetryable(failureDiagnosis)) break;
-      const target = nextUntargeted;
-      attemptedObjectiveReplanPaths.add(target.path);
+      const isDiscoveryTarget = Boolean(discoveryTarget);
+      if (!isDiscoveryTarget) attemptedObjectiveReplanPaths.add(target.path);
 
       if (executionLedger.isExhausted() || signal?.aborted) break;
       if (
@@ -9552,6 +9597,8 @@ export async function chat(opts: {
       objectiveReplanAttempts += 1;
       const replanStartedAt = Date.now();
       let replanStatus: "completed" | "failed" = "failed";
+      let discoveryReadReceipt: ReadOnlyInvocationReceipt | undefined;
+      let discoveryReadStatus: ReadStatus | undefined;
       relayAgentStep({
         kind: "diagnostic",
         code: "OBJECTIVE_REPLAN",
@@ -9574,14 +9621,46 @@ export async function chat(opts: {
           {
             role: "user",
             content: [
-              "Run one bounded objective-evidence replan.",
+              isDiscoveryTarget
+                ? "Run one bounded existing-claim evidence expansion read."
+                : "Run one bounded objective-evidence replan.",
               "Do not change the declared objective, claims, edges, or evidence scope.",
               `Read only the server-declared target path: ${target.path}`,
-              "Use read_file or read_file_range to acquire source evidence.",
+              isDiscoveryTarget
+                ? "Use read_file once to inspect the candidate source. Do not treat its presence as proof or make a final answer."
+                : "Use read_file or read_file_range to acquire source evidence.",
               "Do not execute tools, edit files, broaden the scope, or provide a final answer.",
             ].join("\n"),
           },
         ];
+        const replanReadCallback: ReadOnlyToolInvocationCallback | undefined =
+          isDiscoveryTarget && opts.onReadOnlyInvocation
+            ? async (invocation) => {
+                const receipt = await opts.onReadOnlyInvocation!({
+                  ...invocation,
+                  ...(invocation.toolName === "read_file" && discoveryTarget
+                    ? {
+                        claimEvidenceBinding: {
+                          claimId: discoveryTarget.claimId,
+                          sourcePath: discoveryTarget.path,
+                          objectiveType: objective!.objectiveType,
+                          ...(projectContext.workspaceRevision
+                            ? { projectRevision: projectContext.workspaceRevision }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                });
+                if (invocation.phase === "recorded") {
+                  discoveryReadReceipt = receipt ?? undefined;
+                  discoveryReadStatus = invocation.readStatus;
+                }
+                return receipt;
+              }
+            : opts.onReadOnlyInvocation;
+        const replanTools = isDiscoveryTarget
+          ? objectiveReplanTools.filter((tool) => tool.function.name === "read_file")
+          : objectiveReplanTools;
         const replanResult = await executeToolLoop({
           messages: replanMessages,
           strategy,
@@ -9590,8 +9669,8 @@ export async function chat(opts: {
           provider: providerId,
           apiKey,
           capability: modelDecision.capability,
-          tools: objectiveReplanTools,
-          toolManifest: toolManifest ?? objectiveReplanTools,
+          tools: replanTools,
+          toolManifest: toolManifest ?? replanTools,
           rootPath,
           pendingChanges,
           initialFileContents: new Map(forensicFileContents),
@@ -9600,14 +9679,16 @@ export async function chat(opts: {
           retainedFileContents: retainedEvidence,
           objectiveEvidenceSources: objectiveLocatorSources,
           objective: loopObjective,
-          allowedToolNames: opts.allowedToolNames
+          allowedToolNames: isDiscoveryTarget
+            ? ["read_file"]
+            : opts.allowedToolNames
             ? opts.allowedToolNames.filter((name) =>
                 name === "read_file" || name === "read_file_range",
               )
             : ["read_file", "read_file_range"],
           allowedReadPaths: [target.path],
           missionReadPathScope: opts.missionReadPathScope,
-          onReadOnlyInvocation: opts.onReadOnlyInvocation,
+          onReadOnlyInvocation: replanReadCallback,
           firstEvidenceTargetPath: target.path,
           objectiveScopePolicy: objective.scopePolicy,
           orderedForensicRoots:
@@ -9616,8 +9697,8 @@ export async function chat(opts: {
           allowExecutionTools: false,
           requireDependencyProof: true,
           toolChoice: "required",
-          maxIterations: 2,
-          maxToolCalls: 4,
+          maxIterations: isDiscoveryTarget ? 1 : 2,
+          maxToolCalls: isDiscoveryTarget ? 1 : 4,
           completeReads: true,
           executionMode: "forensic",
           executionLedger,
@@ -9628,6 +9709,36 @@ export async function chat(opts: {
 
         for (const [filePath, content] of replanResult.fileContents ?? []) {
           forensicFileContents.set(filePath, stripReadFileWrapper(content));
+        }
+        if (
+          isDiscoveryTarget
+          && discoveryTarget
+          && discoveryReadStatus === "READ_COMPLETE"
+          && discoveryReadReceipt?.observationId
+        ) {
+          const candidateBody = stripReadFileWrapper(
+            replanResult.fileContents?.get(discoveryTarget.path) ?? "",
+          );
+          const relation = discoveryTarget.evidenceNeedles.some((needle) =>
+            candidateBody.includes(needle),
+          )
+            ? "supports"
+            : "context";
+          claimEvidenceAttachments.push({
+            claimId: discoveryTarget.claimId,
+            sourcePath: discoveryTarget.path,
+            observationId: discoveryReadReceipt.observationId,
+            relation,
+          });
+          relayAgentStep({
+            kind: "diagnostic",
+            code: "OBJECTIVE_REPLAN",
+            details: [
+              "status=discovery_attachment",
+              `claim=${discoveryTarget.claimId}`,
+              `relation=${relation}`,
+            ],
+          });
         }
         for (const window of replanResult.evidenceWindows ?? []) {
           if (!forensicFileContents.has(window.file)) {
@@ -9705,6 +9816,7 @@ export async function chat(opts: {
             ...(loopResult.evidenceWindows ?? []),
             ...objectiveReplanEvidenceWindows,
           ],
+          claimEvidenceAttachments,
         })
       : [];
   const projectQueryEvidencePacket =
@@ -14989,6 +15101,7 @@ export async function chat(opts: {
         assertedClaimIds: projectQueryAssertedClaimIds,
         evidence: evidenceForRun,
         fileContents: forensicFileContents,
+        claimEvidenceAttachments,
         requireAcceptedEvidence: objective.objectiveType.startsWith("PROJECT_QUERY_"),
       })
     : [];
