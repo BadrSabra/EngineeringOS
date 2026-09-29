@@ -36,6 +36,7 @@ import {
   appendEpisodeEvent,
   startEpisode,
 } from "./agent-state/agent-episode-ledger.js";
+import { childProcessBindingDigest } from "./agent-state/child-process-attestation.js";
 import { materializeServerOwnedObservations } from "./agent-state/observation-materializer.js";
 import { buildRuntimeStartHypothesisExperimentRegistration } from "./agent-state/runtime-start-hypothesis-experiment.js";
 import { runRuntimeStartHypothesisMeasurementContinuation } from "./agent-state/runtime-start-hypothesis-measurement-continuation-runner.js";
@@ -66,6 +67,13 @@ import { runRegisteredStrategyReplayCase } from "./agent-state/strategy-replay-c
 
 const validationCalls: string[] = [];
 const validationEvidenceContexts: unknown[] = [];
+let validationAttestationMode:
+  | "known"
+  | "missing"
+  | "unknown"
+  | "mismatch"
+  | "stale"
+  | "old_timestamp" = "known";
 const execFileAsync = promisify(execFile);
 
 vi.mock("./ai-repair-validation.js", async () => {
@@ -84,15 +92,64 @@ vi.mock("./ai-repair-validation.js", async () => {
     ) => {
       validationCalls.push(profile);
       validationEvidenceContexts.push(evidenceContext);
+      const evidenceId = `mock-evidence-${validationCalls.length}`;
+      const context = evidenceContext as {
+        operationId?: string;
+        projectRevision?: string;
+        candidateHash?: string;
+        childProcessIdentity?: {
+          projectId: string;
+          executionId: string;
+          executionAttempt: number;
+          episodeId: string;
+          operationId: string;
+          revision: string;
+        };
+      } | undefined;
+      const identity = context?.childProcessIdentity;
+      const binding = identity && validationAttestationMode !== "missing"
+        ? {
+            ...identity,
+            ...(validationAttestationMode === "stale" ? { revision: "stale-revision" } : {}),
+            sessionId: evidenceId,
+            processRole: "validator" as const,
+            validatorProfile: profile,
+          }
+        : undefined;
+      const attestationStatus = validationAttestationMode === "unknown"
+        ? "unknown" as const
+        : validationAttestationMode === "mismatch"
+          ? "mismatch" as const
+          : "known" as const;
       return {
         status: "passed",
         profile,
         detail: `mock validation for ${profile}`,
         evidence: {
-          evidenceId: `mock-evidence-${validationCalls.length}`,
+          evidenceId,
           observedAt: new Date().toISOString(),
           artifactRef: `mock-validation:${profile}`,
-          environmentRevision: "env-v1:recipe-test",
+          environmentRevision: null,
+          validatorProfile: profile,
+          ...(typeof context?.operationId === "string" ? { operationId: context.operationId } : {}),
+          ...(typeof context?.projectRevision === "string" ? { projectRevision: context.projectRevision } : {}),
+          ...(typeof context?.candidateHash === "string" ? { candidateHash: context.candidateHash } : {}),
+          ...(binding ? {
+            childProcessAttestation: {
+              status: attestationStatus,
+              reasonCode: attestationStatus === "known"
+                ? "child_process_observed"
+                : attestationStatus === "mismatch"
+                  ? "child_environment_mismatch"
+                  : "procfs_unavailable",
+              bindingDigest: childProcessBindingDigest(binding),
+              attestationDigest: attestationStatus === "unknown" ? null : "a".repeat(64),
+              processEnvironmentDigest: attestationStatus === "unknown" ? null : "b".repeat(64),
+              observedAt: validationAttestationMode === "old_timestamp"
+                ? "2000-01-01T00:00:00.000Z"
+                : new Date().toISOString(),
+            },
+          } : {}),
         },
       };
     }),
@@ -1346,7 +1403,18 @@ describe("recipe operation preparation", () => {
       const [bundle] = await db.select().from(aiAgentEffectBundlesTable)
         .where(eq(aiAgentEffectBundlesTable.executionId, fixture.executionId))
         .limit(1);
-      expect(bundle).toMatchObject({ verdict: "OBSERVED" });
+      const [execution] = await db.select().from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, fixture.executionId))
+        .limit(1);
+      const [episode] = await db.select().from(aiAgentEpisodesTable)
+        .where(eq(aiAgentEpisodesTable.executionId, fixture.executionId))
+        .limit(1);
+      expect(bundle).toMatchObject({
+        verdict: "OBSERVED",
+        executionId: fixture.executionId,
+        attempt: execution?.attempt,
+        episodeId: episode?.id,
+      });
       const effects = bundle
         ? await db.select().from(aiAgentEffectsTable)
           .where(eq(aiAgentEffectsTable.executionId, fixture.executionId))
@@ -1359,13 +1427,46 @@ describe("recipe operation preparation", () => {
       const directObservations = await db.select()
         .from(aiAgentObservationsTable)
         .where(eq(aiAgentObservationsTable.executionId, fixture.executionId));
-      expect(directObservations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(4);
-      const episodeEvents = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
+      expect(directObservations.filter((row) => row.provenance === "DIRECT_OBSERVATION")).toHaveLength(5);
+      const validatorObservation = directObservations.find(
+        (row) => row.sourceType === "validator_process_attestation",
+      );
+      expect(validatorObservation).toMatchObject({
+        executionId: fixture.executionId,
+        episodeId: episode?.id,
+        projectRevision: fixture.params.sourceRevision,
+        provenance: "DIRECT_OBSERVATION",
+        predicate: "validator.child_process_environment",
+        completeness: "complete",
+        freshness: "fresh",
+        value: {
+          status: "known",
+          operationId: fixture.params.operationId,
+          validationEvidenceId: "mock-evidence-1",
+          validatorProfile: "ai-orchestrator-tests",
+        },
+      });
+      expect(effects[0]?.afterObservationIds).toContain(validatorObservation?.id);
+      expect(episode?.attempt).toBe(execution?.attempt);
+      expect(episode?.projectRevision).toBe(fixture.params.sourceRevision);
+      const episodeEvents = await db.select({
+        eventType: aiAgentEpisodeEventsTable.eventType,
+        payload: aiAgentEpisodeEventsTable.payload,
+      })
         .from(aiAgentEpisodeEventsTable)
         .where(eq(aiAgentEpisodeEventsTable.executionId, fixture.executionId));
       expect(episodeEvents.map((event) => event.eventType)).toEqual(
         expect.arrayContaining(["ACTION_REQUESTED", "ACTION_COMMITTED", "EFFECT_CLASSIFIED"]),
       );
+      const requestedActionId = (episodeEvents.find((event) => event.eventType === "ACTION_REQUESTED")
+        ?.payload as { actionId?: unknown } | undefined)?.actionId;
+      expect(typeof requestedActionId).toBe("string");
+      expect(effects[0]).toMatchObject({
+        actionId: requestedActionId,
+        executionId: fixture.executionId,
+        attempt: execution?.attempt,
+        episodeId: episode?.id,
+      });
       const [acceptance] = await db.select({ effectBundleId: aiExecutionAcceptancesTable.effectBundleId })
         .from(aiExecutionAcceptancesTable)
         .where(and(
@@ -1378,6 +1479,37 @@ describe("recipe operation preparation", () => {
       await fixture.cleanup();
     }
   });
+
+  it.each(["missing", "unknown", "mismatch", "stale", "old_timestamp"] as const)(
+    "blocks candidate validation when validator process evidence is %s",
+    async (attestationMode) => {
+      validationCalls.length = 0;
+      validationEvidenceContexts.length = 0;
+      validationAttestationMode = attestationMode;
+      const fixture = await createReclaimedRecipeFixture();
+      try {
+        const result = await runRecipeOperation(fixture.params);
+        expect(result.status).toBe("blocked");
+        expect(await db.select().from(aiAgentEffectBundlesTable)
+          .where(eq(aiAgentEffectBundlesTable.executionId, fixture.executionId)))
+          .toHaveLength(0);
+        expect(await db.select().from(aiAgentEffectsTable)
+          .where(eq(aiAgentEffectsTable.executionId, fixture.executionId)))
+          .toHaveLength(0);
+        expect(await db.select().from(aiExecutionAcceptancesTable).where(and(
+          eq(aiExecutionAcceptancesTable.executionId, fixture.executionId),
+          eq(aiExecutionAcceptancesTable.outcome, "SUCCEEDED"),
+        ))).toHaveLength(0);
+        const episodeEvents = await db.select({ eventType: aiAgentEpisodeEventsTable.eventType })
+          .from(aiAgentEpisodeEventsTable)
+          .where(eq(aiAgentEpisodeEventsTable.executionId, fixture.executionId));
+        expect(episodeEvents.map((event) => event.eventType)).toContain("ACTION_COMMITTED");
+      } finally {
+        validationAttestationMode = "known";
+        await fixture.cleanup();
+      }
+    },
+  );
 
   it("classifies a verified runtime after-state before successful acceptance", async () => {
     const projectId = crypto.randomUUID();

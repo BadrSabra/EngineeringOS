@@ -6297,12 +6297,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const secondPage = await secondContext.newPage();
     try {
       await Promise.all([installApiFixtures(page), installApiFixtures(secondPage)]);
-      await Promise.all([
-        programmaticSignIn(page, TEST_USER, { handoffTimeoutMs: 60_000 }),
-        programmaticSignIn(secondPage, TEST_USER, {
-          handoffTimeoutMs: 60_000,
-        }),
-      ]);
+      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
       await Promise.all([
         page.goto(DASHBOARD_PATH),
         secondPage.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" }),
@@ -7803,7 +7798,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps incomplete targeted project analysis non-resumable across history, reload, and retry", async ({
     page,
   }) => {
-    test.setTimeout(180_000);
     const fixture = installIncompleteProjectQueryFixture();
     const audit = {
       ...fixture.execution,
@@ -7831,10 +7825,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     await programmaticSignIn(page);
-    await page.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" });
+    await page.goto(`${DASHBOARD_PATH}ai`);
 
     const composer = page.locator("textarea").first();
-    await expect(composer).toBeVisible({ timeout: 120_000 });
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
@@ -9708,7 +9701,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps all provider cards and controls reachable at narrow phone widths", async ({
     page,
   }) => {
-    test.setTimeout(180_000);
     const fixture = await installArabicAiFixture(page);
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
@@ -9716,10 +9708,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     for (const width of [320, 390]) {
       const viewport = { width, height: 844 };
       await page.setViewportSize(viewport);
-      await page.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" });
+      await page.goto(`${DASHBOARD_PATH}ai`);
 
       const composer = page.locator("textarea").first();
-      await expect(composer).toBeVisible({ timeout: 120_000 });
+      await expect(composer).toBeVisible();
       await expectWithinViewport(composer, viewport, `composer at ${width}px`);
 
       await page.getByRole("button", { name: "Open sessions" }).click();

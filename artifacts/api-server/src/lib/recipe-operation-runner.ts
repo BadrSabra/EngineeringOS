@@ -1795,6 +1795,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let candidateValidationAction: AgentAction | undefined;
   let candidateValidationEffectContract: EffectContract | undefined;
   let candidateValidationBeforeObservationIds: string[] | undefined;
+  let candidateValidationRequestedAt: number | undefined;
   let gateCAction: AgentAction | undefined;
   let gateCEffectContract: EffectContract | undefined;
   let gateCBeforeObservationIds: string[] | undefined;
@@ -1823,6 +1824,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
       beforeEvidenceRef,
       afterEvidenceRef,
     });
+    candidateValidationRequestedAt = Date.now();
     await appendEpisodeEvent({
       episodeId: episode.episodeId,
       projectId: params.projectId,
@@ -3116,6 +3118,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
           ];
         })
       : [];
+    let candidateValidationProcessObservationIds: string[] = [];
     if (evidenceRefs.length !== result.nodes.length) {
       await closeReadOnlyInvocationEpisode("blocked", "RECIPE_EVIDENCE_INCOMPLETE");
       await failAiExecution({
@@ -3179,6 +3182,101 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         actorId: workerId,
         correlationId: claimed.id,
       });
+      let validatorObservationAccepted = false;
+      const validationEvidence = [...new Map(
+        completionEvidence
+          .filter((evidence) => typeof evidence.validatorProfile === "string")
+          .map((evidence) => [
+            `${evidence.evidenceId}:${evidence.validatorProfile}`,
+            evidence,
+          ]),
+      ).values()];
+      const processAttestations = validatorProcessObservations.filter(
+        (observation) => observation.kind === "validator_process_attestation",
+      );
+      const expectedAttestationsMatch = validationEvidence.length > 0
+        && processAttestations.length === validationEvidence.length
+        && validationEvidence.every((evidence) => processAttestations.some((observation) => (
+          observation.sessionId === evidence.evidenceId
+          && observation.validatorProfile === evidence.validatorProfile
+          && observation.status === "known"
+          && observation.projectId === params.projectId
+          && observation.executionId === claimed.id
+          && observation.attempt === claimed.attempt
+          && observation.episodeId === episode.episodeId
+          && observation.operationId === params.operationId
+          && observation.revision === params.sourceRevision
+          && Number.isFinite(Date.parse(observation.observedAt))
+          && Date.parse(observation.observedAt) >= (candidateValidationRequestedAt ?? Number.MAX_SAFE_INTEGER)
+          && Date.parse(observation.observedAt) <= Date.now()
+        )));
+      const contradictoryTreeAttestation = validatorProcessObservations.some(
+        (observation) => observation.kind === "validator_process_tree_attestation"
+          && observation.status === "mismatch",
+      );
+      if (validatorProcessObservations.length > 0) {
+        try {
+          const materializedValidatorObservations = await materializeServerOwnedObservations({
+            projectId: params.projectId,
+            executionId: claimed.id,
+            attempt: claimed.attempt,
+            episodeId: episode.episodeId,
+            workerLease: { workerId },
+            projectRevision: params.sourceRevision,
+            materializeWorldState: false,
+            sources: validatorProcessObservations,
+          });
+          candidateValidationProcessObservationIds = materializedValidatorObservations.observationIds;
+          validatorObservationAccepted = expectedAttestationsMatch
+            && !contradictoryTreeAttestation
+            && materializedValidatorObservations.observationIds.length
+              === validatorProcessObservations.length
+            && materializedValidatorObservations.stale === 0
+            && materializedValidatorObservations.environmentStale === 0;
+        } catch (error) {
+          logger.warn(
+            {
+              scope: "recipe-operation",
+              code: "candidate_validation_process_observation_unavailable",
+              executionId: claimed.id,
+              attempt: claimed.attempt,
+              episodeId: episode.episodeId,
+              error,
+            },
+            "Candidate validation process observation could not be materialized",
+          );
+        }
+      }
+      if (!validatorObservationAccepted) {
+        const blockedReceipt = buildRecipeReceipt(
+          params,
+          claimed.id,
+          claimed.attempt,
+          "blocked",
+          result.nodes,
+          outputs,
+          result.completedNodeIds,
+        );
+        await failAiExecution({
+          executionId: claimed.id,
+          workerId,
+          error: "Candidate validator process evidence is missing, stale, or contradictory.",
+          nodeStates: result.nodes.map((node) => ({
+            ...node,
+            evidenceRefs: node.status === "passed"
+              ? [receiptIdForEvidence({ status: node.status, outputs: outputs.get(node.id) })]
+                .filter((id): id is string => typeof id === "string")
+              : [],
+          })),
+          recipeBinding: runningRecipeBinding,
+        });
+        return {
+          executionId: claimed.id,
+          status: "blocked",
+          completedNodeIds: result.completedNodeIds,
+          receipt: blockedReceipt,
+        };
+      }
       const afterTreeHash = await hashDeliveryTree(executionRoot);
       const afterEvidenceRef = `candidate-validation:${claimed.id}:${claimed.attempt}:after`;
       const after = await materializeServerOwnedObservations({
@@ -3219,7 +3317,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
         action: candidateValidationAction,
         effectContract: candidateValidationEffectContract,
         beforeObservationIds: candidateValidationBeforeObservationIds,
-        afterObservationIds: after.observationIds,
+        afterObservationIds: [
+          ...after.observationIds,
+          ...candidateValidationProcessObservationIds,
+        ],
       });
       if (effect.status !== "observed") {
         throw new Error(`candidate_validation_effect_${effect.status}`);

@@ -33,15 +33,22 @@ from authorization and execution authority.
 
 Candidate validation is a read-only action but still uses the same effect spine: a server-owned
 validation result is observed as a state transition only when paired with fresh direct before/after
-observations; the read-only World State projection may be deferred until after effect acceptance.
+observations and a known validator child-process attestation bound to the same evidence, action
+scope, execution attempt, and project revision, with its observation time no earlier than the
+corresponding `ACTION_REQUESTED` event. The read-only World State projection may be deferred until
+after effect acceptance.
 
 **Why:** Validation does not mutate the candidate, but it makes a claim about candidate state that
-must not be accepted from a receipt or provider result alone. Keeping the projection out of the
-gate also avoids making a derived read model a second acceptance authority.
+must not be accepted from a receipt or provider result alone; an unknown, stale, or contradictory
+process observation cannot establish which environment produced that result. Keeping the projection
+out of the gate also avoids making a derived read model a second acceptance authority.
 
 **How to apply:** For `candidate.verify`, persist action request/commit events, materialize direct
-workspace/status observations, classify the effect before terminal acceptance, and pass the bound
-effect bundle through the existing completion finalizer.
+workspace/status and validator-process observations under the current worker lease, include the
+validator observation IDs in the existing effect bundle, classify the effect before terminal
+acceptance, and pass the bound effect bundle through the existing completion finalizer. Missing,
+pre-action, unknown, stale, or mismatched validator evidence must block successful acceptance; a
+contradictory process-tree observation must not be ignored.
 
 Gate C follows the same seam for Browser and Delivery recipe nodes: profile/session/source
 revision and remote commit/parent/tree/operation-marker metadata must come from server-owned
