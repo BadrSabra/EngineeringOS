@@ -46,10 +46,21 @@ function runnerDefaultTimeout(source) {
 }
 
 async function startApiCorsHarness() {
-  const port = 30_000 + Math.floor(Math.random() * 1_000);
+  const startupTimeoutMs = 30_000;
+  const healthTimeoutMs = 10_000;
+  const maxOutputChars = 8_000;
   const harnessSource = `
     import app from "./artifacts/api-server/src/app.ts";
-    const server = app.listen(Number(process.env.PORT), "127.0.0.1");
+    const server = app.listen(Number(process.env.PORT), "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        console.error("CORS harness could not resolve its listening port.");
+        process.exitCode = 1;
+        server.close();
+        return;
+      }
+      process.stdout.write("CORS_HARNESS_READY:" + address.port + "\\n");
+    });
     process.once("SIGTERM", () => server.close(() => process.exit(0)));
   `;
   const child = spawn(
@@ -60,24 +71,94 @@ async function startApiCorsHarness() {
       env: {
         ...process.env,
         NODE_ENV: "test",
-        PORT: String(port),
+        PORT: "0",
         APP_ORIGINS: "https://dashboard-approved.example.test",
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
   let output = "";
-  child.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    output += chunk;
+  const appendOutput = (chunk) => {
+    output += chunk.toString();
+    if (output.length > maxOutputChars) {
+      output = output.slice(-maxOutputChars);
+    }
+  };
+  const portReady = new Promise((resolvePort, rejectPort) => {
+    let settled = false;
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startupTimer);
+      callback(value);
+    };
+    const startupTimer = setTimeout(
+      () =>
+        settle(
+          rejectPort,
+          new Error(`CORS harness did not listen within ${startupTimeoutMs}ms.`),
+        ),
+      startupTimeoutMs,
+    );
+    child.stdout.on("data", (chunk) => {
+      appendOutput(chunk);
+      const ready = output.match(
+        /(?:^|\r?\n)CORS_HARNESS_READY:(\d+)(?:\r?\n|$)/,
+      );
+      if (ready) settle(resolvePort, Number(ready[1]));
+    });
+    child.stderr.on("data", appendOutput);
+    child.once("error", (error) =>
+      settle(
+        rejectPort,
+        new Error(`CORS harness process failed to spawn: ${error.message}`),
+      ),
+    );
+    child.once("close", (code, signal) =>
+      settle(
+        rejectPort,
+        new Error(
+          `CORS harness exited before listening (${signal ?? code ?? "unknown"}).`,
+        ),
+      ),
+    );
   });
 
+  const stopChild = async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const closed = new Promise((resolveClose) => {
+      child.once("close", (code, signal) => resolveClose({ code, signal }));
+    });
+    const forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+    child.kill("SIGTERM");
+    const result = await closed;
+    clearTimeout(forceKillTimer);
+    if (result.signal !== "SIGTERM" && result.code !== 0) {
+      throw new Error(
+        `CORS harness did not stop cleanly (${result.signal ?? result.code ?? "unknown"}).`,
+      );
+    }
+  };
+
+  let port;
+  try {
+    port = await portReady;
+  } catch (error) {
+    try {
+      await stopChild();
+    } catch (stopError) {
+      appendOutput(`\nHarness cleanup failed: ${stopError.message}\n`);
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}\n${output || "<no child output>"}`, {
+      cause: error,
+    });
+  }
+
   const baseUrl = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + 10_000;
+  const healthDeadline = Date.now() + healthTimeoutMs;
   let lastError = "not attempted";
-  while (Date.now() < deadline) {
+  while (Date.now() < healthDeadline) {
     try {
       const response = await fetch(`${baseUrl}/api/healthz`);
       if (response.status === 200) {
@@ -85,20 +166,7 @@ async function startApiCorsHarness() {
           child,
           baseUrl,
           async close() {
-            child.kill("SIGTERM");
-            await new Promise((resolveChild, reject) => {
-              child.once("exit", (code, signal) => {
-                if (signal === "SIGTERM" || code === 0) {
-                  resolveChild();
-                } else {
-                  reject(
-                    new Error(
-                      `CORS harness exited with ${signal ?? code}.\n${output}`,
-                    ),
-                  );
-                }
-              });
-            });
+            await stopChild();
           },
         };
       }
@@ -109,8 +177,14 @@ async function startApiCorsHarness() {
     await new Promise((resolveRetry) => setTimeout(resolveRetry, 50));
   }
 
-  child.kill("SIGKILL");
-  throw new Error(`CORS harness did not start: ${lastError}.\n${output}`);
+  try {
+    await stopChild();
+  } catch (stopError) {
+    appendOutput(`\nHarness cleanup failed: ${stopError.message}\n`);
+  }
+  throw new Error(
+    `CORS harness health check failed at ${baseUrl}: ${lastError}.\n${output || "<no child output>"}`,
+  );
 }
 
 test("release API listener enforces approved and hostile-origin CORS", async () => {
