@@ -134,6 +134,19 @@ import type {
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import type { QualityFailure } from "@workspace/ai-orchestrator";
 import type { TurnIntentKind } from "@workspace/ai-orchestrator";
+import {
+  classifyProjectQueryInvestigationQuestion,
+  hashProjectQueryFactManifest,
+  hashProjectQueryFactQuestion,
+  normalizeProjectQueryFactPath,
+  PROJECT_QUERY_FACT_MAX_FILES,
+  PROJECT_QUERY_FACT_MAX_ITERATIONS,
+  PROJECT_QUERY_FACT_MAX_TOOL_CALLS,
+  ProjectQueryInvestigationContractSchema,
+  ProjectQueryInvestigationResultSchema,
+  type ProjectQueryInvestigationContract,
+  type ProjectQueryInvestigationResult,
+} from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
 import { loadEpisodeEvidenceBraid } from "../../lib/agent-state/episode-evidence-braid";
 import { startInternalRestartServicesWorkflow } from "../../lib/server-action-workflows.js";
@@ -191,6 +204,7 @@ import {
   getAiExecutionForUser,
   hasAiExecutionResumeContract,
   heartbeatAiExecution,
+  persistAiExecutionFactInvestigationManifest,
   persistAiExecutionOrientationManifest,
   ownsAiExecutionLease,
   recoverAiExecutionRetryToken,
@@ -4841,6 +4855,179 @@ function collectRetainedEvidenceReads(
   }));
 }
 
+function createProjectQueryFactInvestigationContract(args: {
+  ownerId: string;
+  projectId: string;
+  sessionId: string;
+  operationId: string;
+  workspaceRevision: string;
+  workspaceRoot: string | null;
+  question: string;
+}): ProjectQueryInvestigationContract {
+  return ProjectQueryInvestigationContractSchema.parse({
+    schemaVersion: "v1",
+    kind: "FACT",
+    investigationId: randomUUID(),
+    ownerId: args.ownerId,
+    projectId: args.projectId,
+    sessionId: args.sessionId,
+    operationId: args.operationId,
+    workspaceRevision: args.workspaceRevision,
+    workspaceRoot: args.workspaceRoot,
+    question: args.question.slice(0, 1200),
+    questionHash: hashProjectQueryFactQuestion(args.question),
+    requiredObligationIds: ["original-question"],
+    maxFiles: PROJECT_QUERY_FACT_MAX_FILES,
+    maxIterations: PROJECT_QUERY_FACT_MAX_ITERATIONS,
+    maxToolCalls: PROJECT_QUERY_FACT_MAX_TOOL_CALLS,
+    allowedPaths: [],
+    manifestId: null,
+  });
+}
+
+function buildProjectQueryFactInvestigationResult(args: {
+  contract: ProjectQueryInvestigationContract;
+  ownerId: string;
+  projectId: string;
+  sessionId: string;
+  operationId: string;
+  workspaceRevision: string;
+  workspaceRoot: string | null;
+  response: string;
+  retainedEvidence: ReadonlyMap<string, string>;
+  retainedReadStatuses?: ReadonlyMap<string, ReadStatus>;
+  traceSteps: readonly AgentStep[];
+  executionId?: string | null;
+  attempt?: number | null;
+}): ProjectQueryInvestigationResult {
+  const contract = ProjectQueryInvestigationContractSchema.parse(args.contract);
+  const manifestIdentityMatches = contract.allowedPaths.length > 0
+    && contract.manifestId === hashProjectQueryFactManifest({
+      projectId: contract.projectId,
+      workspaceRevision: contract.workspaceRevision,
+      workspaceRoot: contract.workspaceRoot,
+      allowedPaths: contract.allowedPaths,
+    });
+  const identityMatches =
+    contract.ownerId === args.ownerId
+    && contract.projectId === args.projectId
+    && contract.sessionId === args.sessionId
+    && contract.operationId === args.operationId
+    && contract.workspaceRevision === args.workspaceRevision
+    && contract.workspaceRoot === args.workspaceRoot
+    && manifestIdentityMatches;
+  const allowedPaths = new Set(
+    contract.allowedPaths
+      .map(normalizeProjectQueryFactPath)
+      .filter((path): path is string => Boolean(path)),
+  );
+  const reads = collectRetainedEvidenceReads(
+    args.retainedEvidence,
+    true,
+    args.retainedReadStatuses,
+    args.traceSteps,
+  ) ?? [];
+  const sources = identityMatches
+    ? [...new Map(reads
+      .filter((read) => {
+        const path = normalizeProjectQueryFactPath(read.path);
+        return Boolean(path && allowedPaths.has(path) && read.complete && !read.truncated);
+      })
+      .map((read) => {
+        const path = normalizeProjectQueryFactPath(read.path)!;
+        const contentSha256 = createHash("sha256").update(read.body).digest("hex");
+        const sourceIdentity = {
+          investigationId: contract.investigationId,
+          operationId: contract.operationId,
+          executionId: args.executionId ?? null,
+          attempt: args.attempt ?? null,
+          workspaceRevision: contract.workspaceRevision,
+          path,
+          contentSha256,
+          readStatus: "READ_COMPLETE",
+        };
+        return [path, {
+          observationId: createHash("sha256")
+            .update(JSON.stringify(sourceIdentity))
+            .digest("hex"),
+          path,
+          contentSha256,
+          byteLength: Buffer.byteLength(read.body, "utf8"),
+          ...(read.lineStart !== undefined ? { lineStart: read.lineStart } : {}),
+          ...(read.lineEnd !== undefined ? { lineEnd: read.lineEnd } : {}),
+          readStatus: "READ_COMPLETE" as const,
+          workspaceRevision: contract.workspaceRevision,
+          operationId: contract.operationId,
+          executionId: args.executionId ?? null,
+          attempt: args.attempt ?? null,
+        }] as const;
+      })
+      .slice(0, contract.maxFiles)).values()]
+    : [];
+  const proposedAnswer = sanitizeResponseText(args.response).slice(0, 12000).trim();
+  const answer = identityMatches && sources.length > 0 ? proposedAnswer : "";
+  const answerIsUncertain =
+    /\b(?:cannot determine|can't determine|unable to determine|not enough evidence|insufficient evidence|uncertain|unclear|unknown|could not find)\b/i
+      .test(answer)
+    || /(?:لا يمكن تحديد|لا توجد أدلة كافية|غير واضح|لا أستطيع تحديد)/i.test(answer);
+  const answerIsPartial =
+    /\b(?:partial answer|partially answered|incomplete answer|only partially)\b/i.test(answer)
+    || /(?:إجابة جزئية|جزئيًا|غير مكتمل)/i.test(answer);
+  let status: ProjectQueryInvestigationResult["status"];
+  let answerAssessment: ProjectQueryInvestigationResult["answerAssessment"];
+  let reasonCode: ProjectQueryInvestigationResult["reasonCode"];
+  if (!identityMatches) {
+    status = "ANSWER_BLOCKED";
+    answerAssessment = "NONE";
+    reasonCode = contract.allowedPaths.length === 0 ? "SCOPE_UNAVAILABLE" : "IDENTITY_MISMATCH";
+  } else if (sources.length === 0) {
+    status = "ANSWER_BLOCKED";
+    answerAssessment = "NONE";
+    reasonCode = "NO_ACCEPTED_OBSERVATION";
+  } else if (!answer) {
+    status = "ANSWER_EVIDENCE_ONLY";
+    answerAssessment = "SOURCE_OBSERVED_ONLY";
+    reasonCode = "EMPTY_ANSWER";
+  } else if (answerIsUncertain) {
+    status = "ANSWER_UNDETERMINED";
+    answerAssessment = "MODEL_UNDETERMINED";
+    reasonCode = "ANSWER_UNCERTAIN";
+  } else if (answerIsPartial) {
+    status = "ANSWER_PARTIAL";
+    answerAssessment = "MODEL_PROPOSED";
+    reasonCode = "ANSWER_PARTIAL";
+  } else {
+    status = "ANSWER_COMPLETE";
+    answerAssessment = "MODEL_PROPOSED";
+  }
+  const coverageStatus = status === "ANSWER_COMPLETE"
+    ? "ANSWERED"
+    : status === "ANSWER_PARTIAL"
+      ? "PARTIAL"
+      : "UNANSWERED";
+  return ProjectQueryInvestigationResultSchema.parse({
+    kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+    investigationId: contract.investigationId,
+    class: "FACT",
+    status,
+    answer,
+    answerAssessment,
+    requiredCoverage: {
+      obligationId: "original-question",
+      questionHash: contract.questionHash,
+      status: coverageStatus,
+    },
+    sources,
+    manifestId: contract.manifestId,
+    workspaceRevision: contract.workspaceRevision,
+    operationId: contract.operationId,
+    executionId: args.executionId ?? null,
+    attempt: args.attempt ?? null,
+    ...(reasonCode ? { reasonCode } : {}),
+    assurance: "INVESTIGATION_ONLY",
+  });
+}
+
 function nextSessionTaskState(args: {
   persisted: ReturnType<typeof parseActiveTaskState>;
   classification: ReturnType<typeof classifyRequest>;
@@ -5658,6 +5845,36 @@ router.post("/ai/chat", async (req, res) => {
     const retainedReadStatuses = new Map<string, ReadStatus>();
     let providerFailureAfterEvidence: GroqClientError | undefined;
     const sessionIdToUse = existingSession?.id ?? sessionId ?? randomUUID();
+    const factInvestigationEligible =
+      turnIntent.kind === "PROJECT_QUERY"
+      && turnIntent.requiresEvidence
+      && !effectiveObjective
+      && !projectOrientationTurn
+      && !capabilityProbeTurn
+      && !turnIntent.compoundExecution
+      && !turnIntent.compoundWrite
+      && !effectiveLinkedTaskId
+      && !isImmediateExecutionRequest(message)
+      && classifyProjectQueryInvestigationQuestion(message) === "FACT"
+      && Boolean(validRootPath)
+      && Boolean(analysisCorrelation.projectRevision);
+    const factInvestigationOperationId = factInvestigationEligible
+      ? analysisCorrelation.operationId ?? randomUUID()
+      : undefined;
+    if (factInvestigationOperationId && !analysisCorrelation.operationId) {
+      analysisCorrelation.operationId = factInvestigationOperationId;
+    }
+    let factInvestigationContract = factInvestigationOperationId
+      ? createProjectQueryFactInvestigationContract({
+          ownerId: req.userId,
+          projectId,
+          sessionId: sessionIdToUse,
+          operationId: factInvestigationOperationId,
+          workspaceRevision: analysisCorrelation.projectRevision!,
+          workspaceRoot: validRootPath ?? null,
+          question: message,
+        })
+      : undefined;
     const sourceEvidenceRequiredForTurn =
       turnIntent.requiresEvidence || projectOrientationTurn;
     const ensureChatObservationLifecycle = async (): Promise<void> => {
@@ -5671,12 +5888,17 @@ router.post("/ai/chat", async (req, res) => {
           projectId,
           turnIntent: turnIntent.kind,
           operationId: analysisCorrelation.operationId,
-          ...(existingSession ? { sessionId: sessionIdToUse } : {}),
+          ...(existingSession || factInvestigationContract
+            ? { sessionId: sessionIdToUse }
+            : {}),
           message,
           modelMessage: message,
           workspaceRevision: analysisCorrelation.projectRevision,
           workspaceRoot: validRootPath ?? null,
           ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
+          ...(factInvestigationContract
+            ? { factInvestigation: factInvestigationContract }
+            : {}),
           validationTargetPaths: [],
           // This route keeps its existing chat acceptance rules. The durable
           // row tracks worker/lease ownership only; it is not proof authority.
@@ -5893,6 +6115,48 @@ router.post("/ai/chat", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective: effectiveObjective,
           turnIntent,
+          ...(factInvestigationContract
+            ? {
+                projectQueryInvestigation: factInvestigationContract,
+                onProjectQueryFactManifest: async (manifest: {
+                  projectId: string;
+                  workspaceRevision: string;
+                  workspaceRoot: string | null;
+                  allowedPaths: string[];
+                  manifestId: string;
+                }) => {
+                  const currentFact = factInvestigationContract;
+                  if (
+                    !currentFact
+                    || manifest.projectId !== currentFact.projectId
+                    || manifest.workspaceRevision !== currentFact.workspaceRevision
+                    || manifest.workspaceRoot !== currentFact.workspaceRoot
+                  ) {
+                    throw new Error("FACT investigation manifest identity does not match its request");
+                  }
+                  const nextFact = ProjectQueryInvestigationContractSchema.parse({
+                    ...currentFact,
+                    allowedPaths: manifest.allowedPaths,
+                    manifestId: manifest.manifestId,
+                  });
+                  await ensureChatObservationLifecycle();
+                  await assertChatObservationOwned();
+                  if (!chatObservationExecution || !chatObservationWorkerId) {
+                    throw new Error("FACT manifest persistence requires the active chat observation lease");
+                  }
+                  const persisted = await persistAiExecutionFactInvestigationManifest({
+                    executionId: chatObservationExecution.id,
+                    expectedAttempt: chatObservationExecution.attempt,
+                    workerId: chatObservationWorkerId,
+                    manifest,
+                  });
+                  if (!persisted) {
+                    throw new Error("Chat observation FACT manifest was rejected by the lease/state gate");
+                  }
+                  factInvestigationContract = nextFact;
+                },
+              }
+            : {}),
            retainedEvidence,
            retainedReadStatuses,
           allowValidationTools: Boolean(validationRunner),
@@ -6132,6 +6396,36 @@ router.post("/ai/chat", async (req, res) => {
           behaviorEvidence: undefined,
         };
       }
+      if (factInvestigationContract) {
+        const factResult = buildProjectQueryFactInvestigationResult({
+          contract: factInvestigationContract,
+          ownerId: req.userId,
+          projectId,
+          sessionId: sessionIdToUse,
+          operationId: factInvestigationContract.operationId,
+          workspaceRevision:
+            analysisCorrelation.projectRevision ?? factInvestigationContract.workspaceRevision,
+          workspaceRoot: validRootPath ?? null,
+          response: result.response,
+          retainedEvidence,
+          retainedReadStatuses,
+          traceSteps,
+          executionId: chatObservationExecution?.id ?? null,
+          attempt: chatObservationExecution?.attempt ?? null,
+        });
+        result = {
+          ...result,
+          response: factResult.answer
+            || (factResult.status === "ANSWER_BLOCKED"
+              ? "I couldn't verify this fact from a complete source read in the current project scope."
+              : "I found complete source evidence but could not form a supported answer."),
+          sources: factResult.sources.map((source) => source.path),
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: factResult,
+          behaviorEvidence: undefined,
+        };
+      }
     } catch (err) {
       if (err instanceof GroqClientError) {
         const providerEvidenceSummary = summarizeEvidenceForFailure(
@@ -6255,12 +6549,17 @@ router.post("/ai/chat", async (req, res) => {
           }
         : {}),
     });
+    const factInvestigationAccepted =
+      result.taskResult?.kind === "PROJECT_QUERY_INVESTIGATION_RESULT"
+      && result.taskResult.status !== "ANSWER_BLOCKED"
+      && result.taskResult.sources.length > 0;
     const terminalOutcome =
       classifiedTerminalOutcome.outcome === "SUCCEEDED"
       && turnIntent.kind === "PROJECT_QUERY"
       && sourceEvidenceRequiredForTurn
       && !effectiveObjective
       && !projectOrientationTurn
+      && !factInvestigationAccepted
         ? {
             ...classifiedTerminalOutcome,
             outcome: "FAILED" as const,
@@ -7512,19 +7811,24 @@ export async function handleChatStream(req: Request, res: Response) {
   const traceSteps: AgentStep[] = [];
   let sourceEvidenceRequiredForTurn =
     streamTurnIntent.requiresEvidence || projectOrientationExecution;
-  const evidenceReadsForTerminal = () => collectRetainedEvidenceReads(
-    retainedEvidence,
-    sourceEvidenceRequiredForTurn,
-    retainedReadStatuses,
-    traceSteps,
-  );
-  const evidenceProgressForTerminal = () => deriveEvidenceProgressCheckpoint({
-    objective: streamObjective,
-    traceSteps,
-    retainedEvidence,
-    operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
-    sourceRevision: analysisCorrelation.projectRevision,
-  });
+  let factInvestigationExecution = false;
+  const evidenceReadsForTerminal = () => factInvestigationExecution
+    ? []
+    : collectRetainedEvidenceReads(
+        retainedEvidence,
+        sourceEvidenceRequiredForTurn,
+        retainedReadStatuses,
+        traceSteps,
+      );
+  const evidenceProgressForTerminal = () => factInvestigationExecution
+    ? undefined
+    : deriveEvidenceProgressCheckpoint({
+        objective: streamObjective,
+        traceSteps,
+        retainedEvidence,
+        operationId: aiExecution?.operationId ?? analysisCorrelation.operationId,
+        sourceRevision: analysisCorrelation.projectRevision,
+      });
   const evidenceFailureSummary = () => summarizeEvidenceForFailure(
     traceSteps,
     retainedEvidence,
@@ -8124,7 +8428,39 @@ export async function handleChatStream(req: Request, res: Response) {
     // effect-acceptance proof; an explicitly approved Build handoff still does.
     const proposalOnlyCompoundWrite =
       streamTurnIntent.compoundWrite && !approvedImplementationPlan;
-    const taskObjectiveProofRequired = !proposalOnlyCompoundWrite && Boolean(
+    const factInvestigationEligible =
+      !proposalOnlyCompoundWrite
+      && streamTurnIntent.kind === "PROJECT_QUERY"
+      && streamTurnIntent.requiresEvidence
+      && !streamObjective
+      && !projectOrientationTurn
+      && !capabilityProbeContract
+      && !effectiveBuildPlanMessageId
+      && !implementationPlanScope?.size
+      && !isImmediateExecutionRequest(message)
+      && classifyProjectQueryInvestigationQuestion(message) === "FACT"
+      && Boolean(validRootPath)
+      && Boolean(analysisCorrelation.projectRevision);
+    const factInvestigationOperationId = factInvestigationEligible
+      ? analysisCorrelation.operationId ?? randomUUID()
+      : undefined;
+    if (factInvestigationOperationId && !analysisCorrelation.operationId) {
+      analysisCorrelation.operationId = factInvestigationOperationId;
+    }
+    const factInvestigationContract = factInvestigationOperationId
+      ? createProjectQueryFactInvestigationContract({
+          ownerId: req.userId,
+          projectId,
+          sessionId: sessionIdToUse,
+          operationId: factInvestigationOperationId,
+          workspaceRevision: analysisCorrelation.projectRevision!,
+          workspaceRoot: validRootPath ?? null,
+          question: message,
+        })
+      : undefined;
+    factInvestigationExecution = Boolean(factInvestigationContract);
+    const taskObjectiveProofRequired = !factInvestigationContract
+      && !proposalOnlyCompoundWrite && Boolean(
       streamTurnIntent.requiresEvidence
       || streamTurnIntent.projectTarget
       || projectOrientationTurn
@@ -8140,7 +8476,7 @@ export async function handleChatStream(req: Request, res: Response) {
         )
       ),
     );
-    const taskObjective = buildTaskObjectiveContract({
+    const taskObjective = factInvestigationContract ? undefined : buildTaskObjectiveContract({
       message,
       projectId,
       workspaceRevision: analysisCorrelation.projectRevision,
@@ -8159,6 +8495,8 @@ export async function handleChatStream(req: Request, res: Response) {
       // createAiExecution; only an explicit execution can carry the old one.
       ...(effectiveExecutionId && streamResumableStateForTurn?.operationId
         ? { operationId: streamResumableStateForTurn.operationId }
+        : factInvestigationContract
+          ? { operationId: factInvestigationContract.operationId }
         : {}),
       sessionId: sessionIdToUse,
       message,
@@ -8169,6 +8507,9 @@ export async function handleChatStream(req: Request, res: Response) {
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(streamObjective ? { objective: streamObjective } : {}),
       ...(taskObjective ? { taskObjective } : {}),
+      ...(factInvestigationContract
+        ? { factInvestigation: factInvestigationContract }
+        : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
       ...(capabilityProbeContract ? { capabilityProbe: capabilityProbeContract } : {}),
       // Session task linkage is context, not an autonomous execution request.
@@ -8182,6 +8523,7 @@ export async function handleChatStream(req: Request, res: Response) {
         || capabilityProbeContract
         || streamTurnIntent.projectTarget
         || projectOrientationTurn
+        || factInvestigationContract
         ? {
             resumeContract: {
               taskType: streamClassification.taskType,
@@ -8224,6 +8566,30 @@ export async function handleChatStream(req: Request, res: Response) {
     if (aiExecution) {
       const storedRequest =
         storedExecutionRequest ?? parseExecutionRequest(aiExecution.request);
+      const storedFact = storedRequest?.factInvestigation;
+      const requestedFact = executionRequest.factInvestigation;
+      const factRequestBindingMatches = !storedFact && !requestedFact
+        ? true
+        : Boolean(
+            storedFact
+            && requestedFact
+            && storedFact.ownerId === req.userId
+            && storedFact.projectId === projectId
+            && storedFact.sessionId === sessionIdToUse
+            && storedFact.questionHash === requestedFact.questionHash
+            && storedFact.workspaceRevision === requestedFact.workspaceRevision
+            && storedFact.workspaceRoot === requestedFact.workspaceRoot,
+          );
+      if (storedFact && factRequestBindingMatches) {
+        executionRequest = {
+          ...executionRequest,
+          operationId: storedRequest!.operationId,
+          factInvestigation: storedFact,
+          taskObjective: undefined,
+          proofRequired: false,
+        };
+        factInvestigationExecution = true;
+      }
       const legacyBuildModelBinding = Boolean(
         storedRequest?.buildPlanMessageId
         && storedRequest.modelMessage === storedRequest.message
@@ -8274,7 +8640,7 @@ export async function handleChatStream(req: Request, res: Response) {
         !executionRequest.taskObjective
         || storedRequest?.taskObjective === undefined
         || JSON.stringify(storedRequest.taskObjective) === JSON.stringify(executionRequest.taskObjective);
-      if (!bindingMatches || !taskObjectiveBindingMatches) {
+      if (!bindingMatches || !taskObjectiveBindingMatches || !factRequestBindingMatches) {
         sse({
           type: "error",
           code: "EXECUTION_BINDING_MISMATCH",
@@ -8374,7 +8740,9 @@ export async function handleChatStream(req: Request, res: Response) {
       // Older executions predate the explicit proofRequired field. Recover
       // their proof contract only from stored execution metadata; never from
       // the retry message or from a session's ambient task linkage.
-      proofRequired = storedRequest?.proofRequired ?? Boolean(
+      proofRequired = storedFact
+        ? false
+        : storedRequest?.proofRequired ?? Boolean(
         storedRequest?.buildPlanMessageId
         || storedRequest?.objective
         || storedRequest.validationTargetPaths.length > 0
@@ -8389,6 +8757,7 @@ export async function handleChatStream(req: Request, res: Response) {
       sourceEvidenceRequiredForTurn =
         streamTurnIntent.requiresEvidence
         || projectOrientationExecution
+        || Boolean(executionRequest.factInvestigation)
         || (proofRequired && executionRequest.turnIntent === "PROJECT_QUERY");
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
@@ -8823,9 +9192,14 @@ export async function handleChatStream(req: Request, res: Response) {
                 : {}),
             }
           : {}),
-        evidenceVerdict: executionEvidenceVerdict,
-        evidenceReason: executionEvidenceReason,
+        evidenceVerdict: factInvestigationExecution
+          ? "NOT_RECORDED"
+          : executionEvidenceVerdict,
+        evidenceReason: factInvestigationExecution
+          ? "FACT investigation results are not canonical proof."
+          : executionEvidenceReason,
         ...(() => {
+          if (factInvestigationExecution) return {};
           const evidenceProgress = deriveEvidenceProgressCheckpoint({
             objective: executionRequest.objective,
             traceSteps,
@@ -9749,6 +10123,53 @@ export async function handleChatStream(req: Request, res: Response) {
            ...(orientationManifest
              ? { orientationSourcesOverride: orientationManifest.paths }
              : {}),
+           ...(executionRequest.factInvestigation
+             ? {
+                 projectQueryInvestigation: executionRequest.factInvestigation,
+                 ...(aiExecution
+                   ? {
+                       onProjectQueryFactManifest: async (manifest: {
+                         projectId: string;
+                         workspaceRevision: string;
+                         workspaceRoot: string | null;
+                         allowedPaths: string[];
+                         manifestId: string;
+                       }) => {
+                         const currentFact = executionRequest.factInvestigation;
+                         if (
+                           !currentFact
+                           || manifest.projectId !== currentFact.projectId
+                           || manifest.workspaceRevision !== currentFact.workspaceRevision
+                           || manifest.workspaceRoot !== currentFact.workspaceRoot
+                         ) {
+                           throw new Error("FACT investigation manifest identity does not match its request");
+                         }
+                         const nextFact = ProjectQueryInvestigationContractSchema.parse({
+                           ...currentFact,
+                           allowedPaths: manifest.allowedPaths,
+                           manifestId: manifest.manifestId,
+                         });
+                         await assertStreamExecutionOwned();
+                         const persisted = await persistAiExecutionFactInvestigationManifest({
+                           executionId: aiExecution!.id,
+                           expectedAttempt: aiExecution!.attempt,
+                           workerId: executionWorkerId!,
+                           manifest,
+                         });
+                         if (!persisted) {
+                           throw new Error("AI execution FACT manifest was rejected by the lease/state gate");
+                         }
+                         executionRequest = {
+                           ...executionRequest,
+                           factInvestigation: nextFact,
+                           proofRequired: false,
+                           taskObjective: undefined,
+                         };
+                       },
+                     }
+                   : {}),
+               }
+             : {}),
            ...(aiExecution
              ? {
                  onOrientationManifest: async (sources: import("@workspace/ai-orchestrator").ProjectOrientationSources) => {
@@ -10014,9 +10435,42 @@ export async function handleChatStream(req: Request, res: Response) {
           behaviorEvidence: undefined,
         };
       }
+      if (executionRequest.factInvestigation) {
+        const factResult = buildProjectQueryFactInvestigationResult({
+          contract: executionRequest.factInvestigation,
+          ownerId: req.userId,
+          projectId,
+          sessionId: sessionIdToUse,
+          operationId: executionRequest.factInvestigation.operationId,
+          workspaceRevision:
+            analysisCorrelation.projectRevision
+            ?? executionRequest.factInvestigation.workspaceRevision,
+          workspaceRoot: validRootPath ?? null,
+          response: result.response,
+          retainedEvidence,
+          retainedReadStatuses,
+          traceSteps,
+          executionId: aiExecution?.id ?? null,
+          attempt: aiExecution?.attempt ?? null,
+        });
+        result = {
+          ...result,
+          response: factResult.answer
+            || (factResult.status === "ANSWER_BLOCKED"
+              ? "I couldn't verify this fact from a complete source read in the current project scope."
+              : "I found complete source evidence but could not form a supported answer."),
+          sources: factResult.sources.map((source) => source.path),
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: factResult,
+          behaviorEvidence: undefined,
+        };
+      }
       result = {
         ...result,
-        sources: collectVerifiedTurnSources(result, traceSteps),
+        sources: result.taskResult?.kind === "PROJECT_QUERY_INVESTIGATION_RESULT"
+          ? result.taskResult.sources.map((source) => source.path)
+          : collectVerifiedTurnSources(result, traceSteps),
         taskResult: normalizeTaskResultForTurn(streamTurnIntent.kind, result.taskResult),
       };
       // Classify every terminal result before it can reach the successful
@@ -11598,17 +12052,21 @@ export async function handleChatStream(req: Request, res: Response) {
         : [];
       const orientationCoverageIncomplete =
         projectOrientationExecution && !orientationAcceptanceEligible;
-      const terminalEvidenceVerdict = orientationCoverageIncomplete
-        ? "PARTIAL" as const
-        : executionEvidenceVerdict;
-      const terminalEvidenceReason = orientationCoverageIncomplete
-        ? orientationTraceParityFailure
-          ? `Project orientation trace is inconsistent with its accepted source coverage: ${orientationTraceParityFailure}.`
-          : `Project orientation source coverage is incomplete: ${
-              result.sourceSelectionRecord?.orientationCoverage?.missingRoles.join(", ")
-                || "required roles are not fully covered"
-            }.`
-        : executionEvidenceReason;
+      const terminalEvidenceVerdict = factInvestigationExecution
+        ? "NOT_RECORDED" as const
+        : orientationCoverageIncomplete
+          ? "PARTIAL" as const
+          : executionEvidenceVerdict;
+      const terminalEvidenceReason = factInvestigationExecution
+        ? "FACT investigation results are separate from canonical proof acceptance."
+        : orientationCoverageIncomplete
+          ? orientationTraceParityFailure
+            ? `Project orientation trace is inconsistent with its accepted source coverage: ${orientationTraceParityFailure}.`
+            : `Project orientation source coverage is incomplete: ${
+                result.sourceSelectionRecord?.orientationCoverage?.missingRoles.join(", ")
+                  || "required roles are not fully covered"
+              }.`
+          : executionEvidenceReason;
       const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,

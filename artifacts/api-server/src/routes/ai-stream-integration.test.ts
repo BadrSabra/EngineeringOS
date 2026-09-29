@@ -58,8 +58,11 @@ import {
   buildProjectContext,
   enrichContextWithMemories,
   formatMemoriesForPrompt,
+  resolveTurnIntent,
   GroqClientError,
   hashPatchBase,
+  hashProjectQueryFactManifest,
+  hashProjectQueryFactQuestion,
   type ExecutionNode,
 } from "@workspace/ai-orchestrator";
 import { CAPABILITY_PROBE_MESSAGE } from "../../../../lib/ai-orchestrator/src/prompts/capability-probe.js";
@@ -230,6 +233,8 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   // missing fields and can no longer represent a complete TurnIntent.
   classifyRequest: vi.fn((message: string) =>
     (actual.classifyRequest as (value: string) => unknown)(message)),
+  resolveTurnIntent: vi.fn((message: string, options?: unknown) =>
+    (actual.resolveTurnIntent as (value: string, options?: unknown) => unknown)(message, options)),
   isImmediateExecutionRequest: vi.fn((message: string) =>
     (actual.isImmediateExecutionRequest as (value: string) => boolean)(message)),
   // enrichContextWithMemories and writeSessionMemories are called by the chat route.
@@ -332,6 +337,7 @@ vi.mock("../lib/ai-route-helpers.js", () => {
 
 const defaultChatWithFallback = vi.mocked(chatWithFallback).getMockImplementation();
 const defaultRequireProvider = vi.mocked(requireProvider).getMockImplementation();
+const defaultResolveTurnIntent = vi.mocked(resolveTurnIntent).getMockImplementation();
 
 // The cycle test uses a temporary fixture rather than the workspace root. The
 // route still runs the real validation gate, but the registered workspace
@@ -775,6 +781,9 @@ afterEach(async () => {
   vi.mocked(mockedOrchestrator.classifyRequest)
     .mockReset()
     .mockImplementation(actualOrchestrator.classifyRequest);
+  vi.mocked(resolveTurnIntent)
+    .mockReset()
+    .mockImplementation(defaultResolveTurnIntent!);
   vi.mocked(chatWithFallback).mockReset();
   vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
   vi.mocked(requireProvider).mockReset();
@@ -8571,6 +8580,499 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       });
       expect(input.turnIntent).not.toHaveProperty("projectTarget");
     }
+  });
+
+  it("completes a bounded FACT investigation across SSE, JSON, history, and durable state without canonical proof", async () => {
+    vi.mocked(resolveTurnIntent).mockImplementation((message, options) => {
+      const intent = defaultResolveTurnIntent!(message, options);
+      return {
+        ...intent,
+        projectTarget: undefined,
+        projectTargetResolution: "unresolved",
+      };
+    });
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const message = "Where is authentication configured?";
+    const source = "src/session.ts";
+    const sourceBody = "export const sessionStore = database.sessions;\n";
+    const answer = "The database session is stored in src/session.ts.";
+    const observedInputs: Array<{
+      projectQueryInvestigation?: {
+        kind?: string;
+        projectId: string;
+        workspaceRevision: string;
+        workspaceRoot: string | null;
+        operationId: string;
+      };
+      retainedEvidence?: Map<string, string>;
+      retainedReadStatuses?: Map<string, string>;
+      onProjectQueryFactManifest?: (manifest: {
+        projectId: string;
+        workspaceRevision: string;
+        workspaceRoot: string | null;
+        allowedPaths: string[];
+        manifestId: string;
+      }) => Promise<void>;
+    }> = [];
+
+    const [project] = await db
+      .select({ rootPath: projectsTable.rootPath, updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const workspaceRevision = project!.updatedAt.toISOString();
+    const workspaceRoot = project!.rootPath;
+
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const input = args[1] as typeof observedInputs[number];
+      observedInputs.push(input);
+      const contract = input.projectQueryInvestigation;
+      expect(contract).toBeDefined();
+      const manifestId = hashProjectQueryFactManifest({
+        projectId,
+        workspaceRevision,
+        workspaceRoot,
+        allowedPaths: [source],
+      });
+      await input.onProjectQueryFactManifest?.({
+        projectId,
+        workspaceRevision,
+        workspaceRoot,
+        allowedPaths: [source],
+        manifestId,
+      });
+      input.retainedEvidence?.set(source, sourceBody);
+      input.retainedReadStatuses?.set(source, "READ_COMPLETE");
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        readStatus: "READ_COMPLETE",
+        outputLength: sourceBody.length,
+      });
+      args[3]?.(answer);
+      return {
+        result: { response: answer, sources: [source], pendingChanges: [] },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+    expect(stream.status).toBe(200);
+    const events = parseSseEvents(stream.text);
+    const done = events.find((event) => event.type === "done");
+    if (events.some((event) => event.type === "error")) {
+      throw new Error(`FACT stream failed: ${JSON.stringify(events)}`);
+    }
+    expect(done).toBeDefined();
+    const doneMessage = done!.message as Record<string, unknown>;
+    const streamTaskResult = doneMessage.taskResult as Record<string, unknown>;
+    expect(streamTaskResult).toMatchObject({
+      kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+      class: "FACT",
+      status: "ANSWER_COMPLETE",
+      answerAssessment: "MODEL_PROPOSED",
+      assurance: "INVESTIGATION_ONLY",
+      requiredCoverage: { obligationId: "original-question", status: "ANSWERED" },
+      sources: [{ path: source, readStatus: "READ_COMPLETE" }],
+    });
+    expect(doneMessage.sources).toBe(JSON.stringify([source]));
+    expect(done!.sources).toEqual([source]);
+    expect(doneMessage).not.toHaveProperty("evidenceVerdict", "PROVEN");
+
+    const streamHistory = await request(app)
+      .get(`/api/ai/chat/${String(done!.sessionId)}/messages`)
+      .expect(200);
+    const streamedAssistant = (streamHistory.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
+    expect(streamedAssistant).toMatchObject({
+      content: answer,
+      outcome: "SUCCEEDED",
+      sources: JSON.stringify([source]),
+      taskResult: {
+        kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+        class: "FACT",
+        status: "ANSWER_COMPLETE",
+        assurance: "INVESTIGATION_ONLY",
+      },
+    });
+
+    const json = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+    expect(json.status).toBe(200);
+    vi.mocked(resolveTurnIntent).mockImplementation(defaultResolveTurnIntent!);
+    expect(json.body).toMatchObject({
+      outcome: "SUCCEEDED",
+      sources: [source],
+      taskResult: {
+        kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+        class: "FACT",
+        status: "ANSWER_COMPLETE",
+        answer,
+        assurance: "INVESTIGATION_ONLY",
+        requiredCoverage: { status: "ANSWERED" },
+        sources: [{ path: source, readStatus: "READ_COMPLETE" }],
+      },
+    });
+    const jsonHistory = await request(app)
+      .get(`/api/ai/chat/${String(json.body.sessionId)}/messages`)
+      .expect(200);
+    const jsonAssistant = (jsonHistory.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
+    expect(jsonAssistant).toMatchObject({
+      content: answer,
+      outcome: "SUCCEEDED",
+      sources: JSON.stringify([source]),
+      taskResult: {
+        kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+        class: "FACT",
+        status: "ANSWER_COMPLETE",
+        assurance: "INVESTIGATION_ONLY",
+      },
+    });
+    expect(observedInputs).toHaveLength(2);
+    for (const input of observedInputs) {
+      expect(input.projectQueryInvestigation).toBeDefined();
+      expect(input.projectQueryInvestigation?.kind).toBe("FACT");
+    }
+
+    const executionIds = [
+      doneMessage.executionId,
+      json.body.executionId ?? (json.body.message as Record<string, unknown> | undefined)?.executionId,
+    ]
+      .filter((id): id is string => typeof id === "string");
+    expect(executionIds).toHaveLength(1);
+    for (const executionId of executionIds) {
+      const [execution] = await db
+        .select({
+          status: aiExecutionsTable.status,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+          checkpoint: aiExecutionsTable.checkpoint,
+        })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.id, executionId))
+        .limit(1);
+      expect(execution?.status).toBe("completed");
+      expect(execution?.finalMessageId).toBeTruthy();
+      const checkpoint = JSON.parse(String(execution?.checkpoint)) as Record<string, unknown>;
+      expect(checkpoint).toMatchObject({
+        proofRequired: false,
+        evidenceVerdict: "NOT_RECORDED",
+      });
+      expect(checkpoint.evidenceVerdict).not.toBe("PROVEN");
+
+      const [acceptance] = await db
+        .select({
+          outcome: aiExecutionAcceptancesTable.outcome,
+          evidenceRequired: aiExecutionAcceptancesTable.evidenceRequired,
+          evidenceComplete: aiExecutionAcceptancesTable.evidenceComplete,
+          messageId: aiExecutionAcceptancesTable.messageId,
+        })
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, executionId))
+        .limit(1);
+      expect(acceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceRequired: 0,
+        evidenceComplete: 1,
+        messageId: execution?.finalMessageId,
+      });
+      const [persisted] = await db
+        .select({ taskResult: aiChatMessagesTable.taskResult })
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.id, execution!.finalMessageId!))
+        .limit(1);
+      expect(JSON.parse(String(persisted?.taskResult))).toMatchObject({
+        kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+        class: "FACT",
+        assurance: "INVESTIGATION_ONLY",
+      });
+    }
+  });
+
+  it("resumes a bounded FACT investigation on the same execution and preserves history parity", async () => {
+    vi.mocked(resolveTurnIntent).mockImplementation((message, options) => {
+      const intent = defaultResolveTurnIntent!(message, options);
+      return {
+        ...intent,
+        projectTarget: undefined,
+        projectTargetResolution: "unresolved",
+      };
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await insertChatSession(projectId, "FACT resume parity");
+    const operationId = `fact-resume-${randomUUID()}`;
+    const message = "Where is authentication configured?";
+    const source = "src/session.ts";
+    const [project] = await db
+      .select({ rootPath: projectsTable.rootPath, updatedAt: projectsTable.updatedAt })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    const workspaceRevision = project!.updatedAt.toISOString();
+    const workspaceRoot = project!.rootPath;
+    const manifestId = hashProjectQueryFactManifest({
+      projectId,
+      workspaceRevision,
+      workspaceRoot,
+      allowedPaths: [source],
+    });
+    const factInvestigation = {
+      schemaVersion: "v1" as const,
+      kind: "FACT" as const,
+      investigationId: randomUUID(),
+      ownerId: "test-user",
+      projectId,
+      sessionId,
+      operationId,
+      workspaceRevision,
+      workspaceRoot,
+      question: message,
+      questionHash: hashProjectQueryFactQuestion(message),
+      requiredObligationIds: ["original-question" as const],
+      maxFiles: 4 as const,
+      maxIterations: 2 as const,
+      maxToolCalls: 8 as const,
+      allowedPaths: [source],
+      manifestId,
+    };
+    const requestEnvelope = {
+      projectId,
+      sessionId,
+      operationId,
+      message,
+      modelMessage: message,
+      turnIntent: "PROJECT_QUERY",
+      workspaceRevision,
+      workspaceRoot,
+      validationTargetPaths: [],
+      proofRequired: false,
+      factInvestigation,
+      resumeContract: {
+        taskType: "tool_chat",
+        outputContract: "GENERIC_RESPONSE",
+        contextProfile: "project",
+        sessionId,
+        projectRevision: workspaceRevision,
+        requiresEvidence: true,
+        scope: {
+          projectId,
+          rootPath: workspaceRoot,
+          linkedTaskId: null,
+        },
+      },
+    };
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: requestEnvelope,
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+      workspaceRoot,
+    });
+    const initialWorkerId = randomUUID();
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId: initialWorkerId,
+    }))?.status).toBe("running");
+    expect(await checkpointAiExecution({
+      executionId: created.execution.id,
+      expectedAttempt: 0,
+      workerId: initialWorkerId,
+      checkpoint: {
+        stage: "finalizing",
+        sequence: 1,
+        proofRequired: false,
+        evidenceVerdict: "NOT_RECORDED",
+        detail: "FACT investigation interrupted before synthesis.",
+        updatedAt: new Date().toISOString(),
+      },
+    })).toBe(true);
+    await db.update(aiExecutionsTable)
+      .set({ leaseUntil: new Date(Date.now() - 1_000), updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+
+    const userTurnCreatedAt = new Date();
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: "Earlier project question",
+        executionId: null,
+        createdAt: new Date(userTurnCreatedAt.getTime() - 1_000),
+      },
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: message,
+        executionId: created.execution.id,
+        createdAt: userTurnCreatedAt,
+      },
+    ]);
+
+    const answer = "Authentication sessions are configured in src/session.ts.";
+    const sourceBody = "export const sessionStore = database.sessions;\n";
+    let resumedInput: {
+      projectQueryInvestigation?: {
+        kind: string;
+        investigationId: string;
+        operationId: string;
+        allowedPaths: string[];
+      };
+      retainedEvidence?: Map<string, string>;
+      retainedReadStatuses?: Map<string, string>;
+      onProjectQueryFactManifest?: (manifest: {
+        projectId: string;
+        workspaceRevision: string;
+        workspaceRoot: string | null;
+        allowedPaths: string[];
+        manifestId: string;
+      }) => Promise<void>;
+    } | undefined;
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const input = args[1] as typeof resumedInput;
+      resumedInput = input;
+      expect(input?.projectQueryInvestigation).toMatchObject({
+        kind: "FACT",
+        investigationId: factInvestigation.investigationId,
+        operationId,
+        allowedPaths: [source],
+      });
+      await input?.onProjectQueryFactManifest?.({
+        projectId,
+        workspaceRevision,
+        workspaceRoot,
+        allowedPaths: [source],
+        manifestId,
+      });
+      input?.retainedEvidence?.set(source, sourceBody);
+      input?.retainedReadStatuses?.set(source, "READ_COMPLETE");
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        readStatus: "READ_COMPLETE",
+        outputLength: sourceBody.length,
+      });
+      args[3]?.(answer);
+      return {
+        result: { response: answer, sources: [source], pendingChanges: [] },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message,
+        executionId: created.execution.id,
+        resumeToken: created.resumeToken,
+      });
+    expect(resumed.status).toBe(200);
+    const events = parseSseEvents(resumed.text);
+    if (events.some((event) => event.type === "error")) {
+      throw new Error(`FACT resume failed: ${JSON.stringify(events)}`);
+    }
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({
+      operationId,
+      sessionId,
+      message: {
+        executionId: created.execution.id,
+        content: answer,
+        outcome: "SUCCEEDED",
+        taskResult: {
+          kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+          class: "FACT",
+          status: "ANSWER_COMPLETE",
+          assurance: "INVESTIGATION_ONLY",
+          sources: [{ path: source, readStatus: "READ_COMPLETE" }],
+        },
+      },
+      sources: [source],
+    });
+    expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+    expect(resumedInput?.projectQueryInvestigation?.investigationId)
+      .toBe(factInvestigation.investigationId);
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    const assistant = (history.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
+    expect(assistant).toMatchObject({
+      content: answer,
+      outcome: "SUCCEEDED",
+      sources: JSON.stringify([source]),
+      taskResult: {
+        kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+        class: "FACT",
+        status: "ANSWER_COMPLETE",
+        assurance: "INVESTIGATION_ONLY",
+        sources: [{ path: source, readStatus: "READ_COMPLETE" }],
+      },
+    });
+
+    const [execution] = await db
+      .select({
+        status: aiExecutionsTable.status,
+        attempt: aiExecutionsTable.attempt,
+        finalMessageId: aiExecutionsTable.finalMessageId,
+        request: aiExecutionsTable.request,
+        checkpoint: aiExecutionsTable.checkpoint,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, created.execution.id))
+      .limit(1);
+    expect(execution).toMatchObject({
+      status: "completed",
+      finalMessageId: (done?.message as { id?: string }).id,
+    });
+    const persistedRequest = JSON.parse(String(execution?.request)) as {
+      factInvestigation?: { investigationId?: string; operationId?: string };
+      proofRequired?: boolean;
+    };
+    expect(persistedRequest).toMatchObject({
+      proofRequired: false,
+      factInvestigation: {
+        investigationId: factInvestigation.investigationId,
+        operationId,
+      },
+    });
+    expect(JSON.parse(String(execution?.checkpoint))).toMatchObject({
+      proofRequired: false,
+      evidenceVerdict: "NOT_RECORDED",
+    });
+    expect(execution?.attempt).toBeGreaterThan(0);
+    const [persistedMessage] = await db
+      .select({ taskResult: aiChatMessagesTable.taskResult })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, execution!.finalMessageId!))
+      .limit(1);
+    expect(JSON.parse(String(persistedMessage?.taskResult))).toMatchObject({
+      kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
+      class: "FACT",
+      assurance: "INVESTIGATION_ONLY",
+    });
   });
 
   it("retries a failed analytical PROJECT_QUERY as a new execution with the saved contract", async () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ObjectiveScopePolicySchema } from "../objective-scope.js";
 import path from "node:path";
+import { ProjectQueryInvestigationResultSchema } from "../project-query-investigation.js";
 import {
   EvidenceReferenceSchema,
   FindingAnalysisSchema,
@@ -317,6 +318,7 @@ export const ChatTaskResultSchema = z.discriminatedUnion("kind", [
   WorkspaceReviewResultSchema,
   RepairResultSchema,
   ImplementationPlanSchema,
+  ProjectQueryInvestigationResultSchema,
 ]);
 export type ChatTaskResult = z.infer<typeof ChatTaskResultSchema>;
 

@@ -13,6 +13,39 @@ import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-corre
 type TaskResultFixture =
   | { kind: 'CODE_EXTRACTION_RESULT'; extractedCode: string; source?: string }
   | { kind: 'BEHAVIOR_ANSWER_RESULT'; answer: Record<string, unknown> }
+  | {
+      kind: 'PROJECT_QUERY_INVESTIGATION_RESULT';
+      investigationId: string;
+      class: 'FACT';
+      status: 'ANSWER_COMPLETE' | 'ANSWER_PARTIAL' | 'ANSWER_EVIDENCE_ONLY' | 'ANSWER_UNDETERMINED' | 'ANSWER_BLOCKED';
+      answer: string;
+      answerAssessment: 'MODEL_PROPOSED' | 'SOURCE_OBSERVED_ONLY' | 'MODEL_UNDETERMINED' | 'NONE';
+      requiredCoverage: {
+        obligationId: 'original-question';
+        questionHash: string;
+        status: 'ANSWERED' | 'PARTIAL' | 'UNANSWERED';
+      };
+      sources: Array<{
+        observationId: string;
+        path: string;
+        contentSha256: string;
+        byteLength: number;
+        lineStart?: number;
+        lineEnd?: number;
+        readStatus: 'READ_COMPLETE';
+        workspaceRevision: string;
+        operationId: string;
+        executionId: string | null;
+        attempt: number | null;
+      }>;
+      manifestId: string | null;
+      workspaceRevision: string;
+      operationId: string;
+      executionId: string | null;
+      attempt: number | null;
+      reasonCode?: string;
+      assurance: 'INVESTIGATION_ONLY';
+    }
   | { kind: 'FINDING_RESULT'; finding: Record<string, unknown> }
   | { kind: 'FORENSIC_REPORT_RESULT'; report: string; evidence: Record<string, unknown>[] }
    | { kind: 'WORKSPACE_REVIEW_RESULT'; report: string; evidence: Record<string, unknown>[] }
@@ -3046,6 +3079,87 @@ it('shows Groq model readiness without requiring a personal key when the server 
     expect(await screen.findByText('Behavior answer')).toBeInTheDocument();
     expect(screen.getByText(/confidence 85%/)).toBeInTheDocument();
     expect(screen.getByText('maxIterations returns exhausted once the cap is reached.')).toBeInTheDocument();
+  });
+
+  it('renders a FACT investigation with its source scope and no proof claim', async () => {
+    mocks.serverProposal = { proposalId: 'fact-investigation-proposal', changes: [] };
+    mocks.proposalMessages[0].content = [
+      '## 6) Final Judgment',
+      'FINDING PROVEN',
+      '',
+      '## 3) Findings',
+      '- ID: F-01 · Test-only source statement',
+    ].join('\n');
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'tool_call',
+        tool: 'read_file',
+        args: { path: 'src/routes/account.ts' },
+      },
+      {
+        kind: 'tool_result',
+        tool: 'read_file',
+        source: 'src/routes/account.ts',
+      },
+      {
+        kind: 'done',
+        iterations: 1,
+        maxIterations: 2,
+        toolCalls: 1,
+        prefetchToolCalls: 0,
+        loopToolCalls: 1,
+        stopReason: 'response',
+        synthesisStarted: false,
+        synthesisAttempts: 1,
+        synthesisMaxAttempts: 2,
+        synthesisTimeoutMs: 1000,
+        synthesisElapsedMs: 240,
+        synthesisTimedOut: false,
+      },
+    ]);
+    mocks.proposalMessages[0].taskResult = {
+      kind: 'PROJECT_QUERY_INVESTIGATION_RESULT',
+      investigationId: 'fact-investigation-123',
+      class: 'FACT',
+      status: 'ANSWER_COMPLETE',
+      answer: 'The route is declared in src/routes/account.ts.',
+      answerAssessment: 'MODEL_PROPOSED',
+      requiredCoverage: {
+        obligationId: 'original-question',
+        questionHash: 'a'.repeat(64),
+        status: 'ANSWERED',
+      },
+      sources: [{
+        observationId: 'b'.repeat(64),
+        path: 'src/routes/account.ts',
+        contentSha256: 'c'.repeat(64),
+        byteLength: 48,
+        lineStart: 12,
+        lineEnd: 16,
+        readStatus: 'READ_COMPLETE',
+        workspaceRevision: 'revision-1',
+        operationId: 'operation-1',
+        executionId: 'execution-1',
+        attempt: 0,
+      }],
+      manifestId: 'd'.repeat(64),
+      workspaceRevision: 'revision-1',
+      operationId: 'operation-1',
+      executionId: 'execution-1',
+      attempt: 0,
+      assurance: 'INVESTIGATION_ONLY',
+    };
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    const factResult = await screen.findByRole('status', { name: 'Fact investigation result' });
+    expect(factResult).toBeInTheDocument();
+    expect(screen.getByText('answer complete')).toBeInTheDocument();
+    expect(screen.getByText(/not canonical proof/)).toBeInTheDocument();
+    expect(screen.getByText('The route is declared in src/routes/account.ts.')).toBeInTheDocument();
+    expect(within(factResult).getByText('src/routes/account.ts')).toBeInTheDocument();
+    expect(within(factResult).getByText('L12–L16')).toBeInTheDocument();
+    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
   });
 
   it('shows Behavior progress revisions during the stream and removes them for the final answer', async () => {

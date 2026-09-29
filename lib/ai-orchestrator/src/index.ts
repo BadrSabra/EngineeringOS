@@ -77,6 +77,24 @@ export type {
   ProjectOrientationFallbackResult,
 } from "./project-orientation-fallback.js";
 export {
+  PROJECT_QUERY_FACT_MAX_FILES,
+  PROJECT_QUERY_FACT_MAX_ITERATIONS,
+  PROJECT_QUERY_FACT_MAX_TOOL_CALLS,
+  ProjectQueryInvestigationContractSchema,
+  ProjectQueryInvestigationStatusSchema,
+  ProjectQueryInvestigationResultSchema,
+  classifyProjectQueryInvestigationQuestion,
+  normalizeProjectQueryFactPath,
+  normalizeProjectQueryFactQuestion,
+  hashProjectQueryFactQuestion,
+  hashProjectQueryFactManifest,
+} from "./project-query-investigation.js";
+export type {
+  ProjectQueryInvestigationContract,
+  ProjectQueryInvestigationStatus,
+  ProjectQueryInvestigationResult,
+} from "./project-query-investigation.js";
+export {
   ContextManifestSchema,
   RepositoryRevisionManifestSchema,
   ScanCompletenessSchema,

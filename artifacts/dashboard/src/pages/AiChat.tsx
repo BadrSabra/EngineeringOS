@@ -195,7 +195,7 @@ type ChatMessage = {
   activityEvents?: LiveAgentActivityEvent[];
   /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
   behaviorEvidence?: AiBehaviorEvidence[] | string | null;
-  /** AI-008: per-task typed result from the SSE done event. Absent on generic turns and reloaded history. */
+  /** AI-008: per-task typed result shared by live SSE and persisted history. */
   taskResult?: AiTaskResult | null;
   /** Allowlisted context health/link projection shared by live and history turns. */
   contextProvenance?: {
@@ -726,6 +726,44 @@ type AiTaskResult =
       source?: string;
     }
   | { kind: 'BEHAVIOR_ANSWER_RESULT'; answer: Record<string, unknown> }
+  | {
+      kind: 'PROJECT_QUERY_INVESTIGATION_RESULT';
+      investigationId: string;
+      class: 'FACT';
+      status:
+        | 'ANSWER_COMPLETE'
+        | 'ANSWER_PARTIAL'
+        | 'ANSWER_EVIDENCE_ONLY'
+        | 'ANSWER_UNDETERMINED'
+        | 'ANSWER_BLOCKED';
+      answer: string;
+      answerAssessment: 'MODEL_PROPOSED' | 'SOURCE_OBSERVED_ONLY' | 'MODEL_UNDETERMINED' | 'NONE';
+      requiredCoverage: {
+        obligationId: 'original-question';
+        questionHash: string;
+        status: 'ANSWERED' | 'PARTIAL' | 'UNANSWERED';
+      };
+      sources: Array<{
+        observationId: string;
+        path: string;
+        contentSha256: string;
+        byteLength: number;
+        lineStart?: number;
+        lineEnd?: number;
+        readStatus: 'READ_COMPLETE';
+        workspaceRevision: string;
+        operationId: string;
+        executionId: string | null;
+        attempt: number | null;
+      }>;
+      manifestId: string | null;
+      workspaceRevision: string;
+      operationId: string;
+      executionId: string | null;
+      attempt: number | null;
+      reasonCode?: string;
+      assurance: 'INVESTIGATION_ONLY';
+    }
   | { kind: 'FINDING_RESULT'; finding: Record<string, unknown> }
   | {
       kind: 'FORENSIC_REPORT_RESULT';
@@ -5178,6 +5216,85 @@ function TaskResultPanel({
         </div>
       );
     }
+    case 'PROJECT_QUERY_INVESTIGATION_RESULT': {
+      const statusLabel = result.status.replaceAll('_', ' ').toLowerCase();
+      const statusClass = result.status === 'ANSWER_COMPLETE'
+        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+        : result.status === 'ANSWER_BLOCKED'
+          ? 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+          : result.status === 'ANSWER_PARTIAL'
+            ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+            : 'border-sky-500/30 bg-sky-500/10 text-sky-200';
+      const reasonText: Record<string, string> = {
+        NO_ACCEPTED_OBSERVATION: 'No complete source read was accepted.',
+        INCOMPLETE_OBSERVATION: 'The available source read was incomplete.',
+        EMPTY_ANSWER: 'Complete source evidence was found, but no answer was produced.',
+        ANSWER_UNCERTAIN: 'The source evidence did not support a definite answer.',
+        ANSWER_PARTIAL: 'The source evidence supports only part of the answer.',
+        SCOPE_UNAVAILABLE: 'A verified source scope was not available.',
+        IDENTITY_MISMATCH: 'The result did not match the active investigation.',
+      };
+      return (
+        <div
+          className="mt-1 w-full rounded-lg border border-border/50 bg-background/30 px-3 py-2 flex flex-col gap-2"
+          role="status"
+          aria-label="Fact investigation result"
+          data-testid="project-query-investigation-result"
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
+            <FileSearch className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[11px] font-medium text-foreground">Fact investigation</span>
+            <Badge
+              variant="outline"
+              className={`text-[10px] ${statusClass}`}
+              data-testid="project-query-investigation-status"
+            >
+              {statusLabel}
+            </Badge>
+            <span className="ml-auto text-[10px] text-muted-foreground">
+              Investigation only · not canonical proof
+            </span>
+          </div>
+          {result.answer && (
+            <p className="text-[12px] leading-relaxed text-foreground/90 break-words">
+              {result.answer}
+            </p>
+          )}
+          {!result.answer && result.reasonCode && (
+            <p className="text-[11px] text-muted-foreground">
+              {reasonText[result.reasonCode] ?? 'The investigation did not produce a supported answer.'}
+            </p>
+          )}
+          <div className="text-[10px] text-muted-foreground">
+            Required question: {result.requiredCoverage.status.toLowerCase()}
+            <span className="mx-1.5">·</span>
+            Assessment: {result.answerAssessment.replaceAll('_', ' ').toLowerCase()}
+          </div>
+          {result.sources.length > 0 ? (
+            <div className="flex flex-col gap-1" aria-label="Observed source files">
+              {result.sources.map((source) => (
+                <div
+                  key={source.observationId}
+                  className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground"
+                >
+                  <code className="font-mono text-foreground/80">{source.path}</code>
+                  {source.lineStart !== undefined && (
+                    <span>
+                      {source.lineEnd !== undefined && source.lineEnd !== source.lineStart
+                        ? `L${source.lineStart}–L${source.lineEnd}`
+                        : `L${source.lineStart}`}
+                    </span>
+                  )}
+                  <span className="ml-auto">complete read</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">No complete source reads were retained.</p>
+          )}
+        </div>
+      );
+    }
     case 'BEHAVIOR_ANSWER_RESULT': {
       const answer = behaviorAnswerView(result.answer);
       const hasCoverage = answer.answeredFields.length > 0 || answer.missingFields.length > 0;
@@ -5776,6 +5893,7 @@ function MessageBubble({
   // and let history renders recognize those rows even when the top-level
   // turnIntent was not present in the older API projection.
   const isProjectQueryTurn = !isUser && (
+    msg.taskResult?.kind === 'PROJECT_QUERY_INVESTIGATION_RESULT' ||
     msg.turnIntent === 'PROJECT_QUERY' ||
     toolTrace.some((entry) =>
       entry.kind === 'project_query_source_selection' ||
@@ -5783,6 +5901,8 @@ function MessageBubble({
       (entry.kind === 'evidence_integrity' && entry.objectiveType?.startsWith('PROJECT_QUERY')),
     )
   );
+  const isFactInvestigation = !isUser
+    && msg.taskResult?.kind === 'PROJECT_QUERY_INVESTIGATION_RESULT';
   const canOfferAcceptedFindingMission = Boolean(
     !isUser
     && projectId
@@ -5851,6 +5971,7 @@ function MessageBubble({
                         : 'Provider failure'
     );
   const preservedFailureReport = failedTurn
+    && !isFactInvestigation
     && !internalTechnicalDump
     && (isForensicFallbackMessage(displayContent) || /\bANALYSIS_INCOMPLETE\b/i.test(displayContent))
     ? redactedDisplayContent
@@ -5858,10 +5979,10 @@ function MessageBubble({
   const userFacingContent = internalTechnicalDump
     ? 'The agent produced internal technical details for this run.'
     : redactedDisplayContent;
-  const persistedForensicStatus = !isUser && !isChatTurn
+  const persistedForensicStatus = !isUser && !isChatTurn && !isFactInvestigation
     ? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_status')
     : undefined;
-  const finalVerdict = !isUser && !isChatTurn
+  const finalVerdict = !isUser && !isChatTurn && !isFactInvestigation
     ? getFinalForensicVerdict(displayContent, persistedForensicStatus?.findingStatus)
     : null;
   const productionTrace = !isUser
@@ -5874,7 +5995,8 @@ function MessageBubble({
         .filter((entry) => entry.kind === 'cross_file_trace' && entry.crossFileTrace)
         .map((entry) => entry.crossFileTrace as AiCrossFileSemanticTrace)
     : [];
-  const isForensicFallback = !isUser && !isChatTurn && isForensicFallbackMessage(displayContent);
+  const isForensicFallback = !isUser && !isChatTurn && !isFactInvestigation
+    && isForensicFallbackMessage(displayContent);
   const isEvidenceOnlyFallback = isForensicFallback && isEvidenceOnlyFallbackMessage(displayContent);
   const incompleteBeforeEvidence = !isUser && isIncompleteBeforeEvidenceSummary(executionSummary);
   const isNoFindingFallback = !isUser && Boolean(
@@ -5904,7 +6026,7 @@ function MessageBubble({
     || Boolean(forensicDiagnostic)
     || Boolean(msg.taskResult && ['FINDING_RESULT', 'FORENSIC_REPORT_RESULT', 'WORKSPACE_REVIEW_RESULT', 'BEHAVIOR_ANSWER_RESULT', 'REPAIR_RESULT'].includes(msg.taskResult.kind))
   );
-  const isEngineeringExecution = !isUser && !isForensicRun && (
+  const isEngineeringExecution = !isUser && !isForensicRun && !isFactInvestigation && (
     inferredOperationMode === 'DELIVERY'
     || Boolean(repairRadar)
     || toolTrace.some((entry) => entry.kind === 'validation' || entry.kind === 'repair_state')
@@ -6267,7 +6389,7 @@ function MessageBubble({
                 />}
           {isEngineeringExecution && repairRadar && <RepairRadar trace={activityTrace} />}
           {!isUser && !isChatTurn && <ExecutionLedgerCard snapshot={executionLedger} />}
-          {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
+          {!isUser && !isFactInvestigation && !failedTurn && (isForensicRun || isEngineeringExecution) && (
             <PersistedExecutionProof
               summary={executionSummary}
               trace={activityTrace}
@@ -12165,7 +12287,8 @@ export default function AiChat() {
   const isAgentBusy = isSending || isTaskSending;
   const latestForensicMessage = [...messages]
     .reverse()
-    .find((message) => message.role === 'assistant' && (
+    .find((message) => message.role === 'assistant'
+      && message.taskResult?.kind !== 'PROJECT_QUERY_INVESTIGATION_RESULT' && (
       Boolean(message.taskResult)
       || Boolean(message.forensicDiagnostic)
       || /\bANALYSIS_INCOMPLETE\b|\bFINDING PROVEN\b|\bNO FINDING\b|\bNOT PROVEN\b/i.test(message.content)

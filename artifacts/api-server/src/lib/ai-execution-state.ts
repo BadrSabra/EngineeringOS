@@ -2,6 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, aiExecutionsTable, aiExecutionAcceptancesTable } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
+import {
+  hashProjectQueryFactManifest,
+  normalizeProjectQueryFactPath,
+  ProjectQueryInvestigationContractSchema,
+  ProjectQueryInvestigationResultSchema,
+  type ProjectQueryInvestigationContract,
+} from "@workspace/ai-orchestrator";
 import type {
   CapabilityEnvironment,
   ExecutionNode,
@@ -834,6 +841,8 @@ export type AiExecutionRequestEnvelope = {
   turnIntent?: string;
   /** Server-owned source-backed project explanation contract. */
   projectOrientation?: boolean;
+  /** Immutable FACT-only investigation scope; never a canonical proof objective. */
+  factInvestigation?: ProjectQueryInvestigationContract;
   /** Stable server-owned identity shared by all phases of one operation. */
   operationId?: string;
   capabilityProbe?: AiCapabilityProbeContract;
@@ -900,6 +909,7 @@ export function hasAiExecutionResumeContract(
   if (
     request.resumeContract
     || request.capabilityProbe
+    || (request.factInvestigation && request.resumeContract)
     || request.buildPlanMessageId
     || (request.linkedTaskId && request.turnIntent === "DELIVERY")
   ) {
@@ -1113,12 +1123,32 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
       ? undefined
       : parseTaskObjectiveContract(value.taskObjective);
     if (value.taskObjective !== undefined && !taskObjective) return undefined;
+    const factInvestigation = value.factInvestigation === undefined
+      ? undefined
+      : ProjectQueryInvestigationContractSchema.safeParse(value.factInvestigation);
+    if (value.factInvestigation !== undefined && !factInvestigation?.success) return undefined;
+    if (factInvestigation?.success) {
+      const fact = factInvestigation.data;
+      if (
+        fact.projectId !== value.projectId
+        || fact.sessionId !== value.sessionId
+        || fact.operationId !== value.operationId
+        || fact.workspaceRevision !== value.workspaceRevision
+        || fact.workspaceRoot !== (value.workspaceRoot ?? null)
+        || value.proofRequired === true
+        || value.objective !== undefined
+        || taskObjective !== undefined
+      ) return undefined;
+    }
     return {
       ...value,
       ...(value.resumeContract && orientationManifest
         ? { resumeContract: { ...value.resumeContract, orientationManifest } }
         : {}),
       ...(taskObjective ? { taskObjective } : {}),
+      ...(factInvestigation?.success
+        ? { factInvestigation: factInvestigation.data }
+        : {}),
     };
   } catch {
     return undefined;
@@ -2732,6 +2762,97 @@ export async function persistAiExecutionOrientationManifest(params: {
   return Boolean(updated);
 }
 
+/**
+ * Binds the server-resolved FACT path manifest to the active execution before
+ * any source prefetch. This remains request scope only; it never creates
+ * ObjectiveCompletionStatus or canonical evidence acceptance.
+ */
+export async function persistAiExecutionFactInvestigationManifest(params: {
+  executionId: string;
+  expectedAttempt: number;
+  workerId: string;
+  manifest: {
+    projectId: string;
+    workspaceRevision: string;
+    workspaceRoot: string | null;
+    allowedPaths: string[];
+    manifestId: string;
+  };
+}): Promise<boolean> {
+  const [row] = await db
+    .select({
+      request: aiExecutionsTable.request,
+      projectId: aiExecutionsTable.projectId,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
+    ))
+    .limit(1);
+  const request = row ? parseExecutionRequest(row.request) : undefined;
+  const fact = request?.factInvestigation;
+  const allowedPaths = [...new Set(params.manifest.allowedPaths)]
+    .map(normalizeProjectQueryFactPath);
+  if (
+    !request
+    || !fact
+    || request.proofRequired === true
+    || request.objective !== undefined
+    || request.taskObjective !== undefined
+    || row?.projectId !== params.manifest.projectId
+    || request.projectId !== params.manifest.projectId
+    || fact.workspaceRevision !== params.manifest.workspaceRevision
+    || request.workspaceRevision !== params.manifest.workspaceRevision
+    || fact.workspaceRoot !== params.manifest.workspaceRoot
+    || (request.workspaceRoot ?? null) !== params.manifest.workspaceRoot
+    || allowedPaths.length === 0
+    || allowedPaths.some((path) => path === null)
+    || allowedPaths.length > fact.maxFiles
+  ) return false;
+  const normalizedPaths = (allowedPaths as string[]).sort();
+  const expectedManifestId = hashProjectQueryFactManifest({
+    projectId: params.manifest.projectId,
+    workspaceRevision: params.manifest.workspaceRevision,
+    workspaceRoot: params.manifest.workspaceRoot,
+    allowedPaths: normalizedPaths,
+  });
+  if (expectedManifestId !== params.manifest.manifestId) return false;
+  if (fact.allowedPaths.length > 0) {
+    return fact.manifestId === expectedManifestId
+      && JSON.stringify(fact.allowedPaths) === JSON.stringify(normalizedPaths);
+  }
+  const nextFact = ProjectQueryInvestigationContractSchema.safeParse({
+    ...fact,
+    allowedPaths: normalizedPaths,
+    manifestId: expectedManifestId,
+  });
+  if (!nextFact.success) return false;
+  const nextRequest: AiExecutionRequestEnvelope = {
+    ...request,
+    factInvestigation: nextFact.data,
+    proofRequired: false,
+  };
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      request: JSON.stringify(nextRequest),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.attempt, params.expectedAttempt),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+      gt(aiExecutionsTable.leaseUntil, new Date()),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
 export async function heartbeatAiExecution(params: {
   executionId: string;
   expectedAttempt: number;
@@ -2898,18 +3019,87 @@ export async function completeAiExecution(params: {
     && !projectOrientationExecution;
   const operation = params.operation ?? checkpoint?.operation;
   const taskObjective = params.taskObjective ?? request?.taskObjective ?? operation?.taskObjective;
-  const inferredEvidenceRefs = [
+  const factInvestigationContract = request?.factInvestigation;
+  const factInvestigationResult = factInvestigationContract
+    ? ProjectQueryInvestigationResultSchema.safeParse(params.taskResult)
+    : undefined;
+  if (
+    factInvestigationContract
+    && (
+      !current
+      || !factInvestigationResult?.success
+      || params.proofRequired === true
+      || params.taskObjective !== undefined
+      || taskObjective !== undefined
+      || request?.proofRequired === true
+      || request?.objective !== undefined
+      || request?.taskObjective !== undefined
+    )
+  ) return false;
+  if (!factInvestigationContract && (
+    params.taskResult as { kind?: unknown } | undefined
+  )?.kind === "PROJECT_QUERY_INVESTIGATION_RESULT") return false;
+  if (factInvestigationContract && factInvestigationResult?.success) {
+    const result = factInvestigationResult.data;
+    const expectedManifestId = hashProjectQueryFactManifest({
+      projectId: factInvestigationContract.projectId,
+      workspaceRevision: factInvestigationContract.workspaceRevision,
+      workspaceRoot: factInvestigationContract.workspaceRoot,
+      allowedPaths: factInvestigationContract.allowedPaths,
+    });
+    const sourceIdentitiesMatch = result.sources.every((source) => {
+      if (
+        !factInvestigationContract.allowedPaths.includes(source.path)
+        || source.operationId !== factInvestigationContract.operationId
+        || source.executionId !== params.executionId
+        || source.attempt !== current.attempt
+        || source.workspaceRevision !== factInvestigationContract.workspaceRevision
+      ) return false;
+      const expectedObservationId = createHash("sha256")
+        .update(JSON.stringify({
+          investigationId: factInvestigationContract.investigationId,
+          operationId: factInvestigationContract.operationId,
+          executionId: params.executionId,
+          attempt: current.attempt,
+          workspaceRevision: factInvestigationContract.workspaceRevision,
+          path: source.path,
+          contentSha256: source.contentSha256,
+          readStatus: "READ_COMPLETE",
+        }))
+        .digest("hex");
+      return source.observationId === expectedObservationId;
+    });
+    if (
+      result.assurance !== "INVESTIGATION_ONLY"
+      || result.investigationId !== factInvestigationContract.investigationId
+      || result.requiredCoverage.questionHash !== factInvestigationContract.questionHash
+      || result.manifestId !== factInvestigationContract.manifestId
+      || result.manifestId !== expectedManifestId
+      || result.operationId !== factInvestigationContract.operationId
+      || result.executionId !== params.executionId
+      || result.attempt !== current.attempt
+      || result.workspaceRevision !== factInvestigationContract.workspaceRevision
+      || result.status === "ANSWER_BLOCKED"
+      || result.sources.length === 0
+      || !sourceIdentitiesMatch
+    ) return false;
+  }
+  const factInvestigationExecution = Boolean(factInvestigationContract);
+  const inferredEvidenceRefs = factInvestigationExecution ? [] : [
     ...(params.evidenceRefs ?? []),
     ...(params.evidenceReads ?? [])
       .filter((read) => read.complete && !read.truncated)
       .map((read) => `source-read:${read.path}`),
   ];
-  const effectiveEvidenceVerdict =
+  const effectiveEvidenceVerdict = factInvestigationExecution
+    ? "NOT_RECORDED" as const
+    : (
     params.evidenceVerdict && params.evidenceVerdict !== "NOT_RECORDED"
       ? params.evidenceVerdict
       : !forensicExecution && params.evidenceReads?.some((read) => read.complete && !read.truncated)
         ? "PROVEN" as const
-        : params.evidenceVerdict;
+        : params.evidenceVerdict
+    );
   let acceptedClaimRefs: string[] = [];
   if (requiresProof) {
     if (taskObjective && !pendingProposal) {
@@ -2983,10 +3173,12 @@ export async function completeAiExecution(params: {
   if (projectOrientationAcceptance && params.orientationCoverageComplete !== true) {
     return false;
   }
-  const sourceEvidenceRequired = projectOrientationAcceptance
+  const sourceEvidenceRequired = !factInvestigationExecution && (
+    projectOrientationAcceptance
     || forensicExecution
     || Boolean(params.analysisEvidence)
-    || Boolean(params.evidenceReads && params.evidenceReads.length > 0);
+    || Boolean(params.evidenceReads && params.evidenceReads.length > 0)
+  );
   const now = new Date();
   const terminalOperation =
     params.objectiveValidated === true
@@ -3030,7 +3222,9 @@ export async function completeAiExecution(params: {
       ? { evidenceRefs: [...new Set(inferredEvidenceRefs)].slice(0, 48) }
       : {}),
     ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
-    ...(params.evidenceProgress ? { evidenceProgress: params.evidenceProgress } : {}),
+    ...(!factInvestigationExecution && params.evidenceProgress
+      ? { evidenceProgress: params.evidenceProgress }
+      : {}),
     ...(params.validatorReceipts && params.validatorReceipts.length > 0
       ? { validatorReceipts: params.validatorReceipts }
       : {}),

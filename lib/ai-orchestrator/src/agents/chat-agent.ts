@@ -43,6 +43,14 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
+import {
+  hashProjectQueryFactManifest,
+  normalizeProjectQueryFactPath,
+  PROJECT_QUERY_FACT_MAX_FILES,
+  PROJECT_QUERY_FACT_MAX_ITERATIONS,
+  PROJECT_QUERY_FACT_MAX_TOOL_CALLS,
+  type ProjectQueryInvestigationContract,
+} from "../project-query-investigation.js";
 import { getStrategy, recordProviderTelemetry, type ProviderId } from "../provider-registry.js";
 import { recordBehavioralFailure } from "../behavioral-scorecard.js";
 import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
@@ -6503,6 +6511,16 @@ export async function chat(opts: {
    onOrientationManifest?: (
      sources: ProjectOrientationSources,
    ) => void | Promise<void>;
+   /** Immutable first-slice FACT investigation contract. */
+   projectQueryInvestigation?: ProjectQueryInvestigationContract;
+   /** Persists the server-filtered FACT source manifest before prefetch reads. */
+   onProjectQueryFactManifest?: (manifest: {
+     projectId: string;
+     workspaceRevision: string;
+     workspaceRoot: string | null;
+     allowedPaths: string[];
+     manifestId: string;
+   }) => void | Promise<void>;
    /**
     * Optional server-owned capability registry. Its catalog is injected into
     * planning context only; it does not add an execution tool.
@@ -6584,6 +6602,8 @@ export async function chat(opts: {
     retainedReadStatuses,
      orientationSourcesOverride,
      onOrientationManifest,
+     projectQueryInvestigation,
+     onProjectQueryFactManifest,
     capabilityRegistry,
     capabilityCatalogRequest,
     executionLedger: suppliedExecutionLedger,
@@ -8119,6 +8139,7 @@ export async function chat(opts: {
   if (
     graphGuidance &&
     !isProjectQueryObjective &&
+    !projectQueryInvestigation &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     rootPath &&
@@ -8224,6 +8245,7 @@ export async function chat(opts: {
   // of the form "  • <path>" by session-memory.ts#formatMemoriesForPrompt.
   if (
     !isProjectQueryObjective &&
+    !projectQueryInvestigation &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     rootPath &&
@@ -8290,12 +8312,13 @@ export async function chat(opts: {
   // Failures (timeout, parse error, model error) silently return null so the
   // tool loop continues with base defaults — planning never blocks the request.
   let queryPlan: QueryPlan | null = null;
+  let projectQueryFactAllowedPaths: string[] = [];
   const orientationFilesystemManifest =
     projectOrientationMode && rootPath
       ? await buildProjectFileManifest(rootPath)
       : undefined;
   const projectQueryFilesystemManifest =
-    isProjectQueryObjective && rootPath
+    (isProjectQueryObjective || projectQueryInvestigation) && rootPath
       ? await buildProjectFileManifest(rootPath)
       : undefined;
   if (projectOrientationMode && orientationSourcesOverride) {
@@ -8413,17 +8436,117 @@ export async function chat(opts: {
       };
     }
 
+    if (projectQueryInvestigation) {
+      const filesystemPaths = projectQueryFilesystemManifest?.status === "VERIFIED"
+        ? new Set(projectQueryFilesystemManifest.files
+            .map(normalizeProjectQueryFactPath)
+            .filter((filePath): filePath is string => Boolean(filePath)))
+        : new Set<string>();
+      const contractPaths = projectQueryInvestigation.allowedPaths
+        .map(normalizeProjectQueryFactPath)
+        .filter((filePath): filePath is string => Boolean(filePath));
+      const proposedPaths = contractPaths.length > 0
+        ? contractPaths
+        : (queryPlan?.targetFiles ?? [])
+            .map(normalizeProjectQueryFactPath)
+            .filter((filePath): filePath is string => Boolean(filePath));
+      const allowedPaths = [...new Set(proposedPaths)]
+        .filter((filePath) => filesystemPaths.has(filePath))
+        .slice(0, Math.min(
+          projectQueryInvestigation.maxFiles,
+          PROJECT_QUERY_FACT_MAX_FILES,
+        ))
+        .sort();
+      const workspaceRevision =
+        projectContext.workspaceRevision ?? projectQueryInvestigation.workspaceRevision;
+      const workspaceRoot = rootPath || null;
+      const manifestId = allowedPaths.length > 0
+        ? hashProjectQueryFactManifest({
+            projectId: projectQueryInvestigation.projectId,
+            workspaceRevision,
+            workspaceRoot,
+            allowedPaths,
+          })
+        : null;
+      const persistedScopeMatches = contractPaths.length === 0
+        || (
+          allowedPaths.length === contractPaths.length
+          && manifestId === projectQueryInvestigation.manifestId
+        );
+      projectQueryFactAllowedPaths = persistedScopeMatches ? allowedPaths : [];
+      if (
+        projectQueryFactAllowedPaths.length > 0
+        && manifestId
+        && persistedScopeMatches
+      ) {
+        await onProjectQueryFactManifest?.({
+          projectId: projectQueryInvestigation.projectId,
+          workspaceRevision,
+          workspaceRoot,
+          allowedPaths: projectQueryFactAllowedPaths,
+          manifestId,
+        });
+        const instruction = [
+          "FACT investigation scope is fixed for this execution.",
+          "Answer only the original single factual question; do not create additional obligations or explain architecture, state, causes, impact, or comparisons.",
+          "Use only complete observed reads from these exact project-relative paths:",
+          ...projectQueryFactAllowedPaths.map((filePath) => `- ${filePath}`),
+          "If the sources do not directly support one answer, state that it is incomplete or undetermined. This answer is an investigation result, not canonical proof.",
+        ].join("\n");
+        messages.splice(Math.max(1, messages.length - 1), 0, {
+          role: "system",
+          content: instruction,
+        });
+      } else {
+        relayAgentStep({
+          kind: "diagnostic",
+          code: "PROJECT_QUERY_FACT_SCOPE_UNAVAILABLE",
+          details: [
+            projectQueryFilesystemManifest?.status === "VERIFIED"
+              ? "FACT source manifest is empty or changed from the persisted scope"
+              : "verified managed-project filesystem manifest is unavailable",
+          ],
+        });
+      }
+      queryPlan = {
+        ...(queryPlan ?? {
+          originalIntent: projectQueryInvestigation.question,
+          targetEntities: [],
+          scopeEstimate: "narrow" as const,
+          requiresToolUse: true,
+          subQueries: [],
+          compoundParts: [],
+          planStatus: "valid" as const,
+        }),
+        targetFiles: projectQueryFactAllowedPaths,
+        suggestedIterations: Math.min(
+          queryPlan?.suggestedIterations ?? projectQueryInvestigation.maxIterations,
+          projectQueryInvestigation.maxIterations,
+          PROJECT_QUERY_FACT_MAX_ITERATIONS,
+        ),
+      };
+    }
+
     // Pre-seed the cache with files identified by the planner.
     // These are read in parallel before the tool loop starts, so the model
     // gets their content on the very first iteration — no tool call needed.
-    if (!isProjectQueryObjective && !graphGuidance && queryPlan?.targetFiles.length) {
+    const shouldPrefetchPlan = projectQueryInvestigation
+      ? projectQueryFactAllowedPaths.length > 0
+      : !isProjectQueryObjective && !graphGuidance;
+    if (shouldPrefetchPlan && queryPlan?.targetFiles.length) {
       const planPrefetch = await prefetchFileList({
         files: queryPlan.targetFiles,
         rootPath,
         pendingChanges,
         toolCacheKeyFn: toolCacheKey,
         complete: completeReadEvidence,
-        maxFiles: remainingForensicPrefetchSlots(),
+        maxFiles: projectQueryInvestigation
+          ? Math.min(
+              remainingForensicPrefetchSlots() ?? 0,
+              projectQueryInvestigation.maxFiles,
+              PROJECT_QUERY_FACT_MAX_FILES,
+            )
+          : remainingForensicPrefetchSlots(),
         excludeFiles: prefetchExcludeFiles(),
         includeTestSources,
       }).catch(() => ({ injectedMessages: [] as typeof messages, sources: [] as string[], cacheEntries: [] as Array<{ key: string; content: string }> }));
@@ -8484,6 +8607,83 @@ export async function chat(opts: {
       sources: [],
       pendingChanges: [],
     };
+  }
+
+  if (
+    projectQueryInvestigation
+    && projectQueryFactAllowedPaths.length === 0
+    && projectQueryInvestigation.allowedPaths.length > 0
+  ) {
+    const filesystemPaths = projectQueryFilesystemManifest?.status === "VERIFIED"
+      ? new Set(projectQueryFilesystemManifest.files
+          .map(normalizeProjectQueryFactPath)
+          .filter((filePath): filePath is string => Boolean(filePath)))
+      : new Set<string>();
+    const storedPaths = projectQueryInvestigation.allowedPaths
+      .map(normalizeProjectQueryFactPath)
+      .filter((filePath): filePath is string => Boolean(filePath));
+    const allowedPaths = [...new Set(storedPaths)]
+      .filter((filePath) => filesystemPaths.has(filePath))
+      .slice(0, Math.min(
+        projectQueryInvestigation.maxFiles,
+        PROJECT_QUERY_FACT_MAX_FILES,
+      ))
+      .sort();
+    const workspaceRevision =
+      projectContext.workspaceRevision ?? projectQueryInvestigation.workspaceRevision;
+    const workspaceRoot = rootPath || null;
+    const manifestId = allowedPaths.length > 0
+      ? hashProjectQueryFactManifest({
+          projectId: projectQueryInvestigation.projectId,
+          workspaceRevision,
+          workspaceRoot,
+          allowedPaths,
+        })
+      : null;
+    if (
+      allowedPaths.length === storedPaths.length
+      && manifestId === projectQueryInvestigation.manifestId
+      && manifestId
+    ) {
+      projectQueryFactAllowedPaths = allowedPaths;
+      await onProjectQueryFactManifest?.({
+        projectId: projectQueryInvestigation.projectId,
+        workspaceRevision,
+        workspaceRoot,
+        allowedPaths,
+        manifestId,
+      });
+      const instruction = [
+        "FACT investigation scope is fixed for this execution.",
+        "Answer only the original single factual question; do not create additional obligations or explain architecture, state, causes, impact, or comparisons.",
+        "Use only complete observed reads from these exact project-relative paths:",
+        ...allowedPaths.map((filePath) => `- ${filePath}`),
+        "If the sources do not directly support one answer, state that it is incomplete or undetermined. This answer is an investigation result, not canonical proof.",
+      ].join("\n");
+      messages.splice(Math.max(1, messages.length - 1), 0, {
+        role: "system",
+        content: instruction,
+      });
+      queryPlan = {
+        ...(queryPlan ?? {
+          originalIntent: projectQueryInvestigation.question,
+          targetEntities: [],
+          scopeEstimate: "narrow" as const,
+          requiresToolUse: true,
+          subQueries: [],
+          compoundParts: [],
+          planStatus: "valid" as const,
+        }),
+        targetFiles: allowedPaths,
+        suggestedIterations: projectQueryInvestigation.maxIterations,
+      };
+    } else {
+      relayAgentStep({
+        kind: "diagnostic",
+        code: "PROJECT_QUERY_FACT_SCOPE_UNAVAILABLE",
+        details: ["persisted FACT paths no longer match the verified project manifest"],
+      });
+    }
   }
 
   if (
@@ -9311,13 +9511,28 @@ export async function chat(opts: {
         : immediateIntent && priorRepairPlan && executionFilePaths.length > 0
         ? "required"
         : undefined,
-    maxIterations: budget.maxIterations,
+    maxIterations: projectQueryInvestigation
+      ? Math.min(
+          budget.maxIterations,
+          projectQueryInvestigation.maxIterations,
+          PROJECT_QUERY_FACT_MAX_ITERATIONS,
+        )
+      : budget.maxIterations,
     taskType: executionPlan.taskProfile.taskType,
     requiresEvidence: sourceEvidenceRequired,
     deterministicTaskExecution,
-    maxToolCalls: structuredOutputMode || capabilityProbeRequest
-      ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
-      : budget.maxToolCalls,
+    maxToolCalls: projectQueryInvestigation
+      ? Math.max(
+          0,
+          Math.min(
+            projectQueryInvestigation.maxToolCalls,
+            PROJECT_QUERY_FACT_MAX_TOOL_CALLS,
+            budget.maxToolCalls - prefetchFileContents.size,
+          ),
+        )
+      : structuredOutputMode || capabilityProbeRequest
+        ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)
+        : budget.maxToolCalls,
     toolCallsDisabledAfter:
       completeCapabilityProbeEvidence && completeActiveObjectiveManifest
         ? 0
@@ -9349,7 +9564,9 @@ export async function chat(opts: {
     // only when it contains at least one concrete file.
     allowedToolNames: (() => {
       const isolatedToolNames =
-        capabilityProbeRequest
+        projectQueryInvestigation
+          ? ["read_file", "read_file_range"]
+          : capabilityProbeRequest
           ? completeCapabilityProbeEvidence && completeActiveObjectiveManifest
             ? []
             : ["read_file", "read_file_range"]
@@ -9363,7 +9580,9 @@ export async function chat(opts: {
     })(),
     allowedReadPaths: (() => {
       const contextualReadPaths =
-        singleFileForensicMode && singleFilePaths.length > 0
+        projectQueryInvestigation
+          ? projectQueryFactAllowedPaths
+          : singleFileForensicMode && singleFilePaths.length > 0
           ? singleFilePaths
           : projectOrientationMode
             ? [...orientationEvidencePaths]
