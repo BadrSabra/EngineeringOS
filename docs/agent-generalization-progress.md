@@ -3418,6 +3418,48 @@ G9 Revocation Safety
   `apply-changes` ثم مستهلك Mission محدد قبل إضافة World Delta له. لا تعمم
   transition engine ولا توسع إلى restart/stop أو P7.5 أو STATE أو مزود حي.
 
+### 43.07 — ربط Apply Changes الحي ببوابة Mission D2 (2026-09-30)
+
+- **phase/step:** امتداد محدود لـP6: انتقال `apply-changes` من live project
+  observations إلى تقييم Mission D2.
+- **status:** `partial — materialization وتقييم D2 مثبتان؛ dispatch التابع مرة واحدة
+  ومصفوفة الرفض end-to-end ما زالا مطلوبين`
+- **what changed:** فصلت ملاحظة candidate عن live project facts. يقبل finalizer
+  لملاحظة apply الانتقال فقط before/after observations المباشرة والكاملة والحديثة
+  ذات subject `project:<projectId>`، ومراجعات الشجرة الأساسية/المروّجة، وربط البيئة
+  نفسه. أصبح Apply Mission يتطلب ربطًا server-owned؛ وجود ربط Mission مع عقد Goal
+  ناقص يفشل مغلقًا، وهوية candidate تبقى مقيدة بالمقترح والشجرة. أُضيف اختبار
+  DB-backed يمر عبر finalizer إلى World State materialization ثم يثبت أن D2 يعيد
+  `proven`. واختبار route يثبت إنشاء Apply Goal بلا Task، ربط successor، رفض
+  الإكمال المبكر، ومنع Apply Mission مكرر.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/routes/ai/chat.ts`,
+  `artifacts/api-server/src/routes/ai/missions.ts`,
+  `artifacts/api-server/src/routes/ai/missions.test.ts`,
+  `artifacts/api-server/src/lib/agent-state/runtime-start-transition.ts`,
+  `artifacts/api-server/src/lib/agent-state/runtime-start-transition.test.ts`,
+  `artifacts/api-server/src/lib/agent-state/apply-changes-mission-gate.ts`,
+  `docs/agent-generalization-progress.md`.
+  لا تغييرات schema أو migrations.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck` نجح؛
+  `apply-changes-mission-gate.test.ts` (5/5)،
+  `runtime-start-transition.test.ts` (20/20)، واختبار إنشاء Apply Mission
+  المحدد في `missions.test.ts` (1/1) نجحت. أعيد تشغيل API وDashboard بنجاح.
+  اختبارا shadow-replay منفصلان ما زالا يفشلان قبل إنشاء receipt بـ
+  `SHADOW_REPLAY_RECIPE_BLOCKED`؛ يشير فحص التنفيذ إلى أن fixtures لا توفر إثبات
+  process attestation الذي يتطلبه `candidate.verify`. لم تُخفّف بوابة الإنتاج.
+- **authority/safety impact:** يظل قبول Gate C مستقلًا عن حالة World State وD2؛
+  materialization أو فشلها لا يمنح قبولًا ولا يسحبه بأثر رجعي. D2 يثبت أهلية
+  الانتقال المرتبط فقط ولا يمنح Goal `PROVEN` أو صلاحية كتابة جديدة. لا تُعاد
+  كتابة الملفات أثناء retry أو materialization.
+- **remaining/blocker:** لم يُثبت بعد dispatch فعلي لـ`report-applied` مرة واحدة
+  تحت wake/retry مكرر، ولا حالات الرفض end-to-end لملاحظة candidate فقط أو تعارض
+  البيئة/الشجرة أو سباق مراجعة الأب أو تغيّر الخطة/المقترح. كما بقي اختبارا
+  shadow-replay المذكوران منفصلين عن هذا الطيار.
+- **next step:** أضف اختبارًا DB-backed يعبر من materialized transition إلى
+  dispatch واحد للـMission successor، ثم يثبت حالات الرفض بلا dispatch أو
+  `PROVEN` وبقاء Gate C، قبل تحديث حالة P6 أو الانتقال إلى P7/P7.5.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:
