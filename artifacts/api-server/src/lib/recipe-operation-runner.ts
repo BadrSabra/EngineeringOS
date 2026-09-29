@@ -293,6 +293,63 @@ function runtimeStartHypothesisProbeValue(
   return undefined;
 }
 
+function runtimeChildProcessObservationSource(input: {
+  projectId: string;
+  executionId: string;
+  attempt: number;
+  episodeId: string;
+  operationId: string;
+  sessionId: unknown;
+  revision: string;
+  environmentRevision: string | null;
+  afterState: unknown;
+}) {
+  if (
+    typeof input.sessionId !== "string"
+    || !input.afterState
+    || typeof input.afterState !== "object"
+    || Array.isArray(input.afterState)
+  ) {
+    return undefined;
+  }
+  const afterState = input.afterState as Record<string, unknown>;
+  const attestation = afterState.childProcessAttestation
+    && typeof afterState.childProcessAttestation === "object"
+    && !Array.isArray(afterState.childProcessAttestation)
+    ? afterState.childProcessAttestation as Record<string, unknown>
+    : undefined;
+  if (
+    !attestation
+    || typeof attestation.bindingDigest !== "string"
+    || !["known", "mismatch", "unknown"].includes(String(attestation.status))
+    || typeof attestation.reasonCode !== "string"
+    || typeof attestation.observedAt !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    kind: "child_process_attestation" as const,
+    projectId: input.projectId,
+    executionId: input.executionId,
+    attempt: input.attempt,
+    episodeId: input.episodeId,
+    operationId: input.operationId,
+    sessionId: input.sessionId,
+    revision: input.revision,
+    status: attestation.status as "known" | "mismatch" | "unknown",
+    reasonCode: attestation.reasonCode as import("./agent-state/child-process-attestation.js").ChildProcessEnvironmentAttestation["reasonCode"],
+    bindingDigest: attestation.bindingDigest,
+    attestationDigest: typeof attestation.attestationDigest === "string"
+      ? attestation.attestationDigest
+      : null,
+    processEnvironmentDigest: typeof attestation.processEnvironmentDigest === "string"
+      ? attestation.processEnvironmentDigest
+      : null,
+    environmentRevision: input.environmentRevision,
+    observedAt: attestation.observedAt,
+  };
+}
+
 async function loadRuntimeStartCalibrationExperiments(
   projectId: string,
   calibrationScopeRef: string,
@@ -1209,6 +1266,7 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
   let runtimeStartParentWorldState: Awaited<ReturnType<typeof getProjectWorldState>> | undefined;
   let runtimeStartBeforeObservationIds: string[] = [];
   let runtimeStartAfterObservationIds: string[] = [];
+  let runtimeStartChildProcessObservationRetained = false;
   let runtimeStartTransitionQueued = false;
   let runtimeStartD1Decision: {
     allowEffect: boolean;
@@ -2375,6 +2433,17 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
             );
             if (afterValue) {
               const afterEvidenceRef = `runtime-start:${claimed.id}:${claimed.attempt}:${gateCAction.actionId}:after`;
+              const childProcessObservation = runtimeChildProcessObservationSource({
+                projectId: params.projectId,
+                executionId: claimed.id,
+                attempt: claimed.attempt,
+                episodeId: episode.episodeId,
+                operationId: params.operationId,
+                sessionId: evidenceRecord?.sessionId,
+                revision: params.sourceRevision,
+                environmentRevision,
+                afterState: evidenceRecord?.afterState,
+              });
               try {
                 const after = await materializeServerOwnedObservations({
                   projectId: params.projectId,
@@ -2398,9 +2467,10 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
                         : []),
                     ],
                     observedAt: String((afterValue as Record<string, unknown>).observedAt),
-                  }],
+                  }, ...(childProcessObservation ? [childProcessObservation] : [])],
                 });
                 runtimeStartAfterObservationIds = after.observationIds;
+                runtimeStartChildProcessObservationRetained = Boolean(childProcessObservation);
               } catch (error) {
                 logger.warn(
                   {
@@ -3593,7 +3663,11 @@ export async function runRecipeOperation(params: RunRecipeOperationParams): Prom
               : null,
           } : {}),
         },
-        ...runtimeChildProcessObservation,
+        ...(
+          runtimeStartChildProcessObservationRetained
+            ? []
+            : runtimeChildProcessObservation
+        ),
         ...validatorProcessObservations,
         ...(runtimeAfterObservation && runtimeGateCEffectKind ? [{
           kind: "direct_observation" as const,

@@ -12,6 +12,7 @@ import {
 import {
   invalidateContextSlice,
 } from "@workspace/ai-orchestrator";
+import { childProcessBindingDigest } from "./child-process-attestation.js";
 import { getProjectWorldState, materializeWorldStateForProject } from "./world-state.js";
 import { logger } from "../logger.js";
 
@@ -436,6 +437,36 @@ export async function finalizeRuntimeStartTransition(input: {
           }),
         )
       : undefined;
+    const afterStateValue = directAfterState?.value
+      && typeof directAfterState.value === "object"
+      && !Array.isArray(directAfterState.value)
+      ? directAfterState.value as Record<string, unknown>
+      : undefined;
+    const runtimeSessionId = typeof afterStateValue?.sessionId === "string"
+      ? afterStateValue.sessionId
+      : undefined;
+    const childProcessObservation = afterRows.find((observation) => (
+      observation.sourceType === "child_process_attestation"
+      && observation.predicate === "runtime.child_process_environment"
+    ));
+    const childProcessValue = childProcessObservation?.value
+      && typeof childProcessObservation.value === "object"
+      && !Array.isArray(childProcessObservation.value)
+      ? childProcessObservation.value as Record<string, unknown>
+      : undefined;
+    const expectedChildBindingDigest = sourceRevision
+      && runtimeSessionId
+      && acceptance.operationId
+      ? childProcessBindingDigest({
+          projectId: input.projectId,
+          sessionId: runtimeSessionId,
+          executionId: input.executionId,
+          executionAttempt: input.attempt,
+          episodeId: input.episodeId,
+          operationId: acceptance.operationId,
+          revision: sourceRevision,
+        })
+      : undefined;
     if (
       !directBeforeState
       || beforeValue?.projectId !== input.projectId
@@ -445,6 +476,32 @@ export async function finalizeRuntimeStartTransition(input: {
       || !afterRows.some((observation) => observation.predicate === "runtime.status" && observation.value === "running")
     ) {
       throw new Error("runtime_start_transition_observations_unproven");
+    }
+    if (!childProcessObservation) {
+      throw new Error("runtime_start_transition_child_process_attestation_missing");
+    }
+    if (
+      !runtimeSessionId
+      || !acceptance.operationId
+      || !expectedChildBindingDigest
+      || childProcessObservation.sourceId !== `runtime-child-process:${runtimeSessionId}`
+      || childProcessObservation.subject !== `runtime:${runtimeSessionId}`
+      || childProcessObservation.projectRevision !== sourceRevision
+      || childProcessObservation.environmentRevision !== transition.environmentRevision
+      || childProcessObservation.freshness !== "fresh"
+      || childProcessObservation.environmentFreshness !== "fresh"
+      || childProcessObservation.completeness !== "complete"
+      || childProcessValue?.status !== "known"
+      || childProcessValue.reasonCode !== "child_process_observed"
+      || childProcessValue.sessionId !== runtimeSessionId
+      || childProcessValue.operationId !== acceptance.operationId
+      || childProcessValue.bindingDigest !== expectedChildBindingDigest
+      || typeof childProcessValue.attestationDigest !== "string"
+      || !/^[a-f0-9]{64}$/.test(childProcessValue.attestationDigest)
+      || typeof childProcessValue.processEnvironmentDigest !== "string"
+      || !/^[a-f0-9]{64}$/.test(childProcessValue.processEnvironmentDigest)
+    ) {
+      throw new Error("runtime_start_transition_child_process_attestation_unproven");
     }
 
     const materialized = await materializeWorldStateForProject(input.projectId, {

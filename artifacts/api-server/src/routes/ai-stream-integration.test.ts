@@ -7575,10 +7575,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     let fixtureCallCount = 0;
 
     vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
-      if (fixtureCallCount >= 2) {
+      if (fixtureCallCount >= 3) {
         throw new Error("PROJECT_QUERY proof fixture exhausted after JSON and SSE requests.");
       }
       fixtureCallCount += 1;
+      const omitRetainedBodies = fixtureCallCount === 3;
       const input = args[1] as ProjectQueryFixtureInput;
       observedInputs.push(input);
       const observedObjective = input.objective;
@@ -7601,7 +7602,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           args: { path: source, complete: true },
           cached: false,
         } as never);
-        input.retainedEvidence?.set(source, body);
+        if (!omitRetainedBodies) input.retainedEvidence?.set(source, body);
         input.retainedReadStatuses?.set(source, "READ_COMPLETE");
         args[6]?.({
           kind: "tool_result",
@@ -7757,6 +7758,19 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
     expect(json.status).toBe(200);
     expect(json.body).toMatchObject({
+      outcome: "SUCCEEDED",
+      executionId: expect.any(String),
+      terminalProjection: {
+        status: "completed",
+        outcome: "SUCCEEDED",
+        acceptanceId: expect.any(String),
+      },
+      executionProjection: {
+        verification: {
+          proofRequired: true,
+          evidenceVerdict: "PROVEN",
+        },
+      },
       sources,
       projectQueryResponseSource: "deterministic_fallback",
       projectQueryResponseFallbackReason: "synthesis_failed",
@@ -7770,6 +7784,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
     const jsonMessage = json.body.message as Record<string, unknown> & { id: string };
     expect(jsonMessage.id).toEqual(expect.any(String));
+    expect(jsonMessage).toMatchObject({
+      executionId: expect.any(String),
+      outcome: "SUCCEEDED",
+    });
     expect(responseProjection(jsonMessage)).toEqual(streamProjection);
     expect(observedInputs).toHaveLength(2);
     for (const input of observedInputs) {
@@ -7889,6 +7907,56 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     };
 
     await assertAcceptedProof(execution!.finalMessageId!);
+    await assertAcceptedProof(jsonMessage.id);
+
+    const incompleteJson = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message });
+    expect(incompleteJson.status).toBe(200);
+    expect(incompleteJson.body).toMatchObject({
+      outcome: "FAILED",
+      failureKind: "INCOMPLETE",
+      code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      message: {
+        outcome: "FAILED",
+        errorCode: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+      },
+    });
+    const incompleteJsonMessage = incompleteJson.body.message as {
+      id: string;
+      content: string;
+    };
+    expect(incompleteJsonMessage.content).toBe(response);
+    const [incompleteExecution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        status: aiExecutionsTable.status,
+        request: aiExecutionsTable.request,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.projectId, projectId),
+        eq(aiExecutionsTable.finalMessageId, incompleteJsonMessage.id),
+      ))
+      .limit(1);
+    expect(incompleteExecution?.status).toBe("failed");
+    expect(JSON.parse(incompleteExecution?.request ?? "{}")).toMatchObject({
+      proofRequired: true,
+    });
+    const [incompleteAcceptance] = await db
+      .select()
+      .from(aiExecutionAcceptancesTable)
+      .where(eq(aiExecutionAcceptancesTable.executionId, incompleteExecution!.id))
+      .limit(1);
+    expect(incompleteAcceptance).toMatchObject({
+      outcome: "FAILED",
+      evidenceRequired: 1,
+      evidenceComplete: 0,
+      messageId: incompleteJsonMessage.id,
+    });
+    expect(observedInputs).toHaveLength(3);
+    expect(fixtureReadPaths).toEqual([...sources, ...sources, ...sources]);
 
     const proposals = await db
       .select({ id: aiChangeProposalsTable.id })
@@ -7906,7 +7974,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .where(eq(projectsTable.id, projectId))
       .limit(1);
     expect(await fs.readdir(project!.rootPath)).toEqual([]);
-  });
+  }, 60_000);
 
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {
     const projectId = await insertProject();

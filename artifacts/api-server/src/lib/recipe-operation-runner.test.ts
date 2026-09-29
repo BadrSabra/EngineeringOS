@@ -1656,11 +1656,18 @@ describe("recipe operation preparation", () => {
       expect(childProcessObservation).toMatchObject({
         predicate: "runtime.child_process_environment",
         provenance: "DIRECT_OBSERVATION",
+        completeness: "complete",
+        freshness: "fresh",
+        environmentFreshness: "fresh",
+        environmentRevision: runtimeSnapshot.environmentRevision,
+        projectRevision: sourceRevision,
         subject: `runtime:${runtimeSnapshot.sessionId}`,
         sourceId: `runtime-child-process:${runtimeSnapshot.sessionId}`,
         sourceRefs: expect.arrayContaining([`runtime:${runtimeSnapshot.sessionId}`]),
       });
       expect(childProcessObservation?.value).toMatchObject({
+        status: "known",
+        operationId,
         bindingDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
         sessionId: runtimeSnapshot.sessionId,
       });
@@ -1710,9 +1717,11 @@ describe("recipe operation preparation", () => {
       });
       expect(transition?.beforeObservationIds).toContain(beforeStateObservation?.id);
       expect(transition?.afterObservationIds).toContain(runtimeStatusObservation?.id);
+      expect(transition?.afterObservationIds).toContain(childProcessObservation?.id);
       expect(transition?.materializedObservationIds).toEqual(expect.arrayContaining([
         beforeStateObservation?.id,
         runtimeStatusObservation?.id,
+        childProcessObservation?.id,
       ]));
 
       const d2 = await readWorldStateForDecision({

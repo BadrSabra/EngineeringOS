@@ -79,3 +79,22 @@ environment evidence, wrong source/target plan binding, stale plan revision,
 and failed/unmaterialized transitions. Do not add a generic predicate language,
 dependency graph, scheduler, restart/stop pilot, or P7/P7.5 work as part of this
 closure.
+
+For the stopped-to-running pilot, a nested `childProcessAttestation` inside the
+runtime after-state is not enough for World Delta. Materialize its own direct
+observation before creating the transition, include that exact row ID in
+`afterObservationIds`, and revalidate its known status and binding digest against
+the accepted operation, execution attempt, Episode, session, source revision,
+and environment before committing the delta. Missing, unknown, stale, or
+mismatched child evidence blocks only World State materialization; it does not
+downgrade accepted Gate C execution.
+
+**Why:** A transition snapshots its evidence identities when created, so a
+later observation cannot retroactively prove the transition. The independent
+child-process attestation must be both retained and explicitly linked, while
+execution acceptance remains an independent contract.
+
+**How to apply:** Keep this check limited to the stopped-to-running
+`runtime.start` pilot and preserve atomic World State commit and existing
+attempt/lease fences. Do not extend it to restart, stop, or P7.5 as part of this
+slice.

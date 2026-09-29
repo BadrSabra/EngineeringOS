@@ -4,7 +4,7 @@
 > **نطاق الخطة:** الوكيل داخل بيئات البرمجيات والأنظمة الرقمية  
 > **تاريخ إعداد الخطة:** 2026-09-24  
 > **مرجع التشخيص:** `docs/ai-layer-deep-analysis.md` والتحليل المعمق لطبقات التنفيذ والذاكرة والتعميم  
-> **آخر حالة تنفيذية (2026-09-29):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل؛ تسبق جمع النتائج بوابة جاهزية للتحقق من قناة Mission، وقابلية التكرار والاستعادة، وصحة القياس. يبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. أُثبت route-level failover محدود لـPROJECT_QUERY في §42.80–§42.81، لكن جودة provider حي لم تثبت؛ fallback العام بلا objective مقبول يظل محظورًا. اكتملت رحلة Clerk الحقيقية لـArchive Upload حتى scan وتفعيل scan hook بعد reload؛ هذه reachability لا تغلق أي مرحلة معرفية. اجتازت بوابة AI الحتمية 15/15 فحصًا مع Preview ناجح، واجتاز harness PROJECT_QUERY القائم على fixtures؛ لم يُشغّل مزود حي ولم يبدأ STATE (§43.03). أولوية التسليم المتبقية هي قرارات النطاق للميزات غير المحسومة في Dashboard؛ لا يغيّر ذلك dependency graph أو بوابات P7.5. سجل التفاصيل في `docs/agent-generalization-progress.md`.
+> **آخر حالة تنفيذية (2026-09-29):** P0–P2 مكتملة؛ P3 مكتملة على مستوى foundation مع تكامل معرفي جزئي؛ P3.5/P4/P5 تحتوي شرائح runtime فعلية ومحدودة، وP5.5 مكتملة ضمن أسطح invocation المخولة والمدرجة فقط. أُغلق pilot P6 لـ`runtime.start` من `stopped` إلى `running`، وأُغلق pilot P7 للتشخيص bounded للانتقال نفسه؛ لا يعني ذلك إغلاق P3.5/P4/P5/P6 أو تعميم التشخيص على بقية World State. P7.5 جزئية: لا يوجد scope معايرة مؤهل؛ تسبق جمع النتائج بوابة جاهزية للتحقق من قناة Mission، وقابلية التكرار والاستعادة، وصحة القياس. يبقى الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives جزئية لا تثبت إغلاق المراحل أو portability. أُثبت route-level failover محدود لـPROJECT_QUERY في §42.80–§42.81، لكن جودة provider حي لم تثبت؛ fallback العام بلا objective مقبول يظل محظورًا. اكتملت رحلة Clerk الحقيقية لـArchive Upload حتى scan وتفعيل scan hook بعد reload؛ هذه reachability لا تغلق أي مرحلة معرفية. اجتازت بوابة AI الحتمية 15/15 فحصًا مع Preview ناجح، وأثبت harness PROJECT_QUERY Canonical Proof لمساري SSE وJSON المؤهلين مع بقاء الحالات غير المكتملة fail-closed؛ لم يُشغّل مزود حي ولم يبدأ STATE (§43.04). أولوية التسليم المتبقية هي قرارات النطاق للميزات غير المحسومة في Dashboard؛ لا يغيّر ذلك dependency graph أو بوابات P7.5. سجل التفاصيل في `docs/agent-generalization-progress.md`.
 > **متابعة PROJECT_QUERY (2026-09-28):** يغلق §42.80–§42.81 إثبات المسار
 > route-level من فشل provider A إلى نجاح B وتكافؤ JSON/SSE/history وحدود
 > الاستنفاد والمهلة والإلغاء. هذا اختبار حتمي بواجهات مزودين مختبرية، وليس
@@ -15,10 +15,10 @@
 > تعميم الوكيل أو transfer.
 > **تصحيح بوابة AI (2026-09-29):** تقرير القرار الافتراضي اجتاز 15/15 فحصًا،
 > بلا فشل أو تخطٍ، مع Preview مفعّل وناجح و`liveProviderChecks=disabled`.
-> اجتاز harness fixture المحدد؛ يثبت Canonical Proof وقراءات الأدلة لمسار SSE،
-> بينما يثبت JSON تكافؤ الاستجابة والتاريخ فقط لأن تنفيذ non-stream الحالي
-> observation-only و`proofRequired=false`. لم يُشغّل مزود حي أو يبدأ STATE؛
-> راجع §43.02 للتاريخ و§43.03 للتصحيح.
+> أثبت harness fixture Canonical Proof وقراءات الأدلة الكاملة لمساري SSE وJSON
+> المؤهل ذي objective صالح، مع فشل مغلق عند غياب objective أو اكتمال الأدلة.
+> لم يُشغّل مزود حي أو يبدأ STATE؛ راجع §43.02 للتاريخ و§43.03 للسياق و§43.04
+> لإثبات JSON.
 > **تكامل المنتج (2026-09-27):** أضيف تفعيل project-scoped لـscan hooks مع
 > بقاء plugin definitions والتوافر العام عالميين. هذه شريحة platform integration
 > مستقلة؛ لا تغيّر P0–P14 أو dependency graph، ولا تغلق أي capability phase أو
@@ -3649,11 +3649,10 @@ P8/P9/P10 قبل إغلاق الاعتماديات ومعايير P7.5 المح�
    إعادة قراءة، وتكافؤ JSON/SSE/history، وحدود الاستنفاد والميزانية والمهلة
    والإلغاء. يبقى المسار العام بلا objective canonical غير مكتمل عمدًا؛ كما
    لم تثبت جودة provider حي. اجتازت البوابة الحتمية 15/15 فحصًا، ونجح harness
-   fixture المحدد (§43.03). يثبت Canonical Proof والأجسام الكاملة المحفوظة لمسار
-   SSE؛ يظل JSON متكافئًا في الاستجابة والتاريخ فقط لأن عقد non-stream الحالي
-   observation-only و`proofRequired=false`. لا تشغّل live provider ضمن هذا
-   التحقق، ولا تبدأ STATE؛ لا تغيّر سلطة evidence أو acceptance ولا توسع
-   fallback العام.
+   fixture المحدد (§43.03–§43.04). يثبت Canonical Proof والأجسام الكاملة
+   المحفوظة لمسار SSE وJSON المؤهل ذي objective صالح. تبقى الحالات غير المؤهلة
+   أو ذات الأدلة غير المكتملة غير ناجحة. لا تشغّل live provider ضمن هذا التحقق،
+   ولا تبدأ STATE؛ لا تغيّر سلطة evidence أو acceptance ولا توسع fallback العام.
 
 بعد اجتياز بوابة P7.5 فقط، اجمع outcomes حقيقية ومأذونة ضمن scope واحد، مع إبقاء
 `fixed_safe_probe` حتى تحقق عتبات §25.4 و§42.8. لا تُنشأ Missions أو نتائج
@@ -6831,3 +6830,28 @@ expected-decision-value ranking أو Belief updates، ولم يبدأ P8 integra
   للتفعيل/reload لم تثبت.
 - **next step:** صمّم العقود المؤجلة منفصلة وأثبت مسار activation المصادق عليه؛
   لا تعدّل مصفوفة §42.19 أو حالة المراحل العامة بناءً على هذه الشريحة.
+
+### 42.44 — ربط Attestation العملية بانتقال runtime.start (2026-09-29)
+
+- **phase/step:** شريحة P4/P6 ضيقة لمسار `runtime.start` من stopped إلى running.
+- **status:** `done` لهذه الشريحة فقط؛ لا يعني إغلاق P4 أو P6 عمومًا.
+- **what changed:** تُحفظ ملاحظة `runtime.child_process_environment` مع ملاحظة
+  الحالة بعد التشغيل قبل إنشاء الانتقال، ويرتبط معرّفها بـ
+  `afterObservationIds` ثم `materializedObservationIds`. يتحقق finalizer من
+  known/fresh/complete، وهوية الجلسة والتنفيذ والمحاولة وEpisode والعملية
+  والمراجعة والبيئة، ويعيد حساب binding digest. غيابها أو تعارضها يمنع
+  World Delta دون تغيير قبول Gate C.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`،
+  `artifacts/api-server/src/lib/agent-state/runtime-start-transition.ts`،
+  `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`؛ لا تغيير schema.
+- **validation:** API typecheck، `git diff --check`، واختبارات الانتقال (12/12)
+  واختبار التكامل المحدد لـruntime.start (1/1) نجحت. مجموعة runner كاملة
+  سجلت 24/25؛ الاختبار المتبقي خاص باسترداد P7.5 ويتوقع حدثي terminal لكنه
+  سجّل ثلاثة، ومساره لا يستدعي runtime.start.
+- **authority/safety impact:** لا تتغير Canonical/Gate C acceptance أو صلاحيات
+  التنفيذ؛ يبقى World State commit ذريًا ومربوطًا بمحاولة التنفيذ.
+- **remaining/blocker:** لم يُوسّع النطاق إلى restart أو stop أو P7.5 أو providers
+  الحية أو STATE. يلزم اختبار سلبي مستقل للملاحظة الناقصة/المتعارضة في خطوة لاحقة.
+- **next step:** أبقِ بقية P4/P6 خارج هذه الشريحة؛ لا تعمم ربط الانتقال على
+  قدرات runtime أخرى دون نطاق منفصل.

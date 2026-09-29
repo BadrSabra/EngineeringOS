@@ -5709,6 +5709,8 @@ router.post("/ai/chat", async (req, res) => {
   let chatObservationTerminal = false;
   let chatObservationSucceeded = false;
   let chatObservationFinalMessageId: string | null = null;
+  let chatCanonicalProjectQueryProofRequired = false;
+  let chatProofSessionCreated = false;
   const chatObservationAbortController = new AbortController();
   try {
     const baseProjectContext = await buildProjectContext(projectId, {
@@ -5843,6 +5845,9 @@ router.post("/ai/chat", async (req, res) => {
     const traceSteps: AgentStep[] = [];
     const retainedEvidence = new Map<string, string>();
     const retainedReadStatuses = new Map<string, ReadStatus>();
+    let projectQueryAnalysisEvidenceState:
+      | ReturnType<typeof deriveProjectQueryAnalysisEvidenceState>
+      | undefined;
     let providerFailureAfterEvidence: GroqClientError | undefined;
     const sessionIdToUse = existingSession?.id ?? sessionId ?? randomUUID();
     const factInvestigationEligible =
@@ -5877,6 +5882,21 @@ router.post("/ai/chat", async (req, res) => {
       : undefined;
     const sourceEvidenceRequiredForTurn =
       turnIntent.requiresEvidence || projectOrientationTurn;
+    const canonicalProjectQueryObjective = ObjectiveContractSchema.safeParse(effectiveObjective);
+    chatCanonicalProjectQueryProofRequired =
+      turnIntent.kind === "PROJECT_QUERY"
+      && turnIntent.requiresEvidence
+      && Boolean(effectiveProjectQuery)
+      && canonicalProjectQueryObjective.success
+      && canonicalProjectQueryObjective.data.objectiveType.startsWith("PROJECT_QUERY_")
+      && !projectOrientationTurn
+      && !capabilityProbeTurn
+      && classifyProjectQueryInvestigationQuestion(message) !== "FACT"
+      && !effectiveLinkedTaskId
+      && !turnIntent.compoundExecution
+      && !turnIntent.compoundWrite
+      && !isWriteCapableTurn(turnIntent)
+      && !isImmediateExecutionRequest(message);
     const ensureChatObservationLifecycle = async (): Promise<void> => {
       if (chatObservationStartPromise) {
         await chatObservationStartPromise;
@@ -5884,11 +5904,32 @@ router.post("/ai/chat", async (req, res) => {
       }
       chatObservationStartPromise = (async () => {
         const workerId = randomUUID();
+        if (chatCanonicalProjectQueryProofRequired && !existingSession) {
+          const trimmed = message.trim();
+          const isGreeting =
+            /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+          await db
+            .insert(aiChatSessionsTable)
+            .values({
+              id: sessionIdToUse,
+              projectId,
+              linkedTaskId: effectiveLinkedTaskId ?? null,
+              title: !isGreeting && trimmed.length > 10
+                ? trimmed.slice(0, 60)
+                : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing();
+          chatProofSessionCreated = true;
+        }
         const request: AiExecutionRequestEnvelope = {
           projectId,
           turnIntent: turnIntent.kind,
           operationId: analysisCorrelation.operationId,
-          ...(existingSession || factInvestigationContract
+          ...(existingSession
+            || factInvestigationContract
+            || chatCanonicalProjectQueryProofRequired
             ? { sessionId: sessionIdToUse }
             : {}),
           message,
@@ -5896,20 +5937,26 @@ router.post("/ai/chat", async (req, res) => {
           workspaceRevision: analysisCorrelation.projectRevision,
           workspaceRoot: validRootPath ?? null,
           ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
+          ...(chatCanonicalProjectQueryProofRequired
+            ? { objective: effectiveObjective }
+            : {}),
           ...(factInvestigationContract
             ? { factInvestigation: factInvestigationContract }
             : {}),
           validationTargetPaths: [],
-          // This route keeps its existing chat acceptance rules. The durable
-          // row tracks worker/lease ownership only; it is not proof authority.
-          proofRequired: false,
+          // Only a server-resolved, evidence-required PROJECT_QUERY objective
+          // enters canonical proof acceptance on the JSON route. Other chat
+          // observations keep their existing observation-only contract.
+          proofRequired: chatCanonicalProjectQueryProofRequired,
         };
         const created = await createAiExecution({
           userId: req.userId,
           request,
           idempotencyKey: randomUUID(),
           projectId,
-          ...(existingSession ? { sessionId: sessionIdToUse } : {}),
+          ...(existingSession || chatProofSessionCreated
+            ? { sessionId: sessionIdToUse }
+            : {}),
           linkedTaskId: effectiveLinkedTaskId,
           correlationId: analysisCorrelation.operationId,
           workspaceRoot: validRootPath ?? null,
@@ -6023,6 +6070,11 @@ router.post("/ai/chat", async (req, res) => {
       finalMessageId: string | null = chatObservationFinalMessageId,
     ): Promise<boolean> => {
       if (
+        chatCanonicalProjectQueryProofRequired
+        && requestedStatus === "completed"
+        && (!chatObservationExecution || !chatObservationWorkerId)
+      ) return false;
+      if (
         !chatObservationExecution
         || !chatObservationWorkerId
         || chatObservationTerminal
@@ -6035,11 +6087,33 @@ router.post("/ai/chat", async (req, res) => {
       let reasonCode = terminalStatus === "cancelled"
         ? "CHAT_CANCELLED"
         : requestedReasonCode;
+      if (terminalStatus === "completed" && chatCanonicalProjectQueryProofRequired) {
+        projectQueryAnalysisEvidenceState ??= deriveProjectQueryAnalysisEvidenceState({
+          traceSteps,
+          objective: effectiveObjective,
+          operationId:
+            chatObservationExecution.operationId
+            ?? analysisCorrelation.operationId,
+          sourceRevision: analysisCorrelation.projectRevision,
+          retainedEvidence,
+          proofRequired: true,
+        });
+        if (
+          !projectQueryAnalysisEvidenceState.accepted
+          || !projectQueryAnalysisEvidenceState.analysisEvidence
+        ) {
+          terminalStatus = "failed";
+          reasonCode = "EXECUTION_ACCEPTANCE_INCOMPLETE";
+        }
+      }
       if (terminalStatus === "completed" && !chatObservationEpisode) {
         terminalStatus = "failed";
         reasonCode = "CHAT_EPISODE_START_FAILED";
       }
-      if (chatObservationEpisode) {
+      if (
+        chatObservationEpisode
+        && (!chatCanonicalProjectQueryProofRequired || terminalStatus !== "completed")
+      ) {
         try {
           await closeEpisode({
             episodeId: chatObservationEpisode.episodeId,
@@ -6076,15 +6150,98 @@ router.post("/ai/chat", async (req, res) => {
           }
         }
       }
-      const terminalized = await terminalizeChatObservationExecution({
-        executionId: chatObservationExecution.id,
-        userId: req.userId,
-        expectedAttempt: chatObservationExecution.attempt,
-        workerId: chatObservationWorkerId,
-        status: terminalStatus,
-        finalMessageId,
-        error: terminalStatus === "completed" ? undefined : reasonCode,
+      if (terminalStatus === "completed" && chatCanonicalProjectQueryProofRequired) {
+        const evidenceProgress = deriveEvidenceProgressCheckpoint({
+          objective: effectiveObjective,
+          traceSteps,
+          retainedEvidence,
+          operationId:
+            chatObservationExecution.operationId
+            ?? analysisCorrelation.operationId,
+          sourceRevision: analysisCorrelation.projectRevision,
+        });
+        const evidenceReads = collectRetainedEvidenceReads(
+          retainedEvidence,
+          true,
+          retainedReadStatuses,
+          traceSteps,
+        );
+        const completed = await completeAiExecution({
+          executionId: chatObservationExecution.id,
+          workerId: chatObservationWorkerId,
+          finalMessageId,
+          finalMessageContent: sanitizeResponseText(result.response),
+          workspaceRoot: validRootPath ?? null,
+          evidenceVerdict: "PROVEN",
+          evidenceReason:
+            "Project query claims were accepted from retained source evidence bound to this revision.",
+          ...(projectQueryAnalysisEvidenceState?.analysisEvidence
+            ? { analysisEvidence: projectQueryAnalysisEvidenceState.analysisEvidence }
+            : {}),
+          proofRequired: true,
+          operationId:
+            chatObservationExecution.operationId
+            ?? analysisCorrelation.operationId,
+          evidenceReads,
+          evidenceProgress,
+        });
+        if (completed) {
+          chatObservationTerminal = true;
+          chatObservationSucceeded = true;
+          return true;
+        }
+        terminalStatus = "failed";
+        reasonCode = "EXECUTION_ACCEPTANCE_INCOMPLETE";
+      }
+      const evidenceProgress = deriveEvidenceProgressCheckpoint({
+        objective: effectiveObjective,
+        traceSteps,
+        retainedEvidence,
+        operationId:
+          chatObservationExecution.operationId
+          ?? analysisCorrelation.operationId,
+        sourceRevision: analysisCorrelation.projectRevision,
       });
+      const evidenceReads = collectRetainedEvidenceReads(
+        retainedEvidence,
+        sourceEvidenceRequiredForTurn,
+        retainedReadStatuses,
+        traceSteps,
+      );
+      const terminalized = chatCanonicalProjectQueryProofRequired
+        ? await failAiExecution({
+            executionId: chatObservationExecution.id,
+            workerId: chatObservationWorkerId,
+            error: reasonCode,
+            cancelled: terminalStatus === "cancelled",
+            finalMessageId: finalMessageId ?? undefined,
+            finalMessageErrorCode: reasonCode,
+            ...(reasonCode === "EXECUTION_ACCEPTANCE_INCOMPLETE"
+              ? {
+                  acceptanceDisposition: publicAcceptanceDisposition({
+                    code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+                    outcome: "FAILED",
+                    failureKind: "INCOMPLETE",
+                    recoveryState: "INCOMPLETE",
+                  })!,
+                }
+              : {}),
+            evidenceVerdict: "PARTIAL",
+            evidenceReason:
+              "The project query did not complete canonical source-evidence acceptance.",
+            ...(evidenceProgress ? { evidenceProgress } : {}),
+            ...(evidenceReads ? { evidenceReads } : {}),
+            workspaceRoot: validRootPath ?? null,
+          })
+        : await terminalizeChatObservationExecution({
+            executionId: chatObservationExecution.id,
+            userId: req.userId,
+            expectedAttempt: chatObservationExecution.attempt,
+            workerId: chatObservationWorkerId,
+            status: terminalStatus,
+            finalMessageId,
+            error: terminalStatus === "completed" ? undefined : reasonCode,
+          });
       if (terminalized) {
         chatObservationTerminal = true;
         chatObservationSucceeded =
@@ -6093,6 +6250,9 @@ router.post("/ai/chat", async (req, res) => {
       return terminalized;
     };
     try {
+      if (chatCanonicalProjectQueryProofRequired) {
+        await ensureChatObservationLifecycle();
+      }
       const chatOut = await chatWithFallback(
         req.userId,
         {
@@ -6483,6 +6643,14 @@ router.post("/ai/chat", async (req, res) => {
           projectId,
           message,
           turnIntent: turnIntent.kind,
+          ...(chatCanonicalProjectQueryProofRequired
+            && chatObservationExecution
+            && chatObservationWorkerId
+            ? {
+                executionId: chatObservationExecution.id,
+                workerId: chatObservationWorkerId,
+              }
+            : {}),
           activeTaskState: executionBoundTaskStateJson,
           linkedTaskId: effectiveLinkedTaskId,
           createSessionIfMissing: true,
@@ -6526,6 +6694,18 @@ router.post("/ai/chat", async (req, res) => {
       operationId: analysisCorrelation.operationId ?? sessionIdToUse,
       sourceRevision: analysisCorrelation.projectRevision,
     });
+    if (chatCanonicalProjectQueryProofRequired) {
+      projectQueryAnalysisEvidenceState = deriveProjectQueryAnalysisEvidenceState({
+        traceSteps,
+        objective: effectiveObjective,
+        operationId:
+          chatObservationExecution?.operationId
+          ?? analysisCorrelation.operationId,
+        sourceRevision: analysisCorrelation.projectRevision,
+        retainedEvidence,
+        proofRequired: true,
+      });
+    }
     const classifiedTerminalOutcome = classifyAiTerminalOutcome({
       result,
       trace: traceSteps,
@@ -6570,6 +6750,20 @@ router.post("/ai/chat", async (req, res) => {
             recoveryState: "INCOMPLETE" as const,
             evidenceAccepted: false,
           }
+        : classifiedTerminalOutcome.outcome === "SUCCEEDED"
+          && chatCanonicalProjectQueryProofRequired
+          && !projectQueryAnalysisEvidenceState?.accepted
+          ? {
+              ...classifiedTerminalOutcome,
+              outcome: "FAILED" as const,
+              failureKind: "INCOMPLETE" as const,
+              retryable: true,
+              code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+              message:
+                "The project query is incomplete because its canonical source evidence was not accepted.",
+              recoveryState: "INCOMPLETE" as const,
+              evidenceAccepted: false,
+            }
         : classifiedTerminalOutcome;
     executionLedgerSnapshot = finishExecutionLedger(executionLedger, {
       outcome: terminalOutcome.outcome,
@@ -6588,6 +6782,14 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
+        ...(chatCanonicalProjectQueryProofRequired
+          && chatObservationExecution
+          && chatObservationWorkerId
+          ? {
+              executionId: chatObservationExecution.id,
+              workerId: chatObservationWorkerId,
+            }
+          : {}),
           activeTaskState: executionBoundTaskStateJson,
         linkedTaskId: effectiveLinkedTaskId,
         createSessionIfMissing: true,
@@ -6713,8 +6915,15 @@ router.post("/ai/chat", async (req, res) => {
         projectId,
         message,
         turnIntent: turnIntent.kind,
+        ...(chatCanonicalProjectQueryProofRequired
+          && chatObservationExecution
+          && chatObservationWorkerId
+          ? {
+              executionId: chatObservationExecution.id,
+              workerId: chatObservationWorkerId,
+            }
+          : {}),
           activeTaskState: executionBoundTaskStateJson,
-        executionId: undefined,
         outcome: "FAILED",
         errorCode: quality.code,
         errorMessage: safeMessage,
@@ -6804,9 +7013,8 @@ router.post("/ai/chat", async (req, res) => {
     // Chat turns don't modify project data — no cache invalidation needed.
     // Full invalidation happens only in /apply-changes when files are written.
 
-    // Atomic: session creation (when needed) + user message + assistant message
-    // + session timestamp update in one transaction — prevents a half-saved
-    // conversation if one insert fails.
+    // User and assistant messages remain atomic. Canonical-proof turns create
+    // their session before the execution row so its session foreign key is valid.
     const compoundSourceReadObserved = turnIntent.compoundWrite && traceSteps.some(
       (step) =>
         step.kind === "tool_result" &&
@@ -6874,6 +7082,12 @@ router.post("/ai/chat", async (req, res) => {
         })
       : undefined;
 
+    if (
+      chatCanonicalProjectQueryProofRequired
+      && (!chatObservationExecution || !chatObservationWorkerId)
+    ) {
+      throw new Error("Canonical project-query acceptance has no durable execution owner");
+    }
     if (chatObservationExecution) {
       await assertChatObservationOwned();
     }
@@ -6885,7 +7099,7 @@ router.post("/ai/chat", async (req, res) => {
           .where(eq(aiChatSessionsTable.id, sessionIdToUse))
           .for("update");
       }
-      if (!existingSession) {
+      if (!existingSession && !chatProofSessionCreated) {
         const [created] = await tx
           .insert(aiChatSessionsTable)
           .values({
@@ -6929,7 +7143,7 @@ router.post("/ai/chat", async (req, res) => {
           role: "assistant",
           content: sanitizeResponseText(result.response),
           turnIntent: turnIntent.kind,
-          outcome: "SUCCEEDED",
+          outcome: chatCanonicalProjectQueryProofRequired ? null : "SUCCEEDED",
           sources: JSON.stringify(result.sources),
           toolTrace: appendExecutionLedgerTrace(
             appendContextProvenanceTrace(
@@ -6946,7 +7160,9 @@ router.post("/ai/chat", async (req, res) => {
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
           missionCorrelationReport,
           taskResult: serializeTaskResult(result.taskResult),
-          executionId: null,
+          executionId: chatCanonicalProjectQueryProofRequired
+            ? chatObservationExecution?.id ?? null
+            : null,
           createdAt: msgNow,
         })
         .returning();
@@ -7029,6 +7245,12 @@ router.post("/ai/chat", async (req, res) => {
       return msg;
     });
     chatObservationFinalMessageId = assistantMsg.id;
+    let acceptedProjectQueryTerminalProjection:
+      | Awaited<ReturnType<typeof loadTerminalProjection>>
+      | undefined;
+    let acceptedProjectQueryExecutionProjection:
+      | Awaited<ReturnType<typeof loadExecutionProjectionById>>
+      | undefined;
     if (chatObservationExecution && chatObservationWorkerId) {
       await assertChatObservationOwned();
       const terminalized = await settleChatObservationBeforeResponse(
@@ -7043,6 +7265,33 @@ router.post("/ai/chat", async (req, res) => {
       }
     } else {
       chatObservationSucceeded = true;
+    }
+    if (chatCanonicalProjectQueryProofRequired && chatObservationExecution) {
+      [
+        acceptedProjectQueryTerminalProjection,
+        acceptedProjectQueryExecutionProjection,
+      ] = await Promise.all([
+        loadTerminalProjection({
+          executionId: chatObservationExecution.id,
+          sessionId: sessionIdToUse,
+          fallbackMessageId: assistantMsg.id,
+        }),
+        loadExecutionProjectionById(chatObservationExecution.id, {
+          attempt: chatObservationExecution.attempt,
+          messageId: assistantMsg.id,
+        }),
+      ]);
+      if (
+        !acceptedProjectQueryTerminalProjection
+        || acceptedProjectQueryTerminalProjection.status !== "completed"
+        || acceptedProjectQueryTerminalProjection.outcome !== "SUCCEEDED"
+        || !acceptedProjectQueryTerminalProjection.acceptanceId
+        || !acceptedProjectQueryExecutionProjection
+        || acceptedProjectQueryExecutionProjection.verification.evidenceVerdict !== "PROVEN"
+        || acceptedProjectQueryExecutionProjection.verification.proofRequired !== true
+      ) {
+        throw new Error("Canonical project-query acceptance projection is incomplete");
+      }
     }
     // Evidence-bound and forensic plans are stateless in both directions:
     // do not persist their source-derived response as future navigation memory.
@@ -7089,6 +7338,12 @@ router.post("/ai/chat", async (req, res) => {
       sessionId: sessionIdToUse,
       message: {
         ...assistantMsg,
+        ...(chatCanonicalProjectQueryProofRequired && chatObservationExecution
+          ? {
+              executionId: chatObservationExecution.id,
+              outcome: "SUCCEEDED",
+            }
+          : {}),
         taskResult: parseTaskResult(assistantMsg.taskResult),
         ...(result.confidence ? { confidence: result.confidence } : {}),
         ...(projectQueryTarget ? { projectQueryTarget } : {}),
@@ -7107,6 +7362,13 @@ router.post("/ai/chat", async (req, res) => {
       executionLedger: executionLedgerSnapshot,
       turnIntent: turnIntent.kind,
       outcome: "SUCCEEDED",
+      ...(chatCanonicalProjectQueryProofRequired && chatObservationExecution
+        ? {
+            executionId: chatObservationExecution.id,
+            terminalProjection: acceptedProjectQueryTerminalProjection,
+            executionProjection: acceptedProjectQueryExecutionProjection,
+          }
+        : {}),
       contextProvenance: projectContext.contextProvenance ?? projectContextProvenance(projectContext),
       sources: parseStoredJson(assistantMsg.sources) ?? [],
       toolTrace: assistantMsg.toolTrace,
@@ -7213,17 +7475,26 @@ router.post("/ai/chat", async (req, res) => {
               }
             }
           }
-          const terminalized = await terminalizeChatObservationExecution({
-            executionId: chatObservationExecution.id,
-            userId: req.userId,
-            expectedAttempt: chatObservationExecution.attempt,
-            workerId: chatObservationWorkerId,
-            status: terminalStatus,
-            finalMessageId: chatObservationFinalMessageId,
-            error: terminalStatus === "completed"
-              ? undefined
-              : reasonCode,
-          });
+          const terminalized = chatCanonicalProjectQueryProofRequired
+            ? await failAiExecution({
+                executionId: chatObservationExecution.id,
+                workerId: chatObservationWorkerId,
+                error: reasonCode,
+                cancelled: terminalStatus === "cancelled",
+                finalMessageId: chatObservationFinalMessageId ?? undefined,
+                finalMessageErrorCode: reasonCode,
+              })
+            : await terminalizeChatObservationExecution({
+                executionId: chatObservationExecution.id,
+                userId: req.userId,
+                expectedAttempt: chatObservationExecution.attempt,
+                workerId: chatObservationWorkerId,
+                status: terminalStatus,
+                finalMessageId: chatObservationFinalMessageId,
+                error: terminalStatus === "completed"
+                  ? undefined
+                  : reasonCode,
+              });
           if (terminalized) {
             chatObservationTerminal = true;
           } else {

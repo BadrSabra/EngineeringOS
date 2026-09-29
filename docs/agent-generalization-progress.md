@@ -20,10 +20,10 @@ scan hook الخاص بالمشروع وفعاليته. نجحت كذلك رحل
 **تصحيح بوابة AI الحتمية (2026-09-29):** تقرير القرار الافتراضي الأحدث اجتاز
 15/15 فحصًا بلا فشل أو تخطٍ، مع Preview مفعّل وناجح و`liveProviderChecks=disabled`.
 اجتاز كذلك harness PROJECT_QUERY الحتمي والمقيّد بالقراءة فقط: تكافؤ JSON/SSE/
-history، وCanonical Proof من مسار SSE، وقراءات محفوظة كاملة تطابق أجسام fixtures،
-ومن دون آثار كتابة. يبقى JSON متكافئًا في الاستجابة والتاريخ فقط؛ مساره الحالي
-لا ينشئ Canonical Proof (`proofRequired=false`). لم يُشغّل مزود حي أو يبدأ STATE؛
-راجع §43.02 للتاريخ و§43.03 للتصحيح وحدود التغطية.
+history، وCanonical Proof لمسار SSE ولطلبات JSON المؤهلة ذات objective صالح،
+وقراءات محفوظة كاملة تطابق أجسام fixtures، ومن دون آثار كتابة. الطلبات ذات
+الأدلة غير المكتملة أو بلا objective canonical تبقى غير ناجحة. لم يُشغّل مزود حي
+أو يبدأ STATE؛ راجع §43.02 للتاريخ و§43.03 للسياق و§43.04 لإثبات JSON.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -3327,6 +3327,64 @@ G9 Revocation Safety
   ومراجعًا لعقد قبول المسار غير المتدفق.
 - **next step:** أبقِ أي اختبار مزود حي متوقفًا؛ إذا لزم تكافؤ Canonical Proof
   بين JSON وSSE، فاعتمد ذلك كتغيير مستقل لعقد non-stream PROJECT_QUERY أولًا.
+
+### 43.04 — قبول Canonical Proof لمسار JSON المؤهل (2026-09-29)
+
+- **phase/step:** عقد قبول PROJECT_QUERY غير المتدفق، ضمن التحقق الحتمي قبل أي
+  تقييم مزود حي.
+- **status:** `passed — eligible JSON proof and fail-closed cases; live provider not run`
+- **what changed:** صار المسار غير المتدفق ينشئ عقد proof-required فقط لطلب
+  PROJECT_QUERY المقيّد بالقراءة فقط مع objective صالح مشتق من الخادم. رُبطت
+  الجلسة والتنفيذ والرسالة النهائية ومراجعة المصدر والأجسام الكاملة المحتفظ بها؛
+  لا يصبح رد المساعد نهائيًا قبل قبول Canonical Proof. بقيت orientation وFACT
+  وcapability probes والطلبات المرتبطة بمهمة أو المركبة أو التنفيذية خارج هذا
+  المسار، وتبقى على عقودها السابقة.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/routes/ai/chat.ts`،
+  `artifacts/api-server/src/routes/ai-stream-integration.test.ts`، هذا السجل،
+  ملخص الخطة، وذاكرة حاجز non-stream؛ لا تغيير schema.
+- **validation:** اجتاز
+  `pnpm --filter @workspace/api-server run test:project-query-proof-harness`
+  (`1 passed`, و106 متروكة عمدًا)، واختبار PROJECT_QUERY المجمّع (`2 passed`,
+  و105 متروكة عمدًا)، و`pnpm --filter @workspace/api-server run typecheck`،
+  و`git diff --check`. أثبتت fixtures قبول JSON وSSE مع Canonical Proof
+  `PROVEN`، ورفض JSON عند غياب الأجسام المحتفظ بها (`FAILED`,
+  `evidenceComplete=0`)، وبقاء no-objective غير مكتمل. لم تُنشأ proposals أو
+  apply-journal rows أو ملفات في جذر المشروع.
+- **authority/safety impact:** تستند الأهلية إلى intent وobjective وحدود
+  read-only server-owned؛ لا يمنح النص المُولّد سلطة قبول. لم يُستدعَ مزود حي
+  ولم يبدأ STATE. لم يتغير `liveProviderChecks=disabled` أو نطاق P7.5.
+- **remaining/blocker:** لا يقيّم هذا الاختبار جودة مزود حي أو تعميم الوكيل؛
+  ويقتصر الإثبات على PROJECT_QUERY المؤهل والمسار المحدد.
+- **next step:** أبقِ تقييم المزود الحي وSTATE خارج نطاق هذا التغيير؛ أي اختبار
+  لاحق لهما يحتاج نطاقًا وتفويضًا منفصلين.
+
+### 43.05 — ربط Attestation العملية بانتقال runtime.start (2026-09-29)
+
+- **phase/step:** خطوة ضيقة من P4/P6 لمسار stopped → running الموجود.
+- **status:** `passed — child-process observation is linked and validated for this pilot`
+- **what changed:** صارت ملاحظة `runtime.child_process_environment` تُmaterialize
+  مع ملاحظة `runtime.after_state` قبل إنشاء transition، فيُدرج معرّفها في
+  `afterObservationIds` و`materializedObservationIds`. يشترط finalizer حالة
+  known وملاحظة complete/fresh، وتطابق session/operation/execution/attempt/
+  Episode/revision/environment، مع إعادة حساب digest من القيم المقبولة.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/recipe-operation-runner.ts`،
+  `artifacts/api-server/src/lib/agent-state/runtime-start-transition.ts`،
+  `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`؛ لا schema أو
+  migration.
+- **validation:** API typecheck و`git diff --check` واختبارات
+  `runtime-start-transition.test.ts` (12/12) والاختبار المحدد
+  `classifies a verified runtime after-state before successful acceptance`
+  (1/1) نجحت. مجموعة `recipe-operation-runner.test.ts` سجلت 24/25؛ فشل اختبار
+  استرداد P7.5 بسبب 3 أحداث terminal بدل 2، ومساره المنفصل لا يستدعي `runtime.start`.
+  إعادة تشغيل الاختبار وحده انتهت بمهلة Vitest الافتراضية (20 ثانية).
+- **authority/safety impact:** رفض World Delta عند غياب أو عدم صلاحية Attestation؛
+  قبول Gate C يبقى مستقلًا ولا يُسحب. لم يُشغّل مزود حي أو STATE.
+- **remaining/blocker:** هذه ليست إغلاقًا عامًا لـP4/P6. لا restart أو stop أو
+  معايرة P7.5. لم يُضف بعد اختبار سلبي منفصل للملاحظة الناقصة أو المتعارضة.
+- **next step:** أبقِ التغيير محصورًا في هذا الطيار؛ أي توسيع لبقية runtime أو
+  تقييمات أخرى يحتاج نطاقًا منفصلًا.
 
 ## قالب إلزامي لكل خطوة لاحقة
 
