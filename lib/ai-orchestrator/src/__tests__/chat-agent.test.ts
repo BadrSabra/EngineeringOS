@@ -19,6 +19,11 @@ import type { ProviderStrategy } from "../provider-strategy.js";
 import { resolveTurnIntent } from "../turn-intent.js";
 import { MODEL_OUTPUT_INVALID_MESSAGE } from "../parsing.js";
 import {
+  hashProjectQueryFactManifest,
+  hashProjectQueryFactQuestion,
+  type ProjectQueryInvestigationContract,
+} from "../project-query-investigation.js";
+import {
   assertArabicForensicFixture,
   assertArabicFixtureResponse,
   takeFixture,
@@ -324,6 +329,153 @@ describe("chat agent — ChatOutputSchema validation", () => {
           step.kind === "diagnostic" && step.code === "PROJECT_QUERY_RESPONSE_SOURCE",
       ),
     ).toBe(false);
+  }, 15_000);
+
+  it("binds FACT reads and tool budgets to the verified persisted manifest", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "fact-policy-"));
+    const question = "Where is authentication configured?";
+    const workspaceRevision = "fact-test-revision";
+    const projectId = "fact-test-project";
+    const sourcePaths = [
+      "src/auth.ts",
+      "src/session.ts",
+      "src/login.ts",
+      "src/config.ts",
+      "src/unmanifested.ts",
+    ];
+    const allowedPaths = sourcePaths.slice(0, 4);
+    const sortedAllowedPaths = [...allowedPaths].sort();
+    const manifestId = hashProjectQueryFactManifest({
+      projectId,
+      workspaceRevision,
+      workspaceRoot: rootPath,
+      allowedPaths,
+    });
+    const factInvestigation: ProjectQueryInvestigationContract = {
+      schemaVersion: "v1",
+      kind: "FACT",
+      investigationId: "fact-policy-investigation",
+      ownerId: "fact-test-owner",
+      projectId,
+      sessionId: "fact-test-session",
+      operationId: "fact-test-operation",
+      workspaceRevision,
+      workspaceRoot: rootPath,
+      question,
+      questionHash: hashProjectQueryFactQuestion(question),
+      requiredObligationIds: ["original-question"],
+      maxFiles: 4,
+      maxIterations: 2,
+      maxToolCalls: 8,
+      allowedPaths,
+      manifestId,
+    };
+    for (const sourcePath of sourcePaths) {
+      const absolutePath = path.join(rootPath, sourcePath);
+      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+      await fs.writeFile(absolutePath, `export const source = "${sourcePath}";\n`);
+    }
+
+    let manifestInput: {
+      allowedPaths: string[];
+      manifestId: string;
+      workspaceRevision: string;
+      workspaceRoot: string | null;
+    } | undefined;
+    let loopPolicy: {
+      allowedReadPaths?: string[];
+      allowedToolNames?: string[];
+      maxIterations?: number;
+      maxToolCalls?: number;
+    } | undefined;
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    response: "Authentication is configured in src/auth.ts.",
+                    sources: ["src/auth.ts"],
+                  }),
+                },
+              }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+    vi.doMock("../tool-execution-engine.js", async () => {
+      const actual = await vi.importActual<typeof import("../tool-execution-engine.js")>(
+        "../tool-execution-engine.js",
+      );
+      const executeToolLoop = vi.fn(async (
+        options: Parameters<typeof actual.executeToolLoop>[0],
+      ) => {
+        loopPolicy = {
+          allowedReadPaths: options.allowedReadPaths,
+          allowedToolNames: options.allowedToolNames,
+          maxIterations: options.maxIterations,
+          maxToolCalls: options.maxToolCalls,
+        };
+        return {
+          kind: "response" as const,
+          result: {
+            content: JSON.stringify({
+              response: "Authentication is configured in src/auth.ts.",
+              sources: ["src/auth.ts"],
+            }),
+            toolCalls: [],
+            model: "m",
+            usage: {},
+          },
+          toolSources: ["src/auth.ts"],
+          fileContents: new Map([["src/auth.ts", 'export const source = "src/auth.ts";\n']]),
+        };
+      });
+      return { ...actual, executeToolLoop };
+    });
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const baseIntent = resolveTurnIntent(question);
+      await chat({
+        message: question,
+        history: [],
+        projectContext: { ...makeContext(), workspaceRevision },
+        rootPath,
+        projectId,
+        turnIntent: {
+          ...baseIntent,
+          projectTarget: undefined,
+          projectTargetResolution: "unresolved",
+        },
+        projectQueryInvestigation: factInvestigation,
+        onProjectQueryFactManifest: (manifest) => {
+          manifestInput = manifest;
+        },
+      });
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+
+    expect(manifestInput).toMatchObject({
+      allowedPaths: sortedAllowedPaths,
+      manifestId,
+      workspaceRevision,
+      workspaceRoot: rootPath,
+    });
+    expect(manifestInput?.allowedPaths).not.toContain("src/unmanifested.ts");
+    expect(loopPolicy).toMatchObject({
+      allowedReadPaths: sortedAllowedPaths,
+      allowedToolNames: ["read_file", "read_file_range"],
+      maxIterations: 2,
+      maxToolCalls: 8,
+    });
   }, 15_000);
 
   it("identifies an English-only Arabic fixture by name", () => {

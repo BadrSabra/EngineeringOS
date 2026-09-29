@@ -88,6 +88,37 @@ describe("bounded FACT project-query investigation", () => {
       ...contract,
       allowedPaths: ["../secrets.env"],
     }).success).toBe(false);
+    expect(ProjectQueryInvestigationContractSchema.safeParse({
+      ...contract,
+      maxFiles: 5,
+      allowedPaths: [
+        "src/routes/login.ts",
+        "src/auth.ts",
+        "src/session.ts",
+        "src/config.ts",
+        "src/unlisted.ts",
+      ],
+      manifestId: hashProjectQueryFactManifest({
+        projectId: "project-1",
+        workspaceRevision: "revision-1",
+        workspaceRoot: "/managed/project",
+        allowedPaths: [
+          "src/routes/login.ts",
+          "src/auth.ts",
+          "src/session.ts",
+          "src/config.ts",
+          "src/unlisted.ts",
+        ],
+      }),
+    }).success).toBe(false);
+    expect(ProjectQueryInvestigationContractSchema.safeParse({
+      ...contract,
+      maxIterations: 3,
+    }).success).toBe(false);
+    expect(ProjectQueryInvestigationContractSchema.safeParse({
+      ...contract,
+      maxToolCalls: 9,
+    }).success).toBe(false);
     expect(ProjectQueryInvestigationResultSchema.safeParse({
       kind: "PROJECT_QUERY_INVESTIGATION_RESULT",
       investigationId: "investigation-123",

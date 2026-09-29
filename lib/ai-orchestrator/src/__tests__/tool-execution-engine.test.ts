@@ -2170,6 +2170,81 @@ describe("executeToolLoop", () => {
       .toBe(true);
   });
 
+  it.each([
+    "../secrets.env",
+    "/etc/passwd",
+    "src/__tests__/hidden.ts",
+    "src/unmanifested.ts",
+  ])("blocks a FACT read outside its persisted manifest: %s", async (requestedPath) => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const strategy = makeStrategy([
+      makeResponse("", [
+        makeToolCall("fact-scope-escape", "read_file", { path: requestedPath }),
+      ]),
+      makeResponse("No source outside the FACT manifest was read."),
+    ]);
+
+    try {
+      const result = await executeToolLoop({
+        messages: makeMessages(),
+        strategy,
+        model: "fast",
+        powerModel: "powerful",
+        provider: "test",
+        tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+        rootPath: "/project",
+        pendingChanges: [],
+        maxIterations: 2,
+        maxToolCalls: 8,
+        allowedReadPaths: ["src/auth.ts"],
+      });
+
+      expect(result.kind).toBe("response");
+      expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('"code":"READ_PATH_POLICY_BLOCKED"'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stops FACT tool execution at its fixed call and iteration budgets", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([
+      makeResponse("", [
+        makeToolCall("fact-budget-1", "read_file", { path: "src/auth.ts" }),
+        makeToolCall("fact-budget-2", "read_file", { path: "src/auth.ts" }),
+      ]),
+      makeResponse("", [
+        makeToolCall("fact-budget-3", "read_file", { path: "src/auth.ts" }),
+      ]),
+    ]);
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      maxIterations: 2,
+      maxToolCalls: 1,
+      allowedReadPaths: ["src/auth.ts"],
+    });
+
+    expect(result.kind).toBe("exhausted");
+    expect(strategy.call).toHaveBeenCalledTimes(2);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
+    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith(
+      "read_file",
+      { path: "src/auth.ts" },
+      "/project",
+      [],
+    );
+  });
+
   it("records an allowed caller read as a justified scope expansion", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     FILE_TOOL_MOCK.mockResolvedValue("File: src/caller.ts\n```\nreturn target();\n```");

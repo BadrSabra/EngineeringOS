@@ -8977,6 +8977,66 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       };
     });
 
+    const mismatchedResume = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId,
+        message: "Where is the login handler defined?",
+        executionId: created.execution.id,
+        resumeToken: created.resumeToken,
+      });
+    expect(mismatchedResume.status).toBe(200);
+    expect(parseSseEvents(mismatchedResume.text).find((event) => event.type === "error"))
+      .toMatchObject({ code: "EXECUTION_BINDING_MISMATCH" });
+    expect(chatWithFallback).not.toHaveBeenCalled();
+
+    const mismatchedSessionId = await insertChatSession(projectId, "FACT resume identity mismatch");
+    const mismatchedSessionResume = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId: mismatchedSessionId,
+        message,
+        executionId: created.execution.id,
+        resumeToken: created.resumeToken,
+      });
+    expect(mismatchedSessionResume.status).toBe(200);
+    expect(parseSseEvents(mismatchedSessionResume.text).find((event) => event.type === "error"))
+      .toMatchObject({ code: "EXECUTION_BINDING_MISMATCH" });
+    expect(chatWithFallback).not.toHaveBeenCalled();
+
+    const changedRevision = new Date(project!.updatedAt.getTime() + 1_000);
+    await db.update(projectsTable)
+      .set({ updatedAt: changedRevision })
+      .where(eq(projectsTable.id, projectId));
+    let mismatchedRevisionStatus: number | undefined;
+    let mismatchedRevisionText = "";
+    try {
+      const mismatchedRevisionResume = await request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({
+          projectId,
+          sessionId,
+          message,
+          executionId: created.execution.id,
+          resumeToken: created.resumeToken,
+        });
+      mismatchedRevisionStatus = mismatchedRevisionResume.status;
+      mismatchedRevisionText = mismatchedRevisionResume.text;
+    } finally {
+      await db.update(projectsTable)
+        .set({ updatedAt: project!.updatedAt })
+        .where(eq(projectsTable.id, projectId));
+    }
+    expect(mismatchedRevisionStatus).toBe(200);
+    expect(parseSseEvents(mismatchedRevisionText).find((event) => event.type === "error"))
+      .toMatchObject({ code: "EXECUTION_BINDING_MISMATCH" });
+    expect(chatWithFallback).not.toHaveBeenCalled();
+
     const resumed = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
