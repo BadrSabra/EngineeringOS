@@ -147,7 +147,7 @@
 - [Action effect evidence boundary](action-effect-observation-boundary.md) — mutation effects require direct fresh before/after observations; acceptance and receipts cannot substitute for runtime observation or PROVEN.
 - [Strategy replay acceptance](strategy-replay-acceptance.md) — use normal recipe acceptance, then validate a distinct replay Canonical Proof and unchanged workspace hash.
 - [Episode event hash integrity](episode-event-hash-integrity.md) — update EFFECT_CLASSIFIED hash projections together and preserve legacy rows to keep accepted episodes eligible.
-- [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable proposal lifecycle blocked until its attempt-bound observed effect is durably accepted.
+- [Apply-changes acceptance gate](apply-changes-acceptance-gate.md) — keep Git-committable lifecycle proof-bound; live World Delta needs separate post-promotion scope, revision, and Mission-read contracts.
 - [Scoped World State identity and freshness](world-state-scoped-uniqueness.md) — Separate environment identity/freshness from project freshness and keep it outside effect or acceptance authority.
 - [Runtime start transition proof](runtime-start-transition-proof.md) — preserve Gate C acceptance; require independent before/after evidence and exact transition-linked observations for P6.
 - [World State failure diagnosis](world-state-failure-diagnosis.md) — scoped runtime.start diagnoses use exact linked evidence and stay separate from Gate C acceptance and authority.
