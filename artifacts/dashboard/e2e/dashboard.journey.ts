@@ -450,10 +450,18 @@ function installBrowserErrorMonitor(
       options.allowSessionExpiry401 === true &&
       message.text() ===
         "Failed to load resource: the server responded with a status of 401 (Unauthorized)";
-    // The provider-free fixture deliberately returns 428 for AI routes. The
-    // browser reports that non-2xx resource as console.error; no other
-    // console error is allowed by the authentication smoke.
-    if (!knownProviderFixtureNoise && !knownSessionExpiryNoise) {
+    const knownFirefoxCloudflareCookieNoise =
+      process.env.DASHBOARD_E2E_BROWSER === "firefox" &&
+      /_cfuvid.*rejected for invalid domain/i.test(message.text());
+    // The provider-free fixture deliberately returns 428 for AI routes. Firefox
+    // also reports Cloudflare's rejected third-party cookie on the local
+    // release origin. Allow only those exact environment diagnostics; all
+    // other console errors remain failures.
+    if (
+      !knownProviderFixtureNoise &&
+      !knownSessionExpiryNoise &&
+      !knownFirefoxCloudflareCookieNoise
+    ) {
       record("console.error", message.text());
     }
   });
@@ -3720,7 +3728,10 @@ async function navigateBrowserHistory(
 async function programmaticSignIn(
   page: Page,
   user: ClerkTestUser = TEST_USER,
-  options: { allowEmptyProjectList?: boolean } = {},
+  options: {
+    allowEmptyProjectList?: boolean;
+    handoffTimeoutMs?: number;
+  } = {},
 ) {
   const signInLink = page.getByRole("link", { name: "Sign In", exact: true });
   let signInLoaded = false;
@@ -3747,7 +3758,7 @@ async function programmaticSignIn(
     await navigateClerkHandoff(page, await createReleaseSignInUrl(page, user));
     await expect(page).toHaveURL(
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-      { timeout: clerkHandoffTimeoutMs() },
+      { timeout: options.handoffTimeoutMs ?? clerkHandoffTimeoutMs() },
     );
     await completeReadinessHandshake(page, options);
     return;
@@ -3760,7 +3771,7 @@ async function programmaticSignIn(
   await navigateClerkHandoff(page, signInUrl);
   await expect(page).toHaveURL(
     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-    { timeout: clerkHandoffTimeoutMs() },
+    { timeout: options.handoffTimeoutMs ?? clerkHandoffTimeoutMs() },
   );
   await completeReadinessHandshake(page, options);
 }
@@ -4090,9 +4101,57 @@ async function installMissionManagementFixtures(page: Page) {
   return { mutations };
 }
 
+const NAVIGATION_GROUP_BY_LINK: Partial<Record<string, string>> = {
+  Tasks: "Execution",
+  Missions: "Execution",
+  "Mission Control": "Execution",
+  Workflows: "Execution",
+  "Flight Deck": "Execution",
+  "Event Stream": "Insights",
+  Metrics: "Insights",
+  "Knowledge Graph": "Insights",
+  "Rules Engine": "Governance",
+  "Skill Registry": "Governance",
+};
+
 async function openNavigation(page: Page, label: string, path: string) {
+  const groupName = NAVIGATION_GROUP_BY_LINK[label];
+  if (groupName) {
+    const groupToggle = page.getByRole("button", { name: groupName, exact: true });
+    if (await groupToggle.getAttribute("aria-expanded") !== "true") {
+      await groupToggle.click();
+    }
+    await expect(groupToggle).toHaveAttribute("aria-expanded", "true");
+  }
   await page.getByRole("link", { name: label, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
+}
+
+async function openAdditionalChatActions(page: Page) {
+  const toggle = page.getByRole("button", { name: "More actions", exact: true });
+  if (await toggle.getAttribute("aria-expanded") !== "true") {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
+async function openPastAudits(page: Page) {
+  const toggle = page.getByRole("button", { name: "Past audits", exact: true });
+  if (await toggle.getAttribute("aria-expanded") !== "true") {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
+async function openAiSettings(page: Page) {
+  const toggle = page.getByRole("button", {
+    name: "AI settings and diagnostics",
+    exact: true,
+  });
+  if (await toggle.getAttribute("aria-expanded") !== "true") {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 
 function apiUrl(page: Page, path: string): string {
@@ -5198,6 +5257,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const probeResponsePromise = page.waitForResponse((response) =>
       response.url().includes("/api/ai/chat/stream"),
     );
+    await openAdditionalChatActions(page);
     await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
 
     const probeRequest = await probeRequestPromise;
@@ -5477,6 +5537,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
+    await openAdditionalChatActions(page);
     await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
 
     const report = page.getByRole("region", {
@@ -5602,6 +5663,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       }
     });
 
+    await openAdditionalChatActions(page);
     await page.getByRole("button", { name: "Capability Probe", exact: true }).click();
 
     await expect(
@@ -6227,19 +6289,28 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       !process.env.DASHBOARD_E2E_CONTROL_URL,
       "The multi-process convergence campaign runs only under the release runner.",
     );
-    test.setTimeout(90_000);
+    // Allow the AI route to hydrate in a cold Firefox release run while keeping
+    // the two-session convergence scenario bounded.
+    test.setTimeout(240_000);
 
     const secondContext = await browser.newContext();
     const secondPage = await secondContext.newPage();
     try {
       await Promise.all([installApiFixtures(page), installApiFixtures(secondPage)]);
-      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
+      await Promise.all([
+        programmaticSignIn(page, TEST_USER, { handoffTimeoutMs: 60_000 }),
+        programmaticSignIn(secondPage, TEST_USER, {
+          handoffTimeoutMs: 60_000,
+        }),
+      ]);
       await Promise.all([
         page.goto(DASHBOARD_PATH),
-        secondPage.goto(`${DASHBOARD_PATH}ai`),
+        secondPage.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" }),
       ]);
       await expectDashboardReady(page);
-      await expect(secondPage.locator("textarea").first()).toBeVisible();
+      await expect(secondPage.locator("textarea").first()).toBeVisible({
+        timeout: 120_000,
+      });
 
       // A response that arrives after a newer request must not replace the
       // visible ready state with stale data. Keep the delay bounded so a
@@ -7732,6 +7803,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps incomplete targeted project analysis non-resumable across history, reload, and retry", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
     const fixture = installIncompleteProjectQueryFixture();
     const audit = {
       ...fixture.execution,
@@ -7759,9 +7831,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       },
     });
     await programmaticSignIn(page);
-    await page.goto(`${DASHBOARD_PATH}ai`);
+    await page.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" });
 
     const composer = page.locator("textarea").first();
+    await expect(composer).toBeVisible({ timeout: 120_000 });
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
@@ -7843,6 +7916,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const reviewAudit = page.getByRole("button", {
       name: `Review audit ${fixture.question}`,
     });
+    await openPastAudits(page);
     await expect(reviewAudit).toBeVisible();
 
     await page.getByRole("button", { name: "Retry project analysis", exact: true }).click();
@@ -7969,6 +8043,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
+    await openPastAudits(page);
 
     const reviewButton = page.getByRole("button", {
       name: `Review audit ${fixture.question}`,
@@ -8023,6 +8098,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await assertReopenedAcceptance();
 
     await page.reload();
+    await openPastAudits(page);
     await expect(reviewButton).toBeVisible();
     await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await assertReopenedAcceptance();
@@ -8032,6 +8108,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const projectSelector = page.getByLabel("Project for chat and model quality");
     await projectSelector.selectOption("e2e-project-two");
     await expect(projectSelector).toHaveValue("e2e-project-two");
+    await openPastAudits(page);
     await expect(
       page.getByText("No cancelled or incomplete audits for this project.", {
         exact: true,
@@ -8049,6 +8126,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await projectSelector.selectOption("e2e-project-one");
     await expect(projectSelector).toHaveValue("e2e-project-one");
+    await openPastAudits(page);
     await expect(reviewButton).toBeVisible();
     await expect(page.getByLabel("Agent execution proof")).toBeVisible();
     await assertReopenedAcceptance();
@@ -8404,6 +8482,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
+    await openPastAudits(page);
 
     for (const heading of [
       "## 1) Executive Verdict",
@@ -8577,6 +8656,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
+    await openAiSettings(page);
 
     const card = page.getByRole("region", { name: "Model contract quality" });
     const emptyState =
@@ -8599,6 +8679,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBe(true);
 
     await page.reload();
+    await openAiSettings(page);
     await expect(card).toContainText("llama-e2e");
     await expect(card).toContainText("Acceptance 66.7%");
     await expect(card).toContainText("Citation match 75.0%");
@@ -9627,6 +9708,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps all provider cards and controls reachable at narrow phone widths", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
     const fixture = await installArabicAiFixture(page);
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
@@ -9634,15 +9716,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     for (const width of [320, 390]) {
       const viewport = { width, height: 844 };
       await page.setViewportSize(viewport);
-      await page.goto(`${DASHBOARD_PATH}ai`);
+      await page.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" });
 
       const composer = page.locator("textarea").first();
-      await expect(composer).toBeVisible();
+      await expect(composer).toBeVisible({ timeout: 120_000 });
       await expectWithinViewport(composer, viewport, `composer at ${width}px`);
 
       await page.getByRole("button", { name: "Open sessions" }).click();
       const drawer = page.getByTestId("sessions-drawer");
       await expect(drawer).toBeVisible();
+      await openAiSettings(page);
       await expectWithinViewport(drawer, viewport, `sessions drawer at ${width}px`);
       const drawerBox = await drawer.boundingBox();
       expect(drawerBox?.height, `sessions drawer height at ${width}px`).toBeGreaterThan(

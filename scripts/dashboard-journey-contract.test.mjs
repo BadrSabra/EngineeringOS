@@ -12,12 +12,23 @@ const journeyPath = resolve(
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
 const workflowPath = resolve(root, ".github/workflows/ci.yml");
 const healthPath = resolve(root, "artifacts/api-server/src/routes/health.ts");
+const playwrightConfigPath = resolve(
+  root,
+  "artifacts/dashboard/e2e/playwright.config.ts",
+);
 
-const [journeySource, runnerSource, workflowSource, healthSource] = await Promise.all([
+const [
+  journeySource,
+  runnerSource,
+  workflowSource,
+  healthSource,
+  playwrightConfigSource,
+] = await Promise.all([
   readFile(journeyPath, "utf8"),
   readFile(runnerPath, "utf8"),
   readFile(workflowPath, "utf8"),
   readFile(healthPath, "utf8"),
+  readFile(playwrightConfigPath, "utf8"),
 ]);
 
 function constant(source, name) {
@@ -356,6 +367,14 @@ test("the standard release journey remains provider-free", () => {
   );
 });
 
+test("Firefox journeys ignore the Chromium executable override", () => {
+  assert.match(
+    playwrightConfigSource,
+    /browserName === "chromium"\s*&&\s*process\.env\.DASHBOARD_E2E_EXECUTABLE_PATH/,
+    "A Chromium binary override must not be passed to Playwright Firefox.",
+  );
+});
+
 test("dashboard convergence carries a server revision and asserts rendered freshness", () => {
   assert.match(
     journeySource,
@@ -374,8 +393,8 @@ test("dashboard convergence carries a server revision and asserts rendered fresh
   );
   assert.match(
     journeySource,
-    /await Promise\.all\(\[programmaticSignIn\(page\), programmaticSignIn\(secondPage\)\]\)/,
-    "The convergence journey must use two authenticated browser sessions.",
+    /await Promise\.all\(\[\s*programmaticSignIn\(page,\s*TEST_USER,\s*\{\s*handoffTimeoutMs:\s*60_000,?\s*\}\),\s*programmaticSignIn\(secondPage,\s*TEST_USER,\s*\{\s*handoffTimeoutMs:\s*60_000,?\s*\}\),?\s*\]\)/,
+    "The convergence journey must authenticate two concurrent sessions with bounded Clerk handoffs.",
   );
   assert.match(
     journeySource,

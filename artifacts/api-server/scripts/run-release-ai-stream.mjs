@@ -97,21 +97,6 @@ export async function acquireReleaseLock(
     await mkdirDirectory(targetPath);
   } catch (error) {
     if (error?.code !== "EEXIST") throw error;
-    if (process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK === "1") {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      return acquireReleaseLock(targetPath, {
-        mkdirDirectory,
-        read,
-        write,
-        renamePath,
-        remove,
-        now,
-        token,
-        identity,
-        isOwnerActive,
-        reclaimPath,
-      });
-    }
     let existing;
     try {
       existing = JSON.parse(String(await read(ownerFile(targetPath))));
@@ -131,6 +116,21 @@ export async function acquireReleaseLock(
       );
     }
     const ownerActive = await isOwnerActive(existing);
+    if (ownerActive === true && process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK === "1") {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return acquireReleaseLock(targetPath, {
+        mkdirDirectory,
+        read,
+        write,
+        renamePath,
+        remove,
+        now,
+        token,
+        identity,
+        isOwnerActive,
+        reclaimPath,
+      });
+    }
     if (ownerActive !== false) {
       throw new Error(
         ownerActive === true

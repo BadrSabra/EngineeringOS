@@ -18,6 +18,7 @@ import {
 } from "./provider-registry.js";
 import { validateDeepSeekDefaultModels, type DeepSeekDefaultModelValidation } from "./deepseek-client.js";
 import { GroqClientError, type GroqErrorCode } from "./errors.js";
+import { isProviderEgressDisabled } from "./provider-egress.js";
 
 export type CredentialSource = "server" | "user";
 export type LifecycleModelRole = "fast" | "powerful";
@@ -359,6 +360,24 @@ export async function getProviderLifecycleSnapshot(
   const key = cacheKey(options.provider, source, keyIdentity);
   const requirements = options.requirements ?? {};
   const existing = cache.get(key);
+  if (isProviderEgressDisabled()) {
+    // Do not reuse or mutate a cached live snapshot in fixture mode. This is
+    // deliberately a new, non-selectable view for every caller.
+    const fresh = baseSnapshot(
+      options.provider,
+      source,
+      keyIdentity,
+      (existing?.generation ?? 0) + 1,
+      requirements,
+    );
+    return completedSnapshot(fresh, {
+      revision: nextRevision(key),
+      modelStatus: "catalog_temporarily_unavailable",
+      reasonCodes: ["catalog_temporarily_unavailable"],
+      selectable: false,
+      overallStatus: source === "none" ? "unconfigured" : "unavailable",
+    });
+  }
   if (!options.apiKey) {
     return completedSnapshot(baseSnapshot(options.provider, source, keyIdentity, existing?.generation ?? 0, requirements), {
       revision: existing?.snapshot.revision ?? 0,

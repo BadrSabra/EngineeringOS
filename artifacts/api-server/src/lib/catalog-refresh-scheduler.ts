@@ -28,7 +28,11 @@
 import { eq } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { aiProviderCredentialsTable } from "@workspace/db";
-import { refreshDynamicCatalog, auditStaticCatalog } from "@workspace/ai-orchestrator";
+import {
+  refreshDynamicCatalog,
+  auditStaticCatalog,
+  isProviderEgressDisabled,
+} from "@workspace/ai-orchestrator";
 import { FREE_MODELS } from "@workspace/ai-orchestrator";
 import { decryptApiKey } from "./credentials-crypto.js";
 import { logger } from "./logger.js";
@@ -71,6 +75,12 @@ export async function resolveAnyCatalogKey(): Promise<string | undefined> {
 export async function runCatalogRefresh(
   getKey: () => Promise<string | undefined> = resolveAnyCatalogKey,
 ): Promise<boolean> {
+  // Fixture release validation must not resolve credentials (including from
+  // the database) or attempt provider traffic.
+  if (isProviderEgressDisabled()) {
+    logger.debug("catalog-refresh: provider egress disabled — skipping refresh");
+    return false;
+  }
   const key = await getKey();
   if (!key) {
     logger.debug("catalog-refresh: no OpenRouter key available — skipping refresh");

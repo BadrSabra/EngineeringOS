@@ -44,6 +44,7 @@ import {
   createContentOnlyStreamGuard,
   normalizeProviderResponse,
 } from "./provider-tool-calls.js";
+import { assertProviderEgressEnabled } from "./provider-egress.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
@@ -906,6 +907,7 @@ async function oacCompleteRawUntracked(
 
   let response: Response;
   try {
+    assertProviderEgressEnabled();
     response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -1134,6 +1136,7 @@ async function* oacCompleteStreamUntracked(
 
   let response: Response;
   try {
+    assertProviderEgressEnabled();
     response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -1857,6 +1860,7 @@ export async function validateGeminiDefaultModels(
   const timer = setTimeout(() => controller.abort(), GEMINI_MODEL_CHECK_TIMEOUT_MS);
 
   try {
+    assertProviderEgressEnabled();
     const response = await fetch(GEMINI_MODELS_URL, {
       method: "GET",
       headers: {
@@ -2118,6 +2122,7 @@ async function geminiCompleteWithTools(
       toolChoice: opts.toolChoice ?? "auto",
     }));
 
+    assertProviderEgressEnabled();
     const response = await fetch(
       `${GEMINI_BASE_URL.replace("/openai", "")}/models/${encodeURIComponent(model)}:generateContent`,
       {

@@ -212,6 +212,12 @@ export type {
   ProviderLifecycleRequirements,
   ProviderLifecycleOptions,
 } from "./provider-lifecycle.js";
+export {
+  assertProviderEgressEnabled,
+  isProviderEgressDisabled,
+  ProviderEgressDisabledError,
+} from "./provider-egress.js";
+export type { ProviderEgressEnvironment } from "./provider-egress.js";
 
 export type { PendingChange } from "./tools/file-tools.js";
 export {

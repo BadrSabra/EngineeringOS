@@ -23,6 +23,7 @@ import {
   normalizeProviderResponse,
   normalizeProviderToolCalls,
 } from "./provider-tool-calls.js";
+import { assertProviderEgressEnabled } from "./provider-egress.js";
 
 export const DEEPSEEK_MODEL_FAST    = "deepseek-chat";
 export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
@@ -50,6 +51,7 @@ export async function validateDeepSeekDefaultModels(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEEPSEEK_MODEL_CHECK_TIMEOUT_MS);
   try {
+    assertProviderEgressEnabled();
     const response = await fetch(DEEPSEEK_MODELS_URL, {
       method: "GET",
       headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
@@ -164,6 +166,7 @@ export async function* deepseekCompleteStream(
 
   let response: Response;
   try {
+    assertProviderEgressEnabled();
     response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  "POST",
       headers: {
@@ -309,6 +312,7 @@ export async function deepseekCompleteRaw(
 
   let response: Response;
   try {
+    assertProviderEgressEnabled();
     response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
       method:  "POST",
       headers: {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validateGroqDefaultModels } from "../groq-client.js";
 import { GroqClientError } from "../errors.js";
 import {
@@ -20,6 +20,15 @@ vi.mock("../groq-client.js", async (importOriginal) => {
   };
 });
 
+const originalEgressEnvironment = Object.fromEntries(
+  [
+    "AI_PROVIDER_EGRESS_DISABLED",
+    "RUN_CONTROLLED_RELEASE_VALIDATION",
+    "DASHBOARD_E2E_TEST_MODE",
+    "NODE_ENV",
+  ].map((name) => [name, process.env[name]]),
+);
+
 describe("provider lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -34,6 +43,15 @@ describe("provider lifecycle", () => {
       },
     }));
     _resetProviderLifecycleForTest();
+  });
+
+  afterEach(() => {
+    for (const name of Object.keys(originalEgressEnvironment)) {
+      const value = originalEgressEnvironment[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    vi.useRealTimers();
   });
 
   it("deduplicates checks and refreshes after the TTL", async () => {
@@ -62,6 +80,37 @@ describe("provider lifecycle", () => {
     });
     expect(refreshed.revision).toBeGreaterThan(first.revision);
     expect(validateGroqDefaultModels).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns a fresh non-selectable fixture snapshot without reusing healthy cache", async () => {
+    const healthy = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-fixture-guard-key",
+      source: "user",
+      check: true,
+    });
+    expect(healthy.selectable).toBe(true);
+    expect(validateGroqDefaultModels).toHaveBeenCalledTimes(1);
+
+    process.env.AI_PROVIDER_EGRESS_DISABLED = "1";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.DASHBOARD_E2E_TEST_MODE = "fixture";
+    process.env.NODE_ENV = "development";
+
+    const fixture = await getProviderLifecycleSnapshot({
+      provider: "groq",
+      apiKey: "groq-fixture-guard-key",
+      source: "user",
+      check: true,
+    });
+
+    expect(fixture).not.toBe(healthy);
+    expect(fixture.selectable).toBe(false);
+    expect(fixture.overallStatus).toBe("unavailable");
+    expect(fixture.reasonCodes).toContain("catalog_temporarily_unavailable");
+    expect(fixture.revision).toBeGreaterThan(healthy.revision);
+    expect(validateGroqDefaultModels).toHaveBeenCalledTimes(1);
+
   });
 
   it("bypasses a valid TTL snapshot when forceRefresh is requested", async () => {

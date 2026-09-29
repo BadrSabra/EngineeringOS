@@ -381,10 +381,20 @@ export function buildAiReleaseCheckEnvironment(
   } else {
     delete childEnv.RUN_CONTROLLED_RELEASE_VALIDATION;
   }
+  if (check.kind === "preview") {
+    childEnv.AI_PROVIDER_EGRESS_DISABLED = "1";
+    childEnv.DASHBOARD_E2E_TEST_MODE = "fixture";
+  } else {
+    delete childEnv.AI_PROVIDER_EGRESS_DISABLED;
+  }
   // The quality gate owns the shared release lock for the whole campaign.
   // Let the focused stream runner reuse that ownership instead of treating
   // its nested invocation as a database-isolation collision.
-  if (check.id === "ai-long-run-ownership" || check.id === "ai-stream-release-smoke") {
+  if (
+    check.kind === "preview"
+    || check.id === "ai-long-run-ownership"
+    || check.id === "ai-stream-release-smoke"
+  ) {
     childEnv.RELEASE_AI_STREAM_LOCK_HELD = "1";
   } else {
     delete childEnv.RELEASE_AI_STREAM_LOCK_HELD;

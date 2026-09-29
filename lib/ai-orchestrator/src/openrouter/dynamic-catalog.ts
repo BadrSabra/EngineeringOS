@@ -13,6 +13,7 @@
  *     to filter out stale or discontinued models before returning candidates.
  */
 import type { ModelCapability, OpenRouterPaidModel } from "./model-catalog.js";
+import { isProviderEgressDisabled } from "../provider-egress.js";
 
 const CATALOG_TTL_MS   = 10 * 60 * 1_000; // 10 minutes
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
@@ -181,6 +182,7 @@ export function getDynamicCatalogStatus(): DynamicCatalogStatus {
  *                unauthenticated access to GET /models.
  */
 export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
+  if (isProviderEgressDisabled()) return;
   const now = Date.now();
   if (now - _lastFetchMs < CATALOG_TTL_MS && _availableIds !== null) return;
 

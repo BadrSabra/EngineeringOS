@@ -12397,7 +12397,7 @@ export default function AiChat() {
                 </span>
               </button>
             ))}
-            {(historicalAudits.length > 0 || historicalAuditsLoading || historicalAuditsError) && (
+            {(selectedProjectId || historicalAudits.length > 0 || historicalAuditsLoading || historicalAuditsError) && (
               <div className="mt-3 border-t border-border pt-3">
                 <button
                   type="button"

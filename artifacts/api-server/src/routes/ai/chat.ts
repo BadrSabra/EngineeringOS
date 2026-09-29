@@ -8070,7 +8070,12 @@ export async function handleChatStream(req: Request, res: Response) {
     analysisCorrelation.projectRevision =
       projectContext.workspaceRevision ?? analysisCorrelation.projectRevision;
 
-    const taskObjectiveProofRequired = Boolean(
+    // Compound inspect-then-change turns stage a proposal for approval rather
+    // than applying an effect. A target path alone must not force them through
+    // effect-acceptance proof; an explicitly approved Build handoff still does.
+    const proposalOnlyCompoundWrite =
+      streamTurnIntent.compoundWrite && !approvedImplementationPlan;
+    const taskObjectiveProofRequired = !proposalOnlyCompoundWrite && Boolean(
       streamTurnIntent.requiresEvidence
       || streamTurnIntent.projectTarget
       || projectOrientationTurn

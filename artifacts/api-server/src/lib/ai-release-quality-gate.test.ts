@@ -130,6 +130,33 @@ describe("AI release quality gate", () => {
     expect(buildAiReleaseCheckEnvironment(ordinaryCheck, baseEnv)).not.toHaveProperty(
       "RELEASE_AI_STREAM_LOCK_HELD",
     );
+    const previewCheck = getAiReleaseChecks().find(
+      (candidate) => candidate.id === "dashboard-preview-contract",
+    )!;
+    expect(buildAiReleaseCheckEnvironment(previewCheck, baseEnv)).toMatchObject({
+      RELEASE_AI_STREAM_LOCK_HELD: "1",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+    });
+  });
+
+  it("clears fixture egress controls for non-preview and live-provider children", () => {
+    const baseEnv = {
+      AI_PROVIDER_EGRESS_DISABLED: "1",
+      DASHBOARD_E2E_TEST_MODE: "fixture",
+      RUN_CONTROLLED_RELEASE_VALIDATION: "stale",
+    };
+    const ordinaryCheck = getAiReleaseChecks().find((check) => check.id === "api-typecheck")!;
+    expect(buildAiReleaseCheckEnvironment(ordinaryCheck, baseEnv)).not.toHaveProperty(
+      "AI_PROVIDER_EGRESS_DISABLED",
+    );
+    const liveCheck = getAiReleaseChecks({ enableLiveProvider: true }).find(
+      (check) => check.id === "live-provider-quality",
+    )!;
+    expect(buildAiReleaseCheckEnvironment(liveCheck, baseEnv)).not.toHaveProperty(
+      "AI_PROVIDER_EGRESS_DISABLED",
+    );
   });
 
   it("retains ownership milestones in the release receipt after a passing check", () => {

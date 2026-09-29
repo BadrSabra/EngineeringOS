@@ -26,6 +26,7 @@ import {
   normalizeProviderResponse,
   normalizeProviderToolCalls,
 } from "./provider-tool-calls.js";
+import { assertProviderEgressEnabled } from "./provider-egress.js";
 
 export type Message = {
   role: "system" | "user" | "assistant";
@@ -298,6 +299,7 @@ export async function validateGroqDefaultModels(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    assertProviderEgressEnabled();
     const response = await client.models.list({ signal: controller.signal });
     const modelIds = new Set(
       (response.data ?? [])
@@ -651,6 +653,7 @@ async function sendRequest(client: Groq, request: ChatRequest, timeoutMs: number
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
   try {
+    assertProviderEgressEnabled();
     return await client.chat.completions.create(request, { signal: controller.signal });
   } catch (err) {
     throw classifySdkError(err, controller.signal.aborted, request.model);
@@ -759,6 +762,7 @@ export async function* completeStream(
 
   let stream: AsyncIterable<any>;
   try {
+    assertProviderEgressEnabled();
     stream = await (client.chat.completions.create as any)({
       messages,
       model,

@@ -28,7 +28,7 @@ export default defineConfig({
   use: {
     browserName,
     launchOptions: {
-      ...(process.env.DASHBOARD_E2E_EXECUTABLE_PATH
+      ...(browserName === "chromium" && process.env.DASHBOARD_E2E_EXECUTABLE_PATH
         ? { executablePath: process.env.DASHBOARD_E2E_EXECUTABLE_PATH }
         : {}),
       ...(browserName === "chromium"

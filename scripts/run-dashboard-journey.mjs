@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   acquireReleaseLock,
-  lockPath,
+  acquireReleaseRunnerLock,
   validationLockPath,
 } from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
 import {
@@ -65,10 +65,10 @@ const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
 const childTimeoutMs = Number(
-  // The full authenticated journey includes 48 serial browser scenarios and
-  // several controlled API restarts. Keep the default above the observed
-  // suite duration while allowing release environments to override it.
-  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 900_000,
+  // The full Firefox release journey can exceed 15 minutes with Clerk handoffs,
+  // cold route loading, and controlled API restarts. Keep a bounded ceiling
+  // while allowing release environments to override it.
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 1_800_000,
 );
 const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
   .split(",")
@@ -118,8 +118,13 @@ function groqCatalogFixtureEnvironment() {
         // is never sent to an external provider.
         GROQ_API_KEY: "controlled-release-fixture-key",
         GROQ_CATALOG_FIXTURE_MODE: groqCatalogFixtureMode,
+        AI_PROVIDER_EGRESS_DISABLED: "1",
+        DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
       }
-    : {};
+    : {
+        AI_PROVIDER_EGRESS_DISABLED: undefined,
+        DASHBOARD_E2E_TEST_MODE: dashboardTestMode,
+      };
 }
 
 function redact(value) {
@@ -682,7 +687,7 @@ async function readOriginDiagnostics() {
 async function startReleaseServices() {
   if (process.env.DATABASE_URL) {
     validationLockCleanup = await acquireReleaseLock(validationLockPath);
-    releaseLockCleanup = await acquireReleaseLock(lockPath);
+    releaseLockCleanup = await acquireReleaseRunnerLock();
   }
   await mkdir(outputDir, { recursive: true });
   await writeFile(originDiagnosticsPath, '{"diagnostics":[]}\n', "utf8");

@@ -1,5 +1,5 @@
 - [Canonical proof foundation](proof-foundation.md) — server-only completion proof binds acceptance, execution, evidence, scope, revision, candidate, and delivery identities.
-- [Clerk release handoff](clerk-release-handoff.md) — full browser journeys may need a bounded 30-second Clerk redirect wait under suite load.
+- [Clerk release handoff](clerk-release-handoff.md) — concurrent Firefox journeys need a bounded 60-second per-session handoff under full-suite load.
 - [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.
 - [Delivery candidate safety](delivery-candidate-safety.md) — resolve symlink project roots and copy across filesystems; candidate overlays must reject symlink traversal.
 - [Delivery proof identity](delivery-proof-identity.md) — external delivery receipts must be hydrated and checked against durable execution, revision, candidate, and delivered-tree identities.
@@ -29,7 +29,7 @@
 - [Automatic Mission replan](mission-auto-replan.md) — preserve revision-bound recovery; strict server-owned diagnoses may block auto-replan but never grant scope.
 - [Mission replan test isolation](mission-replan-test-isolation.md) — inject a fake root-goal runner; real auto-replans persist tasks that startup recovery may retry.
 - [Workflow phase ledger](workflow-phase-ledger.md) — each workflow execution/phase pair uses one idempotent shared operation with server-owned evidence and recovery.
-- [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
+- [Release pipeline hardening](release-pipeline-hardening.md) — nested checks reuse parent locks; stale locks are verified before waiting or reclamation.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks; Preview is blocking by default while live providers stay opt-in.
 - [AI cancellation checkpoint handling](ai-cancellation-checkpoint.md) — expected lease rejection after user cancellation must preserve the incomplete report, not become a stream 500.

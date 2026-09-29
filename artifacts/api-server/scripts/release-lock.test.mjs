@@ -82,6 +82,39 @@ test("terminated release owner is reclaimed and the new owner proceeds", async (
   }
 });
 
+test("wait mode still reclaims a terminated release owner", async () => {
+  const { root, lockPath } = await lockFixture(owner);
+  const previousWait = process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK;
+  process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK = "1";
+  try {
+    const cleanup = await acquireReleaseLock(lockPath, {
+      identity: async () => ({ pid: 5678, startTime: "start-new" }),
+      isOwnerActive: async () => false,
+      now: () => 1787313600000,
+      token: "new-token",
+      reclaimPath: path.join(root, "reclaimed-lock"),
+    });
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(lockPath, "owner.json"), "utf8")),
+      {
+        pid: 5678,
+        processStartTime: "start-new",
+        createdAt: "2026-08-21T12:00:00.000Z",
+        token: "new-token",
+      },
+    );
+    await cleanup();
+    await assert.rejects(readFile(lockPath));
+  } finally {
+    if (previousWait === undefined) {
+      delete process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK;
+    } else {
+      process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK = previousWait;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("malformed release owner fails closed and remains intact", async () => {
   const { root, lockPath } = await lockFixture({ pid: 1234 });
   try {

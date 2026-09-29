@@ -16,11 +16,14 @@ import {
   aiChatMessagesTable,
   aiChatSessionsTable,
   aiChangeProposalsTable,
+  aiExecutionsTable,
   db,
   projectsTable,
 } from "@workspace/db";
 import type { RawGroqResponse } from "@workspace/ai-orchestrator";
 import type { RepairVerificationResult } from "../lib/ai-repair-validation.js";
+import { discardDeliveryWorkspace, deliveryWorkspacePath } from "../lib/delivery-workspace.js";
+import { logger } from "../lib/logger.js";
 
 const harness = vi.hoisted(() => {
   const responses: RawGroqResponse[] = [];
@@ -259,14 +262,33 @@ async function insertApprovedPlan(projectId: string, targetPath: string): Promis
 
 describe("verified repair loop through the real SSE route and chat engine", () => {
   const projectIds: string[] = [];
-  const rootAliases: string[] = [];
+  const temporaryRoots: string[] = [];
 
   afterEach(async () => {
     harness.responses.length = 0;
     harness.validationResults.length = 0;
     harness.calls.length = 0;
     harness.strategy.call.mockClear();
+    vi.restoreAllMocks();
     for (const projectId of projectIds.splice(0)) {
+      const executions = await db
+        .select({ operationId: aiExecutionsTable.operationId })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+      const proposals = await db
+        .select({ operationId: aiChangeProposalsTable.operationId })
+        .from(aiChangeProposalsTable)
+        .where(eq(aiChangeProposalsTable.projectId, projectId));
+      const workspaceOperationIds = new Set(
+        [...executions, ...proposals]
+          .map(({ operationId }) => operationId)
+          .filter((operationId): operationId is string => (
+            typeof operationId === "string" && operationId.length > 0
+          )),
+      );
+      for (const operationId of workspaceOperationIds) {
+        await discardDeliveryWorkspace(deliveryWorkspacePath(operationId), operationId);
+      }
       const sessions = await db
         .select({ id: aiChatSessionsTable.id })
         .from(aiChatSessionsTable)
@@ -281,20 +303,21 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, projectId)).catch(() => undefined);
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
     }
-    for (const alias of rootAliases.splice(0)) {
-      await fs.rm(alias, { recursive: true, force: true });
+    for (const rootPath of temporaryRoots.splice(0)) {
+      await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
 
   it("keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
     const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
-    await fs.rm(rootPath, { recursive: true, force: true });
-    await fs.symlink(workspaceRoot, rootPath, "dir");
-    rootAliases.push(rootPath);
+    temporaryRoots.push(rootPath);
     const targetPath = "artifacts/dashboard/src/App.tsx";
-    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
-    const originalContent = await fs.readFile(absoluteTargetPath, "utf8");
+    const workspaceTargetPath = path.join(workspaceRoot, targetPath);
+    const absoluteTargetPath = path.join(rootPath, targetPath);
+    const originalContent = await fs.readFile(workspaceTargetPath, "utf8");
+    await fs.mkdir(path.dirname(absoluteTargetPath), { recursive: true });
+    await fs.writeFile(absoluteTargetPath, originalContent, "utf8");
     const pendingContent = `${originalContent}\n// deterministic verified-repair-loop fixture\n`;
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
@@ -367,6 +390,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     });
 
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+    expect(await fs.readFile(workspaceTargetPath, "utf8")).toBe(originalContent);
     expect(harness.strategy.call).toHaveBeenCalledTimes(4);
     expect(harness.calls.some((call) => call.toolNames.includes("run_validation"))).toBe(true);
     const scopedInstructions = harness.calls
@@ -412,13 +436,14 @@ describe("verified repair loop through the real SSE route and chat engine", () =
   it("routes inspect-then-fix through evidence first and keeps the proposed edit pending", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
     const rootPath = await fs.mkdtemp("/tmp/compound-inspect-fix-root-");
-    await fs.rm(rootPath, { recursive: true, force: true });
-    await fs.symlink(workspaceRoot, rootPath, "dir");
-    rootAliases.push(rootPath);
+    temporaryRoots.push(rootPath);
 
     const targetPath = "artifacts/dashboard/src/App.tsx";
-    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
-    const originalContent = await fs.readFile(absoluteTargetPath, "utf8");
+    const workspaceTargetPath = path.join(workspaceRoot, targetPath);
+    const absoluteTargetPath = path.join(rootPath, targetPath);
+    const originalContent = await fs.readFile(workspaceTargetPath, "utf8");
+    await fs.mkdir(path.dirname(absoluteTargetPath), { recursive: true });
+    await fs.writeFile(absoluteTargetPath, originalContent, "utf8");
     const pendingContent = `${originalContent}\n// compound inspect-then-fix fixture\n`;
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
@@ -436,6 +461,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       })),
     );
 
+    const loggerErrorSpy = vi.spyOn(logger, "error");
     const response = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
@@ -455,6 +481,13 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const intent = events.find((event) => event.type === "intent");
     const done = events.find((event) => event.type === "done");
     const error = events.find((event) => event.type === "error");
+    const unexpectedFailure = loggerErrorSpy.mock.calls.find((call) =>
+      call.some((argument) => argument === "chat stream: unexpected error after SSE setup"),
+    );
+    const unexpectedError = (unexpectedFailure?.[0] as { err?: unknown } | undefined)?.err;
+    const unexpectedErrorDetails = unexpectedError instanceof Error
+      ? `${unexpectedError.name}: ${unexpectedError.message}\n${unexpectedError.stack ?? ""}`
+      : String(unexpectedError ?? "no route error logged");
 
     expect(intent).toMatchObject({
       intent: "DELIVERY",
@@ -470,7 +503,14 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     expect(toolCalls.slice(0, 1)).toEqual(["write_file"]);
     expect(toolResults.slice(0, 1)).toEqual(["write_file"]);
     expect(harness.calls[0]?.toolNames).toContain("write_file");
-    expect(done).toBeDefined();
+    expect(
+      done,
+      `Expected a completed proposal; SSE errors: ${JSON.stringify(
+        events
+          .filter((event) => event.type === "error")
+          .map((event) => ({ code: event.code, message: event.message })),
+      )}; internal route error: ${unexpectedErrorDetails}`,
+    ).toBeDefined();
     expect(done).toMatchObject({
       pendingChanges: [expect.objectContaining({
         path: targetPath,
@@ -479,6 +519,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     });
     expect(error).toBeUndefined();
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+    expect(await fs.readFile(workspaceTargetPath, "utf8")).toBe(originalContent);
   }, 60_000);
 
   it("routes verify-then-run-tests through validation without exposing write tools", async () => {
@@ -486,7 +527,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const rootPath = await fs.mkdtemp("/tmp/compound-verify-tests-root-");
     await fs.rm(rootPath, { recursive: true, force: true });
     await fs.symlink(workspaceRoot, rootPath, "dir");
-    rootAliases.push(rootPath);
+    temporaryRoots.push(rootPath);
 
     const targetPath = "artifacts/dashboard/src/App.tsx";
     const projectId = await insertProject(rootPath);
@@ -548,14 +589,15 @@ describe("verified repair loop through the real SSE route and chat engine", () =
   it("retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW", async () => {
     const workspaceRoot = path.resolve(process.cwd(), "../..");
     const targetPath = "artifacts/dashboard/src/App.tsx";
-    const absoluteTargetPath = path.join(workspaceRoot, targetPath);
-    const originalContent = await fs.readFile(absoluteTargetPath, "utf8");
+    const workspaceTargetPath = path.join(workspaceRoot, targetPath);
+    const originalContent = await fs.readFile(workspaceTargetPath, "utf8");
+    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
+    temporaryRoots.push(rootPath);
+    const absoluteTargetPath = path.join(rootPath, targetPath);
+    await fs.mkdir(path.dirname(absoluteTargetPath), { recursive: true });
+    await fs.writeFile(absoluteTargetPath, originalContent, "utf8");
     const failingContent = `${originalContent}\nconst brokenRepair: string = 123;\n`;
     const fixedContent = `${originalContent}\n// deterministic repair attempt 2\n`;
-    const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
-    await fs.rm(rootPath, { recursive: true, force: true });
-    await fs.symlink(workspaceRoot, rootPath, "dir");
-    rootAliases.push(rootPath);
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
     const plan = await insertApprovedPlan(projectId, targetPath);
@@ -668,6 +710,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       recoveryState: "INCOMPLETE",
     });
     expect(await fs.readFile(absoluteTargetPath, "utf8")).toBe(originalContent);
+    expect(await fs.readFile(workspaceTargetPath, "utf8")).toBe(originalContent);
     expect(harness.validationResults).toHaveLength(0);
   }, 60_000);
 
@@ -680,7 +723,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
     await fs.rm(rootPath, { recursive: true, force: true });
     await fs.symlink(workspaceRoot, rootPath, "dir");
-    rootAliases.push(rootPath);
+    temporaryRoots.push(rootPath);
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
     const plan = await insertApprovedPlan(projectId, targetPath);
@@ -763,7 +806,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     const rootPath = await fs.mkdtemp("/tmp/repair-loop-root-");
     await fs.rm(rootPath, { recursive: true, force: true });
     await fs.symlink(workspaceRoot, rootPath, "dir");
-    rootAliases.push(rootPath);
+    temporaryRoots.push(rootPath);
     const projectId = await insertProject(rootPath);
     projectIds.push(projectId);
     const plan = await insertApprovedPlan(projectId, targetPath);

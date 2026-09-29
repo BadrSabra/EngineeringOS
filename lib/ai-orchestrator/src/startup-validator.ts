@@ -34,6 +34,7 @@ import {
   refreshDynamicCatalog,
   auditStaticCatalog,
 } from "./openrouter/dynamic-catalog.js";
+import { isProviderEgressDisabled } from "./provider-egress.js";
 
 export type ProviderValidationResult = {
   provider: ProviderId;
@@ -172,12 +173,44 @@ export async function validateAiProvidersAtStartup(
   options: StartupValidatorOptions = {},
 ): Promise<ProviderValidationResult[]> {
   const results: ProviderValidationResult[] = [];
+  const providerEgressDisabled = isProviderEgressDisabled();
+  const controlledGroqFixtureOnly =
+    providerEgressDisabled &&
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1" &&
+    process.env.GROQ_CATALOG_FIXTURE_MODE !== undefined;
+
+  if (providerEgressDisabled) {
+    for (const provider of PROVIDER_PRIORITY) {
+      // The Groq release campaign uses controlledGroqCatalogResult below,
+      // which is in-memory fixture data; every other provider stays skipped.
+      if (controlledGroqFixtureOnly && provider === "groq") continue;
+      results.push({
+        provider,
+        valid: false,
+        skipped: true,
+        modelCheck: "skipped",
+        reason: "Provider egress is disabled for deterministic fixture validation.",
+      });
+    }
+    console.info(
+      JSON.stringify({
+        scope: "startup-validator",
+        status: controlledGroqFixtureOnly ? "fixture" : "skipped",
+        reason: controlledGroqFixtureOnly
+          ? "provider egress disabled; only the controlled Groq catalog fixture will run"
+          : "provider egress disabled for deterministic fixture validation",
+      }),
+    );
+    if (!controlledGroqFixtureOnly) return results;
+  }
 
   // Track whether any provider is usable at all.
   let anyValid = false;
   let anyConfigured = false;
 
   for (const providerId of PROVIDER_PRIORITY) {
+    if (providerEgressDisabled && providerId !== "groq") continue;
+
     const keyEnv = PROVIDER_KEY_ENV[providerId];
     const keyValue = process.env[keyEnv];
 

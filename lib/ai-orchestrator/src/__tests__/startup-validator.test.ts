@@ -6,14 +6,28 @@ const providerEnvironments = [
   "DEEPSEEK_API_KEY",
   "GROQ_API_KEY",
 ] as const;
+const egressEnvironments = [
+  "AI_PROVIDER_EGRESS_DISABLED",
+  "RUN_CONTROLLED_RELEASE_VALIDATION",
+  "DASHBOARD_E2E_TEST_MODE",
+  "NODE_ENV",
+] as const;
+const fixtureEnvironments = [
+  "GROQ_CATALOG_FIXTURE_MODE",
+  "GEMINI_MODEL_CHECK_FIXTURE_MODE",
+] as const;
 const originalEnvironment = Object.fromEntries(
-  providerEnvironments.map((name) => [name, process.env[name]]),
+  [...providerEnvironments, ...egressEnvironments, ...fixtureEnvironments].map(
+    (name) => [name, process.env[name]],
+  ),
 );
 
 describe("validateAiProvidersAtStartup", () => {
   beforeEach(() => {
     vi.resetModules();
-    for (const name of providerEnvironments) delete process.env[name];
+    for (const name of [...providerEnvironments, ...fixtureEnvironments]) {
+      delete process.env[name];
+    }
   });
 
   afterEach(() => {
@@ -24,9 +38,129 @@ describe("validateAiProvidersAtStartup", () => {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
+    for (const name of fixtureEnvironments) {
+      const value = originalEnvironment[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     delete process.env.AI_VALIDATE_GEMINI_MODELS;
     delete process.env.RUN_CONTROLLED_RELEASE_VALIDATION;
-    delete process.env.GEMINI_MODEL_CHECK_FIXTURE_MODE;
+    delete process.env.AI_PROVIDER_EGRESS_DISABLED;
+    delete process.env.DASHBOARD_E2E_TEST_MODE;
+    const nodeEnv = originalEnvironment.NODE_ENV;
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+  });
+
+  it("skips every provider and callback when fixture egress is disabled", async () => {
+    process.env.AI_PROVIDER_EGRESS_DISABLED = "1";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.DASHBOARD_E2E_TEST_MODE = "fixture";
+    process.env.NODE_ENV = "development";
+    process.env.GROQ_API_KEY = "valid-groq-key";
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+    process.env.DEEPSEEK_API_KEY = "valid-deepseek-key";
+    process.env.OPENROUTER_API_KEY = "valid-openrouter-key";
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const groqList = vi.fn().mockRejectedValue(new Error("network path must not run"));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = { list: groqList };
+      },
+    }));
+    const callbacks = {
+      onGroqModelCatalogDrift: vi.fn(),
+      onGroqModelCatalogUnavailable: vi.fn(),
+      onGroqModelCatalogHealthy: vi.fn(),
+      onGroqModelCatalogNotConfigured: vi.fn(),
+    };
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup(callbacks);
+
+    expect(results).toHaveLength(4);
+    expect(results.every((result) => result.modelCheck === "skipped")).toBe(true);
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "groq",
+          valid: false,
+          skipped: true,
+        }),
+        expect.objectContaining({
+          provider: "gemini",
+          valid: false,
+          skipped: true,
+        }),
+        expect.objectContaining({
+          provider: "deepseek",
+          valid: false,
+          skipped: true,
+        }),
+        expect.objectContaining({
+          provider: "openrouter",
+          valid: false,
+          skipped: true,
+        }),
+      ]),
+    );
+    expect(results.every((result) => result.reason?.toLowerCase().includes("egress"))).toBe(true);
+    expect(groqList).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogDrift).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogUnavailable).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogHealthy).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogNotConfigured).not.toHaveBeenCalled();
+  });
+
+  it("runs only the in-memory Groq catalog fixture when provider egress is disabled", async () => {
+    process.env.AI_PROVIDER_EGRESS_DISABLED = "1";
+    process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
+    process.env.DASHBOARD_E2E_TEST_MODE = "fixture";
+    process.env.NODE_ENV = "development";
+    process.env.GROQ_API_KEY = "valid-groq-key";
+    process.env.GROQ_CATALOG_FIXTURE_MODE = "timeout";
+    process.env.GEMINI_API_KEY = "valid-gemini-key";
+    process.env.DEEPSEEK_API_KEY = "valid-deepseek-key";
+    process.env.OPENROUTER_API_KEY = "valid-openrouter-key";
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const groqList = vi.fn().mockRejectedValue(new Error("network path must not run"));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        models = { list: groqList };
+      },
+    }));
+    const callbacks = {
+      onGroqModelCatalogDrift: vi.fn(),
+      onGroqModelCatalogUnavailable: vi.fn(),
+      onGroqModelCatalogHealthy: vi.fn(),
+      onGroqModelCatalogNotConfigured: vi.fn(),
+    };
+
+    const { validateAiProvidersAtStartup } = await import("../startup-validator.js");
+    const results = await validateAiProvidersAtStartup(callbacks);
+
+    expect(results).toHaveLength(4);
+    expect(results.find((result) => result.provider === "groq")).toMatchObject({
+      provider: "groq",
+      valid: true,
+      modelCheck: "unavailable",
+    });
+    expect(
+      results
+        .filter((result) => result.provider !== "groq")
+        .every((result) => result.skipped && result.modelCheck === "skipped"),
+    ).toBe(true);
+    expect(callbacks.onGroqModelCatalogUnavailable).toHaveBeenCalledTimes(1);
+    expect(callbacks.onGroqModelCatalogDrift).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogHealthy).not.toHaveBeenCalled();
+    expect(callbacks.onGroqModelCatalogNotConfigured).not.toHaveBeenCalled();
+    expect(groqList).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("marks Groq invalid with an actionable reason when a default is retired", async () => {

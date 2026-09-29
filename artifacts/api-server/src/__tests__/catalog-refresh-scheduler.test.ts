@@ -17,6 +17,7 @@ vi.mock("@workspace/ai-orchestrator", () => ({
   refreshDynamicCatalog: vi.fn().mockResolvedValue(undefined),
   auditStaticCatalog:    vi.fn().mockReturnValue([]),
   FREE_MODELS:           [{ id: "meta-llama/llama-3.1-8b-instruct:free" }],
+  isProviderEgressDisabled: vi.fn(() => false),
 }));
 
 vi.mock("@workspace/db", () => ({
