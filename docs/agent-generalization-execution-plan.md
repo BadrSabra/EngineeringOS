@@ -6855,3 +6855,26 @@ expected-decision-value ranking أو Belief updates، ولم يبدأ P8 integra
   الحية أو STATE. يلزم اختبار سلبي مستقل للملاحظة الناقصة/المتعارضة في خطوة لاحقة.
 - **next step:** أبقِ بقية P4/P6 خارج هذه الشريحة؛ لا تعمم ربط الانتقال على
   قدرات runtime أخرى دون نطاق منفصل.
+
+### 42.45 — إثبات handoff الانتقال المادي إلى Mission D2 (2026-09-30)
+
+- **phase/step:** إغلاق bounded لحد القرار اللاحق في pilot
+  `runtime.start stopped → running`.
+- **status:** `done — finalizer-to-D2 handoff verified in DB-backed fixtures`
+- **contract proven:** finalizer المادي الحقيقي يُنتج انتقالًا يحمل الملاحظات
+  المرتبطة ومراجعة النتيجة؛ Mission D2 يرسل الهدف المحدد مرة واحدة مع proof
+  مربوط بالتنفيذ والمحاولة وEpisode وAction وEffectBundle والمراجعتين ومراجع
+  الملاحظات وخطة Mission. إعادة wake لا تكرر الإرسال. بعد terminal failure
+  لأي حالة من child-process evidence الست، يبقى قبول Gate C مستقلًا، ويتحول
+  الهدف إلى bounded `needs_replan` من دون dispatch.
+- **validation:** API typecheck، واختبارا
+  `runtime-start-transition.test.ts` و`mission-runtime.test.ts` (37/37)،
+  و`git diff --check`. runtime manager/runner له اختبار نجاح منفصل؛ هذه
+  الشريحة تثبت التزام finalizer→Mission D2، ولا تدعي إعادة تنفيذ spawn.
+- **authority/safety impact:** لا تغييرات إنتاجية أو schema أو صلاحيات؛
+  acceptance تبقى مستقلة عن الإسقاط وعن dispatch. لا restart/stop أو P7.5
+  أو STATE أو مزود حي.
+- **next step:** قبل إسقاط `apply-changes`، عرّف ملاحظة مستقلة من live root
+  بعد الترقية، resulting project revision وسياسة environment freshness،
+  ثم عقد Mission الذي يستهلكها. لا تُعد استخدام candidate observations أو
+  تعمم transition engine قبل إثبات شريحة مستقلة ثانية.

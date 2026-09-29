@@ -3386,6 +3386,38 @@ G9 Revocation Safety
 - **next step:** أبقِ التغيير محصورًا في هذا الطيار؛ أي توسيع لبقية runtime أو
   تقييمات أخرى يحتاج نطاقًا منفصلًا.
 
+### 43.06 — إثبات تسليم runtime.start إلى قرار Mission D2 (2026-09-30)
+
+- **phase/step:** إغلاق handoff محدود من P6 إلى مستهلك D2 لمسار
+  `runtime.start` من stopped إلى running.
+- **status:** `passed — materialized transition dispatches once; invalid child evidence never dispatches`
+- **what changed:** أضيف اختبار DB-backed يعبر من finalizer الانتقال الفعلي إلى
+  `wakeRuntimeTransitionMissionGoals`. عند الدليل الصحيح، يثبت الانتقال
+  المادي ويحمل dispatch هوية الانتقال والتنفيذ والمحاولة وAction وEffectBundle
+  ومراجع الملاحظات و`parentWorldRevision` و`resultingWorldRevision` وخطتي
+  المصدر/الهدف؛ إعادة الإيقاظ لا تكرر dispatch. في حالات child-process الست
+  (غير مرتبط، ناقص، قديم، مجهول، جلسة أخرى، أو binding digest مختلف)، يبقى
+  قبول Gate C ناجحًا، وينتهي هدف Mission إلى `needs_replan` بلا dispatch.
+  يظل تشغيل runtime manager نفسه مغطى باختبار runner المنفصل.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/runtime-start-transition.test.ts`
+  وهذا السجل وخطة التنفيذ؛ لا تغيير إنتاجي أو schema أو migration.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck`،
+  والاختباران `runtime-start-transition.test.ts` و`mission-runtime.test.ts`
+  (37/37)، و`git diff --check` نجحت. لم تُعد مجموعة
+  `recipe-operation-runner.test.ts` كاملة؛ يظل فشل P7.5 المعزول المذكور في
+  §43.05 خارج هذا التحقق.
+- **authority/safety impact:** لا تغيير في Canonical/Gate C acceptance أو
+  صلاحيات التنفيذ. النجاح المادي وحده لا يكفي؛ D2 يستهلك transition المرتبط
+  فقط، بينما فشل materialization يحجب الهدف التابع.
+- **remaining/blocker:** يظل إثبات D2 محصورًا في pilot `runtime.start`.
+  `apply-changes` لا يملك بعد ملاحظة live post-promotion ومراجعة مشروع/بيئة
+  صريحة ومسار Mission يستهلك تلك المراجعة؛ لا تُسقط ملاحظات candidate إلى
+  World State.
+- **next step:** عرّف عقد live-project revision وenvironment freshness لمسار
+  `apply-changes` ثم مستهلك Mission محدد قبل إضافة World Delta له. لا تعمم
+  transition engine ولا توسع إلى restart/stop أو P7.5 أو STATE أو مزود حي.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

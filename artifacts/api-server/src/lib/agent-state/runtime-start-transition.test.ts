@@ -1,13 +1,17 @@
 import { and, eq } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   aiAgentEffectBundlesTable,
+  aiAgentEpisodesTable,
   aiAgentObservationsTable,
   aiChatSessionsTable,
   aiExecutionAcceptancesTable,
   aiExecutionsTable,
+  aiGoalsTable,
+  aiMissionsTable,
   aiWorldTransitionsTable,
   db,
+  eventsTable,
   projectsTable,
 } from "@workspace/db";
 import { createAiExecution, claimAiExecution } from "../ai-execution-state.js";
@@ -17,6 +21,8 @@ import {
   finalizeRuntimeStartTransition,
   retryPendingRuntimeStartTransitions,
 } from "./runtime-start-transition.js";
+import { wakeRuntimeTransitionMissionGoals } from "../mission-runtime.js";
+import { heavyJobQueue } from "../job-queue.js";
 import { childProcessBindingDigest } from "./child-process-attestation.js";
 import {
   getProjectWorldState,
@@ -27,6 +33,7 @@ const createdProjects: string[] = [];
 const createdExecutionIds: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const executionId of createdExecutionIds.splice(0)) {
     await db.delete(aiExecutionAcceptancesTable)
       .where(eq(aiExecutionAcceptancesTable.executionId, executionId));
@@ -157,7 +164,7 @@ async function transitionFixture(options: { accepted?: boolean } = {}) {
     parentFactRefs: [],
     beforeObservationIds: [beforeObservationId],
     afterObservationIds: [afterObservationId, statusObservationId, childProcessObservationId],
-    evidenceRefs: ["evidence"],
+    evidenceRefs: [`runtime:${sessionId}`],
     environmentRevision,
   };
   const transitionId = await createPendingRuntimeStartTransition(transitionInput);
@@ -189,6 +196,84 @@ async function transitionFixture(options: { accepted?: boolean } = {}) {
 }
 
 type TransitionFixture = Awaited<ReturnType<typeof transitionFixture>>;
+
+async function createRuntimeStartMissionHandoff(fixture: TransitionFixture) {
+  const missionId = crypto.randomUUID();
+  const sourceGoalId = crypto.randomUUID();
+  const targetGoalId = crypto.randomUUID();
+  const userId = `runtime-transition-test:${fixture.projectId}`;
+  const planRevision = `plan-runtime-start:${fixture.projectId}`;
+  const now = new Date();
+  const requirement = {
+    kind: "runtime.start",
+    version: 1,
+    sourceStepId: "runtime-start",
+    targetStepId: "target-step",
+    from: "stopped",
+    to: "running",
+  };
+  const plan = { hash: planRevision, transitionRequirements: [requirement] };
+
+  await db.insert(aiMissionsTable).values({
+    id: missionId,
+    projectId: fixture.projectId,
+    userId,
+    title: "Runtime transition handoff",
+    intent: "Verify the exact runtime transition before dispatching its successor",
+    status: "active",
+    scope: { kind: "project", projectId: fixture.projectId },
+    autonomyPolicy: { activePlanRevision: planRevision },
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiGoalsTable).values([
+    {
+      id: sourceGoalId,
+      missionId,
+      projectId: fixture.projectId,
+      title: "Start runtime",
+      status: "completed",
+      nextAction: { kind: "recipe", recipeId: "runtime.start", recipeVersion: 1 },
+      successCriteria: { stepId: "runtime-start", planRevision: plan },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: targetGoalId,
+      missionId,
+      projectId: fixture.projectId,
+      title: "Verify runtime",
+      status: "waiting_for_event",
+      nextAction: {
+        kind: "recipe",
+        recipeId: "candidate.verify",
+        recipeVersion: 1,
+        approvedPaths: ["package.json"],
+      },
+      successCriteria: {
+        stepId: "target-step",
+        planRevision: plan,
+        transitionRequirement: requirement,
+      },
+      outcomeContract: { planRevision: { hash: planRevision } },
+      blockedReason: "runtime_transition_pending",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.update(aiMissionsTable)
+    .set({ status: "waiting", updatedAt: now })
+    .where(eq(aiMissionsTable.id, missionId));
+  await db.update(aiExecutionsTable)
+    .set({ goalId: sourceGoalId })
+    .where(eq(aiExecutionsTable.id, fixture.executionId));
+  await db.update(aiAgentEpisodesTable)
+    .set({ missionId, goalId: sourceGoalId, planRevision })
+    .where(eq(aiAgentEpisodesTable.id, fixture.episodeId));
+
+  return { missionId, sourceGoalId, targetGoalId, planRevision };
+}
 
 async function insertValidRuntimeStartObservations(
   fixture: TransitionFixture,
@@ -471,6 +556,85 @@ describe("runtime.start transition retry scheduling", () => {
     });
   });
 
+  it("dispatches one Mission successor only after the exact runtime.start transition materializes", async () => {
+    const fixture = await transitionFixture();
+    const mission = await createRuntimeStartMissionHandoff(fixture);
+    await insertValidRuntimeStartObservations(fixture);
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
+
+    const finalized = await finalizeRuntimeStartTransition({
+      projectId: fixture.projectId,
+      executionId: fixture.executionId,
+      attempt: 0,
+      episodeId: fixture.episodeId,
+      actionId: fixture.transitionInput.actionId,
+      effectBundleId: fixture.effectBundleId,
+    });
+    expect(finalized.status).toBe("materialized");
+
+    const [transition] = await db.select().from(aiWorldTransitionsTable)
+      .where(eq(aiWorldTransitionsTable.id, fixture.transitionId));
+    expect(transition).toMatchObject({
+      status: "materialized",
+      effectBundleId: fixture.effectBundleId,
+      parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+      resultingWorldRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      beforeObservationIds: [fixture.beforeObservationId],
+      afterObservationIds: [
+        fixture.afterObservationId,
+        fixture.statusObservationId,
+        fixture.childProcessObservationId,
+      ],
+    });
+
+    const woken = await wakeRuntimeTransitionMissionGoals();
+    const [targetAfterWake] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, mission.targetGoalId));
+    expect(woken).toBe(1);
+    expect(targetAfterWake).toMatchObject({
+      status: "running",
+      blockedReason: null,
+    });
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+
+    const dispatches = await db.select({
+      type: eventsTable.type,
+      goalId: eventsTable.goalId,
+      payload: eventsTable.payload,
+    }).from(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+    const targetDispatches = dispatches.filter((event) =>
+      event.type === "AiGoalRecipeDispatchRequested"
+      && event.goalId === mission.targetGoalId,
+    );
+    expect(targetDispatches).toHaveLength(1);
+    expect(targetDispatches[0]?.payload).toMatchObject({
+      transitionProof: {
+        transitionId: fixture.transitionId,
+        executionId: fixture.executionId,
+        attempt: 0,
+        episodeId: fixture.episodeId,
+        actionId: fixture.transitionInput.actionId,
+        effectBundleId: fixture.effectBundleId,
+        parentWorldRevision: fixture.transitionInput.parentWorldRevision,
+        resultingWorldRevision: transition?.resultingWorldRevision,
+        projectRevision: fixture.sourceRevision,
+        environmentRevision: fixture.environmentRevision,
+        beforeObservationIds: [fixture.beforeObservationId],
+        afterObservationIds: [
+          fixture.afterObservationId,
+          fixture.statusObservationId,
+          fixture.childProcessObservationId,
+        ],
+        sourceStepId: "runtime-start",
+        targetStepId: "target-step",
+        activePlanHash: mission.planRevision,
+      },
+    });
+    expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
   const invalidChildEvidenceScenarios: Array<{
     label: string;
     expectedFailure: string;
@@ -510,9 +674,11 @@ describe("runtime.start transition retry scheduling", () => {
   ];
   it.each(invalidChildEvidenceScenarios)("blocks World Delta when child-process evidence is $label", async (scenario) => {
     const fixture = await transitionFixture();
+    const mission = await createRuntimeStartMissionHandoff(fixture);
     const parent = await getProjectWorldState(fixture.projectId, {
       excludeEpisodeIds: [fixture.episodeId],
     });
+    const enqueue = vi.spyOn(heavyJobQueue, "enqueueWithId").mockReturnValue(true);
     await insertValidRuntimeStartObservations(fixture, scenario.childOverrides);
     if (scenario.omitChildReference) {
       await db.update(aiWorldTransitionsTable)
@@ -565,6 +731,25 @@ describe("runtime.start transition retry scheduling", () => {
     });
     expect(after.worldRevision).toBe(parent.worldRevision);
     expect(after.facts).toEqual(parent.facts);
+
+    expect(await wakeRuntimeTransitionMissionGoals()).toBe(0);
+    const dispatches = await db.select({
+      type: eventsTable.type,
+      goalId: eventsTable.goalId,
+    }).from(eventsTable).where(eq(eventsTable.projectId, fixture.projectId));
+    expect(dispatches.some((event) =>
+      event.type === "AiGoalRecipeDispatchRequested"
+      && event.goalId === mission.targetGoalId,
+    )).toBe(false);
+    const [target] = await db.select({
+      status: aiGoalsTable.status,
+      blockedReason: aiGoalsTable.blockedReason,
+    }).from(aiGoalsTable).where(eq(aiGoalsTable.id, mission.targetGoalId));
+    expect(target).toMatchObject({
+      status: "needs_replan",
+      blockedReason: "runtime_start_transition_unproven",
+    });
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("terminalizes due retry-exhausted work without attempting projection", async () => {
