@@ -6297,7 +6297,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const secondPage = await secondContext.newPage();
     try {
       await Promise.all([installApiFixtures(page), installApiFixtures(secondPage)]);
-      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
+      await Promise.all([
+        programmaticSignIn(page, TEST_USER, { handoffTimeoutMs: 60_000 }),
+        programmaticSignIn(secondPage, TEST_USER, { handoffTimeoutMs: 60_000 }),
+      ]);
       await Promise.all([
         page.goto(DASHBOARD_PATH),
         secondPage.goto(`${DASHBOARD_PATH}ai`, { waitUntil: "commit" }),
