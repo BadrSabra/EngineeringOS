@@ -6,7 +6,7 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-09-28
+**آخر تحديث:** 2026-09-29
 **الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80–§42.81 انتقال route-level من فشل provider A إلى نجاح B، وثبات evidence packet، وتكافؤ JSON/SSE/history، وحدود استنفاد المرشحين والميزانية والمهلة والإلغاء لهدف embedded-AI ذي objective canonical. لم يثبت ذلك جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
@@ -17,9 +17,13 @@
 scan hook الخاص بالمشروع وفعاليته. نجحت كذلك رحلة رفض الأرشيف وإعادة المحاولة
 واختبارات API للسلامة. يغلق هذا فجوة الوصول والإثبات المحددة في جرد Dashboard؛
 ولا يُعد دليلًا على تعميم الوكيل أو تعلمه.
-**بوابة AI الحتمية (2026-09-28):** التشغيل التشخيصي مع تعطيل Preview انتهى
-محجوبًا بفشلين؛ التشغيل الافتراضي الكامل تجاوز مهلة shell البالغة 300 ثانية
-دون تقرير. لذلك لم يبدأ أي اختبار مزود حي.
+**تصحيح بوابة AI الحتمية (2026-09-29):** تقرير القرار الافتراضي الأحدث اجتاز
+15/15 فحصًا بلا فشل أو تخطٍ، مع Preview مفعّل وناجح و`liveProviderChecks=disabled`.
+اجتاز كذلك harness PROJECT_QUERY الحتمي والمقيّد بالقراءة فقط: تكافؤ JSON/SSE/
+history، وCanonical Proof من مسار SSE، وقراءات محفوظة كاملة تطابق أجسام fixtures،
+ومن دون آثار كتابة. يبقى JSON متكافئًا في الاستجابة والتاريخ فقط؛ مساره الحالي
+لا ينشئ Canonical Proof (`proofRequired=false`). لم يُشغّل مزود حي أو يبدأ STATE؛
+راجع §43.02 للتاريخ و§43.03 للتصحيح وحدود التغطية.
 **المصدر الرئيسي:** `docs/agent-generalization-execution-plan.md`
 
 | المرحلة | الحالة | النطاق المنجز أو المتبقي |
@@ -3296,6 +3300,33 @@ G9 Revocation Safety
 - **next step:** عالج إخفاق مسار inspect-then-fix ومشكلة harness في فحص SSE،
   ثم أعد البوابة كاملة بما فيها Preview. بعد النجاح فقط، أنشئ أو اختر harness
   PROJECT_QUERY المقيّد بالقراءة، وأثبت Canonical Proof قبل تقييم جودة provider.
+
+### 43.03 — تصحيح نجاح بوابة AI وبناء harness حتمي لـPROJECT_QUERY (2026-09-29)
+
+- **phase/step:** تحقق حتمي قبل أي تقييم مزود حي لـPROJECT_QUERY.
+- **status:** `passed — fixture harness; live provider not run`
+- **what changed:** صحح الملخص وفق تقرير القرار الافتراضي: 15/15 فحصًا ناجحًا،
+  بلا فشل أو تخطٍ، وPreview ناجح؛ بقي `liveProviderChecks=disabled`. أضيف أمر
+  harness مخصص، ووُسّع الاختبار القائم بدل تكرار مسار fixture جديد.
+- **files/schema/contracts touched:** `artifacts/api-server/package.json`،
+  `artifacts/api-server/src/routes/ai-stream-integration.test.ts`، وهذا السجل
+  وملخص الخطة؛ لا تغيير runtime أو schema.
+- **validation:** `pnpm --filter @workspace/api-server run
+  test:project-query-proof-harness` — `1 passed`, و106 اختبارات متروكة عمدًا بسبب
+  تشغيل الاختبار المحدد؛ `pnpm --filter @workspace/api-server run typecheck`
+  نجح؛ `git diff --check` نجح. يثبت الاختبار تطابق إسقاط JSON/SSE/history،
+  والـobjective والـclaims والقراءات bounded، وCanonical Proof `PROVEN` مع أجسام
+  evidence كاملة محفوظة لمسار SSE، وعدم وجود change proposals أو apply-journal
+  أو ملفات مكتوبة في جذر المشروع.
+- **authority/safety impact:** fixture حتمي محدود بطلب JSON وطلب SSE، وينتهي
+  بخطأ عند استنفاده؛ لم يُستدعَ مزود حي أو تنفيذ STATE. لا تمنح نتيجة JSON
+  إثباتًا؛ يظل المسار غير المتدفق observation-only مع `proofRequired=false`،
+  ولذلك ينحصر إثبات Canonical Proof في SSE وفق العقد الحالي.
+- **remaining/blocker:** لا يثبت هذا harness جودة مزود حي، ولا Canonical Proof
+  لمسار JSON، ولا تعميم الوكيل. يتطلب توحيد إثبات المسارين تغييرًا منفصلًا
+  ومراجعًا لعقد قبول المسار غير المتدفق.
+- **next step:** أبقِ أي اختبار مزود حي متوقفًا؛ إذا لزم تكافؤ Canonical Proof
+  بين JSON وSSE، فاعتمد ذلك كتغيير مستقل لعقد non-stream PROJECT_QUERY أولًا.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

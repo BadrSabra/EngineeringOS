@@ -7554,19 +7554,34 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       ],
     ]);
     let response = "";
-    let observedObjective: {
-      objectiveType?: string;
-      requiredEvidencePaths?: string[];
-      requiredClaims?: Array<{ claimId?: string; text?: string }>;
-    } | undefined;
+    const responseProjection = (message: Record<string, unknown>) => ({
+      content: message.content,
+      outcome: message.outcome,
+      projectQueryResponseSource: message.projectQueryResponseSource,
+      projectQueryResponseFallbackReason: message.projectQueryResponseFallbackReason,
+    });
+    type ProjectQueryFixtureInput = {
+      objective?: {
+        objectiveType?: string;
+        requiredEvidencePaths?: string[];
+        requiredClaims?: Array<{ claimId?: string; text?: string }>;
+      };
+      turnIntent?: { kind?: string; requiresEvidence?: boolean };
+      retainedEvidence?: Map<string, string>;
+      retainedReadStatuses?: Map<string, string>;
+    };
+    const observedInputs: ProjectQueryFixtureInput[] = [];
+    const fixtureReadPaths: string[] = [];
+    let fixtureCallCount = 0;
 
     vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
-      const input = args[1] as {
-        objective?: typeof observedObjective;
-        retainedEvidence?: Map<string, string>;
-        retainedReadStatuses?: Map<string, string>;
-      };
-      observedObjective = input.objective;
+      if (fixtureCallCount >= 2) {
+        throw new Error("PROJECT_QUERY proof fixture exhausted after JSON and SSE requests.");
+      }
+      fixtureCallCount += 1;
+      const input = args[1] as ProjectQueryFixtureInput;
+      observedInputs.push(input);
+      const observedObjective = input.objective;
       expect(observedObjective).toMatchObject({
         objectiveType: "PROJECT_QUERY_GENERIC-PROJECT",
         requiredEvidencePaths: sources,
@@ -7579,6 +7594,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 
       for (const source of sources) {
         const body = sourceBodies.get(source)!;
+        fixtureReadPaths.push(source);
+        args[6]?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path: source, complete: true },
+          cached: false,
+        } as never);
         input.retainedEvidence?.set(source, body);
         input.retainedReadStatuses?.set(source, "READ_COMPLETE");
         args[6]?.({
@@ -7664,8 +7686,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         projectQueryResponseFallbackReason: "synthesis_failed",
       },
     });
-    expect(observedObjective?.requiredClaims?.map(({ claimId }) => claimId)).toEqual(claimIds);
-
+    const streamMessage = done?.message as Record<string, unknown>;
+    const streamProjection = responseProjection(streamMessage);
+    expect(streamProjection).toMatchObject({
+      content: response,
+      outcome: "SUCCEEDED",
+      projectQueryResponseSource: "deterministic_fallback",
+      projectQueryResponseFallbackReason: "synthesis_failed",
+    });
+    expect(observedInputs).toHaveLength(1);
+    expect(observedInputs[0]?.turnIntent).toMatchObject({
+      kind: "PROJECT_QUERY",
+      requiresEvidence: true,
+    });
+    expect(observedInputs[0]?.objective?.requiredClaims?.map(({ claimId }) => claimId))
+      .toEqual(claimIds);
+    expect(fixtureReadPaths).toEqual(sources);
     const [execution] = await db
       .select({
         id: aiExecutionsTable.id,
@@ -7699,6 +7735,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const history = await request(app)
       .get(`/api/ai/chat/${execution!.sessionId}/messages`)
       .expect(200);
+    const streamHistoryAssistant = (history.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
     expect(history.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "user", content: message }),
       expect.objectContaining({
@@ -7709,6 +7747,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
         projectQueryResponseFallbackReason: "synthesis_failed",
       }),
     ]));
+    expect(streamHistoryAssistant).toBeDefined();
+    expect(responseProjection(streamHistoryAssistant!)).toEqual(streamProjection);
 
     const json = await request(app)
       .post("/api/ai/chat")
@@ -7723,25 +7763,149 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       message: {
         role: "assistant",
         content: response,
+        outcome: "SUCCEEDED",
         projectQueryResponseSource: "deterministic_fallback",
         projectQueryResponseFallbackReason: "synthesis_failed",
       },
     });
-    expect(observedObjective?.requiredClaims?.map(({ claimId }) => claimId)).toEqual(claimIds);
+    const jsonMessage = json.body.message as Record<string, unknown> & { id: string };
+    expect(jsonMessage.id).toEqual(expect.any(String));
+    expect(responseProjection(jsonMessage)).toEqual(streamProjection);
+    expect(observedInputs).toHaveLength(2);
+    for (const input of observedInputs) {
+      expect(input.turnIntent).toMatchObject({
+        kind: "PROJECT_QUERY",
+        requiresEvidence: true,
+      });
+      expect(input.objective).toMatchObject({
+        objectiveType: "PROJECT_QUERY_GENERIC-PROJECT",
+        requiredEvidencePaths: sources,
+      });
+      expect(input.objective?.requiredClaims?.map(({ claimId }) => claimId)).toEqual(claimIds);
+    }
     expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(2);
+    expect(fixtureReadPaths).toEqual([...sources, ...sources]);
 
     const jsonHistory = await request(app)
       .get(`/api/ai/chat/${String(json.body.sessionId)}/messages`)
       .expect(200);
+    const jsonHistoryAssistant = (jsonHistory.body as Array<Record<string, unknown>>)
+      .find((entry) => entry.role === "assistant");
     expect(jsonHistory.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "user", content: message }),
       expect.objectContaining({
         role: "assistant",
         content: response,
+        outcome: "SUCCEEDED",
         projectQueryResponseSource: "deterministic_fallback",
         projectQueryResponseFallbackReason: "synthesis_failed",
       }),
     ]));
+    expect(jsonHistoryAssistant).toBeDefined();
+    expect(responseProjection(jsonHistoryAssistant!)).toEqual(streamProjection);
+
+    const assertAcceptedProof = async (finalMessageId: string) => {
+      const [storedExecution] = await db
+        .select({
+          id: aiExecutionsTable.id,
+          status: aiExecutionsTable.status,
+          request: aiExecutionsTable.request,
+          finalMessageId: aiExecutionsTable.finalMessageId,
+        })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.projectId, projectId),
+          eq(aiExecutionsTable.finalMessageId, finalMessageId),
+        ))
+        .limit(1);
+      expect(storedExecution).toMatchObject({ status: "completed", finalMessageId });
+
+      const persistedRequest = JSON.parse(storedExecution!.request ?? "{}") as {
+        proofRequired?: boolean;
+        workspaceRevision?: string;
+      };
+      expect(persistedRequest.proofRequired).toBe(true);
+      expect(persistedRequest.workspaceRevision).toEqual(expect.any(String));
+
+      const [storedAcceptance] = await db
+        .select()
+        .from(aiExecutionAcceptancesTable)
+        .where(eq(aiExecutionAcceptancesTable.executionId, storedExecution!.id))
+        .limit(1);
+      expect(storedAcceptance).toMatchObject({
+        outcome: "SUCCEEDED",
+        evidenceRequired: 1,
+        evidenceComplete: 1,
+        evidenceSnapshotId: expect.any(String),
+        messageId: storedExecution!.finalMessageId,
+      });
+      expect(projectExecutionAcceptance(storedAcceptance)?.disposition?.acceptedClaimRefs)
+        .toEqual(claimIds);
+
+      const [snapshot] = await db
+        .select({
+          verdict: aiExecutionEvidenceSnapshotsTable.verdict,
+          complete: aiExecutionEvidenceSnapshotsTable.complete,
+          readCount: aiExecutionEvidenceSnapshotsTable.readCount,
+        })
+        .from(aiExecutionEvidenceSnapshotsTable)
+        .where(eq(
+          aiExecutionEvidenceSnapshotsTable.id,
+          storedAcceptance!.evidenceSnapshotId!,
+        ))
+        .limit(1);
+      expect(snapshot).toMatchObject({
+        verdict: "PROVEN",
+        complete: 1,
+        readCount: sources.length,
+      });
+
+      const retainedReads = await db
+        .select({
+          path: aiExecutionEvidenceReadsTable.path,
+          complete: aiExecutionEvidenceReadsTable.complete,
+          truncated: aiExecutionEvidenceReadsTable.truncated,
+          body: aiExecutionEvidenceReadsTable.body,
+        })
+        .from(aiExecutionEvidenceReadsTable)
+        .where(eq(
+          aiExecutionEvidenceReadsTable.snapshotId,
+          storedAcceptance!.evidenceSnapshotId!,
+        ));
+      expect(retainedReads).toHaveLength(sources.length);
+      expect(retainedReads).toEqual(expect.arrayContaining(
+        sources.map((source) => expect.objectContaining({
+          path: source,
+          complete: 1,
+          truncated: 0,
+          body: sourceBodies.get(source),
+        })),
+      ));
+
+      return {
+        id: storedExecution!.id,
+        workspaceRevision: persistedRequest.workspaceRevision,
+      };
+    };
+
+    await assertAcceptedProof(execution!.finalMessageId!);
+
+    const proposals = await db
+      .select({ id: aiChangeProposalsTable.id })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.projectId, projectId));
+    const applyJournal = await db
+      .select({ id: aiApplyJournalTable.id })
+      .from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.projectId, projectId));
+    expect(proposals).toEqual([]);
+    expect(applyJournal).toEqual([]);
+    const [project] = await db
+      .select({ rootPath: projectsTable.rootPath })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    expect(await fs.readdir(project!.rootPath)).toEqual([]);
   });
 
   it("keeps actual PROJECT_QUERY synthesis failover equivalent across JSON, SSE, and history", async () => {

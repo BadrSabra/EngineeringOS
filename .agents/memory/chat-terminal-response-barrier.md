@@ -14,3 +14,9 @@ For a non-streaming evidence-required `PROJECT_QUERY`, absence of a canonical ob
 **Why:** API integration showed the same objective-free incomplete response was rejected by SSE's durable acceptance gate but persisted as `SUCCEEDED` through JSON.
 
 **How to apply:** Fail closed at non-stream terminal projection when evidence is required, no canonical objective is bound, and the turn is not project orientation. Preserve the incomplete report and do not invent fallback provenance or relax the objective-backed path.
+
+Keep the current non-stream observation lifecycle distinct from SSE proof acceptance: a successful JSON PROJECT_QUERY response and matching chat history do not establish Canonical Proof while that execution contract remains `proofRequired=false`. Do not add synthetic proof to fixtures to manufacture parity.
+
+**Why:** The non-stream route and SSE route have different acceptance authority. Treating response parity as proof parity would silently expand the JSON route's contract.
+
+**How to apply:** Compare JSON and SSE response/provenance/history projections, but verify persisted PROVEN evidence only on a route that owns the proof-required acceptance contract. Make JSON Canonical Proof a separate contract change if required.
