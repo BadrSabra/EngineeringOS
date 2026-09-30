@@ -28,6 +28,7 @@ async function runProcessRecovery({
   timeoutMs,
   fixtureScript,
   partialTeardownKey,
+  captureOutput = false,
 }) {
   const fakePnpmPath = path.join(binDirectory, "pnpm");
   await mkdir(binDirectory, { recursive: true });
@@ -57,8 +58,20 @@ async function runProcessRecovery({
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let stdout = "";
+    let stderr = "";
+    childProcess.stdout.on("data", (chunk) => {
+      stdout = `${stdout}${chunk.toString("utf8")}`.slice(-16_000);
+    });
+    childProcess.stderr.on("data", (chunk) => {
+      stderr = `${stderr}${chunk.toString("utf8")}`.slice(-16_000);
+    });
     childProcess.once("error", reject);
-    childProcess.once("exit", (code, signal) => resolve({ code, signal }));
+    childProcess.once("exit", (code, signal) => resolve({
+      code,
+      signal,
+      ...(captureOutput ? { stdout, stderr } : {}),
+    }));
   });
 }
 
@@ -144,6 +157,55 @@ test("process-recovery script keeps the last passing receipt on failed runs", as
       fixtureScript: "#!/bin/sh\nexit 17\n",
     });
     assert.deepEqual(child, { code: 17, signal: null });
+    assert.equal(await readFile(receiptPath, "utf8"), previous);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("process-recovery failures show bounded redacted Vitest details and keep the last receipt", async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "process-recovery-receipt-test-"),
+  );
+  const receiptPath = path.join(directory, "receipt.json");
+  const previous = JSON.stringify({ kind: "previous-pass", revision: "old" });
+  const fixtureScript = `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+const reportArgument = process.argv.find((argument) => argument.startsWith("--outputFile="));
+if (!reportArgument) process.exit(2);
+const reportPath = reportArgument.slice("--outputFile=".length);
+writeFileSync(reportPath, JSON.stringify({
+  numFailedTests: 1,
+  testResults: [{
+    status: "failed",
+    assertionResults: [{
+      status: "failed",
+      ancestorTitles: ["Durable AI execution crash/reconnect"],
+      title: "recovers a forensic stream after the API process exits",
+      failureMessages: [
+        "Error: provider response timed out with fixture-provider-key\\n    at fixtureCall"
+      ]
+    }]
+  }]
+}));
+process.exit(1);
+`;
+  await writeFile(receiptPath, previous, "utf8");
+  try {
+    const result = await runProcessRecovery({
+      receiptPath,
+      binDirectory: path.join(directory, "bin"),
+      fixtureScript,
+      captureOutput: true,
+    });
+    assert.deepEqual(
+      { code: result.code, signal: result.signal },
+      { code: 1, signal: null },
+    );
+    assert.match(result.stderr, /Real process-recovery validation failed \(exit code 1\)/);
+    assert.match(result.stderr, /recovers a forensic stream after the API process exits/);
+    assert.match(result.stderr, /provider response timed out/);
+    assert.doesNotMatch(result.stderr, /fixture-provider-key/);
     assert.equal(await readFile(receiptPath, "utf8"), previous);
   } finally {
     await rm(directory, { recursive: true, force: true });

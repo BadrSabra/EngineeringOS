@@ -164,6 +164,63 @@ function readVitestPassedFiles(report) {
   return readVitestCount(report, "numPassedTestFiles", readVitestCount(report, "numPassedTestSuites"));
 }
 
+function firstDiagnosticLine(value) {
+  if (typeof value !== "string") return undefined;
+  return value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !/^at\b/.test(line))
+    ?.slice(0, 500);
+}
+
+async function readVitestFailureSummary(reportPath) {
+  let report;
+  try {
+    report = JSON.parse(await readFile(reportPath, "utf8"));
+  } catch {
+    return "Vitest failure details are unavailable because its JSON report is missing or invalid.";
+  }
+
+  const failures = [];
+  for (const testResult of Array.isArray(report?.testResults) ? report.testResults : []) {
+    const assertions = Array.isArray(testResult?.assertionResults)
+      ? testResult.assertionResults
+      : [];
+    for (const assertion of assertions) {
+      if (assertion?.status !== "failed") continue;
+      const titleParts = [
+        ...(Array.isArray(assertion.ancestorTitles)
+          ? assertion.ancestorTitles.filter((title) => typeof title === "string")
+          : []),
+        ...(typeof assertion.title === "string" ? [assertion.title] : []),
+      ];
+      const title = titleParts.join(" > ").slice(0, 250) || "Unnamed failed test";
+      const messages = Array.isArray(assertion.failureMessages)
+        ? assertion.failureMessages
+        : [];
+      const diagnostic = messages
+        .map(firstDiagnosticLine)
+        .find((line) => typeof line === "string");
+      failures.push(`- ${title}${diagnostic ? `: ${diagnostic}` : ""}`);
+    }
+  }
+
+  if (failures.length === 0) {
+    const diagnostic = firstDiagnosticLine(report?.message);
+    return diagnostic
+      ? `Vitest reported failure: ${diagnostic}`
+      : "Vitest exited non-zero without failed-test details in its report.";
+  }
+
+  const shownFailures = failures.slice(0, 5);
+  const additionalCount = failures.length - shownFailures.length;
+  if (additionalCount > 0) {
+    shownFailures.push(`... and ${additionalCount} more failed assertion(s).`);
+  }
+  return `Vitest failure summary:\n${shownFailures.join("\n")}`.slice(0, 4_000);
+}
+
 async function readReleaseMetadata() {
   const revision = (
     await new Promise((resolve, reject) => {
@@ -286,7 +343,10 @@ child.on("exit", async (code, signal) => {
       return;
     }
     if (code !== 0) {
-      console.error(`Real process-recovery validation failed (exit code ${code ?? "unknown"}).`);
+      const failureSummary = await readVitestFailureSummary(vitestReportPath);
+      console.error(redact(
+        `Real process-recovery validation failed (exit code ${code ?? "unknown"}).\n${failureSummary}`,
+      ));
       process.exitCode = code ?? 1;
       return;
     }
