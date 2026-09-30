@@ -3704,6 +3704,30 @@ G9 Revocation Safety
   تكذيبه؛ إن عجزا عن إثبات الاستقلال، يبقى v1 `NO-GO`
   ولا تُصنع 30 Missions لتحسين العدد.
 
+### 43.18 — جرد المصادر القائمة وتصحيح مرشح reset التشخيصي (2026-09-30)
+
+- **phase/step:** P7.5 — جرد مصدر قائم للقراءة فقط، ثم تصحيح
+  وصف الجرد التشخيصي دون اعتماد مصدر.
+- **status:** `done — source near-miss documented؛ claims blocked`
+- **what changed:** أُدرج إيصال Gate C لمسار `runtime/stop`
+  كمرشح تقني حاضر، لا كدليل reset محكوم لـP7.5؛ وُضح أن بذرة
+  bootstrap تخص إعادة سحب المقيم لا اختيار وحدات cohort. جرد
+  held-out القائم لم يكشف عضوية مسبقة أو سجل استعمال/ضبط.
+- **files/schema/contracts touched:** وصف المصدر وفحصه التشخيصي
+  في trust boundary واختباره، وسجل قرار السلطة وهذا السجل؛
+  لا schema أو writer أو verifier أو تغيير في إصدار البروتوكول.
+- **validation:** اختبار trust boundary المحدد، بناء API،
+  إعادة تشغيل workflow المعني وفحص سجله، و`git diff --check`.
+- **authority/safety impact:** شروط runtime السبعة بقيت `MISSING`
+  بلا evidence refs؛ لا مصدر مؤهل للادعاءين، ولا تفويض أو reset
+  أو جمع؛ `collectionAuthorized=false` و`fixed_safe_probe`.
+- **remaining/blocker:** إيصال الإيقاف لا يربط فرصة مستقلة
+  مختارة مقدمًا بـMission التجربة، ولا يثبت إزالة الحالة المشتركة
+  أو تاريخ عدم استعمال outcomes. قرار المالك والمراجعة المنهجية
+  مطلوبان قبل أي اعتماد مصدر.
+- **next step:** توقف عند مراجعة المصدر/الاستقلال البشرية؛
+  لا تستنتج صلاحية cohort من جرد وصفي.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

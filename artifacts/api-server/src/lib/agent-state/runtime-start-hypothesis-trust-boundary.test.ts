@@ -45,6 +45,7 @@ describe("P7.5 trust-boundary source inventory", () => {
     const first = buildRuntimeStartHypothesisTrustBoundary();
     const second = buildRuntimeStartHypothesisTrustBoundary();
     const reviewerIdentity = first.checks.find((check) => check.id === "reviewer-identity");
+    const controlledReset = first.checks.find((check) => check.id === "controlled-environment-reset");
 
     expect(first).toEqual(second);
     expect(first.sources).toEqual(expect.arrayContaining([
@@ -54,6 +55,10 @@ describe("P7.5 trust-boundary source inventory", () => {
       }),
       expect.objectContaining({
         id: "episode-ledger",
+        availability: "present",
+      }),
+      expect.objectContaining({
+        id: "runtime-stop-gate-c-receipt",
         availability: "present",
       }),
       expect.objectContaining({
@@ -84,6 +89,11 @@ describe("P7.5 trust-boundary source inventory", () => {
     expect(reviewerIdentity).toMatchObject({
       status: "MISSING",
       sourceIds: ["clerk-session-identity", "p75-review-approval-record"],
+      evidenceRefs: [],
+    });
+    expect(controlledReset).toMatchObject({
+      status: "MISSING",
+      sourceIds: expect.arrayContaining(["runtime-stop-gate-c-receipt", "controlled-reset-record"]),
       evidenceRefs: [],
     });
     expect(first.checks.every((check) => (

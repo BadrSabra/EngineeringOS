@@ -59,6 +59,12 @@ const TRUST_SOURCES: readonly RuntimeStartHypothesisTrustSource[] = [
     limitation: "It does not prove a controlled reset, human operator identity, sample independence, or held-out lineage.",
   },
   {
+    id: "runtime-stop-gate-c-receipt",
+    availability: "present",
+    capability: "The write-protected runtime.stop recipe can produce a Gate C receipt with verified before/after state for one project runtime session.",
+    limitation: "A stop receipt does not establish an operator-reviewed repeatable reset, shared-state isolation, or a binding to a selected P7.5 sample and its independent issuer.",
+  },
+  {
     id: "fixed-heldout-partition",
     availability: "present",
     capability: "Labels the configured P7.5 evaluation partition.",
@@ -119,10 +125,11 @@ const TRUST_CHECKS: readonly RuntimeStartHypothesisTrustCheck[] = [
     requirement: "Verify an operator-reviewed repeatable reset procedure and controlled environment scope.",
     sourceIds: [
       "episode-ledger",
+      "runtime-stop-gate-c-receipt",
       "generic-task-operator-attestation",
       "controlled-reset-record",
     ],
-    detail: "Episode provenance does not verify reset conditions; generic task attestations are caller-submitted and are not a trusted P7.5 reset record.",
+    detail: "Gate C can verify a project runtime stop, but no P7.5 procedure binds it to a selected sample or proves shared-state isolation and repeatability; generic task attestations are caller-submitted.",
     evidenceRefs: [],
   },
   {
