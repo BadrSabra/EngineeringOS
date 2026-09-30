@@ -6,7 +6,7 @@
 
 ## الحالة الحالية
 
-**آخر تحديث:** 2026-09-29
+**آخر تحديث:** 2026-09-30
 **الوضع:** P0–P2 مكتملة؛ P3 foundation مكتمل مع تكامل معرفي جزئي؛ P3.5/P4/P5 جزئية؛ وP5.5 مكتملة ضمن أسطحها المخولة والمدرجة فقط. أُغلق pilot P6 لانتقال `runtime.start` من `stopped → running`، كما أُغلق pilot P7 bounded للتشخيص ضمن الانتقال نفسه؛ لا يعني ذلك إغلاق المراحل العامة أو تغطية `restart/stop`. P7.5 جزئية ولا يوجد scope معايرة مؤهل. أُوصل continuation observe-only لتعافي Mission، وأُثبت استعادته بين عاملي API مستقلين عبر singleton الإنتاجي وlistener الـsupervisor المُدار؛ تظل نتائجه خارج calibration v1. اجتازت fixtures المحلية اختبارات الانقطاع والإلغاء ودوران lease وسباق DB بين الإلغاء والإنهاء (54/54)، كما اجتاز observer اختبار runtime process محلي (1/1) وشاهد استعادة عبر supervisor (§42.86). لا يفتح ذلك بوابة الجمع، التي ما زالت تتطلب scope مؤهلًا واستقلالًا وheld-out ومراجعة evaluator. أي احتساب مستقبلي يتطلب policy/scope وevaluator جديدين ومراجعين مسبقًا. يظل الاختيار `fixed_safe_probe`. P8/P9/P10 لديها primitives محدودة لا تثبت إغلاق التشخيص العام أو causal attribution أو portability. اكتملت شرائح PROJECT_QUERY المحدودة والـterminal parity، ونُفذ failover synthesis محدود بعد اكتمال الأدلة لقائمة المزودين المصرح بها؛ أثبت §42.80–§42.81 انتقال route-level من فشل provider A إلى نجاح B، وثبات evidence packet، وتكافؤ JSON/SSE/history، وحدود استنفاد المرشحين والميزانية والمهلة والإلغاء لهدف embedded-AI ذي objective canonical. لم يثبت ذلك جودة مزود حي. يبقى المسار بلا objective canonical غير مكتمل عمدًا، ولا يوجد fallback عام مفتوح. بعد تفويض التطوير طُبق schema المفقود بالمسار الرسمي وعاد API إلى الاستماع؛ تفاصيل إثبات استعادة P7.5 عبر listener الـsupervisor في §42.85–42.86.
 **تكامل المنتج (2026-09-27):** اكتملت شريحة تفعيل scan hooks للإضافات على
 مستوى المشروع، مع بقاء تعريفات الإضافات والتوافر العام محكومين عالميًا. لا
@@ -3819,6 +3819,32 @@ G9 Revocation Safety
   والقوة الإحصائية والجهات المخولة كلها قيد قرار ومراجعة مستقلة.
 - **next step:** مراجعة بشرية للادعاء ومجتمع الاستدلال والعائلات
   وسلطة المصدر؛ لا تصميم writer أو بدء cohort قبل حسم ذلك.
+
+### 43.23 — إعادة تحقق تعافي P7.5 وتثبيت ملكية أحداث الإنهاء (2026-09-30)
+
+- **phase/step:** اختبار تعافٍ محدد لـP7.5؛ لا تشغيل runtime أو جمع.
+- **status:** `done — stale assertion corrected; runner test file 25/25`
+- **what changed:** التشغيل من حزمة API أعاد إنتاج الفشل السابق 24/25.
+  أظهر التشغيل المعزول أن الأحداث الثلاثة تخص مالك النتيجة في المحاولة 2،
+  وتسجيل المصدر في المحاولة 0 (`source_registration`)، ومحاولة التعافي 3.
+  الحدث الثالث مطلوب لإغلاق Episode التاريخي، وليس نجاحًا أو قراءة إضافية.
+  عُدّل الاختبار ليتحقق من الهويات والإغلاق بدل افتراض وجود حدثين فقط؛
+  لم يتغير سلوك الإنتاج.
+- **files/schema/contracts touched:** اختبار
+  `artifacts/api-server/src/lib/recipe-operation-runner.test.ts`،
+  وهذا السجل وخطة التنفيذ §42.46؛ لا schema أو منطق إنتاج.
+- **validation:** `cd artifacts/api-server && pnpm exec vitest run
+  src/lib/recipe-operation-runner.test.ts` — 25/25. التشغيل المعزول
+  أكد ملكية أحداث الإنهاء الثلاثة. يتضمن الملف fixture محليًا معزولًا
+  لـ`runtime.start` على مشروع اختبار مؤقت، ولا يحتسب كـP7.5. اجتاز
+  `git diff --check`.
+- **authority/safety impact:** لا تشغيل أو reset على مشروع المستخدم ولا
+  جمع P7.5؛ لا تغيير في Gate C أو Canonical Proof أو سلطة Mission. تبقى
+  `NO_QUALIFIED_SOURCE` و`collectionAuthorized=false` و`fixed_safe_probe`.
+- **remaining/blocker:** مجتمع الاستدلال ووحدة الاستقلال ومصدر held-out
+  وسلطة المراجعة لم تُحسم؛ شروط الثقة السبعة ما زالت `MISSING`.
+- **next step:** قرار المالك والمراجع المنهجي على الادعاء المحلي مقابل
+  النقل عبر المشاريع ومصادر الدليل؛ لا بناء cohort أو بدء P11 قبل ذلك.
 
 ## قالب إلزامي لكل خطوة لاحقة
 

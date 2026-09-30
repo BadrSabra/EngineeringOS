@@ -1240,9 +1240,13 @@ describe("recipe operation preparation", () => {
         selectionPolicyVersion: "runtime-start-fixed-safe-probe-v1",
       });
       const terminalEvents = finalEvents.filter((event) => event.eventType === "EPISODE_TERMINAL");
-      expect(terminalEvents).toHaveLength(2);
+      expect(terminalEvents).toHaveLength(3);
       const recoveredResultTerminal = terminalEvents.find(
         (event) => event.episodeId === resultOwnerEpisodeId,
+      );
+      expect(sourceRegistrationEvent?.episodeId).toBe(sourceEpisode.episodeId);
+      const sourceRegistrationTerminal = terminalEvents.find(
+        (event) => event.episodeId === sourceEpisode.episodeId,
       );
       const currentAttemptTerminal = terminalEvents.find((event) => event.attempt === 3);
       expect(recoveredResultTerminal).toMatchObject({
@@ -1256,6 +1260,17 @@ describe("recipe operation preparation", () => {
         },
       });
       expect(recoveredResultTerminal?.sequence).toBe(recoveredResultEvent!.sequence + 1);
+      expect(sourceRegistrationTerminal).toMatchObject({
+        attempt: initialClaim.attempt,
+        payload: {
+          verdict: "replan_required",
+          reasonCode: "P75_CONTINUATION_RESULT_ALREADY_RECORDED",
+          resultId: firstResult.resultId,
+          relatedEpisodeRole: "source_registration",
+          recoveredByEpisodeId: currentAttemptTerminal?.episodeId,
+          recoveredByAttempt: 3,
+        },
+      });
       expect(currentAttemptTerminal).toMatchObject({
         attempt: 3,
         payload: {
@@ -1273,12 +1288,19 @@ describe("recipe operation preparation", () => {
         closedAt: aiAgentEpisodesTable.closedAt,
       }).from(aiAgentEpisodesTable).where(inArray(aiAgentEpisodesTable.id, [
         resultOwnerEpisodeId!,
+        sourceEpisode.episodeId,
         currentAttemptTerminal!.episodeId,
       ]));
-      expect(closedEpisodes).toHaveLength(2);
+      expect(closedEpisodes).toHaveLength(3);
       expect(closedEpisodes).toEqual(expect.arrayContaining([
         expect.objectContaining({
           id: resultOwnerEpisodeId,
+          state: "completed",
+          verdict: "replan_required",
+          closedAt: expect.any(Date),
+        }),
+        expect.objectContaining({
+          id: sourceEpisode.episodeId,
           state: "completed",
           verdict: "replan_required",
           closedAt: expect.any(Date),

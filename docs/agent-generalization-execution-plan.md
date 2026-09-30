@@ -7016,3 +7016,27 @@ expected-decision-value ranking أو Belief updates، ولم يبدأ P8 integra
   بعد الترقية، resulting project revision وسياسة environment freshness،
   ثم عقد Mission الذي يستهلكها. لا تُعد استخدام candidate observations أو
   تعمم transition engine قبل إثبات شريحة مستقلة ثانية.
+
+### 42.46 — تصحيح تحقق terminal ownership في تعافي P7.5 (2026-09-30)
+
+- **phase/step:** اختبار تعافٍ محدد لـP7.5؛ لا تشغيل runtime أو جمع.
+- **status:** `done — assertion aligned with the historical Episode closure contract`
+- **what changed:** إعادة التشغيل من حزمة API أكدت أن اختبار runner كان
+  يتوقع حدثي إنهاء، بينما المسار يغلق ثلاث هويات مختلفة: مالك النتيجة
+  في المحاولة 2، وEpisode تسجيل المصدر في المحاولة 0، وEpisode التعافي
+  في المحاولة 3. الحدث الإضافي يحمل `relatedEpisodeRole=source_registration`
+  ويغلق Episode التاريخي عمدًا. عُدّل الاختبار ليتحقق من الأحداث الثلاثة
+  ومن إغلاق Episodes الثلاثة؛ لم يتغير منطق الإنتاج.
+- **files/schema/contracts touched:** اختبار
+  `recipe-operation-runner.test.ts` وسجل التقدم؛ لا schema أو production code.
+- **validation:** ملف runner من جذر الحزمة: 25/25؛ التشغيل المعزول أكد
+  هويات الأحداث الثلاثة. يتضمن الملف fixture محليًا معزولًا لـ`runtime.start`
+  في مشروع اختبار مؤقت؛ لا يدخل ذلك في نتائج P7.5. اجتاز
+  `git diff --check`.
+- **authority/safety impact:** لم يبدأ تشغيل أو reset على مشروع المستخدم
+  أو جمع cohort P7.5. لا تغيير في صلاحيات أو قبول أو أهلية معايرة.
+- **remaining/blocker:** لا مصدر مؤهل للاستقلال أو منشأ held-out؛ تبقى
+  شروط P7.5 `MISSING` و`collectionAuthorized=false` والاختيار
+  `fixed_safe_probe`.
+- **next step:** قرار المالك والمراجع المنهجي بشأن مجتمع الاستدلال ووحدة
+  الاستقلال وسلطة المصادر؛ لا بدء cohort أو P11.
