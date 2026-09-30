@@ -1286,33 +1286,33 @@ function ModelContractQualityCard({
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
         <div className="min-w-0">
           <h2 className="font-medium text-foreground">Model contract quality</h2>
-          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
             Acceptance and citation matching from the durable metrics window.
           </p>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <label className="min-w-0 text-[10px] text-muted-foreground">
+        <label className="min-w-0 text-xs text-muted-foreground">
           <span className="mb-1 block">Provider</span>
           <select
             aria-label="Model quality provider"
             value={provider}
             onChange={(event) => onProviderChange(event.target.value as MetricsProviderFilter)}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-[10px] text-foreground"
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
           >
             {METRICS_PROVIDER_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </label>
-        <label className="min-w-0 text-[10px] text-muted-foreground">
+        <label className="min-w-0 text-xs text-muted-foreground">
           <span className="mb-1 block">Time window</span>
           <select
             aria-label="Model quality time window"
             value={days}
             onChange={(event) => onDaysChange(Number(event.target.value))}
-            className="w-full rounded border border-border bg-background px-2 py-1.5 text-[10px] text-foreground"
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
           >
             {METRICS_WINDOW_OPTIONS.map((windowDays) => (
               <option key={windowDays} value={windowDays}>{windowDays} days</option>
@@ -1325,7 +1325,7 @@ function ModelContractQualityCard({
           type="button"
           variant="outline"
           size="sm"
-          className="h-7 px-2 text-[10px]"
+          className="h-8 px-2 text-xs"
           onClick={onExport}
           disabled={isExporting || isLoading || isError}
         >
@@ -1333,19 +1333,19 @@ function ModelContractQualityCard({
           {isExporting ? 'Exporting…' : 'Export report'}
         </Button>
       </div>
-      <p className="mt-2 text-[10px] text-muted-foreground">
+      <p className="mt-2 text-xs text-muted-foreground">
         Project: <span className="text-foreground/80">{projectLabel}</span>
         {isFetching && !isLoading && <span className="ml-1.5 text-primary">Refreshing…</span>}
       </p>
 
       {isLoading ? (
-        <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground" role="status">
+        <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground" role="status">
           Loading model contract telemetry…
         </p>
       ) : isError ? (
-        <div className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
+        <div className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground">
           <p>Unable to load model contract telemetry for this filter.</p>
-          <Button type="button" variant="ghost" size="sm" className="mt-1 h-6 px-2 text-[10px]" onClick={onRetry}>
+          <Button type="button" variant="ghost" size="sm" className="mt-1 h-8 px-2 text-xs" onClick={onRetry}>
             Try again
           </Button>
         </div>
@@ -1353,7 +1353,7 @@ function ModelContractQualityCard({
         <>
           <ModelQualityTrend timeline={usage?.timeline ?? []} />
           {sortedModels.length === 0 ? (
-            <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-[10px] text-muted-foreground">
+            <p className="mt-3 rounded border border-dashed border-border/70 px-2 py-2 text-center text-xs leading-5 text-muted-foreground">
               No model contract telemetry matches this project, provider, and time window.
             </p>
           ) : (
@@ -1365,10 +1365,10 @@ function ModelContractQualityCard({
                 return (
                   <div key={`${model.provider}:${model.model}`} className="rounded border border-border/60 bg-background/25 px-2.5 py-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate font-mono text-[10px]" title={model.model}>{model.model}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{model.attempts} attempt{model.attempts === 1 ? '' : 's'}</span>
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={model.model}>{model.model}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{model.attempts} attempt{model.attempts === 1 ? '' : 's'}</span>
                     </div>
-                    <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                    <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span>Acceptance <strong className="font-medium text-emerald-200">{contractRate(model.contract.acceptanceRate)}</strong></span>
                       <span>Citation match <strong className="font-medium text-sky-200">{contractRate(model.contract.citationMatchRate)}</strong></span>
                       <span>
@@ -1381,7 +1381,7 @@ function ModelContractQualityCard({
                       </span>
                       <span>Evaluated <strong className="font-medium text-foreground">{model.contract.evaluated}</strong></span>
                     </div>
-                    <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+                    <div className="mt-1.5 border-t border-border/40 pt-1.5 text-xs text-muted-foreground">
                       {failureKinds.length > 0 ? (
                         <span>
                           Failure kinds:{' '}
@@ -1411,7 +1411,7 @@ function ProviderLifecycleNotice({ lifecycle }: { lifecycle?: ProviderLifecycleS
 
   const isCredentialFailure = lifecycle.credentialStatus === 'credentials_invalid';
   return (
-    <div className="mt-1.5 space-y-0.5 text-[10px] text-amber-300">
+    <div className="mt-1.5 space-y-1 text-xs leading-5 text-amber-300">
       <div className="flex min-w-0 items-start gap-1.5">
         <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
         <span className="min-w-0 break-words">
@@ -12697,7 +12697,7 @@ export default function AiChat() {
                   {sessionForensicStatusLabel(s.forensicStatus) && (
                     <span
                       aria-hidden="true"
-                      className={`shrink-0 rounded border px-1 py-0.5 text-[9px] font-medium leading-none ${
+                      className={`shrink-0 rounded border px-1 py-0.5 text-xs font-medium leading-none ${
                         s.forensicStatus === 'INCOMPLETE'
                           ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
                           : s.forensicStatus === 'NO_FINDING'
@@ -12722,11 +12722,11 @@ export default function AiChat() {
                   onClick={() => setHistoricalAuditsExpanded((expanded) => !expanded)}
                   className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-secondary/70"
                 >
-                  <span className="min-w-0 flex-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  <span className="min-w-0 flex-1 text-xs font-mono uppercase tracking-wide text-muted-foreground">
                     Past audits
                   </span>
                   {historicalAudits.length > 0 && (
-                    <Badge variant="outline" className="h-4 px-1 text-[9px]">
+                    <Badge variant="outline" className="h-5 px-1.5 text-xs">
                       {historicalAudits.length}
                     </Badge>
                   )}
@@ -12735,11 +12735,11 @@ export default function AiChat() {
                 </button>
                 <div id="historical-audits-content" hidden={!historicalAuditsExpanded} className="mt-1">
               {historicalAuditsError ? (
-                <div className="px-2 py-2 text-[10px] leading-4 text-muted-foreground">
+                <div className="px-2 py-2 text-xs leading-5 text-muted-foreground">
                   Historical audits are unavailable. Your current sessions are still available.
                 </div>
               ) : historicalAudits.length === 0 && !historicalAuditsLoading ? (
-                <div className="px-2 py-2 text-[10px] leading-4 text-muted-foreground">
+                <div className="px-2 py-2 text-xs leading-5 text-muted-foreground">
                   No cancelled or incomplete audits for this project.
                 </div>
               ) : (
@@ -12818,8 +12818,8 @@ export default function AiChat() {
                         <span className="flex items-start gap-1.5">
                           <FileSearch className="mt-0.5 h-3 w-3 shrink-0" />
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[11px]">{audit.objective}</span>
-                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px]">
+                            <span className="block truncate text-xs">{audit.objective}</span>
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                               <span className={`rounded border px-1 py-0.5 ${
                                 audit.status === 'cancelled'
                                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
@@ -12863,7 +12863,7 @@ export default function AiChat() {
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-medium text-foreground">AI settings and diagnostics</span>
-                <span className="mt-0.5 block text-[10px] text-muted-foreground">Providers, credentials, model quality</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">Providers, credentials, model quality</span>
               </span>
               <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${providerSettingsOpen ? 'rotate-90' : ''}`} />
             </button>
