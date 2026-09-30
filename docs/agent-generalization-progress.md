@@ -3460,6 +3460,40 @@ G9 Revocation Safety
   dispatch واحد للـMission successor، ثم يثبت حالات الرفض بلا dispatch أو
   `PROVEN` وبقاء Gate C، قبل تحديث حالة P6 أو الانتقال إلى P7/P7.5.
 
+### 43.08 — إثبات dispatch هدف report-applied من Mission D2 (2026-09-30)
+
+- **phase/step:** إغلاق محدود لمستهلك P6 Apply Changes D2 بعد materialization.
+- **status:** `passed — dispatch واحد عند الدليل الصحيح؛ الحالات غير الصالحة وخطة
+  قديمة لا تطلق successor`
+- **what changed:** أضيف اختبار تكاملي DB-backed يمر من `wakeApplyChangesMissionGoals`
+  إلى `runMissionGoal` ثم dispatcher الفعلي لهدف `report-applied`. يثبت الاختبار
+  إكمال Goal المصدر بعد D2، إنشاء `AiGoalDispatchRequested` واحد، وجدولة task مرة
+  واحدة فقط رغم wake مكرر. غطت حالات الرفض دليل candidate فقط، اختلاف البيئة،
+  اختلاف live tree، اختلاف promoted proposal، واختلاف binding للمتطلب؛ كلها تمنع
+  dispatch وتحوّل مصدر Apply إلى `needs_replan`. اختلاف active plan يبقي Apply
+  منتظرًا بلا قبول D2 أو dispatch. في جميع الحالات بقي Gate-C acceptance
+  `SUCCEEDED`. كشف الاختبار أيضًا أن ربط Apply على مستوى Mission كان يصنّف
+  `report-applied` كأنه مصدر Apply؛ عُدّل الفحص ليميز successor الموثق عن Goal
+  المصدر، مع استمرار الفشل المغلق لعقد Apply غير الصالح.
+- **files/schema/contracts touched:**
+  `artifacts/api-server/src/lib/agent-state/apply-changes-mission-gate.ts`,
+  `artifacts/api-server/src/lib/mission-runtime-apply-changes.test.ts`,
+  `docs/agent-generalization-progress.md`.
+  لا تغييرات schema أو migrations.
+- **validation:** `pnpm --filter @workspace/api-server run typecheck` نجح؛
+  اختبارات `mission-runtime-apply-changes.test.ts` و`mission-runtime.test.ts`
+  و`apply-changes-mission-gate.test.ts` و`runtime-start-transition.test.ts`
+  نجحت (50/50)، و`git diff --check` نجح.
+- **authority/safety impact:** D2 يطلق الـsuccessor فقط بعد proof transition
+  المادي والمرتبط بالخطة. حالات evidence/environment/tree/proposal/binding غير
+  الصالحة لا تسقط في Goal acceptance ولا تطلق task؛ Gate C يظل مستقلًا وناجحًا.
+- **remaining/blocker:** يغطي هذا الاختبار المستهلك من transition مادي محفوظ؛
+  لا يجمع في اختبار واحد مسار route حتى finalizer ثم dispatch. اختبارا
+  shadow-replay المنفصلان المذكوران في §43.07 لا يزالان يحتاجان fixtures تحمل
+  process attestation المعتمدة، من دون تخفيف بوابة `candidate.verify`.
+- **next step:** ثبّت أهلية scope واحد محدد لـP7/P7.5 قبل بدء أي توسعة معرفية؛
+  أبقِ P8 مؤجلًا ما دامت P7.5 بلا scope معاير ومراجع.
+
 ## قالب إلزامي لكل خطوة لاحقة
 
 انسخ هذا القالب وأكمله بعد كل خطوة، قبل تنفيذ الخطوة التالية:

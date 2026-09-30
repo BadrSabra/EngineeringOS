@@ -91,6 +91,12 @@ export function applyChangesMissionRequirement(
   const outcome = record(goal.outcomeContract);
   const autonomyPolicy = record(mission.autonomyPolicy);
   const applyMission = record(autonomyPolicy.applyMission);
+  if (
+    criteria.stepId === "report-applied"
+    && outcome.stepId === "report-applied"
+    && !Object.hasOwn(criteria, "applyRequirement")
+    && !Object.hasOwn(outcome, "applyRequirement")
+  ) return { kind: "none" };
   const hasRequirement = Object.hasOwn(criteria, "applyRequirement")
     || Object.hasOwn(outcome, "applyRequirement")
     || Object.hasOwn(autonomyPolicy, "applyMission");
